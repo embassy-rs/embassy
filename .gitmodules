@@ -1,3 +1,0 @@
-[submodule "stm32-data"]
-	path = stm32-data
-	url = https://github.com/embassy-rs/stm32-data.git

@@ -4,8 +4,4 @@ target_ci_stable
 Cargo.lock
 third_party
 /Cargo.toml
-stm32-metapac-gen/out/
-stm32-metapac-backup
-stm32-metapac/src/chips
-stm32-metapac/src/peripherals
 out/

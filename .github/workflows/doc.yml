@@ -54,7 +54,6 @@ jobs:
         run: |
           mkdir crates
           builder ./embassy-stm32 crates/embassy-stm32/git.zup
-          builder ./stm32-metapac crates/stm32-metapac/git.zup
 
       - name: build-rest
         if: ${{ matrix.crates=='rest' }}
