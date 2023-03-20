@@ -80,7 +80,6 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     pub async fn transmit_async(&mut self, frame: &Frame) {
-        defmt::info!("Staring async frame transmission");
         let tx_status = self.queue_transmit(frame).await;
         self.wait_transission(tx_status.mailbox()).await;
     }
@@ -88,10 +87,8 @@ impl<'d, T: Instance> Can<'d, T> {
     async fn queue_transmit(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
             if let Ok(status) = self.can.transmit(frame) {
-                defmt::info!("Frame queued successfully in mb{}", status.mailbox());
                 return Poll::Ready(status);
             }
-            defmt::info!("Mailboxes full, waiting to queue");
             T::state().tx_waker.register(cx.waker());
             Poll::Pending
         })
@@ -100,12 +97,9 @@ impl<'d, T: Instance> Can<'d, T> {
 
     async fn wait_transission(&mut self, mb: bxcan::Mailbox) {
         poll_fn(|cx| unsafe {
-            defmt::info!("Waiting for tx to complete");
             if T::regs().tsr().read().tme(mb.index()) {
-                defmt::info!("TX complete for mb {}", mb);
                 return Poll::Ready(());
             }
-            defmt::info!("TX not complete, waiting for signal on mb {}", mb);
             T::state().tx_waker.register(cx.waker());
             Poll::Pending
         })
@@ -113,7 +107,6 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     unsafe fn tx_interrupt(_: *mut ()) {
-        defmt::info!("bxCAN TX interrupt fired!");
         T::regs().tsr().write(|v| {
             v.set_rqcp(0, true);
             v.set_rqcp(1, true);
