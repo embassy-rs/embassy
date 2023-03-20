@@ -92,6 +92,7 @@ impl Spawner {
         poll_fn(|cx| {
             let task = raw::task_from_waker(cx.waker());
             let executor = unsafe { task.header().executor.get().unwrap_unchecked() };
+            let executor = unsafe { raw::Executor::wrap(executor) };
             Poll::Ready(Self::new(executor))
         })
         .await
@@ -130,9 +131,7 @@ impl Spawner {
     /// spawner to other threads, but the spawner loses the ability to spawn
     /// non-Send tasks.
     pub fn make_send(&self) -> SendSpawner {
-        SendSpawner {
-            executor: self.executor,
-        }
+        SendSpawner::new(&self.executor.inner)
     }
 }
 
@@ -145,14 +144,11 @@ impl Spawner {
 /// If you want to spawn non-Send tasks, use [Spawner].
 #[derive(Copy, Clone)]
 pub struct SendSpawner {
-    executor: &'static raw::Executor,
+    executor: &'static raw::SyncExecutor,
 }
 
-unsafe impl Send for SendSpawner {}
-unsafe impl Sync for SendSpawner {}
-
 impl SendSpawner {
-    pub(crate) fn new(executor: &'static raw::Executor) -> Self {
+    pub(crate) fn new(executor: &'static raw::SyncExecutor) -> Self {
         Self { executor }
     }
 
