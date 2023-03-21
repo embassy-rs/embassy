@@ -55,32 +55,24 @@ where
         {}
 
         self.write32_swapped(REG_BUS_TEST_RW, TEST_PATTERN).await;
-        let val = self
-            .read32_swapped(REG_BUS_TEST_RW)
-            .inspect(|v| defmt::trace!("{:#x}", v))
-            .await;
+        let val = self.read32_swapped(REG_BUS_TEST_RW).await;
+        defmt::trace!("{:#x}", val);
         assert_eq!(val, TEST_PATTERN);
 
-        self.read32_swapped(REG_BUS_CTRL)
-            .inspect(|v| defmt::trace!("{:#010b}", (v & 0xff)))
-            .await;
+        let val = self.read32_swapped(REG_BUS_CTRL).await;
+        defmt::trace!("{:#010b}", (val & 0xff));
 
         // 32-bit word length, little endian (which is the default endianess).
         self.write32_swapped(REG_BUS_CTRL, WORD_LENGTH_32 | HIGH_SPEED).await;
 
-        self.read8(FUNC_BUS, REG_BUS_CTRL)
-            .inspect(|v| defmt::trace!("{:#b}", v))
-            .await;
+        let val = self.read8(FUNC_BUS, REG_BUS_CTRL).await;
+        defmt::trace!("{:#b}", val);
 
-        let val = self
-            .read32(FUNC_BUS, REG_BUS_TEST_RO)
-            .inspect(|v| defmt::trace!("{:#x}", v))
-            .await;
+        let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
+        defmt::trace!("{:#x}", val);
         assert_eq!(val, FEEDBEAD);
-        let val = self
-            .read32(FUNC_BUS, REG_BUS_TEST_RW)
-            .inspect(|v| defmt::trace!("{:#x}", v))
-            .await;
+        let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
+        defmt::trace!("{:#x}", val);
         assert_eq!(val, TEST_PATTERN);
     }
 

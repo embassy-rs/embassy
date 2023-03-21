@@ -155,13 +155,13 @@ where
     SM: PioStateMachine,
     DMA: Channel,
 {
-    async fn cmd_write(&mut self, write: & [u32]) {
+    async fn cmd_write(&mut self, write: &[u32]) {
         self.cs.set_low();
         self.write(write).await;
         self.cs.set_high();
     }
 
-    async fn cmd_read(&mut self, write: u32, read: & mut [u32]) {
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) {
         self.cs.set_low();
         self.cmd_read(write, read).await;
         self.cs.set_high();
