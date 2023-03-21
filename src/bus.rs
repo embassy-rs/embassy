@@ -16,7 +16,8 @@ pub trait SpiBusCyw43 {
     /// Issues a read command on the bus
     /// `write` is expected to be a 32 bit cmd word
     /// `read` will contain the response of the device
-    ///
+    /// Backplane reads have a response delay that produces one extra unspecified word at the beginning of `read`.
+    /// Callers that want to read `n` word from the backplane, have to provide a slice that is `n+1` words long.
     async fn cmd_read(&mut self, write: u32, read: &mut [u32]);
 }
 
@@ -108,6 +109,7 @@ where
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
 
+        // Backplane read buffer has one extra word for the response delay.
         let mut buf = [0u32; BACKPLANE_MAX_TRANSFER_SIZE / 4 + 1];
 
         while !data.is_empty() {
@@ -121,8 +123,10 @@ where
 
             let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
 
+            // round `buf` to word boundary, add one extra word for the response delay
             self.spi.cmd_read(cmd, &mut buf[..(len + 3) / 4 + 1]).await;
 
+            // when writing out the data, we skip the response-delay byte
             data[..len].copy_from_slice(&slice8_mut(&mut buf[1..])[..len]);
 
             // Advance ptr.
@@ -266,10 +270,12 @@ where
     async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
         let cmd = cmd_word(READ, INC_ADDR, func, addr, len);
         let mut buf = [0; 2];
+        // if we are reading from the backplane, we need an extra word for the response delay
         let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
 
         self.spi.cmd_read(cmd, &mut buf[..len]).await;
 
+        // if we read from the backplane, the result is in the second word, after the response delay
         if func == FUNC_BACKPLANE {
             buf[1]
         } else {
