@@ -22,7 +22,6 @@ use embassy_futures::yield_now;
 use embassy_net_driver_channel as ch;
 use embassy_time::{block_for, Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
-use embedded_hal_async::spi::SpiDevice;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
@@ -513,8 +512,7 @@ pub async fn new<'a, PWR, SPI>(
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
-    SPI: SpiDevice,
-    SPI::Bus: SpiBusCyw43<u32>,
+    SPI: SpiBusCyw43,
 {
     let (ch_runner, device) = ch::new(&mut state.ch, [0; 6]);
     let state_ch = ch_runner.state_runner();
@@ -552,8 +550,7 @@ where
 impl<'a, PWR, SPI> Runner<'a, PWR, SPI>
 where
     PWR: OutputPin,
-    SPI: SpiDevice,
-    SPI::Bus: SpiBusCyw43<u32>,
+    SPI: SpiBusCyw43,
 {
     async fn init(&mut self, firmware: &[u8]) {
         self.bus.init().await;

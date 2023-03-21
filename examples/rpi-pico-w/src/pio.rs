@@ -2,34 +2,27 @@ use core::slice;
 
 use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
-use embassy_rp::gpio::{Drive, Pin, Pull, SlewRate};
+use embassy_rp::gpio::{Drive, Output, Pin, Pull, SlewRate};
 use embassy_rp::pio::{PioStateMachine, ShiftDirection};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{pio_instr_util, Peripheral};
-use embedded_hal_1::spi::ErrorType;
-use embedded_hal_async::spi::SpiBusFlush;
 use pio::Wrap;
 use pio_proc::pio_asm;
 
-pub struct PioSpi<SM, DMA> {
-    // cs: Output<'static, AnyPin>,
+pub struct PioSpi<CS: Pin, SM, DMA> {
+    cs: Output<'static, CS>,
     sm: SM,
     dma: DMA,
     wrap_target: u8,
 }
 
-impl<SM, DMA> PioSpi<SM, DMA>
+impl<CS, SM, DMA> PioSpi<CS, SM, DMA>
 where
     SM: PioStateMachine,
     DMA: Channel,
+    CS: Pin,
 {
-    pub fn new<DIO, CLK>(
-        mut sm: SM,
-        // cs: AnyPin,
-        dio: DIO,
-        clk: CLK,
-        dma: DMA,
-    ) -> Self
+    pub fn new<DIO, CLK>(mut sm: SM, cs: Output<'static, CS>, dio: DIO, clk: CLK, dma: DMA) -> Self
     where
         DIO: Pin,
         CLK: Pin,
@@ -105,7 +98,7 @@ where
         pio_instr_util::set_pin(&mut sm, 0);
 
         Self {
-            // cs: Output::new(cs, Level::High),
+            cs,
             sm,
             dma,
             wrap_target: target,
@@ -156,43 +149,21 @@ where
     }
 }
 
-#[derive(Debug)]
-pub enum PioError {}
-
-impl embedded_hal_async::spi::Error for PioError {
-    fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
-        embedded_hal_1::spi::ErrorKind::Other
-    }
-}
-
-impl<SM, DMA> ErrorType for PioSpi<SM, DMA>
+impl<CS, SM, DMA> SpiBusCyw43 for PioSpi<CS, SM, DMA>
 where
-    SM: PioStateMachine,
-{
-    type Error = PioError;
-}
-
-impl<SM, DMA> SpiBusFlush for PioSpi<SM, DMA>
-where
-    SM: PioStateMachine,
-{
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-impl<SM, DMA> SpiBusCyw43<u32> for PioSpi<SM, DMA>
-where
+    CS: Pin,
     SM: PioStateMachine,
     DMA: Channel,
 {
-    async fn cmd_write<'a>(&'a mut self, write: &'a [u32]) -> Result<(), Self::Error> {
+    async fn cmd_write(&mut self, write: & [u32]) {
+        self.cs.set_low();
         self.write(write).await;
-        Ok(())
+        self.cs.set_high();
     }
 
-    async fn cmd_read<'a>(&'a mut self, write: &'a [u32], read: &'a mut [u32]) -> Result<(), Self::Error> {
-        self.cmd_read(write[0], read).await;
-        Ok(())
+    async fn cmd_read(&mut self, write: u32, read: & mut [u32]) {
+        self.cs.set_low();
+        self.cmd_read(write, read).await;
+        self.cs.set_high();
     }
 }

@@ -2,22 +2,22 @@ use core::slice;
 
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
-use embedded_hal_1::spi::ErrorType;
-use embedded_hal_async::spi::{transaction, SpiDevice};
 use futures::FutureExt;
 
 use crate::consts::*;
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
-pub trait SpiBusCyw43<Word: 'static + Copy>: ErrorType {
+/// Implementors are expected to hold the CS pin low during an operation.
+pub trait SpiBusCyw43 {
     /// Issues a write command on the bus
-    /// Frist 32 bits of `word` are expected to be a cmd word
-    async fn cmd_write<'a>(&'a mut self, write: &'a [Word]) -> Result<(), Self::Error>;
+    /// First 32 bits of `word` are expected to be a cmd word
+    async fn cmd_write(&mut self, write: &[u32]);
 
     /// Issues a read command on the bus
     /// `write` is expected to be a 32 bit cmd word
     /// `read` will contain the response of the device
-    async fn cmd_read<'a>(&'a mut self, write: &'a [Word], read: &'a mut [Word]) -> Result<(), Self::Error>;
+    ///
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]);
 }
 
 pub(crate) struct Bus<PWR, SPI> {
@@ -29,8 +29,7 @@ pub(crate) struct Bus<PWR, SPI> {
 impl<PWR, SPI> Bus<PWR, SPI>
 where
     PWR: OutputPin,
-    SPI: SpiDevice,
-    SPI::Bus: SpiBusCyw43<u32>,
+    SPI: SpiBusCyw43,
 {
     pub(crate) fn new(pwr: PWR, spi: SPI) -> Self {
         Self {
@@ -87,14 +86,8 @@ where
     pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
         let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
         let len_in_u32 = (len_in_u8 as usize + 3) / 4;
-        transaction!(&mut self.spi, |bus| async {
-            // bus.write(&[cmd]).await?;
-            // bus.read(&mut buf[..len_in_u32]).await?;
-            bus.cmd_read(slice::from_ref(&cmd), &mut buf[..len_in_u32]).await?;
-            Ok(())
-        })
-        .await
-        .unwrap();
+
+        self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
     }
 
     pub async fn wlan_write(&mut self, buf: &[u32]) {
@@ -104,15 +97,7 @@ where
         cmd_buf[0] = cmd;
         cmd_buf[1..][..buf.len()].copy_from_slice(buf);
 
-        transaction!(&mut self.spi, |bus| async {
-            // bus.write(&[cmd]).await?;
-            // bus.write(buf).await?;
-
-            bus.cmd_write(&cmd_buf).await?;
-            Ok(())
-        })
-        .await
-        .unwrap();
+        self.spi.cmd_write(&cmd_buf).await;
     }
 
     #[allow(unused)]
@@ -136,22 +121,7 @@ where
 
             let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
 
-            transaction!(&mut self.spi, |bus| async {
-                // bus.write(&[cmd]).await?;
-
-                // // 4-byte response delay.
-                // let mut junk = [0; 1];
-                // bus.read(&mut junk).await?;
-
-                // // Read data
-                // bus.read(&mut buf[..(len + 3) / 4]).await?;
-
-                bus.cmd_read(slice::from_ref(&cmd), &mut buf[..(len + 3) / 4 + 1])
-                    .await?;
-                Ok(())
-            })
-            .await
-            .unwrap();
+            self.spi.cmd_read(cmd, &mut buf[..(len + 3) / 4 + 1]).await;
 
             data[..len].copy_from_slice(&slice8_mut(&mut buf[1..])[..len]);
 
@@ -183,16 +153,7 @@ where
             let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
             buf[0] = cmd;
 
-            transaction!(&mut self.spi, |bus| async {
-                // bus.write(&[cmd]).await?;
-                // bus.write(&buf[..(len + 3) / 4]).await?;
-
-                bus.cmd_write(&buf[..(len + 3) / 4 + 1]).await?;
-
-                Ok(())
-            })
-            .await
-            .unwrap();
+            self.spi.cmd_write(&buf[..(len + 3) / 4 + 1]).await;
 
             // Advance ptr.
             addr += len as u32;
@@ -307,19 +268,7 @@ where
         let mut buf = [0; 2];
         let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
 
-        transaction!(&mut self.spi, |bus| async {
-            // bus.write(&[cmd]).await?;
-            // if func == FUNC_BACKPLANE {
-            //     // 4-byte response delay.
-            //     bus.read(&mut buf).await?;
-            // }
-            // bus.read(&mut buf).await?;
-
-            bus.cmd_read(slice::from_ref(&cmd), &mut buf[..len]).await?;
-            Ok(())
-        })
-        .await
-        .unwrap();
+        self.spi.cmd_read(cmd, &mut buf[..len]).await;
 
         if func == FUNC_BACKPLANE {
             buf[1]
@@ -331,13 +280,7 @@ where
     async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
 
-        transaction!(&mut self.spi, |bus| async {
-            // bus.write(&[cmd, val]).await?;
-            bus.cmd_write(&[cmd, val]).await?;
-            Ok(())
-        })
-        .await
-        .unwrap();
+        self.spi.cmd_write(&[cmd, val]).await;
     }
 
     async fn read32_swapped(&mut self, addr: u32) -> u32 {
@@ -345,15 +288,7 @@ where
         let cmd = swap16(cmd);
         let mut buf = [0; 1];
 
-        transaction!(&mut self.spi, |bus| async {
-            // bus.write(&[swap16(cmd)]).await?;
-            // bus.read(&mut buf).await?;
-
-            bus.cmd_read(slice::from_ref(&cmd), &mut buf).await?;
-            Ok(())
-        })
-        .await
-        .unwrap();
+        self.spi.cmd_read(cmd, &mut buf).await;
 
         swap16(buf[0])
     }
@@ -362,14 +297,7 @@ where
         let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BUS, addr, 4);
         let buf = [swap16(cmd), swap16(val)];
 
-        transaction!(&mut self.spi, |bus| async {
-            // bus.write(&[swap16(cmd), swap16(val)]).await?;
-
-            bus.cmd_write(&buf).await?;
-            Ok(())
-        })
-        .await
-        .unwrap();
+        self.spi.cmd_write(&buf).await;
     }
 }
 

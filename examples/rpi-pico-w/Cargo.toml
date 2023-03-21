@@ -47,8 +47,6 @@ futures = { version = "0.3.17", default-features = false, features = [
 pio-proc = "0.2"
 pio = "0.2.1"
 
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.9" }
-embedded-hal-async = { version = "0.2.0-alpha.0" }
 embedded-io = { version = "0.4.0", features = ["async", "defmt"] }
 heapless = "0.7.15"
 
