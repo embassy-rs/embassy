@@ -1,24 +1,26 @@
-#![no_std] 
+#![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 
-use core::convert::Infallible;
+mod pio;
+
+use core::slice;
+use core::str::from_utf8;
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::gpio::{Flex, Level, Output};
-use embassy_rp::peripherals::{PIN_23, PIN_24, PIN_25, PIN_29};
-use embedded_hal_1::spi::ErrorType;
-use embedded_hal_async::spi::{ExclusiveDevice, SpiBusFlush, SpiBusRead, SpiBusWrite};
+use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_24, PIN_25, PIN_29};
+use embassy_rp::pio::{Pio0, PioPeripherial, PioStateMachineInstance, Sm0};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-use core::str::from_utf8;
+use crate::pio::PioSpi;
 
 macro_rules! singleton {
     ($val:expr) => {{
@@ -30,7 +32,11 @@ macro_rules! singleton {
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: cyw43::Runner<'static, Output<'static, PIN_23>, ExclusiveDevice<MySpi, Output<'static, PIN_25>>>,
+    runner: cyw43::Runner<
+        'static,
+        Output<'static, PIN_23>,
+        PioSpi<PIN_25, PioStateMachineInstance<Pio0, Sm0>, DMA_CH0>,
+    >,
 ) -> ! {
     runner.run().await
 }
@@ -59,13 +65,15 @@ async fn main(spawner: Spawner) {
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
-    let clk = Output::new(p.PIN_29, Level::Low);
-    let mut dio = Flex::new(p.PIN_24);
-    dio.set_low();
-    dio.set_as_output();
+    // let clk = Output::new(p.PIN_29, Level::Low);
+    // let mut dio = Flex::new(p.PIN_24);
+    // dio.set_low();
+    // dio.set_as_output();
+    // // let bus = MySpi { clk, dio };
 
-    let bus = MySpi { clk, dio };
-    let spi = ExclusiveDevice::new(bus, cs);
+    let (_, sm, _, _, _) = p.PIO0.split();
+    let dma = p.DMA_CH0;
+    let spi = PioSpi::new(sm, cs, p.PIN_24, p.PIN_29, dma);
 
     let state = singleton!(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
@@ -109,6 +117,7 @@ async fn main(spawner: Spawner) {
         let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
 
+        control.gpio_set(0, false).await;
         info!("Listening on TCP:1234...");
         if let Err(e) = socket.accept(1234).await {
             warn!("accept error: {:?}", e);
@@ -116,6 +125,7 @@ async fn main(spawner: Spawner) {
         }
 
         info!("Received connection from {:?}", socket.remote_endpoint());
+        control.gpio_set(0, true).await;
 
         loop {
             let n = match socket.read(&mut buf).await {
@@ -131,7 +141,6 @@ async fn main(spawner: Spawner) {
             };
 
             info!("rxd {}", from_utf8(&buf[..n]).unwrap());
-
 
             match socket.write_all(&buf[..n]).await {
                 Ok(()) => {}
@@ -154,20 +163,13 @@ struct MySpi {
     /// - IRQ
     /// - strap to set to gSPI mode on boot.
     dio: Flex<'static, PIN_24>,
+
+    /// Chip select
+    cs: Output<'static, PIN_25>,
 }
 
-impl ErrorType for MySpi {
-    type Error = Infallible;
-}
-
-impl SpiBusFlush for MySpi {
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-impl SpiBusRead<u32> for MySpi {
-    async fn read(&mut self, words: &mut [u32]) -> Result<(), Self::Error> {
+impl MySpi {
+    async fn read(&mut self, words: &mut [u32]) {
         self.dio.set_as_input();
         for word in words {
             let mut w = 0;
@@ -185,13 +187,9 @@ impl SpiBusRead<u32> for MySpi {
             }
             *word = w
         }
-
-        Ok(())
     }
-}
 
-impl SpiBusWrite<u32> for MySpi {
-    async fn write(&mut self, words: &[u32]) -> Result<(), Self::Error> {
+    async fn write(&mut self, words: &[u32]) {
         self.dio.set_as_output();
         for word in words {
             let mut word = *word;
@@ -213,6 +211,20 @@ impl SpiBusWrite<u32> for MySpi {
         self.clk.set_low();
 
         self.dio.set_as_input();
-        Ok(())
+    }
+}
+
+impl cyw43::SpiBusCyw43 for MySpi {
+    async fn cmd_write(&mut self, write: &[u32]) {
+        self.cs.set_low();
+        self.write(write).await;
+        self.cs.set_high();
+    }
+
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) {
+        self.cs.set_low();
+        self.write(slice::from_ref(&write)).await;
+        self.read(read).await;
+        self.cs.set_high();
     }
 }

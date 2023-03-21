@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait, concat_bytes)]
+#![allow(incomplete_features)]
+#![feature(async_fn_in_trait, type_alias_impl_trait, concat_bytes)]
 #![deny(unused_must_use)]
 
 // This mod MUST go first, so that the others see its macros.
@@ -22,10 +23,10 @@ use embassy_net_driver_channel as ch;
 use embassy_sync::pubsub::PubSubBehavior;
 use embassy_time::{block_for, Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
-use embedded_hal_async::spi::{SpiBusRead, SpiBusWrite, SpiDevice};
 use events::EventQueue;
 
 use crate::bus::Bus;
+pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, EventStatus};
 use crate::structs::*;
@@ -533,8 +534,7 @@ pub async fn new<'a, PWR, SPI>(
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
-    SPI: SpiDevice,
-    SPI::Bus: SpiBusRead<u32> + SpiBusWrite<u32>,
+    SPI: SpiBusCyw43,
 {
     let (ch_runner, device) = ch::new(&mut state.ch, [0; 6]);
     let state_ch = ch_runner.state_runner();
@@ -575,8 +575,7 @@ where
 impl<'a, PWR, SPI> Runner<'a, PWR, SPI>
 where
     PWR: OutputPin,
-    SPI: SpiDevice,
-    SPI::Bus: SpiBusRead<u32> + SpiBusWrite<u32>,
+    SPI: SpiBusCyw43,
 {
     async fn init(&mut self, firmware: &[u8]) {
         self.bus.init().await;
