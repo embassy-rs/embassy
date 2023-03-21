@@ -8,28 +8,12 @@ export DEFMT_LOG=trace
 
 TARGET=$(rustc -vV | sed -n 's|host: ||p')
 
+BUILD_EXTRA=""
 if [ $TARGET = "x86_64-unknown-linux-gnu" ]; then
     BUILD_EXTRA="--- build --release --manifest-path examples/std/Cargo.toml --target $TARGET --out-dir out/examples/std"
-else
-    BUILD_EXTRA=""
 fi
 
-find . -name '*.rs' -not -path '*target*' -not -path '*stm32-metapac-gen/out/*' -not -path '*stm32-metapac/src/*' | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
-
-# Generate stm32-metapac
-if [ ! -d "stm32-metapac-backup" ]
-then
-    cp -r stm32-metapac stm32-metapac-backup
-fi
-
-rm -rf stm32-metapac
-cp -r stm32-metapac-backup stm32-metapac
-
-# for some reason Cargo stomps the cache if we don't specify --target.
-# This happens with vanilla Cargo, not just cargo-batch. Bug?
-(cd stm32-metapac-gen; cargo run --release --target $TARGET)
-rm -rf stm32-metapac
-mv stm32-metapac-gen/out stm32-metapac
+find . -name '*.rs' -not -path '*target*' | xargs rustfmt --check  --skip-children --unstable-features --edition 2018
 
 cargo batch  \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly \
