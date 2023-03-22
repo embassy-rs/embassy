@@ -1,4 +1,4 @@
-#![feature(async_fn_in_trait)]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 #![allow(incomplete_features)]
 #![no_std]
 #![warn(missing_docs)]
@@ -6,6 +6,8 @@
 mod fmt;
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
+
+#[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
 
 const BOOT_MAGIC: u8 = 0xD0;
@@ -647,6 +649,7 @@ impl FirmwareUpdater {
     /// This is useful to check if the bootloader has just done a swap, in order
     /// to do verifications and self-tests of the new image before calling
     /// `mark_booted`.
+    #[cfg(feature = "nightly")]
     pub async fn get_state<F: AsyncNorFlash>(
         &mut self,
         flash: &mut F,
@@ -776,6 +779,7 @@ impl FirmwareUpdater {
     ///
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
     #[cfg(not(feature = "_verify"))]
+    #[cfg(feature = "nightly")]
     pub async fn mark_updated<F: AsyncNorFlash>(
         &mut self,
         flash: &mut F,
@@ -790,6 +794,7 @@ impl FirmwareUpdater {
     /// # Safety
     ///
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
+    #[cfg(feature = "nightly")]
     pub async fn mark_booted<F: AsyncNorFlash>(
         &mut self,
         flash: &mut F,
@@ -799,6 +804,7 @@ impl FirmwareUpdater {
         self.set_magic(aligned, BOOT_MAGIC, flash).await
     }
 
+    #[cfg(feature = "nightly")]
     async fn set_magic<F: AsyncNorFlash>(
         &mut self,
         aligned: &mut [u8],
@@ -826,6 +832,7 @@ impl FirmwareUpdater {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
+    #[cfg(feature = "nightly")]
     pub async fn write_firmware<F: AsyncNorFlash>(
         &mut self,
         offset: usize,
@@ -860,6 +867,7 @@ impl FirmwareUpdater {
     ///
     /// Using this instead of `write_firmware` allows for an optimized API in
     /// exchange for added complexity.
+    #[cfg(feature = "nightly")]
     pub async fn prepare_update<F: AsyncNorFlash>(
         &mut self,
         flash: &mut F,
@@ -1112,6 +1120,7 @@ impl FirmwareWriter {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
+    #[cfg(feature = "nightly")]
     pub async fn write_block<F: AsyncNorFlash>(
         &mut self,
         offset: usize,
