@@ -48,6 +48,8 @@ pub mod crc;
 ))]
 pub mod flash;
 pub mod pwm;
+#[cfg(quadspi)]
+pub mod qspi;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(sdmmc)]
@@ -60,7 +62,6 @@ pub mod usart;
 pub mod usb;
 #[cfg(otg)]
 pub mod usb_otg;
-
 #[cfg(iwdg)]
 pub mod wdg;
 
