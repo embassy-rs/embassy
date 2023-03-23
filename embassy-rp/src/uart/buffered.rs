@@ -666,7 +666,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUartTx<'d, T> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
+            self.blocking_write(buffer).map(drop)
         }
 
         fn flush(&mut self) -> Result<(), Self::Error> {
@@ -676,7 +676,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_nb::serial::Write for BufferedUartTx<'d, T> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map_err(nb::Error::Other)
+            self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
         }
 
         fn flush(&mut self) -> nb::Result<(), Self::Error> {
@@ -692,7 +692,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUart<'d, T> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
+            self.blocking_write(buffer).map(drop)
         }
 
         fn flush(&mut self) -> Result<(), Self::Error> {
@@ -702,7 +702,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_nb::serial::Write for BufferedUart<'d, T> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map_err(nb::Error::Other)
+            self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
         }
 
         fn flush(&mut self) -> nb::Result<(), Self::Error> {
