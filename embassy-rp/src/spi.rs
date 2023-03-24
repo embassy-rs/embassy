@@ -404,13 +404,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
                 if from_len > to_len {
                     let write_bytes_len = from_len - to_len;
-                    // disable incrementation of buffer
-                    tx_ch.regs().ctrl_trig().modify(|ctrl_trig| {
-                        ctrl_trig.set_incr_write(false);
-                        ctrl_trig.set_incr_read(false);
-                    });
-
                     // write dummy data
+                    // this will disable incrementation of the buffers
                     crate::dma::write_repeated(tx_ch, p.dr().ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
                 }
             }
