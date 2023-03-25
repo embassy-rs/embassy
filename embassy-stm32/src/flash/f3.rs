@@ -1,8 +1,13 @@
 use core::convert::TryInto;
+use core::mem::size_of;
 use core::ptr::write_volatile;
 
+use super::FlashRegion;
 use crate::flash::Error;
 use crate::pac;
+
+pub(crate) const MAX_WRITE_SIZE: usize = super::MAINA::WRITE_SIZE;
+pub(crate) const MAX_ERASE_SIZE: usize = super::MAINA::ERASE_SIZE;
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -13,15 +18,17 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_fkeyr(0xCDEF_89AB));
 }
 
-pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<(), Error> {
     pac::FLASH.cr().write(|w| w.set_pg(true));
 
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        for chunk in buf.chunks(2) {
-            write_volatile(offset as *mut u16, u16::from_le_bytes(chunk[0..2].try_into().unwrap()));
-            offset += chunk.len() as u32;
+        let mut address = first_address;
+        let chunks = buf.chunks_exact(size_of::<u16>());
+        assert!(chunks.remainder().is_empty());
+        for chunk in chunks {
+            write_volatile(address as *mut u16, u16::from_le_bytes(chunk.try_into().unwrap()));
+            address += chunk.len() as u32;
 
             ret = blocking_wait_ready();
             if ret.is_err() {
@@ -36,8 +43,8 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
     ret
 }
 
-pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    for page in (from..to).step_by(super::ERASE_SIZE) {
+pub(crate) unsafe fn blocking_erase(from_address: u32, to_address: u32) -> Result<(), Error> {
+    for page in (from_address..to_address).step_by(MAX_ERASE_SIZE) {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
         });
