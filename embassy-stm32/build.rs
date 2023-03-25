@@ -5,7 +5,7 @@ use std::{env, fs};
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::METADATA;
+use stm32_metapac::metadata::{MemoryRegionKind, METADATA};
 
 fn main() {
     let chip_name = match env::vars()
@@ -102,6 +102,68 @@ fn main() {
             )*
         }
     });
+
+    // ========
+    // Generate FLASH regions
+    let mut flash_regions = TokenStream::new();
+    let flash_memory_regions = METADATA
+        .memory
+        .iter()
+        .filter(|x| x.kind == MemoryRegionKind::Flash || x.kind == MemoryRegionKind::Otp);
+    for region in flash_memory_regions.clone() {
+        let region_name = format_ident!("{}", region.name);
+        let base = region.address as usize;
+        let size = region.size as usize;
+        let settings = region.settings.as_ref().unwrap();
+        let erase_size = settings.erase_size as usize;
+        let write_size = settings.write_size as usize;
+        let erase_value = settings.erase_value;
+
+        flash_regions.extend(quote! {
+            pub struct #region_name(());
+        });
+
+        flash_regions.extend(quote! {
+            impl crate::flash::FlashRegion for #region_name {
+                const BASE: usize = #base;
+                const SIZE: usize = #size;
+                const ERASE_SIZE: usize = #erase_size;
+                const WRITE_SIZE: usize = #write_size;
+                const ERASE_VALUE: u8 = #erase_value;
+            }
+        });
+    }
+
+    let (fields, inits): (Vec<TokenStream>, Vec<TokenStream>) = flash_memory_regions
+        .map(|f| {
+            let field_name = format_ident!("{}", f.name.to_lowercase());
+            let field_type = format_ident!("{}", f.name);
+            let field = quote! {
+                pub #field_name: #field_type
+            };
+            let init = quote! {
+                #field_name: #field_type(())
+            };
+
+            (field, init)
+        })
+        .unzip();
+
+    flash_regions.extend(quote! {
+        pub struct FlashRegions {
+            #(#fields),*
+        }
+
+        impl FlashRegions {
+            pub(crate) const fn take() -> Self {
+                Self {
+                    #(#inits),*
+                }
+            }
+        }
+    });
+
+    g.extend(quote! { pub mod flash_regions { #flash_regions } });
 
     // ========
     // Generate DMA IRQs.
@@ -558,10 +620,21 @@ fn main() {
     // ========
     // Write foreach_foo! macrotables
 
+    let mut flash_regions_table: Vec<Vec<String>> = Vec::new();
     let mut interrupts_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
+
+    for m in METADATA
+        .memory
+        .iter()
+        .filter(|m| m.kind == MemoryRegionKind::Flash || m.kind == MemoryRegionKind::Otp)
+    {
+        let mut row = Vec::new();
+        row.push(m.name.to_string());
+        flash_regions_table.push(row);
+    }
 
     let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
     let gpio_stride = 0x400;
@@ -659,6 +732,7 @@ fn main() {
 
     let mut m = String::new();
 
+    make_table(&mut m, "foreach_flash_region", &flash_regions_table);
     make_table(&mut m, "foreach_interrupt", &interrupts_table);
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
