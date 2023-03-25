@@ -1,62 +1,60 @@
-pub mod f4 {
-    const FLASH_BASE: u32 = 0x08_00_00_00;
-    pub(crate) const SMALL_SECTOR_SIZE: u32 = 16 * 1024;
-    pub(crate) const MEDIUM_SECTOR_SIZE: u32 = 64 * 1024;
-    pub(crate) const LARGE_SECTOR_SIZE: u32 = 128 * 1024;
-    pub const SECOND_BANK_SECTOR_OFFSET: u8 = 12;
+const FLASH_BASE: u32 = 0x0800_0000;
+pub(crate) const SMALL_SECTOR_SIZE: u32 = 16 * 1024;
+pub(crate) const MEDIUM_SECTOR_SIZE: u32 = 64 * 1024;
+pub(crate) const LARGE_SECTOR_SIZE: u32 = 128 * 1024;
+pub const SECOND_BANK_SECTOR_OFFSET: u8 = 12;
 
-    #[derive(Debug, PartialEq)]
-    pub struct FlashSector {
-        pub index: u8,
-        pub size: u32,
-    }
+#[derive(Debug, PartialEq)]
+pub struct FlashSector {
+    pub index: u8,
+    pub size: u32,
+}
 
-    pub fn get_sector(addr: u32, dual_bank: bool, flash_size: u32) -> FlashSector {
-        let offset = addr - FLASH_BASE;
-        if !dual_bank {
+pub fn get_sector(address: u32, dual_bank: bool, flash_size: u32) -> FlashSector {
+    let offset = address - FLASH_BASE;
+    if !dual_bank {
+        get_single_bank_sector(offset)
+    } else {
+        let bank_size = flash_size / 2;
+        if offset < bank_size {
             get_single_bank_sector(offset)
         } else {
-            let bank_size = flash_size / 2;
-            if offset < bank_size {
-                get_single_bank_sector(offset)
-            } else {
-                let sector = get_single_bank_sector(offset - bank_size);
-                FlashSector {
-                    index: SECOND_BANK_SECTOR_OFFSET + sector.index,
-                    ..sector
-                }
+            let sector = get_single_bank_sector(offset - bank_size);
+            FlashSector {
+                index: SECOND_BANK_SECTOR_OFFSET + sector.index,
+                ..sector
             }
         }
     }
+}
 
-    fn get_single_bank_sector(offset: u32) -> FlashSector {
-        // First 4 sectors are 16KB, then one 64KB, and rest are 128KB
+fn get_single_bank_sector(offset: u32) -> FlashSector {
+    // First 4 sectors are 16KB, then one 64KB, and rest are 128KB
 
-        match offset / LARGE_SECTOR_SIZE {
-            0 => {
-                if offset < 4 * SMALL_SECTOR_SIZE {
-                    FlashSector {
-                        index: (offset / SMALL_SECTOR_SIZE) as u8,
-                        size: SMALL_SECTOR_SIZE,
-                    }
-                } else {
-                    FlashSector {
-                        index: 4,
-                        size: MEDIUM_SECTOR_SIZE,
-                    }
+    match offset / LARGE_SECTOR_SIZE {
+        0 => {
+            if offset < 4 * SMALL_SECTOR_SIZE {
+                FlashSector {
+                    index: (offset / SMALL_SECTOR_SIZE) as u8,
+                    size: SMALL_SECTOR_SIZE,
+                }
+            } else {
+                FlashSector {
+                    index: 4,
+                    size: MEDIUM_SECTOR_SIZE,
                 }
             }
-            i => FlashSector {
-                index: 4 + i as u8,
-                size: LARGE_SECTOR_SIZE,
-            },
         }
+        i => FlashSector {
+            index: 4 + i as u8,
+            size: LARGE_SECTOR_SIZE,
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::f4::*;
+    use super::*;
 
     #[test]
     fn can_get_sector_single_bank() {
