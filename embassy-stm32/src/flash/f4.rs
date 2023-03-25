@@ -5,12 +5,12 @@ use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_common::stm32::flash::f4::{get_sector, SECOND_BANK_SECTOR_OFFSET};
 
-use super::{FlashRegion, FLASH_SIZE, MAINC};
+use super::{FlashRegion, FLASH_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub(crate) const MAX_WRITE_SIZE: usize = MAINC::WRITE_SIZE;
-pub(crate) const MAX_ERASE_SIZE: usize = MAINC::ERASE_SIZE;
+pub(crate) const MAX_WRITE_SIZE: usize = super::BANK1_REGION3::WRITE_SIZE;
+pub(crate) const MAX_ERASE_SIZE: usize = super::BANK1_REGION3::ERASE_SIZE;
 
 unsafe fn is_dual_bank() -> bool {
     match FLASH_SIZE / 1024 {
@@ -46,13 +46,13 @@ pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<()
 
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
-        let mut offset = first_address;
+        let mut address = first_address;
         for chunk in buf.chunks(MAX_WRITE_SIZE) {
             let vals = chunk.chunks_exact(size_of::<u32>());
             assert!(vals.remainder().is_empty());
             for val in vals {
-                write_volatile(offset as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
-                offset += val.len() as u32;
+                write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+                address += val.len() as u32;
 
                 // prevents parallelism errors
                 fence(Ordering::SeqCst);

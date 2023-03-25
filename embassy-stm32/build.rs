@@ -111,7 +111,7 @@ fn main() {
         .iter()
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some());
     for region in flash_memory_regions.clone() {
-        let region_name = format_ident!("{}", region.name.replace("_", ""));
+        let region_name = format_ident!("{}", get_flash_region_name(region.name));
         let base = region.address as usize;
         let size = region.size as usize;
         let settings = region.settings.as_ref().unwrap();
@@ -120,6 +120,7 @@ fn main() {
         let erase_value = settings.erase_value;
 
         flash_regions.extend(quote! {
+            #[allow(non_camel_case_types)]
             pub struct #region_name(());
         });
 
@@ -136,9 +137,9 @@ fn main() {
 
     let (fields, inits): (Vec<TokenStream>, Vec<TokenStream>) = flash_memory_regions
         .map(|f| {
-            let trimmed_name = f.name.replace("_", "");
-            let field_name = format_ident!("{}", trimmed_name.to_lowercase());
-            let field_type = format_ident!("{}", trimmed_name);
+            let region_name = get_flash_region_name(f.name);
+            let field_name = format_ident!("{}", region_name.to_lowercase());
+            let field_type = format_ident!("{}", region_name);
             let field = quote! {
                 pub #field_name: #field_type
             };
@@ -633,7 +634,7 @@ fn main() {
         .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
     {
         let mut row = Vec::new();
-        row.push(m.name.replace("_", ""));
+        row.push(get_flash_region_name(m.name));
         flash_regions_table.push(row);
     }
 
@@ -885,4 +886,8 @@ macro_rules! {} {{
 }}"
     )
     .unwrap();
+}
+
+fn get_flash_region_name(name: &str) -> String {
+    name.replace("BANK_", "BANK").replace("REGION_", "REGION")
 }

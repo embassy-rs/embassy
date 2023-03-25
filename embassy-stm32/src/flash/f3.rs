@@ -6,8 +6,8 @@ use super::FlashRegion;
 use crate::flash::Error;
 use crate::pac;
 
-pub(crate) const MAX_WRITE_SIZE: usize = super::MAINA::WRITE_SIZE;
-pub(crate) const MAX_ERASE_SIZE: usize = super::MAINA::ERASE_SIZE;
+pub(crate) const MAX_WRITE_SIZE: usize = super::BANK1::WRITE_SIZE;
+pub(crate) const MAX_ERASE_SIZE: usize = super::BANK1::ERASE_SIZE;
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
