@@ -1,13 +1,19 @@
 use core::convert::TryInto;
+use core::mem::size_of;
 use core::ptr::write_volatile;
 
+use super::{FlashRegion, FLASH_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
+const WRITE_SIZE: usize = super::BANK1::WRITE_SIZE;
+const ERASE_SIZE: usize = super::BANK1::ERASE_SIZE;
+pub(crate) const MAX_WRITE_SIZE: usize = WRITE_SIZE;
+pub(crate) const MAX_ERASE_SIZE: usize = ERASE_SIZE;
 const SECOND_BANK_OFFSET: usize = 0x0010_0000;
 
 const fn is_dual_bank() -> bool {
-    super::FLASH_SIZE / 2 > super::ERASE_SIZE
+    FLASH_SIZE / 2 > ERASE_SIZE
 }
 
 pub(crate) unsafe fn lock() {
@@ -27,8 +33,8 @@ pub(crate) unsafe fn unlock() {
     }
 }
 
-pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
-    let bank = if !is_dual_bank() || (offset - super::FLASH_BASE as u32) < SECOND_BANK_OFFSET as u32 {
+pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<(), Error> {
+    let bank = if !is_dual_bank() || (first_address - super::FLASH_BASE as u32) < SECOND_BANK_OFFSET as u32 {
         pac::FLASH.bank(0)
     } else {
         pac::FLASH.bank(1)
@@ -45,12 +51,13 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
 
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        'outer: for chunk in buf.chunks(super::WRITE_SIZE) {
-            for val in chunk.chunks(4) {
-                trace!("Writing at {:x}", offset);
-                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
-                offset += val.len() as u32;
+        let mut address = first_address;
+        'outer: for chunk in buf.chunks(WRITE_SIZE) {
+            let vals = chunk.chunks_exact(size_of::<u32>());
+            assert!(vals.remainder().is_empty());
+            for val in vals {
+                write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+                address += val.len() as u32;
 
                 ret = blocking_wait_ready(bank);
                 bank.sr().modify(|w| {
@@ -76,20 +83,10 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
 }
 
 pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    let from = from - super::FLASH_BASE as u32;
-    let to = to - super::FLASH_BASE as u32;
+    let start_sector = (from - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
+    let end_sector = (to - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
 
-    let (start, end) = if to <= super::FLASH_SIZE as u32 {
-        let start_sector = from / super::ERASE_SIZE as u32;
-        let end_sector = to / super::ERASE_SIZE as u32;
-        (start_sector, end_sector)
-    } else {
-        error!("Attempting to write outside of defined sectors {:x} {:x}", from, to);
-        return Err(Error::Unaligned);
-    };
-
-    trace!("Erasing sectors from {} to {}", start, end);
-    for sector in start..end {
+    for sector in start_sector..end_sector {
         let bank = if sector >= 8 { 1 } else { 0 };
         let ret = erase_sector(pac::FLASH.bank(bank), (sector % 8) as u8);
         if ret.is_err() {
