@@ -108,6 +108,12 @@ impl Drop for Flash<'_> {
     }
 }
 
+impl Drop for FlashRegions {
+    fn drop(&mut self) {
+        unsafe { family::lock() };
+    }
+}
+
 pub trait FlashRegion {
     const BASE: usize;
     const SIZE: usize;
