@@ -1,12 +1,16 @@
 use core::convert::TryInto;
+use core::mem::size_of;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use super::{ERASE_SIZE, FLASH_BASE, FLASH_SIZE};
+use embassy_hal_common::stm32::flash::f4::{get_sector, SECOND_BANK_SECTOR_OFFSET};
+
+use super::{FlashRegion, FLASH_SIZE, MAINC};
 use crate::flash::Error;
 use crate::pac;
 
-const SECOND_BANK_SECTOR_START: u32 = 12;
+pub(crate) const MAX_WRITE_SIZE: usize = MAINC::WRITE_SIZE;
+pub(crate) const MAX_ERASE_SIZE: usize = MAINC::ERASE_SIZE;
 
 unsafe fn is_dual_bank() -> bool {
     match FLASH_SIZE / 1024 {
@@ -34,7 +38,7 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_key(0xCDEF_89AB));
 }
 
-pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<(), Error> {
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
         w.set_psize(pac::flash::vals::Psize::PSIZE32);
@@ -42,10 +46,12 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
 
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        for chunk in buf.chunks(super::WRITE_SIZE) {
-            for val in chunk.chunks(4) {
-                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
+        let mut offset = first_address;
+        for chunk in buf.chunks(MAX_WRITE_SIZE) {
+            let vals = chunk.chunks_exact(size_of::<u32>());
+            assert!(vals.remainder().is_empty());
+            for val in vals {
+                write_volatile(offset as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
                 offset += val.len() as u32;
 
                 // prevents parallelism errors
@@ -65,50 +71,12 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
     ret
 }
 
-struct FlashSector {
-    index: u8,
-    size: u32,
-}
-
-fn get_sector(addr: u32, dual_bank: bool) -> FlashSector {
-    let offset = addr - FLASH_BASE as u32;
-
-    let bank_size = match dual_bank {
-        true => FLASH_SIZE / 2,
-        false => FLASH_SIZE,
-    } as u32;
-
-    let bank = offset / bank_size;
-    let offset_in_bank = offset % bank_size;
-
-    let index_in_bank = if offset_in_bank >= ERASE_SIZE as u32 / 2 {
-        4 + offset_in_bank / ERASE_SIZE as u32
-    } else {
-        offset_in_bank / (ERASE_SIZE as u32 / 8)
-    };
-
-    // First 4 sectors are 16KB, then one 64KB, and rest are 128KB
-    let size = match index_in_bank {
-        0..=3 => 16 * 1024,
-        4 => 64 * 1024,
-        _ => 128 * 1024,
-    };
-
-    let index = if bank == 1 {
-        SECOND_BANK_SECTOR_START + index_in_bank
-    } else {
-        index_in_bank
-    } as u8;
-
-    FlashSector { index, size }
-}
-
-pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    let mut addr = from;
+pub(crate) unsafe fn blocking_erase(from_address: u32, to_address: u32) -> Result<(), Error> {
+    let mut addr = from_address;
     let dual_bank = is_dual_bank();
 
-    while addr < to {
-        let sector = get_sector(addr, dual_bank);
+    while addr < to_address {
+        let sector = get_sector(addr, dual_bank, FLASH_SIZE as u32);
         erase_sector(sector.index)?;
         addr += sector.size;
     }
@@ -117,8 +85,8 @@ pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
 }
 
 unsafe fn erase_sector(sector: u8) -> Result<(), Error> {
-    let bank = sector / SECOND_BANK_SECTOR_START as u8;
-    let snb = (bank << 4) + (sector % SECOND_BANK_SECTOR_START as u8);
+    let bank = sector / SECOND_BANK_SECTOR_OFFSET as u8;
+    let snb = (bank << 4) + (sector % SECOND_BANK_SECTOR_OFFSET as u8);
 
     trace!("Erasing sector: {}", sector);
 
