@@ -1,8 +1,14 @@
 use core::convert::TryInto;
 use core::ptr::write_volatile;
 
+use super::FlashRegion;
 use crate::flash::Error;
 use crate::pac;
+
+const WRITE_SIZE: usize = super::BANK1::WRITE_SIZE;
+const ERASE_SIZE: usize = super::BANK1::ERASE_SIZE;
+pub(crate) const MAX_WRITE_SIZE: usize = WRITE_SIZE;
+pub(crate) const MAX_ERASE_SIZE: usize = ERASE_SIZE;
 
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
@@ -33,17 +39,17 @@ pub(crate) unsafe fn unlock() {
     }
 }
 
-pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<(), Error> {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(true));
 
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        for chunk in buf.chunks(super::WRITE_SIZE) {
+        let mut address = first_address;
+        for chunk in buf.chunks(WRITE_SIZE) {
             for val in chunk.chunks(4) {
-                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
-                offset += val.len() as u32;
+                write_volatile(address as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
+                address += val.len() as u32;
             }
 
             ret = blocking_wait_ready();
@@ -60,8 +66,8 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
     ret
 }
 
-pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    for page in (from..to).step_by(super::ERASE_SIZE) {
+pub(crate) unsafe fn blocking_erase(from_address: u32, to_address: u32) -> Result<(), Error> {
+    for page in (from_address..to_address).step_by(ERASE_SIZE) {
         #[cfg(any(flash_l0, flash_l1))]
         {
             pac::FLASH.pecr().modify(|w| {
@@ -74,7 +80,7 @@ pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
 
         #[cfg(any(flash_wl, flash_wb, flash_l4))]
         {
-            let idx = (page - super::FLASH_BASE as u32) / super::ERASE_SIZE as u32;
+            let idx = (page - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
 
             #[cfg(flash_l4)]
             let (idx, bank) = if idx > 255 { (idx - 256, true) } else { (idx, false) };
