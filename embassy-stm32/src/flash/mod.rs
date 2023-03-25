@@ -1,8 +1,10 @@
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::{Mutex, MutexGuard};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 pub use crate::_generated::flash_regions::*;
-pub use crate::pac::{FLASH_BASE, FLASH_SIZE};
+pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 use crate::peripherals::FLASH;
 use crate::Peripheral;
 
@@ -16,6 +18,8 @@ mod family;
 pub struct Flash<'d> {
     _inner: PeripheralRef<'d, FLASH>,
 }
+
+static REGION_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 impl<'d> Flash<'d> {
     pub fn new(p: impl Peripheral<P = FLASH> + 'd) -> Self {
@@ -33,7 +37,6 @@ impl<'d> Flash<'d> {
         }
 
         let first_address = FLASH_BASE as u32 + offset;
-
         let flash_data = unsafe { core::slice::from_raw_parts(first_address as *const u8, bytes.len()) };
         bytes.copy_from_slice(flash_data);
         Ok(())
@@ -43,39 +46,56 @@ impl<'d> Flash<'d> {
         if offset as usize + buf.len() > FLASH_SIZE {
             return Err(Error::Size);
         }
-        if offset as usize % family::MAX_WRITE_SIZE != 0 || buf.len() as usize % family::MAX_WRITE_SIZE != 0 {
+        if offset as usize % WRITE_SIZE != 0 || buf.len() as usize % WRITE_SIZE != 0 {
             return Err(Error::Unaligned);
         }
 
-        let first_address = FLASH_BASE as u32 + offset;
-        trace!("Writing {} bytes at 0x{:x}", buf.len(), first_address);
+        let start_address = FLASH_BASE as u32 + offset;
+        trace!("Writing {} bytes at 0x{:x}", buf.len(), start_address);
+
+        // No need to take lock here as we only have one mut flash reference.
 
         unsafe {
             family::clear_all_err();
-
             family::unlock();
-            let res = family::blocking_write(first_address, buf);
+            let res = Flash::blocking_write_all(start_address, buf);
             family::lock();
             res
         }
+    }
+
+    unsafe fn blocking_write_all(start_address: u32, buf: &[u8]) -> Result<(), Error> {
+        family::begin_write();
+        let mut address = start_address;
+        for chunk in buf.chunks(WRITE_SIZE) {
+            let res = unsafe { family::blocking_write(address, chunk.try_into().unwrap()) };
+            if res.is_err() {
+                family::end_write();
+                return res;
+            }
+            address += WRITE_SIZE as u32;
+        }
+
+        family::end_write();
+        Ok(())
     }
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         if to < from || to as usize > FLASH_SIZE {
             return Err(Error::Size);
         }
-        if (from as usize % family::MAX_ERASE_SIZE) != 0 || (to as usize % family::MAX_ERASE_SIZE) != 0 {
+
+        let start_address = FLASH_BASE as u32 + from;
+        let end_address = FLASH_BASE as u32 + to;
+        if !family::is_eraseable_range(start_address, end_address) {
             return Err(Error::Unaligned);
         }
-
-        let from_address = FLASH_BASE as u32 + from;
-        let to_address = FLASH_BASE as u32 + to;
+        trace!("Erasing from 0x{:x} to 0x{:x}", start_address, end_address);
 
         unsafe {
             family::clear_all_err();
-
             family::unlock();
-            let res = family::blocking_erase(from_address, to_address);
+            let res = family::blocking_erase(start_address, end_address);
             family::lock();
             res
         }
@@ -101,7 +121,6 @@ pub trait FlashRegion {
         }
 
         let first_address = Self::BASE as u32 + offset;
-
         let flash_data = unsafe { core::slice::from_raw_parts(first_address as *const u8, bytes.len()) };
         bytes.copy_from_slice(flash_data);
         Ok(())
@@ -115,17 +134,19 @@ pub trait FlashRegion {
             return Err(Error::Unaligned);
         }
 
-        let first_address = Self::BASE as u32 + offset;
-        trace!("Writing {} bytes from 0x{:x}", buf.len(), first_address);
+        let start_address = Self::BASE as u32 + offset;
+        trace!("Writing {} bytes from 0x{:x}", buf.len(), start_address);
 
-        critical_section::with(|_| unsafe {
+        // Protect agains simultaneous write/erase to multiple regions.
+        let _guard = take_lock_spin();
+
+        unsafe {
             family::clear_all_err();
-
             family::unlock();
-            let res = family::blocking_write(first_address, buf);
+            let res = Flash::blocking_write_all(start_address, buf);
             family::lock();
             res
-        })
+        }
     }
 
     fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
@@ -136,18 +157,28 @@ pub trait FlashRegion {
             return Err(Error::Unaligned);
         }
 
-        let from_address = Self::BASE as u32 + from;
-        let to_address = Self::BASE as u32 + to;
-        trace!("Erasing from 0x{:x} to 0x{:x}", from_address, to_address);
+        let start_address = Self::BASE as u32 + from;
+        let end_address = Self::BASE as u32 + to;
+        trace!("Erasing from 0x{:x} to 0x{:x}", start_address, end_address);
 
-        critical_section::with(|_| unsafe {
+        // Protect agains simultaneous write/erase to multiple regions.
+        let _guard = take_lock_spin();
+
+        unsafe {
             family::clear_all_err();
-
             family::unlock();
-            let res = family::blocking_erase(from_address, to_address);
+            let res = family::blocking_erase(start_address, end_address);
             family::lock();
             res
-        })
+        }
+    }
+}
+
+fn take_lock_spin() -> MutexGuard<'static, CriticalSectionRawMutex, ()> {
+    loop {
+        if let Ok(guard) = REGION_LOCK.try_lock() {
+            return guard;
+        }
     }
 }
 

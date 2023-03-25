@@ -1,23 +1,19 @@
 use core::convert::TryInto;
-use core::mem::size_of;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_common::stm32::flash::f4::{get_sector, SECOND_BANK_SECTOR_OFFSET};
 
-use super::{FlashRegion, FLASH_SIZE};
+use super::{FLASH_SIZE, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub(crate) const MAX_WRITE_SIZE: usize = super::BANK1_REGION3::WRITE_SIZE;
-pub(crate) const MAX_ERASE_SIZE: usize = super::BANK1_REGION3::ERASE_SIZE;
-
-unsafe fn is_dual_bank() -> bool {
+fn is_dual_bank() -> bool {
     match FLASH_SIZE / 1024 {
         // 1 MB devices depend on configuration
         1024 => {
             if cfg!(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)) {
-                pac::FLASH.optcr().read().db1m()
+                unsafe { pac::FLASH.optcr().read().db1m() }
             } else {
                 false
             }
@@ -38,49 +34,53 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_key(0xCDEF_89AB));
 }
 
-pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<(), Error> {
+pub(crate) unsafe fn begin_write() {
+    assert_eq!(0, WRITE_SIZE % 4);
+
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
         w.set_psize(pac::flash::vals::Psize::PSIZE32);
     });
-
-    let ret = {
-        let mut ret: Result<(), Error> = Ok(());
-        let mut address = first_address;
-        for chunk in buf.chunks(MAX_WRITE_SIZE) {
-            let vals = chunk.chunks_exact(size_of::<u32>());
-            assert!(vals.remainder().is_empty());
-            for val in vals {
-                write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
-                address += val.len() as u32;
-
-                // prevents parallelism errors
-                fence(Ordering::SeqCst);
-            }
-
-            ret = blocking_wait_ready();
-            if ret.is_err() {
-                break;
-            }
-        }
-        ret
-    };
-
-    pac::FLASH.cr().write(|w| w.set_pg(false));
-
-    ret
 }
 
-pub(crate) unsafe fn blocking_erase(from_address: u32, to_address: u32) -> Result<(), Error> {
-    let mut addr = from_address;
-    let dual_bank = is_dual_bank();
+pub(crate) unsafe fn end_write() {
+    pac::FLASH.cr().write(|w| w.set_pg(false));
+}
 
-    while addr < to_address {
-        let sector = get_sector(addr, dual_bank, FLASH_SIZE as u32);
-        erase_sector(sector.index)?;
-        addr += sector.size;
+pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    let mut address = start_address;
+    for val in buf.chunks(4) {
+        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        address += val.len() as u32;
+
+        // prevents parallelism errors
+        fence(Ordering::SeqCst);
     }
 
+    blocking_wait_ready()
+}
+
+pub(crate) fn is_eraseable_range(start_address: u32, end_address: u32) -> bool {
+    let dual_bank = is_dual_bank();
+    let mut address = start_address;
+    while address < end_address {
+        let sector = get_sector(address, dual_bank, FLASH_SIZE as u32);
+        if sector.start != address {
+            return false;
+        }
+        address += sector.size;
+    }
+    address == end_address
+}
+
+pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
+    let dual_bank = is_dual_bank();
+    let mut address = start_address;
+    while address < end_address {
+        let sector = get_sector(address, dual_bank, FLASH_SIZE as u32);
+        erase_sector(sector.index)?;
+        address += sector.size;
+    }
     Ok(())
 }
 
@@ -116,7 +116,7 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-pub(crate) unsafe fn blocking_wait_ready() -> Result<(), Error> {
+unsafe fn blocking_wait_ready() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 

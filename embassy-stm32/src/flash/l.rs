@@ -1,14 +1,12 @@
-use core::convert::TryInto;
 use core::ptr::write_volatile;
 
-use super::FlashRegion;
+use atomic_polyfill::{fence, Ordering};
+
+use super::{FlashRegion, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-const WRITE_SIZE: usize = super::BANK1::WRITE_SIZE;
 const ERASE_SIZE: usize = super::BANK1::ERASE_SIZE;
-pub(crate) const MAX_WRITE_SIZE: usize = WRITE_SIZE;
-pub(crate) const MAX_ERASE_SIZE: usize = ERASE_SIZE;
 
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
@@ -39,35 +37,37 @@ pub(crate) unsafe fn unlock() {
     }
 }
 
-pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<(), Error> {
+pub(crate) unsafe fn begin_write() {
+    assert_eq!(0, WRITE_SIZE % 4);
+
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(true));
-
-    let ret = {
-        let mut ret: Result<(), Error> = Ok(());
-        let mut address = first_address;
-        for chunk in buf.chunks(WRITE_SIZE) {
-            for val in chunk.chunks(4) {
-                write_volatile(address as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
-                address += val.len() as u32;
-            }
-
-            ret = blocking_wait_ready();
-            if ret.is_err() {
-                break;
-            }
-        }
-        ret
-    };
-
-    #[cfg(any(flash_wl, flash_wb, flash_l4))]
-    pac::FLASH.cr().write(|w| w.set_pg(false));
-
-    ret
 }
 
-pub(crate) unsafe fn blocking_erase(from_address: u32, to_address: u32) -> Result<(), Error> {
-    for page in (from_address..to_address).step_by(ERASE_SIZE) {
+pub(crate) unsafe fn end_write() {
+    #[cfg(any(flash_wl, flash_wb, flash_l4))]
+    pac::FLASH.cr().write(|w| w.set_pg(false));
+}
+
+pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    let mut address = start_address;
+    for val in buf.chunks(4) {
+        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        address += val.len() as u32;
+
+        // prevents parallelism errors
+        fence(Ordering::SeqCst);
+    }
+
+    blocking_wait_ready()
+}
+
+pub(crate) fn is_eraseable_range(start_address: u32, end_address: u32) -> bool {
+    start_address % ERASE_SIZE as u32 == 0 && end_address % ERASE_SIZE as u32 == 0
+}
+
+pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
+    for page in (start_address..end_address).step_by(ERASE_SIZE) {
         #[cfg(any(flash_l0, flash_l1))]
         {
             pac::FLASH.pecr().modify(|w| {
@@ -155,7 +155,7 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-pub(crate) unsafe fn blocking_wait_ready() -> Result<(), Error> {
+unsafe fn blocking_wait_ready() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 
