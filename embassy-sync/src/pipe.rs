@@ -179,11 +179,23 @@ impl<const N: usize> PipeState<N> {
     }
 
     fn try_read_with_context(&mut self, cx: Option<&mut Context<'_>>, buf: &mut [u8]) -> Result<usize, TryReadError> {
+        // If the user provided buffer is empty, there's nothing to do here.
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        // If the buffer WAS full prior to reading, wake the writer in case someone
+        // was waiting to push more data.
         if self.buffer.is_full() {
             self.write_waker.wake();
         }
 
+        // We try (up to) twice, in case we wrap around, and can steal from the tail
+        // AND the head of the ring buffer.
         let available = self.buffer.pop_buf();
+
+        // If we're empty on first try, nothing to be done. Register a waker
+        // and return an empty error.
         if available.is_empty() {
             if let Some(cx) = cx {
                 self.read_waker.register(cx.waker());
@@ -191,10 +203,25 @@ impl<const N: usize> PipeState<N> {
             return Err(TryReadError::Empty);
         }
 
-        let n = available.len().min(buf.len());
-        buf[..n].copy_from_slice(&available[..n]);
-        self.buffer.pop(n);
-        Ok(n)
+        let n1 = available.len().min(buf.len());
+        let (now, later) = buf.split_at_mut(n1);
+        now.copy_from_slice(&available[..n1]);
+        self.buffer.pop(n1);
+
+        // Okay, try again
+        let available = self.buffer.pop_buf();
+        if later.is_empty() || available.is_empty() {
+            // Nothing left, but we DID get something, so don't register the waker
+            // or return an error.
+            return Ok(n1);
+        }
+
+        // Still more to give!
+        let n2 = available.len().min(later.len());
+        later[..n2].copy_from_slice(&available[..n2]);
+        self.buffer.pop(n2);
+
+        Ok(n1 + n2)
     }
 
     fn try_write(&mut self, buf: &[u8]) -> Result<usize, TryWriteError> {
@@ -202,10 +229,19 @@ impl<const N: usize> PipeState<N> {
     }
 
     fn try_write_with_context(&mut self, cx: Option<&mut Context<'_>>, buf: &[u8]) -> Result<usize, TryWriteError> {
+        // If the user provided buffer is empty, there's nothing to do here.
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        // If the buffer WAS empty before this write, wake the reader in case someone
+        // was waiting on data to become available
         if self.buffer.is_empty() {
             self.read_waker.wake();
         }
 
+        // Same as in `try_read_with_context`, we're going to try up to twice, in case
+        // we are at the tail and there is also data at the head.
         let available = self.buffer.push_buf();
         if available.is_empty() {
             if let Some(cx) = cx {
@@ -214,10 +250,24 @@ impl<const N: usize> PipeState<N> {
             return Err(TryWriteError::Full);
         }
 
-        let n = available.len().min(buf.len());
-        available[..n].copy_from_slice(&buf[..n]);
-        self.buffer.push(n);
-        Ok(n)
+        let n1 = available.len().min(buf.len());
+        let (now, later) = buf.split_at(n1);
+        available[..n1].copy_from_slice(now);
+        self.buffer.push(n1);
+
+        // Okay, try again.
+        let available = self.buffer.push_buf();
+        if later.is_empty() || available.is_empty() {
+            // Nothing left, but we DID get something, so don't register the waker
+            // or return an error.
+            return Ok(n1);
+        }
+
+        let n2 = available.len().min(later.len());
+        available[..n2].copy_from_slice(&later[..n2]);
+        self.buffer.push(n2);
+
+        Ok(n1 + n2)
     }
 }
 
@@ -476,6 +526,55 @@ mod tests {
         let mut buf = [0; 16];
         assert_eq!(c.try_read(&mut buf), Ok(1));
         assert_eq!(buf[0], 42);
+    }
+
+    #[test]
+    fn wraparound_manual() {
+        // This test works as of (at least) 299689dfa2a5e160dbd6aa474772a9317a219084.
+        // This manually ensures that we fully fill and drain our intended payloads,
+        // though if we lost the mutex contention to someone else, our payloads would
+        // be interspersed with other data!
+
+        let c = Pipe::<NoopRawMutex, 16>::new();
+        for _i in 0..10 {
+            let msg = b"hello";
+            let mut wr_window = &msg[..];
+            while !wr_window.is_empty() {
+                match c.try_write(wr_window) {
+                    Ok(n) => {
+                        assert_ne!(n, 0);
+                        let (_now, later) = wr_window.split_at(n);
+                        wr_window = later;
+                    }
+                    Err(_) => panic!(),
+                }
+            }
+
+            let mut buf = [0; 16];
+            let mut rd_window = &mut buf[..];
+            let mut rxd = 0;
+            while let Ok(n) = c.try_read(rd_window) {
+                rxd += n;
+                let (_now, later) = rd_window.split_at_mut(n);
+                rd_window = later;
+            }
+            assert_eq!(rxd, 5);
+            assert_eq!(&buf[..5], b"hello");
+        }
+    }
+
+    #[test]
+    fn wraparound() {
+        // This is the naive version of `wraparound_manual`, which does NOT
+        // work in 299689dfa2a5e160dbd6aa474772a9317a219084 and earlier.
+
+        let c = Pipe::<NoopRawMutex, 16>::new();
+        for _i in 0..10 {
+            assert!(c.try_write(b"hello").is_ok());
+            let mut buf = [0; 16];
+            assert_eq!(c.try_read(&mut buf), Ok(5));
+            assert_eq!(&buf[..5], b"hello");
+        }
     }
 
     #[test]
