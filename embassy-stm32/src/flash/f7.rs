@@ -1,9 +1,16 @@
 use core::convert::TryInto;
+use core::mem::size_of;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
+use embassy_hal_common::stm32::flash::f7::get_sector;
+
+use super::FlashRegion;
 use crate::flash::Error;
 use crate::pac;
+
+pub(crate) const MAX_WRITE_SIZE: usize = super::MAINC::WRITE_SIZE;
+pub(crate) const MAX_ERASE_SIZE: usize = super::MAINC::ERASE_SIZE;
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -14,7 +21,7 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_key(0xCDEF_89AB));
 }
 
-pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_write(first_address: u32, buf: &[u8]) -> Result<(), Error> {
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
         w.set_psize(pac::flash::vals::Psize::PSIZE32);
@@ -22,11 +29,13 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
 
     let ret = {
         let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        for chunk in buf.chunks(super::WRITE_SIZE) {
-            for val in chunk.chunks(4) {
-                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
-                offset += val.len() as u32;
+        let mut address = first_address;
+        for chunk in buf.chunks(MAX_WRITE_SIZE) {
+            let vals = chunk.chunks_exact(size_of::<u32>());
+            assert!(vals.remainder().is_empty());
+            for val in vals {
+                write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+                address += val.len() as u32;
 
                 // prevents parallelism errors
                 fence(Ordering::SeqCst);
@@ -45,20 +54,10 @@ pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error
     ret
 }
 
-pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    let start_sector = if from >= (super::FLASH_BASE + super::ERASE_SIZE / 2) as u32 {
-        4 + (from - super::FLASH_BASE as u32) / super::ERASE_SIZE as u32
-    } else {
-        (from - super::FLASH_BASE as u32) / (super::ERASE_SIZE as u32 / 8)
-    };
-
-    let end_sector = if to >= (super::FLASH_BASE + super::ERASE_SIZE / 2) as u32 {
-        4 + (to - super::FLASH_BASE as u32) / super::ERASE_SIZE as u32
-    } else {
-        (to - super::FLASH_BASE as u32) / (super::ERASE_SIZE as u32 / 8)
-    };
-
-    for sector in start_sector..end_sector {
+pub(crate) unsafe fn blocking_erase(from_address: u32, to_address: u32) -> Result<(), Error> {
+    let start_sector = get_sector(from_address);
+    let end_sector = get_sector(to_address);
+    for sector in start_sector.index..end_sector.index {
         let ret = erase_sector(sector as u8);
         if ret.is_err() {
             return ret;
