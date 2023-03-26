@@ -18,6 +18,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
+use core::sync::atomic::AtomicPtr;
 use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, Ordering};
@@ -288,13 +289,10 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     }
 }
 
-struct SignalCtx(*mut ());
-unsafe impl Sync for SignalCtx {}
-
 pub(crate) struct SyncExecutor {
     run_queue: RunQueue,
     signal_fn: fn(*mut ()),
-    signal_ctx: SignalCtx,
+    signal_ctx: AtomicPtr<()>,
 
     #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue: timer_queue::TimerQueue,
@@ -312,7 +310,7 @@ impl SyncExecutor {
         Self {
             run_queue: RunQueue::new(),
             signal_fn,
-            signal_ctx: SignalCtx(signal_ctx),
+            signal_ctx: AtomicPtr::new(signal_ctx),
 
             #[cfg(feature = "integrated-timers")]
             timer_queue: timer_queue::TimerQueue::new(),
@@ -333,7 +331,7 @@ impl SyncExecutor {
         trace::task_ready_begin(task.as_ptr() as u32);
 
         if self.run_queue.enqueue(cs, task) {
-            (self.signal_fn)(self.signal_ctx.0)
+            (self.signal_fn)(self.signal_ctx.load(Ordering::Relaxed))
         }
     }
 
