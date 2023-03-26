@@ -337,15 +337,6 @@ impl SyncExecutor {
         }
     }
 
-    /// Spawn a task in this executor.
-    ///
-    /// # Safety
-    ///
-    /// `task` must be a valid pointer to an initialized but not-already-spawned task.
-    ///
-    /// It is OK to use `unsafe` to call this from a thread that's not the executor thread.
-    /// In this case, the task's Future must be Send. This is because this is effectively
-    /// sending the task to the executor thread.
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
         task.header().executor.set(Some(self));
 
@@ -357,23 +348,9 @@ impl SyncExecutor {
         })
     }
 
-    /// Poll all queued tasks in this executor.
-    ///
-    /// This loops over all tasks that are queued to be polled (i.e. they're
-    /// freshly spawned or they've been woken). Other tasks are not polled.
-    ///
-    /// You must call `poll` after receiving a call to `signal_fn`. It is OK
-    /// to call `poll` even when not requested by `signal_fn`, but it wastes
-    /// energy.
-    ///
     /// # Safety
     ///
-    /// You must NOT call `poll` reentrantly on the same executor.
-    ///
-    /// In particular, note that `poll` may call `signal_fn` synchronously. Therefore, you
-    /// must NOT directly call `poll()` from your `signal_fn`. Instead, `signal_fn` has to
-    /// somehow schedule for `poll()` to be called later, at a time you know for sure there's
-    /// no `poll()` already running.
+    /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
         #[allow(clippy::never_loop)]
         loop {
