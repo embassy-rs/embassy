@@ -384,8 +384,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     }
 
     async fn transfer_inner(&mut self, rx_ptr: *mut [u8], tx_ptr: *const [u8]) -> Result<(), Error> {
-        let (_, from_len) = crate::dma::slice_ptr_parts(tx_ptr);
-        let (_, to_len) = crate::dma::slice_ptr_parts_mut(rx_ptr);
+        let (_, tx_len) = crate::dma::slice_ptr_parts(tx_ptr);
+        let (_, rx_len) = crate::dma::slice_ptr_parts_mut(rx_ptr);
 
         unsafe {
             self.inner.regs().dmacr().write(|reg| {
@@ -402,8 +402,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             unsafe {
                 crate::dma::write(&mut tx_ch, tx_ptr, p.dr().ptr() as *mut _, T::TX_DREQ).await;
 
-                if from_len > to_len {
-                    let write_bytes_len = from_len - to_len;
+                if rx_len > tx_len {
+                    let write_bytes_len = rx_len - tx_len;
                     // write dummy data
                     // this will disable incrementation of the buffers
                     crate::dma::write_repeated(tx_ch, p.dr().ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
@@ -420,7 +420,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         join(tx_transfer, rx_transfer).await;
 
         // if tx > rx we should clear any overflow of the FIFO SPI buffer
-        if from_len > to_len {
+        if tx_len > rx_len {
             let p = self.inner.regs();
             unsafe {
                 while p.sr().read().bsy() {}

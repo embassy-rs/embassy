@@ -33,9 +33,11 @@ async fn main(_spawner: Spawner) {
     {
         let tx_buf = [7_u8, 8, 9, 10, 11, 12];
 
-        let mut rx_buf = [0_u8, 3];
+        let mut rx_buf = [0_u8; 3];
         spi.transfer(&mut rx_buf, &tx_buf).await.unwrap();
         assert_eq!(rx_buf, tx_buf[..3]);
+
+        defmt::info!("tx > rx buffer - OK");
     }
 
     // we make sure to that clearing FIFO works after the uneven buffers
@@ -45,18 +47,36 @@ async fn main(_spawner: Spawner) {
         let tx_buf = [13_u8, 14, 15, 16, 17, 18];
         let mut rx_buf = [0_u8; 6];
         spi.transfer(&mut rx_buf, &tx_buf).await.unwrap();
-
         assert_eq!(rx_buf, tx_buf);
+
+        defmt::info!("buffer rx length == tx length - OK");
     }
 
     // rx > tx buffer
     {
         let tx_buf = [19_u8, 20, 21];
         let mut rx_buf = [0_u8; 6];
+
+        // we should have written dummy data to tx buffer to sync clock.
         spi.transfer(&mut rx_buf, &tx_buf).await.unwrap();
 
-        assert_eq!(rx_buf[..3], tx_buf, "only the first 3 TX bytes should have been received in the RX buffer");
+        assert_eq!(
+            rx_buf[..3],
+            tx_buf,
+            "only the first 3 TX bytes should have been received in the RX buffer"
+        );
         assert_eq!(rx_buf[3..], [0, 0, 0], "the rest of the RX bytes should be empty");
+        defmt::info!("buffer rx length > tx length - OK");
+    }
+
+    // equal rx & tx buffers
+    {
+        let tx_buf = [22_u8, 23, 24, 25, 26, 27];
+        let mut rx_buf = [0_u8; 6];
+        spi.transfer(&mut rx_buf, &tx_buf).await.unwrap();
+
+        assert_eq!(rx_buf, tx_buf);
+        defmt::info!("buffer rx length = tx length - OK");
     }
 
     info!("Test OK");
