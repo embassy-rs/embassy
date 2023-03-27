@@ -60,7 +60,7 @@ sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "46d1b1c2ff13e31e282ec1e352421721694f126a", optional = true }
 critical-section = "1.1"
 atomic-polyfill = "1.0.1"
-stm32-metapac = { version = "1", features = ["rt"] }
+stm32-metapac = { version = "2", features = ["rt"] }
 vcell = "0.1.3"
 bxcan = "0.7.0"
 nb = "1.0.0"
@@ -72,7 +72,7 @@ embedded-io = { version = "0.4.0", features = ["async"], optional = true }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { version = "1", default-features = false, features = ["metadata"]}
+stm32-metapac = { version = "2", default-features = false, features = ["metadata"]}
 
 [features]
 defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt"]
