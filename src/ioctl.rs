@@ -2,8 +2,6 @@ use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
 use core::task::{Poll, Waker};
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::waitqueue::WakerRegistration;
 
 #[derive(Clone, Copy)]
@@ -27,37 +25,39 @@ enum IoctlStateInner {
     Done { resp_len: usize },
 }
 
+#[derive(Default)]
+struct Wakers {
+    control: WakerRegistration,
+    runner: WakerRegistration,
+}
+
 pub struct IoctlState {
     state: Cell<IoctlStateInner>,
-    wakers: Mutex<NoopRawMutex, RefCell<(WakerRegistration, WakerRegistration)>>,
+    wakers: RefCell<Wakers>,
 }
 
 impl IoctlState {
     pub fn new() -> Self {
         Self {
             state: Cell::new(IoctlStateInner::Done { resp_len: 0 }),
-            wakers: Mutex::new(RefCell::default()),
+            wakers: Default::default(),
         }
     }
 
     fn wake_control(&self) {
-        self.wakers.lock(|f| {
-            f.borrow_mut().0.wake();
-        })
+        self.wakers.borrow_mut().control.wake();
     }
 
     fn register_control(&self, waker: &Waker) {
-        self.wakers.lock(|f| f.borrow_mut().0.register(waker));
+        self.wakers.borrow_mut().control.register(waker);
     }
 
     fn wake_runner(&self) {
-        self.wakers.lock(|f| {
-            f.borrow_mut().1.wake();
-        })
+        self.wakers.borrow_mut().runner.wake();
     }
 
     fn register_runner(&self, waker: &Waker) {
-        self.wakers.lock(|f| f.borrow_mut().1.register(waker));
+        self.wakers.borrow_mut().runner.register(waker);
     }
 
     pub async fn wait_complete(&self) -> usize {
