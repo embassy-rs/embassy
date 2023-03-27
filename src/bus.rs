@@ -12,14 +12,14 @@ use crate::consts::*;
 pub trait SpiBusCyw43 {
     /// Issues a write command on the bus
     /// First 32 bits of `word` are expected to be a cmd word
-    async fn cmd_write(&mut self, write: &[u32]);
+    async fn cmd_write(&mut self, write: &[u32]) -> u32;
 
     /// Issues a read command on the bus
     /// `write` is expected to be a 32 bit cmd word
     /// `read` will contain the response of the device
     /// Backplane reads have a response delay that produces one extra unspecified word at the beginning of `read`.
     /// Callers that want to read `n` word from the backplane, have to provide a slice that is `n+1` words long.
-    async fn cmd_read(&mut self, write: u32, read: &mut [u32]);
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32;
 
     /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
     /// The default implementation always reports ready, resulting in active polling of the device.
@@ -32,6 +32,7 @@ pub(crate) struct Bus<PWR, SPI> {
     backplane_window: u32,
     pwr: PWR,
     spi: SPI,
+    status: u32,
 }
 
 impl<PWR, SPI> Bus<PWR, SPI>
@@ -44,6 +45,7 @@ where
             backplane_window: 0xAAAA_AAAA,
             pwr,
             spi,
+            status: 0,
         }
     }
 
@@ -70,8 +72,11 @@ where
         trace!("{:#010b}", (val & 0xff));
 
         // 32-bit word length, little endian (which is the default endianess).
-        self.write32_swapped(REG_BUS_CTRL, WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP)
-            .await;
+        self.write32_swapped(
+            REG_BUS_CTRL,
+            WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP | STATUS_ENABLE,
+        )
+        .await;
 
         let val = self.read8(FUNC_BUS, REG_BUS_CTRL).await;
         trace!("{:#b}", val);
@@ -88,7 +93,7 @@ where
         let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
         let len_in_u32 = (len_in_u8 as usize + 3) / 4;
 
-        self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
+        self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
     }
 
     pub async fn wlan_write(&mut self, buf: &[u32]) {
@@ -98,7 +103,7 @@ where
         cmd_buf[0] = cmd;
         cmd_buf[1..][..buf.len()].copy_from_slice(buf);
 
-        self.spi.cmd_write(&cmd_buf).await;
+        self.status = self.spi.cmd_write(&cmd_buf).await;
     }
 
     #[allow(unused)]
@@ -124,7 +129,7 @@ where
             let cmd = cmd_word(READ, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
 
             // round `buf` to word boundary, add one extra word for the response delay
-            self.spi.cmd_read(cmd, &mut buf[..(len + 3) / 4 + 1]).await;
+            self.status = self.spi.cmd_read(cmd, &mut buf[..(len + 3) / 4 + 1]).await;
 
             // when writing out the data, we skip the response-delay byte
             data[..len].copy_from_slice(&slice8_mut(&mut buf[1..])[..len]);
@@ -157,7 +162,7 @@ where
             let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
             buf[0] = cmd;
 
-            self.spi.cmd_write(&buf[..(len + 3) / 4 + 1]).await;
+            self.status = self.spi.cmd_write(&buf[..(len + 3) / 4 + 1]).await;
 
             // Advance ptr.
             addr += len as u32;
@@ -273,7 +278,7 @@ where
         // if we are reading from the backplane, we need an extra word for the response delay
         let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
 
-        self.spi.cmd_read(cmd, &mut buf[..len]).await;
+        self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
 
         // if we read from the backplane, the result is in the second word, after the response delay
         if func == FUNC_BACKPLANE {
@@ -286,7 +291,7 @@ where
     async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
 
-        self.spi.cmd_write(&[cmd, val]).await;
+        self.status = self.spi.cmd_write(&[cmd, val]).await;
     }
 
     async fn read32_swapped(&mut self, addr: u32) -> u32 {
@@ -294,7 +299,7 @@ where
         let cmd = swap16(cmd);
         let mut buf = [0; 1];
 
-        self.spi.cmd_read(cmd, &mut buf).await;
+        self.status = self.spi.cmd_read(cmd, &mut buf).await;
 
         swap16(buf[0])
     }
@@ -303,11 +308,15 @@ where
         let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BUS, addr, 4);
         let buf = [swap16(cmd), swap16(val)];
 
-        self.spi.cmd_write(&buf).await;
+        self.status = self.spi.cmd_write(&buf).await;
     }
 
     pub async fn wait_for_event(&mut self) {
         self.spi.wait_for_event().await;
+    }
+
+    pub fn status(&self) -> u32 {
+        self.status
     }
 }
 
