@@ -11,17 +11,17 @@ mod bus;
 mod consts;
 mod countries;
 mod events;
+mod ioctl;
 mod structs;
 
 mod control;
 mod nvram;
 mod runner;
 
-use core::cell::Cell;
-
 use embassy_net_driver_channel as ch;
 use embedded_hal_1::digital::OutputPin;
 use events::EventQueue;
+use ioctl::IoctlState;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
@@ -29,12 +29,6 @@ pub use crate::control::Control;
 pub use crate::runner::Runner;
 
 const MTU: usize = 1514;
-
-#[derive(Clone, Copy)]
-pub enum IoctlType {
-    Get = 0,
-    Set = 2,
-}
 
 #[allow(unused)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -106,26 +100,8 @@ const CHIP: Chip = Chip {
     chanspec_ctl_sb_mask: 0x0700,
 };
 
-#[derive(Clone, Copy)]
-enum IoctlState {
-    Idle,
-
-    Pending {
-        kind: IoctlType,
-        cmd: u32,
-        iface: u32,
-        buf: *mut [u8],
-    },
-    Sent {
-        buf: *mut [u8],
-    },
-    Done {
-        resp_len: usize,
-    },
-}
-
 pub struct State {
-    ioctl_state: Cell<IoctlState>,
+    ioctl_state: IoctlState,
     ch: ch::State<MTU, 4, 4>,
     events: EventQueue,
 }
@@ -133,7 +109,7 @@ pub struct State {
 impl State {
     pub fn new() -> Self {
         Self {
-            ioctl_state: Cell::new(IoctlState::Idle),
+            ioctl_state: IoctlState::new(),
             ch: ch::State::new(),
             events: EventQueue::new(),
         }

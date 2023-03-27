@@ -1,8 +1,6 @@
-use core::cell::Cell;
 use core::cmp::{max, min};
 
 use ch::driver::LinkState;
-use embassy_futures::yield_now;
 use embassy_net_driver_channel as ch;
 use embassy_time::{Duration, Timer};
 
@@ -10,21 +8,18 @@ pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, EventQueue};
 use crate::fmt::Bytes;
+use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
-use crate::{countries, IoctlState, IoctlType, PowerManagementMode};
+use crate::{countries, PowerManagementMode};
 
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     event_sub: &'a EventQueue,
-    ioctl_state: &'a Cell<IoctlState>,
+    ioctl_state: &'a IoctlState,
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(
-        state_ch: ch::StateRunner<'a>,
-        event_sub: &'a EventQueue,
-        ioctl_state: &'a Cell<IoctlState>,
-    ) -> Self {
+    pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a EventQueue, ioctl_state: &'a IoctlState) -> Self {
         Self {
             state_ch,
             event_sub,
@@ -285,21 +280,8 @@ impl<'a> Control<'a> {
     async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
         // TODO cancel ioctl on future drop.
 
-        while !matches!(self.ioctl_state.get(), IoctlState::Idle) {
-            yield_now().await;
-        }
-
-        self.ioctl_state.set(IoctlState::Pending { kind, cmd, iface, buf });
-
-        let resp_len = loop {
-            if let IoctlState::Done { resp_len } = self.ioctl_state.get() {
-                break resp_len;
-            }
-            yield_now().await;
-        };
-
-        self.ioctl_state.set(IoctlState::Idle);
-
+        self.ioctl_state.do_ioctl(kind, cmd, iface, buf).await;
+        let resp_len = self.ioctl_state.wait_complete().await;
         resp_len
     }
 }
