@@ -4,11 +4,10 @@
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 
-mod pio;
-
 use core::slice;
 use core::str::from_utf8;
 
+use cyw43_pio::PioSpi;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
@@ -19,8 +18,6 @@ use embassy_rp::pio::{Pio0, PioPeripherial, PioStateMachineInstance, Sm0};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-
-use crate::pio::PioSpi;
 
 macro_rules! singleton {
     ($val:expr) => {{

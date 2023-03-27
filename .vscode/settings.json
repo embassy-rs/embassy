@@ -9,6 +9,7 @@
     "rust-analyzer.check.noDefaultFeatures": true,
     "rust-analyzer.linkedProjects": [
         "examples/rpi-pico-w/Cargo.toml",
+        "cyw43-pio/Cargo.toml",
     ],
     "rust-analyzer.server.extraEnv": {
         "WIFI_NETWORK": "foo",
