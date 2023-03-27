@@ -44,7 +44,7 @@ pub struct SharedMemLog {
 }
 impl_bytes!(SharedMemLog);
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct SdpcmHeader {
@@ -67,7 +67,7 @@ pub struct SdpcmHeader {
 }
 impl_bytes!(SdpcmHeader);
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct CdcHeader {
@@ -82,7 +82,7 @@ impl_bytes!(CdcHeader);
 pub const BDC_VERSION: u8 = 2;
 pub const BDC_VERSION_SHIFT: u8 = 4;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct BcdHeader {
@@ -129,7 +129,7 @@ impl EventHeader {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct EventMessage {

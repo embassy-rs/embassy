@@ -6,7 +6,7 @@ use core::num;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
 
-#[derive(Clone, Copy, PartialEq, Eq, num_enum::FromPrimitive)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::FromPrimitive)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum Event {
