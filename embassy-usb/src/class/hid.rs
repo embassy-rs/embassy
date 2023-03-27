@@ -458,6 +458,9 @@ impl<'d> Handler for Control<'d> {
             return None;
         }
 
+        // TODO(AJM): This uses a defmt-specific formatter that causes use of the `log`
+        // feature to fail to build
+        #[cfg(feature = "defmt")]
         trace!("HID control_out {:?} {=[u8]:x}", req, data);
         match req.request {
             HID_REQ_SET_IDLE => {
