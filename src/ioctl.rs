@@ -88,6 +88,10 @@ impl IoctlState {
         pending
     }
 
+    pub fn cancel_ioctl(&self) {
+        self.state.set(IoctlStateInner::Done { resp_len: 0 });
+    }
+
     pub async fn do_ioctl(&self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
         warn!("doing ioctl");
         self.state
