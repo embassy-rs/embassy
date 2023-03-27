@@ -41,6 +41,9 @@ where
             "in pins, 1     side 1"
             "jmp y-- lp2    side 0"
 
+            "wait 1 pin 0   side 0"
+            "irq 0          side 0"
+
             ".wrap"
         );
 
@@ -106,6 +109,7 @@ where
     }
 
     pub async fn write(&mut self, write: &[u32]) {
+        self.sm.set_enable(false);
         let write_bits = write.len() * 32 - 1;
         let read_bits = 31;
 
@@ -124,11 +128,10 @@ where
         let mut status = 0;
         self.sm.dma_pull(dma, slice::from_mut(&mut status)).await;
         defmt::trace!("{:#08x}", status);
-
-        self.sm.set_enable(false);
     }
 
     pub async fn cmd_read(&mut self, cmd: u32, read: &mut [u32]) {
+        self.sm.set_enable(false);
         let write_bits = 31;
         let read_bits = read.len() * 32 - 1;
 
@@ -144,8 +147,6 @@ where
 
         self.sm.dma_push(dma.reborrow(), slice::from_ref(&cmd)).await;
         self.sm.dma_pull(dma, read).await;
-
-        self.sm.set_enable(false);
     }
 }
 
@@ -165,5 +166,10 @@ where
         self.cs.set_low();
         self.cmd_read(write, read).await;
         self.cs.set_high();
+    }
+
+    async fn wait_for_event(&mut self) {
+        self.sm.wait_irq(0).await;
+        self.sm.clear_irq(0);
     }
 }

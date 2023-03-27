@@ -75,7 +75,6 @@ impl IoctlState {
     pub async fn wait_pending(&self) -> PendingIoctl {
         let pending = poll_fn(|cx| {
             if let IoctlStateInner::Pending(pending) = self.state.get() {
-                warn!("found pending ioctl");
                 Poll::Ready(pending)
             } else {
                 self.register_runner(cx.waker());
@@ -93,7 +92,6 @@ impl IoctlState {
     }
 
     pub async fn do_ioctl(&self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
-        warn!("doing ioctl");
         self.state
             .set(IoctlStateInner::Pending(PendingIoctl { buf, kind, cmd, iface }));
         self.wake_runner();
@@ -102,7 +100,6 @@ impl IoctlState {
 
     pub fn ioctl_done(&self, response: &[u8]) {
         if let IoctlStateInner::Sent { buf } = self.state.get() {
-            warn!("ioctl complete");
             // TODO fix this
             (unsafe { &mut *buf }[..response.len()]).copy_from_slice(response);
 

@@ -1,4 +1,5 @@
 #![allow(unused)]
+
 pub(crate) const FUNC_BUS: u32 = 0;
 pub(crate) const FUNC_BACKPLANE: u32 = 1;
 pub(crate) const FUNC_WLAN: u32 = 2;
@@ -13,6 +14,8 @@ pub(crate) const REG_BUS_TEST_RW: u32 = 0x18;
 pub(crate) const REG_BUS_RESP_DELAY: u32 = 0x1c;
 pub(crate) const WORD_LENGTH_32: u32 = 0x1;
 pub(crate) const HIGH_SPEED: u32 = 0x10;
+pub(crate) const INTERRUPT_HIGH: u32 = 1 << 5;
+pub(crate) const WAKE_UP: u32 = 1 << 7;
 
 // SPI_STATUS_REGISTER bits
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
@@ -103,3 +106,149 @@ pub(crate) const WRITE: bool = true;
 pub(crate) const READ: bool = false;
 pub(crate) const INC_ADDR: bool = true;
 pub(crate) const FIXED_ADDR: bool = false;
+
+#[allow(dead_code)]
+pub(crate) struct FormatStatus(pub u32);
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for FormatStatus {
+    fn format(&self, fmt: defmt::Formatter) {
+        macro_rules! implm {
+            ($($name:ident),*) => {
+                $(
+                    if self.0 & $name > 0 {
+                        defmt::write!(fmt, " | {}", &stringify!($name)[7..]);
+                    }
+                )*
+            };
+        }
+
+        implm!(
+            STATUS_DATA_NOT_AVAILABLE,
+            STATUS_UNDERFLOW,
+            STATUS_OVERFLOW,
+            STATUS_F2_INTR,
+            STATUS_F3_INTR,
+            STATUS_F2_RX_READY,
+            STATUS_F3_RX_READY,
+            STATUS_HOST_CMD_DATA_ERR,
+            STATUS_F2_PKT_AVAILABLE,
+            STATUS_F3_PKT_AVAILABLE
+        );
+    }
+}
+
+#[cfg(feature = "log")]
+impl core::fmt::Debug for FormatStatus {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
+        macro_rules! implm {
+            ($($name:ident),*) => {
+                $(
+                    if self.0 & $name > 0 {
+                        core::write!(fmt, " | {}", &stringify!($name)[7..])?;
+                    }
+                )*
+            };
+        }
+
+        implm!(
+            STATUS_DATA_NOT_AVAILABLE,
+            STATUS_UNDERFLOW,
+            STATUS_OVERFLOW,
+            STATUS_F2_INTR,
+            STATUS_F3_INTR,
+            STATUS_F2_RX_READY,
+            STATUS_F3_RX_READY,
+            STATUS_HOST_CMD_DATA_ERR,
+            STATUS_F2_PKT_AVAILABLE,
+            STATUS_F3_PKT_AVAILABLE
+        );
+        Ok(())
+    }
+}
+
+#[cfg(feature = "log")]
+impl core::fmt::Display for FormatStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) struct FormatInterrupt(pub u16);
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for FormatInterrupt {
+    fn format(&self, fmt: defmt::Formatter) {
+        macro_rules! implm {
+            ($($name:ident),*) => {
+                $(
+                    if self.0 & $name > 0 {
+                        defmt::write!(fmt, " | {}", &stringify!($name)[4..]);
+                    }
+                )*
+            };
+        }
+
+        implm!(
+            IRQ_DATA_UNAVAILABLE,
+            IRQ_F2_F3_FIFO_RD_UNDERFLOW,
+            IRQ_F2_F3_FIFO_WR_OVERFLOW,
+            IRQ_COMMAND_ERROR,
+            IRQ_DATA_ERROR,
+            IRQ_F2_PACKET_AVAILABLE,
+            IRQ_F3_PACKET_AVAILABLE,
+            IRQ_F1_OVERFLOW,
+            IRQ_MISC_INTR0,
+            IRQ_MISC_INTR1,
+            IRQ_MISC_INTR2,
+            IRQ_MISC_INTR3,
+            IRQ_MISC_INTR4,
+            IRQ_F1_INTR,
+            IRQ_F2_INTR,
+            IRQ_F3_INTR
+        );
+    }
+}
+
+#[cfg(feature = "log")]
+impl core::fmt::Debug for FormatInterrupt {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter) -> core::fmt::Result {
+        macro_rules! implm {
+            ($($name:ident),*) => {
+                $(
+                    if self.0 & $name > 0 {
+                        core::write!(fmt, " | {}", &stringify!($name)[7..])?;
+                    }
+                )*
+            };
+        }
+
+        implm!(
+            IRQ_DATA_UNAVAILABLE,
+            IRQ_F2_F3_FIFO_RD_UNDERFLOW,
+            IRQ_F2_F3_FIFO_WR_OVERFLOW,
+            IRQ_COMMAND_ERROR,
+            IRQ_DATA_ERROR,
+            IRQ_F2_PACKET_AVAILABLE,
+            IRQ_F3_PACKET_AVAILABLE,
+            IRQ_F1_OVERFLOW,
+            IRQ_MISC_INTR0,
+            IRQ_MISC_INTR1,
+            IRQ_MISC_INTR2,
+            IRQ_MISC_INTR3,
+            IRQ_MISC_INTR4,
+            IRQ_F1_INTR,
+            IRQ_F2_INTR,
+            IRQ_F3_INTR
+        );
+        Ok(())
+    }
+}
+
+#[cfg(feature = "log")]
+impl core::fmt::Display for FormatInterrupt {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}

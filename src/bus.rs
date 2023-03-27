@@ -1,5 +1,6 @@
 use core::slice;
 
+use embassy_futures::yield_now;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
@@ -19,6 +20,12 @@ pub trait SpiBusCyw43 {
     /// Backplane reads have a response delay that produces one extra unspecified word at the beginning of `read`.
     /// Callers that want to read `n` word from the backplane, have to provide a slice that is `n+1` words long.
     async fn cmd_read(&mut self, write: u32, read: &mut [u32]);
+
+    /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
+    /// The default implementation always reports ready, resulting in active polling of the device.
+    async fn wait_for_event(&mut self) {
+        yield_now().await;
+    }
 }
 
 pub(crate) struct Bus<PWR, SPI> {
@@ -63,7 +70,8 @@ where
         trace!("{:#010b}", (val & 0xff));
 
         // 32-bit word length, little endian (which is the default endianess).
-        self.write32_swapped(REG_BUS_CTRL, WORD_LENGTH_32 | HIGH_SPEED).await;
+        self.write32_swapped(REG_BUS_CTRL, WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP)
+            .await;
 
         let val = self.read8(FUNC_BUS, REG_BUS_CTRL).await;
         trace!("{:#b}", val);
@@ -296,6 +304,10 @@ where
         let buf = [swap16(cmd), swap16(val)];
 
         self.spi.cmd_write(&buf).await;
+    }
+
+    pub async fn wait_for_event(&mut self) {
+        self.spi.wait_for_event().await;
     }
 }
 
