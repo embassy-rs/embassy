@@ -1,3 +1,7 @@
+#![no_std]
+#![allow(incomplete_features)]
+#![feature(async_fn_in_trait)]
+
 use core::slice;
 
 use cyw43::SpiBusCyw43;
@@ -125,7 +129,8 @@ where
 
         self.sm.dma_push(dma.reborrow(), write).await;
 
-        let status = self.sm.wait_pull().await;
+        let mut status = 0;
+        self.sm.dma_pull(dma.reborrow(), slice::from_mut(&mut status)).await;
         status
     }
 
@@ -145,9 +150,10 @@ where
         self.sm.set_enable(true);
 
         self.sm.dma_push(dma.reborrow(), slice::from_ref(&cmd)).await;
-        self.sm.dma_pull(dma, read).await;
+        self.sm.dma_pull(dma.reborrow(), read).await;
 
-        let status = self.sm.wait_pull().await;
+        let mut status = 0;
+        self.sm.dma_pull(dma.reborrow(), slice::from_mut(&mut status)).await;
         status
     }
 }

@@ -1,0 +1,13 @@
+[package]
+name = "cyw43-pio"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cyw43 = { path = "../" }
+embassy-rp = { version = "0.1.0",  features = ["defmt", "unstable-traits", "nightly", "unstable-pac", "time-driver", "pio"] }
+pio-proc = "0.2"
+pio = "0.2.1"
+defmt = "0.3"
