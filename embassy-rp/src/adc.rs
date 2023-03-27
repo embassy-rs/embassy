@@ -94,13 +94,13 @@ impl<'d> Adc<'d> {
     pub async fn read<PIN: Channel<Adc<'d>, ID = u8> + Pin>(&mut self, pin: &mut PIN) -> u16 {
         let r = Self::regs();
         unsafe {
-            // disable pull-down and pull-up resistors
-            // pull-down resistors are enabled by default
+            // from datasheet:
+            // > When using an ADC input shared with a GPIO pin,
+            // > the pin’s digital functions must be disabled by setting IE low
+            // > and OD high in the pin’s pad control register.
             pin.pad_ctrl().modify(|w| {
-                w.set_ie(true);
-                let (pu, pd) = (false, false);
-                w.set_pue(pu);
-                w.set_pde(pd);
+                w.set_ie(false);
+                w.set_od(true);
             });
             r.cs().modify(|w| {
                 w.set_ainsel(PIN::channel());
