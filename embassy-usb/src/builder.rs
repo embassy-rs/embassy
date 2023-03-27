@@ -207,15 +207,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         info!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
         #[cfg(feature = "msos-descriptor")]
         info!("USB: msos_descriptor used: {}", msos_descriptor.len());
-        if self.control_buf.len() != self.config.max_packet_size_0.into() {
-            warn!(
-                "USB: Mismatch in control buf and max packet size! buf len: {}, max ep0 size: {}",
-                self.control_buf.len(),
-                self.config.max_packet_size_0,
-            );
-        } else {
-            info!("USB: control_buf size: {}", self.control_buf.len());
-        }
+        info!("USB: control_buf size: {}", self.control_buf.len());
 
         UsbDevice::build(
             self.driver,
