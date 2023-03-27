@@ -1,7 +1,6 @@
 use core::slice;
 
 use embassy_futures::select::{select3, Either3};
-use embassy_futures::yield_now;
 use embassy_net_driver_channel as ch;
 use embassy_sync::pubsub::PubSubBehavior;
 use embassy_time::{block_for, Duration, Timer};
@@ -304,7 +303,6 @@ where
 
     /// Wait for IRQ on F2 packet available
     async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
-        self.bus.clear_event();
         // Receive stuff
         let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
         trace!("irq{}", FormatInterrupt(irq));
@@ -331,8 +329,6 @@ where
             } else {
                 break;
             }
-
-            yield_now().await;
         }
     }
 

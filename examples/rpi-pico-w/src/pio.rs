@@ -170,9 +170,6 @@ where
 
     async fn wait_for_event(&mut self) {
         self.sm.wait_irq(0).await;
-    }
-
-    fn clear_event(&mut self) {
         self.sm.clear_irq(0);
     }
 }

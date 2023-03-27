@@ -1,5 +1,6 @@
 use core::slice;
 
+use embassy_futures::yield_now;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
@@ -20,8 +21,11 @@ pub trait SpiBusCyw43 {
     /// Callers that want to read `n` word from the backplane, have to provide a slice that is `n+1` words long.
     async fn cmd_read(&mut self, write: u32, read: &mut [u32]);
 
-    async fn wait_for_event(&mut self);
-    fn clear_event(&mut self);
+    /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
+    /// The default implementation always reports ready, resulting in active polling of the device.
+    async fn wait_for_event(&mut self) {
+        yield_now().await;
+    }
 }
 
 pub(crate) struct Bus<PWR, SPI> {
@@ -304,10 +308,6 @@ where
 
     pub async fn wait_for_event(&mut self) {
         self.spi.wait_for_event().await;
-    }
-
-    pub fn clear_event(&mut self) {
-        self.spi.clear_event();
     }
 }
 
