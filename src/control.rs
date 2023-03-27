@@ -134,7 +134,6 @@ impl<'a> Control<'a> {
         Timer::after(Duration::from_millis(100)).await;
 
         self.state_ch.set_ethernet_address(mac_addr);
-        self.state_ch.set_link_state(LinkState::Up); // TODO do on join/leave
 
         info!("INIT DONE");
     }
@@ -164,10 +163,8 @@ impl<'a> Control<'a> {
             ssid: [0; 32],
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
-        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
-            .await; // set_ssid
 
-        info!("JOINED");
+        self.wait_for_join(i).await;
     }
 
     pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) {
@@ -199,21 +196,29 @@ impl<'a> Control<'a> {
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
+        self.wait_for_join(i).await;
+    }
+
+    async fn wait_for_join(&mut self, i: SsidInfo) {
         let mut subscriber = self.event_sub.subscriber().unwrap();
-        self.ioctl(IoctlType::Set, 26, 0, &mut i.to_bytes()).await; // set_ssid
+        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
+            .await;
+        // set_ssid
 
         loop {
             let msg = subscriber.next_message_pure().await;
             if msg.event_type == Event::AUTH && msg.status != 0 {
                 // retry
                 warn!("JOIN failed with status={}", msg.status);
-                self.ioctl(IoctlType::Set, 26, 0, &mut i.to_bytes()).await;
+                self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
+                    .await;
             } else if msg.event_type == Event::JOIN && msg.status == 0 {
                 // successful join
                 break;
             }
         }
 
+        self.state_ch.set_link_state(LinkState::Up);
         info!("JOINED");
     }
 
