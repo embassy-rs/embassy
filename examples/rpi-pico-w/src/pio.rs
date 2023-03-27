@@ -108,7 +108,7 @@ where
         }
     }
 
-    pub async fn write(&mut self, write: &[u32]) {
+    pub async fn write(&mut self, write: &[u32]) -> u32 {
         self.sm.set_enable(false);
         let write_bits = write.len() * 32 - 1;
         let read_bits = 31;
@@ -125,15 +125,14 @@ where
 
         self.sm.dma_push(dma.reborrow(), write).await;
 
-        let mut status = 0;
-        self.sm.dma_pull(dma, slice::from_mut(&mut status)).await;
-        defmt::trace!("{:#08x}", status);
+        let status = self.sm.wait_pull().await;
+        status
     }
 
-    pub async fn cmd_read(&mut self, cmd: u32, read: &mut [u32]) {
+    pub async fn cmd_read(&mut self, cmd: u32, read: &mut [u32]) -> u32 {
         self.sm.set_enable(false);
         let write_bits = 31;
-        let read_bits = read.len() * 32 - 1;
+        let read_bits = read.len() * 32 + 32 - 1;
 
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
@@ -147,6 +146,9 @@ where
 
         self.sm.dma_push(dma.reborrow(), slice::from_ref(&cmd)).await;
         self.sm.dma_pull(dma, read).await;
+
+        let status = self.sm.wait_pull().await;
+        status
     }
 }
 
@@ -156,16 +158,18 @@ where
     SM: PioStateMachine,
     DMA: Channel,
 {
-    async fn cmd_write(&mut self, write: &[u32]) {
+    async fn cmd_write(&mut self, write: &[u32]) -> u32 {
         self.cs.set_low();
-        self.write(write).await;
+        let status = self.write(write).await;
         self.cs.set_high();
+        status
     }
 
-    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) {
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32 {
         self.cs.set_low();
-        self.cmd_read(write, read).await;
+        let status = self.cmd_read(write, read).await;
         self.cs.set_high();
+        status
     }
 
     async fn wait_for_event(&mut self) {

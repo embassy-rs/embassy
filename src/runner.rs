@@ -315,10 +315,7 @@ where
     /// Handle F2 events while status register is set
     async fn check_status(&mut self, buf: &mut [u32; 512]) {
         loop {
-            let mut status = 0xFFFF_FFFF;
-            while status == 0xFFFF_FFFF {
-                status = self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await;
-            }
+            let status = self.bus.status();
             trace!("check status{}", FormatStatus(status));
 
             if status & STATUS_F2_PKT_AVAILABLE != 0 {

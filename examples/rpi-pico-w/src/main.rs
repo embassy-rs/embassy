@@ -215,16 +215,26 @@ impl MySpi {
 }
 
 impl cyw43::SpiBusCyw43 for MySpi {
-    async fn cmd_write(&mut self, write: &[u32]) {
+    async fn cmd_write(&mut self, write: &[u32]) -> u32 {
         self.cs.set_low();
         self.write(write).await;
+
+        let mut status = 0;
+        self.read(slice::from_mut(&mut status)).await;
+
         self.cs.set_high();
+        status
     }
 
-    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) {
+    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32 {
         self.cs.set_low();
         self.write(slice::from_ref(&write)).await;
         self.read(read).await;
+
+        let mut status = 0;
+        self.read(slice::from_mut(&mut status)).await;
+
         self.cs.set_high();
+        status
     }
 }
