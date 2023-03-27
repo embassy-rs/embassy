@@ -9,6 +9,7 @@ use embassy_time::{Duration, Timer};
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, EventQueue};
+use crate::fmt::Bytes;
 use crate::structs::*;
 use crate::{countries, IoctlState, IoctlType, PowerManagementMode};
 
@@ -75,7 +76,7 @@ impl<'a> Control<'a> {
         // read MAC addr.
         let mut mac_addr = [0; 6];
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
-        info!("mac addr: {:02x}", mac_addr);
+        info!("mac addr: {:02x}", Bytes(&mac_addr));
 
         let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
@@ -205,7 +206,7 @@ impl<'a> Control<'a> {
             let msg = subscriber.next_message_pure().await;
             if msg.event_type == Event::AUTH && msg.status != 0 {
                 // retry
-                defmt::warn!("JOIN failed with status={}", msg.status);
+                warn!("JOIN failed with status={}", msg.status);
                 self.ioctl(IoctlType::Set, 26, 0, &mut i.to_bytes()).await;
             } else if msg.event_type == Event::JOIN && msg.status == 0 {
                 // successful join
@@ -241,7 +242,7 @@ impl<'a> Control<'a> {
     }
 
     async fn set_iovar(&mut self, name: &str, val: &[u8]) {
-        info!("set {} = {:02x}", name, val);
+        info!("set {} = {:02x}", name, Bytes(val));
 
         let mut buf = [0; 64];
         buf[..name.len()].copy_from_slice(name.as_bytes());

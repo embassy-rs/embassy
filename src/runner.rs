@@ -11,6 +11,7 @@ use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{EventQueue, EventStatus};
+use crate::fmt::Bytes;
 use crate::nvram::NVRAM;
 use crate::structs::*;
 use crate::{events, Core, IoctlState, IoctlType, CHIP, MTU};
@@ -23,6 +24,7 @@ struct LogState {
     buf_count: usize,
 }
 
+#[cfg(feature = "firmware-logs")]
 impl Default for LogState {
     fn default() -> Self {
         Self {
@@ -175,7 +177,6 @@ where
         let mut shared = [0; SharedMemData::SIZE];
         self.bus.bp_read(shared_addr, &mut shared).await;
         let shared = SharedMemData::from_bytes(&shared);
-        info!("shared: {:08x}", shared);
 
         self.log.addr = shared.console_addr + 8;
     }
@@ -238,7 +239,7 @@ where
                     warn!("TX stalled");
                 } else {
                     if let Some(packet) = self.ch.try_tx_buf() {
-                        trace!("tx pkt {:02x}", &packet[..packet.len().min(48)]);
+                        trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                         let mut buf = [0; 512];
                         let buf8 = slice8_mut(&mut buf);
@@ -275,7 +276,7 @@ where
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
-                        trace!("    {:02x}", &buf8[..total_len.min(48)]);
+                        trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
                         self.bus.wlan_write(&buf[..(total_len / 4)]).await;
                         self.ch.tx_done();
@@ -295,7 +296,7 @@ where
                 if status & STATUS_F2_PKT_AVAILABLE != 0 {
                     let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
                     self.bus.wlan_read(&mut buf, len).await;
-                    trace!("rx {:02x}", &slice8_mut(&mut buf)[..(len as usize).min(48)]);
+                    trace!("rx {:02x}", Bytes(&slice8_mut(&mut buf)[..(len as usize).min(48)]));
                     self.rx(&slice8_mut(&mut buf)[..len as usize]);
                 }
             }
@@ -343,11 +344,11 @@ where
                     if cdc_header.id == self.ioctl_id {
                         if cdc_header.status != 0 {
                             // TODO: propagate error instead
-                            panic!("IOCTL error {=i32}", cdc_header.status as i32);
+                            panic!("IOCTL error {}", cdc_header.status as i32);
                         }
 
                         let resp_len = cdc_header.len as usize;
-                        info!("IOCTL Response: {:02x}", &payload[CdcHeader::SIZE..][..resp_len]);
+                        info!("IOCTL Response: {:02x}", Bytes(&payload[CdcHeader::SIZE..][..resp_len]));
 
                         (unsafe { &mut *buf }[..resp_len]).copy_from_slice(&payload[CdcHeader::SIZE..][..resp_len]);
                         self.ioctl_state.set(IoctlState::Done { resp_len });
@@ -365,7 +366,7 @@ where
                     return;
                 }
                 let bcd_packet = &payload[packet_start..];
-                trace!("    {:02x}", &bcd_packet[..(bcd_packet.len() as usize).min(36)]);
+                trace!("    {:02x}", Bytes(&bcd_packet[..(bcd_packet.len() as usize).min(36)]));
 
                 let mut event_packet = EventPacket::from_bytes(&bcd_packet[..EventPacket::SIZE].try_into().unwrap());
                 event_packet.byteswap();
@@ -382,7 +383,8 @@ where
                 if event_packet.hdr.oui != BROADCOM_OUI {
                     warn!(
                         "unexpected ethernet OUI {:02x}, expected Broadcom OUI {:02x}",
-                        event_packet.hdr.oui, BROADCOM_OUI
+                        Bytes(&event_packet.hdr.oui),
+                        Bytes(BROADCOM_OUI)
                     );
                     return;
                 }
@@ -405,7 +407,12 @@ where
 
                 let evt_type = events::Event::from(event_packet.msg.event_type as u8);
                 let evt_data = &bcd_packet[EventMessage::SIZE..][..event_packet.msg.datalen as usize];
-                debug!("=== EVENT {}: {} {:02x}", evt_type, event_packet.msg, evt_data);
+                debug!(
+                    "=== EVENT {:?}: {:?} {:02x}",
+                    evt_type,
+                    event_packet.msg,
+                    Bytes(evt_data)
+                );
 
                 if evt_type == events::Event::AUTH || evt_type == events::Event::JOIN {
                     self.events.publish_immediate(EventStatus {
@@ -424,7 +431,7 @@ where
                     return;
                 }
                 let packet = &payload[packet_start..];
-                trace!("rx pkt {:02x}", &packet[..(packet.len() as usize).min(48)]);
+                trace!("rx pkt {:02x}", Bytes(&packet[..(packet.len() as usize).min(48)]));
 
                 match self.ch.try_rx_buf() {
                     Some(buf) => {
@@ -490,7 +497,7 @@ where
 
         let total_len = (total_len + 3) & !3; // round up to 4byte
 
-        trace!("    {:02x}", &buf8[..total_len.min(48)]);
+        trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
         self.bus.wlan_write(&buf[..total_len / 4]).await;
     }
