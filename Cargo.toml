@@ -26,3 +26,9 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.9" }
 num_enum = { version = "0.5.7", default-features = false }
+
+[patch.crates-io]
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "e3f8020c3bdf726dfa451b5b190f27191507a18f" }
