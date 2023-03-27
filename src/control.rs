@@ -273,6 +273,8 @@ impl<'a> Control<'a> {
     }
 
     async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
+        // TODO cancel ioctl on future drop.
+
         self.ioctl_state.do_ioctl(kind, cmd, iface, buf).await;
         let resp_len = self.ioctl_state.wait_complete().await;
         resp_len
