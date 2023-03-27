@@ -278,10 +278,27 @@ impl<'a> Control<'a> {
     }
 
     async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
-        // TODO cancel ioctl on future drop.
+        struct CancelOnDrop<'a>(&'a IoctlState);
 
-        self.ioctl_state.do_ioctl(kind, cmd, iface, buf).await;
-        let resp_len = self.ioctl_state.wait_complete().await;
+        impl CancelOnDrop<'_> {
+            fn defuse(self) {
+                core::mem::forget(self);
+            }
+        }
+
+        impl Drop for CancelOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.cancel_ioctl();
+            }
+        }
+
+        let ioctl = CancelOnDrop(self.ioctl_state);
+
+        ioctl.0.do_ioctl(kind, cmd, iface, buf).await;
+        let resp_len = ioctl.0.wait_complete().await;
+
+        ioctl.defuse();
+
         resp_len
     }
 }
