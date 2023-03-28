@@ -33,18 +33,23 @@ where
     {
         let program = pio_asm!(
             ".side_set 1"
-            // "set pindirs, 1 side 0"
-            // "set pins, 0    side 0"
+
             ".wrap_target"
+            // write out x-1 bits
             "lp:",
             "out pins, 1    side 0"
             "jmp x-- lp     side 1"
+            // switch directions
             "set pindirs, 0 side 0"
+            // these nops seem to be necessary for fast clkdiv
             "nop            side 1"
+            "nop            side 1"
+            // read in y-1 bits
             "lp2:"
-            "in pins, 1     side 1"
-            "jmp y-- lp2    side 0"
+            "in pins, 1     side 0"
+            "jmp y-- lp2    side 1"
 
+            // wait for event and irq host
             "wait 1 pin 0   side 0"
             "irq 0          side 0"
 
@@ -64,8 +69,15 @@ where
 
         sm.write_instr(relocated.origin() as usize, relocated.code());
 
+        // theoretical maximum according to data sheet, 100Mhz Pio => 50Mhz SPI Freq
+        // does not work yet,
+        // sm.set_clkdiv(0x0140);
+
+        // same speed as pico-sdk, 62.5Mhz
+        sm.set_clkdiv(0x0200);
+
         // 32 Mhz
-        sm.set_clkdiv(0x03E8);
+        // sm.set_clkdiv(0x03E8);
 
         // 16 Mhz
         // sm.set_clkdiv(0x07d0);
