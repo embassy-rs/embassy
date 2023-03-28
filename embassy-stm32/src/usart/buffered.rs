@@ -197,7 +197,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         .await
     }
 
-    fn inner_blocking_read<'a>(&'a self, buf: &'a mut [u8]) -> Result<usize, Error> {
+    fn inner_blocking_read(&self, buf: &mut [u8]) -> Result<usize, Error> {
         loop {
             let mut do_pend = false;
             let mut inner = self.inner.borrow_mut();
@@ -270,7 +270,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         .await
     }
 
-    fn inner_blocking_write<'a>(&'a self, buf: &'a [u8]) -> Result<usize, Error> {
+    fn inner_blocking_write(&self, buf: &[u8]) -> Result<usize, Error> {
         loop {
             let mut inner = self.inner.borrow_mut();
             let (n, empty) = inner.with(|state| {
