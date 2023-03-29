@@ -3,11 +3,11 @@ use core::ptr::write_volatile;
 
 use atomic_polyfill::{fence, Ordering};
 
-use super::{FlashRegion, FLASH_SIZE, WRITE_SIZE};
+use super::{FlashRegion, FlashSector, BANK1, FLASH_SIZE, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-const ERASE_SIZE: usize = super::BANK1::ERASE_SIZE;
+const ERASE_SIZE: usize = BANK1::SETTINGS.erase_size;
 const SECOND_BANK_OFFSET: usize = 0x0010_0000;
 
 const fn is_dual_bank() -> bool {
@@ -76,10 +76,6 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     fence(Ordering::SeqCst);
 
     res.unwrap()
-}
-
-pub(crate) fn is_eraseable_range(start_address: u32, end_address: u32) -> bool {
-    start_address % ERASE_SIZE as u32 == 0 && end_address % ERASE_SIZE as u32 == 0
 }
 
 pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
@@ -192,5 +188,15 @@ unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
 
             return Ok(());
         }
+    }
+}
+
+pub(crate) fn get_sector(address: u32) -> FlashSector {
+    let sector_size = BANK1::SETTINGS.erase_size as u32;
+    let index = address / sector_size;
+    FlashSector {
+        index: index as u8,
+        start: BANK1::SETTINGS.base as u32 + index * sector_size,
+        size: sector_size,
     }
 }

@@ -1,7 +1,11 @@
 pub trait FlashRegion {
-    const BASE: usize;
-    const SIZE: usize;
-    const ERASE_SIZE: usize;
-    const WRITE_SIZE: usize;
-    const ERASE_VALUE: u8;
+    const SETTINGS: FlashRegionSettings;
+}
+
+pub struct FlashRegionSettings {
+    pub base: usize,
+    pub size: usize,
+    pub erase_size: usize,
+    pub write_size: usize,
+    pub erase_value: u8,
 }

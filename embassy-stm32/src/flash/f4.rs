@@ -63,24 +63,10 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     blocking_wait_ready()
 }
 
-pub(crate) fn is_eraseable_range(start_address: u32, end_address: u32) -> bool {
-    let dual_bank = is_dual_bank();
-    let mut address = start_address;
-    while address < end_address {
-        let sector = get_sector(address, dual_bank, FLASH_SIZE as u32);
-        if sector.start != address {
-            return false;
-        }
-        address += sector.size;
-    }
-    address == end_address
-}
-
 pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
-    let dual_bank = is_dual_bank();
     let mut address = start_address;
     while address < end_address {
-        let sector = get_sector(address, dual_bank, FLASH_SIZE as u32);
+        let sector = get_sector(address);
         erase_sector(sector.index)?;
         address += sector.size;
     }
@@ -145,7 +131,11 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
     }
 }
 
-fn get_sector(address: u32, dual_bank: bool, flash_size: u32) -> FlashSector {
+pub(crate) fn get_sector(address: u32) -> FlashSector {
+    get_sector_inner(address, is_dual_bank(), FLASH_SIZE)
+}
+
+fn get_sector_inner(address: u32, dual_bank: bool, flash_size: u32) -> FlashSector {
     let offset = address - FLASH_BASE as u32;
     if !dual_bank {
         get_single_bank_sector(offset)
@@ -187,7 +177,10 @@ fn get_single_bank_sector(offset: u32) -> FlashSector {
             let large_sector_index = i - 1;
             FlashSector {
                 index: (5 + large_sector_index) as u8,
-                start: FLASH_BASE as u32 + 4 * SMALL_SECTOR_SIZE + MEDIUM_SECTOR_SIZE + large_sector_index * LARGE_SECTOR_SIZE,
+                start: FLASH_BASE as u32
+                    + 4 * SMALL_SECTOR_SIZE
+                    + MEDIUM_SECTOR_SIZE
+                    + large_sector_index * LARGE_SECTOR_SIZE,
                 size: LARGE_SECTOR_SIZE,
             }
         }
@@ -201,7 +194,10 @@ mod tests {
     #[test]
     fn can_get_sector_single_bank() {
         let assert_sector = |index: u8, start: u32, size: u32, addr: u32| {
-            assert_eq!(FlashSector { index, start, size }, get_sector(addr, false, 1024 * 1024))
+            assert_eq!(
+                FlashSector { index, start, size },
+                get_sector_inner(addr, false, 1024 * 1024)
+            )
         };
 
         assert_sector(0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_0000);
@@ -221,7 +217,10 @@ mod tests {
     #[test]
     fn can_get_sector_dual_bank() {
         let assert_sector = |index: u8, start: u32, size: u32, addr: u32| {
-            assert_eq!(FlashSector { index, start, size }, get_sector(addr, true, 1024 * 1024))
+            assert_eq!(
+                FlashSector { index, start, size },
+                get_sector_inner(addr, true, 1024 * 1024)
+            )
         };
 
         assert_sector(0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_0000);

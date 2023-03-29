@@ -2,11 +2,11 @@ use core::ptr::write_volatile;
 
 use atomic_polyfill::{fence, Ordering};
 
-use super::{FlashRegion, WRITE_SIZE};
+use super::{FlashRegion, FlashSector, BANK1, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-const ERASE_SIZE: usize = super::BANK1::ERASE_SIZE;
+const ERASE_SIZE: usize = BANK1::SETTINGS.erase_size;
 
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
@@ -60,10 +60,6 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     }
 
     blocking_wait_ready()
-}
-
-pub(crate) fn is_eraseable_range(start_address: u32, end_address: u32) -> bool {
-    start_address % ERASE_SIZE as u32 == 0 && end_address % ERASE_SIZE as u32 == 0
 }
 
 pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
@@ -189,5 +185,15 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
 
             return Ok(());
         }
+    }
+}
+
+pub(crate) fn get_sector(address: u32) -> FlashSector {
+    let sector_size = BANK1::SETTINGS.erase_size as u32;
+    let index = address / sector_size;
+    FlashSector {
+        index: index as u8,
+        start: BANK1::SETTINGS.base as u32 + index * sector_size,
+        size: sector_size,
     }
 }

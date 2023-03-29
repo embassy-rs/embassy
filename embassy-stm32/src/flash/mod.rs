@@ -104,7 +104,7 @@ impl<'d> Flash<'d> {
 
         let start_address = FLASH_BASE as u32 + from;
         let end_address = FLASH_BASE as u32 + to;
-        if !family::is_eraseable_range(start_address, end_address) {
+        if !is_eraseable_range(start_address, end_address) {
             return Err(Error::Unaligned);
         }
         trace!("Erasing from 0x{:x} to 0x{:x}", start_address, end_address);
@@ -191,6 +191,18 @@ pub trait FlashRegion {
             res
         }
     }
+}
+
+fn is_eraseable_range(start_address: u32, end_address: u32) -> bool {
+    let mut address = start_address;
+    while address < end_address {
+        let sector = family::get_sector(address);
+        if sector.start != address {
+            return false;
+        }
+        address += sector.size;
+    }
+    address == end_address
 }
 
 fn take_lock_spin() -> MutexGuard<'static, CriticalSectionRawMutex, ()> {

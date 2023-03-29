@@ -45,18 +45,6 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     blocking_wait_ready()
 }
 
-pub(crate) fn is_eraseable_range(start_address: u32, end_address: u32) -> bool {
-    let mut address = start_address;
-    while address < end_address {
-        let sector = get_sector(address);
-        if sector.start != address {
-            return false;
-        }
-        address += sector.size;
-    }
-    address == end_address
-}
-
 pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
     let mut address = start_address;
     while address < end_address {
@@ -132,7 +120,7 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
     }
 }
 
-fn get_sector(address: u32) -> FlashSector {
+pub(crate) fn get_sector(address: u32) -> FlashSector {
     // First 4 sectors are 32KB, then one 128KB, and rest are 256KB
     let offset = address - FLASH_BASE as u32;
     match offset / LARGE_SECTOR_SIZE {
@@ -156,7 +144,10 @@ fn get_sector(address: u32) -> FlashSector {
             let large_sector_index = i - 1;
             FlashSector {
                 index: (5 + large_sector_index) as u8,
-                start: FLASH_BASE as u32 + 4 * SMALL_SECTOR_SIZE + MEDIUM_SECTOR_SIZE + large_sector_index * LARGE_SECTOR_SIZE,
+                start: FLASH_BASE as u32
+                    + 4 * SMALL_SECTOR_SIZE
+                    + MEDIUM_SECTOR_SIZE
+                    + large_sector_index * LARGE_SECTOR_SIZE,
                 size: LARGE_SECTOR_SIZE,
             }
         }
