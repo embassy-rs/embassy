@@ -16,7 +16,7 @@ use crate::Peripheral;
 mod family;
 
 pub struct Flash<'d> {
-    _inner: PeripheralRef<'d, FLASH>,
+    inner: PeripheralRef<'d, FLASH>,
 }
 
 pub struct FlashRegionSettings {
@@ -39,11 +39,13 @@ static REGION_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 impl<'d> Flash<'d> {
     pub fn new(p: impl Peripheral<P = FLASH> + 'd) -> Self {
         into_ref!(p);
-        Self { _inner: p }
+        Self { inner: p }
     }
 
-    pub fn into_regions(self) -> FlashRegions {
-        FlashRegions::take()
+    pub fn into_regions(self) -> FlashRegions<'d> {
+        let mut flash = self;
+        let p = unsafe { flash.inner.clone_unchecked() };
+        FlashRegions::new(p)
     }
 
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
@@ -123,7 +125,7 @@ impl Drop for Flash<'_> {
     }
 }
 
-impl Drop for FlashRegions {
+impl Drop for FlashRegions<'_> {
     fn drop(&mut self) {
         unsafe { family::lock() };
     }
