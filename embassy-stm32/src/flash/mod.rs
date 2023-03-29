@@ -19,6 +19,14 @@ pub struct Flash<'d> {
     _inner: PeripheralRef<'d, FLASH>,
 }
 
+pub struct FlashRegionSettings {
+    pub base: usize,
+    pub size: usize,
+    pub erase_size: usize,
+    pub write_size: usize,
+    pub erase_value: u8,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct FlashSector {
     pub index: u8,
@@ -122,32 +130,28 @@ impl Drop for FlashRegions {
 }
 
 pub trait FlashRegion {
-    const BASE: usize;
-    const SIZE: usize;
-    const ERASE_SIZE: usize;
-    const WRITE_SIZE: usize;
-    const ERASE_VALUE: u8;
+    const SETTINGS: FlashRegionSettings;
 
     fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        if offset as usize + bytes.len() > Self::SIZE {
+        if offset as usize + bytes.len() > Self::SETTINGS.size {
             return Err(Error::Size);
         }
 
-        let first_address = Self::BASE as u32 + offset;
+        let first_address = Self::SETTINGS.base as u32 + offset;
         let flash_data = unsafe { core::slice::from_raw_parts(first_address as *const u8, bytes.len()) };
         bytes.copy_from_slice(flash_data);
         Ok(())
     }
 
     fn blocking_write(&mut self, offset: u32, buf: &[u8]) -> Result<(), Error> {
-        if offset as usize + buf.len() > Self::SIZE {
+        if offset as usize + buf.len() > Self::SETTINGS.size {
             return Err(Error::Size);
         }
-        if offset as usize % Self::WRITE_SIZE != 0 || buf.len() as usize % Self::WRITE_SIZE != 0 {
+        if offset as usize % Self::SETTINGS.write_size != 0 || buf.len() as usize % Self::SETTINGS.write_size != 0 {
             return Err(Error::Unaligned);
         }
 
-        let start_address = Self::BASE as u32 + offset;
+        let start_address = Self::SETTINGS.base as u32 + offset;
         trace!("Writing {} bytes from 0x{:x}", buf.len(), start_address);
 
         // Protect agains simultaneous write/erase to multiple regions.
@@ -163,15 +167,15 @@ pub trait FlashRegion {
     }
 
     fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        if to < from || to as usize > Self::SIZE {
+        if to < from || to as usize > Self::SETTINGS.size {
             return Err(Error::Size);
         }
-        if (from as usize % Self::ERASE_SIZE) != 0 || (to as usize % Self::ERASE_SIZE) != 0 {
+        if (from as usize % Self::SETTINGS.erase_size) != 0 || (to as usize % Self::SETTINGS.erase_size) != 0 {
             return Err(Error::Unaligned);
         }
 
-        let start_address = Self::BASE as u32 + from;
-        let end_address = Self::BASE as u32 + to;
+        let start_address = Self::SETTINGS.base as u32 + from;
+        let end_address = Self::SETTINGS.base as u32 + to;
         trace!("Erasing from 0x{:x} to 0x{:x}", start_address, end_address);
 
         // Protect agains simultaneous write/erase to multiple regions.
@@ -224,20 +228,20 @@ foreach_flash_region! {
         }
 
         impl ReadNorFlash for crate::_generated::flash_regions::$name {
-            const READ_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::WRITE_SIZE;
+            const READ_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::SETTINGS.write_size;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
                 self.blocking_read(offset, bytes)
             }
 
             fn capacity(&self) -> usize {
-                <crate::_generated::flash_regions::$name as FlashRegion>::SIZE
+                <crate::_generated::flash_regions::$name as FlashRegion>::SETTINGS.size
             }
         }
 
         impl NorFlash for crate::_generated::flash_regions::$name {
-            const WRITE_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::WRITE_SIZE;
-            const ERASE_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::ERASE_SIZE;
+            const WRITE_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::SETTINGS.write_size;
+            const ERASE_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::SETTINGS.erase_size;
 
             fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
                 self.blocking_erase(from, to)

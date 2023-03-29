@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::{env, fs};
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::{MemoryRegionKind, METADATA};
 
@@ -106,12 +106,15 @@ fn main() {
     // ========
     // Generate FLASH regions
     let mut flash_regions = TokenStream::new();
-    let flash_memory_regions = METADATA
+    let flash_memory_regions: Vec<_> = METADATA
         .memory
         .iter()
-        .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some());
-    for region in flash_memory_regions.clone() {
-        let region_name = format_ident!("{}", get_flash_region_name(region.name));
+        .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
+        .collect();
+    for region in flash_memory_regions.iter() {
+        let region_name = get_flash_region_name(region.name);
+        let region_type = format_ident!("{}", region_name);
+        let settings_name = format_ident!("{}_SETTINGS", region_name);
         let base = region.address as usize;
         let size = region.size as usize;
         let settings = region.settings.as_ref().unwrap();
@@ -121,21 +124,26 @@ fn main() {
 
         flash_regions.extend(quote! {
             #[allow(non_camel_case_types)]
-            pub struct #region_name(());
+            pub struct #region_type(());
         });
 
         flash_regions.extend(quote! {
-            impl crate::flash::FlashRegion for #region_name {
-                const BASE: usize = #base;
-                const SIZE: usize = #size;
-                const ERASE_SIZE: usize = #erase_size;
-                const WRITE_SIZE: usize = #write_size;
-                const ERASE_VALUE: u8 = #erase_value;
+            pub const #settings_name: crate::flash::FlashRegionSettings = crate::flash::FlashRegionSettings {
+                base: #base,
+                size: #size,
+                erase_size: #erase_size,
+                write_size: #write_size,
+                erase_value: #erase_value,
+            };
+
+            impl crate::flash::FlashRegion for #region_type {
+                const SETTINGS: crate::flash::FlashRegionSettings = #settings_name;
             }
         });
     }
 
-    let (fields, inits): (Vec<TokenStream>, Vec<TokenStream>) = flash_memory_regions
+    let (fields, (inits, settings)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
+        .iter()
         .map(|f| {
             let region_name = get_flash_region_name(f.name);
             let field_name = format_ident!("{}", region_name.to_lowercase());
@@ -146,11 +154,13 @@ fn main() {
             let init = quote! {
                 #field_name: #field_type(())
             };
+            let settings_name = format_ident!("{}_SETTINGS", region_name);
 
-            (field, init)
+            (field, (init, settings_name))
         })
         .unzip();
 
+    let regions_len = flash_memory_regions.len();
     flash_regions.extend(quote! {
         pub struct FlashRegions {
             #(#fields),*
@@ -163,6 +173,10 @@ fn main() {
                 }
             }
         }
+
+        pub const FLASH_REGIONS: [&crate::flash::FlashRegionSettings; #regions_len] = [
+            #(&#settings),*
+        ];
     });
 
     g.extend(quote! { pub mod flash_regions { #flash_regions } });
