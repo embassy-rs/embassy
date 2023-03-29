@@ -79,7 +79,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
-    let bank = pac::FLASH::bank(if sector.index >= 8 { 1 } else { 0 });
+    let bank = pac::FLASH.bank(if sector.index >= 8 { 1 } else { 0 });
     let sector = sector.index % 8;
     bank.cr().modify(|w| {
         w.set_ser(true);
