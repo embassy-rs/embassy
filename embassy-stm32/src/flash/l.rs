@@ -6,8 +6,6 @@ use super::{FlashRegion, FlashSector, BANK1, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-const ERASE_SIZE: usize = BANK1::SETTINGS.erase_size;
-
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -75,7 +73,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     {
-        let idx = (sector.start - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
+        let idx = (sector.start - super::FLASH_BASE as u32) / BANK1::SETTINGS.erase_size as u32;
 
         #[cfg(flash_l4)]
         let (idx, bank) = if idx > 255 { (idx - 256, true) } else { (idx, false) };

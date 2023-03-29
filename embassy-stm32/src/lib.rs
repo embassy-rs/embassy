@@ -43,17 +43,8 @@ pub mod i2c;
 
 #[cfg(crc)]
 pub mod crc;
-#[cfg(any(
-    flash_l0, flash_l1, flash_wl, flash_wb, flash_l4, flash_f3, flash_f4, flash_f7, flash_h7
-))]
+#[cfg(flash)]
 pub mod flash;
-#[cfg(not(any(
-    flash_l0, flash_l1, flash_wl, flash_wb, flash_l4, flash_f3, flash_f4, flash_f7, flash_h7
-)))]
-pub mod flash {
-    mod other;
-    pub use other::FlashRegion;
-}
 pub mod pwm;
 #[cfg(rng)]
 pub mod rng;

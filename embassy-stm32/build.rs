@@ -162,11 +162,13 @@ fn main() {
 
     let regions_len = flash_memory_regions.len();
     flash_regions.extend(quote! {
+        #[cfg(flash)]
         pub struct FlashRegions<'d> {
             _inner: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>,
             #(#fields),*
         }
 
+        #[cfg(flash)]
         impl<'d> FlashRegions<'d> {
             pub(crate) const fn new(p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
