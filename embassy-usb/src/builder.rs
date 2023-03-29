@@ -201,6 +201,14 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         self.config_descriptor.end_configuration();
         self.bos_descriptor.end_bos();
 
+        // Log the number of allocator bytes actually used in descriptor buffers
+        info!("USB: device_descriptor used: {}", self.device_descriptor.position());
+        info!("USB: config_descriptor used: {}", self.config_descriptor.position());
+        info!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
+        #[cfg(feature = "msos-descriptor")]
+        info!("USB: msos_descriptor used: {}", msos_descriptor.len());
+        info!("USB: control_buf size: {}", self.control_buf.len());
+
         UsbDevice::build(
             self.driver,
             self.config,

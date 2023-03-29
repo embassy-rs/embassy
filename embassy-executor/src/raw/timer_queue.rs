@@ -1,28 +1,32 @@
-use core::cell::Cell;
 use core::cmp::min;
 
 use atomic_polyfill::Ordering;
 use embassy_time::Instant;
 
 use super::{TaskRef, STATE_TIMER_QUEUED};
+use crate::raw::util::SyncUnsafeCell;
 
 pub(crate) struct TimerQueueItem {
-    next: Cell<Option<TaskRef>>,
+    next: SyncUnsafeCell<Option<TaskRef>>,
 }
 
 impl TimerQueueItem {
     pub const fn new() -> Self {
-        Self { next: Cell::new(None) }
+        Self {
+            next: SyncUnsafeCell::new(None),
+        }
     }
 }
 
 pub(crate) struct TimerQueue {
-    head: Cell<Option<TaskRef>>,
+    head: SyncUnsafeCell<Option<TaskRef>>,
 }
 
 impl TimerQueue {
     pub const fn new() -> Self {
-        Self { head: Cell::new(None) }
+        Self {
+            head: SyncUnsafeCell::new(None),
+        }
     }
 
     pub(crate) unsafe fn update(&self, p: TaskRef) {
