@@ -78,20 +78,9 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     res.unwrap()
 }
 
-pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
-    let start_sector = (start_address - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
-    let end_sector = (end_address - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
-    for sector in start_sector..end_sector {
-        let bank = if sector >= 8 { 1 } else { 0 };
-        let ret = erase_sector(pac::FLASH.bank(bank), (sector % 8) as u8);
-        if ret.is_err() {
-            return ret;
-        }
-    }
-    Ok(())
-}
-
-unsafe fn erase_sector(bank: pac::flash::Bank, sector: u8) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    let bank = pac::FLASH::bank(if sector.index >= 8 { 1 } else { 0 });
+    let sector = sector.index % 8;
     bank.cr().modify(|w| {
         w.set_ser(true);
         w.set_snb(sector)

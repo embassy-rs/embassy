@@ -45,20 +45,10 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     blocking_wait_ready()
 }
 
-pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
-    let mut address = start_address;
-    while address < end_address {
-        let sector = get_sector(address);
-        erase_sector(sector.index)?;
-        address += sector.size;
-    }
-    Ok(())
-}
-
-unsafe fn erase_sector(sector: u8) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     pac::FLASH.cr().modify(|w| {
         w.set_ser(true);
-        w.set_snb(sector)
+        w.set_snb(sector.index)
     });
 
     pac::FLASH.cr().modify(|w| {

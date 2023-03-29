@@ -41,33 +41,31 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     blocking_wait_ready()
 }
 
-pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
-    for page in (start_address..end_address).step_by(ERASE_SIZE) {
-        pac::FLASH.cr().modify(|w| {
-            w.set_per(true);
-        });
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    pac::FLASH.cr().modify(|w| {
+        w.set_per(true);
+    });
 
-        pac::FLASH.ar().write(|w| w.set_far(page));
+    pac::FLASH.ar().write(|w| w.set_far(sector.first));
 
-        pac::FLASH.cr().modify(|w| {
-            w.set_strt(true);
-        });
+    pac::FLASH.cr().modify(|w| {
+        w.set_strt(true);
+    });
 
-        let mut ret: Result<(), Error> = blocking_wait_ready();
+    let mut ret: Result<(), Error> = blocking_wait_ready();
 
-        if !pac::FLASH.sr().read().eop() {
-            trace!("FLASH: EOP not set");
-            ret = Err(Error::Prog);
-        } else {
-            pac::FLASH.sr().write(|w| w.set_eop(true));
-        }
+    if !pac::FLASH.sr().read().eop() {
+        trace!("FLASH: EOP not set");
+        ret = Err(Error::Prog);
+    } else {
+        pac::FLASH.sr().write(|w| w.set_eop(true));
+    }
 
-        pac::FLASH.cr().modify(|w| w.set_per(false));
+    pac::FLASH.cr().modify(|w| w.set_per(false));
 
-        clear_all_err();
-        if ret.is_err() {
-            return ret;
-        }
+    clear_all_err();
+    if ret.is_err() {
+        return ret;
     }
     Ok(())
 }

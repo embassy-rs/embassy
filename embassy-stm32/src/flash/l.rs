@@ -62,55 +62,50 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     blocking_wait_ready()
 }
 
-pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
-    for page in (start_address..end_address).step_by(ERASE_SIZE) {
-        #[cfg(any(flash_l0, flash_l1))]
-        {
-            pac::FLASH.pecr().modify(|w| {
-                w.set_erase(true);
-                w.set_prog(true);
-            });
-
-            write_volatile(page as *mut u32, 0xFFFFFFFF);
-        }
-
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
-        {
-            let idx = (page - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
-
-            #[cfg(flash_l4)]
-            let (idx, bank) = if idx > 255 { (idx - 256, true) } else { (idx, false) };
-
-            pac::FLASH.cr().modify(|w| {
-                w.set_per(true);
-                w.set_pnb(idx as u8);
-                #[cfg(any(flash_wl, flash_wb))]
-                w.set_strt(true);
-                #[cfg(any(flash_l4))]
-                w.set_start(true);
-                #[cfg(any(flash_l4))]
-                w.set_bker(bank);
-            });
-        }
-
-        let ret: Result<(), Error> = blocking_wait_ready();
-
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
-        pac::FLASH.cr().modify(|w| w.set_per(false));
-
-        #[cfg(any(flash_l0, flash_l1))]
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    #[cfg(any(flash_l0, flash_l1))]
+    {
         pac::FLASH.pecr().modify(|w| {
-            w.set_erase(false);
-            w.set_prog(false);
+            w.set_erase(true);
+            w.set_prog(true);
         });
 
-        clear_all_err();
-        if ret.is_err() {
-            return ret;
-        }
+        write_volatile(sector.start as *mut u32, 0xFFFFFFFF);
     }
 
-    Ok(())
+    #[cfg(any(flash_wl, flash_wb, flash_l4))]
+    {
+        let idx = (sector.start - super::FLASH_BASE as u32) / ERASE_SIZE as u32;
+
+        #[cfg(flash_l4)]
+        let (idx, bank) = if idx > 255 { (idx - 256, true) } else { (idx, false) };
+
+        pac::FLASH.cr().modify(|w| {
+            w.set_per(true);
+            w.set_pnb(idx as u8);
+            #[cfg(any(flash_wl, flash_wb))]
+            w.set_strt(true);
+            #[cfg(any(flash_l4))]
+            w.set_start(true);
+            #[cfg(any(flash_l4))]
+            w.set_bker(bank);
+        });
+    }
+
+    let ret: Result<(), Error> = blocking_wait_ready();
+
+    #[cfg(any(flash_wl, flash_wb, flash_l4))]
+    pac::FLASH.cr().modify(|w| w.set_per(false));
+
+    #[cfg(any(flash_l0, flash_l1))]
+    pac::FLASH.pecr().modify(|w| {
+        w.set_erase(false);
+        w.set_prog(false);
+    });
+
+    clear_all_err();
+
+    ret
 }
 
 pub(crate) unsafe fn clear_all_err() {

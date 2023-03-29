@@ -63,17 +63,8 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     blocking_wait_ready()
 }
 
-pub(crate) unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
-    let mut address = start_address;
-    while address < end_address {
-        let sector = get_sector(address);
-        erase_sector(sector.index)?;
-        address += sector.size;
-    }
-    Ok(())
-}
-
-unsafe fn erase_sector(sector: u8) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    let sector = sector.index;
     let bank = sector / SECOND_BANK_SECTOR_OFFSET as u8;
     let snb = (bank << 4) + (sector % SECOND_BANK_SECTOR_OFFSET as u8);
 
@@ -132,7 +123,7 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
 }
 
 pub(crate) fn get_sector(address: u32) -> FlashSector {
-    get_sector_inner(address, is_dual_bank(), FLASH_SIZE)
+    get_sector_inner(address, is_dual_bank(), FLASH_SIZE as u32)
 }
 
 fn get_sector_inner(address: u32, dual_bank: bool, flash_size: u32) -> FlashSector {
