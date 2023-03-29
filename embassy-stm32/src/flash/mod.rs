@@ -9,12 +9,45 @@ pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 use crate::peripherals::FLASH;
 use crate::Peripheral;
 
-#[cfg_attr(any(flash_wl, flash_wb, flash_l0, flash_l1, flash_l4), path = "l.rs")]
+#[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_wl, flash_wb), path = "l.rs")]
 #[cfg_attr(flash_f3, path = "f3.rs")]
 #[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
 #[cfg_attr(flash_h7, path = "h7.rs")]
 mod family;
+
+#[cfg(not(any(
+    flash_l0, flash_l1, flash_l4, flash_wl, flash_wb, flash_f3, flash_f4, flash_f7, flash_h7
+)))]
+mod family {
+    use super::{Error, FlashSector};
+
+    pub(crate) unsafe fn lock() {
+        unimplemented!();
+    }
+    pub(crate) unsafe fn unlock() {
+        unimplemented!();
+    }
+    pub(crate) unsafe fn begin_write() {
+        unimplemented!();
+    }
+    pub(crate) unsafe fn end_write() {
+        unimplemented!();
+    }
+    pub(crate) unsafe fn blocking_write(_start_address: u32, _buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+        unimplemented!();
+    }
+    pub(crate) unsafe fn blocking_erase_sector(_sector: &FlashSector) -> Result<(), Error> {
+        unimplemented!();
+    }
+    pub(crate) unsafe fn clear_all_err() {
+        unimplemented!();
+    }
+    pub(crate) fn get_sector(_address: u32) -> FlashSector {
+        unimplemented!();
+    }
+}
+
 pub struct Flash<'d> {
     inner: PeripheralRef<'d, FLASH>,
 }
@@ -32,6 +65,33 @@ pub struct FlashSector {
     pub index: u8,
     pub start: u32,
     pub size: u32,
+}
+
+pub trait FlashRegion {
+    const SETTINGS: FlashRegionSettings;
+
+    fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        Flash::blocking_read_inner(Self::SETTINGS.base as u32 + offset, bytes)
+    }
+
+    fn blocking_write(&mut self, offset: u32, buf: &[u8]) -> Result<(), Error> {
+        let start_address = Self::SETTINGS.base as u32 + offset;
+
+        // Protect agains simultaneous write/erase to multiple regions.
+        let _guard = take_lock_spin();
+
+        unsafe { Flash::blocking_write_inner(start_address, buf) }
+    }
+
+    fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        let start_address = Self::SETTINGS.base as u32 + from;
+        let end_address = Self::SETTINGS.base as u32 + to;
+
+        // Protect agains simultaneous write/erase to multiple regions.
+        let _guard = take_lock_spin();
+
+        unsafe { Flash::blocking_erase_inner(start_address, end_address) }
+    }
 }
 
 static REGION_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
@@ -148,39 +208,6 @@ impl Drop for Flash<'_> {
 impl Drop for FlashRegions<'_> {
     fn drop(&mut self) {
         unsafe { family::lock() };
-    }
-}
-
-pub trait FlashRegion {
-    const SETTINGS: FlashRegionSettings;
-
-    fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        Flash::blocking_read_inner(Self::SETTINGS.base as u32 + offset, bytes)
-    }
-
-    fn blocking_write(&mut self, offset: u32, buf: &[u8]) -> Result<(), Error> {
-        let start_address = Self::SETTINGS.base as u32 + offset;
-
-        // Protect agains simultaneous write/erase to multiple regions.
-        let _guard = take_lock_spin();
-
-        unsafe {
-            family::clear_all_err();
-            Flash::blocking_write_inner(start_address, buf)
-        }
-    }
-
-    fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        let start_address = Self::SETTINGS.base as u32 + from;
-        let end_address = Self::SETTINGS.base as u32 + to;
-
-        // Protect agains simultaneous write/erase to multiple regions.
-        let _guard = take_lock_spin();
-
-        unsafe {
-            family::clear_all_err();
-            Flash::blocking_erase_inner(start_address, end_address)
-        }
     }
 }
 
