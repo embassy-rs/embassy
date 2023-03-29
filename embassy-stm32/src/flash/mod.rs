@@ -19,6 +19,13 @@ pub struct Flash<'d> {
     _inner: PeripheralRef<'d, FLASH>,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct FlashSector {
+    pub index: u8,
+    pub start: u32,
+    pub size: u32,
+}
+
 static REGION_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 impl<'d> Flash<'d> {

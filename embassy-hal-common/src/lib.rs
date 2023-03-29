@@ -10,5 +10,4 @@ mod macros;
 mod peripheral;
 pub mod ratio;
 pub mod ring_buffer;
-pub mod stm32;
 pub use peripheral::{Peripheral, PeripheralRef};
