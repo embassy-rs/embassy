@@ -1,6 +1,9 @@
 #![macro_use]
 
+pub mod enums;
+
 use embassy_hal_common::{into_ref, PeripheralRef};
+use enums::*;
 
 use crate::dma::TransferOptions;
 use crate::gpio::sealed::AFType;
@@ -9,37 +12,24 @@ use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
-pub struct QspiWidth;
-
-#[allow(dead_code)]
-impl QspiWidth {
-    pub const NONE: u8 = 0b00;
-    pub const SING: u8 = 0b01;
-    pub const DUAL: u8 = 0b10;
-    pub const QUAD: u8 = 0b11;
-}
-
-struct QspiMode;
-
-#[allow(dead_code)]
-impl QspiMode {
-    pub const INDIRECT_WRITE: u8 = 0b00;
-    pub const INDIRECT_READ: u8 = 0b01;
-    pub const AUTO_POLLING: u8 = 0b10;
-    pub const MEMORY_MAPPED: u8 = 0b11;
-}
-
-pub struct QspiTransaction {
-    pub iwidth: u8,
-    pub awidth: u8,
-    pub dwidth: u8,
+pub struct TransferConfig {
+    /// Instraction width (IMODE)
+    pub iwidth: QspiWidth,
+    /// Address width (ADMODE)
+    pub awidth: QspiWidth,
+    /// Data width (DMODE)
+    pub dwidth: QspiWidth,
+    /// Instruction Id
     pub instruction: u8,
+    /// Flash memory address
     pub address: Option<u32>,
-    pub dummy: u8,
+    /// Number of dummy cycles (DCYC)
+    pub dummy: DummyCycles,
+    /// Length of data
     pub data_len: Option<usize>,
 }
 
-impl Default for QspiTransaction {
+impl Default for TransferConfig {
     fn default() -> Self {
         Self {
             iwidth: QspiWidth::NONE,
@@ -47,28 +37,34 @@ impl Default for QspiTransaction {
             dwidth: QspiWidth::NONE,
             instruction: 0,
             address: None,
-            dummy: 0,
+            dummy: DummyCycles::_0,
             data_len: None,
         }
     }
 }
 
 pub struct Config {
-    pub memory_size: u8,
-    pub address_size: u8,
+    /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
+    /// If you need other value the whose predefined use `Other` variant.
+    pub memory_size: MemorySize,
+    /// Address size (8/16/24/32-bit)
+    pub address_size: AddressSize,
+    /// Scalar factor for generating CLK [0-255]
     pub prescaler: u8,
-    pub fifo_threshold: u8,
-    pub cs_high_time: u8,
+    /// Number of bytes to trigger FIFO threshold flag.
+    pub fifo_threshold: FIFOThresholdLevel,
+    /// Minimum number of cycles that chip select must be high between issued commands
+    pub cs_high_time: ChipSelectHightTime,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            memory_size: 0,
-            address_size: 2,
+            memory_size: MemorySize::Other(0),
+            address_size: AddressSize::_24bit,
             prescaler: 128,
-            fifo_threshold: 16,
-            cs_high_time: 4,
+            fifo_threshold: FIFOThresholdLevel::_17Bytes,
+            cs_high_time: ChipSelectHightTime::_5Cycle,
         }
     }
 }
@@ -143,7 +139,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
 
         T::enable();
         unsafe {
-            T::REGS.cr().write(|w| w.set_fthres(config.fifo_threshold));
+            T::REGS.cr().write(|w| w.set_fthres(config.fifo_threshold.into()));
 
             while T::REGS.sr().read().busy() {}
 
@@ -152,8 +148,8 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
                 w.set_en(true);
             });
             T::REGS.dcr().write(|w| {
-                w.set_fsize(config.memory_size);
-                w.set_csht(config.cs_high_time);
+                w.set_fsize(config.memory_size.into());
+                w.set_csht(config.cs_high_time.into());
                 w.set_ckmode(false);
             });
         }
@@ -171,25 +167,25 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
-    pub fn command(&mut self, transaction: QspiTransaction) {
+    pub fn command(&mut self, transaction: TransferConfig) {
         unsafe {
             T::REGS.cr().modify(|v| v.set_dmaen(false));
-            self.setup_transaction(QspiMode::INDIRECT_WRITE, &transaction);
+            self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
             while !T::REGS.sr().read().tcf() {}
             T::REGS.fcr().modify(|v| v.set_ctcf(true));
         }
     }
 
-    pub fn read(&mut self, buf: &mut [u8], transaction: QspiTransaction) {
+    pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) {
         unsafe {
             T::REGS.cr().modify(|v| v.set_dmaen(false));
-            self.setup_transaction(QspiMode::INDIRECT_WRITE, &transaction);
+            self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
             if let Some(len) = transaction.data_len {
                 let current_ar = T::REGS.ar().read().address();
                 T::REGS.ccr().modify(|v| {
-                    v.set_fmode(QspiMode::INDIRECT_READ);
+                    v.set_fmode(QspiMode::IndirectRead.into());
                 });
                 T::REGS.ar().write(|v| {
                     v.set_address(current_ar);
@@ -206,14 +202,14 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
-    pub fn write(&mut self, buf: &[u8], transaction: QspiTransaction) {
+    pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) {
         unsafe {
             T::REGS.cr().modify(|v| v.set_dmaen(false));
-            self.setup_transaction(QspiMode::INDIRECT_WRITE, &transaction);
+            self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
             if let Some(len) = transaction.data_len {
                 T::REGS.ccr().modify(|v| {
-                    v.set_fmode(QspiMode::INDIRECT_WRITE);
+                    v.set_fmode(QspiMode::IndirectWrite.into());
                 });
 
                 for idx in 0..len {
@@ -227,18 +223,18 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
-    pub fn read_dma(&mut self, buf: &mut [u8], transaction: QspiTransaction)
+    pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
     {
         unsafe {
-            self.setup_transaction(QspiMode::INDIRECT_WRITE, &transaction);
+            self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
             let request = self.dma.request();
             let options = TransferOptions::default();
 
             T::REGS.ccr().modify(|v| {
-                v.set_fmode(QspiMode::INDIRECT_READ);
+                v.set_fmode(QspiMode::IndirectRead.into());
             });
             let current_ar = T::REGS.ar().read().address();
             T::REGS.ar().write(|v| {
@@ -254,18 +250,18 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
-    pub fn write_dma(&mut self, buf: &[u8], transaction: QspiTransaction)
+    pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
     {
         unsafe {
-            self.setup_transaction(QspiMode::INDIRECT_WRITE, &transaction);
+            self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
             let request = self.dma.request();
             let options = TransferOptions::default();
 
             T::REGS.ccr().modify(|v| {
-                v.set_fmode(QspiMode::INDIRECT_WRITE);
+                v.set_fmode(QspiMode::IndirectWrite.into());
             });
 
             self.dma
@@ -277,7 +273,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
-    fn setup_transaction(&mut self, fmode: u8, transaction: &QspiTransaction) {
+    fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig) {
         unsafe {
             T::REGS.fcr().modify(|v| {
                 v.set_csmf(true);
@@ -293,14 +289,14 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             }
 
             T::REGS.ccr().write(|v| {
-                v.set_fmode(fmode);
-                v.set_imode(transaction.iwidth);
+                v.set_fmode(fmode.into());
+                v.set_imode(transaction.iwidth.into());
                 v.set_instruction(transaction.instruction);
-                v.set_admode(transaction.awidth);
-                v.set_adsize(self.config.address_size);
-                v.set_dmode(transaction.dwidth);
-                v.set_abmode(QspiWidth::NONE);
-                v.set_dcyc(transaction.dummy);
+                v.set_admode(transaction.awidth.into());
+                v.set_adsize(self.config.address_size.into());
+                v.set_dmode(transaction.dwidth.into());
+                v.set_abmode(QspiWidth::NONE.into());
+                v.set_dcyc(transaction.dummy.into());
             });
 
             if let Some(addr) = transaction.address {
