@@ -165,6 +165,25 @@ struct Interface {
     num_alt_settings: u8,
 }
 
+/// A report of the used size of the runtime allocated buffers
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct UsbBufferReport {
+    /// Number of device descriptor bytes used
+    pub device_descriptor_used: usize,
+    /// Number of config descriptor bytes used
+    pub config_descriptor_used: usize,
+    /// Number of bos descriptor bytes used
+    pub bos_descriptor_used: usize,
+    /// Number of msos descriptor bytes used
+    ///
+    /// Will be `None` if the "msos-descriptor" feature is not active.
+    /// Otherwise will return Some(bytes).
+    pub msos_descriptor_used: Option<usize>,
+    /// Size of the control buffer
+    pub control_buffer_size: usize,
+}
+
 /// Main struct for the USB device stack.
 pub struct UsbDevice<'d, D: Driver<'d>> {
     control_buf: &'d mut [u8],
@@ -236,6 +255,24 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 #[cfg(feature = "msos-descriptor")]
                 msos_descriptor,
             },
+        }
+    }
+
+    /// Returns a report of the consumed buffers
+    ///
+    /// Useful for tuning buffer sizes for actual usage
+    pub fn buffer_usage(&self) -> UsbBufferReport {
+        #[cfg(not(feature = "msos-descriptor"))]
+        let mdu = None;
+        #[cfg(feature = "msos-descriptor")]
+        let mdu = Some(self.inner.msos_descriptor.len());
+
+        UsbBufferReport {
+            device_descriptor_used: self.inner.device_descriptor.len(),
+            config_descriptor_used: self.inner.config_descriptor.len(),
+            bos_descriptor_used: self.inner.bos_descriptor.len(),
+            msos_descriptor_used: mdu,
+            control_buffer_size: self.control_buf.len(),
         }
     }
 

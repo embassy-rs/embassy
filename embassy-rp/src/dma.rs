@@ -1,3 +1,4 @@
+//! Direct Memory Access (DMA)
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
