@@ -20,7 +20,7 @@ mod family;
     flash_l0, flash_l1, flash_l4, flash_wl, flash_wb, flash_f3, flash_f4, flash_f7, flash_h7
 )))]
 mod family {
-    use super::{Error, FlashSector};
+    use super::{Error, FlashSector, WRITE_SIZE};
 
     pub(crate) unsafe fn lock() {
         unimplemented!();
