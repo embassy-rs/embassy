@@ -1,5 +1,5 @@
 macro_rules! impl_sample_time {
-    ($default_doc:expr, $default:ident, $pac:ty, ($(($doc:expr, $variant:ident, $pac_variant:ident)),*)) => {
+    ($default_doc:expr, $default:ident, ($(($doc:expr, $variant:ident, $pac_variant:ident)),*)) => {
         #[doc = concat!("ADC sample time\n\nThe default setting is ", $default_doc, " ADC clock cycles.")]
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
         pub enum SampleTime {
@@ -9,10 +9,10 @@ macro_rules! impl_sample_time {
             )*
         }
 
-        impl From<SampleTime> for $pac {
-            fn from(sample_time: SampleTime) -> $pac {
+        impl From<SampleTime> for crate::pac::adc::vals::SampleTime {
+            fn from(sample_time: SampleTime) -> crate::pac::adc::vals::SampleTime {
                 match sample_time {
-                    $(SampleTime::$variant => <$pac>::$pac_variant),*
+                    $(SampleTime::$variant => crate::pac::adc::vals::SampleTime::$pac_variant),*
                 }
             }
         }
@@ -29,7 +29,6 @@ macro_rules! impl_sample_time {
 impl_sample_time!(
     "1.5",
     Cycles1_5,
-    crate::pac::adc::vals::SampleTime,
     (
         ("1.5", Cycles1_5, CYCLES1_5),
         ("7.5", Cycles7_5, CYCLES7_5),
@@ -46,7 +45,6 @@ impl_sample_time!(
 impl_sample_time!(
     "3",
     Cycles3,
-    crate::pac::adc::vals::Smp,
     (
         ("3", Cycles3, CYCLES3),
         ("15", Cycles15, CYCLES15),
@@ -63,7 +61,6 @@ impl_sample_time!(
 impl_sample_time!(
     "2.5",
     Cycles2_5,
-    crate::pac::adc::vals::SampleTime,
     (
         ("2.5", Cycles2_5, CYCLES2_5),
         ("6.5", Cycles6_5, CYCLES6_5),
@@ -80,7 +77,6 @@ impl_sample_time!(
 impl_sample_time!(
     "1.5",
     Cycles1_5,
-    crate::pac::adc::vals::SampleTime,
     (
         ("1.5", Cycles1_5, CYCLES1_5),
         ("3.5", Cycles3_5, CYCLES3_5),
@@ -97,7 +93,6 @@ impl_sample_time!(
 impl_sample_time!(
     "1.5",
     Cycles1_5,
-    crate::pac::adc::vals::Smp,
     (
         ("1.5", Cycles1_5, CYCLES1_5),
         ("2.5", Cycles2_5, CYCLES2_5),

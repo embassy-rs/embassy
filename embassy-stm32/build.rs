@@ -427,6 +427,12 @@ fn main() {
         (("sdmmc", "D6"), quote!(crate::sdmmc::D6Pin)),
         (("sdmmc", "D6"), quote!(crate::sdmmc::D7Pin)),
         (("sdmmc", "D8"), quote!(crate::sdmmc::D8Pin)),
+        (("quadspi", "BK1_IO0"), quote!(crate::qspi::D0Pin)),
+        (("quadspi", "BK1_IO1"), quote!(crate::qspi::D1Pin)),
+        (("quadspi", "BK1_IO2"), quote!(crate::qspi::D2Pin)),
+        (("quadspi", "BK1_IO3"), quote!(crate::qspi::D3Pin)),
+        (("quadspi", "CLK"), quote!(crate::qspi::SckPin)),
+        (("quadspi", "BK1_NCS"), quote!(crate::qspi::NSSPin)),
     ].into();
 
     for p in METADATA.peripherals {
@@ -507,6 +513,7 @@ fn main() {
         (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
+        (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
     ]
     .into();
 

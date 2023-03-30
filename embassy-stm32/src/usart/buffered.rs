@@ -197,6 +197,40 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         .await
     }
 
+    fn inner_blocking_read(&self, buf: &mut [u8]) -> Result<usize, Error> {
+        loop {
+            let mut do_pend = false;
+            let mut inner = self.inner.borrow_mut();
+            let n = inner.with(|state| {
+                compiler_fence(Ordering::SeqCst);
+
+                // We have data ready in buffer? Return it.
+                let data = state.rx.pop_buf();
+                if !data.is_empty() {
+                    let len = data.len().min(buf.len());
+                    buf[..len].copy_from_slice(&data[..len]);
+
+                    if state.rx.is_full() {
+                        do_pend = true;
+                    }
+                    state.rx.pop(len);
+
+                    return len;
+                }
+
+                0
+            });
+
+            if do_pend {
+                inner.pend();
+            }
+
+            if n > 0 {
+                return Ok(n);
+            }
+        }
+    }
+
     async fn inner_write<'a>(&'a self, buf: &'a [u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
             let mut inner = self.inner.borrow_mut();
@@ -234,6 +268,39 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             })
         })
         .await
+    }
+
+    fn inner_blocking_write(&self, buf: &[u8]) -> Result<usize, Error> {
+        loop {
+            let mut inner = self.inner.borrow_mut();
+            let (n, empty) = inner.with(|state| {
+                let empty = state.tx.is_empty();
+                let tx_buf = state.tx.push_buf();
+                if tx_buf.is_empty() {
+                    return (0, empty);
+                }
+
+                let n = core::cmp::min(tx_buf.len(), buf.len());
+                tx_buf[..n].copy_from_slice(&buf[..n]);
+                state.tx.push(n);
+
+                (n, empty)
+            });
+            if empty {
+                inner.pend();
+            }
+            if n != 0 {
+                return Ok(n);
+            }
+        }
+    }
+
+    fn inner_blocking_flush(&self) -> Result<(), Error> {
+        loop {
+            if !self.inner.borrow_mut().with(|state| state.tx.is_empty()) {
+                return Ok(());
+            }
+        }
     }
 
     async fn inner_fill_buf<'a>(&'a self) -> Result<&'a [u8], Error> {
@@ -417,5 +484,37 @@ impl<'u, 'd, T: BasicInstance> embedded_io::asynch::Write for BufferedUartTx<'u,
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.inner.inner_flush().await
+    }
+}
+
+impl<'d, T: BasicInstance> embedded_io::blocking::Read for BufferedUart<'d, T> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.inner_blocking_read(buf)
+    }
+}
+
+impl<'u, 'd, T: BasicInstance> embedded_io::blocking::Read for BufferedUartRx<'u, 'd, T> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.inner.inner_blocking_read(buf)
+    }
+}
+
+impl<'d, T: BasicInstance> embedded_io::blocking::Write for BufferedUart<'d, T> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner_blocking_write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.inner_blocking_flush()
+    }
+}
+
+impl<'u, 'd, T: BasicInstance> embedded_io::blocking::Write for BufferedUartTx<'u, 'd, T> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner.inner_blocking_write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.inner.inner_blocking_flush()
     }
 }

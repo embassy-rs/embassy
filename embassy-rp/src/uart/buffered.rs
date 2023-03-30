@@ -124,7 +124,7 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         }
     }
 
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<usize, Error> {
         self.tx.blocking_write(buffer)
     }
 
@@ -132,7 +132,7 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         self.tx.blocking_flush()
     }
 
-    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.blocking_read(buffer)
     }
 
@@ -201,7 +201,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         })
     }
 
-    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         loop {
             let state = T::state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
@@ -222,7 +222,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
                     });
                 }
 
-                return Ok(());
+                return Ok(n);
             }
         }
     }
@@ -326,7 +326,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         })
     }
 
-    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         loop {
             let state = T::state();
             let mut tx_writer = unsafe { state.tx_buf.writer() };
@@ -342,7 +342,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
                 // FIFO was empty we have to manually pend the interrupt to shovel
                 // TX data from the buffer into the FIFO.
                 unsafe { T::Interrupt::steal() }.pend();
-                return Ok(());
+                return Ok(n);
             }
         }
     }
@@ -533,6 +533,38 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUartTx<'d, T> 
     }
 }
 
+impl<'d, T: Instance + 'd> embedded_io::blocking::Read for BufferedUart<'d, T> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.rx.blocking_read(buf)
+    }
+}
+
+impl<'d, T: Instance + 'd> embedded_io::blocking::Read for BufferedUartRx<'d, T> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.blocking_read(buf)
+    }
+}
+
+impl<'d, T: Instance + 'd> embedded_io::blocking::Write for BufferedUart<'d, T> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.tx.blocking_write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.tx.blocking_flush()
+    }
+}
+
+impl<'d, T: Instance + 'd> embedded_io::blocking::Write for BufferedUartTx<'d, T> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
 mod eh02 {
     use super::*;
 
@@ -566,8 +598,15 @@ mod eh02 {
     impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d, T> {
         type Error = Error;
 
-        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
+        fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
+            while !buffer.is_empty() {
+                match self.blocking_write(buffer) {
+                    Ok(0) => panic!("zero-length write."),
+                    Ok(n) => buffer = &buffer[n..],
+                    Err(e) => return Err(e),
+                }
+            }
+            Ok(())
         }
 
         fn bflush(&mut self) -> Result<(), Self::Error> {
@@ -586,8 +625,15 @@ mod eh02 {
     impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d, T> {
         type Error = Error;
 
-        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
+        fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
+            while !buffer.is_empty() {
+                match self.blocking_write(buffer) {
+                    Ok(0) => panic!("zero-length write."),
+                    Ok(n) => buffer = &buffer[n..],
+                    Err(e) => return Err(e),
+                }
+            }
+            Ok(())
         }
 
         fn bflush(&mut self) -> Result<(), Self::Error> {
@@ -620,7 +666,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUartTx<'d, T> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
+            self.blocking_write(buffer).map(drop)
         }
 
         fn flush(&mut self) -> Result<(), Self::Error> {
@@ -630,7 +676,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_nb::serial::Write for BufferedUartTx<'d, T> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map_err(nb::Error::Other)
+            self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
         }
 
         fn flush(&mut self) -> nb::Result<(), Self::Error> {
@@ -646,7 +692,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUart<'d, T> {
         fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
+            self.blocking_write(buffer).map(drop)
         }
 
         fn flush(&mut self) -> Result<(), Self::Error> {
@@ -656,7 +702,7 @@ mod eh1 {
 
     impl<'d, T: Instance> embedded_hal_nb::serial::Write for BufferedUart<'d, T> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map_err(nb::Error::Other)
+            self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
         }
 
         fn flush(&mut self) -> nb::Result<(), Self::Error> {

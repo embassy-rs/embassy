@@ -32,6 +32,11 @@ impl<'d> MsOsDescriptorSet<'d> {
     pub fn is_empty(&self) -> bool {
         self.descriptor.is_empty()
     }
+
+    /// Returns the length of the descriptor field
+    pub fn len(&self) -> usize {
+        self.descriptor.len()
+    }
 }
 
 /// Writes a Microsoft OS 2.0 Descriptor set into a buffer.
