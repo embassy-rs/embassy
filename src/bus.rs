@@ -74,7 +74,7 @@ where
         // 32-bit word length, little endian (which is the default endianess).
         self.write32_swapped(
             REG_BUS_CTRL,
-            WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP | STATUS_ENABLE,
+            WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP | STATUS_ENABLE | INTERRUPT_WITH_STATUS,
         )
         .await;
 

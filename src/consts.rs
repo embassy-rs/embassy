@@ -16,7 +16,8 @@ pub(crate) const WORD_LENGTH_32: u32 = 0x1;
 pub(crate) const HIGH_SPEED: u32 = 0x10;
 pub(crate) const INTERRUPT_HIGH: u32 = 1 << 5;
 pub(crate) const WAKE_UP: u32 = 1 << 7;
-pub(crate) const STATUS_ENABLE: u32 = 0x10000;
+pub(crate) const STATUS_ENABLE: u32 = 1 << 16;
+pub(crate) const INTERRUPT_WITH_STATUS: u32 = 1 << 17;
 
 // SPI_STATUS_REGISTER bits
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
