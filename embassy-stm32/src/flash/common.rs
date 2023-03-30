@@ -205,7 +205,7 @@ impl FlashRegion {
 }
 
 foreach_flash_region! {
-    ($type_name:ident, $write_size:ident, $erase_size:ident) => {
+    ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl crate::_generated::flash_regions::$type_name {
             pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 unsafe { self.0.blocking_read_inner(offset, bytes) }
@@ -220,11 +220,11 @@ foreach_flash_region! {
             }
         }
 
-        impl ErrorType for crate::_generated::flash_regions::$type_name {
+        impl embedded_storage::nor_flash::ErrorType for crate::_generated::flash_regions::$type_name {
             type Error = Error;
         }
 
-        impl ReadNorFlash for crate::_generated::flash_regions::$type_name {
+        impl embedded_storage::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name {
             const READ_SIZE: usize = 1;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -236,7 +236,7 @@ foreach_flash_region! {
             }
         }
 
-        impl NorFlash for crate::_generated::flash_regions::$type_name {
+        impl embedded_storage::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name {
             const WRITE_SIZE: usize = $write_size;
             const ERASE_SIZE: usize = $erase_size;
 
