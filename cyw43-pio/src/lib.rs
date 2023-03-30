@@ -43,6 +43,7 @@ where
             "set pindirs, 0 side 0"
             // these nops seem to be necessary for fast clkdiv
             "nop            side 1"
+            "nop            side 0"
             "nop            side 1"
             // read in y-1 bits
             "lp2:"
@@ -70,11 +71,10 @@ where
         sm.write_instr(relocated.origin() as usize, relocated.code());
 
         // theoretical maximum according to data sheet, 100Mhz Pio => 50Mhz SPI Freq
-        // does not work yet,
-        // sm.set_clkdiv(0x0140);
+        sm.set_clkdiv(0x0140);
 
         // same speed as pico-sdk, 62.5Mhz
-        sm.set_clkdiv(0x0200);
+        // sm.set_clkdiv(0x0200);
 
         // 32 Mhz
         // sm.set_clkdiv(0x03E8);
