@@ -828,10 +828,9 @@ impl FirmwareUpdater {
     /// Failing to meet alignment and size requirements may result in a panic.
     pub async fn write_firmware<F: AsyncNorFlash>(
         &mut self,
+        flash: &mut F,
         offset: usize,
         data: &[u8],
-        flash: &mut F,
-        block_size: usize,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::ERASE_SIZE);
 
@@ -848,10 +847,9 @@ impl FirmwareUpdater {
             self.dfu.from + offset + data.len()
         );
 
-        FirmwareWriter(self.dfu)
-            .write_block(offset, data, flash, block_size)
-            .await?;
-
+        let mut writer = FirmwareWriter::new(self.dfu);
+        writer.pos = offset;
+        writer.write(flash, data).await?;
         Ok(())
     }
 
@@ -868,7 +866,7 @@ impl FirmwareUpdater {
 
         trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
 
-        Ok(FirmwareWriter(self.dfu))
+        Ok(FirmwareWriter::new(self.dfu))
     }
 
     //
@@ -1061,10 +1059,9 @@ impl FirmwareUpdater {
     /// Failing to meet alignment and size requirements may result in a panic.
     pub fn write_firmware_blocking<F: NorFlash>(
         &mut self,
+        flash: &mut F,
         offset: usize,
         data: &[u8],
-        flash: &mut F,
-        block_size: usize,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::ERASE_SIZE);
 
@@ -1079,8 +1076,9 @@ impl FirmwareUpdater {
             self.dfu.from + offset + data.len()
         );
 
-        FirmwareWriter(self.dfu).write_block_blocking(offset, data, flash, block_size)?;
-
+        let mut writer = FirmwareWriter::new(self.dfu);
+        writer.pos = offset;
+        writer.write_blocking(flash, data)?;
         Ok(())
     }
 
@@ -1097,99 +1095,47 @@ impl FirmwareUpdater {
 
         trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
 
-        Ok(FirmwareWriter(self.dfu))
+        Ok(FirmwareWriter::new(self.dfu))
     }
 }
 
 /// FirmwareWriter allows writing blocks to an already erased flash.
-pub struct FirmwareWriter(Partition);
+pub struct FirmwareWriter {
+    partition: Partition,
+    pos: usize,
+}
 
 impl FirmwareWriter {
+    fn new(partition: Partition) -> Self {
+        Self { partition, pos: 0 }
+    }
+
+    /// Get the number of written bytes
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
+
     /// Write data to a flash page.
     ///
     /// The buffer must follow alignment requirements of the target flash and a multiple of page size big.
-    ///
-    /// # Safety
-    ///
-    /// Failing to meet alignment and size requirements may result in a panic.
-    pub async fn write_block<F: AsyncNorFlash>(
-        &mut self,
-        offset: usize,
-        data: &[u8],
-        flash: &mut F,
-        block_size: usize,
-    ) -> Result<(), F::Error> {
-        trace!(
-            "Writing firmware at offset 0x{:x} len {}",
-            self.0.from + offset,
-            data.len()
-        );
+    pub async fn write<F: AsyncNorFlash>(&mut self, flash: &mut F, data: &[u8]) -> Result<(), F::Error> {
+        let offset = self.partition.from + self.pos;
+        trace!("Writing firmware at offset 0x{:x} len {}", offset, data.len());
 
-        let mut write_offset = self.0.from + offset;
-        for chunk in data.chunks(block_size) {
-            trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
-            flash.write(write_offset as u32, chunk).await?;
-            write_offset += chunk.len();
-        }
-        /*
-        trace!("Wrote data, reading back for verification");
-
-        let mut buf: [u8; 4096] = [0; 4096];
-        let mut data_offset = 0;
-        let mut read_offset = self.dfu.from + offset;
-        for chunk in buf.chunks_mut(block_size) {
-            flash.read(read_offset as u32, chunk).await?;
-            trace!("Read chunk at {}: {:?}", read_offset, chunk);
-            assert_eq!(&data[data_offset..data_offset + block_size], chunk);
-            read_offset += chunk.len();
-            data_offset += chunk.len();
-        }
-        */
-
+        flash.write(offset as u32, data).await?;
+        self.pos += data.len();
         Ok(())
     }
 
     /// Write data to a flash page.
     ///
     /// The buffer must follow alignment requirements of the target flash and a multiple of page size big.
-    ///
-    /// # Safety
-    ///
-    /// Failing to meet alignment and size requirements may result in a panic.
-    pub fn write_block_blocking<F: NorFlash>(
-        &mut self,
-        offset: usize,
-        data: &[u8],
-        flash: &mut F,
-        block_size: usize,
-    ) -> Result<(), F::Error> {
-        trace!(
-            "Writing firmware at offset 0x{:x} len {}",
-            self.0.from + offset,
-            data.len()
-        );
+    pub fn write_blocking<F: NorFlash>(&mut self, flash: &mut F, data: &[u8]) -> Result<(), F::Error> {
+        let offset = self.partition.from + self.pos;
+        trace!("Writing firmware at offset 0x{:x} len {}", offset, data.len());
 
-        let mut write_offset = self.0.from + offset;
-        for chunk in data.chunks(block_size) {
-            trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
-            flash.write(write_offset as u32, chunk)?;
-            write_offset += chunk.len();
-        }
-        /*
-        trace!("Wrote data, reading back for verification");
-
-        let mut buf: [u8; 4096] = [0; 4096];
-        let mut data_offset = 0;
-        let mut read_offset = self.dfu.from + offset;
-        for chunk in buf.chunks_mut(block_size) {
-            flash.read(read_offset as u32, chunk).await?;
-            trace!("Read chunk at {}: {:?}", read_offset, chunk);
-            assert_eq!(&data[data_offset..data_offset + block_size], chunk);
-            read_offset += chunk.len();
-            data_offset += chunk.len();
-        }
-        */
-
+        flash.write(offset as u32, data)?;
+        self.pos += data.len();
         Ok(())
     }
 }
@@ -1259,7 +1205,7 @@ mod tests {
         let mut updater = FirmwareUpdater::new(DFU, STATE);
         let mut offset = 0;
         for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut flash, 4096)).unwrap();
+            block_on(updater.write_firmware(&mut flash, offset, chunk)).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut flash, &mut aligned)).unwrap();
@@ -1332,7 +1278,7 @@ mod tests {
 
         let mut offset = 0;
         for chunk in update.chunks(2048) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu, chunk.len())).unwrap();
+            block_on(updater.write_firmware(&mut dfu, offset, chunk)).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
@@ -1385,7 +1331,7 @@ mod tests {
 
         let mut offset = 0;
         for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu, chunk.len())).unwrap();
+            block_on(updater.write_firmware(&mut dfu, offset, chunk)).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
