@@ -3,7 +3,7 @@
 
 use core::num;
 
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::FromPrimitive)]
@@ -284,9 +284,9 @@ pub enum Event {
     LAST = 190,
 }
 
-pub type EventQueue = PubSubChannel<CriticalSectionRawMutex, EventStatus, 2, 1, 1>;
-pub type EventPublisher<'a> = Publisher<'a, CriticalSectionRawMutex, EventStatus, 2, 1, 1>;
-pub type EventSubscriber<'a> = Subscriber<'a, CriticalSectionRawMutex, EventStatus, 2, 1, 1>;
+pub type EventQueue = PubSubChannel<NoopRawMutex, EventStatus, 2, 1, 1>;
+pub type EventPublisher<'a> = Publisher<'a, NoopRawMutex, EventStatus, 2, 1, 1>;
+pub type EventSubscriber<'a> = Subscriber<'a, NoopRawMutex, EventStatus, 2, 1, 1>;
 
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
