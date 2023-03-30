@@ -115,6 +115,27 @@ pub trait FlashConfig {
     fn state(&mut self) -> &mut Self::STATE;
 }
 
+impl<T> FlashConfig for &mut T
+where
+    T: FlashConfig,
+{
+    type STATE = T::STATE;
+    type ACTIVE = T::ACTIVE;
+    type DFU = T::DFU;
+
+    fn active(&mut self) -> &mut Self::ACTIVE {
+        T::active(self)
+    }
+
+    fn dfu(&mut self) -> &mut Self::DFU {
+        T::dfu(self)
+    }
+
+    fn state(&mut self) -> &mut Self::STATE {
+        T::state(self)
+    }
+}
+
 /// Trait defining the flash handles used for active and DFU partition
 pub trait BlockingFlashConfig {
     /// Flash type used for the state partition.
@@ -132,9 +153,32 @@ pub trait BlockingFlashConfig {
     fn state(&mut self) -> &mut Self::STATE;
 }
 
+impl<T> BlockingFlashConfig for &mut T
+where
+    T: BlockingFlashConfig,
+{
+    type STATE = T::STATE;
+    type ACTIVE = T::ACTIVE;
+    type DFU = T::DFU;
+
+    fn active(&mut self) -> &mut Self::ACTIVE {
+        T::active(self)
+    }
+
+    fn dfu(&mut self) -> &mut Self::DFU {
+        T::dfu(self)
+    }
+
+    fn state(&mut self) -> &mut Self::STATE {
+        T::state(self)
+    }
+}
+
 /// BootLoader works with any flash implementing embedded_storage and can also work with
 /// different page sizes and flash write sizes.
-pub struct BootLoader {
+pub struct BootLoader<F: BlockingFlashConfig> {
+    flash: F,
+
     // Page with current state of bootloader. The state partition has the following format:
     // | Range          | Description                                                                      |
     // | 0 - WRITE_SIZE | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
@@ -146,13 +190,18 @@ pub struct BootLoader {
     dfu: Partition,
 }
 
-impl BootLoader {
+impl<F: BlockingFlashConfig> BootLoader<F> {
     /// Create a new instance of a bootloader with the given partitions.
     ///
     /// - All partitions must be aligned with the PAGE_SIZE const generic parameter.
     /// - The dfu partition must be at least PAGE_SIZE bigger than the active partition.
-    pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
-        Self { active, dfu, state }
+    pub fn new(flash: F, active: Partition, dfu: Partition, state: Partition) -> Self {
+        Self {
+            flash,
+            active,
+            dfu,
+            state,
+        }
     }
 
     /// Return the boot address for the active partition.
@@ -243,90 +292,70 @@ impl BootLoader {
     /// |       DFU |            3 |      3 |      2 |      1 |      3 |
     /// +-----------+--------------+--------+--------+--------+--------+
     ///
-    pub fn prepare_boot<P: BlockingFlashConfig>(
-        &mut self,
-        p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
-    ) -> Result<State, BootError> {
+    pub fn prepare_boot(&mut self, magic: &mut [u8], page: &mut [u8]) -> Result<State, BootError> {
         // Ensure we have enough progress pages to store copy progress
-        assert_partitions(self.active, self.dfu, self.state, page.len(), P::STATE::WRITE_SIZE);
-        assert_eq!(magic.len(), P::STATE::WRITE_SIZE);
+        assert_partitions(self.active, self.dfu, self.state, page.len(), F::STATE::WRITE_SIZE);
+        assert_eq!(magic.len(), F::STATE::WRITE_SIZE);
 
         // Copy contents from partition N to active
-        let state = self.read_state(p, magic)?;
+        let state = self.read_state(magic)?;
         if state == State::Swap {
             //
             // Check if we already swapped. If we're in the swap state, this means we should revert
             // since the app has failed to mark boot as successful
             //
-            if !self.is_swapped(p, magic, page)? {
+            if !self.is_swapped(magic, page)? {
                 trace!("Swapping");
-                self.swap(p, magic, page)?;
+                self.swap(magic, page)?;
                 trace!("Swapping done");
             } else {
                 trace!("Reverting");
-                self.revert(p, magic, page)?;
+                self.revert(magic, page)?;
 
                 // Overwrite magic and reset progress
-                let fstate = p.state();
-                magic.fill(!P::STATE::ERASE_VALUE);
-                fstate.write(self.state.from as u32, magic)?;
-                fstate.erase(self.state.from as u32, self.state.to as u32)?;
+                let state = self.flash.state();
+                magic.fill(!F::STATE::ERASE_VALUE);
+                state.write(self.state.from as u32, magic)?;
+                state.erase(self.state.from as u32, self.state.to as u32)?;
 
                 magic.fill(BOOT_MAGIC);
-                fstate.write(self.state.from as u32, magic)?;
+                state.write(self.state.from as u32, magic)?;
             }
         }
         Ok(state)
     }
 
-    fn is_swapped<P: BlockingFlashConfig>(
-        &mut self,
-        p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
-    ) -> Result<bool, BootError> {
+    fn is_swapped(&mut self, magic: &mut [u8], page: &mut [u8]) -> Result<bool, BootError> {
         let page_size = page.len();
         let page_count = self.active.len() / page_size;
-        let progress = self.current_progress(p, magic)?;
+        let progress = self.current_progress(magic)?;
 
         Ok(progress >= page_count * 2)
     }
 
-    fn current_progress<P: BlockingFlashConfig>(
-        &mut self,
-        config: &mut P,
-        aligned: &mut [u8],
-    ) -> Result<usize, BootError> {
+    fn current_progress(&mut self, aligned: &mut [u8]) -> Result<usize, BootError> {
         let write_size = aligned.len();
         let max_index = ((self.state.len() - write_size) / write_size) - 1;
-        aligned.fill(!P::STATE::ERASE_VALUE);
+        aligned.fill(!F::STATE::ERASE_VALUE);
 
-        let flash = config.state();
+        let state = self.flash.state();
         for i in 0..max_index {
-            flash.read((self.state.from + write_size + i * write_size) as u32, aligned)?;
+            state.read((self.state.from + write_size + i * write_size) as u32, aligned)?;
 
-            if aligned.iter().any(|&b| b == P::STATE::ERASE_VALUE) {
+            if aligned.iter().any(|&b| b == F::STATE::ERASE_VALUE) {
                 return Ok(i);
             }
         }
         Ok(max_index)
     }
 
-    fn update_progress<P: BlockingFlashConfig>(
-        &mut self,
-        idx: usize,
-        p: &mut P,
-        magic: &mut [u8],
-    ) -> Result<(), BootError> {
-        let flash = p.state();
+    fn update_progress(&mut self, idx: usize, magic: &mut [u8]) -> Result<(), BootError> {
         let write_size = magic.len();
         let w = self.state.from + write_size + idx * write_size;
 
         let aligned = magic;
-        aligned.fill(!P::STATE::ERASE_VALUE);
-        flash.write(w as u32, aligned)?;
+        aligned.fill(!F::STATE::ERASE_VALUE);
+        self.flash.state().write(w as u32, aligned)?;
         Ok(())
     }
 
@@ -338,65 +367,69 @@ impl BootLoader {
         self.dfu.from + n * page_size
     }
 
-    fn copy_page_once_to_active<P: BlockingFlashConfig>(
+    fn copy_page_once_to_active(
         &mut self,
         idx: usize,
         from_page: usize,
         to_page: usize,
-        p: &mut P,
         magic: &mut [u8],
         page: &mut [u8],
     ) -> Result<(), BootError> {
         let buf = page;
-        if self.current_progress(p, magic)? <= idx {
+        if self.current_progress(magic)? <= idx {
             let mut offset = from_page;
-            for chunk in buf.chunks_mut(P::DFU::BLOCK_SIZE) {
-                p.dfu().read(offset as u32, chunk)?;
+            let dfu = self.flash.dfu();
+            for chunk in buf.chunks_mut(F::DFU::BLOCK_SIZE) {
+                dfu.read(offset as u32, chunk)?;
                 offset += chunk.len();
             }
 
-            p.active().erase(to_page as u32, (to_page + buf.len()) as u32)?;
+            self.flash
+                .active()
+                .erase(to_page as u32, (to_page + buf.len()) as u32)?;
 
             let mut offset = to_page;
-            for chunk in buf.chunks(P::ACTIVE::BLOCK_SIZE) {
-                p.active().write(offset as u32, chunk)?;
+            let active = self.flash.active();
+            for chunk in buf.chunks(F::ACTIVE::BLOCK_SIZE) {
+                active.write(offset as u32, chunk)?;
                 offset += chunk.len();
             }
-            self.update_progress(idx, p, magic)?;
+            self.update_progress(idx, magic)?;
         }
         Ok(())
     }
 
-    fn copy_page_once_to_dfu<P: BlockingFlashConfig>(
+    fn copy_page_once_to_dfu(
         &mut self,
         idx: usize,
         from_page: usize,
         to_page: usize,
-        p: &mut P,
         magic: &mut [u8],
         page: &mut [u8],
     ) -> Result<(), BootError> {
         let buf = page;
-        if self.current_progress(p, magic)? <= idx {
+        if self.current_progress(magic)? <= idx {
             let mut offset = from_page;
-            for chunk in buf.chunks_mut(P::ACTIVE::BLOCK_SIZE) {
-                p.active().read(offset as u32, chunk)?;
+            let active = self.flash.active();
+            for chunk in buf.chunks_mut(F::ACTIVE::BLOCK_SIZE) {
+                active.read(offset as u32, chunk)?;
                 offset += chunk.len();
             }
 
-            p.dfu().erase(to_page as u32, (to_page + buf.len()) as u32)?;
+            let dfu = self.flash.dfu();
+            dfu.erase(to_page as u32, (to_page + buf.len()) as u32)?;
 
             let mut offset = to_page;
-            for chunk in buf.chunks(P::DFU::BLOCK_SIZE) {
-                p.dfu().write(offset as u32, chunk)?;
+            for chunk in buf.chunks(F::DFU::BLOCK_SIZE) {
+                dfu.write(offset as u32, chunk)?;
                 offset += chunk.len();
             }
-            self.update_progress(idx, p, magic)?;
+            self.update_progress(idx, magic)?;
         }
         Ok(())
     }
 
-    fn swap<P: BlockingFlashConfig>(&mut self, p: &mut P, magic: &mut [u8], page: &mut [u8]) -> Result<(), BootError> {
+    fn swap(&mut self, magic: &mut [u8], page: &mut [u8]) -> Result<(), BootError> {
         let page_size = page.len();
         let page_count = self.active.len() / page_size;
         trace!("Page count: {}", page_count);
@@ -406,44 +439,38 @@ impl BootLoader {
             let active_page = self.active_addr(page_count - 1 - page_num, page_size);
             let dfu_page = self.dfu_addr(page_count - page_num, page_size);
             //trace!("Copy active {} to dfu {}", active_page, dfu_page);
-            self.copy_page_once_to_dfu(page_num * 2, active_page, dfu_page, p, magic, page)?;
+            self.copy_page_once_to_dfu(page_num * 2, active_page, dfu_page, magic, page)?;
 
             // Copy DFU page to the active page
             let active_page = self.active_addr(page_count - 1 - page_num, page_size);
             let dfu_page = self.dfu_addr(page_count - 1 - page_num, page_size);
             //trace!("Copy dfy {} to active {}", dfu_page, active_page);
-            self.copy_page_once_to_active(page_num * 2 + 1, dfu_page, active_page, p, magic, page)?;
+            self.copy_page_once_to_active(page_num * 2 + 1, dfu_page, active_page, magic, page)?;
         }
 
         Ok(())
     }
 
-    fn revert<P: BlockingFlashConfig>(
-        &mut self,
-        p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
-    ) -> Result<(), BootError> {
+    fn revert(&mut self, magic: &mut [u8], page: &mut [u8]) -> Result<(), BootError> {
         let page_size = page.len();
         let page_count = self.active.len() / page_size;
         for page_num in 0..page_count {
             // Copy the bad active page to the DFU page
             let active_page = self.active_addr(page_num, page_size);
             let dfu_page = self.dfu_addr(page_num, page_size);
-            self.copy_page_once_to_dfu(page_count * 2 + page_num * 2, active_page, dfu_page, p, magic, page)?;
+            self.copy_page_once_to_dfu(page_count * 2 + page_num * 2, active_page, dfu_page, magic, page)?;
 
             // Copy the DFU page back to the active page
             let active_page = self.active_addr(page_num, page_size);
             let dfu_page = self.dfu_addr(page_num + 1, page_size);
-            self.copy_page_once_to_active(page_count * 2 + page_num * 2 + 1, dfu_page, active_page, p, magic, page)?;
+            self.copy_page_once_to_active(page_count * 2 + page_num * 2 + 1, dfu_page, active_page, magic, page)?;
         }
 
         Ok(())
     }
 
-    fn read_state<P: BlockingFlashConfig>(&mut self, config: &mut P, magic: &mut [u8]) -> Result<State, BootError> {
-        let flash = config.state();
-        flash.read(self.state.from as u32, magic)?;
+    fn read_state(&mut self, magic: &mut [u8]) -> Result<State, BootError> {
+        self.flash.state().read(self.state.from as u32, magic)?;
 
         if !magic.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
@@ -673,13 +700,27 @@ where
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
-pub struct FirmwareUpdater {
+pub struct FirmwareUpdater<F> {
+    flash: F,
     state: Partition,
     dfu: Partition,
 }
 
-impl Default for FirmwareUpdater {
-    fn default() -> Self {
+impl<F> FirmwareUpdater<F> {
+    /// Return the length of the DFU area
+    pub fn firmware_len(&self) -> usize {
+        self.dfu.len()
+    }
+}
+
+impl<F: FlashConfig> FirmwareUpdater<F> {
+    /// Create a firmware updater instance with partition ranges for the update and state partitions.
+    pub fn new(flash: F, dfu: Partition, state: Partition) -> Self {
+        Self { flash, dfu, state }
+    }
+
+    /// Create a firmware updater instance with partition ranges for the update and state partitions.
+    pub fn with_defaults(flash: F) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -702,19 +743,8 @@ impl Default for FirmwareUpdater {
 
         trace!("DFU: 0x{:x} - 0x{:x}", dfu.from, dfu.to);
         trace!("STATE: 0x{:x} - 0x{:x}", state.from, state.to);
-        FirmwareUpdater::new(dfu, state)
-    }
-}
 
-impl FirmwareUpdater {
-    /// Create a firmware updater instance with partition ranges for the update and state partitions.
-    pub const fn new(dfu: Partition, state: Partition) -> Self {
-        Self { dfu, state }
-    }
-
-    /// Return the length of the DFU area
-    pub fn firmware_len(&self) -> usize {
-        self.dfu.len()
+        Self::new(flash, dfu, state)
     }
 
     /// Obtain the current state.
@@ -722,12 +752,8 @@ impl FirmwareUpdater {
     /// This is useful to check if the bootloader has just done a swap, in order
     /// to do verifications and self-tests of the new image before calling
     /// `mark_booted`.
-    pub async fn get_state<F: FlashConfig>(
-        &mut self,
-        flash: &mut F,
-        aligned: &mut [u8],
-    ) -> Result<State, FirmwareUpdaterError> {
-        flash.state().read(self.state.from as u32, aligned).await?;
+    pub async fn get_state(&mut self, aligned: &mut [u8]) -> Result<State, FirmwareUpdaterError> {
+        self.flash.state().read(self.state.from as u32, aligned).await?;
 
         if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
@@ -753,15 +779,14 @@ impl FirmwareUpdater {
     /// The `_aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being read from
     /// and written to.
     #[cfg(feature = "_verify")]
-    pub async fn verify_and_mark_updated<F: FlashConfig>(
+    pub async fn verify_and_mark_updated(
         &mut self,
-        _flash: &mut F,
         _public_key: &[u8],
         _signature: &[u8],
         _update_len: usize,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let _dfu = _flash.dfu();
+        let _dfu = self.flash.dfu();
         let _end = self.dfu.from + _update_len;
         let _read_size = _aligned.len();
 
@@ -852,13 +877,9 @@ impl FirmwareUpdater {
     ///
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
     #[cfg(not(feature = "_verify"))]
-    pub async fn mark_updated<F: FlashConfig>(
-        &mut self,
-        flash: &mut F,
-        aligned: &mut [u8],
-    ) -> Result<(), FirmwareUpdaterError> {
+    pub async fn mark_updated(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::STATE::WRITE_SIZE);
-        self.set_magic(aligned, SWAP_MAGIC, flash).await
+        self.set_magic(aligned, SWAP_MAGIC).await
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
@@ -866,22 +887,13 @@ impl FirmwareUpdater {
     /// # Safety
     ///
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
-    pub async fn mark_booted<F: FlashConfig>(
-        &mut self,
-        flash: &mut F,
-        aligned: &mut [u8],
-    ) -> Result<(), FirmwareUpdaterError> {
+    pub async fn mark_booted(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::STATE::WRITE_SIZE);
-        self.set_magic(aligned, BOOT_MAGIC, flash).await
+        self.set_magic(aligned, BOOT_MAGIC).await
     }
 
-    async fn set_magic<F: FlashConfig>(
-        &mut self,
-        aligned: &mut [u8],
-        magic: u8,
-        flash: &mut F,
-    ) -> Result<(), FirmwareUpdaterError> {
-        let state = flash.state();
+    async fn set_magic(&mut self, aligned: &mut [u8], magic: u8) -> Result<(), FirmwareUpdaterError> {
+        let state = self.flash.state();
         state.read(self.state.from as u32, aligned).await?;
 
         if aligned.iter().any(|&b| b != magic) {
@@ -903,15 +915,10 @@ impl FirmwareUpdater {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
-    pub async fn write_firmware<F: FlashConfig>(
-        &mut self,
-        flash: &mut F,
-        offset: usize,
-        data: &[u8],
-    ) -> Result<(), FirmwareUpdaterError> {
+    pub async fn write_firmware(&mut self, offset: usize, data: &[u8]) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::DFU::ERASE_SIZE);
 
-        let dfu = flash.dfu();
+        let dfu = self.flash.dfu();
         dfu.erase(
             (self.dfu.from + offset) as u32,
             (self.dfu.from + offset + data.len()) as u32,
@@ -935,32 +942,31 @@ impl FirmwareUpdater {
     ///
     /// Using this instead of `write_firmware` allows for an optimized API in
     /// exchange for added complexity.
-    pub async fn prepare_update<F: FlashConfig>(
-        &mut self,
-        flash: &mut F,
-    ) -> Result<FirmwareWriter, FirmwareUpdaterError> {
-        flash.dfu().erase((self.dfu.from) as u32, (self.dfu.to) as u32).await?;
+    pub async fn prepare_update(&mut self) -> Result<FirmwareWriter, FirmwareUpdaterError> {
+        self.flash
+            .dfu()
+            .erase((self.dfu.from) as u32, (self.dfu.to) as u32)
+            .await?;
 
         trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
 
         Ok(FirmwareWriter::new(self.dfu))
     }
+}
 
-    //
-    // Blocking API
-    //
+impl<F: BlockingFlashConfig> FirmwareUpdater<F> {
+    /// Create a firmware updater instance with partition ranges for the update and state partitions.
+    pub fn new_blocking(flash: F, dfu: Partition, state: Partition) -> Self {
+        Self { flash, dfu, state }
+    }
 
     /// Obtain the current state.
     ///
     /// This is useful to check if the bootloader has just done a swap, in order
     /// to do verifications and self-tests of the new image before calling
     /// `mark_booted`.
-    pub fn get_state_blocking<F: BlockingFlashConfig>(
-        &mut self,
-        flash: &mut F,
-        aligned: &mut [u8],
-    ) -> Result<State, FirmwareUpdaterError> {
-        flash.state().read(self.state.from as u32, aligned)?;
+    pub fn get_state_blocking(&mut self, aligned: &mut [u8]) -> Result<State, FirmwareUpdaterError> {
+        self.flash.state().read(self.state.from as u32, aligned)?;
 
         if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
@@ -988,13 +994,12 @@ impl FirmwareUpdater {
     #[cfg(feature = "_verify")]
     pub fn verify_and_mark_updated_blocking<F: BlockingFlashConfig>(
         &mut self,
-        _flash: &mut F,
         _public_key: &[u8],
         _signature: &[u8],
         _update_len: usize,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let _dfu = _flash.dfu();
+        let _dfu = self.flash.dfu();
         let _end = self.dfu.from + _update_len;
         let _read_size = _aligned.len();
 
@@ -1085,13 +1090,9 @@ impl FirmwareUpdater {
     ///
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
     #[cfg(not(feature = "_verify"))]
-    pub fn mark_updated_blocking<F: BlockingFlashConfig>(
-        &mut self,
-        flash: &mut F,
-        aligned: &mut [u8],
-    ) -> Result<(), FirmwareUpdaterError> {
+    pub fn mark_updated_blocking(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::STATE::WRITE_SIZE);
-        self.set_magic_blocking(aligned, SWAP_MAGIC, flash)
+        self.set_magic_blocking(aligned, SWAP_MAGIC)
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
@@ -1099,22 +1100,13 @@ impl FirmwareUpdater {
     /// # Safety
     ///
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
-    pub fn mark_booted_blocking<F: BlockingFlashConfig>(
-        &mut self,
-        flash: &mut F,
-        aligned: &mut [u8],
-    ) -> Result<(), FirmwareUpdaterError> {
+    pub fn mark_booted_blocking(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::STATE::WRITE_SIZE);
-        self.set_magic_blocking(aligned, BOOT_MAGIC, flash)
+        self.set_magic_blocking(aligned, BOOT_MAGIC)
     }
 
-    fn set_magic_blocking<F: BlockingFlashConfig>(
-        &mut self,
-        aligned: &mut [u8],
-        magic: u8,
-        flash: &mut F,
-    ) -> Result<(), FirmwareUpdaterError> {
-        let state = flash.state();
+    fn set_magic_blocking(&mut self, aligned: &mut [u8], magic: u8) -> Result<(), FirmwareUpdaterError> {
+        let state = self.flash.state();
         state.read(self.state.from as u32, aligned)?;
 
         if aligned.iter().any(|&b| b != magic) {
@@ -1136,15 +1128,10 @@ impl FirmwareUpdater {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
-    pub fn write_firmware_blocking<F: BlockingFlashConfig>(
-        &mut self,
-        flash: &mut F,
-        offset: usize,
-        data: &[u8],
-    ) -> Result<(), FirmwareUpdaterError> {
+    pub fn write_firmware_blocking(&mut self, offset: usize, data: &[u8]) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::DFU::ERASE_SIZE);
 
-        let dfu = flash.dfu();
+        let dfu = self.flash.dfu();
         dfu.erase(
             (self.dfu.from + offset) as u32,
             (self.dfu.from + offset + data.len()) as u32,
@@ -1167,11 +1154,8 @@ impl FirmwareUpdater {
     ///
     /// Using this instead of `write_firmware_blocking` allows for an optimized
     /// API in exchange for added complexity.
-    pub fn prepare_update_blocking<F: BlockingFlashConfig>(
-        &mut self,
-        flash: &mut F,
-    ) -> Result<FirmwareWriter, FirmwareUpdaterError> {
-        flash.dfu().erase((self.dfu.from) as u32, (self.dfu.to) as u32)?;
+    pub fn prepare_update_blocking(&mut self) -> Result<FirmwareWriter, FirmwareUpdaterError> {
+        self.flash.dfu().erase((self.dfu.from) as u32, (self.dfu.to) as u32)?;
 
         trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
 
@@ -1255,14 +1239,11 @@ mod tests {
         flash.0[0..4].copy_from_slice(&[BOOT_MAGIC; 4]);
         let mut flash = SingleFlashConfig::new(&mut flash);
 
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
+        let mut bootloader = BootLoader::new(&mut flash, ACTIVE, DFU, STATE);
 
         let mut magic = [0; 4];
         let mut page = [0; 4096];
-        assert_eq!(
-            State::Boot,
-            bootloader.prepare_boot(&mut flash, &mut magic, &mut page).unwrap()
-        );
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut magic, &mut page).unwrap());
     }
 
     #[test]
@@ -1277,8 +1258,6 @@ mod tests {
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
         let mut aligned = [0; 4];
 
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut updater = FirmwareUpdater::new(DFU, STATE);
         let mut magic = [0; 4];
         let mut page = [0; 4096];
 
@@ -1288,20 +1267,22 @@ mod tests {
 
         {
             let mut flash_config = SingleFlashConfig::new(&mut flash);
+            let mut updater = FirmwareUpdater::new(&mut flash_config, DFU, STATE);
 
             let mut offset = 0;
             for chunk in update.chunks(4096) {
-                block_on(updater.write_firmware(&mut flash_config, offset, chunk)).unwrap();
+                block_on(updater.write_firmware(offset, chunk)).unwrap();
                 offset += chunk.len();
             }
-            block_on(updater.mark_updated(&mut flash_config, &mut aligned)).unwrap();
 
-            assert_eq!(
-                State::Swap,
-                bootloader
-                    .prepare_boot(&mut flash_config, &mut magic, &mut page)
-                    .unwrap()
-            );
+            block_on(updater.mark_updated(&mut aligned)).unwrap();
+        }
+
+        {
+            let mut flash_config = SingleFlashConfig::new(&mut flash);
+            let mut bootloader = BootLoader::new(&mut flash_config, ACTIVE, DFU, STATE);
+
+            assert_eq!(State::Swap, bootloader.prepare_boot(&mut magic, &mut page).unwrap());
         }
 
         for i in ACTIVE.from..ACTIVE.to {
@@ -1315,14 +1296,10 @@ mod tests {
 
         {
             let mut flash_config = SingleFlashConfig::new(&mut flash);
+            let mut bootloader = BootLoader::new(&mut flash_config, ACTIVE, DFU, STATE);
 
             // Running again should cause a revert
-            assert_eq!(
-                State::Swap,
-                bootloader
-                    .prepare_boot(&mut flash_config, &mut magic, &mut page)
-                    .unwrap()
-            );
+            assert_eq!(State::Swap, bootloader.prepare_boot(&mut magic, &mut page).unwrap());
         }
 
         for i in ACTIVE.from..ACTIVE.to {
@@ -1336,15 +1313,17 @@ mod tests {
 
         {
             let mut flash_config = SingleFlashConfig::new(&mut flash);
+            let mut updater = FirmwareUpdater::new(&mut flash_config, DFU, STATE);
 
             // Mark as booted
-            block_on(updater.mark_booted(&mut flash_config, &mut aligned)).unwrap();
-            assert_eq!(
-                State::Boot,
-                bootloader
-                    .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
-                    .unwrap()
-            );
+            block_on(updater.mark_booted(&mut aligned)).unwrap();
+        }
+
+        {
+            let mut flash_config = SingleFlashConfig::new(&mut flash);
+            let mut bootloader = BootLoader::new(&mut flash_config, ACTIVE, DFU, STATE);
+
+            assert_eq!(State::Boot, bootloader.prepare_boot(&mut magic, &mut page).unwrap());
         }
     }
 
@@ -1367,32 +1346,26 @@ mod tests {
             active.0[i] = original[i - ACTIVE.from];
         }
 
-        let mut updater = FirmwareUpdater::new(DFU, STATE);
-
         {
             let mut flash_config = MultiFlashConfig::new(&mut active, &mut state, &mut dfu);
+            let mut updater = FirmwareUpdater::new(&mut flash_config, DFU, STATE);
 
             let mut offset = 0;
             for chunk in update.chunks(2048) {
-                block_on(updater.write_firmware(&mut flash_config, offset, chunk)).unwrap();
+                block_on(updater.write_firmware(offset, chunk)).unwrap();
                 offset += chunk.len();
             }
-            block_on(updater.mark_updated(&mut flash_config, &mut aligned)).unwrap();
+            block_on(updater.mark_updated(&mut aligned)).unwrap();
         }
 
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
         let mut magic = [0; 4];
         let mut page = [0; 4096];
 
         {
             let mut flash_config = MultiFlashConfig::new(&mut active, &mut state, &mut dfu);
+            let mut bootloader = BootLoader::new(&mut flash_config, ACTIVE, DFU, STATE);
 
-            assert_eq!(
-                State::Swap,
-                bootloader
-                    .prepare_boot(&mut flash_config, &mut magic, &mut page)
-                    .unwrap()
-            );
+            assert_eq!(State::Swap, bootloader.prepare_boot(&mut magic, &mut page).unwrap());
         }
 
         for i in ACTIVE.from..ACTIVE.to {
@@ -1424,32 +1397,26 @@ mod tests {
             active.0[i] = original[i - ACTIVE.from];
         }
 
-        let mut updater = FirmwareUpdater::new(DFU, STATE);
-
         {
             let mut flash_config = MultiFlashConfig::new(&mut active, &mut state, &mut dfu);
+            let mut updater = FirmwareUpdater::new(&mut flash_config, DFU, STATE);
 
             let mut offset = 0;
             for chunk in update.chunks(4096) {
-                block_on(updater.write_firmware(&mut flash_config, offset, chunk)).unwrap();
+                block_on(updater.write_firmware(offset, chunk)).unwrap();
                 offset += chunk.len();
             }
-            block_on(updater.mark_updated(&mut flash_config, &mut aligned)).unwrap();
+            block_on(updater.mark_updated(&mut aligned)).unwrap();
         }
 
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
         let mut magic = [0; 4];
         let mut page = [0; 4096];
 
         {
             let mut flash_config = MultiFlashConfig::new(&mut active, &mut state, &mut dfu);
+            let mut bootloader = BootLoader::new(&mut flash_config, ACTIVE, DFU, STATE);
 
-            assert_eq!(
-                State::Swap,
-                bootloader
-                    .prepare_boot(&mut flash_config, &mut magic, &mut page)
-                    .unwrap()
-            );
+            assert_eq!(State::Swap, bootloader.prepare_boot(&mut magic, &mut page).unwrap());
         }
 
         for i in ACTIVE.from..ACTIVE.to {

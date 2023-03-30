@@ -4,54 +4,28 @@
 #![doc = include_str!("../README.md")]
 mod fmt;
 
+use embassy_boot::BlockingFlashConfig;
 pub use embassy_boot::{AlignedBuffer, BootFlash, FirmwareUpdater, FlashConfig, Partition, SingleFlashConfig, State};
 
 /// A bootloader for STM32 devices.
-pub struct BootLoader<const PAGE_SIZE: usize, const WRITE_SIZE: usize> {
-    boot: embassy_boot::BootLoader,
-    magic: AlignedBuffer<WRITE_SIZE>,
-    page: AlignedBuffer<PAGE_SIZE>,
+pub struct BootLoader<F: BlockingFlashConfig> {
+    boot: embassy_boot::BootLoader<F>,
+    magic: AlignedBuffer<F::STATE::WRITE_SIZE>,
+    page: AlignedBuffer<F::STATE::WRITE_SIZE>,
 }
 
-impl<const PAGE_SIZE: usize, const WRITE_SIZE: usize> BootLoader<PAGE_SIZE, WRITE_SIZE> {
+impl<F: BlockingFlashConfig> BootLoader<F> {
     /// Create a new bootloader instance using the supplied partitions for active, dfu and state.
-    pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
+    pub fn new(flash: F, active: Partition, dfu: Partition, state: Partition) -> Self {
         Self {
-            boot: embassy_boot::BootLoader::new(active, dfu, state),
+            boot: embassy_boot::BootLoader::new(flash, active, dfu, state),
             magic: AlignedBuffer([0; WRITE_SIZE]),
             page: AlignedBuffer([0; PAGE_SIZE]),
         }
     }
 
-    /// Inspect the bootloader state and perform actions required before booting, such as swapping
-    /// firmware.
-    pub fn prepare<F: FlashConfig>(&mut self, flash: &mut F) -> usize {
-        match self.boot.prepare_boot(flash, self.magic.as_mut(), self.page.as_mut()) {
-            Ok(_) => embassy_stm32::flash::FLASH_BASE + self.boot.boot_address(),
-            Err(_) => panic!("boot prepare error!"),
-        }
-    }
-
-    /// Boots the application.
-    ///
-    /// # Safety
-    ///
-    /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
-    pub unsafe fn load(&mut self, start: usize) -> ! {
-        trace!("Loading app at 0x{:x}", start);
-        #[allow(unused_mut)]
-        let mut p = cortex_m::Peripherals::steal();
-        #[cfg(not(armv6m))]
-        p.SCB.invalidate_icache();
-        p.SCB.vtor.write(start as u32);
-
-        cortex_m::asm::bootload(start as *const u32)
-    }
-}
-
-impl<const PAGE_SIZE: usize, const WRITE_SIZE: usize> Default for BootLoader<PAGE_SIZE, WRITE_SIZE> {
     /// Create a new bootloader instance using parameters from linker script
-    fn default() -> Self {
+    pub fn with_defaults(flash: F) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -84,6 +58,31 @@ impl<const PAGE_SIZE: usize, const WRITE_SIZE: usize> Default for BootLoader<PAG
         trace!("DFU: 0x{:x} - 0x{:x}", dfu.from, dfu.to);
         trace!("STATE: 0x{:x} - 0x{:x}", state.from, state.to);
 
-        Self::new(active, dfu, state)
+        Self::new(flash, active, dfu, state)
+    }
+
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping
+    /// firmware.
+    pub fn prepare(&mut self) -> usize {
+        match self.boot.prepare_boot(self.magic.as_mut(), self.page.as_mut()) {
+            Ok(_) => embassy_stm32::flash::FLASH_BASE + self.boot.boot_address(),
+            Err(_) => panic!("boot prepare error!"),
+        }
+    }
+
+    /// Boots the application.
+    ///
+    /// # Safety
+    ///
+    /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
+    pub unsafe fn load(&mut self, start: usize) -> ! {
+        trace!("Loading app at 0x{:x}", start);
+        #[allow(unused_mut)]
+        let mut p = cortex_m::Peripherals::steal();
+        #[cfg(not(armv6m))]
+        p.SCB.invalidate_icache();
+        p.SCB.vtor.write(start as u32);
+
+        cortex_m::asm::bootload(start as *const u32)
     }
 }
