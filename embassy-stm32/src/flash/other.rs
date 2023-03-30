@@ -1,5 +1,10 @@
-#[allow(unused)]
-use super::{Error, FlashSector, WRITE_SIZE};
+#![allow(unused)]
+
+use super::{Error, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+
+pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+    &FLASH_REGIONS
+}
 
 pub(crate) unsafe fn lock() {
     unimplemented!();
@@ -20,8 +25,5 @@ pub(crate) unsafe fn blocking_erase_sector(_sector: &FlashSector) -> Result<(), 
     unimplemented!();
 }
 pub(crate) unsafe fn clear_all_err() {
-    unimplemented!();
-}
-pub(crate) fn get_sector(_address: u32) -> FlashSector {
     unimplemented!();
 }

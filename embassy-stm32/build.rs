@@ -113,6 +113,18 @@ fn main() {
         .collect();
     for region in flash_memory_regions.iter() {
         let region_name = format_ident!("{}", get_flash_region_name(region.name));
+        let bank = format_ident!(
+            "{}",
+            if region.name.starts_with("BANK_1") {
+                "Bank1"
+            } else if region.name.starts_with("BANK_2") {
+                "Bank2"
+            } else if region.name == "OTP" {
+                "Otp"
+            } else {
+                unimplemented!()
+            }
+        );
         let base = region.address;
         let size = region.size;
         let settings = region.settings.as_ref().unwrap();
@@ -122,6 +134,7 @@ fn main() {
 
         flash_regions.extend(quote! {
             pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
+                bank: crate::flash::FlashBank::#bank,
                 base: #base,
                 size: #size,
                 erase_size: #erase_size,

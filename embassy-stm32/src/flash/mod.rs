@@ -10,6 +10,7 @@ pub use crate::_generated::flash_regions::*;
 pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 
 pub struct FlashRegion {
+    pub bank: FlashBank,
     pub base: u32,
     pub size: u32,
     pub erase_size: u32,
@@ -19,14 +20,26 @@ pub struct FlashRegion {
 
 #[derive(Debug, PartialEq)]
 pub struct FlashSector {
-    pub index: u8,
+    pub bank: FlashBank,
+    pub index_in_bank: u8,
     pub start: u32,
     pub size: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FlashBank {
+    Bank1 = 0,
+    Bank2 = 1,
+    Otp,
 }
 
 impl FlashRegion {
     pub const fn end(&self) -> u32 {
         self.base + self.size
+    }
+
+    pub const fn sectors(&self) -> u8 {
+        (self.size / self.erase_size) as u8
     }
 }
 

@@ -3,12 +3,16 @@ use core::ptr::write_volatile;
 
 use atomic_polyfill::{fence, Ordering};
 
-use super::{FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashRegion, FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
 const fn is_dual_bank() -> bool {
     FLASH_REGIONS.len() == 2
+}
+
+pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
+    &FLASH_REGIONS
 }
 
 pub(crate) unsafe fn lock() {
@@ -75,11 +79,10 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
-    let bank = pac::FLASH.bank(if sector.index >= 8 { 1 } else { 0 });
-    let sector = sector.index % 8;
+    let bank = pac::FLASH.bank(sector.bank as usize);
     bank.cr().modify(|w| {
         w.set_ser(true);
-        w.set_snb(sector)
+        w.set_snb(sector.index_in_bank)
     });
 
     bank.cr().modify(|w| {
@@ -173,15 +176,5 @@ unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
 
             return Ok(());
         }
-    }
-}
-
-pub(crate) fn get_sector(address: u32) -> FlashSector {
-    let sector_size = BANK1_REGION.erase_size;
-    let index = address / sector_size;
-    FlashSector {
-        index: index as u8,
-        start: BANK1_REGION.base + index * sector_size,
-        size: sector_size,
     }
 }

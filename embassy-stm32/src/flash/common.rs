@@ -3,7 +3,8 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 
-use super::{family, Error, FlashLayout, FlashRegion, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+use super::{family, Error, FlashLayout, FlashRegion, FlashSector, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+use crate::flash::FlashBank;
 use crate::Peripheral;
 
 pub struct Flash<'d> {
@@ -79,10 +80,12 @@ impl<'d> Flash<'d> {
     }
 
     unsafe fn blocking_erase_inner(start_address: u32, end_address: u32) -> Result<(), Error> {
+        let regions = family::get_flash_regions();
+
         // Test if the address range is aligned at sector base addresses
         let mut address = start_address;
         while address < end_address {
-            let sector = family::get_sector(address);
+            let sector = get_sector(address, regions);
             if sector.start != address {
                 return Err(Error::Unaligned);
             }
@@ -103,7 +106,8 @@ impl<'d> Flash<'d> {
 
         let mut address = start_address;
         while address < end_address {
-            let sector = family::get_sector(address);
+            let sector = get_sector(address, regions);
+            trace!("Erasing sector: {}", sector);
             family::blocking_erase_sector(&sector)?;
             address += sector.size;
         }
@@ -136,6 +140,31 @@ fn take_lock_spin() -> MutexGuard<'static, CriticalSectionRawMutex, ()> {
             return guard;
         }
     }
+}
+
+pub(crate) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector {
+    let mut current_bank = FlashBank::Bank1;
+    let mut bank_offset = 0;
+    for region in regions {
+        if region.bank != current_bank {
+            current_bank = region.bank;
+            bank_offset = 0;
+        }
+
+        if address < region.end() {
+            let index_in_region = (address - region.base) / region.erase_size;
+            return FlashSector {
+                bank: region.bank,
+                index_in_bank: bank_offset + index_in_region as u8,
+                start: region.base + index_in_region * region.erase_size,
+                size: region.erase_size,
+            };
+        }
+
+        bank_offset += region.sectors();
+    }
+
+    panic!("Flash sector not found");
 }
 
 impl FlashRegion {

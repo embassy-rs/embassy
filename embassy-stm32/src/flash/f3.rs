@@ -3,9 +3,13 @@ use core::ptr::write_volatile;
 
 use atomic_polyfill::{fence, Ordering};
 
-use super::{FlashSector, BANK1_REGION, WRITE_SIZE};
+use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
+
+pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+    &FLASH_REGIONS
+}
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -97,15 +101,5 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
 
             return Ok(());
         }
-    }
-}
-
-pub(crate) fn get_sector(address: u32) -> FlashSector {
-    let sector_size = BANK1_REGION.erase_size;
-    let index = address / sector_size;
-    FlashSector {
-        index: index as u8,
-        start: BANK1_REGION.base + index * sector_size,
-        size: sector_size,
     }
 }
