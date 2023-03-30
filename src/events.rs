@@ -1,10 +1,12 @@
-#![allow(unused)]
+#![allow(dead_code)]
 #![allow(non_camel_case_types)]
 
 use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
+use embassy_sync::pubsub::{PubSubChannel, Subscriber};
+
+use crate::structs::BssInfo;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, num_enum::FromPrimitive)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -286,7 +288,6 @@ pub enum Event {
 
 // TODO this PubSub can probably be replaced with shared memory to make it a bit more efficient.
 pub type EventQueue = PubSubChannel<NoopRawMutex, Message, 2, 1, 1>;
-pub type EventPublisher<'a> = Publisher<'a, NoopRawMutex, Message, 2, 1, 1>;
 pub type EventSubscriber<'a> = Subscriber<'a, NoopRawMutex, Message, 2, 1, 1>;
 
 pub struct Events {
@@ -313,6 +314,7 @@ pub struct Status {
 #[derive(Clone, Copy)]
 pub enum Payload {
     None,
+    BssInfo(BssInfo),
 }
 
 #[derive(Clone, Copy)]
@@ -344,7 +346,7 @@ impl EventMask {
         let word = n / u32::BITS;
         let bit = n % u32::BITS;
 
-        self.mask[word as usize] |= (1 << bit);
+        self.mask[word as usize] |= 1 << bit;
     }
 
     fn disable(&mut self, event: Event) {
@@ -378,6 +380,7 @@ impl SharedEventMask {
         }
     }
 
+    #[allow(dead_code)]
     pub fn disable(&self, events: &[Event]) {
         let mut mask = self.mask.borrow_mut();
         for event in events {
