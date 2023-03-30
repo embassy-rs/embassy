@@ -38,6 +38,8 @@ wasm = ["dep:wasm-bindgen", "dep:js-sys"]
 # Enable nightly-only features
 nightly = []
 
+turbowakers = []
+
 integrated-timers = ["dep:embassy-time"]
 
 # Trace interrupt invocations with rtos-trace.

@@ -11,6 +11,7 @@ mod run_queue;
 #[cfg(feature = "integrated-timers")]
 mod timer_queue;
 pub(crate) mod util;
+#[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
 use core::future::Future;
