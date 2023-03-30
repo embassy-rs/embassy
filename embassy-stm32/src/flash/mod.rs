@@ -9,6 +9,8 @@ pub use common::*;
 pub use crate::_generated::flash_regions::*;
 pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashRegion {
     pub bank: FlashBank,
     pub base: u32,
@@ -19,6 +21,7 @@ pub struct FlashRegion {
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashSector {
     pub bank: FlashBank,
     pub index_in_bank: u8,
@@ -27,6 +30,7 @@ pub struct FlashSector {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashBank {
     Bank1 = 0,
     Bank2 = 1,
