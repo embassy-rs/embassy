@@ -112,64 +112,58 @@ fn main() {
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
         .collect();
     for region in flash_memory_regions.iter() {
-        let region_name = get_flash_region_name(region.name);
-        let region_type = format_ident!("{}", region_name);
-        let settings_name = format_ident!("{}_SETTINGS", region_name);
-        let base = region.address as usize;
-        let size = region.size as usize;
+        let region_name = format_ident!("{}", get_flash_region_name(region.name));
+        let base = region.address;
+        let size = region.size;
         let settings = region.settings.as_ref().unwrap();
-        let erase_size = settings.erase_size as usize;
-        let write_size = settings.write_size as usize;
+        let erase_size = settings.erase_size;
+        let write_size = settings.write_size;
         let erase_value = settings.erase_value;
 
         flash_regions.extend(quote! {
-            #[allow(non_camel_case_types)]
-            pub struct #region_type(());
-        });
-
-        flash_regions.extend(quote! {
-            pub const #settings_name: crate::flash::FlashRegionSettings = crate::flash::FlashRegionSettings {
+            pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
                 base: #base,
                 size: #size,
                 erase_size: #erase_size,
                 write_size: #write_size,
                 erase_value: #erase_value,
             };
+        });
 
-            impl crate::flash::FlashRegion for #region_type {
-                const SETTINGS: crate::flash::FlashRegionSettings = #settings_name;
-            }
+        let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
+        flash_regions.extend(quote! {
+            pub struct #region_type(pub(crate) &'static crate::flash::FlashRegion);
         });
     }
 
-    let (fields, (inits, settings)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
+    let (fields, (inits, region_names)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
         .iter()
         .map(|f| {
             let region_name = get_flash_region_name(f.name);
             let field_name = format_ident!("{}", region_name.to_lowercase());
-            let field_type = format_ident!("{}", region_name);
+            let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
             let field = quote! {
                 pub #field_name: #field_type
             };
+            let region_name = format_ident!("{}", region_name);
             let init = quote! {
-                #field_name: #field_type(())
+                #field_name: #field_type(&#region_name)
             };
-            let settings_name = format_ident!("{}_SETTINGS", region_name);
 
-            (field, (init, settings_name))
+            (field, (init, region_name))
         })
         .unzip();
 
     let regions_len = flash_memory_regions.len();
     flash_regions.extend(quote! {
         #[cfg(flash)]
-        pub struct FlashRegions<'d> {
+        pub struct FlashLayout<'d> {
             _inner: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>,
             #(#fields),*
         }
 
         #[cfg(flash)]
-        impl<'d> FlashRegions<'d> {
+        impl<'d> FlashLayout<'d> {
             pub(crate) const fn new(p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
                     _inner: p,
@@ -178,8 +172,8 @@ fn main() {
             }
         }
 
-        pub const FLASH_REGIONS: [&crate::flash::FlashRegionSettings; #regions_len] = [
-            #(&#settings),*
+        pub const FLASH_REGIONS: [&crate::flash::FlashRegion; #regions_len] = [
+            #(&#region_names),*
         ];
     });
 
@@ -651,8 +645,11 @@ fn main() {
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
     {
+        let settings = m.settings.as_ref().unwrap();
         let mut row = Vec::new();
-        row.push(get_flash_region_name(m.name));
+        row.push(get_flash_region_type_name(m.name));
+        row.push(settings.write_size.to_string());
+        row.push(settings.erase_size.to_string());
         flash_regions_table.push(row);
     }
 
@@ -904,6 +901,10 @@ macro_rules! {} {{
 }}"
     )
     .unwrap();
+}
+
+fn get_flash_region_type_name(name: &str) -> String {
+    name.replace("BANK_", "Bank").replace("REGION_", "Region")
 }
 
 fn get_flash_region_name(name: &str) -> String {

@@ -2,7 +2,6 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
-use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 use super::{family, Error, FlashRegion};
 pub use crate::_generated::flash_regions::*;
@@ -19,10 +18,8 @@ impl<'d> Flash<'d> {
         Self { inner: p }
     }
 
-    pub fn into_regions(self) -> FlashRegions<'d> {
-        let mut flash = self;
-        let p = unsafe { flash.inner.clone_unchecked() };
-        FlashRegions::new(p)
+    pub fn into_regions(self) -> FlashLayout<'d> {
+        FlashLayout::new(self.release())
     }
 
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
@@ -114,6 +111,11 @@ impl<'d> Flash<'d> {
         }
         Ok(())
     }
+
+    pub(crate) fn release(self) -> PeripheralRef<'d, crate::peripherals::FLASH> {
+        let mut flash = self;
+        unsafe { flash.inner.clone_unchecked() }
+    }
 }
 
 impl Drop for Flash<'_> {
@@ -132,45 +134,85 @@ fn take_lock_spin() -> MutexGuard<'static, CriticalSectionRawMutex, ()> {
     }
 }
 
+impl FlashRegion {
+    pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        unsafe { self.blocking_read_inner(offset, bytes) }
+    }
+
+    pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        unsafe { self.blocking_write_inner(offset, bytes) }
+    }
+
+    pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        unsafe { self.blocking_erase_inner(from, to) }
+    }
+
+    unsafe fn blocking_read_inner(&self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        Flash::blocking_read_inner(self.base + offset, bytes)
+    }
+
+    unsafe fn blocking_write_inner(&self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        let start_address = self.base + offset;
+
+        // Protect agains simultaneous write/erase to multiple regions.
+        let _guard = take_lock_spin();
+
+        Flash::blocking_write_inner(start_address, bytes)
+    }
+
+    unsafe fn blocking_erase_inner(&self, from: u32, to: u32) -> Result<(), Error> {
+        let start_address = self.base + from;
+        let end_address = self.base + to;
+
+        // Protect agains simultaneous write/erase to multiple regions.
+        let _guard = take_lock_spin();
+
+        Flash::blocking_erase_inner(start_address, end_address)
+    }
+}
+
 foreach_flash_region! {
-    ($name:ident) => {
-        impl ErrorType for crate::_generated::flash_regions::$name {
+    ($type_name:ident, $write_size:ident, $erase_size:ident) => {
+        impl crate::_generated::flash_regions::$type_name {
+            pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+                unsafe { self.0.blocking_read_inner(offset, bytes) }
+            }
+
+            pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+                unsafe { self.0.blocking_write_inner(offset, bytes) }
+            }
+
+            pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+                unsafe { self.0.blocking_erase_inner(from, to) }
+            }
+        }
+
+        impl ErrorType for crate::_generated::flash_regions::$type_name {
             type Error = Error;
         }
 
-        impl ReadNorFlash for crate::_generated::flash_regions::$name {
+        impl ReadNorFlash for crate::_generated::flash_regions::$type_name {
             const READ_SIZE: usize = 1;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                Flash::blocking_read_inner(Self::SETTINGS.base as u32 + offset, bytes)
+                unsafe { self.0.blocking_read_inner(offset, bytes) }
             }
 
             fn capacity(&self) -> usize {
-                <crate::_generated::flash_regions::$name as FlashRegion>::SETTINGS.size
+                self.0.size as usize
             }
         }
 
-        impl NorFlash for crate::_generated::flash_regions::$name {
-            const WRITE_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::SETTINGS.write_size;
-            const ERASE_SIZE: usize = <crate::_generated::flash_regions::$name as FlashRegion>::SETTINGS.erase_size;
-
-            fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-                let start_address = Self::SETTINGS.base as u32 + from;
-                let end_address = Self::SETTINGS.base as u32 + to;
-
-                // Protect agains simultaneous write/erase to multiple regions.
-                let _guard = take_lock_spin();
-
-                unsafe { Flash::blocking_erase_inner(start_address, end_address) }
-            }
+        impl NorFlash for crate::_generated::flash_regions::$type_name {
+            const WRITE_SIZE: usize = $write_size;
+            const ERASE_SIZE: usize = $erase_size;
 
             fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-                let start_address = Self::SETTINGS.base as u32 + offset;
+                unsafe { self.0.blocking_write_inner(offset, bytes) }
+            }
 
-                // Protect agains simultaneous write/erase to multiple regions.
-                let _guard = take_lock_spin();
-
-                unsafe { Flash::blocking_write_inner(start_address, bytes) }
+            fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+                unsafe { self.0.blocking_erase_inner(from, to) }
             }
         }
     };

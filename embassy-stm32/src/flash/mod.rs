@@ -45,15 +45,11 @@ mod common;
 #[cfg(flash)]
 pub use common::*;
 
-pub trait FlashRegion {
-    const SETTINGS: FlashRegionSettings;
-}
-
-pub struct FlashRegionSettings {
-    pub base: usize,
-    pub size: usize,
-    pub erase_size: usize,
-    pub write_size: usize,
+pub struct FlashRegion {
+    pub base: u32,
+    pub size: u32,
+    pub erase_size: u32,
+    pub write_size: u32,
     pub erase_value: u8,
 }
 
@@ -64,7 +60,7 @@ pub struct FlashSector {
     pub size: u32,
 }
 
-impl Drop for FlashRegions<'_> {
+impl Drop for FlashLayout<'_> {
     fn drop(&mut self) {
         unsafe { family::lock() };
     }
