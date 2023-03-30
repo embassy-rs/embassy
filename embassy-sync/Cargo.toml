@@ -25,6 +25,7 @@ features = ["nightly"]
 [features]
 nightly = ["embedded-io/async"]
 std = []
+turbowakers = []
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
