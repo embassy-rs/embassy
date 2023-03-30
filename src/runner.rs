@@ -310,6 +310,12 @@ where
         if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
             self.check_status(buf).await;
         }
+
+        if irq & IRQ_DATA_UNAVAILABLE != 0 {
+            // TODO what should we do here?
+            warn!("IRQ DATA_UNAVAILABLE, clearing...");
+            self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
+        }
     }
 
     /// Handle F2 events while status register is set
