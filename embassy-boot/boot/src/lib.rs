@@ -90,9 +90,8 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
 
 /// Extension of the embedded-storage flash type information with block size and erase value.
 pub trait Flash: NorFlash + ReadNorFlash {
-    /// The block size that should be used when writing to flash. For most builtin flashes, this is the same as the erase
-    /// size of the flash, but for external QSPI flash modules, this can be lower.
-    const BLOCK_SIZE: usize;
+    /// The block size that should be used when writing to flash.
+    const BLOCK_SIZE: usize = Self::WRITE_SIZE;
     /// The erase value of the flash. Typically the default of 0xFF is used, but some flashes use a different value.
     const ERASE_VALUE: u8 = 0xFF;
 }
