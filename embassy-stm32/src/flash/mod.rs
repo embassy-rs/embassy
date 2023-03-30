@@ -1,5 +1,35 @@
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
+#[cfg(flash)]
+mod common;
+
+#[cfg(flash)]
+pub use common::*;
+
+pub use crate::_generated::flash_regions::*;
+pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+
+pub struct FlashRegion {
+    pub base: u32,
+    pub size: u32,
+    pub erase_size: u32,
+    pub write_size: u32,
+    pub erase_value: u8,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FlashSector {
+    pub index: u8,
+    pub start: u32,
+    pub size: u32,
+}
+
+impl Drop for FlashLayout<'_> {
+    fn drop(&mut self) {
+        unsafe { family::lock() };
+    }
+}
+
 #[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_wl, flash_wb), path = "l.rs")]
 #[cfg_attr(flash_f3, path = "f3.rs")]
 #[cfg_attr(flash_f4, path = "f4.rs")]
@@ -39,32 +69,8 @@ mod family {
     }
 }
 
-#[cfg(flash)]
-mod common;
-
-#[cfg(flash)]
-pub use common::*;
-
-pub struct FlashRegion {
-    pub base: u32,
-    pub size: u32,
-    pub erase_size: u32,
-    pub write_size: u32,
-    pub erase_value: u8,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct FlashSector {
-    pub index: u8,
-    pub start: u32,
-    pub size: u32,
-}
-
-impl Drop for FlashLayout<'_> {
-    fn drop(&mut self) {
-        unsafe { family::lock() };
-    }
-}
+#[allow(unused_imports)]
+pub use family::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

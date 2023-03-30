@@ -910,10 +910,18 @@ macro_rules! {} {{
     .unwrap();
 }
 
-fn get_flash_region_type_name(name: &str) -> String {
-    name.replace("BANK_", "Bank").replace("REGION_", "Region")
+fn get_flash_region_name(name: &str) -> String {
+    let name = name.replace("BANK_", "BANK").replace("REGION_", "REGION");
+    if name.contains("REGION") {
+        name
+    } else {
+        name + "_REGION"
+    }
 }
 
-fn get_flash_region_name(name: &str) -> String {
-    name.replace("BANK_", "BANK").replace("REGION_", "REGION")
+fn get_flash_region_type_name(name: &str) -> String {
+    get_flash_region_name(name)
+        .replace("BANK", "Bank")
+        .replace("REGION", "Region")
+        .replace("_", "")
 }

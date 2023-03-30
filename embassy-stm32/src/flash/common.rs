@@ -3,9 +3,7 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::{Mutex, MutexGuard};
 
-use super::{family, Error, FlashRegion};
-pub use crate::_generated::flash_regions::*;
-pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+use super::{family, Error, FlashLayout, FlashRegion, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 use crate::Peripheral;
 
 pub struct Flash<'d> {

@@ -11,7 +11,82 @@ const MEDIUM_SECTOR_SIZE: u32 = 64 * 1024;
 const LARGE_SECTOR_SIZE: u32 = 128 * 1024;
 const SECOND_BANK_SECTOR_OFFSET: u8 = 12;
 
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+mod alt_regions {
+    use embassy_hal_common::PeripheralRef;
+    use stm32_metapac::FLASH_SIZE;
+
+    use crate::_generated::flash_regions::{BANK1_REGION1, BANK1_REGION2, BANK1_REGION3};
+    use crate::flash::{Bank1Region1, Bank1Region2, Flash, FlashRegion};
+    use crate::peripherals::FLASH;
+
+    pub const ALT_BANK1_REGION3: FlashRegion = FlashRegion {
+        size: 3 * BANK1_REGION3.erase_size,
+        ..BANK1_REGION3
+    };
+    pub const ALT_BANK2_REGION1: FlashRegion = FlashRegion {
+        base: BANK1_REGION1.base + FLASH_SIZE as u32 / 2,
+        ..BANK1_REGION1
+    };
+    pub const ALT_BANK2_REGION2: FlashRegion = FlashRegion {
+        base: BANK1_REGION2.base + FLASH_SIZE as u32 / 2,
+        ..BANK1_REGION2
+    };
+    pub const ALT_BANK2_REGION3: FlashRegion = FlashRegion {
+        base: BANK1_REGION3.base + FLASH_SIZE as u32 / 2,
+        size: 3 * BANK1_REGION3.erase_size,
+        ..BANK1_REGION3
+    };
+
+    pub type AltBank1Region1 = Bank1Region1;
+    pub type AltBank1Region2 = Bank1Region2;
+    pub struct AltBank1Region3(&'static FlashRegion);
+    pub struct AltBank2Region1(&'static FlashRegion);
+    pub struct AltBank2Region2(&'static FlashRegion);
+    pub struct AltBank2Region3(&'static FlashRegion);
+
+    pub struct AltFlashLayout<'d> {
+        _inner: PeripheralRef<'d, FLASH>,
+        pub bank1_region1: AltBank1Region1,
+        pub bank1_region2: AltBank1Region2,
+        pub bank1_region3: AltBank1Region3,
+        pub bank2_region1: AltBank2Region1,
+        pub bank2_region2: AltBank2Region2,
+        pub bank2_region3: AltBank2Region3,
+    }
+
+    impl<'d> Flash<'d> {
+        pub fn into_alt_regions(self) -> AltFlashLayout<'d> {
+            unsafe { crate::pac::FLASH.optcr().modify(|r| r.set_db1m(true)) };
+            AltFlashLayout {
+                _inner: self.release(),
+                bank1_region1: Bank1Region1(&BANK1_REGION1),
+                bank1_region2: Bank1Region2(&BANK1_REGION2),
+                bank1_region3: AltBank1Region3(&ALT_BANK1_REGION3),
+                bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1),
+                bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2),
+                bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3),
+            }
+        }
+    }
+
+    impl Drop for AltFlashLayout<'_> {
+        fn drop(&mut self) {
+            unsafe {
+                super::lock();
+                crate::pac::FLASH.optcr().modify(|r| r.set_db1m(false))
+            };
+        }
+    }
+}
+
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+pub use alt_regions::AltFlashLayout;
+
 fn is_dual_bank() -> bool {
+    // let asd: super::Bank1Region1;
+    // let sad = &super::BANK_1_REGION_1;
+
     match FLASH_SIZE / 1024 {
         // 1 MB devices depend on configuration
         1024 => {
