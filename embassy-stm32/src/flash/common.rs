@@ -122,6 +122,12 @@ impl Drop for Flash<'_> {
     }
 }
 
+impl Drop for FlashLayout<'_> {
+    fn drop(&mut self) {
+        unsafe { family::lock() };
+    }
+}
+
 static REGION_LOCK: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 fn take_lock_spin() -> MutexGuard<'static, CriticalSectionRawMutex, ()> {

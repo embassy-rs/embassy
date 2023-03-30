@@ -3,15 +3,12 @@ use core::ptr::write_volatile;
 
 use atomic_polyfill::{fence, Ordering};
 
-use super::{FlashRegion, FlashSector, BANK1, FLASH_SIZE, WRITE_SIZE};
+use super::{FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-const ERASE_SIZE: usize = BANK1::SETTINGS.erase_size;
-const SECOND_BANK_OFFSET: usize = 0x0010_0000;
-
 const fn is_dual_bank() -> bool {
-    FLASH_SIZE / 2 > ERASE_SIZE
+    FLASH_REGIONS.len() == 2
 }
 
 pub(crate) unsafe fn lock() {
@@ -24,7 +21,6 @@ pub(crate) unsafe fn lock() {
 pub(crate) unsafe fn unlock() {
     pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0x4567_0123));
     pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
-
     if is_dual_bank() {
         pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0x4567_0123));
         pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
@@ -39,7 +35,7 @@ pub(crate) unsafe fn end_write() {}
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     // We cannot have the write setup sequence in begin_write as it depends on the address
-    let bank = if !is_dual_bank() || (start_address - super::FLASH_BASE as u32) < SECOND_BANK_OFFSET as u32 {
+    let bank = if start_address < BANK1_REGION.end() {
         pac::FLASH.bank(0)
     } else {
         pac::FLASH.bank(1)
@@ -181,11 +177,11 @@ unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
 }
 
 pub(crate) fn get_sector(address: u32) -> FlashSector {
-    let sector_size = BANK1::SETTINGS.erase_size as u32;
+    let sector_size = BANK1_REGION.erase_size;
     let index = address / sector_size;
     FlashSector {
         index: index as u8,
-        start: BANK1::SETTINGS.base as u32 + index * sector_size,
+        start: BANK1_REGION.base + index * sector_size,
         size: sector_size,
     }
 }

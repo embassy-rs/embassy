@@ -84,9 +84,6 @@ mod alt_regions {
 pub use alt_regions::AltFlashLayout;
 
 fn is_dual_bank() -> bool {
-    // let asd: super::Bank1Region1;
-    // let sad = &super::BANK_1_REGION_1;
-
     match FLASH_SIZE / 1024 {
         // 1 MB devices depend on configuration
         1024 => {

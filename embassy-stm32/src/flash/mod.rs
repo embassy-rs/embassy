@@ -24,9 +24,9 @@ pub struct FlashSector {
     pub size: u32,
 }
 
-impl Drop for FlashLayout<'_> {
-    fn drop(&mut self) {
-        unsafe { family::lock() };
+impl FlashRegion {
+    pub const fn end(&self) -> u32 {
+        self.base + self.size
     }
 }
 
@@ -35,39 +35,13 @@ impl Drop for FlashLayout<'_> {
 #[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
 #[cfg_attr(flash_h7, path = "h7.rs")]
+#[cfg_attr(
+    not(any(
+        flash_l0, flash_l1, flash_l4, flash_wl, flash_wb, flash_f3, flash_f4, flash_f7, flash_h7
+    )),
+    path = "other.rs"
+)]
 mod family;
-
-#[cfg(not(any(
-    flash_l0, flash_l1, flash_l4, flash_wl, flash_wb, flash_f3, flash_f4, flash_f7, flash_h7
-)))]
-mod family {
-    use super::{Error, FlashSector, WRITE_SIZE};
-
-    pub(crate) unsafe fn lock() {
-        unimplemented!();
-    }
-    pub(crate) unsafe fn unlock() {
-        unimplemented!();
-    }
-    pub(crate) unsafe fn begin_write() {
-        unimplemented!();
-    }
-    pub(crate) unsafe fn end_write() {
-        unimplemented!();
-    }
-    pub(crate) unsafe fn blocking_write(_start_address: u32, _buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
-        unimplemented!();
-    }
-    pub(crate) unsafe fn blocking_erase_sector(_sector: &FlashSector) -> Result<(), Error> {
-        unimplemented!();
-    }
-    pub(crate) unsafe fn clear_all_err() {
-        unimplemented!();
-    }
-    pub(crate) fn get_sector(_address: u32) -> FlashSector {
-        unimplemented!();
-    }
-}
 
 #[allow(unused_imports)]
 pub use family::*;

@@ -43,7 +43,6 @@ pub mod i2c;
 
 #[cfg(crc)]
 pub mod crc;
-#[cfg(flash)]
 pub mod flash;
 pub mod pwm;
 #[cfg(quadspi)]
