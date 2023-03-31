@@ -2,7 +2,7 @@
 
 use super::{Error, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 

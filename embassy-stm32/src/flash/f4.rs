@@ -91,7 +91,7 @@ mod alt_regions {
 pub use alt_regions::{AltFlashLayout, ALT_FLASH_REGIONS};
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
-pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
     if unsafe { pac::FLASH.optcr().read().db1m() } {
         &ALT_FLASH_REGIONS
     } else {
@@ -100,7 +100,7 @@ pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
 }
 
 #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 

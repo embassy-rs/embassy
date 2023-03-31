@@ -11,7 +11,7 @@ const fn is_dual_bank() -> bool {
     FLASH_REGIONS.len() == 2
 }
 
-pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
