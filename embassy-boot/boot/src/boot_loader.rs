@@ -42,8 +42,14 @@ pub trait FlashConfig {
     /// The update progress is tracked in blocks of this size.
     ///
     /// The size of a block must be such that
-    /// 1) BLOCK_SIZE >= ACTIVE::WRITE_SIZE && ACTIVE::WRITE_SIZE % BLOCK_SIZE == 0 && ACTIVE::capacity() % BLOCK_SIZE == 0
-    /// 2) BLOCK_SIZE >= DFU::WRITE_SIZE && DFU::WRITE_SIZE % BLOCK_SIZE == 0 && DFU::capacity() % BLOCK_SIZE == 0
+    /// 1) BLOCK_SIZE >= ACTIVE::WRITE_SIZE
+    /// 1a) BLOCK_SIZE % ACTIVE::WRITE_SIZE == 0
+    /// 1b) BLOCK_SIZE % ACTIVE::ERASE_SIZE == 0 || ACTIVE::ERASE_SIZE % BLOCK_SIZE == 0
+    /// 1c) ACTIVE::capacity() % BLOCK_SIZE == 0
+    /// 2) BLOCK_SIZE >= DFU::WRITE_SIZE
+    /// 2a) BLOCK_SIZE % DFU::WRITE_SIZE == 0
+    /// 2b) BLOCK_SIZE % DFU::ERASE_SIZE == 0 || DFU::ERASE_SIZE % BLOCK_SIZE == 0
+    /// 2c) DFU::capacity() % BLOCK_SIZE == 0
     /// 3) BLOCK_SIZE >= STATE::WRITE_SIZE
     const BLOCK_SIZE: usize;
 
@@ -185,6 +191,8 @@ impl BootLoader {
 
         assert_eq!(0, P::BLOCK_SIZE % P::ACTIVE::WRITE_SIZE);
         assert_eq!(0, P::BLOCK_SIZE % P::DFU::WRITE_SIZE);
+        assert!(P::BLOCK_SIZE % P::ACTIVE::ERASE_SIZE == 0 || P::ACTIVE::ERASE_SIZE % P::BLOCK_SIZE == 0);
+        assert!(P::BLOCK_SIZE % P::DFU::ERASE_SIZE == 0 || P::DFU::ERASE_SIZE % P::BLOCK_SIZE == 0);
 
         assert_eq!(0, p.active().capacity() % P::BLOCK_SIZE);
         assert_eq!(0, p.dfu().capacity() % P::BLOCK_SIZE);
@@ -231,7 +239,7 @@ impl BootLoader {
 
     fn current_progress<P: FlashConfig>(
         &mut self,
-        config: &mut P,
+        p: &mut P,
         aligned_block_buffer: &mut [u8],
     ) -> Result<usize, BootError> {
         let write_size = P::STATE::WRITE_SIZE;
@@ -240,7 +248,7 @@ impl BootLoader {
         let read_buffer = &mut aligned_block_buffer[..write_size];
         read_buffer.fill(!P::STATE::ERASE_VALUE);
 
-        let state_flash = config.state();
+        let state_flash = p.state();
         for i in 0..max_index {
             self.state
                 .read_blocking(state_flash, (write_size + i * write_size) as u32, read_buffer)?;
@@ -269,52 +277,44 @@ impl BootLoader {
         Ok(())
     }
 
-    fn copy_block_once_to_active<P: FlashConfig>(
+    fn copy_block_to_active<P: FlashConfig>(
         &mut self,
-        progress_index: usize,
-        from_dfu_offset: u32,
-        to_active_offset: u32,
+        dfu_from_offset: u32,
+        active_to_offset: u32,
         p: &mut P,
         aligned_block_buffer: &mut [u8],
     ) -> Result<(), BootError> {
-        if self.current_progress(p, aligned_block_buffer)? <= progress_index {
-            let mut offset = from_dfu_offset;
-            for chunk in aligned_block_buffer.chunks_mut(P::BLOCK_SIZE) {
-                self.dfu.read_blocking(p.dfu(), offset, chunk)?;
-                offset += chunk.len() as u32;
-            }
+        let mut offset = dfu_from_offset;
+        for chunk in aligned_block_buffer.chunks_mut(P::BLOCK_SIZE) {
+            self.dfu.read_blocking(p.dfu(), offset, chunk)?;
+            offset += chunk.len() as u32;
+        }
 
-            let mut offset = to_active_offset;
-            for chunk in aligned_block_buffer.chunks(P::BLOCK_SIZE) {
-                self.active.write_blocking(p.active(), offset, chunk)?;
-                offset += chunk.len() as u32;
-            }
-            self.update_progress(progress_index, p, aligned_block_buffer)?;
+        let mut offset = active_to_offset;
+        for chunk in aligned_block_buffer.chunks(P::BLOCK_SIZE) {
+            self.active.write_blocking(p.active(), offset, chunk)?;
+            offset += chunk.len() as u32;
         }
         Ok(())
     }
 
-    fn copy_block_once_to_dfu<P: FlashConfig>(
+    fn copy_block_to_dfu<P: FlashConfig>(
         &mut self,
-        progress_index: usize,
-        from_active_offset: u32,
-        to_dfu_offset: u32,
+        active_from_offset: u32,
+        dfu_to_offset: u32,
         p: &mut P,
         aligned_block_buffer: &mut [u8],
     ) -> Result<(), BootError> {
-        if self.current_progress(p, aligned_block_buffer)? <= progress_index {
-            let mut offset = from_active_offset;
-            for chunk in aligned_block_buffer.chunks_mut(P::BLOCK_SIZE) {
-                self.active.read_blocking(p.active(), offset, chunk)?;
-                offset += chunk.len() as u32;
-            }
+        let mut offset = active_from_offset;
+        for chunk in aligned_block_buffer.chunks_mut(P::BLOCK_SIZE) {
+            self.active.read_blocking(p.active(), offset, chunk)?;
+            offset += chunk.len() as u32;
+        }
 
-            let mut offset = to_dfu_offset;
-            for chunk in aligned_block_buffer.chunks(P::BLOCK_SIZE) {
-                self.dfu.write_blocking(p.dfu(), offset, chunk)?;
-                offset += chunk.len() as u32;
-            }
-            self.update_progress(progress_index, p, aligned_block_buffer)?;
+        let mut offset = dfu_to_offset;
+        for chunk in aligned_block_buffer.chunks(P::BLOCK_SIZE) {
+            self.dfu.write_blocking(p.dfu(), offset, chunk)?;
+            offset += chunk.len() as u32;
         }
         Ok(())
     }
@@ -322,48 +322,57 @@ impl BootLoader {
     fn swap<P: FlashConfig>(&mut self, p: &mut P, aligned_block_buffer: &mut [u8]) -> Result<(), BootError> {
         let block_size = P::BLOCK_SIZE;
         let block_count = self.active.len() / block_size;
+        let mut copy_to_dfu = false;
+        let mut copy_to_active = false;
         trace!("Block count: {}", block_count);
         for block_index in 0..block_count {
-            let progress_index = block_index * 2;
-
             // Copy active block to the 'next' DFU block.
-            let active_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
-            let dfu_to_offset = ((block_count - block_index) * block_size) as u32;
+            let mut progress_index = block_index * 2;
+            {
+                let active_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
+                let dfu_to_offset = ((block_count - block_index) * block_size) as u32;
 
-            if block_index % P::DFU::ERASE_SIZE == 0 {
-                self.dfu
-                    .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + P::DFU::ERASE_SIZE as u32)?;
+                let erase_size = core::cmp::max(P::DFU::ERASE_SIZE, P::BLOCK_SIZE);
+                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
+                if block_index % blocks_per_erase == 0 {
+                    copy_to_dfu = self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
+                    if copy_to_dfu {
+                        self.dfu
+                            .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + erase_size as u32)?;
+                    }
+                }
+
+                if copy_to_dfu {
+                    self.copy_block_to_dfu(active_from_offset, dfu_to_offset, p, aligned_block_buffer)?;
+                    self.update_progress(progress_index, p, aligned_block_buffer)?;
+                }
             }
-
-            //trace!("Copy active {} to dfu {}", active_from_offset, dfu_to_offset);
-            self.copy_block_once_to_dfu(
-                progress_index,
-                active_from_offset,
-                dfu_to_offset,
-                p,
-                aligned_block_buffer,
-            )?;
 
             // Copy DFU block to the active block
-            let active_to_offset = ((block_count - 1 - block_index) * block_size) as u32;
-            let dfu_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
+            progress_index += 1;
+            {
+                let active_to_offset = ((block_count - 1 - block_index) * block_size) as u32;
+                let dfu_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
 
-            if block_index % P::ACTIVE::ERASE_SIZE == 0 {
-                self.active.erase_blocking(
-                    p.active(),
-                    active_to_offset,
-                    active_to_offset + P::ACTIVE::ERASE_SIZE as u32,
-                )?;
+                let erase_size = core::cmp::max(P::ACTIVE::ERASE_SIZE, P::BLOCK_SIZE);
+                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
+                if block_index % blocks_per_erase == 0 {
+                    copy_to_active =
+                        self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
+                    if copy_to_active {
+                        self.active.erase_blocking(
+                            p.active(),
+                            active_to_offset,
+                            active_to_offset + erase_size as u32,
+                        )?;
+                    }
+                }
+
+                if copy_to_active {
+                    self.copy_block_to_active(dfu_from_offset, active_to_offset, p, aligned_block_buffer)?;
+                    self.update_progress(progress_index, p, aligned_block_buffer)?;
+                }
             }
-
-            //trace!("Copy dfy {} to active {}", dfu_from_offset, active_to_offset);
-            self.copy_block_once_to_active(
-                progress_index + 1,
-                dfu_from_offset,
-                active_to_offset,
-                p,
-                aligned_block_buffer,
-            )?;
         }
 
         Ok(())
@@ -372,46 +381,57 @@ impl BootLoader {
     fn revert<P: FlashConfig>(&mut self, p: &mut P, aligned_block_buffer: &mut [u8]) -> Result<(), BootError> {
         let block_size = P::BLOCK_SIZE;
         let block_count = self.active.len() / block_size;
+        let mut copy_to_dfu = false;
+        let mut copy_to_active = false;
         trace!("Block count: {}", block_count);
         for block_index in 0..block_count {
-            let progress_index = block_count * 2 + block_index * 2;
-
             // Copy the bad active block to the DFU block
-            let active_from_offset = (block_index * block_size) as u32;
-            let dfu_to_offset = (block_index * block_size) as u32;
+            let mut progress_index = block_count * 2 + block_index * 2;
+            {
+                let active_from_offset = (block_index * block_size) as u32;
+                let dfu_to_offset = (block_index * block_size) as u32;
 
-            if block_index % P::DFU::ERASE_SIZE == 0 {
-                self.dfu
-                    .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + P::DFU::ERASE_SIZE as u32)?;
+                let erase_size = core::cmp::max(P::DFU::ERASE_SIZE, P::BLOCK_SIZE);
+                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
+                if block_index % blocks_per_erase == 0 {
+                    copy_to_dfu = self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
+                    if copy_to_dfu {
+                        self.dfu
+                            .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + erase_size as u32)?;
+                    }
+                }
+
+                if copy_to_dfu {
+                    self.copy_block_to_dfu(active_from_offset, dfu_to_offset, p, aligned_block_buffer)?;
+                    self.update_progress(progress_index, p, aligned_block_buffer)?;
+                }
             }
-
-            self.copy_block_once_to_dfu(
-                progress_index,
-                active_from_offset,
-                dfu_to_offset,
-                p,
-                aligned_block_buffer,
-            )?;
 
             // Copy the DFU block back to the active block
-            let active_to_offset = (block_index * block_size) as u32;
-            let dfu_from_offset = ((block_index + 1) * block_size) as u32;
+            progress_index += 1;
+            {
+                let active_to_offset = (block_index * block_size) as u32;
+                let dfu_from_offset = ((block_index + 1) * block_size) as u32;
 
-            if block_index % P::ACTIVE::ERASE_SIZE == 0 {
-                self.active.erase_blocking(
-                    p.active(),
-                    active_to_offset,
-                    active_to_offset + P::ACTIVE::ERASE_SIZE as u32,
-                )?;
+                let erase_size = core::cmp::max(P::ACTIVE::ERASE_SIZE, P::BLOCK_SIZE);
+                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
+                if block_index % blocks_per_erase == 0 {
+                    copy_to_active =
+                        self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
+                    if copy_to_active {
+                        self.active.erase_blocking(
+                            p.active(),
+                            active_to_offset,
+                            active_to_offset + erase_size as u32,
+                        )?;
+                    }
+                }
+
+                if copy_to_active {
+                    self.copy_block_to_active(dfu_from_offset, active_to_offset, p, aligned_block_buffer)?;
+                    self.update_progress(progress_index, p, aligned_block_buffer)?;
+                }
             }
-
-            self.copy_block_once_to_active(
-                progress_index + 1,
-                dfu_from_offset,
-                active_to_offset,
-                p,
-                aligned_block_buffer,
-            )?;
         }
 
         Ok(())
