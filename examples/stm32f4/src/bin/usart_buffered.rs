@@ -5,7 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::interrupt;
-use embassy_stm32::usart::{BufferedUart, Config, State};
+use embassy_stm32::usart::{BufferedUart, Config};
 use embedded_io::asynch::BufRead;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,20 +16,10 @@ async fn main(_spawner: Spawner) {
 
     let config = Config::default();
 
-    let mut state = State::new();
     let irq = interrupt::take!(USART3);
     let mut tx_buf = [0u8; 32];
     let mut rx_buf = [0u8; 32];
-    let mut buf_usart = BufferedUart::new(
-        &mut state,
-        p.USART3,
-        p.PD9,
-        p.PD8,
-        irq,
-        &mut tx_buf,
-        &mut rx_buf,
-        config,
-    );
+    let mut buf_usart = BufferedUart::new(p.USART3, irq, p.PD9, p.PD8, &mut tx_buf, &mut rx_buf, config);
 
     loop {
         let buf = buf_usart.fill_buf().await.unwrap();

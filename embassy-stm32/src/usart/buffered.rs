@@ -43,9 +43,9 @@ pub struct BufferedUartRx<'d, T: BasicInstance> {
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -53,14 +53,14 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         T::enable();
         T::reset();
 
-        Self::new_inner(peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+        Self::new_inner(peri, irq, rx, tx, tx_buffer, rx_buffer, config)
     }
 
     pub fn new_with_rtscts(
         peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         tx_buffer: &'d mut [u8],
@@ -81,15 +81,15 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             });
         }
 
-        Self::new_inner(peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+        Self::new_inner(peri, irq, rx, tx, tx_buffer, rx_buffer, config)
     }
 
     #[cfg(not(usart_v1))]
     pub fn new_with_de(
         peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         de: impl Peripheral<P = impl DePin<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
@@ -107,14 +107,14 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             });
         }
 
-        Self::new_inner(peri, rx, tx, irq, tx_buffer, rx_buffer, config)
+        Self::new_inner(peri, irq, rx, tx, tx_buffer, rx_buffer, config)
     }
 
     fn new_inner(
         _peri: impl Peripheral<P = T> + 'd,
+        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -155,8 +155,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         }
     }
 
-    pub fn split(self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
-        (self.rx, self.tx)
+    pub fn split(self) -> (BufferedUartTx<'d, T>, BufferedUartRx<'d, T>) {
+        (self.tx, self.rx)
     }
 }
 
@@ -165,85 +165,46 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
-            let n = rx_reader.pop(|data| {
-                let n = data.len().min(buf.len());
-                buf[..n].copy_from_slice(&data[..n]);
-                n
-            });
-            if n == 0 {
-                state.rx_waker.register(cx.waker());
-                return Poll::Pending;
+            let data = rx_reader.pop_slice();
+
+            if !data.is_empty() {
+                let len = data.len().min(buf.len());
+                buf[..len].copy_from_slice(&data[..len]);
+
+                let do_pend = state.rx_buf.is_full();
+                rx_reader.pop_done(len);
+
+                if do_pend {
+                    unsafe { T::Interrupt::steal().pend() };
+                }
+
+                return Poll::Ready(Ok(len));
             }
 
-            // FIXME:
-            // (Re-)Enable the interrupt to receive more data in case it was
-            // disabled because the buffer was full.
-            // let regs = T::regs();
-            // unsafe {
-            //     regs.uartimsc().write_set(|w| {
-            //         w.set_rxim(true);
-            //         w.set_rtim(true);
-            //     });
-            // }
-
-            Poll::Ready(Ok(n))
+            state.rx_waker.register(cx.waker());
+            Poll::Pending
         })
         .await
-
-        // poll_fn(move |cx| {
-        //     let state = T::buffered_state();
-
-        //     let mut do_pend = false;
-        //     compiler_fence(Ordering::SeqCst);
-
-        //     // We have data ready in buffer? Return it.
-        //     let data = state.rx_buf.pop_buf();
-        //     if !data.is_empty() {
-        //         let len = data.len().min(buf.len());
-        //         buf[..len].copy_from_slice(&data[..len]);
-
-        //         if state.rx_buf.is_full() {
-        //             do_pend = true;
-        //         }
-        //         state.rx_buf.pop(len);
-
-        //         return Poll::Ready(Ok(len));
-        //     }
-
-        //     state.rx_waker.register(cx.waker());
-
-        //     if do_pend {
-        //         inner.pend();
-        //     }
-
-        //     Poll::Pending
-        // })
-        // .await
     }
 
     fn blocking_read(&self, buf: &mut [u8]) -> Result<usize, Error> {
         loop {
             let state = T::buffered_state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
-            let n = rx_reader.pop(|data| {
-                let n = data.len().min(buf.len());
-                buf[..n].copy_from_slice(&data[..n]);
-                n
-            });
+            let data = rx_reader.pop_slice();
 
-            if n > 0 {
-                // FIXME:
-                // (Re-)Enable the interrupt to receive more data in case it was
-                // disabled because the buffer was full.
-                // let regs = T::regs();
-                // unsafe {
-                //     regs.uartimsc().write_set(|w| {
-                //         w.set_rxim(true);
-                //         w.set_rtim(true);
-                //     });
-                // }
+            if !data.is_empty() {
+                let len = data.len().min(buf.len());
+                buf[..len].copy_from_slice(&data[..len]);
 
-                return Ok(n);
+                let do_pend = state.rx_buf.is_full();
+                rx_reader.pop_done(len);
+
+                if do_pend {
+                    unsafe { T::Interrupt::steal().pend() };
+                }
+
+                return Ok(len);
             }
         }
     }
@@ -279,22 +240,23 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
     async fn write(&self, buf: &[u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
+            let empty = state.tx_buf.is_empty();
+
             let mut tx_writer = unsafe { state.tx_buf.writer() };
-            let n = tx_writer.push(|data| {
-                let n = data.len().min(buf.len());
-                data[..n].copy_from_slice(&buf[..n]);
-                n
-            });
-            if n == 0 {
+            let data = tx_writer.push_slice();
+            if data.is_empty() {
                 state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
-            // The TX interrupt only triggers when the there was data in the
-            // FIFO and the number of bytes drops below a threshold. When the
-            // FIFO was empty we have to manually pend the interrupt to shovel
-            // TX data from the buffer into the FIFO.
-            unsafe { T::Interrupt::steal() }.pend();
+            let n = data.len().min(buf.len());
+            data[..n].copy_from_slice(&buf[..n]);
+            tx_writer.push_done(n);
+
+            if empty {
+                unsafe { T::Interrupt::steal() }.pend();
+            }
+
             Poll::Ready(Ok(n))
         })
         .await
@@ -316,19 +278,19 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
     fn blocking_write(&self, buf: &[u8]) -> Result<usize, Error> {
         loop {
             let state = T::buffered_state();
+            let empty = state.tx_buf.is_empty();
+
             let mut tx_writer = unsafe { state.tx_buf.writer() };
-            let n = tx_writer.push(|data| {
+            let data = tx_writer.push_slice();
+            if !data.is_empty() {
                 let n = data.len().min(buf.len());
                 data[..n].copy_from_slice(&buf[..n]);
-                n
-            });
+                tx_writer.push_done(n);
 
-            if n != 0 {
-                // The TX interrupt only triggers when the there was data in the
-                // FIFO and the number of bytes drops below a threshold. When the
-                // FIFO was empty we have to manually pend the interrupt to shovel
-                // TX data from the buffer into the FIFO.
-                unsafe { T::Interrupt::steal() }.pend();
+                if empty {
+                    unsafe { T::Interrupt::steal() }.pend();
+                }
+
                 return Ok(n);
             }
         }
