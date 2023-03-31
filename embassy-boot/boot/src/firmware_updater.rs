@@ -84,10 +84,10 @@ impl FirmwareUpdater {
     /// `mark_booted`.
     pub async fn get_state<F: AsyncNorFlash>(
         &mut self,
-        flash: &mut F,
+        state_flash: &mut F,
         aligned: &mut [u8],
     ) -> Result<State, FirmwareUpdaterError> {
-        flash.read(self.state.from as u32, aligned).await?;
+        self.state.read(state_flash, 0, aligned).await?;
 
         if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
@@ -115,17 +115,16 @@ impl FirmwareUpdater {
     #[cfg(feature = "_verify")]
     pub async fn verify_and_mark_updated<F: AsyncNorFlash>(
         &mut self,
-        _flash: &mut F,
+        _state_and_dfu_flash: &mut F,
         _public_key: &[u8],
         _signature: &[u8],
         _update_len: usize,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let _end = self.dfu.from + _update_len;
         let _read_size = _aligned.len();
 
         assert_eq!(_aligned.len(), F::WRITE_SIZE);
-        assert!(_end <= self.dfu.to);
+        assert!(_update_len <= self.dfu.len());
 
         #[cfg(feature = "ed25519-dalek")]
         {
@@ -137,21 +136,10 @@ impl FirmwareUpdater {
             let signature = Signature::from_bytes(_signature).map_err(into_signature_error)?;
 
             let mut digest = Sha512::new();
-
-            let mut offset = self.dfu.from;
-            let last_offset = _end / _read_size * _read_size;
-
-            while offset < last_offset {
-                _flash.read(offset as u32, _aligned).await?;
-                digest.update(&_aligned);
-                offset += _read_size;
-            }
-
-            let remaining = _end % _read_size;
-
-            if remaining > 0 {
-                _flash.read(last_offset as u32, _aligned).await?;
-                digest.update(&_aligned[0..remaining]);
+            for offset in (0.._update_len).step_by(_aligned.len()) {
+                self.dfu.read(_state_and_dfu_flash, offset as u32, _aligned).await?;
+                let len = core::cmp::min(_update_len - offset, _aligned.len());
+                digest.update(&_aligned[..len]);
             }
 
             public_key
@@ -173,21 +161,10 @@ impl FirmwareUpdater {
             let signature = Signature::try_from(&signature).map_err(into_signature_error)?;
 
             let mut digest = Sha512::new();
-
-            let mut offset = self.dfu.from;
-            let last_offset = _end / _read_size * _read_size;
-
-            while offset < last_offset {
-                _flash.read(offset as u32, _aligned).await?;
-                digest.update(&_aligned);
-                offset += _read_size;
-            }
-
-            let remaining = _end % _read_size;
-
-            if remaining > 0 {
-                _flash.read(last_offset as u32, _aligned).await?;
-                digest.update(&_aligned[0..remaining]);
+            for offset in (0.._update_len).step_by(_aligned.len()) {
+                self.dfu.read(_state_and_dfu_flash, offset as u32, _aligned).await?;
+                let len = core::cmp::min(_update_len - offset, _aligned.len());
+                digest.update(&_aligned[..len]);
             }
 
             let message = digest.finalize();
@@ -202,7 +179,7 @@ impl FirmwareUpdater {
             r.map_err(into_signature_error)?
         }
 
-        self.set_magic(_aligned, SWAP_MAGIC, _flash).await
+        self.set_magic(_aligned, SWAP_MAGIC, _state_and_dfu_flash).await
     }
 
     /// Mark to trigger firmware swap on next boot.
@@ -213,11 +190,11 @@ impl FirmwareUpdater {
     #[cfg(not(feature = "_verify"))]
     pub async fn mark_updated<F: AsyncNorFlash>(
         &mut self,
-        flash: &mut F,
+        state_flash: &mut F,
         aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::WRITE_SIZE);
-        self.set_magic(aligned, SWAP_MAGIC, flash).await
+        self.set_magic(aligned, SWAP_MAGIC, state_flash).await
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
@@ -227,29 +204,29 @@ impl FirmwareUpdater {
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
     pub async fn mark_booted<F: AsyncNorFlash>(
         &mut self,
-        flash: &mut F,
+        state_flash: &mut F,
         aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::WRITE_SIZE);
-        self.set_magic(aligned, BOOT_MAGIC, flash).await
+        self.set_magic(aligned, BOOT_MAGIC, state_flash).await
     }
 
     async fn set_magic<F: AsyncNorFlash>(
         &mut self,
         aligned: &mut [u8],
         magic: u8,
-        flash: &mut F,
+        state_flash: &mut F,
     ) -> Result<(), FirmwareUpdaterError> {
-        flash.read(self.state.from as u32, aligned).await?;
+        self.state.read(state_flash, 0, aligned).await?;
 
         if aligned.iter().any(|&b| b != magic) {
             aligned.fill(0);
 
-            flash.write(self.state.from as u32, aligned).await?;
-            flash.erase(self.state.from as u32, self.state.to as u32).await?;
+            self.state.write(state_flash, 0, aligned).await?;
+            self.state.wipe(state_flash).await?;
 
             aligned.fill(magic);
-            flash.write(self.state.from as u32, aligned).await?;
+            self.state.write(state_flash, 0, aligned).await?;
         }
         Ok(())
     }
@@ -265,26 +242,17 @@ impl FirmwareUpdater {
         &mut self,
         offset: usize,
         data: &[u8],
-        flash: &mut F,
+        dfu_flash: &mut F,
         block_size: usize,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::ERASE_SIZE);
 
-        flash
-            .erase(
-                (self.dfu.from + offset) as u32,
-                (self.dfu.from + offset + data.len()) as u32,
-            )
+        self.dfu
+            .erase(dfu_flash, offset as u32, (offset + data.len()) as u32)
             .await?;
 
-        trace!(
-            "Erased from {} to {}",
-            self.dfu.from + offset,
-            self.dfu.from + offset + data.len()
-        );
-
         FirmwareWriter(self.dfu)
-            .write_block(offset, data, flash, block_size)
+            .write_block(offset, data, dfu_flash, block_size)
             .await?;
 
         Ok(())
@@ -297,11 +265,9 @@ impl FirmwareUpdater {
     /// exchange for added complexity.
     pub async fn prepare_update<F: AsyncNorFlash>(
         &mut self,
-        flash: &mut F,
+        dfu_flash: &mut F,
     ) -> Result<FirmwareWriter, FirmwareUpdaterError> {
-        flash.erase((self.dfu.from) as u32, (self.dfu.to) as u32).await?;
-
-        trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
+        self.dfu.wipe(dfu_flash).await?;
 
         Ok(FirmwareWriter(self.dfu))
     }
@@ -317,10 +283,10 @@ impl FirmwareUpdater {
     /// `mark_booted`.
     pub fn get_state_blocking<F: NorFlash>(
         &mut self,
-        flash: &mut F,
+        state_flash: &mut F,
         aligned: &mut [u8],
     ) -> Result<State, FirmwareUpdaterError> {
-        flash.read(self.state.from as u32, aligned)?;
+        self.state.read_blocking(state_flash, 0, aligned)?;
 
         if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
@@ -348,7 +314,7 @@ impl FirmwareUpdater {
     #[cfg(feature = "_verify")]
     pub fn verify_and_mark_updated_blocking<F: NorFlash>(
         &mut self,
-        _flash: &mut F,
+        _state_and_dfu_flash: &mut F,
         _public_key: &[u8],
         _signature: &[u8],
         _update_len: usize,
@@ -370,21 +336,10 @@ impl FirmwareUpdater {
             let signature = Signature::from_bytes(_signature).map_err(into_signature_error)?;
 
             let mut digest = Sha512::new();
-
-            let mut offset = self.dfu.from;
-            let last_offset = _end / _read_size * _read_size;
-
-            while offset < last_offset {
-                _flash.read(offset as u32, _aligned)?;
-                digest.update(&_aligned);
-                offset += _read_size;
-            }
-
-            let remaining = _end % _read_size;
-
-            if remaining > 0 {
-                _flash.read(last_offset as u32, _aligned)?;
-                digest.update(&_aligned[0..remaining]);
+            for offset in (0.._update_len).step_by(_aligned.len()) {
+                self.dfu.read_blocking(_state_and_dfu_flash, offset as u32, _aligned)?;
+                let len = core::cmp::min(_update_len - offset, _aligned.len());
+                digest.update(&_aligned[..len]);
             }
 
             public_key
@@ -406,21 +361,10 @@ impl FirmwareUpdater {
             let signature = Signature::try_from(&signature).map_err(into_signature_error)?;
 
             let mut digest = Sha512::new();
-
-            let mut offset = self.dfu.from;
-            let last_offset = _end / _read_size * _read_size;
-
-            while offset < last_offset {
-                _flash.read(offset as u32, _aligned)?;
-                digest.update(&_aligned);
-                offset += _read_size;
-            }
-
-            let remaining = _end % _read_size;
-
-            if remaining > 0 {
-                _flash.read(last_offset as u32, _aligned)?;
-                digest.update(&_aligned[0..remaining]);
+            for offset in (0.._update_len).step_by(_aligned.len()) {
+                self.dfu.read_blocking(_state_and_dfu_flash, offset as u32, _aligned)?;
+                let len = core::cmp::min(_update_len - offset, _aligned.len());
+                digest.update(&_aligned[..len]);
             }
 
             let message = digest.finalize();
@@ -435,7 +379,7 @@ impl FirmwareUpdater {
             r.map_err(into_signature_error)?
         }
 
-        self.set_magic_blocking(_aligned, SWAP_MAGIC, _flash)
+        self.set_magic_blocking(_aligned, SWAP_MAGIC, _state_and_dfu_flash)
     }
 
     /// Mark to trigger firmware swap on next boot.
@@ -446,11 +390,11 @@ impl FirmwareUpdater {
     #[cfg(not(feature = "_verify"))]
     pub fn mark_updated_blocking<F: NorFlash>(
         &mut self,
-        flash: &mut F,
+        state_flash: &mut F,
         aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::WRITE_SIZE);
-        self.set_magic_blocking(aligned, SWAP_MAGIC, flash)
+        self.set_magic_blocking(aligned, SWAP_MAGIC, state_flash)
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
@@ -460,29 +404,29 @@ impl FirmwareUpdater {
     /// The `aligned` buffer must have a size of F::WRITE_SIZE, and follow the alignment rules for the flash being written to.
     pub fn mark_booted_blocking<F: NorFlash>(
         &mut self,
-        flash: &mut F,
+        state_flash: &mut F,
         aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(aligned.len(), F::WRITE_SIZE);
-        self.set_magic_blocking(aligned, BOOT_MAGIC, flash)
+        self.set_magic_blocking(aligned, BOOT_MAGIC, state_flash)
     }
 
     fn set_magic_blocking<F: NorFlash>(
         &mut self,
         aligned: &mut [u8],
         magic: u8,
-        flash: &mut F,
+        state_flash: &mut F,
     ) -> Result<(), FirmwareUpdaterError> {
-        flash.read(self.state.from as u32, aligned)?;
+        self.state.read_blocking(state_flash, 0, aligned)?;
 
         if aligned.iter().any(|&b| b != magic) {
             aligned.fill(0);
 
-            flash.write(self.state.from as u32, aligned)?;
-            flash.erase(self.state.from as u32, self.state.to as u32)?;
+            self.state.write_blocking(state_flash, 0, aligned)?;
+            self.state.wipe_blocking(state_flash)?;
 
             aligned.fill(magic);
-            flash.write(self.state.from as u32, aligned)?;
+            self.state.write_blocking(state_flash, 0, aligned)?;
         }
         Ok(())
     }
@@ -498,23 +442,15 @@ impl FirmwareUpdater {
         &mut self,
         offset: usize,
         data: &[u8],
-        flash: &mut F,
+        dfu_flash: &mut F,
         block_size: usize,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::ERASE_SIZE);
 
-        flash.erase(
-            (self.dfu.from + offset) as u32,
-            (self.dfu.from + offset + data.len()) as u32,
-        )?;
+        self.dfu
+            .erase_blocking(dfu_flash, offset as u32, (offset + data.len()) as u32)?;
 
-        trace!(
-            "Erased from {} to {}",
-            self.dfu.from + offset,
-            self.dfu.from + offset + data.len()
-        );
-
-        FirmwareWriter(self.dfu).write_block_blocking(offset, data, flash, block_size)?;
+        FirmwareWriter(self.dfu).write_block_blocking(offset, data, dfu_flash, block_size)?;
 
         Ok(())
     }
@@ -528,9 +464,7 @@ impl FirmwareUpdater {
         &mut self,
         flash: &mut F,
     ) -> Result<FirmwareWriter, FirmwareUpdaterError> {
-        flash.erase((self.dfu.from) as u32, (self.dfu.to) as u32)?;
-
-        trace!("Erased from {} to {}", self.dfu.from, self.dfu.to);
+        self.dfu.wipe_blocking(flash)?;
 
         Ok(FirmwareWriter(self.dfu))
     }
