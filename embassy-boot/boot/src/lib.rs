@@ -77,15 +77,14 @@ mod tests {
 
         let mut flash = MemFlash::<131072, 4096, 4>([0xff; 131072]);
         flash.0[0..4].copy_from_slice(&[BOOT_MAGIC; 4]);
-        let mut flash = SingleFlashConfig::new(&mut flash);
+        let mut flash = SingleFlashConfig::<_, 4096>::new(&mut flash);
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
 
-        let mut magic = [0; 4];
-        let mut page = [0; 4096];
+        let mut block_buffer = [0; 4096];
         assert_eq!(
             State::Boot,
-            bootloader.prepare_boot(&mut flash, &mut magic, &mut page).unwrap()
+            bootloader.prepare_boot(&mut flash, &mut block_buffer).unwrap()
         );
     }
 
@@ -114,12 +113,11 @@ mod tests {
         }
         block_on(updater.mark_updated(&mut flash, &mut aligned)).unwrap();
 
-        let mut magic = [0; 4];
-        let mut page = [0; 4096];
+        let mut block_buffer = [0; 4096];
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::<_, 4096>::new(&mut flash), &mut block_buffer)
                 .unwrap()
         );
 
@@ -136,7 +134,7 @@ mod tests {
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::<_, 4096>::new(&mut flash), &mut block_buffer)
                 .unwrap()
         );
 
@@ -154,7 +152,7 @@ mod tests {
         assert_eq!(
             State::Boot,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::<_, 4096>::new(&mut flash), &mut block_buffer)
                 .unwrap()
         );
     }
@@ -188,16 +186,14 @@ mod tests {
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut magic = [0; 4];
-        let mut page = [0; 4096];
+        let mut block_buffer = [0; 4096];
 
         assert_eq!(
             State::Swap,
             bootloader
                 .prepare_boot(
-                    &mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu),
-                    &mut magic,
-                    &mut page
+                    &mut MultiFlashConfig::<_, _, _, 4096>::new(&mut active, &mut state, &mut dfu),
+                    &mut block_buffer,
                 )
                 .unwrap()
         );
@@ -241,15 +237,13 @@ mod tests {
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut magic = [0; 4];
-        let mut page = [0; 4096];
+        let mut block_buffer = [0; 4096];
         assert_eq!(
             State::Swap,
             bootloader
                 .prepare_boot(
-                    &mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu,),
-                    &mut magic,
-                    &mut page
+                    &mut MultiFlashConfig::<_, _, _, 4096>::new(&mut active, &mut state, &mut dfu,),
+                    &mut block_buffer,
                 )
                 .unwrap()
         );
@@ -368,7 +362,6 @@ mod tests {
     impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> super::Flash
         for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
     {
-        const BLOCK_SIZE: usize = ERASE_SIZE;
         const ERASE_VALUE: u8 = 0xFF;
     }
 

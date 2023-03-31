@@ -32,15 +32,21 @@ where
 
 /// Extension of the embedded-storage flash type information with block size and erase value.
 pub trait Flash: NorFlash + ReadNorFlash {
-    /// The block size that should be used when writing to flash. For most builtin flashes, this is the same as the erase
-    /// size of the flash, but for external QSPI flash modules, this can be lower.
-    const BLOCK_SIZE: usize;
     /// The erase value of the flash. Typically the default of 0xFF is used, but some flashes use a different value.
     const ERASE_VALUE: u8 = 0xFF;
 }
 
 /// Trait defining the flash handles used for active and DFU partition
 pub trait FlashConfig {
+    /// The block size that is used when writing to flash.
+    /// The update progress is tracked in blocks of this size.
+    ///
+    /// The size of a block must be such that
+    /// 1) BLOCK_SIZE >= ACTIVE::WRITE_SIZE && ACTIVE::WRITE_SIZE % BLOCK_SIZE == 0 && ACTIVE::capacity() % BLOCK_SIZE == 0
+    /// 2) BLOCK_SIZE >= DFU::WRITE_SIZE && DFU::WRITE_SIZE % BLOCK_SIZE == 0 && DFU::capacity() % BLOCK_SIZE == 0
+    /// 3) BLOCK_SIZE >= STATE::WRITE_SIZE
+    const BLOCK_SIZE: usize;
+
     /// Flash type used for the state partition.
     type STATE: Flash;
     /// Flash type used for the active partition.
@@ -101,8 +107,8 @@ impl BootLoader {
     /// +-----------+------------+--------+--------+--------+--------+
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// +-----------+------------+--------+--------+--------+--------+
-    /// |    Active |          0 |      1 |      2 |      3 |      - |
-    /// |       DFU |          0 |      3 |      2 |      1 |      X |
+    /// |    Active |          0 |      A |      B |      C |      - |
+    /// |       DFU |          0 |      1 |      2 |      3 |      - |
     /// +-----------+------------+--------+--------+--------+--------+
     ///
     /// The algorithm starts by copying 'backwards', and after the first step, the layout is
@@ -111,8 +117,8 @@ impl BootLoader {
     /// +-----------+------------+--------+--------+--------+--------+
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// +-----------+------------+--------+--------+--------+--------+
-    /// |    Active |          1 |      1 |      2 |      1 |      - |
-    /// |       DFU |          1 |      3 |      2 |      1 |      3 |
+    /// |    Active |          1 |      A |      B |      3 |      - |
+    /// |       DFU |          1 |      1 |      2 |      3 |      C |
     /// +-----------+------------+--------+--------+--------+--------+
     ///
     /// The next iteration performs the same steps
@@ -120,8 +126,8 @@ impl BootLoader {
     /// +-----------+------------+--------+--------+--------+--------+
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// +-----------+------------+--------+--------+--------+--------+
-    /// |    Active |          2 |      1 |      2 |      1 |      - |
-    /// |       DFU |          2 |      3 |      2 |      2 |      3 |
+    /// |    Active |          2 |      A |      2 |      3 |      - |
+    /// |       DFU |          2 |      1 |      2 |      B |      C |
     /// +-----------+------------+--------+--------+--------+--------+
     ///
     /// And again until we're done
@@ -129,8 +135,8 @@ impl BootLoader {
     /// +-----------+------------+--------+--------+--------+--------+
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// +-----------+------------+--------+--------+--------+--------+
-    /// |    Active |          3 |      3 |      2 |      1 |      - |
-    /// |       DFU |          3 |      3 |      1 |      2 |      3 |
+    /// |    Active |          3 |      1 |      2 |      3 |      - |
+    /// |       DFU |          3 |      3 |      A |      B |      C |
     /// +-----------+------------+--------+--------+--------+--------+
     ///
     /// REVERTING
@@ -148,52 +154,63 @@ impl BootLoader {
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     //*/
     /// +-----------+--------------+--------+--------+--------+--------+
-    /// |    Active |            3 |      1 |      2 |      1 |      - |
-    /// |       DFU |            3 |      3 |      1 |      2 |      3 |
+    /// |    Active |            3 |      A |      2 |      3 |      - |
+    /// |       DFU |            3 |      1 |      A |      B |      C |
     /// +-----------+--------------+--------+--------+--------+--------+
     ///
     ///
     /// +-----------+--------------+--------+--------+--------+--------+
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// +-----------+--------------+--------+--------+--------+--------+
-    /// |    Active |            3 |      1 |      2 |      1 |      - |
-    /// |       DFU |            3 |      3 |      2 |      2 |      3 |
+    /// |    Active |            3 |      A |      B |      3 |      - |
+    /// |       DFU |            3 |      1 |      2 |      B |      C |
     /// +-----------+--------------+--------+--------+--------+--------+
     ///
     /// +-----------+--------------+--------+--------+--------+--------+
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
     /// +-----------+--------------+--------+--------+--------+--------+
-    /// |    Active |            3 |      1 |      2 |      3 |      - |
-    /// |       DFU |            3 |      3 |      2 |      1 |      3 |
+    /// |    Active |            3 |      A |      B |      C |      - |
+    /// |       DFU |            3 |      1 |      2 |      3 |      C |
     /// +-----------+--------------+--------+--------+--------+--------+
     ///
     pub fn prepare_boot<P: FlashConfig>(
         &mut self,
         p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
+        aligned_block_buffer: &mut [u8],
     ) -> Result<State, BootError> {
+        assert_eq!(P::BLOCK_SIZE, aligned_block_buffer.len());
+        assert!(P::BLOCK_SIZE >= P::ACTIVE::WRITE_SIZE);
+        assert!(P::BLOCK_SIZE >= P::DFU::WRITE_SIZE);
+        assert!(P::BLOCK_SIZE >= P::STATE::WRITE_SIZE);
+
+        assert_eq!(0, P::BLOCK_SIZE % P::ACTIVE::WRITE_SIZE);
+        assert_eq!(0, P::BLOCK_SIZE % P::DFU::WRITE_SIZE);
+
+        assert_eq!(0, p.active().capacity() % P::BLOCK_SIZE);
+        assert_eq!(0, p.dfu().capacity() % P::BLOCK_SIZE);
+
         // Ensure we have enough progress pages to store copy progress
-        assert_partitions(self.active, self.dfu, self.state, page.len(), P::STATE::WRITE_SIZE);
-        assert_eq!(magic.len(), P::STATE::WRITE_SIZE);
+        assert_partitions(self.active, self.dfu, self.state, P::BLOCK_SIZE, P::STATE::WRITE_SIZE);
 
         // Copy contents from partition N to active
-        let state = self.read_state(p, magic)?;
+        let state = self.read_state(p, aligned_block_buffer)?;
         if state == State::Swap {
             //
             // Check if we already swapped. If we're in the swap state, this means we should revert
             // since the app has failed to mark boot as successful
             //
-            if !self.is_swapped(p, magic, page)? {
+            if !self.is_swapped(p, aligned_block_buffer)? {
                 trace!("Swapping");
-                self.swap(p, magic, page)?;
+                self.swap(p, aligned_block_buffer)?;
                 trace!("Swapping done");
             } else {
                 trace!("Reverting");
-                self.revert(p, magic, page)?;
+                self.revert(p, aligned_block_buffer)?;
 
                 // Overwrite magic and reset progress
                 let state_flash = p.state();
+                let magic = &mut aligned_block_buffer[..P::STATE::WRITE_SIZE];
+
                 magic.fill(!P::STATE::ERASE_VALUE);
                 self.state.write_blocking(state_flash, 0, magic)?;
                 self.state.wipe_blocking(state_flash)?;
@@ -205,147 +222,207 @@ impl BootLoader {
         Ok(state)
     }
 
-    fn is_swapped<P: FlashConfig>(&mut self, p: &mut P, magic: &mut [u8], page: &mut [u8]) -> Result<bool, BootError> {
-        let page_size = page.len();
-        let page_count = self.active.len() / page_size;
-        let progress = self.current_progress(p, magic)?;
+    fn is_swapped<P: FlashConfig>(&mut self, p: &mut P, aligned_block_buffer: &mut [u8]) -> Result<bool, BootError> {
+        let block_count = self.active.len() / P::BLOCK_SIZE;
+        let progress = self.current_progress(p, aligned_block_buffer)?;
 
-        Ok(progress >= page_count * 2)
+        Ok(progress >= block_count * 2)
     }
 
-    fn current_progress<P: FlashConfig>(&mut self, config: &mut P, aligned: &mut [u8]) -> Result<usize, BootError> {
-        let write_size = aligned.len();
+    fn current_progress<P: FlashConfig>(
+        &mut self,
+        config: &mut P,
+        aligned_block_buffer: &mut [u8],
+    ) -> Result<usize, BootError> {
+        let write_size = P::STATE::WRITE_SIZE;
         let max_index = ((self.state.len() - write_size) / write_size) - 1;
-        aligned.fill(!P::STATE::ERASE_VALUE);
+
+        let read_buffer = &mut aligned_block_buffer[..write_size];
+        read_buffer.fill(!P::STATE::ERASE_VALUE);
 
         let state_flash = config.state();
         for i in 0..max_index {
             self.state
-                .read_blocking(state_flash, (write_size + i * write_size) as u32, aligned)?;
+                .read_blocking(state_flash, (write_size + i * write_size) as u32, read_buffer)?;
 
-            if aligned.iter().any(|&b| b == P::STATE::ERASE_VALUE) {
+            if read_buffer.iter().any(|&b| b == P::STATE::ERASE_VALUE) {
                 return Ok(i);
             }
         }
         Ok(max_index)
     }
 
-    fn update_progress<P: FlashConfig>(&mut self, idx: usize, p: &mut P, magic: &mut [u8]) -> Result<(), BootError> {
-        let write_size = magic.len();
-
-        let aligned = magic;
-        aligned.fill(!P::STATE::ERASE_VALUE);
-        self.state
-            .write_blocking(p.state(), (write_size + idx * write_size) as u32, aligned)?;
+    fn update_progress<P: FlashConfig>(
+        &mut self,
+        progress_index: usize,
+        p: &mut P,
+        aligned_block_buffer: &mut [u8],
+    ) -> Result<(), BootError> {
+        let write_size = P::STATE::WRITE_SIZE;
+        let write_buffer = &mut aligned_block_buffer[..write_size];
+        write_buffer.fill(!P::STATE::ERASE_VALUE);
+        self.state.write_blocking(
+            p.state(),
+            (write_size + progress_index * write_size) as u32,
+            write_buffer,
+        )?;
         Ok(())
     }
 
-    fn copy_page_once_to_active<P: FlashConfig>(
+    fn copy_block_once_to_active<P: FlashConfig>(
         &mut self,
-        idx: usize,
-        from_offset: u32,
-        to_offset: u32,
+        progress_index: usize,
+        from_dfu_offset: u32,
+        to_active_offset: u32,
         p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
+        aligned_block_buffer: &mut [u8],
     ) -> Result<(), BootError> {
-        let buf = page;
-        if self.current_progress(p, magic)? <= idx {
-            let mut offset = from_offset;
-            for chunk in buf.chunks_mut(P::DFU::BLOCK_SIZE) {
+        if self.current_progress(p, aligned_block_buffer)? <= progress_index {
+            let mut offset = from_dfu_offset;
+            for chunk in aligned_block_buffer.chunks_mut(P::BLOCK_SIZE) {
                 self.dfu.read_blocking(p.dfu(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
 
-            self.active
-                .erase_blocking(p.active(), to_offset, to_offset + buf.len() as u32)?;
-
-            let mut offset = to_offset;
-            for chunk in buf.chunks(P::ACTIVE::BLOCK_SIZE) {
+            let mut offset = to_active_offset;
+            for chunk in aligned_block_buffer.chunks(P::BLOCK_SIZE) {
                 self.active.write_blocking(p.active(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
-            self.update_progress(idx, p, magic)?;
+            self.update_progress(progress_index, p, aligned_block_buffer)?;
         }
         Ok(())
     }
 
-    fn copy_page_once_to_dfu<P: FlashConfig>(
+    fn copy_block_once_to_dfu<P: FlashConfig>(
         &mut self,
-        idx: usize,
-        from_offset: u32,
-        to_offset: u32,
+        progress_index: usize,
+        from_active_offset: u32,
+        to_dfu_offset: u32,
         p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
+        aligned_block_buffer: &mut [u8],
     ) -> Result<(), BootError> {
-        let buf = page;
-        if self.current_progress(p, magic)? <= idx {
-            let mut offset = from_offset;
-            for chunk in buf.chunks_mut(P::ACTIVE::BLOCK_SIZE) {
+        if self.current_progress(p, aligned_block_buffer)? <= progress_index {
+            let mut offset = from_active_offset;
+            for chunk in aligned_block_buffer.chunks_mut(P::BLOCK_SIZE) {
                 self.active.read_blocking(p.active(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
 
-            self.dfu
-                .erase_blocking(p.dfu(), to_offset as u32, to_offset + buf.len() as u32)?;
-
-            let mut offset = to_offset;
-            for chunk in buf.chunks(P::DFU::BLOCK_SIZE) {
+            let mut offset = to_dfu_offset;
+            for chunk in aligned_block_buffer.chunks(P::BLOCK_SIZE) {
                 self.dfu.write_blocking(p.dfu(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
-            self.update_progress(idx, p, magic)?;
+            self.update_progress(progress_index, p, aligned_block_buffer)?;
         }
         Ok(())
     }
 
-    fn swap<P: FlashConfig>(&mut self, p: &mut P, magic: &mut [u8], page: &mut [u8]) -> Result<(), BootError> {
-        let page_size = page.len();
-        let page_count = self.active.len() / page_size;
-        trace!("Page count: {}", page_count);
-        for page_num in 0..page_count {
-            trace!("COPY PAGE {}", page_num);
+    fn swap<P: FlashConfig>(&mut self, p: &mut P, aligned_block_buffer: &mut [u8]) -> Result<(), BootError> {
+        let block_size = P::BLOCK_SIZE;
+        let block_count = self.active.len() / block_size;
+        trace!("Block count: {}", block_count);
+        for block_index in 0..block_count {
+            let progress_index = block_index * 2;
 
-            let idx = page_num * 2;
+            // Copy active block to the 'next' DFU block.
+            let active_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
+            let dfu_to_offset = ((block_count - block_index) * block_size) as u32;
 
-            // Copy active page to the 'next' DFU page.
-            let active_from_offset = ((page_count - 1 - page_num) * page_size) as u32;
-            let dfu_to_offset = ((page_count - page_num) * page_size) as u32;
+            if block_index % P::DFU::ERASE_SIZE == 0 {
+                self.dfu
+                    .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + P::DFU::ERASE_SIZE as u32)?;
+            }
+
             //trace!("Copy active {} to dfu {}", active_from_offset, dfu_to_offset);
-            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, magic, page)?;
+            self.copy_block_once_to_dfu(
+                progress_index,
+                active_from_offset,
+                dfu_to_offset,
+                p,
+                aligned_block_buffer,
+            )?;
 
-            // Copy DFU page to the active page
-            let active_to_offset = ((page_count - 1 - page_num) * page_size) as u32;
-            let dfu_from_offset = ((page_count - 1 - page_num) * page_size) as u32;
+            // Copy DFU block to the active block
+            let active_to_offset = ((block_count - 1 - block_index) * block_size) as u32;
+            let dfu_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
+
+            if block_index % P::ACTIVE::ERASE_SIZE == 0 {
+                self.active.erase_blocking(
+                    p.active(),
+                    active_to_offset,
+                    active_to_offset + P::ACTIVE::ERASE_SIZE as u32,
+                )?;
+            }
+
             //trace!("Copy dfy {} to active {}", dfu_from_offset, active_to_offset);
-            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, magic, page)?;
+            self.copy_block_once_to_active(
+                progress_index + 1,
+                dfu_from_offset,
+                active_to_offset,
+                p,
+                aligned_block_buffer,
+            )?;
         }
 
         Ok(())
     }
 
-    fn revert<P: FlashConfig>(&mut self, p: &mut P, magic: &mut [u8], page: &mut [u8]) -> Result<(), BootError> {
-        let page_size = page.len();
-        let page_count = self.active.len() / page_size;
-        for page_num in 0..page_count {
-            let idx = page_count * 2 + page_num * 2;
+    fn revert<P: FlashConfig>(&mut self, p: &mut P, aligned_block_buffer: &mut [u8]) -> Result<(), BootError> {
+        let block_size = P::BLOCK_SIZE;
+        let block_count = self.active.len() / block_size;
+        trace!("Block count: {}", block_count);
+        for block_index in 0..block_count {
+            let progress_index = block_count * 2 + block_index * 2;
 
-            // Copy the bad active page to the DFU page
-            let active_from_offset = (page_num * page_size) as u32;
-            let dfu_to_offset = (page_num * page_size) as u32;
-            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, magic, page)?;
+            // Copy the bad active block to the DFU block
+            let active_from_offset = (block_index * block_size) as u32;
+            let dfu_to_offset = (block_index * block_size) as u32;
 
-            // Copy the DFU page back to the active page
-            let active_to_offset = (page_num * page_size) as u32;
-            let dfu_from_offset = ((page_num + 1) * page_size) as u32;
-            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, magic, page)?;
+            if block_index % P::DFU::ERASE_SIZE == 0 {
+                self.dfu
+                    .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + P::DFU::ERASE_SIZE as u32)?;
+            }
+
+            self.copy_block_once_to_dfu(
+                progress_index,
+                active_from_offset,
+                dfu_to_offset,
+                p,
+                aligned_block_buffer,
+            )?;
+
+            // Copy the DFU block back to the active block
+            let active_to_offset = (block_index * block_size) as u32;
+            let dfu_from_offset = ((block_index + 1) * block_size) as u32;
+
+            if block_index % P::ACTIVE::ERASE_SIZE == 0 {
+                self.active.erase_blocking(
+                    p.active(),
+                    active_to_offset,
+                    active_to_offset + P::ACTIVE::ERASE_SIZE as u32,
+                )?;
+            }
+
+            self.copy_block_once_to_active(
+                progress_index + 1,
+                dfu_from_offset,
+                active_to_offset,
+                p,
+                aligned_block_buffer,
+            )?;
         }
 
         Ok(())
     }
 
-    fn read_state<P: FlashConfig>(&mut self, config: &mut P, magic: &mut [u8]) -> Result<State, BootError> {
+    fn read_state<P: FlashConfig>(
+        &mut self,
+        config: &mut P,
+        aligned_block_buffer: &mut [u8],
+    ) -> Result<State, BootError> {
+        let magic = &mut aligned_block_buffer[..P::STATE::WRITE_SIZE];
         self.state.read_blocking(config.state(), 0, magic)?;
 
         if !magic.iter().any(|&b| b != SWAP_MAGIC) {
@@ -356,22 +433,22 @@ impl BootLoader {
     }
 }
 
-fn assert_partitions(active: Partition, dfu: Partition, state: Partition, page_size: usize, write_size: usize) {
-    assert_eq!(active.len() % page_size, 0);
-    assert_eq!(dfu.len() % page_size, 0);
-    assert!(dfu.len() - active.len() >= page_size);
-    assert!(2 * (active.len() / page_size) <= (state.len() - write_size) / write_size);
+fn assert_partitions(active: Partition, dfu: Partition, state: Partition, block_size: usize, state_write_size: usize) {
+    assert_eq!(active.len() % block_size, 0);
+    assert_eq!(dfu.len() % block_size, 0);
+    assert!(dfu.len() - active.len() >= block_size);
+    assert!(2 * (active.len() / block_size) <= (state.len() - state_write_size) / state_write_size);
 }
 
 /// A flash wrapper implementing the Flash and embedded_storage traits.
-pub struct BootFlash<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8 = 0xFF>
+pub struct BootFlash<F, const ERASE_VALUE: u8 = 0xFF>
 where
     F: NorFlash + ReadNorFlash,
 {
     flash: F,
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> BootFlash<F, ERASE_VALUE>
 where
     F: NorFlash + ReadNorFlash,
 {
@@ -381,22 +458,21 @@ where
     }
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> Flash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> Flash for BootFlash<F, ERASE_VALUE>
 where
     F: NorFlash + ReadNorFlash,
 {
-    const BLOCK_SIZE: usize = BLOCK_SIZE;
     const ERASE_VALUE: u8 = ERASE_VALUE;
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ErrorType for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> ErrorType for BootFlash<F, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
     type Error = F::Error;
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> NorFlash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> NorFlash for BootFlash<F, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
@@ -412,7 +488,7 @@ where
     }
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ReadNorFlash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> ReadNorFlash for BootFlash<F, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
@@ -428,14 +504,14 @@ where
 }
 
 /// Convenience provider that uses a single flash for all partitions.
-pub struct SingleFlashConfig<'a, F>
+pub struct SingleFlashConfig<'a, F, const BLOCK_SIZE: usize>
 where
     F: Flash,
 {
     flash: &'a mut F,
 }
 
-impl<'a, F> SingleFlashConfig<'a, F>
+impl<'a, F, const BLOCK_SIZE: usize> SingleFlashConfig<'a, F, BLOCK_SIZE>
 where
     F: Flash,
 {
@@ -445,10 +521,11 @@ where
     }
 }
 
-impl<'a, F> FlashConfig for SingleFlashConfig<'a, F>
+impl<'a, F, const BLOCK_SIZE: usize> FlashConfig for SingleFlashConfig<'a, F, BLOCK_SIZE>
 where
     F: Flash,
 {
+    const BLOCK_SIZE: usize = BLOCK_SIZE;
     type STATE = F;
     type ACTIVE = F;
     type DFU = F;
@@ -465,7 +542,7 @@ where
 }
 
 /// Convenience flash provider that uses separate flash instances for each partition.
-pub struct MultiFlashConfig<'a, ACTIVE, STATE, DFU>
+pub struct MultiFlashConfig<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize>
 where
     ACTIVE: Flash,
     STATE: Flash,
@@ -476,7 +553,7 @@ where
     dfu: &'a mut DFU,
 }
 
-impl<'a, ACTIVE, STATE, DFU> MultiFlashConfig<'a, ACTIVE, STATE, DFU>
+impl<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize> MultiFlashConfig<'a, ACTIVE, STATE, DFU, BLOCK_SIZE>
 where
     ACTIVE: Flash,
     STATE: Flash,
@@ -488,12 +565,14 @@ where
     }
 }
 
-impl<'a, ACTIVE, STATE, DFU> FlashConfig for MultiFlashConfig<'a, ACTIVE, STATE, DFU>
+impl<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize> FlashConfig
+    for MultiFlashConfig<'a, ACTIVE, STATE, DFU, BLOCK_SIZE>
 where
     ACTIVE: Flash,
     STATE: Flash,
     DFU: Flash,
 {
+    const BLOCK_SIZE: usize = BLOCK_SIZE;
     type STATE = STATE;
     type ACTIVE = ACTIVE;
     type DFU = DFU;
