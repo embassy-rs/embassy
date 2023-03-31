@@ -30,12 +30,6 @@ where
     }
 }
 
-/// Extension of the embedded-storage flash type information with block size and erase value.
-pub trait Flash: NorFlash + ReadNorFlash {
-    /// The erase value of the flash. Typically the default of 0xFF is used, but some flashes use a different value.
-    const ERASE_VALUE: u8 = 0xFF;
-}
-
 /// Trait defining the flash handles used for active and DFU partition
 pub trait FlashConfig {
     /// The block size that is used when writing to flash.
@@ -54,11 +48,11 @@ pub trait FlashConfig {
     const BLOCK_SIZE: usize;
 
     /// Flash type used for the state partition.
-    type STATE: Flash;
+    type STATE: NorFlash + ReadNorFlash;
     /// Flash type used for the active partition.
-    type ACTIVE: Flash;
+    type ACTIVE: NorFlash + ReadNorFlash;
     /// Flash type used for the dfu partition.
-    type DFU: Flash;
+    type DFU: NorFlash + ReadNorFlash;
 
     /// Return flash instance used to write/read to/from active partition.
     fn active(&mut self) -> &mut Self::ACTIVE;
@@ -70,7 +64,8 @@ pub trait FlashConfig {
 
 /// BootLoader works with any flash implementing embedded_storage and can also work with
 /// different page sizes and flash write sizes.
-pub struct BootLoader {
+/// STATE_ERASE_VALUE is the erase value of the state flash. Typically the default of 0xFF is used, but some flashes use a different value.
+pub struct BootLoader<const STATE_ERASE_VALUE: u8 = 0xFF> {
     // Page with current state of bootloader. The state partition has the following format:
     // | Range          | Description                                                                      |
     // | 0 - WRITE_SIZE | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
@@ -82,7 +77,7 @@ pub struct BootLoader {
     dfu: Partition,
 }
 
-impl BootLoader {
+impl<const STATE_ERASE_VALUE: u8> BootLoader<STATE_ERASE_VALUE> {
     /// Create a new instance of a bootloader with the given partitions.
     ///
     /// - All partitions must be aligned with the PAGE_SIZE const generic parameter.
@@ -219,7 +214,7 @@ impl BootLoader {
                 let state_flash = p.state();
                 let magic = &mut aligned_block_buffer[..P::STATE::WRITE_SIZE];
 
-                magic.fill(!P::STATE::ERASE_VALUE);
+                magic.fill(!STATE_ERASE_VALUE);
                 self.state.write_blocking(state_flash, 0, magic)?;
                 self.state.wipe_blocking(state_flash)?;
 
@@ -246,14 +241,14 @@ impl BootLoader {
         let max_index = ((self.state.len() - write_size) / write_size) - 1;
 
         let read_buffer = &mut aligned_block_buffer[..write_size];
-        read_buffer.fill(!P::STATE::ERASE_VALUE);
+        read_buffer.fill(!STATE_ERASE_VALUE);
 
         let state_flash = p.state();
         for i in 0..max_index {
             self.state
                 .read_blocking(state_flash, (write_size + i * write_size) as u32, read_buffer)?;
 
-            if read_buffer.iter().any(|&b| b == P::STATE::ERASE_VALUE) {
+            if read_buffer.iter().any(|&b| b == STATE_ERASE_VALUE) {
                 return Ok(i);
             }
         }
@@ -268,7 +263,7 @@ impl BootLoader {
     ) -> Result<(), BootError> {
         let write_size = P::STATE::WRITE_SIZE;
         let write_buffer = &mut aligned_block_buffer[..write_size];
-        write_buffer.fill(!P::STATE::ERASE_VALUE);
+        write_buffer.fill(!STATE_ERASE_VALUE);
         self.state.write_blocking(
             p.state(),
             (write_size + progress_index * write_size) as u32,
@@ -461,14 +456,14 @@ fn assert_partitions(active: Partition, dfu: Partition, state: Partition, block_
 }
 
 /// A flash wrapper implementing the Flash and embedded_storage traits.
-pub struct BootFlash<F, const ERASE_VALUE: u8 = 0xFF>
+pub struct BootFlash<F>
 where
     F: NorFlash + ReadNorFlash,
 {
     flash: F,
 }
 
-impl<F, const ERASE_VALUE: u8> BootFlash<F, ERASE_VALUE>
+impl<F> BootFlash<F>
 where
     F: NorFlash + ReadNorFlash,
 {
@@ -478,21 +473,14 @@ where
     }
 }
 
-impl<F, const ERASE_VALUE: u8> Flash for BootFlash<F, ERASE_VALUE>
-where
-    F: NorFlash + ReadNorFlash,
-{
-    const ERASE_VALUE: u8 = ERASE_VALUE;
-}
-
-impl<F, const ERASE_VALUE: u8> ErrorType for BootFlash<F, ERASE_VALUE>
+impl<F> ErrorType for BootFlash<F>
 where
     F: ReadNorFlash + NorFlash,
 {
     type Error = F::Error;
 }
 
-impl<F, const ERASE_VALUE: u8> NorFlash for BootFlash<F, ERASE_VALUE>
+impl<F> NorFlash for BootFlash<F>
 where
     F: ReadNorFlash + NorFlash,
 {
@@ -508,7 +496,7 @@ where
     }
 }
 
-impl<F, const ERASE_VALUE: u8> ReadNorFlash for BootFlash<F, ERASE_VALUE>
+impl<F> ReadNorFlash for BootFlash<F>
 where
     F: ReadNorFlash + NorFlash,
 {
@@ -526,14 +514,14 @@ where
 /// Convenience provider that uses a single flash for all partitions.
 pub struct SingleFlashConfig<'a, F, const BLOCK_SIZE: usize>
 where
-    F: Flash,
+    F: ReadNorFlash + NorFlash,
 {
     flash: &'a mut F,
 }
 
 impl<'a, F, const BLOCK_SIZE: usize> SingleFlashConfig<'a, F, BLOCK_SIZE>
 where
-    F: Flash,
+    F: ReadNorFlash + NorFlash,
 {
     /// Create a provider for a single flash.
     pub fn new(flash: &'a mut F) -> Self {
@@ -543,7 +531,7 @@ where
 
 impl<'a, F, const BLOCK_SIZE: usize> FlashConfig for SingleFlashConfig<'a, F, BLOCK_SIZE>
 where
-    F: Flash,
+    F: ReadNorFlash + NorFlash,
 {
     const BLOCK_SIZE: usize = BLOCK_SIZE;
     type STATE = F;
@@ -564,9 +552,9 @@ where
 /// Convenience flash provider that uses separate flash instances for each partition.
 pub struct MultiFlashConfig<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize>
 where
-    ACTIVE: Flash,
-    STATE: Flash,
-    DFU: Flash,
+    ACTIVE: ReadNorFlash + NorFlash,
+    STATE: ReadNorFlash + NorFlash,
+    DFU: ReadNorFlash + NorFlash,
 {
     active: &'a mut ACTIVE,
     state: &'a mut STATE,
@@ -575,9 +563,9 @@ where
 
 impl<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize> MultiFlashConfig<'a, ACTIVE, STATE, DFU, BLOCK_SIZE>
 where
-    ACTIVE: Flash,
-    STATE: Flash,
-    DFU: Flash,
+    ACTIVE: ReadNorFlash + NorFlash,
+    STATE: ReadNorFlash + NorFlash,
+    DFU: ReadNorFlash + NorFlash,
 {
     /// Create a new flash provider with separate configuration for all three partitions.
     pub fn new(active: &'a mut ACTIVE, state: &'a mut STATE, dfu: &'a mut DFU) -> Self {
@@ -588,9 +576,9 @@ where
 impl<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize> FlashConfig
     for MultiFlashConfig<'a, ACTIVE, STATE, DFU, BLOCK_SIZE>
 where
-    ACTIVE: Flash,
-    STATE: Flash,
-    DFU: Flash,
+    ACTIVE: ReadNorFlash + NorFlash,
+    STATE: ReadNorFlash + NorFlash,
+    DFU: ReadNorFlash + NorFlash,
 {
     const BLOCK_SIZE: usize = BLOCK_SIZE;
     type STATE = STATE;

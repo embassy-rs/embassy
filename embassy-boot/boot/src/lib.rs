@@ -10,7 +10,7 @@ mod firmware_updater;
 mod firmware_writer;
 mod partition;
 
-pub use boot_loader::{BootError, BootFlash, BootLoader, Flash, FlashConfig, MultiFlashConfig, SingleFlashConfig};
+pub use boot_loader::{BootError, BootFlash, BootLoader, FlashConfig, MultiFlashConfig, SingleFlashConfig};
 pub use firmware_updater::{FirmwareUpdater, FirmwareUpdaterError};
 pub use firmware_writer::FirmwareWriter;
 pub use partition::Partition;
@@ -357,12 +357,6 @@ mod tests {
         fn capacity(&self) -> usize {
             SIZE
         }
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> super::Flash
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        const ERASE_VALUE: u8 = 0xFF;
     }
 
     impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncReadNorFlash
