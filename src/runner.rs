@@ -328,45 +328,23 @@ where
                 let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
                 self.bus.wlan_read(buf, len).await;
                 trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..(len as usize).min(48)]));
-                self.rx(&slice8_mut(buf)[..len as usize]);
+                self.rx(&mut slice8_mut(buf)[..len as usize]);
             } else {
                 break;
             }
         }
     }
 
-    fn rx(&mut self, packet: &[u8]) {
-        if packet.len() < SdpcmHeader::SIZE {
-            warn!("packet too short, len={}", packet.len());
-            return;
-        }
-
-        let sdpcm_header = SdpcmHeader::from_bytes(packet[..SdpcmHeader::SIZE].try_into().unwrap());
-        trace!("rx {:?}", sdpcm_header);
-        if sdpcm_header.len != !sdpcm_header.len_inv {
-            warn!("len inv mismatch");
-            return;
-        }
-        if sdpcm_header.len as usize != packet.len() {
-            // TODO: is this guaranteed??
-            warn!("len from header doesn't match len from spi");
-            return;
-        }
+    fn rx(&mut self, packet: &mut [u8]) {
+        let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else { return };
 
         self.update_credit(&sdpcm_header);
 
         let channel = sdpcm_header.channel_and_flags & 0x0f;
 
-        let payload = &packet[sdpcm_header.header_length as _..];
-
         match channel {
             CHANNEL_TYPE_CONTROL => {
-                if payload.len() < CdcHeader::SIZE {
-                    warn!("payload too short, len={}", payload.len());
-                    return;
-                }
-
-                let cdc_header = CdcHeader::from_bytes(payload[..CdcHeader::SIZE].try_into().unwrap());
+                let Some((cdc_header, response)) = CdcHeader::parse(payload) else { return; };
                 trace!("    {:?}", cdc_header);
 
                 if cdc_header.id == self.ioctl_id {
@@ -375,28 +353,21 @@ where
                         panic!("IOCTL error {}", cdc_header.status as i32);
                     }
 
-                    let resp_len = cdc_header.len as usize;
-                    let response = &payload[CdcHeader::SIZE..][..resp_len];
                     info!("IOCTL Response: {:02x}", Bytes(response));
 
                     self.ioctl_state.ioctl_done(response);
                 }
             }
             CHANNEL_TYPE_EVENT => {
-                let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());
-                trace!("    {:?}", bcd_header);
-
-                let packet_start = BcdHeader::SIZE + 4 * bcd_header.data_offset as usize;
-
-                if packet_start + EventPacket::SIZE > payload.len() {
+                let Some((_, bcd_packet)) = BcdHeader::parse(payload) else {
                     warn!("BCD event, incomplete header");
                     return;
-                }
-                let bcd_packet = &payload[packet_start..];
-                trace!("    {:02x}", Bytes(&bcd_packet[..(bcd_packet.len() as usize).min(36)]));
+                };
 
-                let mut event_packet = EventPacket::from_bytes(&bcd_packet[..EventPacket::SIZE].try_into().unwrap());
-                event_packet.byteswap();
+                let Some((event_packet, evt_data)) = EventPacket::parse(bcd_packet) else {
+                    warn!("BCD event, incomplete data");
+                    return;
+                };
 
                 const ETH_P_LINK_CTL: u16 = 0x886c; // HPNA, wlan link local tunnel, according to linux if_ether.h
                 if event_packet.eth.ether_type != ETH_P_LINK_CTL {
@@ -427,13 +398,7 @@ where
                     return;
                 }
 
-                if event_packet.msg.datalen as usize >= (bcd_packet.len() - EventMessage::SIZE) {
-                    warn!("BCD event, incomplete data");
-                    return;
-                }
-
                 let evt_type = events::Event::from(event_packet.msg.event_type as u8);
-                let evt_data = &bcd_packet[EventMessage::SIZE..][..event_packet.msg.datalen as usize];
                 debug!(
                     "=== EVENT {:?}: {:?} {:02x}",
                     evt_type,
@@ -449,16 +414,8 @@ where
                 }
             }
             CHANNEL_TYPE_DATA => {
-                let bcd_header = BcdHeader::from_bytes(&payload[..BcdHeader::SIZE].try_into().unwrap());
-                trace!("    {:?}", bcd_header);
-
-                let packet_start = BcdHeader::SIZE + 4 * bcd_header.data_offset as usize;
-                if packet_start > payload.len() {
-                    warn!("packet start out of range.");
-                    return;
-                }
-                let packet = &payload[packet_start..];
-                trace!("rx pkt {:02x}", Bytes(&packet[..(packet.len() as usize).min(48)]));
+                let Some((_, packet)) = BcdHeader::parse(payload) else { return };
+                trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                 match self.ch.try_rx_buf() {
                     Some(buf) => {
