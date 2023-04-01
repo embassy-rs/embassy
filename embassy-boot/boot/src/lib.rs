@@ -8,6 +8,7 @@ mod fmt;
 mod boot_loader;
 mod firmware_updater;
 mod firmware_writer;
+mod mem_flash;
 mod partition;
 
 pub use boot_loader::{BootError, BootFlash, BootLoader, FlashConfig, MultiFlashConfig, SingleFlashConfig};
@@ -46,13 +47,10 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
 
 #[cfg(test)]
 mod tests {
-    use core::convert::Infallible;
-
-    use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
-    use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
     use futures::executor::block_on;
 
     use super::*;
+    use crate::mem_flash::MemFlash;
 
     /*
     #[test]
@@ -75,8 +73,9 @@ mod tests {
         const ACTIVE: Partition = Partition::new(4096, 61440);
         const DFU: Partition = Partition::new(61440, 122880);
 
-        let mut flash = MemFlash::<131072, 4096, 4>([0xff; 131072]);
-        flash.0[0..4].copy_from_slice(&[BOOT_MAGIC; 4]);
+        let mut flash = MemFlash::<131072, 4096, 4>::default();
+        STATE.write_blocking(&mut flash, 0, &[BOOT_MAGIC; 4]).unwrap();
+
         let mut flash = SingleFlashConfig::<_, 4096>::new(&mut flash);
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
@@ -94,15 +93,14 @@ mod tests {
         const STATE: Partition = Partition::new(0, 4096);
         const ACTIVE: Partition = Partition::new(4096, 61440);
         const DFU: Partition = Partition::new(61440, 122880);
-        let mut flash = MemFlash::<131072, 4096, 4>([0xff; 131072]);
+        let mut flash = MemFlash::<131072, 4096, 4>::random().with_limited_erase_before_write_verification(4..);
 
         let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
         let mut aligned = [0; 4];
 
-        for i in ACTIVE.from..ACTIVE.to {
-            flash.0[i] = original[i - ACTIVE.from];
-        }
+        ACTIVE.wipe_blocking(&mut flash).unwrap();
+        ACTIVE.write_blocking(&mut flash, 0, original.as_slice()).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
         let mut updater = FirmwareUpdater::new(DFU, STATE);
@@ -122,29 +120,33 @@ mod tests {
         );
 
         for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(flash.0[i], update[i - ACTIVE.from], "Index {}", i);
+            assert_eq!(flash.mem[i], update[i - ACTIVE.from], "Index {}", i);
         }
 
         // First DFU page is untouched
         for i in DFU.from + 4096..DFU.to {
-            assert_eq!(flash.0[i], original[i - DFU.from - 4096], "Index {}", i);
+            assert_eq!(flash.mem[i], original[i - DFU.from - 4096], "Index {}", i);
         }
 
         // Running again should cause a revert
+        // The prepare_boot call does a write to the magic bytes in state flash without a preceeding erase
+        // Allow this temporarely.
+        flash = flash.with_limited_erase_before_write_verification(4..);
         assert_eq!(
             State::Swap,
             bootloader
                 .prepare_boot(&mut SingleFlashConfig::<_, 4096>::new(&mut flash), &mut block_buffer)
                 .unwrap()
         );
+        flash = flash.with_limited_erase_before_write_verification(..);
 
         for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(flash.0[i], original[i - ACTIVE.from], "Index {}", i);
+            assert_eq!(flash.mem[i], original[i - ACTIVE.from], "Index {}", i);
         }
 
         // Last page is untouched
         for i in DFU.from..DFU.to - 4096 {
-            assert_eq!(flash.0[i], update[i - DFU.from], "Index {}", i);
+            assert_eq!(flash.mem[i], update[i - DFU.from], "Index {}", i);
         }
 
         // Mark as booted
@@ -164,17 +166,16 @@ mod tests {
         const ACTIVE: Partition = Partition::new(4096, 16384);
         const DFU: Partition = Partition::new(0, 16384);
 
-        let mut active = MemFlash::<16384, 4096, 8>([0xff; 16384]);
-        let mut dfu = MemFlash::<16384, 2048, 8>([0xff; 16384]);
-        let mut state = MemFlash::<4096, 128, 4>([0xff; 4096]);
+        let mut active = MemFlash::<16384, 4096, 8>::random();
+        let mut dfu = MemFlash::<16384, 2048, 8>::random();
+        let mut state = MemFlash::<4096, 128, 4>::random().with_limited_erase_before_write_verification(2048 + 4..);
         let mut aligned = [0; 4];
 
         let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
 
-        for i in ACTIVE.from..ACTIVE.to {
-            active.0[i] = original[i - ACTIVE.from];
-        }
+        ACTIVE.wipe_blocking(&mut active).unwrap();
+        ACTIVE.write_blocking(&mut active, 0, original.as_slice()).unwrap();
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
@@ -199,12 +200,12 @@ mod tests {
         );
 
         for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(active.0[i], update[i - ACTIVE.from], "Index {}", i);
+            assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
         }
 
         // First DFU page is untouched
         for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.0[i], original[i - DFU.from - 4096], "Index {}", i);
+            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
         }
     }
 
@@ -216,16 +217,15 @@ mod tests {
         const DFU: Partition = Partition::new(0, 16384);
 
         let mut aligned = [0; 4];
-        let mut active = MemFlash::<16384, 2048, 4>([0xff; 16384]);
-        let mut dfu = MemFlash::<16384, 4096, 8>([0xff; 16384]);
-        let mut state = MemFlash::<4096, 128, 4>([0xff; 4096]);
+        let mut active = MemFlash::<16384, 2048, 4>::random();
+        let mut dfu = MemFlash::<16384, 4096, 8>::random();
+        let mut state = MemFlash::<4096, 128, 4>::random().with_limited_erase_before_write_verification(2048 + 4..);
 
         let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
 
-        for i in ACTIVE.from..ACTIVE.to {
-            active.0[i] = original[i - ACTIVE.from];
-        }
+        ACTIVE.wipe_blocking(&mut active).unwrap();
+        ACTIVE.write_blocking(&mut active, 0, original.as_slice()).unwrap();
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
@@ -249,12 +249,12 @@ mod tests {
         );
 
         for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(active.0[i], update[i - ACTIVE.from], "Index {}", i);
+            assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
         }
 
         // First DFU page is untouched
         for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.0[i], original[i - DFU.from - 4096], "Index {}", i);
+            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
         }
     }
 
@@ -284,7 +284,7 @@ mod tests {
 
         const STATE: Partition = Partition::new(0, 4096);
         const DFU: Partition = Partition::new(4096, 8192);
-        let mut flash = MemFlash::<8192, 4096, 4>([0xff; 8192]);
+        let mut flash = MemFlash::<8192, 4096, 4>::default();
 
         let firmware_len = firmware.len();
 
@@ -306,107 +306,5 @@ mod tests {
             &mut aligned,
         ))
         .is_ok());
-    }
-
-    pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize>(pub [u8; SIZE]);
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFlash
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        const WRITE_SIZE: usize = WRITE_SIZE;
-        const ERASE_SIZE: usize = ERASE_SIZE;
-        fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-            let from = from as usize;
-            let to = to as usize;
-            assert!(from % ERASE_SIZE == 0);
-            assert!(to % ERASE_SIZE == 0, "To: {}, erase size: {}", to, ERASE_SIZE);
-            for i in from..to {
-                self.0[i] = 0xFF;
-            }
-            Ok(())
-        }
-
-        fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
-            assert!(data.len() % WRITE_SIZE == 0);
-            assert!(offset as usize % WRITE_SIZE == 0);
-            assert!(offset as usize + data.len() <= SIZE);
-
-            self.0[offset as usize..offset as usize + data.len()].copy_from_slice(data);
-
-            Ok(())
-        }
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ErrorType
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        type Error = Infallible;
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ReadNorFlash
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        const READ_SIZE: usize = 1;
-
-        fn read(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
-            let len = buf.len();
-            buf[..].copy_from_slice(&self.0[offset as usize..offset as usize + len]);
-            Ok(())
-        }
-
-        fn capacity(&self) -> usize {
-            SIZE
-        }
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncReadNorFlash
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        const READ_SIZE: usize = 1;
-
-        async fn read(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), Self::Error> {
-            let len = buf.len();
-            buf[..].copy_from_slice(&self.0[offset as usize..offset as usize + len]);
-            Ok(())
-        }
-
-        fn capacity(&self) -> usize {
-            SIZE
-        }
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncNorFlash
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        const WRITE_SIZE: usize = WRITE_SIZE;
-        const ERASE_SIZE: usize = ERASE_SIZE;
-
-        async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-            let from = from as usize;
-            let to = to as usize;
-            assert!(from % ERASE_SIZE == 0);
-            assert!(to % ERASE_SIZE == 0);
-            for i in from..to {
-                self.0[i] = 0xFF;
-            }
-            Ok(())
-        }
-
-        async fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
-            info!("Writing {} bytes to 0x{:x}", data.len(), offset);
-            assert!(data.len() % WRITE_SIZE == 0);
-            assert!(offset as usize % WRITE_SIZE == 0);
-            assert!(
-                offset as usize + data.len() <= SIZE,
-                "OFFSET: {}, LEN: {}, FLASH SIZE: {}",
-                offset,
-                data.len(),
-                SIZE
-            );
-
-            self.0[offset as usize..offset as usize + data.len()].copy_from_slice(data);
-
-            Ok(())
-        }
     }
 }

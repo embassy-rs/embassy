@@ -214,10 +214,18 @@ impl<const STATE_ERASE_VALUE: u8> BootLoader<STATE_ERASE_VALUE> {
                 let state_flash = p.state();
                 let magic = &mut aligned_block_buffer[..P::STATE::WRITE_SIZE];
 
+                // Explicitly invalidate magic before we clear the entire state
+                // to ensure that we do not arrive in a situation where the
+                // magic is not erased but the progress is erased in case a power
+                // failure happens during the erase
                 magic.fill(!STATE_ERASE_VALUE);
                 self.state.write_blocking(state_flash, 0, magic)?;
+
+                // Now when we are sure that the magic is invalidated, then
+                // we can proceed by erasing the entire state (including the invalidated magic).
                 self.state.wipe_blocking(state_flash)?;
 
+                // The progress is now cleared, write the boot magic.
                 magic.fill(BOOT_MAGIC);
                 self.state.write_blocking(state_flash, 0, magic)?;
             }

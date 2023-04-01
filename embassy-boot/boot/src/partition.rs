@@ -105,45 +105,45 @@ impl Partition {
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::MemFlash;
+    use crate::mem_flash::MemFlash;
     use crate::Partition;
 
     #[test]
     fn can_erase() {
-        let mut flash = MemFlash::<1024, 64, 4>([0x00; 1024]);
+        let mut flash = MemFlash::<1024, 64, 4>::new(0x00);
         let partition = Partition::new(256, 512);
 
         partition.erase_blocking(&mut flash, 64, 192).unwrap();
 
-        for (index, byte) in flash.0.iter().copied().enumerate().take(256 + 64) {
+        for (index, byte) in flash.mem.iter().copied().enumerate().take(256 + 64) {
             assert_eq!(0x00, byte, "Index {}", index);
         }
 
-        for (index, byte) in flash.0.iter().copied().enumerate().skip(256 + 64).take(128) {
+        for (index, byte) in flash.mem.iter().copied().enumerate().skip(256 + 64).take(128) {
             assert_eq!(0xFF, byte, "Index {}", index);
         }
 
-        for (index, byte) in flash.0.iter().copied().enumerate().skip(256 + 64 + 128) {
+        for (index, byte) in flash.mem.iter().copied().enumerate().skip(256 + 64 + 128) {
             assert_eq!(0x00, byte, "Index {}", index);
         }
     }
 
     #[test]
     fn can_wipe() {
-        let mut flash = MemFlash::<1024, 64, 4>([0x00; 1024]);
+        let mut flash = MemFlash::<1024, 64, 4>::new(0x00);
         let partition = Partition::new(256, 512);
 
         partition.wipe_blocking(&mut flash).unwrap();
 
-        for (index, byte) in flash.0.iter().copied().enumerate().take(256) {
+        for (index, byte) in flash.mem.iter().copied().enumerate().take(256) {
             assert_eq!(0x00, byte, "Index {}", index);
         }
 
-        for (index, byte) in flash.0.iter().copied().enumerate().skip(256).take(256) {
+        for (index, byte) in flash.mem.iter().copied().enumerate().skip(256).take(256) {
             assert_eq!(0xFF, byte, "Index {}", index);
         }
 
-        for (index, byte) in flash.0.iter().copied().enumerate().skip(512) {
+        for (index, byte) in flash.mem.iter().copied().enumerate().skip(512) {
             assert_eq!(0x00, byte, "Index {}", index);
         }
     }
