@@ -20,21 +20,15 @@ impl<'d> Flash<'d> {
     }
 
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        let start_address = FLASH_BASE as u32 + offset;
-        blocking_read(start_address, bytes)
+        blocking_read(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes)
     }
 
-    pub fn blocking_write(&mut self, offset: u32, buf: &[u8]) -> Result<(), Error> {
-        let start_address = FLASH_BASE as u32 + offset;
-
-        unsafe { blocking_write(start_address, buf) }
+    pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        unsafe { blocking_write(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes) }
     }
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        let start_address = FLASH_BASE as u32 + from;
-        let end_address = FLASH_BASE as u32 + to;
-
-        unsafe { blocking_erase(start_address, end_address) }
+        unsafe { blocking_erase(FLASH_BASE as u32, from, to) }
     }
 
     pub(crate) fn release(self) -> PeripheralRef<'d, crate::peripherals::FLASH> {
@@ -55,30 +49,29 @@ impl Drop for FlashLayout<'_> {
     }
 }
 
-fn blocking_read(start_address: u32, bytes: &mut [u8]) -> Result<(), Error> {
-    assert!(start_address >= FLASH_BASE as u32);
-    if start_address as usize + bytes.len() > FLASH_BASE + FLASH_SIZE {
+fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+    if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
 
+    let start_address = base + offset;
     let flash_data = unsafe { core::slice::from_raw_parts(start_address as *const u8, bytes.len()) };
     bytes.copy_from_slice(flash_data);
     Ok(())
 }
 
-unsafe fn blocking_write(start_address: u32, buf: &[u8]) -> Result<(), Error> {
-    assert!(start_address >= FLASH_BASE as u32);
-    if start_address as usize + buf.len() > FLASH_BASE + FLASH_SIZE {
+unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+    if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
-    if (start_address as usize - FLASH_BASE) % WRITE_SIZE != 0 || buf.len() as usize % WRITE_SIZE != 0 {
+    if offset % WRITE_SIZE as u32 != 0 || bytes.len() % WRITE_SIZE != 0 {
         return Err(Error::Unaligned);
     }
 
-    trace!("Writing {} bytes at 0x{:x}", buf.len(), start_address);
+    let mut address = base + offset;
+    trace!("Writing {} bytes at 0x{:x}", bytes.len(), address);
 
-    let mut address = start_address;
-    for chunk in buf.chunks(WRITE_SIZE) {
+    for chunk in bytes.chunks(WRITE_SIZE) {
         critical_section::with(|_| {
             family::clear_all_err();
             family::unlock();
@@ -94,7 +87,9 @@ unsafe fn blocking_write(start_address: u32, buf: &[u8]) -> Result<(), Error> {
     Ok(())
 }
 
-unsafe fn blocking_erase(start_address: u32, end_address: u32) -> Result<(), Error> {
+unsafe fn blocking_erase(base: u32, from: u32, to: u32) -> Result<(), Error> {
+    let start_address = base + from;
+    let end_address = base + to;
     let regions = family::get_flash_regions();
 
     // Test if the address range is aligned at sector base addresses
@@ -157,19 +152,15 @@ pub(crate) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector 
 
 impl FlashRegion {
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        let start_address = self.base + offset;
-        blocking_read(start_address, bytes)
+        blocking_read(self.base, self.size, offset, bytes)
     }
 
     pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        let start_address = self.base + offset;
-        unsafe { blocking_write(start_address, bytes) }
+        unsafe { blocking_write(self.base, self.size, offset, bytes) }
     }
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        let start_address = self.base + from;
-        let end_address = self.base + to;
-        unsafe { blocking_erase(start_address, end_address) }
+        unsafe { blocking_erase(self.base, from, to) }
     }
 }
 
@@ -177,19 +168,15 @@ foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl crate::_generated::flash_regions::$type_name {
             pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                let start_address = self.0.base + offset;
-                blocking_read(start_address, bytes)
+                blocking_read(self.0.base, self.0.size, offset, bytes)
             }
 
             pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-                let start_address = self.0.base + offset;
-                unsafe { blocking_write(start_address, bytes) }
+                unsafe { blocking_write(self.0.base, self.0.size, offset, bytes) }
             }
 
             pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-                let start_address = self.0.base + from;
-                let end_address = self.0.base + to;
-                unsafe { blocking_erase(start_address, end_address) }
+                unsafe { blocking_erase(self.0.base, from, to) }
             }
         }
 
