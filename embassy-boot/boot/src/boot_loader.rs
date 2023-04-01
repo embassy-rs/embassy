@@ -48,11 +48,11 @@ pub trait FlashConfig {
     const BLOCK_SIZE: usize;
 
     /// Flash type used for the state partition.
-    type STATE: NorFlash + ReadNorFlash;
+    type STATE: NorFlash;
     /// Flash type used for the active partition.
-    type ACTIVE: NorFlash + ReadNorFlash;
+    type ACTIVE: NorFlash;
     /// Flash type used for the dfu partition.
-    type DFU: NorFlash + ReadNorFlash;
+    type DFU: NorFlash;
 
     /// Return flash instance used to write/read to/from active partition.
     fn active(&mut self) -> &mut Self::ACTIVE;
