@@ -1,3 +1,4 @@
+use atomic_polyfill::{fence, Ordering};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
@@ -74,12 +75,18 @@ unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Res
     for chunk in bytes.chunks(WRITE_SIZE) {
         critical_section::with(|_| {
             family::clear_all_err();
+            fence(Ordering::SeqCst);
             family::unlock();
+            fence(Ordering::SeqCst);
             family::begin_write();
-            let _ = OnDrop::new(|| {
+            fence(Ordering::SeqCst);
+
+            let _on_drop = OnDrop::new(|| {
                 family::end_write();
+                fence(Ordering::SeqCst);
                 family::lock();
             });
+
             family::blocking_write(address, chunk.try_into().unwrap())
         })?;
         address += WRITE_SIZE as u32;
@@ -114,10 +121,14 @@ unsafe fn blocking_erase(base: u32, from: u32, to: u32) -> Result<(), Error> {
 
         critical_section::with(|_| {
             family::clear_all_err();
+            fence(Ordering::SeqCst);
             family::unlock();
-            let _ = OnDrop::new(|| {
+            fence(Ordering::SeqCst);
+
+            let _on_drop = OnDrop::new(|| {
                 family::lock();
             });
+
             family::blocking_erase_sector(&sector)
         })?;
         address += sector.size;
