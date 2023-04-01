@@ -145,7 +145,7 @@ fn main() {
 
         let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
         flash_regions.extend(quote! {
-            pub struct #region_type(pub(crate) &'static crate::flash::FlashRegion);
+            pub struct #region_type(pub &'static crate::flash::FlashRegion);
         });
     }
 
