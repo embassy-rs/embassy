@@ -405,10 +405,6 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
                 Parity::ParityEven => (true, true),
             };
 
-            // PL011 needs a (dummy) line control register write to latch in the
-            // divisors. We don't want to actually change LCR contents here.
-            r.uartlcr_h().modify(|_| {});
-
             r.uartlcr_h().write(|w| {
                 w.set_wlen(config.data_bits.bits());
                 w.set_stp2(config.stop_bits == StopBits::STOP2);
@@ -458,6 +454,10 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             // Load PL011's baud divisor registers
             r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
             r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
+
+            // PL011 needs a (dummy) line control register write to latch in the
+            // divisors. We don't want to actually change LCR contents here.
+            r.uartlcr_h().modify(|_| {});
         }
     }
 }
