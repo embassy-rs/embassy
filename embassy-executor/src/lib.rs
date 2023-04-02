@@ -46,11 +46,13 @@ cfg_if::cfg_if! {
     }
 }
 
+/// Implementation details for embassy macros.
+/// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
 #[doc(hidden)]
-/// Implementation details for embassy macros. DO NOT USE.
-pub mod export {
+pub mod _export {
     #[cfg(feature = "rtos-trace")]
     pub use rtos_trace::trace;
+    pub use static_cell::StaticCell;
 
     /// Expands the given block of code when `embassy-executor` is compiled with
     /// the `rtos-trace-interrupt` feature.
@@ -75,9 +77,3 @@ pub mod raw;
 
 mod spawner;
 pub use spawner::*;
-
-/// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
-#[doc(hidden)]
-pub mod _export {
-    pub use static_cell::StaticCell;
-}
