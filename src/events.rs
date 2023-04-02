@@ -1,7 +1,7 @@
 #![allow(unused)]
 #![allow(non_camel_case_types)]
 
-use core::num;
+use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
@@ -284,13 +284,114 @@ pub enum Event {
     LAST = 190,
 }
 
-pub type EventQueue = PubSubChannel<NoopRawMutex, EventStatus, 2, 1, 1>;
-pub type EventPublisher<'a> = Publisher<'a, NoopRawMutex, EventStatus, 2, 1, 1>;
-pub type EventSubscriber<'a> = Subscriber<'a, NoopRawMutex, EventStatus, 2, 1, 1>;
+// TODO this PubSub can probably be replaced with shared memory to make it a bit more efficient.
+pub type EventQueue = PubSubChannel<NoopRawMutex, Message, 2, 1, 1>;
+pub type EventPublisher<'a> = Publisher<'a, NoopRawMutex, Message, 2, 1, 1>;
+pub type EventSubscriber<'a> = Subscriber<'a, NoopRawMutex, Message, 2, 1, 1>;
+
+pub struct Events {
+    pub queue: EventQueue,
+    pub mask: SharedEventMask,
+}
+
+impl Events {
+    pub fn new() -> Self {
+        Self {
+            queue: EventQueue::new(),
+            mask: SharedEventMask::default(),
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct EventStatus {
+pub struct Status {
     pub event_type: Event,
     pub status: u32,
+}
+
+#[derive(Clone, Copy)]
+pub enum Payload {
+    None,
+}
+
+#[derive(Clone, Copy)]
+
+pub struct Message {
+    pub header: Status,
+    pub payload: Payload,
+}
+
+impl Message {
+    pub fn new(status: Status, payload: Payload) -> Self {
+        Self {
+            header: status,
+            payload,
+        }
+    }
+}
+
+const EVENT_BITS: usize = ((Event::LAST as usize + 31) & !31) / 32;
+
+#[derive(Default)]
+struct EventMask {
+    mask: [u32; EVENT_BITS],
+}
+
+impl EventMask {
+    fn enable(&mut self, event: Event) {
+        let n = event as u32;
+        let word = n >> 5;
+        let bit = n & 0b11111;
+
+        self.mask[word as usize] |= (1 << bit);
+    }
+
+    fn disable(&mut self, event: Event) {
+        let n = event as u32;
+        let word = n >> 5;
+        let bit = n & 0b11111;
+
+        self.mask[word as usize] &= !(1 << bit);
+    }
+
+    fn is_enabled(&self, event: Event) -> bool {
+        let n = event as u32;
+        let word = n >> 5;
+        let bit = n & 0b11111;
+
+        self.mask[word as usize] & (1 << bit) > 0
+    }
+}
+
+#[derive(Default)]
+
+pub struct SharedEventMask {
+    mask: RefCell<EventMask>,
+}
+
+impl SharedEventMask {
+    pub fn enable(&self, events: &[Event]) {
+        let mut mask = self.mask.borrow_mut();
+        for event in events {
+            mask.enable(*event);
+        }
+    }
+
+    pub fn disable(&self, events: &[Event]) {
+        let mut mask = self.mask.borrow_mut();
+        for event in events {
+            mask.disable(*event);
+        }
+    }
+
+    pub fn disable_all(&self) {
+        let mut mask = self.mask.borrow_mut();
+        mask.mask = Default::default();
+    }
+
+    pub fn is_enabled(&self, event: Event) -> bool {
+        let mask = self.mask.borrow();
+        mask.is_enabled(event)
+    }
 }

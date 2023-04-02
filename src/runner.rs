@@ -1,5 +1,3 @@
-use core::slice;
-
 use embassy_futures::select::{select3, Either3};
 use embassy_net_driver_channel as ch;
 use embassy_sync::pubsub::PubSubBehavior;
@@ -9,12 +7,12 @@ use embedded_hal_1::digital::OutputPin;
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
-use crate::events::{EventQueue, EventStatus};
+use crate::events::{Events, Status};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
 use crate::structs::*;
-use crate::{events, Core, CHIP, MTU};
+use crate::{events, slice8_mut, Core, CHIP, MTU};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -45,7 +43,7 @@ pub struct Runner<'a, PWR, SPI> {
     sdpcm_seq: u8,
     sdpcm_seq_max: u8,
 
-    events: &'a EventQueue,
+    events: &'a Events,
 
     #[cfg(feature = "firmware-logs")]
     log: LogState,
@@ -60,7 +58,7 @@ where
         ch: ch::Runner<'a, MTU>,
         bus: Bus<PWR, SPI>,
         ioctl_state: &'a IoctlState,
-        events: &'a EventQueue,
+        events: &'a Events,
     ) -> Self {
         Self {
             ch,
@@ -353,8 +351,6 @@ where
                         panic!("IOCTL error {}", cdc_header.status as i32);
                     }
 
-                    info!("IOCTL Response: {:02x}", Bytes(response));
-
                     self.ioctl_state.ioctl_done(response);
                 }
             }
@@ -406,11 +402,17 @@ where
                     Bytes(evt_data)
                 );
 
-                if evt_type == events::Event::AUTH || evt_type == events::Event::JOIN {
-                    self.events.publish_immediate(EventStatus {
-                        status: event_packet.msg.status,
-                        event_type: evt_type,
-                    });
+                if self.events.mask.is_enabled(evt_type) {
+                    let status = event_packet.msg.status;
+                    let event_payload = events::Payload::None;
+
+                    self.events.queue.publish_immediate(events::Message::new(
+                        Status {
+                            event_type: evt_type,
+                            status,
+                        },
+                        event_payload,
+                    ));
                 }
             }
             CHANNEL_TYPE_DATA => {
@@ -547,9 +549,4 @@ where
 
         true
     }
-}
-
-fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
-    let len = x.len() * 4;
-    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }
