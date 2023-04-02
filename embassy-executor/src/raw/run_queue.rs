@@ -2,7 +2,6 @@ use core::ptr;
 use core::ptr::NonNull;
 
 use atomic_polyfill::{AtomicPtr, Ordering};
-use critical_section::CriticalSection;
 
 use super::{TaskHeader, TaskRef};
 
@@ -46,11 +45,18 @@ impl RunQueue {
     ///
     /// `item` must NOT be already enqueued in any queue.
     #[inline(always)]
-    pub(crate) unsafe fn enqueue(&self, _cs: CriticalSection, task: TaskRef) -> bool {
-        let prev = self.head.load(Ordering::Relaxed);
-        task.header().run_queue_item.next.store(prev, Ordering::Relaxed);
-        self.head.store(task.as_ptr() as _, Ordering::Relaxed);
-        prev.is_null()
+    pub(crate) unsafe fn enqueue(&self, task: TaskRef) -> bool {
+        let mut was_empty = false;
+
+        self.head
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |prev| {
+                was_empty = prev.is_null();
+                task.header().run_queue_item.next.store(prev, Ordering::Relaxed);
+                Some(task.as_ptr() as *mut _)
+            })
+            .ok();
+
+        was_empty
     }
 
     /// Empty the queue, then call `on_task` for each task that was in the queue.
