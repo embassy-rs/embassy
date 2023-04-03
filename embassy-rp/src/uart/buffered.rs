@@ -175,6 +175,10 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 
     fn read<'a>(buf: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
         poll_fn(move |cx| {
+            if buf.is_empty() {
+                return Poll::Ready(Ok(0));
+            }
+
             let state = T::state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let n = rx_reader.pop(|data| {
@@ -202,6 +206,10 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
     }
 
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         loop {
             let state = T::state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
@@ -293,6 +301,10 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
 
     fn write<'a>(buf: &'a [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
         poll_fn(move |cx| {
+            if buf.is_empty() {
+                return Poll::Ready(Ok(0));
+            }
+
             let state = T::state();
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let n = tx_writer.push(|data| {
@@ -327,6 +339,10 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
     }
 
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         loop {
             let state = T::state();
             let mut tx_writer = unsafe { state.tx_buf.writer() };
