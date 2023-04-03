@@ -21,32 +21,11 @@ impl FirmwareWriter {
         flash: &mut F,
         block_size: usize,
     ) -> Result<(), F::Error> {
-        trace!(
-            "Writing firmware at offset 0x{:x} len {}",
-            self.0.from + offset,
-            data.len()
-        );
-
-        let mut write_offset = self.0.from + offset;
+        let mut offset = offset as u32;
         for chunk in data.chunks(block_size) {
-            trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
-            flash.write(write_offset as u32, chunk).await?;
-            write_offset += chunk.len();
+            self.0.write(flash, offset, chunk).await?;
+            offset += chunk.len() as u32;
         }
-        /*
-        trace!("Wrote data, reading back for verification");
-
-        let mut buf: [u8; 4096] = [0; 4096];
-        let mut data_offset = 0;
-        let mut read_offset = self.dfu.from + offset;
-        for chunk in buf.chunks_mut(block_size) {
-            flash.read(read_offset as u32, chunk).await?;
-            trace!("Read chunk at {}: {:?}", read_offset, chunk);
-            assert_eq!(&data[data_offset..data_offset + block_size], chunk);
-            read_offset += chunk.len();
-            data_offset += chunk.len();
-        }
-        */
 
         Ok(())
     }
@@ -65,32 +44,11 @@ impl FirmwareWriter {
         flash: &mut F,
         block_size: usize,
     ) -> Result<(), F::Error> {
-        trace!(
-            "Writing firmware at offset 0x{:x} len {}",
-            self.0.from + offset,
-            data.len()
-        );
-
-        let mut write_offset = self.0.from + offset;
+        let mut offset = offset as u32;
         for chunk in data.chunks(block_size) {
-            trace!("Wrote chunk at {}: {:?}", write_offset, chunk);
-            flash.write(write_offset as u32, chunk)?;
-            write_offset += chunk.len();
+            self.0.write_blocking(flash, offset, chunk)?;
+            offset += chunk.len() as u32;
         }
-        /*
-        trace!("Wrote data, reading back for verification");
-
-        let mut buf: [u8; 4096] = [0; 4096];
-        let mut data_offset = 0;
-        let mut read_offset = self.dfu.from + offset;
-        for chunk in buf.chunks_mut(block_size) {
-            flash.read(read_offset as u32, chunk).await?;
-            trace!("Read chunk at {}: {:?}", read_offset, chunk);
-            assert_eq!(&data[data_offset..data_offset + block_size], chunk);
-            read_offset += chunk.len();
-            data_offset += chunk.len();
-        }
-        */
 
         Ok(())
     }

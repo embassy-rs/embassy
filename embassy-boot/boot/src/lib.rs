@@ -313,7 +313,8 @@ mod tests {
         ))
         .is_ok());
     }
-    struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize>([u8; SIZE]);
+
+    pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize>(pub [u8; SIZE]);
 
     impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFlash
         for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
