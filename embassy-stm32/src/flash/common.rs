@@ -117,7 +117,7 @@ unsafe fn blocking_erase(base: u32, from: u32, to: u32) -> Result<(), Error> {
     let mut address = start_address;
     while address < end_address {
         let sector = get_sector(address, regions);
-        trace!("Erasing sector: {}", sector);
+        trace!("Erasing sector: {:?}", sector);
 
         critical_section::with(|_| {
             family::clear_all_err();
