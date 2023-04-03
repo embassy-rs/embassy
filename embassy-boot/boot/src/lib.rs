@@ -47,6 +47,7 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
 
 #[cfg(test)]
 mod tests {
+    use embedded_storage::nor_flash::NorFlashErrorKind;
     use futures::executor::block_on;
 
     use super::*;
@@ -161,13 +162,40 @@ mod tests {
 
     #[test]
     #[cfg(not(feature = "_verify"))]
-    fn test_separate_flash_active_page_biggest() {
+    fn test_separate_flash() {
+        // Active erase size is biggest, matches block size
+        test_separate_flash_case::<4096, 4096, 8, 2048, 8>();
+
+        // DFU erase size is biggest, matches block size
+        test_separate_flash_case::<4096, 2048, 4, 4096, 8>();
+
+        // Active erase size is biggest, block size is smaller
+        test_separate_flash_case::<2048, 4096, 8, 2048, 8>();
+
+        // DFU erase size is biggest, block size is larger
+        test_separate_flash_case::<2048, 2048, 4, 4096, 8>();
+
+        // Active erase size is biggest, block size is larger
+        test_separate_flash_case::<4096, 2048, 8, 1024, 8>();
+
+        // DFU erase size is biggest, block size is larger
+        test_separate_flash_case::<4096, 1024, 4, 2048, 8>();
+    }
+
+    #[cfg(not(feature = "_verify"))]
+    fn test_separate_flash_case<
+        const BLOCK_SIZE: usize,
+        const ACTIVE_ERASE: usize,
+        const ACTIVE_WRITE: usize,
+        const DFU_ERASE: usize,
+        const DFU_WRITE: usize,
+    >() {
         const STATE: Partition = Partition::new(2048, 4096);
         const ACTIVE: Partition = Partition::new(4096, 16384);
         const DFU: Partition = Partition::new(0, 16384);
 
-        let mut active = MemFlash::<16384, 4096, 8>::random();
-        let mut dfu = MemFlash::<16384, 2048, 8>::random();
+        let mut active = MemFlash::<16384, ACTIVE_ERASE, ACTIVE_WRITE>::random();
+        let mut dfu = MemFlash::<16384, DFU_ERASE, DFU_WRITE>::random();
         let mut state = MemFlash::<4096, 128, 4>::random().with_limited_erase_before_write_verification(2048 + 4..);
         let mut aligned = [0; 4];
 
@@ -180,20 +208,20 @@ mod tests {
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
         let mut offset = 0;
-        for chunk in update.chunks(2048) {
+        for chunk in update.chunks(DFU_ERASE) {
             block_on(updater.write_firmware(offset, chunk, &mut dfu, chunk.len())).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut block_buffer = [0; 4096];
+        let mut block_buffer = [0; BLOCK_SIZE];
 
         assert_eq!(
             State::Swap,
             bootloader
                 .prepare_boot(
-                    &mut MultiFlashConfig::<_, _, _, 4096>::new(&mut active, &mut state, &mut dfu),
+                    &mut MultiFlashConfig::<_, _, _, BLOCK_SIZE>::new(&mut active, &mut state, &mut dfu),
                     &mut block_buffer,
                 )
                 .unwrap()
@@ -203,23 +231,53 @@ mod tests {
             assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
         }
 
-        // First DFU page is untouched
-        for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
+        // First DFU is untouched
+        let max_erase = core::cmp::max(core::cmp::max(ACTIVE_ERASE, DFU_ERASE), BLOCK_SIZE);
+        for i in DFU.from + max_erase..DFU.to {
+            assert_eq!(dfu.mem[i], original[i - DFU.from - max_erase], "Index {}", i);
         }
     }
 
     #[test]
     #[cfg(not(feature = "_verify"))]
-    fn test_separate_flash_dfu_page_biggest() {
+    fn test_separate_flash_failure_during_active_backup_should_continue() {
+        // Active erase size is biggest, matches block size
+        test_separate_flash_failure_during_active_backup_should_continue_case::<4096, 4096, 8, 2048, 8>();
+
+        // DFU erase size is biggest, matches block size
+        test_separate_flash_failure_during_active_backup_should_continue_case::<4096, 2048, 4, 4096, 8>();
+
+        // Active erase size is biggest, block size is smaller
+        test_separate_flash_failure_during_active_backup_should_continue_case::<2048, 4096, 8, 2048, 8>();
+
+        // DFU erase size is biggest, block size is larger
+        test_separate_flash_failure_during_active_backup_should_continue_case::<2048, 2048, 4, 4096, 8>();
+
+        // Active erase size is biggest, block size is larger
+        test_separate_flash_failure_during_active_backup_should_continue_case::<4096, 2048, 8, 1024, 8>();
+
+        // DFU erase size is biggest, block size is larger
+        test_separate_flash_failure_during_active_backup_should_continue_case::<4096, 1024, 4, 2048, 8>();
+    }
+
+    #[cfg(not(feature = "_verify"))]
+    fn test_separate_flash_failure_during_active_backup_should_continue_case<
+        const BLOCK_SIZE: usize,
+        const ACTIVE_ERASE: usize,
+        const ACTIVE_WRITE: usize,
+        const DFU_ERASE: usize,
+        const DFU_WRITE: usize,
+    >() {
         const STATE: Partition = Partition::new(2048, 4096);
         const ACTIVE: Partition = Partition::new(4096, 16384);
         const DFU: Partition = Partition::new(0, 16384);
 
+        let mut active = MemFlash::<16384, ACTIVE_ERASE, ACTIVE_WRITE>::random();
+        let mut dfu = MemFlash::<16384, DFU_ERASE, DFU_WRITE>::random();
+        let mut state = MemFlash::<4096, 128, 4>::random()
+            .allow_same_write(true)
+            .with_limited_erase_before_write_verification(2048 + 4..);
         let mut aligned = [0; 4];
-        let mut active = MemFlash::<16384, 2048, 4>::random();
-        let mut dfu = MemFlash::<16384, 4096, 8>::random();
-        let mut state = MemFlash::<4096, 128, 4>::random().with_limited_erase_before_write_verification(2048 + 4..);
 
         let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
@@ -230,19 +288,35 @@ mod tests {
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
         let mut offset = 0;
-        for chunk in update.chunks(4096) {
+        for chunk in update.chunks(DFU_ERASE) {
             block_on(updater.write_firmware(offset, chunk, &mut dfu, chunk.len())).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut block_buffer = [0; 4096];
+        let mut block_buffer = [0; BLOCK_SIZE];
+
+        // Let write return error after one success
+        dfu.pending_write_successes = Some(1);
+
+        assert_eq!(
+            Err(BootError::Flash(NorFlashErrorKind::Other)),
+            bootloader.prepare_boot(
+                &mut MultiFlashConfig::<_, _, _, BLOCK_SIZE>::new(&mut active, &mut state, &mut dfu),
+                &mut block_buffer,
+            )
+        );
+
+        // Let write work again
+        dfu.pending_write_successes = None;
+
+        // Continue swapping
         assert_eq!(
             State::Swap,
             bootloader
                 .prepare_boot(
-                    &mut MultiFlashConfig::<_, _, _, 4096>::new(&mut active, &mut state, &mut dfu,),
+                    &mut MultiFlashConfig::<_, _, _, BLOCK_SIZE>::new(&mut active, &mut state, &mut dfu),
                     &mut block_buffer,
                 )
                 .unwrap()
@@ -252,9 +326,10 @@ mod tests {
             assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
         }
 
-        // First DFU page is untouched
-        for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
+        // First DFU is untouched
+        let max_erase = core::cmp::max(core::cmp::max(ACTIVE_ERASE, DFU_ERASE), BLOCK_SIZE);
+        for i in DFU.from + max_erase..DFU.to {
+            assert_eq!(dfu.mem[i], original[i - DFU.from - max_erase], "Index {}", i);
         }
     }
 

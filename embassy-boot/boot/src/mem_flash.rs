@@ -1,21 +1,27 @@
 #![allow(unused)]
 
-use core::convert::Infallible;
 use core::ops::{Bound, Range, RangeBounds};
 
-use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
 pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> {
     pub mem: [u8; SIZE],
+    pub allow_same_write: bool,
     pub verify_erased_before_write: Range<usize>,
+    pub pending_write_successes: Option<usize>,
 }
+
+#[derive(Debug)]
+pub struct MemFlashError;
 
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE> {
     pub const fn new(fill: u8) -> Self {
         Self {
             mem: [fill; SIZE],
+            allow_same_write: false,
             verify_erased_before_write: 0..SIZE,
+            pending_write_successes: None,
         }
     }
 
@@ -27,7 +33,17 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
         }
         Self {
             mem,
+            allow_same_write: false,
             verify_erased_before_write: 0..SIZE,
+            pending_write_successes: None,
+        }
+    }
+
+    #[must_use]
+    pub fn allow_same_write(self, allow: bool) -> Self {
+        Self {
+            allow_same_write: allow,
+            ..self
         }
     }
 
@@ -44,8 +60,8 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
             Bound::Unbounded => self.mem.len(),
         };
         Self {
-            mem: self.mem,
             verify_erased_before_write: start..end,
+            ..self
         }
     }
 }
@@ -61,7 +77,13 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> Defaul
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ErrorType
     for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
 {
-    type Error = Infallible;
+    type Error = MemFlashError;
+}
+
+impl NorFlashError for MemFlashError {
+    fn kind(&self) -> NorFlashErrorKind {
+        NorFlashErrorKind::Other
+    }
 }
 
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ReadNorFlash
@@ -103,6 +125,14 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFla
         assert!(offset % WRITE_SIZE == 0);
         assert!(offset + bytes.len() <= SIZE);
 
+        if let Some(pending_successes) = self.pending_write_successes {
+            if pending_successes > 0 {
+                self.pending_write_successes = Some(pending_successes - 1);
+            } else {
+                return Err(MemFlashError);
+            }
+        }
+
         for ((offset, mem_byte), new_byte) in self
             .mem
             .iter_mut()
@@ -111,10 +141,14 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFla
             .take(bytes.len())
             .zip(bytes)
         {
-            if self.verify_erased_before_write.contains(&offset) {
-                assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
+            if self.allow_same_write && mem_byte == new_byte {
+                // Write does not change the flash memory which is allowed
+            } else {
+                if self.verify_erased_before_write.contains(&offset) {
+                    assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
+                }
+                *mem_byte &= *new_byte;
             }
-            *mem_byte &= *new_byte;
         }
 
         Ok(())

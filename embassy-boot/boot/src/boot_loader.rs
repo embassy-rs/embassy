@@ -272,11 +272,40 @@ impl<const STATE_ERASE_VALUE: u8> BootLoader<STATE_ERASE_VALUE> {
         let write_size = P::STATE::WRITE_SIZE;
         let write_buffer = &mut aligned_block_buffer[..write_size];
         write_buffer.fill(!STATE_ERASE_VALUE);
+        // The progress is located right after the magic
         self.state.write_blocking(
             p.state(),
             (write_size + progress_index * write_size) as u32,
             write_buffer,
         )?;
+        Ok(())
+    }
+
+    fn copy_blocks_once_to_active<P: FlashConfig>(
+        &mut self,
+        first_progress_index: usize,
+        first_dfu_from_block_index: usize,
+        first_active_to_block_index: usize,
+        blocks_to_copy: usize,
+        p: &mut P,
+        aligned_block_buffer: &mut [u8],
+    ) -> Result<(), BootError> {
+        let block_size = P::BLOCK_SIZE as u32;
+        if self.current_progress(p, aligned_block_buffer)? < first_progress_index + blocks_to_copy {
+            self.active.erase_blocking(
+                p.active(),
+                first_active_to_block_index as u32 * block_size,
+                first_active_to_block_index as u32 * block_size + blocks_to_copy as u32 * block_size,
+            )?;
+
+            let mut dfu_from_offset = first_dfu_from_block_index as u32 * block_size;
+            let mut active_to_offset = first_active_to_block_index as u32 * block_size;
+            for _ in 0..blocks_to_copy {
+                self.copy_block_to_active(dfu_from_offset, active_to_offset, p, aligned_block_buffer)?;
+                dfu_from_offset += block_size;
+                active_to_offset += block_size;
+            }
+        }
         Ok(())
     }
 
@@ -297,6 +326,34 @@ impl<const STATE_ERASE_VALUE: u8> BootLoader<STATE_ERASE_VALUE> {
         for chunk in aligned_block_buffer.chunks(P::BLOCK_SIZE) {
             self.active.write_blocking(p.active(), offset, chunk)?;
             offset += chunk.len() as u32;
+        }
+        Ok(())
+    }
+
+    fn copy_blocks_once_to_dfu<P: FlashConfig>(
+        &mut self,
+        first_progress_index: usize,
+        first_active_from_block_index: usize,
+        first_dfu_to_block_index: usize,
+        blocks_to_copy: usize,
+        p: &mut P,
+        aligned_block_buffer: &mut [u8],
+    ) -> Result<(), BootError> {
+        let block_size = P::BLOCK_SIZE as u32;
+        if self.current_progress(p, aligned_block_buffer)? < first_progress_index + blocks_to_copy {
+            self.dfu.erase_blocking(
+                p.dfu(),
+                first_dfu_to_block_index as u32 * block_size,
+                first_dfu_to_block_index as u32 * block_size + blocks_to_copy as u32 * block_size,
+            )?;
+
+            let mut active_from_offset = first_active_from_block_index as u32 * block_size;
+            let mut dfu_to_offset = first_dfu_to_block_index as u32 * block_size;
+            for _ in 0..blocks_to_copy {
+                self.copy_block_to_dfu(active_from_offset, dfu_to_offset, p, aligned_block_buffer)?;
+                active_from_offset += block_size;
+                dfu_to_offset += block_size;
+            }
         }
         Ok(())
     }
@@ -323,118 +380,84 @@ impl<const STATE_ERASE_VALUE: u8> BootLoader<STATE_ERASE_VALUE> {
     }
 
     fn swap<P: FlashConfig>(&mut self, p: &mut P, aligned_block_buffer: &mut [u8]) -> Result<(), BootError> {
-        let block_size = P::BLOCK_SIZE;
-        let block_count = self.active.len() / block_size;
-        let mut copy_to_dfu = false;
-        let mut copy_to_active = false;
+        let block_count = self.active.len() / P::BLOCK_SIZE;
+        let blocks_per_copy =
+            core::cmp::max(core::cmp::max(P::DFU::ERASE_SIZE, P::ACTIVE::ERASE_SIZE), P::BLOCK_SIZE) / P::BLOCK_SIZE;
         trace!("Block count: {}", block_count);
         for block_index in 0..block_count {
             // Copy active block to the 'next' DFU block.
-            let mut progress_index = block_index * 2;
-            {
-                let active_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
-                let dfu_to_offset = ((block_count - block_index) * block_size) as u32;
-
-                let erase_size = core::cmp::max(P::DFU::ERASE_SIZE, P::BLOCK_SIZE);
-                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
-                if block_index % blocks_per_erase == 0 {
-                    copy_to_dfu = self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
-                    if copy_to_dfu {
-                        self.dfu
-                            .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + erase_size as u32)?;
-                    }
-                }
-
-                if copy_to_dfu {
-                    self.copy_block_to_dfu(active_from_offset, dfu_to_offset, p, aligned_block_buffer)?;
-                    self.update_progress(progress_index, p, aligned_block_buffer)?;
-                }
+            let progress_index = block_index * 2;
+            if block_index % blocks_per_copy == 0 {
+                let first_active_from_block_index = block_count - blocks_per_copy - block_index;
+                let first_dfu_to_block_index = block_count - block_index;
+                self.copy_blocks_once_to_dfu(
+                    progress_index,
+                    first_active_from_block_index,
+                    first_dfu_to_block_index,
+                    blocks_per_copy,
+                    p,
+                    aligned_block_buffer,
+                )?;
             }
+            self.update_progress(progress_index, p, aligned_block_buffer)?;
 
             // Copy DFU block to the active block
-            progress_index += 1;
-            {
-                let active_to_offset = ((block_count - 1 - block_index) * block_size) as u32;
-                let dfu_from_offset = ((block_count - 1 - block_index) * block_size) as u32;
-
-                let erase_size = core::cmp::max(P::ACTIVE::ERASE_SIZE, P::BLOCK_SIZE);
-                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
-                if block_index % blocks_per_erase == 0 {
-                    copy_to_active =
-                        self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
-                    if copy_to_active {
-                        self.active.erase_blocking(
-                            p.active(),
-                            active_to_offset,
-                            active_to_offset + erase_size as u32,
-                        )?;
-                    }
-                }
-
-                if copy_to_active {
-                    self.copy_block_to_active(dfu_from_offset, active_to_offset, p, aligned_block_buffer)?;
-                    self.update_progress(progress_index, p, aligned_block_buffer)?;
-                }
+            let progress_index = block_index * 2 + 1;
+            if block_index % blocks_per_copy == 0 {
+                let first_dfu_from_block_index = block_count - blocks_per_copy - block_index;
+                let first_active_to_block_index = block_count - blocks_per_copy - block_index;
+                self.copy_blocks_once_to_active(
+                    progress_index,
+                    first_dfu_from_block_index,
+                    first_active_to_block_index,
+                    blocks_per_copy,
+                    p,
+                    aligned_block_buffer,
+                )?;
             }
+            self.update_progress(progress_index, p, aligned_block_buffer)?;
         }
 
         Ok(())
     }
 
     fn revert<P: FlashConfig>(&mut self, p: &mut P, aligned_block_buffer: &mut [u8]) -> Result<(), BootError> {
-        let block_size = P::BLOCK_SIZE;
-        let block_count = self.active.len() / block_size;
-        let mut copy_to_dfu = false;
-        let mut copy_to_active = false;
+        let block_count = self.active.len() / P::BLOCK_SIZE;
+        let blocks_per_copy =
+            core::cmp::max(core::cmp::max(P::DFU::ERASE_SIZE, P::ACTIVE::ERASE_SIZE), P::BLOCK_SIZE) / P::BLOCK_SIZE;
         trace!("Block count: {}", block_count);
         for block_index in 0..block_count {
             // Copy the bad active block to the DFU block
-            let mut progress_index = block_count * 2 + block_index * 2;
-            {
-                let active_from_offset = (block_index * block_size) as u32;
-                let dfu_to_offset = (block_index * block_size) as u32;
-
-                let erase_size = core::cmp::max(P::DFU::ERASE_SIZE, P::BLOCK_SIZE);
-                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
-                if block_index % blocks_per_erase == 0 {
-                    copy_to_dfu = self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
-                    if copy_to_dfu {
-                        self.dfu
-                            .erase_blocking(p.dfu(), dfu_to_offset, dfu_to_offset + erase_size as u32)?;
-                    }
-                }
-
-                if copy_to_dfu {
-                    self.copy_block_to_dfu(active_from_offset, dfu_to_offset, p, aligned_block_buffer)?;
-                    self.update_progress(progress_index, p, aligned_block_buffer)?;
-                }
+            let progress_index = block_count * 2 + block_index * 2;
+            if block_index % blocks_per_copy == 0 {
+                let first_active_from_block_index = block_index;
+                let first_dfu_to_block_index = block_index;
+                self.copy_blocks_once_to_dfu(
+                    progress_index,
+                    first_active_from_block_index,
+                    first_dfu_to_block_index,
+                    blocks_per_copy,
+                    p,
+                    aligned_block_buffer,
+                )?;
             }
+            self.update_progress(progress_index, p, aligned_block_buffer)?;
 
             // Copy the DFU block back to the active block
-            progress_index += 1;
-            {
-                let active_to_offset = (block_index * block_size) as u32;
-                let dfu_from_offset = ((block_index + 1) * block_size) as u32;
-
-                let erase_size = core::cmp::max(P::ACTIVE::ERASE_SIZE, P::BLOCK_SIZE);
-                let blocks_per_erase = erase_size / P::BLOCK_SIZE;
-                if block_index % blocks_per_erase == 0 {
-                    copy_to_active =
-                        self.current_progress(p, aligned_block_buffer)? <= progress_index + blocks_per_erase;
-                    if copy_to_active {
-                        self.active.erase_blocking(
-                            p.active(),
-                            active_to_offset,
-                            active_to_offset + erase_size as u32,
-                        )?;
-                    }
-                }
-
-                if copy_to_active {
-                    self.copy_block_to_active(dfu_from_offset, active_to_offset, p, aligned_block_buffer)?;
-                    self.update_progress(progress_index, p, aligned_block_buffer)?;
-                }
+            let progress_index = block_count * 2 + block_index * 2 + 1;
+            if block_index % blocks_per_copy == 0 {
+                let first_dfu_from_block_index = block_index + blocks_per_copy;
+                let first_active_to_block_index = block_index;
+                self.copy_blocks_once_to_active(
+                    progress_index,
+                    first_dfu_from_block_index,
+                    first_active_to_block_index,
+                    blocks_per_copy,
+                    p,
+                    aligned_block_buffer,
+                )?;
             }
+            self.update_progress(progress_index, p, aligned_block_buffer)?;
         }
 
         Ok(())
@@ -466,14 +489,14 @@ fn assert_partitions(active: Partition, dfu: Partition, state: Partition, block_
 /// A flash wrapper implementing the Flash and embedded_storage traits.
 pub struct BootFlash<F>
 where
-    F: NorFlash + ReadNorFlash,
+    F: NorFlash,
 {
     flash: F,
 }
 
 impl<F> BootFlash<F>
 where
-    F: NorFlash + ReadNorFlash,
+    F: NorFlash,
 {
     /// Create a new instance of a bootable flash
     pub fn new(flash: F) -> Self {
@@ -483,14 +506,14 @@ where
 
 impl<F> ErrorType for BootFlash<F>
 where
-    F: ReadNorFlash + NorFlash,
+    F: NorFlash,
 {
     type Error = F::Error;
 }
 
 impl<F> NorFlash for BootFlash<F>
 where
-    F: ReadNorFlash + NorFlash,
+    F: NorFlash,
 {
     const WRITE_SIZE: usize = F::WRITE_SIZE;
     const ERASE_SIZE: usize = F::ERASE_SIZE;
@@ -506,7 +529,7 @@ where
 
 impl<F> ReadNorFlash for BootFlash<F>
 where
-    F: ReadNorFlash + NorFlash,
+    F: NorFlash,
 {
     const READ_SIZE: usize = F::READ_SIZE;
 
@@ -522,14 +545,14 @@ where
 /// Convenience provider that uses a single flash for all partitions.
 pub struct SingleFlashConfig<'a, F, const BLOCK_SIZE: usize>
 where
-    F: ReadNorFlash + NorFlash,
+    F: NorFlash,
 {
     flash: &'a mut F,
 }
 
 impl<'a, F, const BLOCK_SIZE: usize> SingleFlashConfig<'a, F, BLOCK_SIZE>
 where
-    F: ReadNorFlash + NorFlash,
+    F: NorFlash,
 {
     /// Create a provider for a single flash.
     pub fn new(flash: &'a mut F) -> Self {
@@ -539,7 +562,7 @@ where
 
 impl<'a, F, const BLOCK_SIZE: usize> FlashConfig for SingleFlashConfig<'a, F, BLOCK_SIZE>
 where
-    F: ReadNorFlash + NorFlash,
+    F: NorFlash,
 {
     const BLOCK_SIZE: usize = BLOCK_SIZE;
     type STATE = F;
@@ -560,9 +583,9 @@ where
 /// Convenience flash provider that uses separate flash instances for each partition.
 pub struct MultiFlashConfig<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize>
 where
-    ACTIVE: ReadNorFlash + NorFlash,
-    STATE: ReadNorFlash + NorFlash,
-    DFU: ReadNorFlash + NorFlash,
+    ACTIVE: NorFlash,
+    STATE: NorFlash,
+    DFU: NorFlash,
 {
     active: &'a mut ACTIVE,
     state: &'a mut STATE,
@@ -571,9 +594,9 @@ where
 
 impl<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize> MultiFlashConfig<'a, ACTIVE, STATE, DFU, BLOCK_SIZE>
 where
-    ACTIVE: ReadNorFlash + NorFlash,
-    STATE: ReadNorFlash + NorFlash,
-    DFU: ReadNorFlash + NorFlash,
+    ACTIVE: NorFlash,
+    STATE: NorFlash,
+    DFU: NorFlash,
 {
     /// Create a new flash provider with separate configuration for all three partitions.
     pub fn new(active: &'a mut ACTIVE, state: &'a mut STATE, dfu: &'a mut DFU) -> Self {
@@ -584,9 +607,9 @@ where
 impl<'a, ACTIVE, STATE, DFU, const BLOCK_SIZE: usize> FlashConfig
     for MultiFlashConfig<'a, ACTIVE, STATE, DFU, BLOCK_SIZE>
 where
-    ACTIVE: ReadNorFlash + NorFlash,
-    STATE: ReadNorFlash + NorFlash,
-    DFU: ReadNorFlash + NorFlash,
+    ACTIVE: NorFlash,
+    STATE: NorFlash,
+    DFU: NorFlash,
 {
     const BLOCK_SIZE: usize = BLOCK_SIZE;
     type STATE = STATE;
