@@ -14,7 +14,6 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-
     let _mco1 = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::DIV1);
     let _mco2 = Mco::new(p.MCO2, p.PC9, Mco2Source::Pll, McoClock::DIV4);
     let mut led = Output::new(p.PB7, Level::High, Speed::Low);
