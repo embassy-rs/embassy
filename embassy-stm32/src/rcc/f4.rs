@@ -228,6 +228,7 @@ impl sealed::McoInstance for peripherals::MCO2 {
                 RCC.cr().modify(|w| w.set_pllon(true));
                 while !RCC.cr().read().pllrdy() {}
             }
+            #[cfg(not(stm32f410))]
             Mco2::PLLI2S => {
                 RCC.cr().modify(|w| w.set_plli2son(true));
                 while !RCC.cr().read().plli2srdy() {}
