@@ -32,14 +32,13 @@ where
 
 /// Extension of the embedded-storage flash type information with block size and erase value.
 pub trait Flash: NorFlash {
-    /// The block size that should be used when writing to flash. For most builtin flashes, this is the same as the erase
-    /// size of the flash, but for external QSPI flash modules, this can be lower.
-    const BLOCK_SIZE: usize;
     /// The erase value of the flash. Typically the default of 0xFF is used, but some flashes use a different value.
     const ERASE_VALUE: u8 = 0xFF;
 }
 
-/// Trait defining the flash handles used for active and DFU partition
+/// Trait defining the flash handles used for active and DFU partition.
+/// The ACTIVE and DFU erase sizes must be equal. If this is not the case, then consider adding an adapter for the
+/// smallest flash to increase its erase size such that they match. See e.g. [`crate::large_erase::LargeErase`].
 pub trait FlashConfig {
     /// Flash type used for the state partition.
     type STATE: Flash;
@@ -62,12 +61,12 @@ trait FlashConfigEx {
 
 impl<T: FlashConfig> FlashConfigEx for T {
     fn page_size() -> usize {
-        core::cmp::max(T::ACTIVE::ERASE_SIZE, T::DFU::ERASE_SIZE)
+        assert_eq!(T::ACTIVE::ERASE_SIZE, T::DFU::ERASE_SIZE);
+        T::ACTIVE::ERASE_SIZE
     }
 }
 
-/// BootLoader works with any flash implementing embedded_storage and can also work with
-/// different page sizes and flash write sizes.
+/// BootLoader works with any flash implementing embedded_storage.
 pub struct BootLoader {
     // Page with current state of bootloader. The state partition has the following format:
     // All ranges are in multiples of WRITE_SIZE bytes.
@@ -184,7 +183,9 @@ impl BootLoader {
     ///
     pub fn prepare_boot<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         // Ensure we have enough progress pages to store copy progress
-        assert_eq!(aligned_buf.len(), P::page_size());
+        assert_eq!(0, P::page_size() % aligned_buf.len());
+        assert_eq!(0, P::page_size() % P::ACTIVE::WRITE_SIZE);
+        assert_eq!(0, P::page_size() % P::DFU::WRITE_SIZE);
         assert!(aligned_buf.len() >= P::STATE::WRITE_SIZE);
         assert_partitions(self.active, self.dfu, self.state, P::page_size(), P::STATE::WRITE_SIZE);
 
@@ -277,20 +278,18 @@ impl BootLoader {
         aligned_buf: &mut [u8],
     ) -> Result<(), BootError> {
         if self.current_progress(p, aligned_buf)? <= idx {
-            let mut offset = from_offset;
-            for chunk in aligned_buf.chunks_mut(P::DFU::BLOCK_SIZE) {
-                self.dfu.read_blocking(p.dfu(), offset, chunk)?;
-                offset += chunk.len() as u32;
-            }
+            let page_size = P::page_size() as u32;
 
             self.active
-                .erase_blocking(p.active(), to_offset, to_offset + P::page_size() as u32)?;
+                .erase_blocking(p.active(), to_offset, to_offset + page_size)?;
 
-            let mut offset = to_offset;
-            for chunk in aligned_buf.chunks(P::ACTIVE::BLOCK_SIZE) {
-                self.active.write_blocking(p.active(), offset, chunk)?;
-                offset += chunk.len() as u32;
+            for offset_in_page in (0..page_size).step_by(aligned_buf.len()) {
+                self.dfu
+                    .read_blocking(p.dfu(), from_offset + offset_in_page as u32, aligned_buf)?;
+                self.active
+                    .write_blocking(p.active(), to_offset + offset_in_page as u32, aligned_buf)?;
             }
+
             self.update_progress(idx, p, aligned_buf)?;
         }
         Ok(())
@@ -305,20 +304,18 @@ impl BootLoader {
         aligned_buf: &mut [u8],
     ) -> Result<(), BootError> {
         if self.current_progress(p, aligned_buf)? <= idx {
-            let mut offset = from_offset;
-            for chunk in aligned_buf.chunks_mut(P::ACTIVE::BLOCK_SIZE) {
-                self.active.read_blocking(p.active(), offset, chunk)?;
-                offset += chunk.len() as u32;
-            }
+            let page_size = P::page_size() as u32;
 
             self.dfu
-                .erase_blocking(p.dfu(), to_offset as u32, to_offset + P::page_size() as u32)?;
+                .erase_blocking(p.dfu(), to_offset as u32, to_offset + page_size)?;
 
-            let mut offset = to_offset;
-            for chunk in aligned_buf.chunks(P::DFU::BLOCK_SIZE) {
-                self.dfu.write_blocking(p.dfu(), offset, chunk)?;
-                offset += chunk.len() as u32;
+            for offset_in_page in (0..page_size).step_by(aligned_buf.len()) {
+                self.active
+                    .read_blocking(p.active(), from_offset + offset_in_page as u32, aligned_buf)?;
+                self.dfu
+                    .write_blocking(p.dfu(), to_offset + offset_in_page as u32, aligned_buf)?;
             }
+
             self.update_progress(idx, p, aligned_buf)?;
         }
         Ok(())
@@ -389,14 +386,14 @@ fn assert_partitions(active: Partition, dfu: Partition, state: Partition, page_s
 }
 
 /// A flash wrapper implementing the Flash and embedded_storage traits.
-pub struct BootFlash<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8 = 0xFF>
+pub struct BootFlash<F, const ERASE_VALUE: u8 = 0xFF>
 where
     F: NorFlash + ReadNorFlash,
 {
     flash: F,
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> BootFlash<F, ERASE_VALUE>
 where
     F: NorFlash + ReadNorFlash,
 {
@@ -406,22 +403,21 @@ where
     }
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> Flash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> Flash for BootFlash<F, ERASE_VALUE>
 where
     F: NorFlash + ReadNorFlash,
 {
-    const BLOCK_SIZE: usize = BLOCK_SIZE;
     const ERASE_VALUE: u8 = ERASE_VALUE;
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ErrorType for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> ErrorType for BootFlash<F, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
     type Error = F::Error;
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> NorFlash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> NorFlash for BootFlash<F, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {
@@ -437,7 +433,7 @@ where
     }
 }
 
-impl<F, const BLOCK_SIZE: usize, const ERASE_VALUE: u8> ReadNorFlash for BootFlash<F, BLOCK_SIZE, ERASE_VALUE>
+impl<F, const ERASE_VALUE: u8> ReadNorFlash for BootFlash<F, ERASE_VALUE>
 where
     F: ReadNorFlash + NorFlash,
 {

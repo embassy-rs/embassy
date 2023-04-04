@@ -47,7 +47,6 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> Defaul
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> Flash
     for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
 {
-    const BLOCK_SIZE: usize = ERASE_SIZE;
     const ERASE_VALUE: u8 = 0xFF;
 }
 

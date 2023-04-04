@@ -7,6 +7,7 @@ mod fmt;
 
 mod boot_loader;
 mod firmware_updater;
+mod large_erase;
 mod mem_flash;
 mod partition;
 
@@ -48,6 +49,7 @@ mod tests {
     use futures::executor::block_on;
 
     use super::*;
+    use crate::large_erase::LargeErase;
     use crate::mem_flash::MemFlash;
 
     /*
@@ -99,14 +101,10 @@ mod tests {
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
         let mut updater = FirmwareUpdater::new(DFU, STATE);
-        let mut offset = 0;
-        for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut flash)).unwrap();
-            offset += chunk.len();
-        }
+        block_on(updater.write_firmware(0, &update, &mut flash)).unwrap();
         block_on(updater.mark_updated(&mut flash, &mut aligned)).unwrap();
 
-        let mut page = [0; 4096];
+        let mut page = [0; 1024];
         assert_eq!(
             State::Swap,
             bootloader
@@ -158,7 +156,7 @@ mod tests {
         const DFU: Partition = Partition::new(0, 16384);
 
         let mut active = MemFlash::<16384, 4096, 8>::random();
-        let mut dfu = MemFlash::<16384, 2048, 8>::random();
+        let mut dfu = LargeErase::<_, 4096>::new(MemFlash::<16384, 2048, 8>::random());
         let mut state = MemFlash::<4096, 128, 4>::random();
         let mut aligned = [0; 4];
 
@@ -171,11 +169,7 @@ mod tests {
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
-        let mut offset = 0;
-        for chunk in update.chunks(2048) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu)).unwrap();
-            offset += chunk.len();
-        }
+        block_on(updater.write_firmware(0, &update, &mut dfu)).unwrap();
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
@@ -194,7 +188,7 @@ mod tests {
 
         // First DFU page is untouched
         for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
+            assert_eq!(dfu.0.mem[i], original[i - DFU.from - 4096], "Index {}", i);
         }
     }
 
@@ -206,7 +200,7 @@ mod tests {
         const DFU: Partition = Partition::new(0, 16384);
 
         let mut aligned = [0; 4];
-        let mut active = MemFlash::<16384, 2048, 4>::random();
+        let mut active = LargeErase::<_, 4096>::new(MemFlash::<16384, 2048, 4>::random());
         let mut dfu = MemFlash::<16384, 4096, 8>::random();
         let mut state = MemFlash::<4096, 128, 4>::random();
 
@@ -214,16 +208,12 @@ mod tests {
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
 
         for i in ACTIVE.from..ACTIVE.to {
-            active.mem[i] = original[i - ACTIVE.from];
+            active.0.mem[i] = original[i - ACTIVE.from];
         }
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
-        let mut offset = 0;
-        for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu)).unwrap();
-            offset += chunk.len();
-        }
+        block_on(updater.write_firmware(0, &update, &mut dfu)).unwrap();
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
@@ -239,7 +229,7 @@ mod tests {
         );
 
         for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
+            assert_eq!(active.0.mem[i], update[i - ACTIVE.from], "Index {}", i);
         }
 
         // First DFU page is untouched
