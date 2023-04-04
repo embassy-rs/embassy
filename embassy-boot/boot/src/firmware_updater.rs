@@ -220,11 +220,24 @@ impl FirmwareUpdater {
         self.state.read(state_flash, 0, aligned).await?;
 
         if aligned.iter().any(|&b| b != magic) {
-            aligned.fill(0);
+            // Read progress validity
+            self.state.read(state_flash, F::WRITE_SIZE as u32, aligned).await?;
 
-            self.state.write(state_flash, 0, aligned).await?;
+            // FIXME: Do not make this assumption.
+            const STATE_ERASE_VALUE: u8 = 0xFF;
+
+            if aligned.iter().any(|&b| b != STATE_ERASE_VALUE) {
+                // The current progress validity marker is invalid
+            } else {
+                // Invalidate progress
+                aligned.fill(!STATE_ERASE_VALUE);
+                self.state.write(state_flash, F::WRITE_SIZE as u32, aligned).await?;
+            }
+
+            // Clear magic and progress
             self.state.wipe(state_flash).await?;
 
+            // Set magic
             aligned.fill(magic);
             self.state.write(state_flash, 0, aligned).await?;
         }
@@ -417,11 +430,24 @@ impl FirmwareUpdater {
         self.state.read_blocking(state_flash, 0, aligned)?;
 
         if aligned.iter().any(|&b| b != magic) {
-            aligned.fill(0);
+            // Read progress validity
+            self.state.read_blocking(state_flash, F::WRITE_SIZE as u32, aligned)?;
 
-            self.state.write_blocking(state_flash, 0, aligned)?;
+            // FIXME: Do not make this assumption.
+            const STATE_ERASE_VALUE: u8 = 0xFF;
+
+            if aligned.iter().any(|&b| b != STATE_ERASE_VALUE) {
+                // The current progress validity marker is invalid
+            } else {
+                // Invalidate progress
+                aligned.fill(!STATE_ERASE_VALUE);
+                self.state.write_blocking(state_flash, F::WRITE_SIZE as u32, aligned)?;
+            }
+
+            // Clear magic and progress
             self.state.wipe_blocking(state_flash)?;
 
+            // Set magic
             aligned.fill(magic);
             self.state.write_blocking(state_flash, 0, aligned)?;
         }
