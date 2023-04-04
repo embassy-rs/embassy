@@ -1,7 +1,7 @@
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
 
-use crate::{FirmwareWriter, Partition, State, BOOT_MAGIC, SWAP_MAGIC};
+use crate::{Partition, State, BOOT_MAGIC, SWAP_MAGIC};
 
 /// Errors returned by FirmwareUpdater
 #[derive(Debug)]
@@ -253,7 +253,6 @@ impl FirmwareUpdater {
         offset: usize,
         data: &[u8],
         dfu_flash: &mut F,
-        block_size: usize,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::ERASE_SIZE);
 
@@ -261,25 +260,23 @@ impl FirmwareUpdater {
             .erase(dfu_flash, offset as u32, (offset + data.len()) as u32)
             .await?;
 
-        FirmwareWriter(self.dfu)
-            .write_block(offset, data, dfu_flash, block_size)
-            .await?;
+        self.dfu.write(dfu_flash, offset as u32, data).await?;
 
         Ok(())
     }
 
     /// Prepare for an incoming DFU update by erasing the entire DFU area and
-    /// returning a `FirmwareWriter`.
+    /// returning its `Partition`.
     ///
     /// Using this instead of `write_firmware` allows for an optimized API in
     /// exchange for added complexity.
     pub async fn prepare_update<F: AsyncNorFlash>(
         &mut self,
         dfu_flash: &mut F,
-    ) -> Result<FirmwareWriter, FirmwareUpdaterError> {
+    ) -> Result<Partition, FirmwareUpdaterError> {
         self.dfu.wipe(dfu_flash).await?;
 
-        Ok(FirmwareWriter(self.dfu))
+        Ok(self.dfu)
     }
 
     //
@@ -460,29 +457,25 @@ impl FirmwareUpdater {
         offset: usize,
         data: &[u8],
         dfu_flash: &mut F,
-        block_size: usize,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= F::ERASE_SIZE);
 
         self.dfu
             .erase_blocking(dfu_flash, offset as u32, (offset + data.len()) as u32)?;
 
-        FirmwareWriter(self.dfu).write_block_blocking(offset, data, dfu_flash, block_size)?;
+        self.dfu.write_blocking(dfu_flash, offset as u32, data)?;
 
         Ok(())
     }
 
     /// Prepare for an incoming DFU update by erasing the entire DFU area and
-    /// returning a `FirmwareWriter`.
+    /// returning its `Partition`.
     ///
     /// Using this instead of `write_firmware_blocking` allows for an optimized
     /// API in exchange for added complexity.
-    pub fn prepare_update_blocking<F: NorFlash>(
-        &mut self,
-        flash: &mut F,
-    ) -> Result<FirmwareWriter, FirmwareUpdaterError> {
+    pub fn prepare_update_blocking<F: NorFlash>(&mut self, flash: &mut F) -> Result<Partition, FirmwareUpdaterError> {
         self.dfu.wipe_blocking(flash)?;
 
-        Ok(FirmwareWriter(self.dfu))
+        Ok(self.dfu)
     }
 }
