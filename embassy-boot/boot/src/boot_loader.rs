@@ -56,9 +56,9 @@ trait FlashConfigEx {
 }
 
 impl<T: FlashConfig> FlashConfigEx for T {
+    /// Get the page size which is the "unit of operation" within the bootloader.
     fn page_size() -> usize {
-        assert_eq!(T::ACTIVE::ERASE_SIZE, T::DFU::ERASE_SIZE);
-        T::ACTIVE::ERASE_SIZE
+        core::cmp::max(T::ACTIVE::ERASE_SIZE, T::DFU::ERASE_SIZE)
     }
 }
 
@@ -182,6 +182,8 @@ impl BootLoader {
         assert_eq!(0, P::page_size() % aligned_buf.len());
         assert_eq!(0, P::page_size() % P::ACTIVE::WRITE_SIZE);
         assert_eq!(0, P::page_size() % P::DFU::WRITE_SIZE);
+        assert_eq!(0, P::page_size() % P::ACTIVE::ERASE_SIZE);
+        assert_eq!(0, P::page_size() % P::DFU::ERASE_SIZE);
         assert!(aligned_buf.len() >= P::STATE::WRITE_SIZE);
         assert_partitions(self.active, self.dfu, self.state, P::page_size(), P::STATE::WRITE_SIZE);
 

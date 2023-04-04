@@ -7,7 +7,6 @@ mod fmt;
 
 mod boot_loader;
 mod firmware_updater;
-mod large_erase;
 mod mem_flash;
 mod partition;
 
@@ -49,7 +48,6 @@ mod tests {
     use futures::executor::block_on;
 
     use super::*;
-    use crate::large_erase::LargeErase;
     use crate::mem_flash::MemFlash;
 
     /*
@@ -156,7 +154,7 @@ mod tests {
         const DFU: Partition = Partition::new(0, 16384);
 
         let mut active = MemFlash::<16384, 4096, 8>::random();
-        let mut dfu = LargeErase::<_, 4096>::new(MemFlash::<16384, 2048, 8>::random());
+        let mut dfu = MemFlash::<16384, 2048, 8>::random();
         let mut state = MemFlash::<4096, 128, 4>::random();
         let mut aligned = [0; 4];
 
@@ -188,7 +186,7 @@ mod tests {
 
         // First DFU page is untouched
         for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.0.mem[i], original[i - DFU.from - 4096], "Index {}", i);
+            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
         }
     }
 
@@ -200,7 +198,7 @@ mod tests {
         const DFU: Partition = Partition::new(0, 16384);
 
         let mut aligned = [0; 4];
-        let mut active = LargeErase::<_, 4096>::new(MemFlash::<16384, 2048, 4>::random());
+        let mut active = MemFlash::<16384, 2048, 4>::random();
         let mut dfu = MemFlash::<16384, 4096, 8>::random();
         let mut state = MemFlash::<4096, 128, 4>::random();
 
@@ -208,7 +206,7 @@ mod tests {
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
 
         for i in ACTIVE.from..ACTIVE.to {
-            active.0.mem[i] = original[i - ACTIVE.from];
+            active.mem[i] = original[i - ACTIVE.from];
         }
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
@@ -229,7 +227,7 @@ mod tests {
         );
 
         for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(active.0.mem[i], update[i - ACTIVE.from], "Index {}", i);
+            assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
         }
 
         // First DFU page is untouched
