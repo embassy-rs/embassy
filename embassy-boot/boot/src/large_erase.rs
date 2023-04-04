@@ -3,18 +3,12 @@
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
-use crate::Flash;
-
 pub struct LargeErase<F, const ERASE_SIZE: usize>(pub F);
 
 impl<F, const ERASE_SIZE: usize> LargeErase<F, ERASE_SIZE> {
     pub const fn new(flash: F) -> Self {
         Self(flash)
     }
-}
-
-impl<F: Flash, const ERASE_SIZE: usize> Flash for LargeErase<F, ERASE_SIZE> {
-    const ERASE_VALUE: u8 = F::ERASE_VALUE;
 }
 
 impl<F: ErrorType, const ERASE_SIZE: usize> ErrorType for LargeErase<F, ERASE_SIZE> {

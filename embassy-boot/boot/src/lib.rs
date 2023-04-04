@@ -11,7 +11,7 @@ mod large_erase;
 mod mem_flash;
 mod partition;
 
-pub use boot_loader::{BootError, BootFlash, BootLoader, Flash, FlashConfig, MultiFlashConfig, SingleFlashConfig};
+pub use boot_loader::{BootError, BootFlash, BootLoader, FlashConfig, MultiFlashConfig, SingleFlashConfig};
 pub use firmware_updater::{FirmwareUpdater, FirmwareUpdaterError};
 pub use partition::Partition;
 

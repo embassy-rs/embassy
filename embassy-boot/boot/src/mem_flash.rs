@@ -5,8 +5,6 @@ use core::ops::{Bound, Range, RangeBounds};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
-use crate::Flash;
-
 pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> {
     pub mem: [u8; SIZE],
     pub pending_write_successes: Option<usize>,
@@ -42,12 +40,6 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> Defaul
     fn default() -> Self {
         Self::new(0xFF)
     }
-}
-
-impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> Flash
-    for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-{
-    const ERASE_VALUE: u8 = 0xFF;
 }
 
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ErrorType
