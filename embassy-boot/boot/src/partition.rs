@@ -24,7 +24,7 @@ impl Partition {
     }
 
     /// Read from the partition on the provided flash
-    pub(crate) async fn read<F: AsyncReadNorFlash>(
+    pub async fn read<F: AsyncReadNorFlash>(
         &self,
         flash: &mut F,
         offset: u32,
@@ -35,12 +35,7 @@ impl Partition {
     }
 
     /// Write to the partition on the provided flash
-    pub(crate) async fn write<F: AsyncNorFlash>(
-        &self,
-        flash: &mut F,
-        offset: u32,
-        bytes: &[u8],
-    ) -> Result<(), F::Error> {
+    pub async fn write<F: AsyncNorFlash>(&self, flash: &mut F, offset: u32, bytes: &[u8]) -> Result<(), F::Error> {
         let offset = self.from as u32 + offset;
         flash.write(offset, bytes).await?;
         trace!("Wrote from 0x{:x} len {}", offset, bytes.len());
@@ -48,7 +43,7 @@ impl Partition {
     }
 
     /// Erase part of the partition on the provided flash
-    pub(crate) async fn erase<F: AsyncNorFlash>(&self, flash: &mut F, from: u32, to: u32) -> Result<(), F::Error> {
+    pub async fn erase<F: AsyncNorFlash>(&self, flash: &mut F, from: u32, to: u32) -> Result<(), F::Error> {
         let from = self.from as u32 + from;
         let to = self.from as u32 + to;
         flash.erase(from, to).await?;
@@ -66,18 +61,13 @@ impl Partition {
     }
 
     /// Read from the partition on the provided flash
-    pub(crate) fn read_blocking<F: ReadNorFlash>(
-        &self,
-        flash: &mut F,
-        offset: u32,
-        bytes: &mut [u8],
-    ) -> Result<(), F::Error> {
+    pub fn read_blocking<F: ReadNorFlash>(&self, flash: &mut F, offset: u32, bytes: &mut [u8]) -> Result<(), F::Error> {
         let offset = self.from as u32 + offset;
         flash.read(offset, bytes)
     }
 
     /// Write to the partition on the provided flash
-    pub(crate) fn write_blocking<F: NorFlash>(&self, flash: &mut F, offset: u32, bytes: &[u8]) -> Result<(), F::Error> {
+    pub fn write_blocking<F: NorFlash>(&self, flash: &mut F, offset: u32, bytes: &[u8]) -> Result<(), F::Error> {
         let offset = self.from as u32 + offset;
         flash.write(offset, bytes)?;
         trace!("Wrote from 0x{:x} len {}", offset, bytes.len());
@@ -85,7 +75,7 @@ impl Partition {
     }
 
     /// Erase part of the partition on the provided flash
-    pub(crate) fn erase_blocking<F: NorFlash>(&self, flash: &mut F, from: u32, to: u32) -> Result<(), F::Error> {
+    pub fn erase_blocking<F: NorFlash>(&self, flash: &mut F, from: u32, to: u32) -> Result<(), F::Error> {
         let from = self.from as u32 + from;
         let to = self.from as u32 + to;
         flash.erase(from, to)?;
