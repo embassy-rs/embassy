@@ -6,6 +6,7 @@
 mod fmt;
 
 mod boot_loader;
+mod digest_adapters;
 mod firmware_updater;
 mod partition;
 
