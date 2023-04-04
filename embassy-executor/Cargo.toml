@@ -31,9 +31,22 @@ flavors = [
 features = ["std", "nightly", "defmt"]
 
 [features]
-default = []
-std = ["critical-section/std"]
-wasm = ["dep:wasm-bindgen", "dep:js-sys"]
+
+# Architecture
+_arch = [] # some arch was picked
+arch-std = ["_arch", "critical-section/std"]
+arch-cortex-m = ["_arch", "dep:cortex-m"]
+arch-xtensa = ["_arch"]
+arch-riscv32 = ["_arch"]
+arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
+
+# Enable creating a `Pender` from an arbitrary function pointer callback.
+pender-callback = []
+
+# Enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded archs)
+executor-thread = []
+# Enable the interrupt-mode executor (available in Cortex-M only)
+executor-interrupt = []
 
 # Enable nightly-only features
 nightly = []
@@ -55,9 +68,11 @@ embassy-macros  = { version = "0.1.0", path = "../embassy-macros" }
 embassy-time  = { version = "0.1.0", path = "../embassy-time", optional = true}
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
-cfg-if = "1.0.0"
 static_cell = "1.0"
 
-# WASM dependencies
+# arch-cortex-m dependencies
+cortex-m = { version = "0.7.6", optional = true }
+
+# arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }
