@@ -1112,6 +1112,9 @@ pub(crate) mod sealed {
 
         fn regs() -> Regs;
         fn state() -> &'static State;
+
+        #[cfg(feature = "nightly")]
+        fn buffered_state() -> &'static buffered::State;
     }
 
     pub trait FullInstance: BasicInstance {
@@ -1145,6 +1148,12 @@ macro_rules! impl_lpuart {
 
             fn state() -> &'static crate::usart::sealed::State {
                 static STATE: crate::usart::sealed::State = crate::usart::sealed::State::new();
+                &STATE
+            }
+
+            #[cfg(feature = "nightly")]
+            fn buffered_state() -> &'static buffered::State {
+                static STATE: buffered::State = buffered::State::new();
                 &STATE
             }
         }
