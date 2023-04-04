@@ -519,14 +519,14 @@ mod tests {
     use sha1::{Digest, Sha1};
 
     use super::*;
-    use crate::tests::MemFlash;
+    use crate::mem_flash::MemFlash;
 
     #[test]
-    fn can_verify() {
+    fn can_verify_sha1() {
         const STATE: Partition = Partition::new(0, 4096);
         const DFU: Partition = Partition::new(65536, 131072);
 
-        let mut flash = MemFlash::<131072, 4096, 8>([0xFF; 131072]);
+        let mut flash = MemFlash::<131072, 4096, 8>::default();
 
         let update = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
         let mut to_write = [0; 4096];
