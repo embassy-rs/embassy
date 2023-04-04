@@ -7,13 +7,11 @@ mod fmt;
 
 mod boot_loader;
 mod firmware_updater;
-mod firmware_writer;
 mod mem_flash;
 mod partition;
 
 pub use boot_loader::{BootError, BootFlash, BootLoader, Flash, FlashConfig, MultiFlashConfig, SingleFlashConfig};
 pub use firmware_updater::{FirmwareUpdater, FirmwareUpdaterError};
-pub use firmware_writer::FirmwareWriter;
 pub use partition::Partition;
 
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
@@ -107,7 +105,7 @@ mod tests {
         let mut updater = FirmwareUpdater::new(DFU, STATE);
         let mut offset = 0;
         for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut flash, 4096)).unwrap();
+            block_on(updater.write_firmware(offset, chunk, &mut flash)).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut flash, &mut aligned)).unwrap();
@@ -180,7 +178,7 @@ mod tests {
 
         let mut offset = 0;
         for chunk in update.chunks(2048) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu, chunk.len())).unwrap();
+            block_on(updater.write_firmware(offset, chunk, &mut dfu)).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
@@ -233,7 +231,7 @@ mod tests {
 
         let mut offset = 0;
         for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu, chunk.len())).unwrap();
+            block_on(updater.write_firmware(offset, chunk, &mut dfu)).unwrap();
             offset += chunk.len();
         }
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
