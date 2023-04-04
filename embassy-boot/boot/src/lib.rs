@@ -93,7 +93,7 @@ mod tests {
         const STATE: Partition = Partition::new(0, 4096);
         const ACTIVE: Partition = Partition::new(4096, 61440);
         const DFU: Partition = Partition::new(61440, 122880);
-        let mut flash = MemFlash::<131072, 4096, 4>::random().with_limited_erase_before_write_verification(4..);
+        let mut flash = MemFlash::<131072, 4096, 4>::random();
 
         let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
@@ -166,7 +166,7 @@ mod tests {
 
         let mut active = MemFlash::<16384, 4096, 8>::random();
         let mut dfu = MemFlash::<16384, 2048, 8>::random();
-        let mut state = MemFlash::<4096, 128, 4>::random().with_limited_erase_before_write_verification(2048 + 4..);
+        let mut state = MemFlash::<4096, 128, 4>::random();
         let mut aligned = [0; 4];
 
         let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
@@ -220,7 +220,7 @@ mod tests {
         let mut aligned = [0; 4];
         let mut active = MemFlash::<16384, 2048, 4>::random();
         let mut dfu = MemFlash::<16384, 4096, 8>::random();
-        let mut state = MemFlash::<4096, 128, 4>::random().with_limited_erase_before_write_verification(2048 + 4..);
+        let mut state = MemFlash::<4096, 128, 4>::random();
 
         let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
         let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];

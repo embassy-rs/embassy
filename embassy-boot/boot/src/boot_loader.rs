@@ -31,7 +31,7 @@ where
 }
 
 /// Extension of the embedded-storage flash type information with block size and erase value.
-pub trait Flash: NorFlash + ReadNorFlash {
+pub trait Flash: NorFlash {
     /// The block size that should be used when writing to flash. For most builtin flashes, this is the same as the erase
     /// size of the flash, but for external QSPI flash modules, this can be lower.
     const BLOCK_SIZE: usize;
@@ -60,9 +60,11 @@ pub trait FlashConfig {
 /// different page sizes and flash write sizes.
 pub struct BootLoader {
     // Page with current state of bootloader. The state partition has the following format:
-    // | Range          | Description                                                                      |
-    // | 0 - WRITE_SIZE | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
-    // | WRITE_SIZE - N | Progress index used while swapping or reverting                                  |
+    // All ranges are in multiples of WRITE_SIZE bytes.
+    // | Range    | Description                                                                      |
+    // | 0..1     | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
+    // | 1..2     | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
+    // | 2..2 + N | Progress index used while swapping or reverting                                  |
     state: Partition,
     // Location of the partition which will be booted from
     active: Partition,
@@ -192,12 +194,17 @@ impl BootLoader {
                 trace!("Reverting");
                 self.revert(p, magic, page)?;
 
-                // Overwrite magic and reset progress
                 let state_flash = p.state();
+
+                // Invalidate progress
                 magic.fill(!P::STATE::ERASE_VALUE);
-                self.state.write_blocking(state_flash, 0, magic)?;
+                self.state
+                    .write_blocking(state_flash, P::STATE::WRITE_SIZE as u32, magic)?;
+
+                // Clear magic and progress
                 self.state.wipe_blocking(state_flash)?;
 
+                // Set magic
                 magic.fill(BOOT_MAGIC);
                 self.state.write_blocking(state_flash, 0, magic)?;
             }
@@ -215,28 +222,34 @@ impl BootLoader {
 
     fn current_progress<P: FlashConfig>(&mut self, config: &mut P, aligned: &mut [u8]) -> Result<usize, BootError> {
         let write_size = aligned.len();
-        let max_index = ((self.state.len() - write_size) / write_size) - 1;
+        let max_index = ((self.state.len() - write_size) / write_size) - 2;
         aligned.fill(!P::STATE::ERASE_VALUE);
 
         let state_flash = config.state();
-        for i in 0..max_index {
+
+        self.state
+            .read_blocking(state_flash, P::STATE::WRITE_SIZE as u32, aligned)?;
+        if aligned.iter().any(|&b| b != P::STATE::ERASE_VALUE) {
+            // Progress is invalid
+            return Ok(max_index);
+        }
+
+        for index in 0..max_index {
             self.state
-                .read_blocking(state_flash, (write_size + i * write_size) as u32, aligned)?;
+                .read_blocking(state_flash, (2 + index) as u32 * P::STATE::WRITE_SIZE as u32, aligned)?;
 
             if aligned.iter().any(|&b| b == P::STATE::ERASE_VALUE) {
-                return Ok(i);
+                return Ok(index);
             }
         }
         Ok(max_index)
     }
 
-    fn update_progress<P: FlashConfig>(&mut self, idx: usize, p: &mut P, magic: &mut [u8]) -> Result<(), BootError> {
-        let write_size = magic.len();
-
+    fn update_progress<P: FlashConfig>(&mut self, index: usize, p: &mut P, magic: &mut [u8]) -> Result<(), BootError> {
         let aligned = magic;
         aligned.fill(!P::STATE::ERASE_VALUE);
         self.state
-            .write_blocking(p.state(), (write_size + idx * write_size) as u32, aligned)?;
+            .write_blocking(p.state(), (2 + index) as u32 * P::STATE::WRITE_SIZE as u32, aligned)?;
         Ok(())
     }
 
@@ -360,7 +373,7 @@ fn assert_partitions(active: Partition, dfu: Partition, state: Partition, page_s
     assert_eq!(active.len() % page_size, 0);
     assert_eq!(dfu.len() % page_size, 0);
     assert!(dfu.len() - active.len() >= page_size);
-    assert!(2 * (active.len() / page_size) <= (state.len() - write_size) / write_size);
+    assert!(2 + 2 * (active.len() / page_size) <= state.len() / write_size);
 }
 
 /// A flash wrapper implementing the Flash and embedded_storage traits.

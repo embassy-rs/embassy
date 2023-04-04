@@ -9,8 +9,6 @@ use crate::Flash;
 
 pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> {
     pub mem: [u8; SIZE],
-    pub allow_same_write: bool,
-    pub verify_erased_before_write: Range<usize>,
     pub pending_write_successes: Option<usize>,
 }
 
@@ -21,8 +19,6 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
     pub const fn new(fill: u8) -> Self {
         Self {
             mem: [fill; SIZE],
-            allow_same_write: false,
-            verify_erased_before_write: 0..SIZE,
             pending_write_successes: None,
         }
     }
@@ -35,35 +31,7 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
         }
         Self {
             mem,
-            allow_same_write: false,
-            verify_erased_before_write: 0..SIZE,
             pending_write_successes: None,
-        }
-    }
-
-    #[must_use]
-    pub fn allow_same_write(self, allow: bool) -> Self {
-        Self {
-            allow_same_write: allow,
-            ..self
-        }
-    }
-
-    #[must_use]
-    pub fn with_limited_erase_before_write_verification<R: RangeBounds<usize>>(self, verified_range: R) -> Self {
-        let start = match verified_range.start_bound() {
-            Bound::Included(start) => *start,
-            Bound::Excluded(start) => *start + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match verified_range.end_bound() {
-            Bound::Included(end) => *end - 1,
-            Bound::Excluded(end) => *end,
-            Bound::Unbounded => self.mem.len(),
-        };
-        Self {
-            verify_erased_before_write: start..end,
-            ..self
         }
     }
 }
@@ -150,14 +118,8 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFla
             .take(bytes.len())
             .zip(bytes)
         {
-            if self.allow_same_write && mem_byte == new_byte {
-                // Write does not change the flash memory which is allowed
-            } else {
-                if self.verify_erased_before_write.contains(&offset) {
-                    assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
-                }
-                *mem_byte &= *new_byte;
-            }
+            assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
+            *mem_byte = *new_byte;
         }
 
         Ok(())
@@ -190,24 +152,5 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncN
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
         <Self as NorFlash>::write(self, offset, bytes)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use core::ops::Range;
-
-    use embedded_storage::nor_flash::NorFlash;
-
-    use super::MemFlash;
-
-    #[test]
-    fn writes_only_flip_bits_from_1_to_0() {
-        let mut flash = MemFlash::<16, 16, 1>::default().with_limited_erase_before_write_verification(0..0);
-
-        flash.write(0, &[0x55]).unwrap();
-        flash.write(0, &[0xAA]).unwrap();
-
-        assert_eq!(0x00, flash.mem[0]);
     }
 }
