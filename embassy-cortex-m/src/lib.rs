@@ -5,6 +5,6 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub mod executor;
+pub use embassy_executor as executor;
 pub mod interrupt;
 pub mod peripheral;

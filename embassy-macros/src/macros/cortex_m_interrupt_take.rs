@@ -10,12 +10,12 @@ pub fn run(name: syn::Ident) -> Result<TokenStream, TokenStream> {
     let (isr_enter, isr_exit) = (
         quote! {
             ::embassy_executor::rtos_trace_interrupt! {
-                ::embassy_executor::export::trace::isr_enter();
+                ::embassy_executor::_export::trace::isr_enter();
             }
         },
         quote! {
             ::embassy_executor::rtos_trace_interrupt! {
-                ::embassy_executor::export::trace::isr_exit();
+                ::embassy_executor::_export::trace::isr_exit();
             }
         },
     );

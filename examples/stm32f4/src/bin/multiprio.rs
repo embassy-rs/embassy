@@ -62,7 +62,7 @@ use core::mem;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::executor::{Executor, InterruptExecutor};
+use embassy_executor::{Executor, InterruptExecutor};
 use embassy_stm32::interrupt;
 use embassy_stm32::pac::Interrupt;
 use embassy_time::{Duration, Instant, Timer};
