@@ -11,13 +11,12 @@ use embassy_nrf::wdt;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for nRF devices.
-pub struct BootLoader {
+pub struct BootLoader<const BUFFER_SIZE: usize = PAGE_SIZE> {
     boot: embassy_boot::BootLoader,
-    magic: AlignedBuffer<4>,
-    page: AlignedBuffer<PAGE_SIZE>,
+    aligned_buf: AlignedBuffer<BUFFER_SIZE>,
 }
 
-impl Default for BootLoader {
+impl<const BUFFER_SIZE: usize> Default for BootLoader<BUFFER_SIZE> {
     /// Create a new bootloader instance using parameters from linker script
     fn default() -> Self {
         extern "C" {
@@ -56,20 +55,19 @@ impl Default for BootLoader {
     }
 }
 
-impl BootLoader {
+impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     /// Create a new bootloader instance using the supplied partitions for active, dfu and state.
     pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
         Self {
             boot: embassy_boot::BootLoader::new(active, dfu, state),
-            magic: AlignedBuffer([0; 4]),
-            page: AlignedBuffer([0; PAGE_SIZE]),
+            aligned_buf: AlignedBuffer([0; BUFFER_SIZE]),
         }
     }
 
     /// Inspect the bootloader state and perform actions required before booting, such as swapping
     /// firmware.
     pub fn prepare<F: FlashConfig>(&mut self, flash: &mut F) -> usize {
-        match self.boot.prepare_boot(flash, &mut self.magic.0, &mut self.page.0) {
+        match self.boot.prepare_boot(flash, &mut self.aligned_buf.0) {
             Ok(_) => self.boot.boot_address(),
             Err(_) => panic!("boot prepare error!"),
         }
