@@ -52,7 +52,7 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     }
 }
 
-impl<const BUFFER_SIZE: usize> Default for BootLoader<BUFFER_SIZE> {
+impl Default for BootLoader<ERASE_SIZE> {
     /// Create a new bootloader instance using parameters from linker script
     fn default() -> Self {
         extern "C" {
