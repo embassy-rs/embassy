@@ -31,8 +31,6 @@ where
 }
 
 /// Trait defining the flash handles used for active and DFU partition.
-/// The ACTIVE and DFU erase sizes must be equal. If this is not the case, then consider adding an adapter for the
-/// smallest flash to increase its erase size such that they match. See e.g. [`crate::large_erase::LargeErase`].
 pub trait FlashConfig {
     /// The erase value of the state flash. Typically the default of 0xFF is used, but some flashes use a different value.
     const STATE_ERASE_VALUE: u8 = 0xFF;
