@@ -56,6 +56,16 @@ pub trait FlashConfig {
     fn state(&mut self) -> &mut Self::STATE;
 }
 
+trait FlashConfigEx {
+    fn page_size() -> usize;
+}
+
+impl<T: FlashConfig> FlashConfigEx for T {
+    fn page_size() -> usize {
+        core::cmp::max(T::ACTIVE::ERASE_SIZE, T::DFU::ERASE_SIZE)
+    }
+}
+
 /// BootLoader works with any flash implementing embedded_storage and can also work with
 /// different page sizes and flash write sizes.
 pub struct BootLoader {
@@ -90,6 +100,9 @@ impl BootLoader {
     ///
     /// The DFU partition is assumed to be 1 page bigger than the active partition for the swap
     /// algorithm to work correctly.
+    ///
+    /// The provided aligned_buf argument must satisfy any alignment requirements
+    /// given by the partition flashes. All flash operations will use this buffer.
     ///
     /// SWAPPING
     ///
@@ -169,87 +182,89 @@ impl BootLoader {
     /// |       DFU |            3 |      3 |      2 |      1 |      3 |
     /// +-----------+--------------+--------+--------+--------+--------+
     ///
-    pub fn prepare_boot<P: FlashConfig>(
-        &mut self,
-        p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
-    ) -> Result<State, BootError> {
+    pub fn prepare_boot<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         // Ensure we have enough progress pages to store copy progress
-        assert_partitions(self.active, self.dfu, self.state, page.len(), P::STATE::WRITE_SIZE);
-        assert_eq!(magic.len(), P::STATE::WRITE_SIZE);
+        assert_eq!(aligned_buf.len(), P::page_size());
+        assert!(aligned_buf.len() >= P::STATE::WRITE_SIZE);
+        assert_partitions(self.active, self.dfu, self.state, P::page_size(), P::STATE::WRITE_SIZE);
 
         // Copy contents from partition N to active
-        let state = self.read_state(p, magic)?;
+        let state = self.read_state(p, aligned_buf)?;
         if state == State::Swap {
             //
             // Check if we already swapped. If we're in the swap state, this means we should revert
             // since the app has failed to mark boot as successful
             //
-            if !self.is_swapped(p, magic, page)? {
+            if !self.is_swapped(p, aligned_buf)? {
                 trace!("Swapping");
-                self.swap(p, magic, page)?;
+                self.swap(p, aligned_buf)?;
                 trace!("Swapping done");
             } else {
                 trace!("Reverting");
-                self.revert(p, magic, page)?;
+                self.revert(p, aligned_buf)?;
 
                 let state_flash = p.state();
+                let state_word = &mut aligned_buf[..P::STATE::WRITE_SIZE];
 
                 // Invalidate progress
-                magic.fill(!P::STATE::ERASE_VALUE);
+                state_word.fill(!P::STATE::ERASE_VALUE);
                 self.state
-                    .write_blocking(state_flash, P::STATE::WRITE_SIZE as u32, magic)?;
+                    .write_blocking(state_flash, P::STATE::WRITE_SIZE as u32, state_word)?;
 
                 // Clear magic and progress
                 self.state.wipe_blocking(state_flash)?;
 
                 // Set magic
-                magic.fill(BOOT_MAGIC);
-                self.state.write_blocking(state_flash, 0, magic)?;
+                state_word.fill(BOOT_MAGIC);
+                self.state.write_blocking(state_flash, 0, state_word)?;
             }
         }
         Ok(state)
     }
 
-    fn is_swapped<P: FlashConfig>(&mut self, p: &mut P, magic: &mut [u8], page: &mut [u8]) -> Result<bool, BootError> {
-        let page_size = page.len();
-        let page_count = self.active.len() / page_size;
-        let progress = self.current_progress(p, magic)?;
+    fn is_swapped<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<bool, BootError> {
+        let page_count = self.active.len() / P::page_size();
+        let progress = self.current_progress(p, aligned_buf)?;
 
         Ok(progress >= page_count * 2)
     }
 
-    fn current_progress<P: FlashConfig>(&mut self, config: &mut P, aligned: &mut [u8]) -> Result<usize, BootError> {
-        let write_size = aligned.len();
-        let max_index = ((self.state.len() - write_size) / write_size) - 2;
-        aligned.fill(!P::STATE::ERASE_VALUE);
-
+    fn current_progress<P: FlashConfig>(&mut self, config: &mut P, aligned_buf: &mut [u8]) -> Result<usize, BootError> {
+        let max_index = ((self.state.len() - P::STATE::WRITE_SIZE) / P::STATE::WRITE_SIZE) - 2;
         let state_flash = config.state();
+        let state_word = &mut aligned_buf[..P::STATE::WRITE_SIZE];
 
         self.state
-            .read_blocking(state_flash, P::STATE::WRITE_SIZE as u32, aligned)?;
-        if aligned.iter().any(|&b| b != P::STATE::ERASE_VALUE) {
+            .read_blocking(state_flash, P::STATE::WRITE_SIZE as u32, state_word)?;
+        if state_word.iter().any(|&b| b != P::STATE::ERASE_VALUE) {
             // Progress is invalid
             return Ok(max_index);
         }
 
         for index in 0..max_index {
-            self.state
-                .read_blocking(state_flash, (2 + index) as u32 * P::STATE::WRITE_SIZE as u32, aligned)?;
+            self.state.read_blocking(
+                state_flash,
+                (2 + index) as u32 * P::STATE::WRITE_SIZE as u32,
+                state_word,
+            )?;
 
-            if aligned.iter().any(|&b| b == P::STATE::ERASE_VALUE) {
+            if state_word.iter().any(|&b| b == P::STATE::ERASE_VALUE) {
                 return Ok(index);
             }
         }
         Ok(max_index)
     }
 
-    fn update_progress<P: FlashConfig>(&mut self, index: usize, p: &mut P, magic: &mut [u8]) -> Result<(), BootError> {
-        let aligned = magic;
-        aligned.fill(!P::STATE::ERASE_VALUE);
+    fn update_progress<P: FlashConfig>(
+        &mut self,
+        index: usize,
+        p: &mut P,
+        aligned_buf: &mut [u8],
+    ) -> Result<(), BootError> {
+        let state_word = &mut aligned_buf[..P::STATE::WRITE_SIZE];
+        state_word.fill(!P::STATE::ERASE_VALUE);
         self.state
-            .write_blocking(p.state(), (2 + index) as u32 * P::STATE::WRITE_SIZE as u32, aligned)?;
+            .write_blocking(p.state(), (2 + index) as u32 * P::STATE::WRITE_SIZE as u32, state_word)?;
         Ok(())
     }
 
@@ -259,26 +274,24 @@ impl BootLoader {
         from_offset: u32,
         to_offset: u32,
         p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
+        aligned_buf: &mut [u8],
     ) -> Result<(), BootError> {
-        let buf = page;
-        if self.current_progress(p, magic)? <= idx {
+        if self.current_progress(p, aligned_buf)? <= idx {
             let mut offset = from_offset;
-            for chunk in buf.chunks_mut(P::DFU::BLOCK_SIZE) {
+            for chunk in aligned_buf.chunks_mut(P::DFU::BLOCK_SIZE) {
                 self.dfu.read_blocking(p.dfu(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
 
             self.active
-                .erase_blocking(p.active(), to_offset, to_offset + buf.len() as u32)?;
+                .erase_blocking(p.active(), to_offset, to_offset + P::page_size() as u32)?;
 
             let mut offset = to_offset;
-            for chunk in buf.chunks(P::ACTIVE::BLOCK_SIZE) {
+            for chunk in aligned_buf.chunks(P::ACTIVE::BLOCK_SIZE) {
                 self.active.write_blocking(p.active(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
-            self.update_progress(idx, p, magic)?;
+            self.update_progress(idx, p, aligned_buf)?;
         }
         Ok(())
     }
@@ -289,32 +302,30 @@ impl BootLoader {
         from_offset: u32,
         to_offset: u32,
         p: &mut P,
-        magic: &mut [u8],
-        page: &mut [u8],
+        aligned_buf: &mut [u8],
     ) -> Result<(), BootError> {
-        let buf = page;
-        if self.current_progress(p, magic)? <= idx {
+        if self.current_progress(p, aligned_buf)? <= idx {
             let mut offset = from_offset;
-            for chunk in buf.chunks_mut(P::ACTIVE::BLOCK_SIZE) {
+            for chunk in aligned_buf.chunks_mut(P::ACTIVE::BLOCK_SIZE) {
                 self.active.read_blocking(p.active(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
 
             self.dfu
-                .erase_blocking(p.dfu(), to_offset as u32, to_offset + buf.len() as u32)?;
+                .erase_blocking(p.dfu(), to_offset as u32, to_offset + P::page_size() as u32)?;
 
             let mut offset = to_offset;
-            for chunk in buf.chunks(P::DFU::BLOCK_SIZE) {
+            for chunk in aligned_buf.chunks(P::DFU::BLOCK_SIZE) {
                 self.dfu.write_blocking(p.dfu(), offset, chunk)?;
                 offset += chunk.len() as u32;
             }
-            self.update_progress(idx, p, magic)?;
+            self.update_progress(idx, p, aligned_buf)?;
         }
         Ok(())
     }
 
-    fn swap<P: FlashConfig>(&mut self, p: &mut P, magic: &mut [u8], page: &mut [u8]) -> Result<(), BootError> {
-        let page_size = page.len();
+    fn swap<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<(), BootError> {
+        let page_size = P::page_size();
         let page_count = self.active.len() / page_size;
         trace!("Page count: {}", page_count);
         for page_num in 0..page_count {
@@ -326,20 +337,20 @@ impl BootLoader {
             let active_from_offset = ((page_count - 1 - page_num) * page_size) as u32;
             let dfu_to_offset = ((page_count - page_num) * page_size) as u32;
             //trace!("Copy active {} to dfu {}", active_from_offset, dfu_to_offset);
-            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, magic, page)?;
+            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, aligned_buf)?;
 
             // Copy DFU page to the active page
             let active_to_offset = ((page_count - 1 - page_num) * page_size) as u32;
             let dfu_from_offset = ((page_count - 1 - page_num) * page_size) as u32;
             //trace!("Copy dfy {} to active {}", dfu_from_offset, active_to_offset);
-            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, magic, page)?;
+            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, aligned_buf)?;
         }
 
         Ok(())
     }
 
-    fn revert<P: FlashConfig>(&mut self, p: &mut P, magic: &mut [u8], page: &mut [u8]) -> Result<(), BootError> {
-        let page_size = page.len();
+    fn revert<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<(), BootError> {
+        let page_size = P::page_size();
         let page_count = self.active.len() / page_size;
         for page_num in 0..page_count {
             let idx = page_count * 2 + page_num * 2;
@@ -347,21 +358,22 @@ impl BootLoader {
             // Copy the bad active page to the DFU page
             let active_from_offset = (page_num * page_size) as u32;
             let dfu_to_offset = (page_num * page_size) as u32;
-            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, magic, page)?;
+            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, aligned_buf)?;
 
             // Copy the DFU page back to the active page
             let active_to_offset = (page_num * page_size) as u32;
             let dfu_from_offset = ((page_num + 1) * page_size) as u32;
-            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, magic, page)?;
+            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, aligned_buf)?;
         }
 
         Ok(())
     }
 
-    fn read_state<P: FlashConfig>(&mut self, config: &mut P, magic: &mut [u8]) -> Result<State, BootError> {
-        self.state.read_blocking(config.state(), 0, magic)?;
+    fn read_state<P: FlashConfig>(&mut self, config: &mut P, aligned_buf: &mut [u8]) -> Result<State, BootError> {
+        let state_word = &mut aligned_buf[..P::STATE::WRITE_SIZE];
+        self.state.read_blocking(config.state(), 0, state_word)?;
 
-        if !magic.iter().any(|&b| b != SWAP_MAGIC) {
+        if !state_word.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
         } else {
             Ok(State::Boot)

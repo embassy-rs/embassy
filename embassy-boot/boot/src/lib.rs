@@ -77,12 +77,8 @@ mod tests {
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
 
-        let mut magic = [0; 4];
         let mut page = [0; 4096];
-        assert_eq!(
-            State::Boot,
-            bootloader.prepare_boot(&mut flash, &mut magic, &mut page).unwrap()
-        );
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut flash, &mut page).unwrap());
     }
 
     #[test]
@@ -110,12 +106,11 @@ mod tests {
         }
         block_on(updater.mark_updated(&mut flash, &mut aligned)).unwrap();
 
-        let mut magic = [0; 4];
         let mut page = [0; 4096];
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
                 .unwrap()
         );
 
@@ -132,7 +127,7 @@ mod tests {
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
                 .unwrap()
         );
 
@@ -150,7 +145,7 @@ mod tests {
         assert_eq!(
             State::Boot,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
                 .unwrap()
         );
     }
@@ -184,17 +179,12 @@ mod tests {
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut magic = [0; 4];
         let mut page = [0; 4096];
 
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(
-                    &mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu),
-                    &mut magic,
-                    &mut page
-                )
+                .prepare_boot(&mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu), &mut page)
                 .unwrap()
         );
 
@@ -237,14 +227,12 @@ mod tests {
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut magic = [0; 4];
         let mut page = [0; 4096];
         assert_eq!(
             State::Swap,
             bootloader
                 .prepare_boot(
                     &mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu,),
-                    &mut magic,
                     &mut page
                 )
                 .unwrap()
