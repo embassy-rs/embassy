@@ -50,9 +50,12 @@ fn main() {
                 // We *shouldn't* have singletons for these, but the HAL currently requires
                 // singletons, for using with RccPeripheral to enable/disable clocks to them.
                 "rcc" => {
-                    if r.version.starts_with("h7") {
+                    if r.version.starts_with("h7") || r.version.starts_with("f4") {
                         singletons.push("MCO1".to_string());
                         singletons.push("MCO2".to_string());
+                    }
+                    if r.version.starts_with("l4") {
+                        singletons.push("MCO".to_string());
                     }
                     singletons.push(p.name.to_string());
                 }
@@ -347,6 +350,7 @@ fn main() {
         (("i2c", "SCL"), quote!(crate::i2c::SclPin)),
         (("rcc", "MCO_1"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO_2"), quote!(crate::rcc::McoPin)),
+        (("rcc", "MCO"), quote!(crate::rcc::McoPin)),
         (("dcmi", "D0"), quote!(crate::dcmi::D0Pin)),
         (("dcmi", "D1"), quote!(crate::dcmi::D1Pin)),
         (("dcmi", "D2"), quote!(crate::dcmi::D2Pin)),
@@ -536,8 +540,17 @@ fn main() {
                     // MCO is special
                     if pin.signal.starts_with("MCO_") {
                         // Supported in H7 only for now
-                        if regs.version.starts_with("h7") {
+                        if regs.version.starts_with("h7") || regs.version.starts_with("f4") {
                             peri = format_ident!("{}", pin.signal.replace("_", ""));
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    if pin.signal == "MCO" {
+                        // Supported in H7 only for now
+                        if regs.version.starts_with("l4") {
+                            peri = format_ident!("MCO");
                         } else {
                             continue;
                         }
