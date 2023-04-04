@@ -179,10 +179,12 @@ impl BootLoader {
         // Ensure we have enough progress pages to store copy progress
         assert_eq!(0, P::page_size() % aligned_buf.len());
         assert_eq!(0, P::page_size() % P::ACTIVE::WRITE_SIZE);
-        assert_eq!(0, P::page_size() % P::DFU::WRITE_SIZE);
         assert_eq!(0, P::page_size() % P::ACTIVE::ERASE_SIZE);
+        assert_eq!(0, P::page_size() % P::DFU::WRITE_SIZE);
         assert_eq!(0, P::page_size() % P::DFU::ERASE_SIZE);
         assert!(aligned_buf.len() >= P::STATE::WRITE_SIZE);
+        assert_eq!(0, aligned_buf.len() % P::ACTIVE::WRITE_SIZE);
+        assert_eq!(0, aligned_buf.len() % P::DFU::WRITE_SIZE);
         assert_partitions(self.active, self.dfu, self.state, P::page_size(), P::STATE::WRITE_SIZE);
 
         // Copy contents from partition N to active
