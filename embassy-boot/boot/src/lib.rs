@@ -286,13 +286,13 @@ mod tests {
 
         const STATE: Partition = Partition::new(0, 4096);
         const DFU: Partition = Partition::new(4096, 8192);
-        let mut flash = MemFlash::<8192, 4096, 4>([0xff; 8192]);
+        let mut flash = MemFlash::<8192, 4096, 4>::default();
 
         let firmware_len = firmware.len();
 
         let mut write_buf = [0; 4096];
         write_buf[0..firmware_len].copy_from_slice(firmware);
-        NorFlash::write(&mut flash, DFU.from as u32, &write_buf).unwrap();
+        DFU.write_blocking(&mut flash, 0, &write_buf).unwrap();
 
         // On with the test
 
