@@ -32,6 +32,23 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
             pending_write_successes: None,
         }
     }
+
+    pub fn program(&mut self, offset: u32, bytes: &[u8]) -> Result<(), MemFlashError> {
+        let offset = offset as usize;
+        assert!(bytes.len() % WRITE_SIZE == 0);
+        assert!(offset % WRITE_SIZE == 0);
+        assert!(offset + bytes.len() <= SIZE);
+
+        self.mem[offset..offset + bytes.len()].copy_from_slice(bytes);
+
+        Ok(())
+    }
+
+    pub fn assert_eq(&self, offset: u32, expectation: &[u8]) {
+        for i in 0..expectation.len() {
+            assert_eq!(self.mem[offset as usize + i], expectation[i], "Index {}", i);
+        }
+    }
 }
 
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> Default

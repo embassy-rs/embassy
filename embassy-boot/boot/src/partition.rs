@@ -6,20 +6,19 @@ use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Partition {
     /// The offset into the flash where the partition starts.
-    pub from: usize,
+    pub from: u32,
     /// The offset into the flash where the partition ends.
-    pub to: usize,
+    pub to: u32,
 }
 
 impl Partition {
     /// Create a new partition with the provided range
-    pub const fn new(from: usize, to: usize) -> Self {
+    pub const fn new(from: u32, to: u32) -> Self {
         Self { from, to }
     }
 
     /// Return the size of the partition
-    #[allow(clippy::len_without_is_empty)]
-    pub const fn len(&self) -> usize {
+    pub const fn size(&self) -> u32 {
         self.to - self.from
     }
 

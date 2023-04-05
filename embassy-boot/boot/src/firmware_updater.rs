@@ -49,14 +49,14 @@ impl Default for FirmwareUpdater {
 
         let dfu = unsafe {
             Partition::new(
-                &__bootloader_dfu_start as *const u32 as usize,
-                &__bootloader_dfu_end as *const u32 as usize,
+                &__bootloader_dfu_start as *const u32 as u32,
+                &__bootloader_dfu_end as *const u32 as u32,
             )
         };
         let state = unsafe {
             Partition::new(
-                &__bootloader_state_start as *const u32 as usize,
-                &__bootloader_state_end as *const u32 as usize,
+                &__bootloader_state_start as *const u32 as u32,
+                &__bootloader_state_end as *const u32 as u32,
             )
         };
 
@@ -121,10 +121,8 @@ impl FirmwareUpdater {
         _update_len: usize,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let _read_size = _aligned.len();
-
         assert_eq!(_aligned.len(), F::WRITE_SIZE);
-        assert!(_update_len <= self.dfu.len());
+        assert!(_update_len as u32 <= self.dfu.size());
 
         #[cfg(feature = "ed25519-dalek")]
         {
@@ -330,11 +328,8 @@ impl FirmwareUpdater {
         _update_len: usize,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let _end = self.dfu.from + _update_len;
-        let _read_size = _aligned.len();
-
         assert_eq!(_aligned.len(), F::WRITE_SIZE);
-        assert!(_end <= self.dfu.to);
+        assert!(_update_len as u32 <= self.dfu.size());
 
         #[cfg(feature = "ed25519-dalek")]
         {
