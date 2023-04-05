@@ -7,12 +7,6 @@ use crate::Peripheral;
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
 
-fn enable() {
-    critical_section::with(|_| unsafe {
-        crate::pac::RCC.apb2enr().modify(|reg| reg.set_adcen(true));
-    });
-}
-
 pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
 
 mod sealed {
@@ -48,7 +42,8 @@ impl<T: Instance> sealed::InternalChannel<T> for Temperature {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(adc);
-        enable();
+        T::enable();
+        T::reset();
 
         // Delay 1μs when using HSI14 as the ADC clock.
         //
