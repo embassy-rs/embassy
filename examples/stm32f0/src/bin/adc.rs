@@ -20,10 +20,9 @@ async fn main(_spawner: Spawner) {
     let mut vrefint = adc.enable_vref(&mut Delay);
     let vrefint_sample = adc.read_internal(&mut vrefint);
     let convert_to_millivolts = |sample| {
-        // FIXME: use proper datasheet and value
-        // From http://www.st.com/resource/en/datasheet/CD00161566.pdf
-        // 5.3.4 Embedded reference voltage
-        const VREFINT_MV: u32 = 1200; // mV
+        // From https://www.st.com/resource/en/datasheet/stm32f031c6.pdf
+        // 6.3.4 Embedded reference voltage
+        const VREFINT_MV: u32 = 1230; // mV
 
         (u32::from(sample) * VREFINT_MV / u32::from(vrefint_sample)) as u16
     };
