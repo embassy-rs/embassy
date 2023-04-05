@@ -14,12 +14,12 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello Flash!");
 
-    const ADDR: u32 = 0x8_0000;
+    const ADDR: u32 = 0x8_0000; // This is the offset into the third region, the absolute address is 4x32K + 128K + 0x8_0000.
 
     // wait a bit before accessing the flash
     Timer::after(Duration::from_millis(300)).await;
 
-    let mut f = Flash::new(p.FLASH);
+    let mut f = Flash::new(p.FLASH).into_regions().bank1_region3;
 
     info!("Reading...");
     let mut buf = [0u8; 32];
