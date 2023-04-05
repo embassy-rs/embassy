@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
-use stm32_metapac::timer::vals::Ckd;
+pub use stm32_metapac::timer::vals::Ckd;
 
 use super::simple_pwm::*;
 use super::*;
