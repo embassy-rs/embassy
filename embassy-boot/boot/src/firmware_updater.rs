@@ -1,3 +1,4 @@
+use digest::Digest;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
 
@@ -121,35 +122,32 @@ impl FirmwareUpdater {
         _update_len: usize,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let _read_size = _aligned.len();
-
         assert_eq!(_aligned.len(), F::WRITE_SIZE);
         assert!(_update_len <= self.dfu.len());
 
         #[cfg(feature = "ed25519-dalek")]
         {
-            use ed25519_dalek::{Digest, PublicKey, Sha512, Signature, SignatureError, Verifier};
+            use ed25519_dalek::{PublicKey, Signature, SignatureError, Verifier};
+
+            use crate::digest_adapters::ed25519_dalek::Sha512;
 
             let into_signature_error = |e: SignatureError| FirmwareUpdaterError::Signature(e.into());
 
             let public_key = PublicKey::from_bytes(_public_key).map_err(into_signature_error)?;
             let signature = Signature::from_bytes(_signature).map_err(into_signature_error)?;
 
-            let mut digest = Sha512::new();
-            for offset in (0.._update_len).step_by(_aligned.len()) {
-                self.dfu.read(_state_and_dfu_flash, offset as u32, _aligned).await?;
-                let len = core::cmp::min(_update_len - offset, _aligned.len());
-                digest.update(&_aligned[..len]);
-            }
+            let mut message = [0; 64];
+            self.hash::<_, Sha512>(_state_and_dfu_flash, _update_len, _aligned, &mut message)
+                .await?;
 
-            public_key
-                .verify(&digest.finalize(), &signature)
-                .map_err(into_signature_error)?
+            public_key.verify(&message, &signature).map_err(into_signature_error)?
         }
         #[cfg(feature = "ed25519-salty")]
         {
             use salty::constants::{PUBLICKEY_SERIALIZED_LENGTH, SIGNATURE_SERIALIZED_LENGTH};
-            use salty::{PublicKey, Sha512, Signature};
+            use salty::{PublicKey, Signature};
+
+            use crate::digest_adapters::salty::Sha512;
 
             fn into_signature_error<E>(_: E) -> FirmwareUpdaterError {
                 FirmwareUpdaterError::Signature(signature::Error::default())
@@ -160,14 +158,10 @@ impl FirmwareUpdater {
             let signature: [u8; SIGNATURE_SERIALIZED_LENGTH] = _signature.try_into().map_err(into_signature_error)?;
             let signature = Signature::try_from(&signature).map_err(into_signature_error)?;
 
-            let mut digest = Sha512::new();
-            for offset in (0.._update_len).step_by(_aligned.len()) {
-                self.dfu.read(_state_and_dfu_flash, offset as u32, _aligned).await?;
-                let len = core::cmp::min(_update_len - offset, _aligned.len());
-                digest.update(&_aligned[..len]);
-            }
+            let mut message = [0; 64];
+            self.hash::<_, Sha512>(_state_and_dfu_flash, _update_len, _aligned, &mut message)
+                .await?;
 
-            let message = digest.finalize();
             let r = public_key.verify(&message, &signature);
             trace!(
                 "Verifying with public key {}, signature {} and message {} yields ok: {}",
@@ -180,6 +174,25 @@ impl FirmwareUpdater {
         }
 
         self.set_magic(_aligned, SWAP_MAGIC, _state_and_dfu_flash).await
+    }
+
+    /// Verify the update in DFU with any digest.
+    pub async fn hash<F: AsyncNorFlash, D: Digest>(
+        &mut self,
+        dfu_flash: &mut F,
+        update_len: usize,
+        chunk_buf: &mut [u8],
+        output: &mut [u8],
+    ) -> Result<(), FirmwareUpdaterError> {
+        let update_len = update_len as u32;
+        let mut digest = D::new();
+        for offset in (0..update_len).step_by(chunk_buf.len()) {
+            self.dfu.read(dfu_flash, offset, chunk_buf).await?;
+            let len = core::cmp::min((update_len - offset) as usize, chunk_buf.len());
+            digest.update(&chunk_buf[..len]);
+        }
+        output.copy_from_slice(digest.finalize().as_slice());
+        Ok(())
     }
 
     /// Mark to trigger firmware swap on next boot.
@@ -330,36 +343,31 @@ impl FirmwareUpdater {
         _update_len: usize,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let _end = self.dfu.from + _update_len;
-        let _read_size = _aligned.len();
-
         assert_eq!(_aligned.len(), F::WRITE_SIZE);
-        assert!(_end <= self.dfu.to);
+        assert!(_update_len <= self.dfu.len());
 
         #[cfg(feature = "ed25519-dalek")]
         {
-            use ed25519_dalek::{Digest, PublicKey, Sha512, Signature, SignatureError, Verifier};
+            use ed25519_dalek::{PublicKey, Signature, SignatureError, Verifier};
+
+            use crate::digest_adapters::ed25519_dalek::Sha512;
 
             let into_signature_error = |e: SignatureError| FirmwareUpdaterError::Signature(e.into());
 
             let public_key = PublicKey::from_bytes(_public_key).map_err(into_signature_error)?;
             let signature = Signature::from_bytes(_signature).map_err(into_signature_error)?;
 
-            let mut digest = Sha512::new();
-            for offset in (0.._update_len).step_by(_aligned.len()) {
-                self.dfu.read_blocking(_state_and_dfu_flash, offset as u32, _aligned)?;
-                let len = core::cmp::min(_update_len - offset, _aligned.len());
-                digest.update(&_aligned[..len]);
-            }
+            let mut message = [0; 64];
+            self.hash_blocking::<_, Sha512>(_state_and_dfu_flash, _update_len, _aligned, &mut message)?;
 
-            public_key
-                .verify(&digest.finalize(), &signature)
-                .map_err(into_signature_error)?
+            public_key.verify(&message, &signature).map_err(into_signature_error)?
         }
         #[cfg(feature = "ed25519-salty")]
         {
             use salty::constants::{PUBLICKEY_SERIALIZED_LENGTH, SIGNATURE_SERIALIZED_LENGTH};
-            use salty::{PublicKey, Sha512, Signature};
+            use salty::{PublicKey, Signature};
+
+            use crate::digest_adapters::salty::Sha512;
 
             fn into_signature_error<E>(_: E) -> FirmwareUpdaterError {
                 FirmwareUpdaterError::Signature(signature::Error::default())
@@ -370,14 +378,9 @@ impl FirmwareUpdater {
             let signature: [u8; SIGNATURE_SERIALIZED_LENGTH] = _signature.try_into().map_err(into_signature_error)?;
             let signature = Signature::try_from(&signature).map_err(into_signature_error)?;
 
-            let mut digest = Sha512::new();
-            for offset in (0.._update_len).step_by(_aligned.len()) {
-                self.dfu.read_blocking(_state_and_dfu_flash, offset as u32, _aligned)?;
-                let len = core::cmp::min(_update_len - offset, _aligned.len());
-                digest.update(&_aligned[..len]);
-            }
+            let mut message = [0; 64];
+            self.hash_blocking::<_, Sha512>(_state_and_dfu_flash, _update_len, _aligned, &mut message)?;
 
-            let message = digest.finalize();
             let r = public_key.verify(&message, &signature);
             trace!(
                 "Verifying with public key {}, signature {} and message {} yields ok: {}",
@@ -390,6 +393,25 @@ impl FirmwareUpdater {
         }
 
         self.set_magic_blocking(_aligned, SWAP_MAGIC, _state_and_dfu_flash)
+    }
+
+    /// Verify the update in DFU with any digest.
+    pub fn hash_blocking<F: NorFlash, D: Digest>(
+        &mut self,
+        dfu_flash: &mut F,
+        update_len: usize,
+        chunk_buf: &mut [u8],
+        output: &mut [u8],
+    ) -> Result<(), FirmwareUpdaterError> {
+        let update_len = update_len as u32;
+        let mut digest = D::new();
+        for offset in (0..update_len).step_by(chunk_buf.len()) {
+            self.dfu.read_blocking(dfu_flash, offset, chunk_buf)?;
+            let len = core::cmp::min((update_len - offset) as usize, chunk_buf.len());
+            digest.update(&chunk_buf[..len]);
+        }
+        output.copy_from_slice(digest.finalize().as_slice());
+        Ok(())
     }
 
     /// Mark to trigger firmware swap on next boot.
@@ -486,5 +508,34 @@ impl FirmwareUpdater {
         self.dfu.wipe_blocking(flash)?;
 
         Ok(self.dfu)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::executor::block_on;
+    use sha1::{Digest, Sha1};
+
+    use super::*;
+    use crate::mem_flash::MemFlash;
+
+    #[test]
+    fn can_verify_sha1() {
+        const STATE: Partition = Partition::new(0, 4096);
+        const DFU: Partition = Partition::new(65536, 131072);
+
+        let mut flash = MemFlash::<131072, 4096, 8>::default();
+
+        let update = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+        let mut to_write = [0; 4096];
+        to_write[..7].copy_from_slice(update.as_slice());
+
+        let mut updater = FirmwareUpdater::new(DFU, STATE);
+        block_on(updater.write_firmware(0, to_write.as_slice(), &mut flash)).unwrap();
+        let mut chunk_buf = [0; 2];
+        let mut hash = [0; 20];
+        block_on(updater.hash::<_, Sha1>(&mut flash, update.len(), &mut chunk_buf, &mut hash)).unwrap();
+
+        assert_eq!(Sha1::digest(update).as_slice(), hash);
     }
 }
