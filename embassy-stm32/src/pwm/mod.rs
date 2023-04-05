@@ -1,6 +1,8 @@
 pub mod complementary_pwm;
 pub mod simple_pwm;
 
+use stm32_metapac::timer::vals::Ckd;
+
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
     pub use super::sealed::*;
@@ -69,7 +71,11 @@ pub(crate) mod sealed {
     }
 
     pub trait ComplementaryCaptureCompare16bitInstance: CaptureCompare16bitInstance {
+        unsafe fn set_dead_time_clock_division(&mut self, value: Ckd);
+
         unsafe fn set_dead_time_value(&mut self, value: u8);
+
+        unsafe fn enable_complementary_channel(&mut self, channel: Channel, enable: bool);
     }
 
     pub trait CaptureCompare32bitInstance: crate::timer::sealed::GeneralPurpose32bitInstance {
@@ -222,9 +228,21 @@ foreach_interrupt! {
         }
 
         impl crate::pwm::sealed::ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {
+            unsafe fn set_dead_time_clock_division(&mut self, value: Ckd) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                Self::regs_advanced().cr1().modify(|w| w.set_ckd(value));
+            }
+
             unsafe fn set_dead_time_value(&mut self, value: u8) {
                 use crate::timer::sealed::AdvancedControlInstance;
                 Self::regs_advanced().bdtr().modify(|w| w.set_dtg(value));
+            }
+
+            unsafe fn enable_complementary_channel(&mut self, channel: Channel, enable: bool) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                Self::regs_advanced()
+                    .ccer()
+                    .modify(|w| w.set_ccne(channel.raw(), enable));
             }
         }
 
