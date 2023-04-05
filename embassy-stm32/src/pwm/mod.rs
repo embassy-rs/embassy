@@ -1,3 +1,4 @@
+pub mod complementary_pwm;
 pub mod simple_pwm;
 
 #[cfg(feature = "unstable-pac")]
@@ -67,6 +68,10 @@ pub(crate) mod sealed {
         unsafe fn get_max_compare_value(&self) -> u16;
     }
 
+    pub trait ComplementaryCaptureCompare16bitInstance: CaptureCompare16bitInstance {
+        unsafe fn set_dead_time_value(&mut self, value: u8);
+    }
+
     pub trait CaptureCompare32bitInstance: crate::timer::sealed::GeneralPurpose32bitInstance {
         unsafe fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode);
 
@@ -82,6 +87,12 @@ pub trait CaptureCompare16bitInstance:
     sealed::CaptureCompare16bitInstance + crate::timer::GeneralPurpose16bitInstance + 'static
 {
 }
+
+pub trait ComplementaryCaptureCompare16bitInstance:
+    sealed::ComplementaryCaptureCompare16bitInstance + crate::timer::AdvancedControlInstance + 'static
+{
+}
+
 pub trait CaptureCompare32bitInstance:
     sealed::CaptureCompare32bitInstance + CaptureCompare16bitInstance + crate::timer::GeneralPurpose32bitInstance + 'static
 {
@@ -207,6 +218,17 @@ foreach_interrupt! {
         }
 
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {
+
+        }
+
+        impl crate::pwm::sealed::ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {
+            unsafe fn set_dead_time_value(&mut self, value: u8) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                Self::regs_advanced().bdtr().modify(|w| w.set_dtg(value));
+            }
+        }
+
+        impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {
 
         }
     };
