@@ -38,18 +38,6 @@ impl<'d> Flash<'d> {
     }
 }
 
-impl Drop for Flash<'_> {
-    fn drop(&mut self) {
-        unsafe { family::lock() };
-    }
-}
-
-impl Drop for FlashLayout<'_> {
-    fn drop(&mut self) {
-        unsafe { family::lock() };
-    }
-}
-
 fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
@@ -177,7 +165,7 @@ impl FlashRegion {
 
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
-        impl crate::_generated::flash_regions::$type_name {
+        impl crate::_generated::flash_regions::$type_name<'_> {
             pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 blocking_read(self.0.base, self.0.size, offset, bytes)
             }
@@ -191,11 +179,11 @@ foreach_flash_region! {
             }
         }
 
-        impl embedded_storage::nor_flash::ErrorType for crate::_generated::flash_regions::$type_name {
+        impl embedded_storage::nor_flash::ErrorType for crate::_generated::flash_regions::$type_name<'_> {
             type Error = Error;
         }
 
-        impl embedded_storage::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name {
+        impl embedded_storage::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_> {
             const READ_SIZE: usize = 1;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -207,7 +195,7 @@ foreach_flash_region! {
             }
         }
 
-        impl embedded_storage::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name {
+        impl embedded_storage::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name<'_> {
             const WRITE_SIZE: usize = $write_size;
             const ERASE_SIZE: usize = $erase_size;
 

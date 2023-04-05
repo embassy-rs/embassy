@@ -45,34 +45,36 @@ mod alt_regions {
         &ALT_BANK2_REGION3,
     ];
 
-    pub type AltBank1Region1 = Bank1Region1;
-    pub type AltBank1Region2 = Bank1Region2;
-    pub struct AltBank1Region3(&'static FlashRegion);
-    pub struct AltBank2Region1(&'static FlashRegion);
-    pub struct AltBank2Region2(&'static FlashRegion);
-    pub struct AltBank2Region3(&'static FlashRegion);
+    pub type AltBank1Region1<'d> = Bank1Region1<'d>;
+    pub type AltBank1Region2<'d> = Bank1Region2<'d>;
+    pub struct AltBank1Region3<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
+    pub struct AltBank2Region1<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
+    pub struct AltBank2Region2<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
+    pub struct AltBank2Region3<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
 
     pub struct AltFlashLayout<'d> {
-        _inner: PeripheralRef<'d, FLASH>,
-        pub bank1_region1: AltBank1Region1,
-        pub bank1_region2: AltBank1Region2,
-        pub bank1_region3: AltBank1Region3,
-        pub bank2_region1: AltBank2Region1,
-        pub bank2_region2: AltBank2Region2,
-        pub bank2_region3: AltBank2Region3,
+        pub bank1_region1: AltBank1Region1<'d>,
+        pub bank1_region2: AltBank1Region2<'d>,
+        pub bank1_region3: AltBank1Region3<'d>,
+        pub bank2_region1: AltBank2Region1<'d>,
+        pub bank2_region2: AltBank2Region2<'d>,
+        pub bank2_region3: AltBank2Region3<'d>,
     }
 
     impl<'d> Flash<'d> {
         pub fn into_alt_regions(self) -> AltFlashLayout<'d> {
             unsafe { crate::pac::FLASH.optcr().modify(|r| r.set_db1m(true)) };
+
+            // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
+            // Also, all flash region operations are protected with a cs.
+            let mut p = self.release();
             AltFlashLayout {
-                _inner: self.release(),
-                bank1_region1: Bank1Region1(&BANK1_REGION1),
-                bank1_region2: Bank1Region2(&BANK1_REGION2),
-                bank1_region3: AltBank1Region3(&ALT_BANK1_REGION3),
-                bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1),
-                bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2),
-                bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3),
+                bank1_region1: Bank1Region1(&BANK1_REGION1, unsafe { p.clone_unchecked() }),
+                bank1_region2: Bank1Region2(&BANK1_REGION2, unsafe { p.clone_unchecked() }),
+                bank1_region3: AltBank1Region3(&ALT_BANK1_REGION3, unsafe { p.clone_unchecked() }),
+                bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1, unsafe { p.clone_unchecked() }),
+                bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2, unsafe { p.clone_unchecked() }),
+                bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3, unsafe { p.clone_unchecked() }),
             }
         }
     }

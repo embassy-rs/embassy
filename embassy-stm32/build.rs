@@ -148,7 +148,8 @@ fn main() {
 
         let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
         flash_regions.extend(quote! {
-            pub struct #region_type(pub &'static crate::flash::FlashRegion);
+            #[cfg(flash)]
+            pub struct #region_type<'d>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>,);
         });
     }
 
@@ -159,11 +160,11 @@ fn main() {
             let field_name = format_ident!("{}", region_name.to_lowercase());
             let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
             let field = quote! {
-                pub #field_name: #field_type
+                pub #field_name: #field_type<'d>
             };
             let region_name = format_ident!("{}", region_name);
             let init = quote! {
-                #field_name: #field_type(&#region_name)
+                #field_name: #field_type(&#region_name, unsafe { p.clone_unchecked()})
             };
 
             (field, (init, region_name))
@@ -174,15 +175,13 @@ fn main() {
     flash_regions.extend(quote! {
         #[cfg(flash)]
         pub struct FlashLayout<'d> {
-            _inner: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>,
             #(#fields),*
         }
 
         #[cfg(flash)]
         impl<'d> FlashLayout<'d> {
-            pub(crate) const fn new(p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
+            pub(crate) fn new(mut p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
-                    _inner: p,
                     #(#inits),*
                 }
             }
