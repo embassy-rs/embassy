@@ -281,7 +281,7 @@ mod tests {
             &mut flash,
             &public_key.to_bytes(),
             &signature.to_bytes(),
-            firmware_len as u32,
+            firmware_len,
             &mut aligned,
         ))
         .is_ok());
