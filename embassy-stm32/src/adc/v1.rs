@@ -1,39 +1,32 @@
 use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
 use crate::Peripheral;
+use crate::peripherals::ADC1;
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
 
-pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
-
-mod sealed {
-    pub trait InternalChannel<T> {
-        fn channel(&self) -> u8;
-    }
-}
-
 pub struct Vbat;
-impl<T: Instance> InternalChannel<T> for Vbat {}
-impl<T: Instance> sealed::InternalChannel<T> for Vbat {
+impl InternalChannel<ADC1> for Vbat {}
+impl super::sealed::InternalChannel<ADC1> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl<T: Instance> InternalChannel<T> for Vref {}
-impl<T: Instance> sealed::InternalChannel<T> for Vref {
+impl InternalChannel<ADC1> for Vref {}
+impl super::sealed::::InternalChannel<ADC1> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl<T: Instance> InternalChannel<T> for Temperature {}
-impl<T: Instance> sealed::InternalChannel<T> for Temperature {
+impl InternalChannel<ADC1> for Temperature {}
+impl super::sealed::InternalChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
