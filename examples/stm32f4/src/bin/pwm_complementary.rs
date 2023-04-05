@@ -5,7 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::pwm::complementary_pwm::{Ckd, ComplementaryPwm, ComplementaryPwmPin};
-use embassy_stm32::pwm::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::pwm::simple_pwm::PwmPin;
 use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::khz;
 use embassy_time::{Duration, Timer};
