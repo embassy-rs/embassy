@@ -2,31 +2,31 @@ use embassy_hal_common::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
-use crate::peripherals::ADC1;
+use crate::peripherals::ADC;
 use crate::Peripheral;
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
 
 pub struct Vbat;
-impl InternalChannel<ADC1> for Vbat {}
-impl super::sealed::InternalChannel<ADC1> for Vbat {
+impl InternalChannel<ADC> for Vbat {}
+impl super::sealed::InternalChannel<ADC> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl InternalChannel<ADC1> for Vref {}
-impl super::sealed::InternalChannel<ADC1> for Vref {
+impl InternalChannel<ADC> for Vref {}
+impl super::sealed::InternalChannel<ADC> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl InternalChannel<ADC1> for Temperature {}
-impl super::sealed::InternalChannel<ADC1> for Temperature {
+impl InternalChannel<ADC> for Temperature {}
+impl super::sealed::InternalChannel<ADC> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
