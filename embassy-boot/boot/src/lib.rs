@@ -11,7 +11,7 @@ mod firmware_updater;
 mod mem_flash;
 mod partition;
 
-pub use boot_loader::{BootError, BootFlash, BootLoader, Flash, FlashConfig, MultiFlashConfig, SingleFlashConfig};
+pub use boot_loader::{BootError, BootFlash, BootLoader, FlashConfig, MultiFlashConfig, SingleFlashConfig};
 pub use firmware_updater::{FirmwareUpdater, FirmwareUpdaterError};
 pub use partition::Partition;
 
@@ -78,12 +78,8 @@ mod tests {
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
 
-        let mut magic = [0; 4];
         let mut page = [0; 4096];
-        assert_eq!(
-            State::Boot,
-            bootloader.prepare_boot(&mut flash, &mut magic, &mut page).unwrap()
-        );
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut flash, &mut page).unwrap());
     }
 
     #[test]
@@ -104,19 +100,14 @@ mod tests {
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
         let mut updater = FirmwareUpdater::new(DFU, STATE);
-        let mut offset = 0;
-        for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut flash)).unwrap();
-            offset += chunk.len();
-        }
+        block_on(updater.write_firmware(0, &update, &mut flash)).unwrap();
         block_on(updater.mark_updated(&mut flash, &mut aligned)).unwrap();
 
-        let mut magic = [0; 4];
-        let mut page = [0; 4096];
+        let mut page = [0; 1024];
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
                 .unwrap()
         );
 
@@ -133,7 +124,7 @@ mod tests {
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
                 .unwrap()
         );
 
@@ -151,7 +142,7 @@ mod tests {
         assert_eq!(
             State::Boot,
             bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut magic, &mut page)
+                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
                 .unwrap()
         );
     }
@@ -177,25 +168,16 @@ mod tests {
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
-        let mut offset = 0;
-        for chunk in update.chunks(2048) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu)).unwrap();
-            offset += chunk.len();
-        }
+        block_on(updater.write_firmware(0, &update, &mut dfu)).unwrap();
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut magic = [0; 4];
         let mut page = [0; 4096];
 
         assert_eq!(
             State::Swap,
             bootloader
-                .prepare_boot(
-                    &mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu),
-                    &mut magic,
-                    &mut page
-                )
+                .prepare_boot(&mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu), &mut page)
                 .unwrap()
         );
 
@@ -230,22 +212,16 @@ mod tests {
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
-        let mut offset = 0;
-        for chunk in update.chunks(4096) {
-            block_on(updater.write_firmware(offset, chunk, &mut dfu)).unwrap();
-            offset += chunk.len();
-        }
+        block_on(updater.write_firmware(0, &update, &mut dfu)).unwrap();
         block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut magic = [0; 4];
         let mut page = [0; 4096];
         assert_eq!(
             State::Swap,
             bootloader
                 .prepare_boot(
                     &mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu,),
-                    &mut magic,
                     &mut page
                 )
                 .unwrap()
