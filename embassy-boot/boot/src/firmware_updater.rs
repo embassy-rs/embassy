@@ -72,11 +72,6 @@ impl FirmwareUpdater {
         Self { dfu, state }
     }
 
-    /// Return the length of the DFU area
-    pub fn firmware_len(&self) -> usize {
-        self.dfu.len()
-    }
-
     /// Obtain the current state.
     ///
     /// This is useful to check if the bootloader has just done a swap, in order
