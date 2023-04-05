@@ -5,7 +5,7 @@ use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
-use embassy_stm32::flash::{Flash, ERASE_SIZE};
+use embassy_stm32::flash::Flash;
 
 #[entry]
 fn main() -> ! {
@@ -19,9 +19,10 @@ fn main() -> ! {
         }
     */
 
-    let mut bl: BootLoader<ERASE_SIZE> = BootLoader::default();
+    let mut bl: BootLoader<2048> = BootLoader::default();
     let flash = Flash::new(p.FLASH);
-    let mut flash = BootFlash::new(flash);
+    let layout = flash.into_regions();
+    let mut flash = BootFlash::new(layout.bank1_region);
     let start = bl.prepare(&mut SingleFlashConfig::new(&mut flash));
     core::mem::drop(flash);
     unsafe { bl.load(start) }
