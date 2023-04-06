@@ -1,4 +1,5 @@
 use crate::events::Event;
+use crate::fmt::Bytes;
 
 macro_rules! impl_bytes {
     ($t:ident) => {
@@ -11,8 +12,28 @@ macro_rules! impl_bytes {
             }
 
             #[allow(unused)]
-            pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> Self {
-                unsafe { core::mem::transmute(*bytes) }
+            pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> &Self {
+                let alignment = core::mem::align_of::<Self>();
+                assert_eq!(
+                    bytes.as_ptr().align_offset(alignment),
+                    0,
+                    "{} is not aligned",
+                    core::any::type_name::<Self>()
+                );
+                unsafe { core::mem::transmute(bytes) }
+            }
+
+            #[allow(unused)]
+            pub fn from_bytes_mut(bytes: &mut [u8; Self::SIZE]) -> &mut Self {
+                let alignment = core::mem::align_of::<Self>();
+                assert_eq!(
+                    bytes.as_ptr().align_offset(alignment),
+                    0,
+                    "{} is not aligned",
+                    core::any::type_name::<Self>()
+                );
+
+                unsafe { core::mem::transmute(bytes) }
             }
         }
     };
@@ -67,9 +88,35 @@ pub struct SdpcmHeader {
 }
 impl_bytes!(SdpcmHeader);
 
+impl SdpcmHeader {
+    pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
+        let packet_len = packet.len();
+        if packet_len < Self::SIZE {
+            warn!("packet too short, len={}", packet.len());
+            return None;
+        }
+        let (sdpcm_header, sdpcm_packet) = packet.split_at_mut(Self::SIZE);
+        let sdpcm_header = Self::from_bytes_mut(sdpcm_header.try_into().unwrap());
+        trace!("rx {:?}", sdpcm_header);
+
+        if sdpcm_header.len != !sdpcm_header.len_inv {
+            warn!("len inv mismatch");
+            return None;
+        }
+
+        if sdpcm_header.len as usize != packet_len {
+            warn!("len from header doesn't match len from spi");
+            return None;
+        }
+
+        let sdpcm_packet = &mut sdpcm_packet[(sdpcm_header.header_length as usize - Self::SIZE)..];
+        Some((sdpcm_header, sdpcm_packet))
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(C)]
+// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C, packed(2))]
 pub struct CdcHeader {
     pub cmd: u32,
     pub len: u32,
@@ -78,6 +125,21 @@ pub struct CdcHeader {
     pub status: u32,
 }
 impl_bytes!(CdcHeader);
+
+impl CdcHeader {
+    pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
+        if packet.len() < Self::SIZE {
+            warn!("payload too short, len={}", packet.len());
+            return None;
+        }
+
+        let (cdc_header, payload) = packet.split_at_mut(Self::SIZE);
+        let cdc_header = Self::from_bytes_mut(cdc_header.try_into().unwrap());
+
+        let payload = &mut payload[..cdc_header.len as usize];
+        Some((cdc_header, payload))
+    }
+}
 
 pub const BDC_VERSION: u8 = 2;
 pub const BDC_VERSION_SHIFT: u8 = 4;
@@ -94,6 +156,25 @@ pub struct BcdHeader {
     pub data_offset: u8,
 }
 impl_bytes!(BcdHeader);
+
+impl BcdHeader {
+    pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
+        if packet.len() < Self::SIZE {
+            return None;
+        }
+
+        let (bcd_header, bcd_packet) = packet.split_at_mut(Self::SIZE);
+        let bcd_header = Self::from_bytes_mut(bcd_header.try_into().unwrap());
+        trace!("    {:?}", bcd_header);
+
+        let packet_start = 4 * bcd_header.data_offset as usize;
+
+        let bcd_packet = bcd_packet.get_mut(packet_start..)?;
+        trace!("    {:02x}", Bytes(&bcd_packet[..bcd_packet.len().min(36)]));
+
+        Some((bcd_header, bcd_packet))
+    }
+}
 
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -130,8 +211,8 @@ impl EventHeader {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(C)]
+// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C, packed(2))]
 pub struct EventMessage {
     /// version   
     pub version: u16,
@@ -158,6 +239,45 @@ pub struct EventMessage {
 }
 impl_bytes!(EventMessage);
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for EventMessage {
+    fn format(&self, fmt: defmt::Formatter) {
+        let event_type = self.event_type;
+        let status = self.status;
+        let reason = self.reason;
+        let auth_type = self.auth_type;
+        let datalen = self.datalen;
+
+        defmt::write!(
+            fmt,
+            "EventMessage {{ \
+            version: {=u16}, \
+            flags: {=u16}, \
+            event_type: {=u32}, \
+            status: {=u32}, \
+            reason: {=u32}, \
+            auth_type: {=u32}, \
+            datalen: {=u32}, \
+            addr: {=[u8; 6]:x}, \
+            ifname: {=[u8; 16]:x}, \
+            ifidx: {=u8}, \
+            bsscfgidx: {=u8}, \
+        }} ",
+            self.version,
+            self.flags,
+            event_type,
+            status,
+            reason,
+            auth_type,
+            datalen,
+            self.addr,
+            self.ifname,
+            self.ifidx,
+            self.bsscfgidx
+        );
+    }
+}
+
 impl EventMessage {
     pub fn byteswap(&mut self) {
         self.version = self.version.to_be();
@@ -172,7 +292,7 @@ impl EventMessage {
 
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(C)]
+#[repr(C, packed(2))]
 pub struct EventPacket {
     pub eth: EthernetHeader,
     pub hdr: EventHeader,
@@ -181,6 +301,21 @@ pub struct EventPacket {
 impl_bytes!(EventPacket);
 
 impl EventPacket {
+    pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
+        if packet.len() < Self::SIZE {
+            return None;
+        }
+
+        let (event_header, event_packet) = packet.split_at_mut(Self::SIZE);
+        let event_header = Self::from_bytes_mut(event_header.try_into().unwrap());
+        // warn!("event_header {:x}", event_header as *const _);
+        event_header.byteswap();
+
+        let event_packet = event_packet.get_mut(..event_header.msg.datalen as usize)?;
+
+        Some((event_header, event_packet))
+    }
+
     pub fn byteswap(&mut self) {
         self.eth.byteswap();
         self.hdr.byteswap();
