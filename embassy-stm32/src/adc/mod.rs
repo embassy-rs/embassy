@@ -7,21 +7,18 @@
 #[cfg_attr(adc_v4, path = "v4.rs")]
 mod _version;
 
-#[cfg(not(any(adc_f1, adc_v1)))]
+#[cfg(not(adc_f1))]
 mod resolution;
-#[cfg(not(adc_v1))]
 mod sample_time;
 
 #[allow(unused)]
 pub use _version::*;
-#[cfg(not(any(adc_f1, adc_v1)))]
+#[cfg(not(adc_f1))]
 pub use resolution::Resolution;
-#[cfg(not(adc_v1))]
 pub use sample_time::SampleTime;
 
 use crate::peripherals;
 
-#[cfg(not(adc_v1))]
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::PeripheralRef<'d, T>,
@@ -44,9 +41,9 @@ pub(crate) mod sealed {
     }
 }
 
-#[cfg(not(any(adc_f1, adc_v2, adc_v4)))]
+#[cfg(not(any(adc_f1, adc_v1, adc_v2, adc_v4)))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> {}
-#[cfg(any(adc_f1, adc_v2, adc_v4))]
+#[cfg(any(adc_f1, adc_v1, adc_v2, adc_v4))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
