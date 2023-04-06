@@ -12,22 +12,29 @@ use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
-use pac::common::{Reg, RW};
-use pac::usb::vals::{EpType, Stat};
 
 use super::{DmPin, DpPin, Instance};
 use crate::gpio::sealed::AFType;
 use crate::interrupt::InterruptExt;
 use crate::pac::usb::regs;
+use crate::pac::usb::vals::{EpType, Stat};
+use crate::pac::USBRAM;
 use crate::rcc::sealed::RccPeripheral;
-use crate::{pac, Peripheral};
+use crate::Peripheral;
 
 const EP_COUNT: usize = 8;
 
-#[cfg(any(usb_v1_x1, usb_v1_x2))]
-const EP_MEMORY_SIZE: usize = 512;
-#[cfg(not(any(usb_v1_x1, usb_v1_x2)))]
-const EP_MEMORY_SIZE: usize = 1024;
+#[cfg(any(usbram_16x1_512, usbram_16x2_512))]
+const USBRAM_SIZE: usize = 512;
+#[cfg(usbram_16x2_1024)]
+const USBRAM_SIZE: usize = 1024;
+#[cfg(usbram_32_2048)]
+const USBRAM_SIZE: usize = 2048;
+
+#[cfg(not(usbram_32_2048))]
+const USBRAM_ALIGN: usize = 2;
+#[cfg(usbram_32_2048)]
+const USBRAM_ALIGN: usize = 4;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
@@ -57,25 +64,60 @@ fn invariant(mut r: regs::Epr) -> regs::Epr {
     r
 }
 
+fn align_len_up(len: u16) -> u16 {
+    ((len as usize + USBRAM_ALIGN - 1) / USBRAM_ALIGN * USBRAM_ALIGN) as u16
+}
+
 // Returns (actual_len, len_bits)
 fn calc_out_len(len: u16) -> (u16, u16) {
     match len {
-        2..=62 => ((len + 1) / 2 * 2, ((len + 1) / 2) << 10),
-        63..=480 => ((len + 31) / 32 * 32, (((len + 31) / 32 - 1) << 10) | 0x8000),
+        // NOTE: this could be 2..=62 with 16bit USBRAM, but not with 32bit. Limit it to 60 for simplicity.
+        2..=60 => (align_len_up(len), align_len_up(len) / 2 << 10),
+        61..=1024 => ((len + 31) / 32 * 32, (((len + 31) / 32 - 1) << 10) | 0x8000),
         _ => panic!("invalid OUT length {}", len),
     }
 }
-fn ep_in_addr<T: Instance>(index: usize) -> Reg<u16, RW> {
-    T::regs().ep_mem(index * 4 + 0)
+
+#[cfg(not(usbram_32_2048))]
+mod btable {
+    use super::*;
+
+    pub(super) unsafe fn write_in<T: Instance>(index: usize, addr: u16) {
+        USBRAM.mem(index * 4 + 0).write_value(addr);
+    }
+
+    pub(super) unsafe fn write_in_len<T: Instance>(index: usize, _addr: u16, len: u16) {
+        USBRAM.mem(index * 4 + 1).write_value(len);
+    }
+
+    pub(super) unsafe fn write_out<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
+        USBRAM.mem(index * 4 + 2).write_value(addr);
+        USBRAM.mem(index * 4 + 3).write_value(max_len_bits);
+    }
+
+    pub(super) unsafe fn read_out_len<T: Instance>(index: usize) -> u16 {
+        USBRAM.mem(index * 4 + 3).read()
+    }
 }
-fn ep_in_len<T: Instance>(index: usize) -> Reg<u16, RW> {
-    T::regs().ep_mem(index * 4 + 1)
-}
-fn ep_out_addr<T: Instance>(index: usize) -> Reg<u16, RW> {
-    T::regs().ep_mem(index * 4 + 2)
-}
-fn ep_out_len<T: Instance>(index: usize) -> Reg<u16, RW> {
-    T::regs().ep_mem(index * 4 + 3)
+#[cfg(usbram_32_2048)]
+mod btable {
+    use super::*;
+
+    pub(super) unsafe fn write_in<T: Instance>(_index: usize, _addr: u16) {}
+
+    pub(super) unsafe fn write_in_len<T: Instance>(index: usize, addr: u16, len: u16) {
+        USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
+    }
+
+    pub(super) unsafe fn write_out<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
+        USBRAM
+            .mem(index * 2 + 1)
+            .write_value((addr as u32) | ((max_len_bits as u32) << 16));
+    }
+
+    pub(super) unsafe fn read_out_len<T: Instance>(index: usize) -> u16 {
+        (USBRAM.mem(index * 2 + 1).read() >> 16) as u16
+    }
 }
 
 struct EndpointBuffer<T: Instance> {
@@ -87,23 +129,25 @@ struct EndpointBuffer<T: Instance> {
 impl<T: Instance> EndpointBuffer<T> {
     fn read(&mut self, buf: &mut [u8]) {
         assert!(buf.len() <= self.len as usize);
-        for i in 0..((buf.len() + 1) / 2) {
-            let val = unsafe { T::regs().ep_mem(self.addr as usize / 2 + i).read() };
-            buf[i * 2] = val as u8;
-            if i * 2 + 1 < buf.len() {
-                buf[i * 2 + 1] = (val >> 8) as u8;
-            }
+        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
+            let val = unsafe { USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read() };
+            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
+            buf[i * USBRAM_ALIGN..][..n].copy_from_slice(&val.to_le_bytes()[..n]);
         }
     }
 
     fn write(&mut self, buf: &[u8]) {
         assert!(buf.len() <= self.len as usize);
-        for i in 0..((buf.len() + 1) / 2) {
-            let mut val = buf[i * 2] as u16;
-            if i * 2 + 1 < buf.len() {
-                val |= (buf[i * 2 + 1] as u16) << 8;
-            }
-            unsafe { T::regs().ep_mem(self.addr as usize / 2 + i).write_value(val) };
+        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
+            let mut val = [0u8; USBRAM_ALIGN];
+            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
+            val[..n].copy_from_slice(&buf[i * USBRAM_ALIGN..][..n]);
+
+            #[cfg(not(usbram_32_2048))]
+            let val = u16::from_le_bytes(val);
+            #[cfg(usbram_32_2048)]
+            let val = u32::from_le_bytes(val);
+            unsafe { USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val) };
         }
     }
 }
@@ -139,8 +183,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(stm32l5)]
         unsafe {
             crate::peripherals::PWR::enable();
-
-            pac::PWR.cr2().modify(|w| w.set_usv(true));
+            crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
         }
 
         unsafe {
@@ -256,8 +299,9 @@ impl<'d, T: Instance> Driver<'d, T> {
     }
 
     fn alloc_ep_mem(&mut self, len: u16) -> u16 {
+        assert!(len as usize % USBRAM_ALIGN == 0);
         let addr = self.ep_mem_free;
-        if addr + len > EP_MEMORY_SIZE as _ {
+        if addr + len > USBRAM_SIZE as _ {
             panic!("Endpoint memory full");
         }
         self.ep_mem_free += len;
@@ -306,10 +350,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 let addr = self.alloc_ep_mem(len);
 
                 trace!("  len_bits = {:04x}", len_bits);
-                unsafe {
-                    ep_out_addr::<T>(index).write_value(addr);
-                    ep_out_len::<T>(index).write_value(len_bits);
-                }
+                unsafe { btable::write_out::<T>(index, addr, len_bits) }
 
                 EndpointBuffer {
                     addr,
@@ -321,13 +362,11 @@ impl<'d, T: Instance> Driver<'d, T> {
                 assert!(!ep.used_in);
                 ep.used_in = true;
 
-                let len = (max_packet_size + 1) / 2 * 2;
+                let len = align_len_up(max_packet_size);
                 let addr = self.alloc_ep_mem(len);
 
-                unsafe {
-                    ep_in_addr::<T>(index).write_value(addr);
-                    // ep_in_len is written when actually TXing packets.
-                }
+                // ep_in_len is written when actually TXing packets.
+                unsafe { btable::write_in::<T>(index, addr) }
 
                 EndpointBuffer {
                     addr,
@@ -398,7 +437,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
                 w.set_ctrm(true);
             });
 
-            #[cfg(usb_v3)]
+            #[cfg(any(usb_v3, usb_v4))]
             regs.bcdr().write(|w| w.set_dppu(true))
         }
 
@@ -633,12 +672,12 @@ impl<'d, T: Instance, D> Endpoint<'d, T, D> {
     fn write_data(&mut self, buf: &[u8]) {
         let index = self.info.addr.index();
         self.buf.write(buf);
-        unsafe { ep_in_len::<T>(index).write_value(buf.len() as _) };
+        unsafe { btable::write_in_len::<T>(index, self.buf.addr, buf.len() as _) }
     }
 
     fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let index = self.info.addr.index();
-        let rx_len = unsafe { ep_out_len::<T>(index).read() as usize } & 0x3FF;
+        let rx_len = unsafe { btable::read_out_len::<T>(index) as usize } & 0x3FF;
         trace!("READ DONE, rx_len = {}", rx_len);
         if rx_len > buf.len() {
             return Err(EndpointError::BufferOverflow);
