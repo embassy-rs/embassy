@@ -50,7 +50,7 @@ fn main() {
                 // We *shouldn't* have singletons for these, but the HAL currently requires
                 // singletons, for using with RccPeripheral to enable/disable clocks to them.
                 "rcc" => {
-                    if r.version.starts_with("h7") || r.version.starts_with("f4") {
+                    if r.version.starts_with("h5") || r.version.starts_with("h7") || r.version.starts_with("f4") {
                         singletons.push("MCO1".to_string());
                         singletons.push("MCO2".to_string());
                     }
@@ -539,7 +539,10 @@ fn main() {
                     // MCO is special
                     if pin.signal.starts_with("MCO_") {
                         // Supported in H7 only for now
-                        if regs.version.starts_with("h7") || regs.version.starts_with("f4") {
+                        if regs.version.starts_with("h5")
+                            || regs.version.starts_with("h7")
+                            || regs.version.starts_with("f4")
+                        {
                             peri = format_ident!("{}", pin.signal.replace("_", ""));
                         } else {
                             continue;

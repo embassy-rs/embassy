@@ -186,6 +186,11 @@ impl<'d, T: Instance> Driver<'d, T> {
             crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
         }
 
+        #[cfg(pwr_h5)]
+        unsafe {
+            crate::pac::PWR.usbscr().modify(|w| w.set_usb33sv(true))
+        }
+
         unsafe {
             <T as RccPeripheral>::enable();
             <T as RccPeripheral>::reset();
