@@ -36,27 +36,22 @@ where
     E: embedded_hal_1::i2c::Error + 'static,
     T: blocking::i2c::WriteRead<Error = E> + blocking::i2c::Read<Error = E> + blocking::i2c::Write<Error = E>,
 {
-    async fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Result<(), Self::Error> {
-        self.wrapped.read(address, buffer)
+    async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.wrapped.read(address, read)
     }
 
-    async fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Result<(), Self::Error> {
-        self.wrapped.write(address, bytes)
+    async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.wrapped.write(address, write)
     }
 
-    async fn write_read<'a>(
-        &'a mut self,
+    async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.wrapped.write_read(address, write, read)
+    }
+
+    async fn transaction(
+        &mut self,
         address: u8,
-        bytes: &'a [u8],
-        buffer: &'a mut [u8],
-    ) -> Result<(), Self::Error> {
-        self.wrapped.write_read(address, bytes, buffer)
-    }
-
-    async fn transaction<'a, 'b>(
-        &'a mut self,
-        address: u8,
-        operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         let _ = address;
         let _ = operations;

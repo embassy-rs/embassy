@@ -25,8 +25,8 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.9" }
-embedded-hal-async = { version = "=0.2.0-alpha.0" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10" }
+embedded-hal-async = { version = "=0.2.0-alpha.1" }
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 
 [profile.dev]

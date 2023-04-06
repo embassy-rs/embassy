@@ -490,14 +490,14 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         }
     }
 
-    fn read_blocking_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
-        if buffer.is_empty() {
+    fn read_blocking_internal(&mut self, read: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
+        if read.is_empty() {
             return Err(Error::InvalidReadBufferLength);
         }
 
         let p = T::regs();
-        let lastindex = buffer.len() - 1;
-        for (i, byte) in buffer.iter_mut().enumerate() {
+        let lastindex = read.len() - 1;
+        for (i, byte) in read.iter_mut().enumerate() {
             let first = i == 0;
             let last = i == lastindex;
 
@@ -524,15 +524,15 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         Ok(())
     }
 
-    fn write_blocking_internal(&mut self, bytes: &[u8], send_stop: bool) -> Result<(), Error> {
-        if bytes.is_empty() {
+    fn write_blocking_internal(&mut self, write: &[u8], send_stop: bool) -> Result<(), Error> {
+        if write.is_empty() {
             return Err(Error::InvalidWriteBufferLength);
         }
 
         let p = T::regs();
 
-        for (i, byte) in bytes.iter().enumerate() {
-            let last = i == bytes.len() - 1;
+        for (i, byte) in write.iter().enumerate() {
+            let last = i == write.len() - 1;
 
             // NOTE(unsafe) We have &mut self
             unsafe {
@@ -572,21 +572,21 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     // Blocking public API
     // =========================
 
-    pub fn blocking_read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
-        self.read_blocking_internal(buffer, true, true)
+        self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 
-    pub fn blocking_write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
-        self.write_blocking_internal(bytes, true)
+        self.write_blocking_internal(write, true)
     }
 
-    pub fn blocking_write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
-        self.write_blocking_internal(bytes, false)?;
-        self.read_blocking_internal(buffer, true, true)
+        self.write_blocking_internal(write, false)?;
+        self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 }
@@ -644,69 +644,27 @@ mod eh1 {
     }
 
     impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
-        fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_read(address, buffer)
+        fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_read(address, read)
         }
 
-        fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(address, buffer)
+        fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(address, write)
         }
 
-        fn write_iter<B>(&mut self, address: u8, bytes: B) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            let mut peekable = bytes.into_iter().peekable();
-            Self::setup(address.into())?;
-
-            while let Some(tx) = peekable.next() {
-                self.write_blocking_internal(&[tx], peekable.peek().is_none())?;
-            }
-            Ok(())
+        fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_write_read(address, write, read)
         }
 
-        fn write_iter_read<B>(&mut self, address: u8, bytes: B, buffer: &mut [u8]) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            let peekable = bytes.into_iter().peekable();
-            Self::setup(address.into())?;
-
-            for tx in peekable {
-                self.write_blocking_internal(&[tx], false)?
-            }
-            self.read_blocking_internal(buffer, true, true)
-        }
-
-        fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_write_read(address, wr_buffer, rd_buffer)
-        }
-
-        fn transaction<'a>(
+        fn transaction(
             &mut self,
             address: u8,
-            operations: &mut [embedded_hal_1::i2c::Operation<'a>],
+            operations: &mut [embedded_hal_1::i2c::Operation<'_>],
         ) -> Result<(), Self::Error> {
             Self::setup(address.into())?;
             for i in 0..operations.len() {
                 let last = i == operations.len() - 1;
                 match &mut operations[i] {
-                    embedded_hal_1::i2c::Operation::Read(buf) => self.read_blocking_internal(buf, false, last)?,
-                    embedded_hal_1::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
-                }
-            }
-            Ok(())
-        }
-
-        fn transaction_iter<'a, O>(&mut self, address: u8, operations: O) -> Result<(), Self::Error>
-        where
-            O: IntoIterator<Item = embedded_hal_1::i2c::Operation<'a>>,
-        {
-            Self::setup(address.into())?;
-            let mut peekable = operations.into_iter().peekable();
-            while let Some(operation) = peekable.next() {
-                let last = peekable.peek().is_none();
-                match operation {
                     embedded_hal_1::i2c::Operation::Read(buf) => self.read_blocking_internal(buf, false, last)?,
                     embedded_hal_1::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
                 }
@@ -727,36 +685,29 @@ mod nightly {
         A: AddressMode + Into<u16> + 'static,
         T: Instance + 'd,
     {
-        async fn read<'a>(&'a mut self, address: A, read: &'a mut [u8]) -> Result<(), Self::Error> {
+        async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
             Self::setup(addr)?;
             self.read_async_internal(read, false, true).await
         }
 
-        async fn write<'a>(&'a mut self, address: A, write: &'a [u8]) -> Result<(), Self::Error> {
+        async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
             Self::setup(addr)?;
             self.write_async_internal(write.iter().copied(), true).await
         }
-        async fn write_read<'a>(
-            &'a mut self,
-            address: A,
-            write: &'a [u8],
-            read: &'a mut [u8],
-        ) -> Result<(), Self::Error> {
+
+        async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
             Self::setup(addr)?;
             self.write_async_internal(write.iter().cloned(), false).await?;
             self.read_async_internal(read, false, true).await
         }
-        async fn transaction<'a, 'b>(
-            &'a mut self,
-            address: A,
-            operations: &'a mut [Operation<'b>],
-        ) -> Result<(), Self::Error> {
+
+        async fn transaction(&mut self, address: A, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
             let mut iterator = operations.iter_mut();
