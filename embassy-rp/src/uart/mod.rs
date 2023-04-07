@@ -569,6 +569,17 @@ mod eh1 {
         }
     }
 
+    impl embedded_hal_nb::serial::Error for Error {
+        fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
+            match *self {
+                Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
+                Self::Break => embedded_hal_nb::serial::ErrorKind::Other,
+                Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
+                Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
+            }
+        }
+    }
+
     impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for Uart<'d, T, M> {
         type Error = Error;
     }
@@ -578,6 +589,18 @@ mod eh1 {
     }
 
     impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for UartRx<'d, T, M> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::ErrorType for Uart<'d, T, M> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::ErrorType for UartTx<'d, T, M> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::ErrorType for UartRx<'d, T, M> {
         type Error = Error;
     }
 

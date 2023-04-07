@@ -674,6 +674,18 @@ mod eh1 {
         type Error = Error;
     }
 
+    impl<'d, T: Instance> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: Instance> embedded_hal_nb::serial::ErrorType for BufferedUart<'d, T> {
+        type Error = Error;
+    }
+
     impl<'d, T: Instance> embedded_hal_nb::serial::Read for BufferedUartRx<'d, T> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
             embedded_hal_02::serial::Read::read(self)
