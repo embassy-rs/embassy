@@ -24,7 +24,7 @@ cortex-m = "0.7.3"
 cortex-m-rt = "0.7.0"
 futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
 
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.9" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.10" }
 num_enum = { version = "0.5.7", default-features = false }
 
 [patch.crates-io]
