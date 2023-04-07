@@ -589,11 +589,23 @@ mod eh1 {
         type Error = Error;
     }
 
+    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUart<'d, T> {
+        type Error = Error;
+    }
+
     impl<'d, T: BasicInstance> embedded_hal_1::serial::ErrorType for BufferedUartTx<'d, T> {
         type Error = Error;
     }
 
+    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d, T> {
+        type Error = Error;
+    }
+
     impl<'d, T: BasicInstance> embedded_hal_1::serial::ErrorType for BufferedUartRx<'d, T> {
+        type Error = Error;
+    }
+
+    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d, T> {
         type Error = Error;
     }
 
