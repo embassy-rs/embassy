@@ -8,10 +8,7 @@ license = "MIT OR Apache-2.0"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32/src/"
 
-# TODO: sdmmc
-# TODO: net
-# TODO: subghz
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
@@ -22,6 +19,7 @@ flavors = [
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
