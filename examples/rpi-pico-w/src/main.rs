@@ -14,7 +14,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, Stack, StackResources};
 use embassy_rp::gpio::{Flex, Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_24, PIN_25, PIN_29};
-use embassy_rp::pio::{Pio0, PioPeripherial, PioStateMachineInstance, Sm0};
+use embassy_rp::pio::{Pio0, PioPeripheral, PioStateMachineInstance, Sm0};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
