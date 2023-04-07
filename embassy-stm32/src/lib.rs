@@ -53,6 +53,8 @@ pub mod rng;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(stm32wl)]
+pub mod subghz;
 #[cfg(usart)]
 pub mod usart;
 #[cfg(all(usb, feature = "time"))]
@@ -61,9 +63,6 @@ pub mod usb;
 pub mod usb_otg;
 #[cfg(iwdg)]
 pub mod wdg;
-
-#[cfg(feature = "subghz")]
-pub mod subghz;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {
