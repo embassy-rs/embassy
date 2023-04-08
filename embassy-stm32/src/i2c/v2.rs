@@ -482,6 +482,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         let state = T::state();
         state.chunks_transferred.store(0, Ordering::Relaxed);
         let mut remaining_len = total_len;
+        let mut scheduled_chunks = 0;
 
         let on_drop = OnDrop::new(|| {
             let regs = T::regs();
@@ -512,6 +513,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 T::regs().cr1().modify(|w| w.set_tcie(true));
             }
         }
+        scheduled_chunks += 1;
 
         poll_fn(|cx| {
             state.waker.register(cx.waker());
@@ -519,7 +521,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
             if chunks_transferred == total_chunks {
                 return Poll::Ready(Ok(()));
-            } else if chunks_transferred != 0 {
+            } else if chunks_transferred != 0 && scheduled_chunks < total_chunks {
                 remaining_len = remaining_len.saturating_sub(255);
                 let last_piece = (chunks_transferred + 1 == total_chunks) && last_slice;
 
@@ -528,6 +530,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     if let Err(e) = Self::master_continue(remaining_len.min(255), !last_piece, &check_timeout) {
                         return Poll::Ready(Err(e));
                     }
+                    scheduled_chunks += 1;
                     T::regs().cr1().modify(|w| w.set_tcie(true));
                 }
             }
