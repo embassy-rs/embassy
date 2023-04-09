@@ -437,6 +437,37 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
+
+    /// Returns current pin level
+    #[inline]
+    pub fn get_level(&self) -> Level {
+        self.is_high().into()
+    }
+
+    #[inline]
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await;
+    }
+
+    #[inline]
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await;
+    }
+
+    #[inline]
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await;
+    }
+
+    #[inline]
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await;
+    }
+
+    #[inline]
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await;
+    }
 }
 
 /// GPIO flexible pin.
@@ -1092,6 +1123,34 @@ mod eh1 {
 
     #[cfg(feature = "nightly")]
     impl<'d, T: Pin> embedded_hal_async::digital::Wait for Input<'d, T> {
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_high().await;
+            Ok(())
+        }
+
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_low().await;
+            Ok(())
+        }
+
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_rising_edge().await;
+            Ok(())
+        }
+
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_falling_edge().await;
+            Ok(())
+        }
+
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            self.wait_for_any_edge().await;
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "nightly")]
+    impl<'d, T: Pin> embedded_hal_async::digital::Wait for OutputOpenDrain<'d, T> {
         async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
             self.wait_for_high().await;
             Ok(())
