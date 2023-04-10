@@ -32,6 +32,8 @@ async fn main(_spawner: Spawner) {
     let (tx, rx, usart, irq) = (p.PB6, p.PB7, p.USART1, interrupt::take!(USART1));
     #[cfg(feature = "stm32u585ai")]
     let (tx, rx, usart, irq) = (p.PD8, p.PD9, p.USART3, interrupt::take!(USART3));
+    #[cfg(feature = "stm32h563zi")]
+    let (tx, rx, usart, irq) = (p.PB6, p.PB7, p.LPUART1, interrupt::take!(LPUART1));
 
     let config = Config::default();
     let mut usart = Uart::new(usart, rx, tx, irq, NoDma, NoDma, config);

@@ -11,6 +11,7 @@ stm32g071rb = ["embassy-stm32/stm32g071rb"]     # Nucleo
 stm32g491re = ["embassy-stm32/stm32g491re"]     # Nucleo
 stm32h755zi = ["embassy-stm32/stm32h755zi-cm7"] # Nucleo
 stm32wb55rg = ["embassy-stm32/stm32wb55rg"]     # Nucleo
+stm32h563zi = ["embassy-stm32/stm32h563zi"]     # Nucleo
 stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
 
 [dependencies]
