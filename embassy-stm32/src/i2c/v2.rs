@@ -262,7 +262,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             if T::regs().isr().read().txis() {
                 T::regs().txdr().write(|w| w.set_txdata(0));
             }
-            if T::regs().isr().read().txe() {
+            if !T::regs().isr().read().txe() {
                 T::regs().isr().modify(|w| w.set_txe(true))
             }
         }
