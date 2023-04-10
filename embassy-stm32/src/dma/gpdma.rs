@@ -190,6 +190,10 @@ mod low_level_api {
         fence(Ordering::SeqCst);
 
         let ch = dma.ch(channel_number as _);
+
+        // Reset ch
+        ch.cr().write(|w| w.set_reset(true));
+
         ch.llr().write(|_| {}); // no linked list
         ch.tr1().write(|w| {
             w.set_sdw(data_size.into());
@@ -252,7 +256,7 @@ mod low_level_api {
     /// Gets the running status of the channel
     pub unsafe fn is_running(dma: Gpdma, ch: u8) -> bool {
         let ch = dma.ch(ch as _);
-        !ch.sr().read().idlef()
+        !ch.sr().read().tcf()
     }
 
     /// Gets the total remaining transfers for the channel
@@ -291,7 +295,10 @@ mod low_level_api {
         }
 
         if sr.suspf() || sr.tcf() {
-            ch.cr().write(|w| w.set_reset(true));
+            // disable all xxIEs to prevent the irq from firing again.
+            ch.cr().write(|_| {});
+
+            // Wake the future. It'll look at tcf and see it's set.
             STATE.channels[state_index].waker.wake();
         }
     }
