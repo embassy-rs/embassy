@@ -61,20 +61,20 @@ impl<const BUFFER_SIZE: usize> Default for BootLoader<BUFFER_SIZE> {
 
         let active = unsafe {
             Partition::new(
-                &__bootloader_active_start as *const u32 as usize,
-                &__bootloader_active_end as *const u32 as usize,
+                &__bootloader_active_start as *const u32 as u32,
+                &__bootloader_active_end as *const u32 as u32,
             )
         };
         let dfu = unsafe {
             Partition::new(
-                &__bootloader_dfu_start as *const u32 as usize,
-                &__bootloader_dfu_end as *const u32 as usize,
+                &__bootloader_dfu_start as *const u32 as u32,
+                &__bootloader_dfu_end as *const u32 as u32,
             )
         };
         let state = unsafe {
             Partition::new(
-                &__bootloader_state_start as *const u32 as usize,
-                &__bootloader_state_end as *const u32 as usize,
+                &__bootloader_state_start as *const u32 as u32,
+                &__bootloader_state_end as *const u32 as u32,
             )
         };
 

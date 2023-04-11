@@ -50,13 +50,13 @@ pub trait FlashConfig {
 }
 
 trait FlashConfigEx {
-    fn page_size() -> usize;
+    fn page_size() -> u32;
 }
 
 impl<T: FlashConfig> FlashConfigEx for T {
     /// Get the page size which is the "unit of operation" within the bootloader.
-    fn page_size() -> usize {
-        core::cmp::max(T::ACTIVE::ERASE_SIZE, T::DFU::ERASE_SIZE)
+    fn page_size() -> u32 {
+        core::cmp::max(T::ACTIVE::ERASE_SIZE, T::DFU::ERASE_SIZE) as u32
     }
 }
 
@@ -86,7 +86,7 @@ impl BootLoader {
 
     /// Return the offset of the active partition into the active flash.
     pub fn boot_address(&self) -> usize {
-        self.active.from
+        self.active.from as usize
     }
 
     /// Perform necessary boot preparations like swapping images.
@@ -177,11 +177,11 @@ impl BootLoader {
     ///
     pub fn prepare_boot<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         // Ensure we have enough progress pages to store copy progress
-        assert_eq!(0, P::page_size() % aligned_buf.len());
-        assert_eq!(0, P::page_size() % P::ACTIVE::WRITE_SIZE);
-        assert_eq!(0, P::page_size() % P::ACTIVE::ERASE_SIZE);
-        assert_eq!(0, P::page_size() % P::DFU::WRITE_SIZE);
-        assert_eq!(0, P::page_size() % P::DFU::ERASE_SIZE);
+        assert_eq!(0, P::page_size() % aligned_buf.len() as u32);
+        assert_eq!(0, P::page_size() % P::ACTIVE::WRITE_SIZE as u32);
+        assert_eq!(0, P::page_size() % P::ACTIVE::ERASE_SIZE as u32);
+        assert_eq!(0, P::page_size() % P::DFU::WRITE_SIZE as u32);
+        assert_eq!(0, P::page_size() % P::DFU::ERASE_SIZE as u32);
         assert!(aligned_buf.len() >= P::STATE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % P::ACTIVE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % P::DFU::WRITE_SIZE);
@@ -222,30 +222,27 @@ impl BootLoader {
     }
 
     fn is_swapped<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<bool, BootError> {
-        let page_count = self.active.len() / P::page_size();
+        let page_count = (self.active.size() / P::page_size()) as usize;
         let progress = self.current_progress(p, aligned_buf)?;
 
         Ok(progress >= page_count * 2)
     }
 
     fn current_progress<P: FlashConfig>(&mut self, config: &mut P, aligned_buf: &mut [u8]) -> Result<usize, BootError> {
-        let max_index = ((self.state.len() - P::STATE::WRITE_SIZE) / P::STATE::WRITE_SIZE) - 2;
+        let write_size = P::STATE::WRITE_SIZE as u32;
+        let max_index = (((self.state.size() - write_size) / write_size) - 2) as usize;
         let state_flash = config.state();
-        let state_word = &mut aligned_buf[..P::STATE::WRITE_SIZE];
+        let state_word = &mut aligned_buf[..write_size as usize];
 
-        self.state
-            .read_blocking(state_flash, P::STATE::WRITE_SIZE as u32, state_word)?;
+        self.state.read_blocking(state_flash, write_size, state_word)?;
         if state_word.iter().any(|&b| b != P::STATE_ERASE_VALUE) {
             // Progress is invalid
             return Ok(max_index);
         }
 
         for index in 0..max_index {
-            self.state.read_blocking(
-                state_flash,
-                (2 + index) as u32 * P::STATE::WRITE_SIZE as u32,
-                state_word,
-            )?;
+            self.state
+                .read_blocking(state_flash, (2 + index) as u32 * write_size, state_word)?;
 
             if state_word.iter().any(|&b| b == P::STATE_ERASE_VALUE) {
                 return Ok(index);
@@ -256,26 +253,29 @@ impl BootLoader {
 
     fn update_progress<P: FlashConfig>(
         &mut self,
-        index: usize,
+        progress_index: usize,
         p: &mut P,
         aligned_buf: &mut [u8],
     ) -> Result<(), BootError> {
         let state_word = &mut aligned_buf[..P::STATE::WRITE_SIZE];
         state_word.fill(!P::STATE_ERASE_VALUE);
-        self.state
-            .write_blocking(p.state(), (2 + index) as u32 * P::STATE::WRITE_SIZE as u32, state_word)?;
+        self.state.write_blocking(
+            p.state(),
+            (2 + progress_index) as u32 * P::STATE::WRITE_SIZE as u32,
+            state_word,
+        )?;
         Ok(())
     }
 
     fn copy_page_once_to_active<P: FlashConfig>(
         &mut self,
-        idx: usize,
+        progress_index: usize,
         from_offset: u32,
         to_offset: u32,
         p: &mut P,
         aligned_buf: &mut [u8],
     ) -> Result<(), BootError> {
-        if self.current_progress(p, aligned_buf)? <= idx {
+        if self.current_progress(p, aligned_buf)? <= progress_index {
             let page_size = P::page_size() as u32;
 
             self.active
@@ -288,20 +288,20 @@ impl BootLoader {
                     .write_blocking(p.active(), to_offset + offset_in_page as u32, aligned_buf)?;
             }
 
-            self.update_progress(idx, p, aligned_buf)?;
+            self.update_progress(progress_index, p, aligned_buf)?;
         }
         Ok(())
     }
 
     fn copy_page_once_to_dfu<P: FlashConfig>(
         &mut self,
-        idx: usize,
+        progress_index: usize,
         from_offset: u32,
         to_offset: u32,
         p: &mut P,
         aligned_buf: &mut [u8],
     ) -> Result<(), BootError> {
-        if self.current_progress(p, aligned_buf)? <= idx {
+        if self.current_progress(p, aligned_buf)? <= progress_index {
             let page_size = P::page_size() as u32;
 
             self.dfu
@@ -314,31 +314,28 @@ impl BootLoader {
                     .write_blocking(p.dfu(), to_offset + offset_in_page as u32, aligned_buf)?;
             }
 
-            self.update_progress(idx, p, aligned_buf)?;
+            self.update_progress(progress_index, p, aligned_buf)?;
         }
         Ok(())
     }
 
     fn swap<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<(), BootError> {
         let page_size = P::page_size();
-        let page_count = self.active.len() / page_size;
-        trace!("Page count: {}", page_count);
+        let page_count = self.active.size() / page_size;
         for page_num in 0..page_count {
-            trace!("COPY PAGE {}", page_num);
-
-            let idx = page_num * 2;
+            let progress_index = (page_num * 2) as usize;
 
             // Copy active page to the 'next' DFU page.
-            let active_from_offset = ((page_count - 1 - page_num) * page_size) as u32;
-            let dfu_to_offset = ((page_count - page_num) * page_size) as u32;
+            let active_from_offset = (page_count - 1 - page_num) * page_size;
+            let dfu_to_offset = (page_count - page_num) * page_size;
             //trace!("Copy active {} to dfu {}", active_from_offset, dfu_to_offset);
-            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, aligned_buf)?;
+            self.copy_page_once_to_dfu(progress_index, active_from_offset, dfu_to_offset, p, aligned_buf)?;
 
             // Copy DFU page to the active page
-            let active_to_offset = ((page_count - 1 - page_num) * page_size) as u32;
-            let dfu_from_offset = ((page_count - 1 - page_num) * page_size) as u32;
+            let active_to_offset = (page_count - 1 - page_num) * page_size;
+            let dfu_from_offset = (page_count - 1 - page_num) * page_size;
             //trace!("Copy dfy {} to active {}", dfu_from_offset, active_to_offset);
-            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, aligned_buf)?;
+            self.copy_page_once_to_active(progress_index + 1, dfu_from_offset, active_to_offset, p, aligned_buf)?;
         }
 
         Ok(())
@@ -346,19 +343,19 @@ impl BootLoader {
 
     fn revert<P: FlashConfig>(&mut self, p: &mut P, aligned_buf: &mut [u8]) -> Result<(), BootError> {
         let page_size = P::page_size();
-        let page_count = self.active.len() / page_size;
+        let page_count = self.active.size() / page_size;
         for page_num in 0..page_count {
-            let idx = page_count * 2 + page_num * 2;
+            let progress_index = (page_count * 2 + page_num * 2) as usize;
 
             // Copy the bad active page to the DFU page
-            let active_from_offset = (page_num * page_size) as u32;
-            let dfu_to_offset = (page_num * page_size) as u32;
-            self.copy_page_once_to_dfu(idx, active_from_offset, dfu_to_offset, p, aligned_buf)?;
+            let active_from_offset = page_num * page_size;
+            let dfu_to_offset = page_num * page_size;
+            self.copy_page_once_to_dfu(progress_index, active_from_offset, dfu_to_offset, p, aligned_buf)?;
 
             // Copy the DFU page back to the active page
-            let active_to_offset = (page_num * page_size) as u32;
-            let dfu_from_offset = ((page_num + 1) * page_size) as u32;
-            self.copy_page_once_to_active(idx + 1, dfu_from_offset, active_to_offset, p, aligned_buf)?;
+            let active_to_offset = page_num * page_size;
+            let dfu_from_offset = (page_num + 1) * page_size;
+            self.copy_page_once_to_active(progress_index + 1, dfu_from_offset, active_to_offset, p, aligned_buf)?;
         }
 
         Ok(())
@@ -376,11 +373,11 @@ impl BootLoader {
     }
 }
 
-fn assert_partitions(active: Partition, dfu: Partition, state: Partition, page_size: usize, write_size: usize) {
-    assert_eq!(active.len() % page_size, 0);
-    assert_eq!(dfu.len() % page_size, 0);
-    assert!(dfu.len() - active.len() >= page_size);
-    assert!(2 + 2 * (active.len() / page_size) <= state.len() / write_size);
+fn assert_partitions(active: Partition, dfu: Partition, state: Partition, page_size: u32, state_write_size: usize) {
+    assert_eq!(active.size() % page_size, 0);
+    assert_eq!(dfu.size() % page_size, 0);
+    assert!(dfu.size() - active.size() >= page_size);
+    assert!(2 + 2 * (active.size() / page_size) <= state.size() / state_write_size as u32);
 }
 
 /// A flash wrapper implementing the Flash and embedded_storage traits.

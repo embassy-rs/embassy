@@ -90,13 +90,11 @@ mod tests {
         const DFU: Partition = Partition::new(61440, 122880);
         let mut flash = MemFlash::<131072, 4096, 4>::random();
 
-        let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
-        let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
+        let original = [rand::random::<u8>(); ACTIVE.size() as usize];
+        let update = [rand::random::<u8>(); ACTIVE.size() as usize];
         let mut aligned = [0; 4];
 
-        for i in ACTIVE.from..ACTIVE.to {
-            flash.mem[i] = original[i - ACTIVE.from];
-        }
+        flash.program(ACTIVE.from, &original).unwrap();
 
         let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
         let mut updater = FirmwareUpdater::new(DFU, STATE);
@@ -111,14 +109,9 @@ mod tests {
                 .unwrap()
         );
 
-        for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(flash.mem[i], update[i - ACTIVE.from], "Index {}", i);
-        }
-
+        flash.assert_eq(ACTIVE.from, &update);
         // First DFU page is untouched
-        for i in DFU.from + 4096..DFU.to {
-            assert_eq!(flash.mem[i], original[i - DFU.from - 4096], "Index {}", i);
-        }
+        flash.assert_eq(DFU.from + 4096, &original);
 
         // Running again should cause a revert
         assert_eq!(
@@ -128,14 +121,9 @@ mod tests {
                 .unwrap()
         );
 
-        for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(flash.mem[i], original[i - ACTIVE.from], "Index {}", i);
-        }
-
+        flash.assert_eq(ACTIVE.from, &original);
         // Last page is untouched
-        for i in DFU.from..DFU.to - 4096 {
-            assert_eq!(flash.mem[i], update[i - DFU.from], "Index {}", i);
-        }
+        flash.assert_eq(DFU.from, &update);
 
         // Mark as booted
         block_on(updater.mark_booted(&mut flash, &mut aligned)).unwrap();
@@ -159,12 +147,10 @@ mod tests {
         let mut state = MemFlash::<4096, 128, 4>::random();
         let mut aligned = [0; 4];
 
-        let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
-        let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
+        let original = [rand::random::<u8>(); ACTIVE.size() as usize];
+        let update = [rand::random::<u8>(); ACTIVE.size() as usize];
 
-        for i in ACTIVE.from..ACTIVE.to {
-            active.mem[i] = original[i - ACTIVE.from];
-        }
+        active.program(ACTIVE.from, &original).unwrap();
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
@@ -181,14 +167,9 @@ mod tests {
                 .unwrap()
         );
 
-        for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
-        }
-
+        active.assert_eq(ACTIVE.from, &update);
         // First DFU page is untouched
-        for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
-        }
+        dfu.assert_eq(DFU.from + 4096, &original);
     }
 
     #[test]
@@ -203,12 +184,10 @@ mod tests {
         let mut dfu = MemFlash::<16384, 4096, 8>::random();
         let mut state = MemFlash::<4096, 128, 4>::random();
 
-        let original: [u8; ACTIVE.len()] = [rand::random::<u8>(); ACTIVE.len()];
-        let update: [u8; DFU.len()] = [rand::random::<u8>(); DFU.len()];
+        let original = [rand::random::<u8>(); ACTIVE.size() as usize];
+        let update = [rand::random::<u8>(); ACTIVE.size() as usize];
 
-        for i in ACTIVE.from..ACTIVE.to {
-            active.mem[i] = original[i - ACTIVE.from];
-        }
+        active.program(ACTIVE.from, &original).unwrap();
 
         let mut updater = FirmwareUpdater::new(DFU, STATE);
 
@@ -227,14 +206,9 @@ mod tests {
                 .unwrap()
         );
 
-        for i in ACTIVE.from..ACTIVE.to {
-            assert_eq!(active.mem[i], update[i - ACTIVE.from], "Index {}", i);
-        }
-
+        active.assert_eq(ACTIVE.from, &update);
         // First DFU page is untouched
-        for i in DFU.from + 4096..DFU.to {
-            assert_eq!(dfu.mem[i], original[i - DFU.from - 4096], "Index {}", i);
-        }
+        dfu.assert_eq(DFU.from + 4096, &original);
     }
 
     #[test]
@@ -281,7 +255,7 @@ mod tests {
             &mut flash,
             &public_key.to_bytes(),
             &signature.to_bytes(),
-            firmware_len,
+            firmware_len as u32,
             &mut aligned,
         ))
         .is_ok());

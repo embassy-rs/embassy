@@ -50,14 +50,14 @@ impl Default for FirmwareUpdater {
 
         let dfu = unsafe {
             Partition::new(
-                &__bootloader_dfu_start as *const u32 as usize,
-                &__bootloader_dfu_end as *const u32 as usize,
+                &__bootloader_dfu_start as *const u32 as u32,
+                &__bootloader_dfu_end as *const u32 as u32,
             )
         };
         let state = unsafe {
             Partition::new(
-                &__bootloader_state_start as *const u32 as usize,
-                &__bootloader_state_end as *const u32 as usize,
+                &__bootloader_state_start as *const u32 as u32,
+                &__bootloader_state_end as *const u32 as u32,
             )
         };
 
@@ -71,11 +71,6 @@ impl FirmwareUpdater {
     /// Create a firmware updater instance with partition ranges for the update and state partitions.
     pub const fn new(dfu: Partition, state: Partition) -> Self {
         Self { dfu, state }
-    }
-
-    /// Return the length of the DFU area
-    pub fn firmware_len(&self) -> usize {
-        self.dfu.len()
     }
 
     /// Obtain the current state.
@@ -119,11 +114,11 @@ impl FirmwareUpdater {
         _state_and_dfu_flash: &mut F,
         _public_key: &[u8],
         _signature: &[u8],
-        _update_len: usize,
+        _update_len: u32,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(_aligned.len(), F::WRITE_SIZE);
-        assert!(_update_len <= self.dfu.len());
+        assert!(_update_len <= self.dfu.size());
 
         #[cfg(feature = "ed25519-dalek")]
         {
@@ -180,11 +175,10 @@ impl FirmwareUpdater {
     pub async fn hash<F: AsyncNorFlash, D: Digest>(
         &mut self,
         dfu_flash: &mut F,
-        update_len: usize,
+        update_len: u32,
         chunk_buf: &mut [u8],
         output: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let update_len = update_len as u32;
         let mut digest = D::new();
         for offset in (0..update_len).step_by(chunk_buf.len()) {
             self.dfu.read(dfu_flash, offset, chunk_buf).await?;
@@ -340,11 +334,11 @@ impl FirmwareUpdater {
         _state_and_dfu_flash: &mut F,
         _public_key: &[u8],
         _signature: &[u8],
-        _update_len: usize,
+        _update_len: u32,
         _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(_aligned.len(), F::WRITE_SIZE);
-        assert!(_update_len <= self.dfu.len());
+        assert!(_update_len <= self.dfu.size());
 
         #[cfg(feature = "ed25519-dalek")]
         {
@@ -399,11 +393,10 @@ impl FirmwareUpdater {
     pub fn hash_blocking<F: NorFlash, D: Digest>(
         &mut self,
         dfu_flash: &mut F,
-        update_len: usize,
+        update_len: u32,
         chunk_buf: &mut [u8],
         output: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        let update_len = update_len as u32;
         let mut digest = D::new();
         for offset in (0..update_len).step_by(chunk_buf.len()) {
             self.dfu.read_blocking(dfu_flash, offset, chunk_buf)?;
@@ -534,7 +527,7 @@ mod tests {
         block_on(updater.write_firmware(0, to_write.as_slice(), &mut flash)).unwrap();
         let mut chunk_buf = [0; 2];
         let mut hash = [0; 20];
-        block_on(updater.hash::<_, Sha1>(&mut flash, update.len(), &mut chunk_buf, &mut hash)).unwrap();
+        block_on(updater.hash::<_, Sha1>(&mut flash, update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();
 
         assert_eq!(Sha1::digest(update).as_slice(), hash);
     }
