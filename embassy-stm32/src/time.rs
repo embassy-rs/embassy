@@ -1,7 +1,9 @@
 //! Time units
 
+use core::ops::{Div, Mul};
+
 /// Hertz
-#[derive(PartialEq, PartialOrd, Clone, Copy, Debug, Eq)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Hertz(pub u32);
 
@@ -32,4 +34,46 @@ pub fn khz(kilohertz: u32) -> Hertz {
 /// This is a convenience shortcut for [`Hertz::mhz`]
 pub fn mhz(megahertz: u32) -> Hertz {
     Hertz::mhz(megahertz)
+}
+
+impl Mul<u32> for Hertz {
+    type Output = Hertz;
+    fn mul(self, rhs: u32) -> Self::Output {
+        Hertz(self.0 * rhs)
+    }
+}
+
+impl Div<u32> for Hertz {
+    type Output = Hertz;
+    fn div(self, rhs: u32) -> Self::Output {
+        Hertz(self.0 / rhs)
+    }
+}
+
+impl Mul<u16> for Hertz {
+    type Output = Hertz;
+    fn mul(self, rhs: u16) -> Self::Output {
+        self * (rhs as u32)
+    }
+}
+
+impl Div<u16> for Hertz {
+    type Output = Hertz;
+    fn div(self, rhs: u16) -> Self::Output {
+        self / (rhs as u32)
+    }
+}
+
+impl Mul<u8> for Hertz {
+    type Output = Hertz;
+    fn mul(self, rhs: u8) -> Self::Output {
+        self * (rhs as u32)
+    }
+}
+
+impl Div<u8> for Hertz {
+    type Output = Hertz;
+    fn div(self, rhs: u8) -> Self::Output {
+        self / (rhs as u32)
+    }
 }

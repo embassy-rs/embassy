@@ -19,14 +19,12 @@ mod eh1 {
     use super::*;
 
     impl embedded_hal_1::delay::DelayUs for Delay {
-        type Error = core::convert::Infallible;
-
-        fn delay_us(&mut self, us: u32) -> Result<(), Self::Error> {
-            Ok(block_for(Duration::from_micros(us as u64)))
+        fn delay_us(&mut self, us: u32) {
+            block_for(Duration::from_micros(us as u64))
         }
 
-        fn delay_ms(&mut self, ms: u32) -> Result<(), Self::Error> {
-            Ok(block_for(Duration::from_millis(ms as u64)))
+        fn delay_ms(&mut self, ms: u32) {
+            block_for(Duration::from_millis(ms as u64))
         }
     }
 }
@@ -37,14 +35,12 @@ mod eha {
     use crate::Timer;
 
     impl embedded_hal_async::delay::DelayUs for Delay {
-        type Error = core::convert::Infallible;
-
-        async fn delay_us(&mut self, micros: u32) -> Result<(), Self::Error> {
-            Ok(Timer::after(Duration::from_micros(micros as _)).await)
+        async fn delay_us(&mut self, micros: u32) {
+            Timer::after(Duration::from_micros(micros as _)).await
         }
 
-        async fn delay_ms(&mut self, millis: u32) -> Result<(), Self::Error> {
-            Ok(Timer::after(Duration::from_millis(millis as _)).await)
+        async fn delay_ms(&mut self, millis: u32) {
+            Timer::after(Duration::from_millis(millis as _)).await
         }
     }
 }

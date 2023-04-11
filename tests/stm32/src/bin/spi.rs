@@ -17,22 +17,25 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     #[cfg(feature = "stm32f103c8")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32f429zi")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32h755zi")]
-    let (sck, mosi, miso) = (p.PA5, p.PB5, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PB5, p.PA6);
     #[cfg(feature = "stm32g491re")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32g071rb")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32wb55rg")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32u585ai")]
-    let (sck, mosi, miso) = (p.PE13, p.PE15, p.PE14);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PE13, p.PE15, p.PE14);
+    #[cfg(feature = "stm32h563zi")]
+    let (spi, sck, mosi, miso) = (p.SPI4, p.PE12, p.PE14, p.PE13);
 
+    info!("asdfa;");
     let mut spi = Spi::new(
-        p.SPI1,
+        spi,
         sck,  // Arduino D13
         mosi, // Arduino D11
         miso, // Arduino D12

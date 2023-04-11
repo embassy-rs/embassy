@@ -307,18 +307,18 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
-    pub fn blocking_read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_timeout(addr, buffer, || Ok(()))
+    pub fn blocking_read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_timeout(addr, read, || Ok(()))
     }
 
     pub fn blocking_write_timeout(
         &mut self,
         addr: u8,
-        bytes: &[u8],
+        write: &[u8],
         check_timeout: impl Fn() -> Result<(), Error>,
     ) -> Result<(), Error> {
         unsafe {
-            self.write_bytes(addr, bytes, &check_timeout)?;
+            self.write_bytes(addr, write, &check_timeout)?;
             // Send a STOP condition
             T::regs().cr1().modify(|reg| reg.set_stop(true));
             // Wait for STOP condition to transmit.
@@ -331,49 +331,49 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    pub fn blocking_write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
-        self.blocking_write_timeout(addr, bytes, || Ok(()))
+    pub fn blocking_write(&mut self, addr: u8, write: &[u8]) -> Result<(), Error> {
+        self.blocking_write_timeout(addr, write, || Ok(()))
     }
 
     pub fn blocking_write_read_timeout(
         &mut self,
         addr: u8,
-        bytes: &[u8],
-        buffer: &mut [u8],
+        write: &[u8],
+        read: &mut [u8],
         check_timeout: impl Fn() -> Result<(), Error>,
     ) -> Result<(), Error> {
-        unsafe { self.write_bytes(addr, bytes, &check_timeout)? };
-        self.blocking_read_timeout(addr, buffer, &check_timeout)?;
+        unsafe { self.write_bytes(addr, write, &check_timeout)? };
+        self.blocking_read_timeout(addr, read, &check_timeout)?;
 
         Ok(())
     }
 
-    pub fn blocking_write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_read_timeout(addr, bytes, buffer, || Ok(()))
+    pub fn blocking_write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        self.blocking_write_read_timeout(addr, write, read, || Ok(()))
     }
 }
 
 impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Read for I2c<'d, T> {
     type Error = Error;
 
-    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(addr, buffer)
+    fn read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(addr, read)
     }
 }
 
 impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Write for I2c<'d, T> {
     type Error = Error;
 
-    fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(addr, bytes)
+    fn write(&mut self, addr: u8, write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(addr, write)
     }
 }
 
 impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T> {
     type Error = Error;
 
-    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(addr, bytes, buffer)
+    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(addr, write, read)
     }
 }
 
@@ -402,44 +402,23 @@ mod eh1 {
     }
 
     impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T> {
-        fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_read(address, buffer)
+        fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_read(address, read)
         }
 
-        fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(address, buffer)
+        fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+            self.blocking_write(address, write)
         }
 
-        fn write_iter<B>(&mut self, _address: u8, _bytes: B) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            todo!();
+        fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+            self.blocking_write_read(address, write, read)
         }
 
-        fn write_iter_read<B>(&mut self, _address: u8, _bytes: B, _buffer: &mut [u8]) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            todo!();
-        }
-
-        fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_write_read(address, wr_buffer, rd_buffer)
-        }
-
-        fn transaction<'a>(
+        fn transaction(
             &mut self,
             _address: u8,
-            _operations: &mut [embedded_hal_1::i2c::Operation<'a>],
+            _operations: &mut [embedded_hal_1::i2c::Operation<'_>],
         ) -> Result<(), Self::Error> {
-            todo!();
-        }
-
-        fn transaction_iter<'a, O>(&mut self, _address: u8, _operations: O) -> Result<(), Self::Error>
-        where
-            O: IntoIterator<Item = embedded_hal_1::i2c::Operation<'a>>,
-        {
             todo!();
         }
     }

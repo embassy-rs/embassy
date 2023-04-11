@@ -49,6 +49,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f411ce,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f413vh,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f429zi,log,exti,time-driver-any,unstable-traits,embedded-sdmmc \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f730i8,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h755zi-cm7,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h7b3ai,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32l476vg,defmt,exti,time-driver-any,unstable-traits \
@@ -65,6 +66,8 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32f107vc,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32f103re,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32f100c4,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32h503rb,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32h562ag,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-boot/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path embassy-boot/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path embassy-boot/rp/Cargo.toml --target thumbv6m-none-eabi \
@@ -86,6 +89,7 @@ cargo batch  \
     --- build --release --manifest-path examples/stm32c0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32c0 \
     --- build --release --manifest-path examples/stm32g0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32g0 \
     --- build --release --manifest-path examples/stm32g4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32g4 \
+    --- build --release --manifest-path examples/stm32h5/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h5 \
     --- build --release --manifest-path examples/stm32h7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7 \
     --- build --release --manifest-path examples/stm32l0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32l0 \
     --- build --release --manifest-path examples/stm32l1/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/stm32l1 \
@@ -115,6 +119,7 @@ cargo batch  \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g071rb --out-dir out/tests/nucleo-stm32g071rb \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi --out-dir out/tests/nucleo-stm32h755zi \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg --out-dir out/tests/nucleo-stm32wb55rg \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h563zi --out-dir out/tests/nucleo-stm32h563zi \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32u585ai --out-dir out/tests/iot-stm32u585ai \
     --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --out-dir out/tests/nrf52840-dk \

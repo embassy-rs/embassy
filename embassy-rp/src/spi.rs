@@ -19,6 +19,7 @@ pub enum Error {
 }
 
 #[non_exhaustive]
+#[derive(Clone)]
 pub struct Config {
     pub frequency: u32,
     pub phase: Phase,
