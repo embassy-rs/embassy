@@ -5,7 +5,7 @@
 use embassy_executor::Spawner;
 
 #[panic_handler]
-fn panic (_info: &core::panic::PanicInfo) -> ! {
+fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
