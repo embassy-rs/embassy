@@ -1,7 +1,7 @@
 # Before upgrading check that everything is available on all tier1 targets here:
 # https://rust-lang.github.io/rustup-components-history
 [toolchain]
-channel = "nightly-2023-02-07"
+channel = "nightly-2023-04-02"
 components = [ "rust-src", "rustfmt", "llvm-tools-preview" ]
 targets = [
     "thumbv7em-none-eabi",
@@ -9,5 +9,6 @@ targets = [
     "thumbv6m-none-eabi",
     "thumbv7em-none-eabihf",
     "thumbv8m.main-none-eabihf",
+    "riscv32imac-unknown-none-elf",
     "wasm32-unknown-unknown",
 ]

@@ -846,20 +846,6 @@ mod eh1 {
             self.blocking_write(address, buffer)
         }
 
-        fn write_iter<B>(&mut self, _address: u8, _bytes: B) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            todo!();
-        }
-
-        fn write_iter_read<B>(&mut self, _address: u8, _bytes: B, _buffer: &mut [u8]) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            todo!();
-        }
-
         fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_write_read(address, wr_buffer, rd_buffer)
         }
@@ -871,13 +857,6 @@ mod eh1 {
         ) -> Result<(), Self::Error> {
             todo!();
         }
-
-        fn transaction_iter<'a, O>(&mut self, _address: u8, _operations: O) -> Result<(), Self::Error>
-        where
-            O: IntoIterator<Item = embedded_hal_1::i2c::Operation<'a>>,
-        {
-            todo!();
-        }
     }
 }
 
@@ -885,28 +864,22 @@ mod eh1 {
 mod eha {
     use super::*;
     impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
-        async fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Result<(), Error> {
-            self.read(address, buffer).await
+        async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+            self.read(address, read).await
         }
 
-        async fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Result<(), Error> {
-            self.write(address, bytes).await
+        async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+            self.write(address, write).await
+        }
+        async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+            self.write_read(address, write, read).await
         }
 
-        async fn write_read<'a>(
-            &'a mut self,
+        async fn transaction(
+            &mut self,
             address: u8,
-            wr_buffer: &'a [u8],
-            rd_buffer: &'a mut [u8],
-        ) -> Result<(), Error> {
-            self.write_read(address, wr_buffer, rd_buffer).await
-        }
-
-        async fn transaction<'a, 'b>(
-            &'a mut self,
-            address: u8,
-            operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
-        ) -> Result<(), Error> {
+            operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
             let _ = address;
             let _ = operations;
             todo!()

@@ -27,9 +27,11 @@ fn main() -> ! {
     wdt_config.run_during_sleep = true;
     wdt_config.run_during_debug_halt = false;
 
-    let start = bl.prepare(&mut SingleFlashConfig::new(&mut BootFlash::<_, 4096>::new(
-        WatchdogFlash::start(Nvmc::new(p.NVMC), p.WDT, wdt_config),
-    )));
+    let start = bl.prepare(&mut SingleFlashConfig::new(&mut BootFlash::new(WatchdogFlash::start(
+        Nvmc::new(p.NVMC),
+        p.WDT,
+        wdt_config,
+    ))));
     unsafe { bl.load(start) }
 }
 

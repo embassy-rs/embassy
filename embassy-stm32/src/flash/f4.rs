@@ -2,27 +2,108 @@ use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use super::{ERASE_SIZE, FLASH_BASE, FLASH_SIZE};
+use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-const SECOND_BANK_SECTOR_START: u32 = 12;
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+mod alt_regions {
+    use embassy_hal_common::PeripheralRef;
+    use stm32_metapac::FLASH_SIZE;
 
-unsafe fn is_dual_bank() -> bool {
-    match FLASH_SIZE / 1024 {
-        // 1 MB devices depend on configuration
-        1024 => {
-            if cfg!(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)) {
-                pac::FLASH.optcr().read().db1m()
-            } else {
-                false
+    use crate::_generated::flash_regions::{BANK1_REGION1, BANK1_REGION2, BANK1_REGION3};
+    use crate::flash::{Bank1Region1, Bank1Region2, Flash, FlashBank, FlashRegion};
+    use crate::peripherals::FLASH;
+
+    pub const ALT_BANK1_REGION3: FlashRegion = FlashRegion {
+        size: 3 * BANK1_REGION3.erase_size,
+        ..BANK1_REGION3
+    };
+    pub const ALT_BANK2_REGION1: FlashRegion = FlashRegion {
+        bank: FlashBank::Bank2,
+        base: BANK1_REGION1.base + FLASH_SIZE as u32 / 2,
+        ..BANK1_REGION1
+    };
+    pub const ALT_BANK2_REGION2: FlashRegion = FlashRegion {
+        bank: FlashBank::Bank2,
+        base: BANK1_REGION2.base + FLASH_SIZE as u32 / 2,
+        ..BANK1_REGION2
+    };
+    pub const ALT_BANK2_REGION3: FlashRegion = FlashRegion {
+        bank: FlashBank::Bank2,
+        base: BANK1_REGION3.base + FLASH_SIZE as u32 / 2,
+        size: 3 * BANK1_REGION3.erase_size,
+        ..BANK1_REGION3
+    };
+
+    pub const ALT_FLASH_REGIONS: [&FlashRegion; 6] = [
+        &BANK1_REGION1,
+        &BANK1_REGION2,
+        &ALT_BANK1_REGION3,
+        &ALT_BANK2_REGION1,
+        &ALT_BANK2_REGION2,
+        &ALT_BANK2_REGION3,
+    ];
+
+    pub type AltBank1Region1<'d> = Bank1Region1<'d>;
+    pub type AltBank1Region2<'d> = Bank1Region2<'d>;
+    pub struct AltBank1Region3<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
+    pub struct AltBank2Region1<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
+    pub struct AltBank2Region2<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
+    pub struct AltBank2Region3<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
+
+    pub struct AltFlashLayout<'d> {
+        pub bank1_region1: AltBank1Region1<'d>,
+        pub bank1_region2: AltBank1Region2<'d>,
+        pub bank1_region3: AltBank1Region3<'d>,
+        pub bank2_region1: AltBank2Region1<'d>,
+        pub bank2_region2: AltBank2Region2<'d>,
+        pub bank2_region3: AltBank2Region3<'d>,
+    }
+
+    impl<'d> Flash<'d> {
+        pub fn into_alt_regions(self) -> AltFlashLayout<'d> {
+            unsafe { crate::pac::FLASH.optcr().modify(|r| r.set_db1m(true)) };
+
+            // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
+            // Also, all flash region operations are protected with a cs.
+            let mut p = self.release();
+            AltFlashLayout {
+                bank1_region1: Bank1Region1(&BANK1_REGION1, unsafe { p.clone_unchecked() }),
+                bank1_region2: Bank1Region2(&BANK1_REGION2, unsafe { p.clone_unchecked() }),
+                bank1_region3: AltBank1Region3(&ALT_BANK1_REGION3, unsafe { p.clone_unchecked() }),
+                bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1, unsafe { p.clone_unchecked() }),
+                bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2, unsafe { p.clone_unchecked() }),
+                bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3, unsafe { p.clone_unchecked() }),
             }
         }
-        // 2 MB devices are always dual bank
-        2048 => true,
-        // All other devices are single bank
-        _ => false,
     }
+
+    impl Drop for AltFlashLayout<'_> {
+        fn drop(&mut self) {
+            unsafe {
+                super::lock();
+                crate::pac::FLASH.optcr().modify(|r| r.set_db1m(false))
+            };
+        }
+    }
+}
+
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+pub use alt_regions::{AltFlashLayout, ALT_FLASH_REGIONS};
+
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
+    if unsafe { pac::FLASH.optcr().read().db1m() } {
+        &ALT_FLASH_REGIONS
+    } else {
+        &FLASH_REGIONS
+    }
+}
+
+#[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
+pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+    &FLASH_REGIONS
 }
 
 pub(crate) unsafe fn lock() {
@@ -34,93 +115,34 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_key(0xCDEF_89AB));
 }
 
-pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
+pub(crate) unsafe fn begin_write() {
+    assert_eq!(0, WRITE_SIZE % 4);
+
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
         w.set_psize(pac::flash::vals::Psize::PSIZE32);
     });
+}
 
-    let ret = {
-        let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        for chunk in buf.chunks(super::WRITE_SIZE) {
-            for val in chunk.chunks(4) {
-                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
-                offset += val.len() as u32;
-
-                // prevents parallelism errors
-                fence(Ordering::SeqCst);
-            }
-
-            ret = blocking_wait_ready();
-            if ret.is_err() {
-                break;
-            }
-        }
-        ret
-    };
-
+pub(crate) unsafe fn end_write() {
     pac::FLASH.cr().write(|w| w.set_pg(false));
-
-    ret
 }
 
-struct FlashSector {
-    index: u8,
-    size: u32,
-}
+pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    let mut address = start_address;
+    for val in buf.chunks(4) {
+        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        address += val.len() as u32;
 
-fn get_sector(addr: u32, dual_bank: bool) -> FlashSector {
-    let offset = addr - FLASH_BASE as u32;
-
-    let bank_size = match dual_bank {
-        true => FLASH_SIZE / 2,
-        false => FLASH_SIZE,
-    } as u32;
-
-    let bank = offset / bank_size;
-    let offset_in_bank = offset % bank_size;
-
-    let index_in_bank = if offset_in_bank >= ERASE_SIZE as u32 / 2 {
-        4 + offset_in_bank / ERASE_SIZE as u32
-    } else {
-        offset_in_bank / (ERASE_SIZE as u32 / 8)
-    };
-
-    // First 4 sectors are 16KB, then one 64KB, and rest are 128KB
-    let size = match index_in_bank {
-        0..=3 => 16 * 1024,
-        4 => 64 * 1024,
-        _ => 128 * 1024,
-    };
-
-    let index = if bank == 1 {
-        SECOND_BANK_SECTOR_START + index_in_bank
-    } else {
-        index_in_bank
-    } as u8;
-
-    FlashSector { index, size }
-}
-
-pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    let mut addr = from;
-    let dual_bank = is_dual_bank();
-
-    while addr < to {
-        let sector = get_sector(addr, dual_bank);
-        erase_sector(sector.index)?;
-        addr += sector.size;
+        // prevents parallelism errors
+        fence(Ordering::SeqCst);
     }
 
-    Ok(())
+    blocking_wait_ready()
 }
 
-unsafe fn erase_sector(sector: u8) -> Result<(), Error> {
-    let bank = sector / SECOND_BANK_SECTOR_START as u8;
-    let snb = (bank << 4) + (sector % SECOND_BANK_SECTOR_START as u8);
-
-    trace!("Erasing sector: {}", sector);
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    let snb = ((sector.bank as u8) << 4) + sector.index_in_bank;
 
     pac::FLASH.cr().modify(|w| {
         w.set_ser(true);
@@ -148,7 +170,7 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-pub(crate) unsafe fn blocking_wait_ready() -> Result<(), Error> {
+unsafe fn blocking_wait_ready() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 
@@ -171,5 +193,82 @@ pub(crate) unsafe fn blocking_wait_ready() -> Result<(), Error> {
 
             return Ok(());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::flash::{get_sector, FlashBank};
+
+    #[test]
+    #[cfg(stm32f429)]
+    fn can_get_sector_single_bank() {
+        const SMALL_SECTOR_SIZE: u32 = 16 * 1024;
+        const MEDIUM_SECTOR_SIZE: u32 = 64 * 1024;
+        const LARGE_SECTOR_SIZE: u32 = 128 * 1024;
+
+        let assert_sector = |index_in_bank: u8, start: u32, size: u32, address: u32| {
+            assert_eq!(
+                FlashSector {
+                    bank: FlashBank::Bank1,
+                    index_in_bank,
+                    start,
+                    size
+                },
+                get_sector(address, &FLASH_REGIONS)
+            )
+        };
+
+        assert_sector(0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_0000);
+        assert_sector(0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_3FFF);
+        assert_sector(3, 0x0800_C000, SMALL_SECTOR_SIZE, 0x0800_C000);
+        assert_sector(3, 0x0800_C000, SMALL_SECTOR_SIZE, 0x0800_FFFF);
+
+        assert_sector(4, 0x0801_0000, MEDIUM_SECTOR_SIZE, 0x0801_0000);
+        assert_sector(4, 0x0801_0000, MEDIUM_SECTOR_SIZE, 0x0801_FFFF);
+
+        assert_sector(5, 0x0802_0000, LARGE_SECTOR_SIZE, 0x0802_0000);
+        assert_sector(5, 0x0802_0000, LARGE_SECTOR_SIZE, 0x0803_FFFF);
+        assert_sector(11, 0x080E_0000, LARGE_SECTOR_SIZE, 0x080E_0000);
+        assert_sector(11, 0x080E_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
+
+        let assert_sector = |bank: FlashBank, index_in_bank: u8, start: u32, size: u32, address: u32| {
+            assert_eq!(
+                FlashSector {
+                    bank,
+                    index_in_bank,
+                    start,
+                    size
+                },
+                get_sector(address, &ALT_FLASH_REGIONS)
+            )
+        };
+
+        assert_sector(FlashBank::Bank1, 0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_0000);
+        assert_sector(FlashBank::Bank1, 0, 0x0800_0000, SMALL_SECTOR_SIZE, 0x0800_3FFF);
+        assert_sector(FlashBank::Bank1, 3, 0x0800_C000, SMALL_SECTOR_SIZE, 0x0800_C000);
+        assert_sector(FlashBank::Bank1, 3, 0x0800_C000, SMALL_SECTOR_SIZE, 0x0800_FFFF);
+
+        assert_sector(FlashBank::Bank1, 4, 0x0801_0000, MEDIUM_SECTOR_SIZE, 0x0801_0000);
+        assert_sector(FlashBank::Bank1, 4, 0x0801_0000, MEDIUM_SECTOR_SIZE, 0x0801_FFFF);
+
+        assert_sector(FlashBank::Bank1, 5, 0x0802_0000, LARGE_SECTOR_SIZE, 0x0802_0000);
+        assert_sector(FlashBank::Bank1, 5, 0x0802_0000, LARGE_SECTOR_SIZE, 0x0803_FFFF);
+        assert_sector(FlashBank::Bank1, 7, 0x0806_0000, LARGE_SECTOR_SIZE, 0x0806_0000);
+        assert_sector(FlashBank::Bank1, 7, 0x0806_0000, LARGE_SECTOR_SIZE, 0x0807_FFFF);
+
+        assert_sector(FlashBank::Bank2, 0, 0x0808_0000, SMALL_SECTOR_SIZE, 0x0808_0000);
+        assert_sector(FlashBank::Bank2, 0, 0x0808_0000, SMALL_SECTOR_SIZE, 0x0808_3FFF);
+        assert_sector(FlashBank::Bank2, 3, 0x0808_C000, SMALL_SECTOR_SIZE, 0x0808_C000);
+        assert_sector(FlashBank::Bank2, 3, 0x0808_C000, SMALL_SECTOR_SIZE, 0x0808_FFFF);
+
+        assert_sector(FlashBank::Bank2, 4, 0x0809_0000, MEDIUM_SECTOR_SIZE, 0x0809_0000);
+        assert_sector(FlashBank::Bank2, 4, 0x0809_0000, MEDIUM_SECTOR_SIZE, 0x0809_FFFF);
+
+        assert_sector(FlashBank::Bank2, 5, 0x080A_0000, LARGE_SECTOR_SIZE, 0x080A_0000);
+        assert_sector(FlashBank::Bank2, 5, 0x080A_0000, LARGE_SECTOR_SIZE, 0x080B_FFFF);
+        assert_sector(FlashBank::Bank2, 7, 0x080E_0000, LARGE_SECTOR_SIZE, 0x080E_0000);
+        assert_sector(FlashBank::Bank2, 7, 0x080E_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
     }
 }

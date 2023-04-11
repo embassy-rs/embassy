@@ -43,9 +43,6 @@ pub mod i2c;
 
 #[cfg(crc)]
 pub mod crc;
-#[cfg(any(
-    flash_l0, flash_l1, flash_wl, flash_wb, flash_l4, flash_f3, flash_f4, flash_f7, flash_h7
-))]
 pub mod flash;
 pub mod pwm;
 #[cfg(quadspi)]
@@ -56,6 +53,8 @@ pub mod rng;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(stm32wl)]
+pub mod subghz;
 #[cfg(usart)]
 pub mod usart;
 #[cfg(all(usb, feature = "time"))]
@@ -64,9 +63,6 @@ pub mod usb;
 pub mod usb_otg;
 #[cfg(iwdg)]
 pub mod wdg;
-
-#[cfg(feature = "subghz")]
-pub mod subghz;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {

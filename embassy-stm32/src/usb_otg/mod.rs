@@ -89,6 +89,9 @@ foreach_interrupt!(
                 } else if #[cfg(stm32h7)] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
+                } else if #[cfg(stm32u5)] {
+                    const FIFO_DEPTH_WORDS: u16 = 320;
+                    const ENDPOINT_COUNT: usize = 6;
                 } else {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
@@ -135,6 +138,9 @@ foreach_interrupt!(
                     stm32f7,
                     stm32h7,
                 ))] {
+                    const FIFO_DEPTH_WORDS: u16 = 1024;
+                    const ENDPOINT_COUNT: usize = 9;
+                } else if #[cfg(stm32u5)] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else {

@@ -1,4 +1,7 @@
+pub mod complementary_pwm;
 pub mod simple_pwm;
+
+use stm32_metapac::timer::vals::Ckd;
 
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
@@ -67,6 +70,14 @@ pub(crate) mod sealed {
         unsafe fn get_max_compare_value(&self) -> u16;
     }
 
+    pub trait ComplementaryCaptureCompare16bitInstance: CaptureCompare16bitInstance {
+        unsafe fn set_dead_time_clock_division(&mut self, value: Ckd);
+
+        unsafe fn set_dead_time_value(&mut self, value: u8);
+
+        unsafe fn enable_complementary_channel(&mut self, channel: Channel, enable: bool);
+    }
+
     pub trait CaptureCompare32bitInstance: crate::timer::sealed::GeneralPurpose32bitInstance {
         unsafe fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode);
 
@@ -82,6 +93,12 @@ pub trait CaptureCompare16bitInstance:
     sealed::CaptureCompare16bitInstance + crate::timer::GeneralPurpose16bitInstance + 'static
 {
 }
+
+pub trait ComplementaryCaptureCompare16bitInstance:
+    sealed::ComplementaryCaptureCompare16bitInstance + crate::timer::AdvancedControlInstance + 'static
+{
+}
+
 pub trait CaptureCompare32bitInstance:
     sealed::CaptureCompare32bitInstance + CaptureCompare16bitInstance + crate::timer::GeneralPurpose32bitInstance + 'static
 {
@@ -207,6 +224,29 @@ foreach_interrupt! {
         }
 
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {
+
+        }
+
+        impl crate::pwm::sealed::ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {
+            unsafe fn set_dead_time_clock_division(&mut self, value: Ckd) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                Self::regs_advanced().cr1().modify(|w| w.set_ckd(value));
+            }
+
+            unsafe fn set_dead_time_value(&mut self, value: u8) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                Self::regs_advanced().bdtr().modify(|w| w.set_dtg(value));
+            }
+
+            unsafe fn enable_complementary_channel(&mut self, channel: Channel, enable: bool) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                Self::regs_advanced()
+                    .ccer()
+                    .modify(|w| w.set_ccne(channel.raw(), enable));
+            }
+        }
+
+        impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {
 
         }
     };

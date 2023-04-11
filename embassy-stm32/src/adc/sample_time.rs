@@ -25,7 +25,7 @@ macro_rules! impl_sample_time {
     };
 }
 
-#[cfg(adc_f1)]
+#[cfg(any(adc_f1, adc_v1))]
 impl_sample_time!(
     "1.5",
     Cycles1_5,

@@ -11,6 +11,7 @@ mod run_queue;
 #[cfg(feature = "integrated-timers")]
 mod timer_queue;
 pub(crate) mod util;
+#[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
 use core::future::Future;
@@ -18,11 +19,9 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::AtomicPtr;
 use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, Ordering};
-use critical_section::CriticalSection;
 #[cfg(feature = "integrated-timers")]
 use embassy_time::driver::{self, AlarmHandle};
 #[cfg(feature = "integrated-timers")]
@@ -289,10 +288,60 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum PenderInner {
+    #[cfg(feature = "executor-thread")]
+    Thread(crate::arch::ThreadPender),
+    #[cfg(feature = "executor-interrupt")]
+    Interrupt(crate::arch::InterruptPender),
+    #[cfg(feature = "pender-callback")]
+    Callback { func: fn(*mut ()), context: *mut () },
+}
+
+unsafe impl Send for PenderInner {}
+unsafe impl Sync for PenderInner {}
+
+/// Platform/architecture-specific action executed when an executor has pending work.
+///
+/// When a task within an executor is woken, the `Pender` is called. This does a
+/// platform/architecture-specific action to signal there is pending work in the executor.
+/// When this happens, you must arrange for [`Executor::poll`] to be called.
+///
+/// You can think of it as a waker, but for the whole executor.
+pub struct Pender(pub(crate) PenderInner);
+
+impl Pender {
+    /// Create a `Pender` that will call an arbitrary function pointer.
+    ///
+    /// # Arguments
+    ///
+    /// - `func`: The function pointer to call.
+    /// - `context`: Opaque context pointer, that will be passed to the function pointer.
+    #[cfg(feature = "pender-callback")]
+    pub fn new_from_callback(func: fn(*mut ()), context: *mut ()) -> Self {
+        Self(PenderInner::Callback {
+            func,
+            context: context.into(),
+        })
+    }
+}
+
+impl Pender {
+    pub(crate) fn pend(&self) {
+        match self.0 {
+            #[cfg(feature = "executor-thread")]
+            PenderInner::Thread(x) => x.pend(),
+            #[cfg(feature = "executor-interrupt")]
+            PenderInner::Interrupt(x) => x.pend(),
+            #[cfg(feature = "pender-callback")]
+            PenderInner::Callback { func, context } => func(context),
+        }
+    }
+}
+
 pub(crate) struct SyncExecutor {
     run_queue: RunQueue,
-    signal_fn: fn(*mut ()),
-    signal_ctx: AtomicPtr<()>,
+    pender: Pender,
 
     #[cfg(feature = "integrated-timers")]
     pub(crate) timer_queue: timer_queue::TimerQueue,
@@ -301,16 +350,13 @@ pub(crate) struct SyncExecutor {
 }
 
 impl SyncExecutor {
-    pub(crate) fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
+    pub(crate) fn new(pender: Pender) -> Self {
         #[cfg(feature = "integrated-timers")]
         let alarm = unsafe { unwrap!(driver::allocate_alarm()) };
-        #[cfg(feature = "integrated-timers")]
-        driver::set_alarm_callback(alarm, signal_fn, signal_ctx);
 
         Self {
             run_queue: RunQueue::new(),
-            signal_fn,
-            signal_ctx: AtomicPtr::new(signal_ctx),
+            pender,
 
             #[cfg(feature = "integrated-timers")]
             timer_queue: timer_queue::TimerQueue::new(),
@@ -326,13 +372,19 @@ impl SyncExecutor {
     /// - `task` must be set up to run in this executor.
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
-    unsafe fn enqueue(&self, cs: CriticalSection, task: TaskRef) {
+    unsafe fn enqueue(&self, task: TaskRef) {
         #[cfg(feature = "rtos-trace")]
         trace::task_ready_begin(task.as_ptr() as u32);
 
-        if self.run_queue.enqueue(cs, task) {
-            (self.signal_fn)(self.signal_ctx.load(Ordering::Relaxed))
+        if self.run_queue.enqueue(task) {
+            self.pender.pend();
         }
+    }
+
+    #[cfg(feature = "integrated-timers")]
+    fn alarm_callback(ctx: *mut ()) {
+        let this: &Self = unsafe { &*(ctx as *const Self) };
+        this.pender.pend();
     }
 
     pub(super) unsafe fn spawn(&'static self, task: TaskRef) {
@@ -341,15 +393,16 @@ impl SyncExecutor {
         #[cfg(feature = "rtos-trace")]
         trace::task_new(task.as_ptr() as u32);
 
-        critical_section::with(|cs| {
-            self.enqueue(cs, task);
-        })
+        self.enqueue(task);
     }
 
     /// # Safety
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
+        #[cfg(feature = "integrated-timers")]
+        driver::set_alarm_callback(self.alarm, Self::alarm_callback, self as *const _ as *mut ());
+
         #[allow(clippy::never_loop)]
         loop {
             #[cfg(feature = "integrated-timers")]
@@ -416,14 +469,14 @@ impl SyncExecutor {
 ///
 /// - To get the executor to do work, call `poll()`. This will poll all queued tasks (all tasks
 ///   that "want to run").
-/// - You must supply a `signal_fn`. The executor will call it to notify you it has work
+/// - You must supply a [`Pender`]. The executor will call it to notify you it has work
 ///   to do. You must arrange for `poll()` to be called as soon as possible.
 ///
-/// `signal_fn` can be called from *any* context: any thread, any interrupt priority
+/// The [`Pender`] can be called from *any* context: any thread, any interrupt priority
 /// level, etc. It may be called synchronously from any `Executor` method call as well.
 /// You must deal with this correctly.
 ///
-/// In particular, you must NOT call `poll` directly from `signal_fn`, as this violates
+/// In particular, you must NOT call `poll` directly from the pender callback, as this violates
 /// the requirement for `poll` to not be called reentrantly.
 #[repr(transparent)]
 pub struct Executor {
@@ -436,15 +489,15 @@ impl Executor {
     pub(crate) unsafe fn wrap(inner: &SyncExecutor) -> &Self {
         mem::transmute(inner)
     }
+
     /// Create a new executor.
     ///
-    /// When the executor has work to do, it will call `signal_fn` with
-    /// `signal_ctx` as argument.
+    /// When the executor has work to do, it will call the [`Pender`].
     ///
-    /// See [`Executor`] docs for details on `signal_fn`.
-    pub fn new(signal_fn: fn(*mut ()), signal_ctx: *mut ()) -> Self {
+    /// See [`Executor`] docs for details on `Pender`.
+    pub fn new(pender: Pender) -> Self {
         Self {
-            inner: SyncExecutor::new(signal_fn, signal_ctx),
+            inner: SyncExecutor::new(pender),
             _not_sync: PhantomData,
         }
     }
@@ -467,16 +520,16 @@ impl Executor {
     /// This loops over all tasks that are queued to be polled (i.e. they're
     /// freshly spawned or they've been woken). Other tasks are not polled.
     ///
-    /// You must call `poll` after receiving a call to `signal_fn`. It is OK
-    /// to call `poll` even when not requested by `signal_fn`, but it wastes
+    /// You must call `poll` after receiving a call to the [`Pender`]. It is OK
+    /// to call `poll` even when not requested by the `Pender`, but it wastes
     /// energy.
     ///
     /// # Safety
     ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///
-    /// In particular, note that `poll` may call `signal_fn` synchronously. Therefore, you
-    /// must NOT directly call `poll()` from your `signal_fn`. Instead, `signal_fn` has to
+    /// In particular, note that `poll` may call the `Pender` synchronously. Therefore, you
+    /// must NOT directly call `poll()` from the `Pender` callback. Instead, the callback has to
     /// somehow schedule for `poll()` to be called later, at a time you know for sure there's
     /// no `poll()` already running.
     pub unsafe fn poll(&'static self) {
@@ -496,24 +549,25 @@ impl Executor {
 ///
 /// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
 pub fn wake_task(task: TaskRef) {
-    critical_section::with(|cs| {
-        let header = task.header();
-        let state = header.state.load(Ordering::Relaxed);
+    let header = task.header();
 
+    let res = header.state.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
         // If already scheduled, or if not started,
         if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
-            return;
+            None
+        } else {
+            // Mark it as scheduled
+            Some(state | STATE_RUN_QUEUED)
         }
+    });
 
-        // Mark it as scheduled
-        header.state.store(state | STATE_RUN_QUEUED, Ordering::Relaxed);
-
+    if res.is_ok() {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
-            executor.enqueue(cs, task);
+            executor.enqueue(task);
         }
-    })
+    }
 }
 
 #[cfg(feature = "integrated-timers")]

@@ -72,34 +72,6 @@ where
         let _ = operations;
         todo!()
     }
-
-    fn write_iter<B: IntoIterator<Item = u8>>(&mut self, addr: u8, bytes: B) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        todo!()
-    }
-
-    fn write_iter_read<B: IntoIterator<Item = u8>>(
-        &mut self,
-        addr: u8,
-        bytes: B,
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        let _ = buffer;
-        todo!()
-    }
-
-    fn transaction_iter<'a, O: IntoIterator<Item = Operation<'a>>>(
-        &mut self,
-        address: u8,
-        operations: O,
-    ) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
-    }
 }
 
 impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cDevice<'_, M, BUS>
@@ -200,34 +172,6 @@ where
     }
 
     fn transaction<'a>(&mut self, address: u8, operations: &mut [Operation<'a>]) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
-    }
-
-    fn write_iter<B: IntoIterator<Item = u8>>(&mut self, addr: u8, bytes: B) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        todo!()
-    }
-
-    fn write_iter_read<B: IntoIterator<Item = u8>>(
-        &mut self,
-        addr: u8,
-        bytes: B,
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        let _ = buffer;
-        todo!()
-    }
-
-    fn transaction_iter<'a, O: IntoIterator<Item = Operation<'a>>>(
-        &mut self,
-        address: u8,
-        operations: O,
-    ) -> Result<(), Self::Error> {
         let _ = address;
         let _ = operations;
         todo!()

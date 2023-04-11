@@ -9,7 +9,7 @@ pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Speed};
-use crate::pac::{ETH, RCC, SYSCFG};
+use crate::pac::ETH;
 use crate::Peripheral;
 
 const MTU: usize = 1514; // 14 Ethernet header + 1500 IP packet
@@ -60,16 +60,33 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         unsafe {
             // Enable the necessary Clocks
             // NOTE(unsafe) We have exclusive access to the registers
+            #[cfg(not(rcc_h5))]
             critical_section::with(|_| {
-                RCC.apb4enr().modify(|w| w.set_syscfgen(true));
-                RCC.ahb1enr().modify(|w| {
+                crate::pac::RCC.apb4enr().modify(|w| w.set_syscfgen(true));
+                crate::pac::RCC.ahb1enr().modify(|w| {
                     w.set_eth1macen(true);
                     w.set_eth1txen(true);
                     w.set_eth1rxen(true);
                 });
 
                 // RMII
-                SYSCFG.pmcr().modify(|w| w.set_epis(0b100));
+                crate::pac::SYSCFG.pmcr().modify(|w| w.set_epis(0b100));
+            });
+
+            #[cfg(rcc_h5)]
+            critical_section::with(|_| {
+                crate::pac::RCC.apb3enr().modify(|w| w.set_sbsen(true));
+
+                crate::pac::RCC.ahb1enr().modify(|w| {
+                    w.set_ethen(true);
+                    w.set_ethtxen(true);
+                    w.set_ethrxen(true);
+                });
+
+                // RMII
+                crate::pac::SBS
+                    .pmcr()
+                    .modify(|w| w.set_eth_sel_phy(crate::pac::sbs::vals::EthSelPhy::B_0X4));
             });
 
             config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);

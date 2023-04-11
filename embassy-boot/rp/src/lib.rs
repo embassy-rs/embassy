@@ -5,33 +5,31 @@
 mod fmt;
 
 pub use embassy_boot::{AlignedBuffer, BootFlash, FirmwareUpdater, FlashConfig, Partition, SingleFlashConfig, State};
-use embassy_rp::flash::{Flash, ERASE_SIZE, WRITE_SIZE};
+use embassy_rp::flash::{Flash, ERASE_SIZE};
 use embassy_rp::peripherals::{FLASH, WATCHDOG};
 use embassy_rp::watchdog::Watchdog;
 use embassy_time::Duration;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for RP2040 devices.
-pub struct BootLoader {
+pub struct BootLoader<const BUFFER_SIZE: usize = ERASE_SIZE> {
     boot: embassy_boot::BootLoader,
-    magic: AlignedBuffer<WRITE_SIZE>,
-    page: AlignedBuffer<ERASE_SIZE>,
+    aligned_buf: AlignedBuffer<BUFFER_SIZE>,
 }
 
-impl BootLoader {
+impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     /// Create a new bootloader instance using the supplied partitions for active, dfu and state.
     pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
         Self {
             boot: embassy_boot::BootLoader::new(active, dfu, state),
-            magic: AlignedBuffer([0; WRITE_SIZE]),
-            page: AlignedBuffer([0; ERASE_SIZE]),
+            aligned_buf: AlignedBuffer([0; BUFFER_SIZE]),
         }
     }
 
     /// Inspect the bootloader state and perform actions required before booting, such as swapping
     /// firmware.
     pub fn prepare<F: FlashConfig>(&mut self, flash: &mut F) -> usize {
-        match self.boot.prepare_boot(flash, self.magic.as_mut(), self.page.as_mut()) {
+        match self.boot.prepare_boot(flash, self.aligned_buf.as_mut()) {
             Ok(_) => embassy_rp::flash::FLASH_BASE + self.boot.boot_address(),
             Err(_) => panic!("boot prepare error!"),
         }
@@ -54,7 +52,7 @@ impl BootLoader {
     }
 }
 
-impl Default for BootLoader {
+impl Default for BootLoader<ERASE_SIZE> {
     /// Create a new bootloader instance using parameters from linker script
     fn default() -> Self {
         extern "C" {
@@ -68,20 +66,20 @@ impl Default for BootLoader {
 
         let active = unsafe {
             Partition::new(
-                &__bootloader_active_start as *const u32 as usize,
-                &__bootloader_active_end as *const u32 as usize,
+                &__bootloader_active_start as *const u32 as u32,
+                &__bootloader_active_end as *const u32 as u32,
             )
         };
         let dfu = unsafe {
             Partition::new(
-                &__bootloader_dfu_start as *const u32 as usize,
-                &__bootloader_dfu_end as *const u32 as usize,
+                &__bootloader_dfu_start as *const u32 as u32,
+                &__bootloader_dfu_end as *const u32 as u32,
             )
         };
         let state = unsafe {
             Partition::new(
-                &__bootloader_state_start as *const u32 as usize,
-                &__bootloader_state_end as *const u32 as usize,
+                &__bootloader_state_start as *const u32 as u32,
+                &__bootloader_state_end as *const u32 as u32,
             )
         };
 

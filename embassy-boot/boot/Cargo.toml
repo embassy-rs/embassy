@@ -24,6 +24,7 @@ features = ["defmt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
+digest = "0.10"
 log = { version = "0.4", optional = true  }
 ed25519-dalek = { version = "1.0.1", default_features = false, features = ["u32_backend"], optional = true }
 embassy-sync = { version = "0.1.0", path = "../../embassy-sync" }
@@ -37,6 +38,7 @@ log = "0.4"
 env_logger = "0.9"
 rand = "0.7" # ed25519-dalek v1.0.1 depends on this exact version
 futures = { version = "0.3", features = ["executor"] }
+sha1 = "0.10.5"
 
 [dev-dependencies.ed25519-dalek]
 default_features = false

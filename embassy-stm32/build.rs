@@ -3,9 +3,9 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::{env, fs};
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::METADATA;
+use stm32_metapac::metadata::{MemoryRegionKind, METADATA};
 
 fn main() {
     let chip_name = match env::vars()
@@ -50,9 +50,12 @@ fn main() {
                 // We *shouldn't* have singletons for these, but the HAL currently requires
                 // singletons, for using with RccPeripheral to enable/disable clocks to them.
                 "rcc" => {
-                    if r.version.starts_with("h7") {
+                    if r.version.starts_with("h5") || r.version.starts_with("h7") || r.version.starts_with("f4") {
                         singletons.push("MCO1".to_string());
                         singletons.push("MCO2".to_string());
+                    }
+                    if r.version.starts_with("l4") {
+                        singletons.push("MCO".to_string());
                     }
                     singletons.push(p.name.to_string());
                 }
@@ -102,6 +105,94 @@ fn main() {
             )*
         }
     });
+
+    // ========
+    // Generate FLASH regions
+    let mut flash_regions = TokenStream::new();
+    let flash_memory_regions: Vec<_> = METADATA
+        .memory
+        .iter()
+        .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
+        .collect();
+    for region in flash_memory_regions.iter() {
+        let region_name = format_ident!("{}", get_flash_region_name(region.name));
+        let bank_variant = format_ident!(
+            "{}",
+            if region.name.starts_with("BANK_1") {
+                "Bank1"
+            } else if region.name.starts_with("BANK_2") {
+                "Bank2"
+            } else if region.name == "OTP" {
+                "Otp"
+            } else {
+                continue;
+            }
+        );
+        let base = region.address;
+        let size = region.size;
+        let settings = region.settings.as_ref().unwrap();
+        let erase_size = settings.erase_size;
+        let write_size = settings.write_size;
+        let erase_value = settings.erase_value;
+
+        flash_regions.extend(quote! {
+            pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
+                bank: crate::flash::FlashBank::#bank_variant,
+                base: #base,
+                size: #size,
+                erase_size: #erase_size,
+                write_size: #write_size,
+                erase_value: #erase_value,
+            };
+        });
+
+        let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
+        flash_regions.extend(quote! {
+            #[cfg(flash)]
+            pub struct #region_type<'d>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>,);
+        });
+    }
+
+    let (fields, (inits, region_names)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
+        .iter()
+        .map(|f| {
+            let region_name = get_flash_region_name(f.name);
+            let field_name = format_ident!("{}", region_name.to_lowercase());
+            let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
+            let field = quote! {
+                pub #field_name: #field_type<'d>
+            };
+            let region_name = format_ident!("{}", region_name);
+            let init = quote! {
+                #field_name: #field_type(&#region_name, unsafe { p.clone_unchecked()})
+            };
+
+            (field, (init, region_name))
+        })
+        .unzip();
+
+    let regions_len = flash_memory_regions.len();
+    flash_regions.extend(quote! {
+        #[cfg(flash)]
+        pub struct FlashLayout<'d> {
+            #(#fields),*
+        }
+
+        #[cfg(flash)]
+        impl<'d> FlashLayout<'d> {
+            pub(crate) fn new(mut p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
+                Self {
+                    #(#inits),*
+                }
+            }
+        }
+
+        pub const FLASH_REGIONS: [&crate::flash::FlashRegion; #regions_len] = [
+            #(&#region_names),*
+        ];
+    });
+
+    g.extend(quote! { pub mod flash_regions { #flash_regions } });
 
     // ========
     // Generate DMA IRQs.
@@ -258,6 +349,7 @@ fn main() {
         (("i2c", "SCL"), quote!(crate::i2c::SclPin)),
         (("rcc", "MCO_1"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO_2"), quote!(crate::rcc::McoPin)),
+        (("rcc", "MCO"), quote!(crate::rcc::McoPin)),
         (("dcmi", "D0"), quote!(crate::dcmi::D0Pin)),
         (("dcmi", "D1"), quote!(crate::dcmi::D1Pin)),
         (("dcmi", "D2"), quote!(crate::dcmi::D2Pin)),
@@ -447,8 +539,20 @@ fn main() {
                     // MCO is special
                     if pin.signal.starts_with("MCO_") {
                         // Supported in H7 only for now
-                        if regs.version.starts_with("h7") {
+                        if regs.version.starts_with("h5")
+                            || regs.version.starts_with("h7")
+                            || regs.version.starts_with("f4")
+                        {
                             peri = format_ident!("{}", pin.signal.replace("_", ""));
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    if pin.signal == "MCO" {
+                        // Supported in H7 only for now
+                        if regs.version.starts_with("l4") {
+                            peri = format_ident!("MCO");
                         } else {
                             continue;
                         }
@@ -565,10 +669,24 @@ fn main() {
     // ========
     // Write foreach_foo! macrotables
 
+    let mut flash_regions_table: Vec<Vec<String>> = Vec::new();
     let mut interrupts_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
+
+    for m in METADATA
+        .memory
+        .iter()
+        .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
+    {
+        let settings = m.settings.as_ref().unwrap();
+        let mut row = Vec::new();
+        row.push(get_flash_region_type_name(m.name));
+        row.push(settings.write_size.to_string());
+        row.push(settings.erase_size.to_string());
+        flash_regions_table.push(row);
+    }
 
     let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
     let gpio_stride = 0x400;
@@ -666,6 +784,7 @@ fn main() {
 
     let mut m = String::new();
 
+    make_table(&mut m, "foreach_flash_region", &flash_regions_table);
     make_table(&mut m, "foreach_interrupt", &interrupts_table);
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
@@ -817,4 +936,20 @@ macro_rules! {} {{
 }}"
     )
     .unwrap();
+}
+
+fn get_flash_region_name(name: &str) -> String {
+    let name = name.replace("BANK_", "BANK").replace("REGION_", "REGION");
+    if name.contains("REGION") {
+        name
+    } else {
+        name + "_REGION"
+    }
+}
+
+fn get_flash_region_type_name(name: &str) -> String {
+    get_flash_region_name(name)
+        .replace("BANK", "Bank")
+        .replace("REGION", "Region")
+        .replace("_", "")
 }
