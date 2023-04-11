@@ -1,4 +1,5 @@
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+#[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
 /// A region in flash used by the bootloader.
@@ -21,6 +22,43 @@ impl Partition {
     pub const fn size(&self) -> u32 {
         self.to - self.from
     }
+
+    /// Read from the partition on the provided flash
+    pub fn read_blocking<F: ReadNorFlash>(&self, flash: &mut F, offset: u32, bytes: &mut [u8]) -> Result<(), F::Error> {
+        let offset = self.from as u32 + offset;
+        flash.read(offset, bytes)
+    }
+
+    /// Write to the partition on the provided flash
+    pub fn write_blocking<F: NorFlash>(&self, flash: &mut F, offset: u32, bytes: &[u8]) -> Result<(), F::Error> {
+        let offset = self.from as u32 + offset;
+        flash.write(offset, bytes)?;
+        trace!("Wrote from 0x{:x} len {}", offset, bytes.len());
+        Ok(())
+    }
+
+    /// Erase part of the partition on the provided flash
+    pub fn erase_blocking<F: NorFlash>(&self, flash: &mut F, from: u32, to: u32) -> Result<(), F::Error> {
+        let from = self.from as u32 + from;
+        let to = self.from as u32 + to;
+        flash.erase(from, to)?;
+        trace!("Erased from 0x{:x} to 0x{:x}", from, to);
+        Ok(())
+    }
+
+    /// Erase the entire partition
+    pub(crate) fn wipe_blocking<F: NorFlash>(&self, flash: &mut F) -> Result<(), F::Error> {
+        let from = self.from as u32;
+        let to = self.to as u32;
+        flash.erase(from, to)?;
+        trace!("Wiped from 0x{:x} to 0x{:x}", from, to);
+        Ok(())
+    }
+}
+
+// Async API
+#[cfg(feature = "nightly")]
+impl Partition {
 
     /// Read from the partition on the provided flash
     pub async fn read<F: AsyncReadNorFlash>(
@@ -55,38 +93,6 @@ impl Partition {
         let from = self.from as u32;
         let to = self.to as u32;
         flash.erase(from, to).await?;
-        trace!("Wiped from 0x{:x} to 0x{:x}", from, to);
-        Ok(())
-    }
-
-    /// Read from the partition on the provided flash
-    pub fn read_blocking<F: ReadNorFlash>(&self, flash: &mut F, offset: u32, bytes: &mut [u8]) -> Result<(), F::Error> {
-        let offset = self.from as u32 + offset;
-        flash.read(offset, bytes)
-    }
-
-    /// Write to the partition on the provided flash
-    pub fn write_blocking<F: NorFlash>(&self, flash: &mut F, offset: u32, bytes: &[u8]) -> Result<(), F::Error> {
-        let offset = self.from as u32 + offset;
-        flash.write(offset, bytes)?;
-        trace!("Wrote from 0x{:x} len {}", offset, bytes.len());
-        Ok(())
-    }
-
-    /// Erase part of the partition on the provided flash
-    pub fn erase_blocking<F: NorFlash>(&self, flash: &mut F, from: u32, to: u32) -> Result<(), F::Error> {
-        let from = self.from as u32 + from;
-        let to = self.from as u32 + to;
-        flash.erase(from, to)?;
-        trace!("Erased from 0x{:x} to 0x{:x}", from, to);
-        Ok(())
-    }
-
-    /// Erase the entire partition
-    pub(crate) fn wipe_blocking<F: NorFlash>(&self, flash: &mut F) -> Result<(), F::Error> {
-        let from = self.from as u32;
-        let to = self.to as u32;
-        flash.erase(from, to)?;
         trace!("Wiped from 0x{:x} to 0x{:x}", from, to);
         Ok(())
     }

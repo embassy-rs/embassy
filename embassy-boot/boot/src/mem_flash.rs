@@ -3,6 +3,7 @@
 use core::ops::{Bound, Range, RangeBounds};
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
+#[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
 pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> {
@@ -134,6 +135,7 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFla
     }
 }
 
+#[cfg(feature = "nightly")]
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncReadNorFlash
     for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
 {
@@ -148,6 +150,7 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncR
     }
 }
 
+#[cfg(feature = "nightly")]
 impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncNorFlash
     for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
 {
