@@ -213,13 +213,13 @@ impl<'d, T: Instance> Timer<'d, T> {
     ///
     /// # Panics
     /// Panics if `n` >= the number of CC registers this timer has (4 for a normal timer, 6 for an extended timer).
-    pub fn cc(&mut self, n: usize) -> Cc<T> {
+    pub fn cc(&self, n: usize) -> Cc<'d, T> {
         if n >= T::CCS {
             panic!("Cannot get CC register {} of timer with {} CC registers.", n, T::CCS);
         }
         Cc {
             n,
-            _p: self._p.reborrow(),
+            _p: unsafe { self._p.clone_unchecked() },
         }
     }
 }
