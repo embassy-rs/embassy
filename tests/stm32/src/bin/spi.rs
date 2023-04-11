@@ -32,6 +32,8 @@ async fn main(_spawner: Spawner) {
     let (spi, sck, mosi, miso) = (p.SPI1, p.PE13, p.PE15, p.PE14);
     #[cfg(feature = "stm32h563zi")]
     let (spi, sck, mosi, miso) = (p.SPI4, p.PE12, p.PE14, p.PE13);
+    #[cfg(feature = "stm32c031c6")]
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
 
     info!("asdfa;");
     let mut spi = Spi::new(
@@ -49,7 +51,7 @@ async fn main(_spawner: Spawner) {
 
     // Arduino pins D11 and D12 (MOSI-MISO) are connected together with a 1K resistor.
     // so we should get the data we sent back.
-    let mut buf = data;
+    let mut buf = [0; 9];
     spi.blocking_transfer(&mut buf, &data).unwrap();
     assert_eq!(buf, data);
 
