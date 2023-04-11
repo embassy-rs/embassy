@@ -117,7 +117,7 @@ impl<'d, T: Instance> Timer<'d, T> {
 
         let regs = T::regs();
 
-        let mut this = Self { _p: timer };
+        let this = Self { _p: timer };
 
         // Stop the timer before doing anything else,
         // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.

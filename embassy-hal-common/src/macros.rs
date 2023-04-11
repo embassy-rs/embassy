@@ -92,7 +92,7 @@ macro_rules! impl_peripheral {
             type P = $type;
 
             #[inline]
-            unsafe fn clone_unchecked(&mut self) -> Self::P {
+            unsafe fn clone_unchecked(&self) -> Self::P {
                 $type { ..*self }
             }
         }

@@ -33,8 +33,7 @@ impl<'d> Flash<'d> {
     }
 
     pub(crate) fn release(self) -> PeripheralRef<'d, crate::peripherals::FLASH> {
-        let mut flash = self;
-        unsafe { flash.inner.clone_unchecked() }
+        unsafe { self.inner.clone_unchecked() }
     }
 }
 

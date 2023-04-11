@@ -153,7 +153,7 @@ impl<'d, T: Instance, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, V
         }))
     }
 
-    fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         (
             Bus {
                 _p: unsafe { self._p.clone_unchecked() },
