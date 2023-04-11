@@ -67,7 +67,7 @@ mod alt_regions {
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all flash region operations are protected with a cs.
-            let mut p = self.release();
+            let p = self.release();
             AltFlashLayout {
                 bank1_region1: Bank1Region1(&BANK1_REGION1, unsafe { p.clone_unchecked() }),
                 bank1_region2: Bank1Region2(&BANK1_REGION2, unsafe { p.clone_unchecked() }),

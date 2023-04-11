@@ -205,7 +205,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
     ) -> (UarteTx<'d, T>, UarteRxWithIdle<'d, T, U>) {
-        let mut timer = Timer::new(timer);
+        let timer = Timer::new(timer);
 
         into_ref!(ppi_ch1, ppi_ch2);
 

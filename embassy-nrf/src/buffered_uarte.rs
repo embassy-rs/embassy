@@ -342,7 +342,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         r.enable.write(|w| w.enable().enabled());
 
         // Configure byte counter.
-        let mut timer = Timer::new_counter(timer);
+        let timer = Timer::new_counter(timer);
         timer.cc(1).write(rx_buffer.len() as u32 * 2);
         timer.cc(1).short_compare_clear();
         timer.clear();

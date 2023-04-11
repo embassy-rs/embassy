@@ -315,7 +315,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Ppi::new_one_to_one(ppi_ch1, Event::from_reg(&r.events_end), Task::from_reg(&r.tasks_start));
         start_ppi.enable();
 
-        let mut timer = Timer::new(timer);
+        let timer = Timer::new(timer);
         timer.set_frequency(frequency);
         timer.cc(0).write(sample_counter);
         timer.cc(0).short_compare_clear();

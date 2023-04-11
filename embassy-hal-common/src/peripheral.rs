@@ -39,7 +39,7 @@ impl<'a, T> PeripheralRef<'a, T> {
     /// You should strongly prefer using `reborrow()` instead. It returns a
     /// `PeripheralRef` that borrows `self`, which allows the borrow checker
     /// to enforce this at compile time.
-    pub unsafe fn clone_unchecked(&mut self) -> PeripheralRef<'a, T>
+    pub unsafe fn clone_unchecked(&self) -> PeripheralRef<'a, T>
     where
         T: Peripheral<P = T>,
     {
@@ -146,14 +146,14 @@ pub trait Peripheral: Sized {
     ///
     /// You should strongly prefer using `into_ref()` instead. It returns a
     /// `PeripheralRef`, which allows the borrow checker to enforce this at compile time.
-    unsafe fn clone_unchecked(&mut self) -> Self::P;
+    unsafe fn clone_unchecked(&self) -> Self::P;
 
     /// Convert a value into a `PeripheralRef`.
     ///
     /// When called on an owned `T`, yields a `PeripheralRef<'static, T>`.
     /// When called on an `&'a mut T`, yields a `PeripheralRef<'a, T>`.
     #[inline]
-    fn into_ref<'a>(mut self) -> PeripheralRef<'a, Self::P>
+    fn into_ref<'a>(self) -> PeripheralRef<'a, Self::P>
     where
         Self: 'a,
     {
@@ -161,14 +161,14 @@ pub trait Peripheral: Sized {
     }
 }
 
-impl<'b, T: DerefMut> Peripheral for T
+impl<'b, T: Deref> Peripheral for T
 where
     T::Target: Peripheral,
 {
     type P = <T::Target as Peripheral>::P;
 
     #[inline]
-    unsafe fn clone_unchecked(&mut self) -> Self::P {
-        self.deref_mut().clone_unchecked()
+    unsafe fn clone_unchecked(&self) -> Self::P {
+        self.deref().clone_unchecked()
     }
 }
