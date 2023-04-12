@@ -28,11 +28,65 @@ pub struct Config {
     pub sys_ck: Option<Hertz>,
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
+    pub plli2s: Option<Hertz>,
 
     pub pll48: bool,
 }
 
-unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bool) -> PllResults {
+#[cfg(stm32f410)]
+unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+    None
+}
+
+// Not currently implemented, but will be in the future
+#[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
+unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+    None
+}
+
+#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+    let min_div = 2;
+    let max_div = 7;
+    let target = match plli2s {
+        Some(target) => target,
+        None => return None,
+    };
+
+    // We loop through the possible divider values to find the best configuration. Looping
+    // through all possible "N" values would result in more iterations.
+    let (n, outdiv, output, _error) = (min_div..=max_div)
+        .filter_map(|outdiv| {
+            let target_vco_out = match target.checked_mul(outdiv) {
+                Some(x) => x,
+                None => return None,
+            };
+            let n = (target_vco_out + (vco_in >> 1)) / vco_in;
+            let vco_out = vco_in * n;
+            if !(100_000_000..=432_000_000).contains(&vco_out) {
+                return None;
+            }
+            let output = vco_out / outdiv;
+            let error = (output as i32 - target as i32).unsigned_abs();
+            Some((n, outdiv, output, error))
+        })
+        .min_by_key(|(_, _, _, error)| *error)?;
+
+    RCC.plli2scfgr().modify(|w| {
+        w.set_plli2sn(n as u16);
+        w.set_plli2sr(outdiv as u8);
+    });
+
+    Some(output)
+}
+
+unsafe fn setup_pll(
+    pllsrcclk: u32,
+    use_hse: bool,
+    pllsysclk: Option<u32>,
+    plli2s: Option<u32>,
+    pll48clk: bool,
+) -> PllResults {
     use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
@@ -43,6 +97,7 @@ unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48
             use_pll: false,
             pllsysclk: None,
             pll48clk: None,
+            plli2sclk: None,
         };
     }
     // Input divisor from PLL source clock, must result to frequency in
@@ -101,6 +156,7 @@ unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48
         use_pll: true,
         pllsysclk: Some(real_pllsysclk),
         pll48clk: if pll48clk { Some(real_pll48clk) } else { None },
+        plli2sclk: setup_i2s_pll(vco_in, plli2s),
     }
 }
 
@@ -286,6 +342,7 @@ pub(crate) unsafe fn init(config: Config) {
         pllsrcclk,
         config.hse.is_some(),
         if sysclk_on_pll { Some(sysclk) } else { None },
+        config.plli2s.map(|i2s| i2s.0),
         config.pll48,
     );
 
@@ -376,6 +433,13 @@ pub(crate) unsafe fn init(config: Config) {
         while !RCC.cr().read().pllrdy() {}
     }
 
+    #[cfg(not(stm32f410))]
+    if plls.plli2sclk.is_some() {
+        RCC.cr().modify(|w| w.set_plli2son(true));
+
+        while !RCC.cr().read().plli2srdy() {}
+    }
+
     RCC.cfgr().modify(|w| {
         w.set_ppre2(Ppre(ppre2_bits));
         w.set_ppre1(Ppre(ppre1_bits));
@@ -416,6 +480,7 @@ struct PllResults {
     use_pll: bool,
     pllsysclk: Option<u32>,
     pll48clk: Option<u32>,
+    plli2sclk: Option<u32>,
 }
 
 mod max {
