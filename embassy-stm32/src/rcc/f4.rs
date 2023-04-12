@@ -34,13 +34,13 @@ pub struct Config {
 }
 
 #[cfg(stm32f410)]
-unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+unsafe fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
 // Not currently implemented, but will be in the future
 #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
-unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+unsafe fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
@@ -480,6 +480,7 @@ struct PllResults {
     use_pll: bool,
     pllsysclk: Option<u32>,
     pll48clk: Option<u32>,
+    #[allow(dead_code)]
     plli2sclk: Option<u32>,
 }
 
