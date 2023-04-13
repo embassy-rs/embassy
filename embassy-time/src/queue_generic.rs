@@ -2,8 +2,7 @@ use core::cell::RefCell;
 use core::cmp::{min, Ordering};
 use core::task::Waker;
 
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex;
+use critical_section::Mutex;
 use heapless::Vec;
 
 use crate::driver::{allocate_alarm, set_alarm, set_alarm_callback, AlarmHandle};
@@ -129,7 +128,7 @@ impl InnerQueue {
 }
 
 struct Queue {
-    inner: Mutex<CriticalSectionRawMutex, RefCell<Option<InnerQueue>>>,
+    inner: Mutex<RefCell<Option<InnerQueue>>>,
 }
 
 impl Queue {
@@ -140,8 +139,8 @@ impl Queue {
     }
 
     fn schedule_wake(&'static self, at: Instant, waker: &Waker) {
-        self.inner.lock(|inner| {
-            let mut inner = inner.borrow_mut();
+        critical_section::with(|cs| {
+            let mut inner = self.inner.borrow_ref_mut(cs);
 
             if inner.is_none() {}
 
@@ -159,8 +158,7 @@ impl Queue {
     }
 
     fn handle_alarm(&self) {
-        self.inner
-            .lock(|inner| inner.borrow_mut().as_mut().unwrap().handle_alarm());
+        critical_section::with(|cs| self.inner.borrow_ref_mut(cs).as_mut().unwrap().handle_alarm())
     }
 
     fn handle_alarm_callback(ctx: *mut ()) {

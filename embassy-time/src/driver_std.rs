@@ -5,8 +5,7 @@ use std::time::{Duration as StdDuration, Instant as StdInstant};
 use std::{mem, ptr, thread};
 
 use atomic_polyfill::{AtomicU8, Ordering};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::blocking_mutex::Mutex as EmbassyMutex;
+use critical_section::Mutex as CsMutex;
 
 use crate::driver::{AlarmHandle, Driver};
 
@@ -40,7 +39,7 @@ struct TimeDriver {
     // The STD Driver implementation requires the alarms' mutex to be reentrant, which the STD Mutex isn't
     // Fortunately, mutexes based on the `critical-section` crate are reentrant, because the critical sections
     // themselves are reentrant
-    alarms: UninitCell<EmbassyMutex<CriticalSectionRawMutex, RefCell<[AlarmState; ALARM_COUNT]>>>,
+    alarms: UninitCell<CsMutex<RefCell<[AlarmState; ALARM_COUNT]>>>,
     zero_instant: UninitCell<StdInstant>,
     signaler: UninitCell<Signaler>,
 }
@@ -58,8 +57,7 @@ crate::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
 impl TimeDriver {
     fn init(&self) {
         self.once.call_once(|| unsafe {
-            self.alarms
-                .write(EmbassyMutex::new(RefCell::new([ALARM_NEW; ALARM_COUNT])));
+            self.alarms.write(CsMutex::new(RefCell::new([ALARM_NEW; ALARM_COUNT])));
             self.zero_instant.write(StdInstant::now());
             self.signaler.write(Signaler::new());
 
@@ -72,7 +70,8 @@ impl TimeDriver {
         loop {
             let now = DRIVER.now();
 
-            let next_alarm = unsafe { DRIVER.alarms.as_ref() }.lock(|alarms| {
+            let next_alarm = critical_section::with(|cs| {
+                let alarms = unsafe { DRIVER.alarms.as_ref() }.borrow(cs);
                 loop {
                     let pending = alarms
                         .borrow_mut()
@@ -139,8 +138,8 @@ impl Driver for TimeDriver {
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
         self.init();
-        unsafe { self.alarms.as_ref() }.lock(|alarms| {
-            let mut alarms = alarms.borrow_mut();
+        critical_section::with(|cs| {
+            let mut alarms = unsafe { self.alarms.as_ref() }.borrow_ref_mut(cs);
             let alarm = &mut alarms[alarm.id() as usize];
             alarm.callback = callback as *const ();
             alarm.ctx = ctx;
@@ -149,9 +148,8 @@ impl Driver for TimeDriver {
 
     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         self.init();
-        unsafe { self.alarms.as_ref() }.lock(|alarms| {
-            let mut alarms = alarms.borrow_mut();
-
+        critical_section::with(|cs| {
+            let mut alarms = unsafe { self.alarms.as_ref() }.borrow_ref_mut(cs);
             let alarm = &mut alarms[alarm.id() as usize];
             alarm.timestamp = timestamp;
             unsafe { self.signaler.as_ref() }.signal();
