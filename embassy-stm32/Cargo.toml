@@ -31,7 +31,7 @@ flavors = [
 ]
 
 [dependencies]
-embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
 embassy-executor = { version = "0.1.0", path = "../embassy-executor" }
 embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
