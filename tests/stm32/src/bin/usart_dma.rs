@@ -71,6 +71,9 @@ async fn main(_spawner: Spawner) {
         p.GPDMA1_CH0,
         p.GPDMA1_CH1,
     );
+    #[cfg(feature = "stm32c031c6")]
+    let (tx, rx, usart, irq, tx_dma, rx_dma) =
+        (p.PB6, p.PB7, p.USART1, interrupt::take!(USART1), p.DMA1_CH1, p.DMA1_CH2);
 
     let config = Config::default();
     let mut usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config);

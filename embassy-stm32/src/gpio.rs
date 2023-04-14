@@ -29,7 +29,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     #[inline]
-    pub fn degrade(mut self) -> Flex<'d, AnyPin> {
+    pub fn degrade(self) -> Flex<'d, AnyPin> {
         // Safety: We are about to drop the other copy of this pin, so
         // this clone is safe.
         let pin = unsafe { self.pin.clone_unchecked() };

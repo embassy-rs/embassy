@@ -180,7 +180,7 @@ fn main() {
 
         #[cfg(flash)]
         impl<'d> FlashLayout<'d> {
-            pub(crate) fn new(mut p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
+            pub(crate) fn new(p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
                     #(#inits),*
                 }

@@ -148,7 +148,7 @@ impl Into<Pllp> for PLLMainDiv {
         match self {
             PLLMainDiv::Div2 => Pllp::DIV2,
             PLLMainDiv::Div4 => Pllp::DIV4,
-            PLLMainDiv::Div6 => Pllp::DIV8,
+            PLLMainDiv::Div6 => Pllp::DIV6,
             PLLMainDiv::Div8 => Pllp::DIV8,
         }
     }

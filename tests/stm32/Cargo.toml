@@ -8,6 +8,7 @@ license = "MIT OR Apache-2.0"
 stm32f103c8 = ["embassy-stm32/stm32f103c8"]     # Blue Pill
 stm32f429zi = ["embassy-stm32/stm32f429zi"]     # Nucleo
 stm32g071rb = ["embassy-stm32/stm32g071rb"]     # Nucleo
+stm32c031c6 = ["embassy-stm32/stm32c031c6"]     # Nucleo
 stm32g491re = ["embassy-stm32/stm32g491re"]     # Nucleo
 stm32h755zi = ["embassy-stm32/stm32h755zi-cm7"] # Nucleo
 stm32wb55rg = ["embassy-stm32/stm32wb55rg"]     # Nucleo
@@ -15,10 +16,10 @@ stm32h563zi = ["embassy-stm32/stm32h563zi"]     # Nucleo
 stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
 
 [dependencies]
-embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "tick-hz-32_768"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "memory-x", "time-driver-tim2"]  }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
 
 defmt = "0.3.0"
 defmt-rtt = "0.4"

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -156,7 +156,6 @@ embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", option
 embedded-hal-async = { version = "=0.2.0-alpha.1", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
-embassy-sync = { version = "0.1", path = "../embassy-sync" }
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
 cfg-if = "1.0.0"
