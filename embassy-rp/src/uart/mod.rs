@@ -651,61 +651,6 @@ mod eh1 {
     }
 }
 
-#[cfg(all(
-    feature = "unstable-traits",
-    feature = "nightly",
-    feature = "_todo_embedded_hal_serial"
-))]
-mod eha {
-    use core::future::Future;
-
-    use super::*;
-
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for UartTx<'d, T, M> {
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(buf)
-        }
-
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            async move { Ok(()) }
-        }
-    }
-
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for UartRx<'d, T, M> {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(buf)
-        }
-    }
-
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Write for Uart<'d, T, M> {
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.write(buf)
-        }
-
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            async move { Ok(()) }
-        }
-    }
-
-    impl<'d, T: Instance, M: Mode> embedded_hal_async::serial::Read for Uart<'d, T, M> {
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.read(buf)
-        }
-    }
-}
-
 mod sealed {
     use super::*;
 
