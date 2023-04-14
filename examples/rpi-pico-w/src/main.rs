@@ -61,11 +61,6 @@ async fn main(spawner: Spawner) {
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
-    // let clk = Output::new(p.PIN_29, Level::Low);
-    // let mut dio = Flex::new(p.PIN_24);
-    // dio.set_low();
-    // dio.set_as_output();
-    // // let bus = MySpi { clk, dio };
 
     let (_, sm, _, _, _) = p.PIO0.split();
     let dma = p.DMA_CH0;
