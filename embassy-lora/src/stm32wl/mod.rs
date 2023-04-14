@@ -1,5 +1,5 @@
 //! A radio driver integration for the radio found on STM32WL family devices.
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
@@ -241,14 +241,12 @@ fn configure_radio(radio: &mut SubGhz<'_, NoDma, NoDma>, config: SubGhzRadioConf
 impl<'d, RS: RadioSwitch> PhyRxTx for SubGhzRadio<'d, RS> {
     type PhyError = RadioError;
 
-    type TxFuture<'m> = impl Future<Output = Result<u32, Self::PhyError>> + 'm where Self: 'm;
-    fn tx<'m>(&'m mut self, config: TxConfig, buf: &'m [u8]) -> Self::TxFuture<'m> {
-        async move { self.do_tx(config, buf).await }
+    async fn tx(&mut self, config: TxConfig, buf: &[u8]) -> Result<u32, Self::PhyError> {
+        self.do_tx(config, buf).await
     }
 
-    type RxFuture<'m> = impl Future<Output = Result<(usize, RxQuality), Self::PhyError>> + 'm  where Self: 'm;
-    fn rx<'m>(&'m mut self, config: RfConfig, buf: &'m mut [u8]) -> Self::RxFuture<'m> {
-        async move { self.do_rx(config, buf).await }
+    async fn rx(&mut self, config: RfConfig, buf: &mut [u8]) -> Result<(usize, RxQuality), Self::PhyError> {
+        self.do_rx(config, buf).await
     }
 }
 

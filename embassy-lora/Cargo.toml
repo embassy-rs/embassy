@@ -38,5 +38,5 @@ futures = { version = "0.3.17", default-features = false, features = [ "async-aw
 embedded-hal = { version = "0.2", features = ["unproven"] }
 bit_field = { version = "0.10" }
 
-lorawan-device = { version = "0.8.0", default-features = false, features = ["async"] }
-lorawan = { version = "0.7.1", default-features = false }
+lorawan-device = { version = "0.8.0", git = "https://github.com/ivajloip/rust-lorawan.git", rev = "7d3eb40bc2412536c846cea40caff25198b6b068", default-features = false, features = ["async"] }
+lorawan = { version = "0.7.1", git = "https://github.com/ivajloip/rust-lorawan.git", rev = "7d3eb40bc2412536c846cea40caff25198b6b068", default-features = false }
