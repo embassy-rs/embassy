@@ -1651,8 +1651,6 @@ foreach_peripheral!(
 
 #[cfg(feature = "embedded-sdmmc")]
 mod sdmmc_rs {
-    use core::future::Future;
-
     use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 
     use super::*;
@@ -1660,49 +1658,37 @@ mod sdmmc_rs {
     impl<'d, T: Instance, Dma: SdmmcDma<T>> BlockDevice for Sdmmc<'d, T, Dma> {
         type Error = Error;
 
-        type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a
-        where
-            Self: 'a;
-
-        fn read<'a>(
-            &'a mut self,
-            blocks: &'a mut [Block],
+        async fn read(
+            &mut self,
+            blocks: &mut [Block],
             start_block_idx: BlockIdx,
             _reason: &str,
-        ) -> Self::ReadFuture<'a> {
-            async move {
-                let mut address = start_block_idx.0;
+        ) -> Result<(), Self::Error> {
+            let mut address = start_block_idx.0;
 
-                for block in blocks.iter_mut() {
-                    let block: &mut [u8; 512] = &mut block.contents;
+            for block in blocks.iter_mut() {
+                let block: &mut [u8; 512] = &mut block.contents;
 
-                    // NOTE(unsafe) Block uses align(4)
-                    let block = unsafe { &mut *(block as *mut _ as *mut DataBlock) };
-                    self.read_block(address, block).await?;
-                    address += 1;
-                }
-                Ok(())
+                // NOTE(unsafe) Block uses align(4)
+                let block = unsafe { &mut *(block as *mut _ as *mut DataBlock) };
+                self.read_block(address, block).await?;
+                address += 1;
             }
+            Ok(())
         }
 
-        fn write<'a>(&'a mut self, blocks: &'a [Block], start_block_idx: BlockIdx) -> Self::WriteFuture<'a> {
-            async move {
-                let mut address = start_block_idx.0;
+        async fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+            let mut address = start_block_idx.0;
 
-                for block in blocks.iter() {
-                    let block: &[u8; 512] = &block.contents;
+            for block in blocks.iter() {
+                let block: &[u8; 512] = &block.contents;
 
-                    // NOTE(unsafe) DataBlock uses align 4
-                    let block = unsafe { &*(block as *const _ as *const DataBlock) };
-                    self.write_block(address, block).await?;
-                    address += 1;
-                }
-                Ok(())
+                // NOTE(unsafe) DataBlock uses align 4
+                let block = unsafe { &*(block as *const _ as *const DataBlock) };
+                self.write_block(address, block).await?;
+                address += 1;
             }
+            Ok(())
         }
 
         fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
