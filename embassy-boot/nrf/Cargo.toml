@@ -37,4 +37,8 @@ defmt = [
 softdevice = [
     "nrf-softdevice-mbr",
 ]
-nightly = ["dep:embedded-storage-async", "embassy-boot/nightly", "embassy-nrf/nightly"]
+nightly = [
+    "dep:embedded-storage-async",
+    "embassy-boot/nightly",
+    "embassy-nrf/nightly"
+]
