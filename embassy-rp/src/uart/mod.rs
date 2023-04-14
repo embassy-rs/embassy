@@ -6,6 +6,7 @@ use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::{pac, peripherals, Peripheral};
+use crate::pac::io::vals::Inover;
 
 #[cfg(feature = "nightly")]
 mod buffered;
@@ -53,6 +54,14 @@ pub struct Config {
     pub data_bits: DataBits,
     pub stop_bits: StopBits,
     pub parity: Parity,
+    /// Invert the tx pin output
+    pub invert_tx: bool,
+    /// Invert the rx pin input
+    pub invert_rx: bool,
+    // Invert the rts pin
+    pub invert_rts: bool,
+    // Invert the cts pin
+    pub invert_cts: bool,
 }
 
 impl Default for Config {
@@ -62,6 +71,10 @@ impl Default for Config {
             data_bits: DataBits::DataBits8,
             stop_bits: StopBits::STOP1,
             parity: Parity::ParityNone,
+            invert_rx: false,
+            invert_tx: false,
+            invert_rts: false,
+            invert_cts: false,
         }
     }
 }
@@ -381,19 +394,31 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         let r = T::regs();
         unsafe {
             if let Some(pin) = &tx {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_inover(if config.invert_tx { Inover::INVERT } else { Inover::NORMAL });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
             if let Some(pin) = &rx {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_inover(if config.invert_rx { Inover::INVERT } else { Inover::NORMAL });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
             if let Some(pin) = &cts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_inover(if config.invert_cts { Inover::INVERT } else { Inover::NORMAL });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
             if let Some(pin) = &rts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_inover(if config.invert_rts { Inover::INVERT } else { Inover::NORMAL });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
 
