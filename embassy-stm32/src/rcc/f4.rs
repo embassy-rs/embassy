@@ -28,6 +28,8 @@ pub struct Config {
     pub sys_ck: Option<Hertz>,
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
+
+    #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
     pub plli2s: Option<Hertz>,
 
     pub pll48: bool,
@@ -342,7 +344,10 @@ pub(crate) unsafe fn init(config: Config) {
         pllsrcclk,
         config.hse.is_some(),
         if sysclk_on_pll { Some(sysclk) } else { None },
+        #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
         config.plli2s.map(|i2s| i2s.0),
+        #[cfg(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
+        None,
         config.pll48,
     );
 
@@ -473,6 +478,9 @@ pub(crate) unsafe fn init(config: Config) {
         ahb3: Hertz(hclk),
 
         pll48: plls.pll48clk.map(Hertz),
+
+        #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+        plli2s: plls.plli2sclk.map(Hertz),
     });
 }
 
