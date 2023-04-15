@@ -479,8 +479,11 @@ pub(crate) unsafe fn init(config: Config) {
 
         pll48: plls.pll48clk.map(Hertz),
 
-        #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+        #[cfg(not(stm32f410))]
         plli2s: plls.plli2sclk.map(Hertz),
+
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        pllsai: None,
     });
 }
 
