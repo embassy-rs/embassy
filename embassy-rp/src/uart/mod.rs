@@ -6,7 +6,7 @@ use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::{pac, peripherals, Peripheral};
-use crate::pac::io::vals::Inover;
+use crate::pac::io::vals::{Inover, Outover};
 
 #[cfg(feature = "nightly")]
 mod buffered;
@@ -396,7 +396,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             if let Some(pin) = &tx {
                 pin.io().ctrl().write(|w| {
                     w.set_funcsel(2);
-                    w.set_inover(if config.invert_tx { Inover::INVERT } else { Inover::NORMAL });
+                    w.set_outover(if config.invert_tx { Outover::INVERT } else { Outover::NORMAL });
                 });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
@@ -417,7 +417,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             if let Some(pin) = &rts {
                 pin.io().ctrl().write(|w| {
                     w.set_funcsel(2);
-                    w.set_inover(if config.invert_rts { Inover::INVERT } else { Inover::NORMAL });
+                    w.set_outover(if config.invert_rts { Outover::INVERT } else { Outover::NORMAL });
                 });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
