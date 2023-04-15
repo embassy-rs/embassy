@@ -4,7 +4,6 @@
 #![feature(async_fn_in_trait)]
 #![allow(incomplete_features)]
 
-use core::slice;
 use core::str::from_utf8;
 
 use cyw43_pio::PioSpi;
@@ -12,8 +11,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, Stack, StackResources};
-use embassy_rp::gpio::{Flex, Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_24, PIN_25, PIN_29};
+use embassy_rp::gpio::{Level, Output};
+use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25};
 use embassy_rp::pio::{Pio0, PioPeripheral, PioStateMachineInstance, Sm0};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
@@ -62,11 +61,6 @@ async fn main(spawner: Spawner) {
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
-    // let clk = Output::new(p.PIN_29, Level::Low);
-    // let mut dio = Flex::new(p.PIN_24);
-    // dio.set_low();
-    // dio.set_as_output();
-    // // let bus = MySpi { clk, dio };
 
     let (_, sm, _, _, _) = p.PIO0.split();
     let dma = p.DMA_CH0;
@@ -150,88 +144,3 @@ async fn main(spawner: Spawner) {
     }
 }
 
-struct MySpi {
-    /// SPI clock
-    clk: Output<'static, PIN_29>,
-
-    /// 4 signals, all in one!!
-    /// - SPI MISO
-    /// - SPI MOSI
-    /// - IRQ
-    /// - strap to set to gSPI mode on boot.
-    dio: Flex<'static, PIN_24>,
-
-    /// Chip select
-    cs: Output<'static, PIN_25>,
-}
-
-impl MySpi {
-    async fn read(&mut self, words: &mut [u32]) {
-        self.dio.set_as_input();
-        for word in words {
-            let mut w = 0;
-            for _ in 0..32 {
-                w = w << 1;
-
-                // rising edge, sample data
-                if self.dio.is_high() {
-                    w |= 0x01;
-                }
-                self.clk.set_high();
-
-                // falling edge
-                self.clk.set_low();
-            }
-            *word = w
-        }
-    }
-
-    async fn write(&mut self, words: &[u32]) {
-        self.dio.set_as_output();
-        for word in words {
-            let mut word = *word;
-            for _ in 0..32 {
-                // falling edge, setup data
-                self.clk.set_low();
-                if word & 0x8000_0000 == 0 {
-                    self.dio.set_low();
-                } else {
-                    self.dio.set_high();
-                }
-
-                // rising edge
-                self.clk.set_high();
-
-                word = word << 1;
-            }
-        }
-        self.clk.set_low();
-
-        self.dio.set_as_input();
-    }
-}
-
-impl cyw43::SpiBusCyw43 for MySpi {
-    async fn cmd_write(&mut self, write: &[u32]) -> u32 {
-        self.cs.set_low();
-        self.write(write).await;
-
-        let mut status = 0;
-        self.read(slice::from_mut(&mut status)).await;
-
-        self.cs.set_high();
-        status
-    }
-
-    async fn cmd_read(&mut self, write: u32, read: &mut [u32]) -> u32 {
-        self.cs.set_low();
-        self.write(slice::from_ref(&write)).await;
-        self.read(read).await;
-
-        let mut status = 0;
-        self.read(slice::from_mut(&mut status)).await;
-
-        self.cs.set_high();
-        status
-    }
-}
