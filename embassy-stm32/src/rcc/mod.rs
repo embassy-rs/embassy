@@ -60,6 +60,12 @@ pub struct Clocks {
     #[cfg(any(rcc_f2, rcc_f4, rcc_f410, rcc_f7))]
     pub pll48: Option<Hertz>,
 
+    #[cfg(all(rcc_f4, not(stm32f410)))]
+    pub plli2s: Option<Hertz>,
+
+    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+    pub pllsai: Option<Hertz>,
+
     #[cfg(stm32f1)]
     pub adc: Hertz,
 
