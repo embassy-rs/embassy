@@ -1,5 +1,5 @@
 #[macro_export]
-macro_rules! peripherals {
+macro_rules! peripherals_definition {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
         /// Types for the peripheral singletons.
         pub mod peripherals {
@@ -26,7 +26,12 @@ macro_rules! peripherals {
                 $crate::impl_peripheral!($name);
             )*
         }
+    };
+}
 
+#[macro_export]
+macro_rules! peripherals_struct {
+    ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
         /// Struct containing all the peripheral singletons.
         ///
         /// To obtain the peripherals, you must initialize the HAL, by calling [`crate::init`].
@@ -73,6 +78,24 @@ macro_rules! peripherals {
                 }
             }
         }
+    };
+}
+
+#[macro_export]
+macro_rules! peripherals {
+    ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
+        $crate::peripherals_definition!(
+            $(
+                $(#[$cfg])?
+                $name,
+            )*
+        );
+        $crate::peripherals_struct!(
+            $(
+                $(#[$cfg])?
+                $name,
+            )*
+        );
     };
 }
 
