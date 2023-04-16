@@ -599,10 +599,6 @@ fn main() {
                     let pin_name = format_ident!("{}", pin.pin);
                     let af = pin.af.unwrap_or(0);
 
-                    if peri == time_driver_singleton {
-                        continue;
-                    }
-
                     // MCO is special
                     if pin.signal.starts_with("MCO_") {
                         // Supported in H7 only for now
