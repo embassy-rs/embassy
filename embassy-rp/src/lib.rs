@@ -44,9 +44,9 @@ pub use embassy_cortex_m::executor;
 pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
-pub use rp2040_pac2 as pac;
+pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
-pub(crate) use rp2040_pac2 as pac;
+pub(crate) use rp_pac as pac;
 
 embassy_hal_common::peripherals! {
     PIN_0,
