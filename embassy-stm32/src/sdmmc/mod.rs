@@ -793,7 +793,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_read(buffer as *mut [u32; 128], 512, 9, data_transfer_timeout, dma);
+            self.prepare_datapath_read(buffer, 512, 9, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::read_single_block(address), true)?;
@@ -1121,7 +1121,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_read(&mut status as *mut [u32; 16], 64, 6, data_transfer_timeout, dma);
+            self.prepare_datapath_read(&mut status, 64, 6, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::cmd6(set_function), true)?; // CMD6
@@ -1202,7 +1202,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(|| unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_read(&mut status as *mut [u32; 16], 64, 6, data_transfer_timeout, dma);
+            self.prepare_datapath_read(&mut status, 64, 6, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::card_status(0), true)?;
@@ -1320,7 +1320,7 @@ impl SdmmcInner {
         let on_drop = OnDrop::new(move || unsafe { self.on_drop() });
 
         unsafe {
-            self.prepare_datapath_read(&mut scr as *mut [u32], 8, 3, data_transfer_timeout, dma);
+            self.prepare_datapath_read(&mut scr[..], 8, 3, data_transfer_timeout, dma);
             self.data_interrupts(true);
         }
         self.cmd(Cmd::cmd51(), true)?;
@@ -1560,15 +1560,14 @@ pin_trait!(D5Pin, Instance);
 pin_trait!(D6Pin, Instance);
 pin_trait!(D7Pin, Instance);
 
-cfg_if::cfg_if! {
-    if #[cfg(sdmmc_v1)] {
-        dma_trait!(SdmmcDma, Instance);
-    } else if #[cfg(sdmmc_v2)] {
-        // SDMMCv2 uses internal DMA
-        pub trait SdmmcDma<T: Instance> {}
-        impl<T: Instance> SdmmcDma<T> for NoDma {}
-    }
-}
+#[cfg(sdmmc_v1)]
+dma_trait!(SdmmcDma, Instance);
+
+// SDMMCv2 uses internal DMA
+#[cfg(sdmmc_v2)]
+pub trait SdmmcDma<T: Instance> {}
+#[cfg(sdmmc_v2)]
+impl<T: Instance> SdmmcDma<T> for NoDma {}
 
 cfg_if::cfg_if! {
     // TODO, these could not be implemented, because required clocks are not exposed in RCC:
