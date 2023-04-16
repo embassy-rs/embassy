@@ -135,57 +135,53 @@ enum Response {
     Long = 3,
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(sdmmc_v1)] {
-        /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
-        /// `sdmmc_ck` in Hertz.
-        ///
-        /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
-        /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
-        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
-            // sdmmc_v1 maximum clock is 50 MHz
-            if sdmmc_ck > 50_000_000 {
-                return Err(Error::BadClock);
-            }
+/// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
+/// `sdmmc_ck` in Hertz.
+///
+/// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
+/// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
+#[cfg(sdmmc_v1)]
+fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
+    // sdmmc_v1 maximum clock is 50 MHz
+    if sdmmc_ck > 50_000_000 {
+        return Err(Error::BadClock);
+    }
 
-            // bypass divisor
-            if ker_ck.0 <= sdmmc_ck {
-                return Ok((true, 0, ker_ck));
-            }
+    // bypass divisor
+    if ker_ck.0 <= sdmmc_ck {
+        return Ok((true, 0, ker_ck));
+    }
 
-            // `ker_ck / sdmmc_ck` rounded up
-            let clk_div = match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
-                0 | 1 => Ok(0),
-                x @ 2..=258 => {
-                    Ok((x - 2) as u8)
-                }
-                _ => Err(Error::BadClock),
-            }?;
+    // `ker_ck / sdmmc_ck` rounded up
+    let clk_div = match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
+        0 | 1 => Ok(0),
+        x @ 2..=258 => Ok((x - 2) as u8),
+        _ => Err(Error::BadClock),
+    }?;
 
-            // SDIO_CK frequency = SDIOCLK / [CLKDIV + 2]
-            let clk_f = Hertz(ker_ck.0 / (clk_div as u32 + 2));
-            Ok((false, clk_div, clk_f))
+    // SDIO_CK frequency = SDIOCLK / [CLKDIV + 2]
+    let clk_f = Hertz(ker_ck.0 / (clk_div as u32 + 2));
+    Ok((false, clk_div, clk_f))
+}
+
+/// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
+/// `sdmmc_ck` in Hertz.
+///
+/// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
+/// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
+#[cfg(sdmmc_v2)]
+fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
+    // `ker_ck / sdmmc_ck` rounded up
+    match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
+        0 | 1 => Ok((false, 0, ker_ck)),
+        x @ 2..=2046 => {
+            // SDMMC_CK frequency = SDMMCCLK / [CLKDIV + 2]
+            let clk_div = ((x + 1) / 2) as u16;
+            let clk = Hertz(ker_ck.0 / (clk_div as u32 * 2));
+
+            Ok((false, clk_div, clk))
         }
-    } else if #[cfg(sdmmc_v2)] {
-        /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
-        /// `sdmmc_ck` in Hertz.
-        ///
-        /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
-        /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
-        fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
-            // `ker_ck / sdmmc_ck` rounded up
-            match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
-                0 | 1 => Ok((false, 0, ker_ck)),
-                x @ 2..=2046 => {
-                    // SDMMC_CK frequency = SDMMCCLK / [CLKDIV + 2]
-                    let clk_div = ((x + 1) / 2) as u16;
-                    let clk = Hertz(ker_ck.0 / (clk_div as u32 * 2));
-
-                    Ok((false, clk_div, clk))
-                }
-                _ => Err(Error::BadClock),
-            }
-        }
+        _ => Err(Error::BadClock),
     }
 }
 
@@ -904,13 +900,10 @@ impl SdmmcInner {
         // NOTE(unsafe) Atomic read with no side-effects
         unsafe {
             let status = regs.star().read();
-            cfg_if::cfg_if! {
-                if #[cfg(sdmmc_v1)] {
-                    status.rxact() || status.txact()
-                } else if #[cfg(sdmmc_v2)] {
-                    status.dpsmact()
-                }
-            }
+            #[cfg(sdmmc_v1)]
+            return status.rxact() || status.txact();
+            #[cfg(sdmmc_v2)]
+            return status.dpsmact();
         }
     }
 
@@ -922,13 +915,10 @@ impl SdmmcInner {
         // NOTE(unsafe) Atomic read with no side-effects
         unsafe {
             let status = regs.star().read();
-            cfg_if::cfg_if! {
-                if #[cfg(sdmmc_v1)] {
-                    status.cmdact()
-                } else if #[cfg(sdmmc_v2)] {
-                    status.cpsmact()
-                }
-            }
+            #[cfg(sdmmc_v1)]
+            return status.cmdact();
+            #[cfg(sdmmc_v2)]
+            return status.cpsmact();
         }
     }
 
@@ -961,20 +951,26 @@ impl SdmmcInner {
         regs.dtimer().write(|w| w.set_datatime(data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
-        cfg_if::cfg_if! {
-            if #[cfg(sdmmc_v1)] {
-                let request = dma.request();
-                dma.start_read(request, regs.fifor().ptr() as *const u32, buffer, crate::dma::TransferOptions {
+        #[cfg(sdmmc_v1)]
+        {
+            let request = dma.request();
+            dma.start_read(
+                request,
+                regs.fifor().ptr() as *const u32,
+                buffer,
+                crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
                     mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
                     fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
-                });
-            } else if #[cfg(sdmmc_v2)] {
-                regs.idmabase0r().write(|w| w.set_idmabase0(buffer as *mut u32 as u32));
-                regs.idmactrlr().modify(|w| w.set_idmaen(true));
-            }
+                },
+            );
+        }
+        #[cfg(sdmmc_v2)]
+        {
+            regs.idmabase0r().write(|w| w.set_idmabase0(buffer as *mut u32 as u32));
+            regs.idmactrlr().modify(|w| w.set_idmaen(true));
         }
 
         regs.dctrl().modify(|w| {
@@ -1011,20 +1007,27 @@ impl SdmmcInner {
         regs.dtimer().write(|w| w.set_datatime(data_transfer_timeout));
         regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
-        cfg_if::cfg_if! {
-            if #[cfg(sdmmc_v1)] {
-                let request = dma.request();
-                dma.start_write(request, buffer, regs.fifor().ptr() as *mut u32, crate::dma::TransferOptions {
+        #[cfg(sdmmc_v1)]
+        {
+            let request = dma.request();
+            dma.start_write(
+                request,
+                buffer,
+                regs.fifor().ptr() as *mut u32,
+                crate::dma::TransferOptions {
                     pburst: crate::dma::Burst::Incr4,
                     mburst: crate::dma::Burst::Incr4,
                     flow_ctrl: crate::dma::FlowControl::Peripheral,
                     fifo_threshold: Some(crate::dma::FifoThreshold::Full),
                     ..Default::default()
-                });
-            } else if #[cfg(sdmmc_v2)] {
-                regs.idmabase0r().write(|w| w.set_idmabase0(buffer as *const u32 as u32));
-                regs.idmactrlr().modify(|w| w.set_idmaen(true));
-            }
+                },
+            );
+        }
+        #[cfg(sdmmc_v2)]
+        {
+            regs.idmabase0r()
+                .write(|w| w.set_idmabase0(buffer as *const u32 as u32));
+            regs.idmactrlr().modify(|w| w.set_idmaen(true));
         }
 
         regs.dctrl().modify(|w| {
@@ -1043,16 +1046,13 @@ impl SdmmcInner {
         let regs = self.0;
 
         unsafe {
-            cfg_if::cfg_if! {
-                if #[cfg(sdmmc_v1)] {
-                    regs.dctrl().modify(|w| {
-                        w.set_dmaen(false);
-                        w.set_dten(false);
-                    });
-                } else if #[cfg(sdmmc_v2)] {
-                    regs.idmactrlr().modify(|w| w.set_idmaen(false));
-                }
-            }
+            #[cfg(sdmmc_v1)]
+            regs.dctrl().modify(|w| {
+                w.set_dmaen(false);
+                w.set_dten(false);
+            });
+            #[cfg(sdmmc_v2)]
+            regs.idmactrlr().modify(|w| w.set_idmaen(false));
         }
     }
 
