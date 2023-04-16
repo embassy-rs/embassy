@@ -185,6 +185,21 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
     }
 }
 
+#[cfg(sdmmc_v1)]
+type Transfer<'a, C> = crate::dma::Transfer<'a, C>;
+#[cfg(sdmmc_v2)]
+type Transfer<'a, C> = core::marker::PhantomData<&'a mut C>;
+
+#[cfg(all(sdmmc_v1, dma))]
+const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
+    pburst: crate::dma::Burst::Incr4,
+    mburst: crate::dma::Burst::Incr4,
+    flow_ctrl: crate::dma::FlowControl::Peripheral,
+    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
+};
+#[cfg(all(sdmmc_v1, not(dma)))]
+const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {};
+
 /// SDMMC configuration
 ///
 /// Default values:
@@ -490,7 +505,12 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    unsafe fn prepare_datapath_read(&mut self, buffer: *mut [u32], length_bytes: u32, block_size: u8) {
+    fn prepare_datapath_read<'a>(
+        &'a mut self,
+        buffer: &'a mut [u32],
+        length_bytes: u32,
+        block_size: u8,
+    ) -> Transfer<'a, Dma> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 
@@ -499,48 +519,52 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::clear_interrupt_flags();
 
         // NOTE(unsafe) We have exclusive access to the regisers
+        unsafe {
+            regs.dtimer()
+                .write(|w| w.set_datatime(self.config.data_transfer_timeout));
+            regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
-        regs.dlenr().write(|w| w.set_datalength(length_bytes));
-
-        #[cfg(sdmmc_v1)]
-        {
-            let request = self.dma.request();
-            self.dma.start_read(
-                request,
-                regs.fifor().ptr() as *const u32,
-                buffer,
-                crate::dma::TransferOptions {
-                    pburst: crate::dma::Burst::Incr4,
-                    mburst: crate::dma::Burst::Incr4,
-                    flow_ctrl: crate::dma::FlowControl::Peripheral,
-                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
-                    ..Default::default()
-                },
-            );
-        }
-        #[cfg(sdmmc_v2)]
-        {
-            regs.idmabase0r().write(|w| w.set_idmabase0(buffer as *mut u32 as u32));
-            regs.idmactrlr().modify(|w| w.set_idmaen(true));
-        }
-
-        regs.dctrl().modify(|w| {
-            w.set_dblocksize(block_size);
-            w.set_dtdir(true);
             #[cfg(sdmmc_v1)]
-            {
-                w.set_dmaen(true);
-                w.set_dten(true);
-            }
-        });
+            let transfer = {
+                let request = self.dma.request();
+                Transfer::new_read(
+                    &mut self.dma,
+                    request,
+                    regs.fifor().ptr() as *mut u32,
+                    buffer,
+                    DMA_TRANSFER_OPTIONS,
+                )
+            };
+            #[cfg(sdmmc_v2)]
+            let transfer = {
+                regs.idmabase0r().write(|w| w.set_idmabase0(buffer.as_mut_ptr() as u32));
+                regs.idmactrlr().modify(|w| w.set_idmaen(true));
+                core::marker::PhantomData
+            };
+
+            regs.dctrl().modify(|w| {
+                w.set_dblocksize(block_size);
+                w.set_dtdir(true);
+                #[cfg(sdmmc_v1)]
+                {
+                    w.set_dmaen(true);
+                    w.set_dten(true);
+                }
+            });
+
+            transfer
+        }
     }
 
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    unsafe fn prepare_datapath_write(&mut self, buffer: *const [u32], length_bytes: u32, block_size: u8) {
+    fn prepare_datapath_write<'a>(
+        &'a mut self,
+        buffer: &'a [u32],
+        length_bytes: u32,
+        block_size: u8,
+    ) -> Transfer<'a, Dma> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 
@@ -549,43 +573,41 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::clear_interrupt_flags();
 
         // NOTE(unsafe) We have exclusive access to the regisers
+        unsafe {
+            regs.dtimer()
+                .write(|w| w.set_datatime(self.config.data_transfer_timeout));
+            regs.dlenr().write(|w| w.set_datalength(length_bytes));
 
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
-        regs.dlenr().write(|w| w.set_datalength(length_bytes));
-
-        #[cfg(sdmmc_v1)]
-        {
-            let request = self.dma.request();
-            self.dma.start_write(
-                request,
-                buffer,
-                regs.fifor().ptr() as *mut u32,
-                crate::dma::TransferOptions {
-                    pburst: crate::dma::Burst::Incr4,
-                    mburst: crate::dma::Burst::Incr4,
-                    flow_ctrl: crate::dma::FlowControl::Peripheral,
-                    fifo_threshold: Some(crate::dma::FifoThreshold::Full),
-                    ..Default::default()
-                },
-            );
-        }
-        #[cfg(sdmmc_v2)]
-        {
-            regs.idmabase0r()
-                .write(|w| w.set_idmabase0(buffer as *const u32 as u32));
-            regs.idmactrlr().modify(|w| w.set_idmaen(true));
-        }
-
-        regs.dctrl().modify(|w| {
-            w.set_dblocksize(block_size);
-            w.set_dtdir(false);
             #[cfg(sdmmc_v1)]
-            {
-                w.set_dmaen(true);
-                w.set_dten(true);
-            }
-        });
+            let transfer = {
+                let request = self.dma.request();
+                Transfer::new_write(
+                    &mut self.dma,
+                    request,
+                    buffer,
+                    regs.fifor().ptr() as *mut u32,
+                    DMA_TRANSFER_OPTIONS,
+                )
+            };
+            #[cfg(sdmmc_v2)]
+            let transfer = {
+                regs.idmabase0r().write(|w| w.set_idmabase0(buffer.as_ptr() as u32));
+                regs.idmactrlr().modify(|w| w.set_idmaen(true));
+                core::marker::PhantomData
+            };
+
+            regs.dctrl().modify(|w| {
+                w.set_dblocksize(block_size);
+                w.set_dtdir(false);
+                #[cfg(sdmmc_v1)]
+                {
+                    w.set_dmaen(true);
+                    w.set_dten(true);
+                }
+            });
+
+            transfer
+        }
     }
 
     /// Stops the DMA datapath
@@ -662,11 +684,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
-        unsafe {
-            self.prepare_datapath_read(&mut status, 64, 6);
-            Self::data_interrupts(true);
-        }
-        self.cmd(Cmd::cmd6(set_function), true)?; // CMD6
+        let transfer = self.prepare_datapath_read(&mut status, 64, 6);
+        Self::data_interrupts(true);
+        Self::cmd(Cmd::cmd6(set_function), true)?; // CMD6
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -696,6 +716,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             Ok(_) => {
                 on_drop.defuse();
                 Self::stop_datapath();
+                drop(transfer);
 
                 // Function Selection of Function Group 1
                 let selection = (u32::from_be(status[4]) >> 24) & 0xF;
@@ -718,7 +739,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let rca = card.rca;
 
-        self.cmd(Cmd::card_status(rca << 16), false)?; // CMD13
+        Self::cmd(Cmd::card_status(rca << 16), false)?; // CMD13
 
         // NOTE(unsafe) Atomic read with no side-effects
         let r1 = unsafe { regs.respr(0).read().cardstatus() };
@@ -730,8 +751,8 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
         let rca = card.rca;
 
-        self.cmd(Cmd::set_block_length(64), false)?; // CMD16
-        self.cmd(Cmd::app_cmd(rca << 16), false)?; // APP
+        Self::cmd(Cmd::set_block_length(64), false)?; // CMD16
+        Self::cmd(Cmd::app_cmd(rca << 16), false)?; // APP
 
         let mut status = [0u32; 16];
 
@@ -739,11 +760,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
-        unsafe {
-            self.prepare_datapath_read(&mut status, 64, 6);
-            Self::data_interrupts(true);
-        }
-        self.cmd(Cmd::card_status(0), true)?;
+        let transfer = self.prepare_datapath_read(&mut status, 64, 6);
+        Self::data_interrupts(true);
+        Self::cmd(Cmd::card_status(0), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -764,6 +783,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         if res.is_ok() {
             on_drop.defuse();
             Self::stop_datapath();
+            drop(transfer);
 
             for byte in status.iter_mut() {
                 *byte = u32::from_be(*byte);
@@ -781,7 +801,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         // Determine Relative Card Address (RCA) of given card
         let rca = card.map(|c| c.rca << 16).unwrap_or(0);
 
-        let r = self.cmd(Cmd::sel_desel_card(rca), false);
+        let r = Self::cmd(Cmd::sel_desel_card(rca), false);
         match (r, rca) {
             (Err(Error::Timeout), 0) => Ok(()),
             _ => r,
@@ -842,8 +862,8 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
     async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
         // Read the the 64-bit SCR register
-        self.cmd(Cmd::set_block_length(8), false)?; // CMD16
-        self.cmd(Cmd::app_cmd(card.rca << 16), false)?;
+        Self::cmd(Cmd::set_block_length(8), false)?; // CMD16
+        Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
 
         let mut scr = [0u32; 2];
 
@@ -851,11 +871,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let regs = T::regs();
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
-        unsafe {
-            self.prepare_datapath_read(&mut scr[..], 8, 3);
-            Self::data_interrupts(true);
-        }
-        self.cmd(Cmd::cmd51(), true)?;
+        let transfer = self.prepare_datapath_read(&mut scr[..], 8, 3);
+        Self::data_interrupts(true);
+        Self::cmd(Cmd::cmd51(), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -876,6 +894,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         if res.is_ok() {
             on_drop.defuse();
             Self::stop_datapath();
+            drop(transfer);
 
             unsafe {
                 let scr_bytes = &*(&scr as *const [u32; 2] as *const [u8; 8]);
@@ -887,7 +906,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
     /// Send command to card
     #[allow(unused_variables)]
-    fn cmd(&self, cmd: Cmd, data: bool) -> Result<(), Error> {
+    fn cmd(cmd: Cmd, data: bool) -> Result<(), Error> {
         let regs = T::regs();
 
         Self::clear_interrupt_flags();
@@ -1005,10 +1024,10 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             });
 
             regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-            self.cmd(Cmd::idle(), false)?;
+            Self::cmd(Cmd::idle(), false)?;
 
             // Check if cards supports CMD8 (with pattern)
-            self.cmd(Cmd::hs_send_ext_csd(0x1AA), false)?;
+            Self::cmd(Cmd::hs_send_ext_csd(0x1AA), false)?;
             let r1 = regs.respr(0).read().cardstatus();
 
             let mut card = if r1 == 0x1AA {
@@ -1020,14 +1039,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
             let ocr = loop {
                 // Signal that next command is a app command
-                self.cmd(Cmd::app_cmd(0), false)?; // CMD55
+                Self::cmd(Cmd::app_cmd(0), false)?; // CMD55
 
                 let arg = CmdAppOper::VOLTAGE_WINDOW_SD as u32
                     | CmdAppOper::HIGH_CAPACITY as u32
                     | CmdAppOper::SD_SWITCH_1_8V_CAPACITY as u32;
 
                 // Initialize card
-                match self.cmd(Cmd::app_op_cmd(arg), false) {
+                match Self::cmd(Cmd::app_op_cmd(arg), false) {
                     // ACMD41
                     Ok(_) => (),
                     Err(Error::Crc) => (),
@@ -1048,7 +1067,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             }
             card.ocr = ocr;
 
-            self.cmd(Cmd::all_send_cid(), false)?; // CMD2
+            Self::cmd(Cmd::all_send_cid(), false)?; // CMD2
             let cid0 = regs.respr(0).read().cardstatus() as u128;
             let cid1 = regs.respr(1).read().cardstatus() as u128;
             let cid2 = regs.respr(2).read().cardstatus() as u128;
@@ -1056,10 +1075,10 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             let cid = (cid0 << 96) | (cid1 << 64) | (cid2 << 32) | (cid3);
             card.cid = cid.into();
 
-            self.cmd(Cmd::send_rel_addr(), false)?;
+            Self::cmd(Cmd::send_rel_addr(), false)?;
             card.rca = regs.respr(0).read().cardstatus() >> 16;
 
-            self.cmd(Cmd::send_csd(card.rca << 16), false)?;
+            Self::cmd(Cmd::send_csd(card.rca << 16), false)?;
             let csd0 = regs.respr(0).read().cardstatus() as u128;
             let csd1 = regs.respr(1).read().cardstatus() as u128;
             let csd2 = regs.respr(2).read().cardstatus() as u128;
@@ -1077,8 +1096,8 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
                 BusWidth::Four if card.scr.bus_width_four() => (BusWidth::Four, 2),
                 _ => (BusWidth::One, 0),
             };
-            self.cmd(Cmd::app_cmd(card.rca << 16), false)?;
-            self.cmd(Cmd::cmd6(acmd_arg), false)?;
+            Self::cmd(Cmd::app_cmd(card.rca << 16), false)?;
+            Self::cmd(Cmd::cmd6(acmd_arg), false)?;
 
             // CPSMACT and DPSMACT must be 0 to set WIDBUS
             Self::wait_idle();
@@ -1139,16 +1158,14 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             CardCapacity::SDSC => block_idx * 512,
             _ => block_idx,
         };
-        self.cmd(Cmd::set_block_length(512), false)?; // CMD16
+        Self::cmd(Cmd::set_block_length(512), false)?; // CMD16
 
         let regs = T::regs();
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
-        unsafe {
-            self.prepare_datapath_read(buffer, 512, 9);
-            Self::data_interrupts(true);
-        }
-        self.cmd(Cmd::read_single_block(address), true)?;
+        let transfer = self.prepare_datapath_read(buffer, 512, 9);
+        Self::data_interrupts(true);
+        Self::cmd(Cmd::read_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -1169,6 +1186,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         if res.is_ok() {
             on_drop.defuse();
             Self::stop_datapath();
+            drop(transfer);
         }
         res
     }
@@ -1185,22 +1203,20 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             CardCapacity::SDSC => block_idx * 512,
             _ => block_idx,
         };
-        self.cmd(Cmd::set_block_length(512), false)?; // CMD16
+        Self::cmd(Cmd::set_block_length(512), false)?; // CMD16
 
         let regs = T::regs();
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
         // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
         #[cfg(sdmmc_v1)]
-        self.cmd(Cmd::write_single_block(address), true)?;
+        Self::cmd(Cmd::write_single_block(address), true)?;
 
-        unsafe {
-            self.prepare_datapath_write(buffer as *const [u32; 128], 512, 9);
-            Self::data_interrupts(true);
-        }
+        let transfer = self.prepare_datapath_write(buffer, 512, 9);
+        Self::data_interrupts(true);
 
         #[cfg(sdmmc_v2)]
-        self.cmd(Cmd::write_single_block(address), true)?;
+        Self::cmd(Cmd::write_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
@@ -1222,6 +1238,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             Ok(_) => {
                 on_drop.defuse();
                 Self::stop_datapath();
+                drop(transfer);
 
                 // TODO: Make this configurable
                 let mut timeout: u32 = 0x00FF_FFFF;

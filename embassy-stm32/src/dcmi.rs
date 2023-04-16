@@ -4,6 +4,7 @@ use core::task::Poll;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::interrupt::{Interrupt, InterruptExt};
@@ -385,14 +386,11 @@ where
             return self.capture_giant(buffer).await;
         }
     }
-
     async fn capture_small(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
-        let channel = &mut self.dma;
-        let request = channel.request();
-
         let r = self.inner.regs();
         let src = r.dr().ptr() as *mut u32;
-        let dma_read = crate::dma::read(channel, request, src, buffer);
+        let request = self.dma.request();
+        let dma_read = unsafe { Transfer::new_read(&mut self.dma, request, src, buffer, Default::default()) };
 
         Self::clear_interrupt_flags();
         Self::enable_irqs();
@@ -436,7 +434,9 @@ where
         result
     }
 
-    async fn capture_giant(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
+    async fn capture_giant(&mut self, _buffer: &mut [u32]) -> Result<(), Error> {
+        todo!()
+        /*
         use crate::dma::TransferOptions;
 
         let data_len = buffer.len();
@@ -542,6 +542,7 @@ where
         unsafe { Self::toggle(false) };
 
         result
+        */
     }
 }
 

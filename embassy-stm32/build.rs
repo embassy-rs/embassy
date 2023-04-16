@@ -260,7 +260,7 @@ fn main() {
     // ========
     // Generate DMA IRQs.
 
-    let mut dma_irqs: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
+    let mut dma_irqs: HashMap<&str, Vec<(&str, &str, &str)>> = HashMap::new();
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
@@ -270,7 +270,10 @@ fn main() {
                     continue;
                 }
                 for irq in p.interrupts {
-                    dma_irqs.entry(irq.interrupt).or_default().push((p.name, irq.signal));
+                    dma_irqs
+                        .entry(irq.interrupt)
+                        .or_default()
+                        .push((r.kind, p.name, irq.signal));
                 }
             }
         }
@@ -279,13 +282,14 @@ fn main() {
     for (irq, channels) in dma_irqs {
         let irq = format_ident!("{}", irq);
 
-        let channels = channels.iter().map(|(dma, ch)| format_ident!("{}_{}", dma, ch));
+        let xdma = format_ident!("{}", channels[0].0);
+        let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
 
         g.extend(quote! {
             #[crate::interrupt]
             unsafe fn #irq () {
                 #(
-                    <crate::peripherals::#channels as crate::dma::sealed::Channel>::on_irq();
+                    <crate::peripherals::#channels as crate::dma::#xdma::sealed::Channel>::on_irq();
                 )*
             }
         });

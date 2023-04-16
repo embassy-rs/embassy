@@ -6,11 +6,11 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_cortex_m::interrupt::InterruptExt;
-use embassy_futures::select::{select, Either};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use futures::future::{select, Either};
 
-use crate::dma::NoDma;
+use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
 #[cfg(any(lpuart_v1, lpuart_v2))]
 use crate::pac::lpuart::{regs, vals, Lpuart as Regs};
@@ -91,7 +91,7 @@ enum ReadCompletionEvent {
     // DMA Read transfer completed first
     DmaCompleted,
     // Idle line detected first
-    Idle,
+    Idle(usize),
 }
 
 pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
@@ -183,7 +183,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         }
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
-        let transfer = crate::dma::write(ch, request, buffer, tdr(T::regs()));
+        let transfer = unsafe { Transfer::new_write(ch, request, buffer, tdr(T::regs()), Default::default()) };
         transfer.await;
         Ok(())
     }
@@ -430,10 +430,12 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         let ch = &mut self.rx_dma;
         let request = ch.request();
 
+        let buffer_len = buffer.len();
+
         // Start USART DMA
         // will not do anything yet because DMAR is not yet set
         // future which will complete when DMA Read request completes
-        let transfer = crate::dma::read(ch, request, rdr(T::regs()), buffer);
+        let transfer = unsafe { Transfer::new_read(ch, request, rdr(T::regs()), buffer, Default::default()) };
 
         // SAFETY: The only way we might have a problem is using split rx and tx
         // here we only modify or read Rx related flags, interrupts and DMA channel
@@ -565,13 +567,15 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         // when transfer is dropped, it will stop the DMA request
         let r = match select(transfer, idle).await {
             // DMA transfer completed first
-            Either::First(()) => Ok(ReadCompletionEvent::DmaCompleted),
+            Either::Left(((), _)) => Ok(ReadCompletionEvent::DmaCompleted),
 
             // Idle line detected first
-            Either::Second(Ok(())) => Ok(ReadCompletionEvent::Idle),
+            Either::Right((Ok(()), transfer)) => Ok(ReadCompletionEvent::Idle(
+                buffer_len - transfer.get_remaining_transfers() as usize,
+            )),
 
             // error occurred
-            Either::Second(Err(e)) => Err(e),
+            Either::Right((Err(e), _)) => Err(e),
         };
 
         drop(on_drop);
@@ -594,14 +598,9 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         // wait for DMA to complete or IDLE line detection if requested
         let res = self.inner_read_run(buffer, enable_idle_line_detection).await;
 
-        let ch = &mut self.rx_dma;
-
         match res {
             Ok(ReadCompletionEvent::DmaCompleted) => Ok(buffer_len),
-            Ok(ReadCompletionEvent::Idle) => {
-                let n = buffer_len - (ch.remaining_transfers() as usize);
-                Ok(n)
-            }
+            Ok(ReadCompletionEvent::Idle(n)) => Ok(n),
             Err(e) => Err(e),
         }
     }

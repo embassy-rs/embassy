@@ -421,8 +421,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        unsafe { self.txdma.start_write(tx_request, data, tx_dst, Default::default()) }
-        let tx_f = Transfer::new(&mut self.txdma);
+        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
 
         unsafe {
             set_txdmaen(T::REGS, true);
@@ -468,13 +467,21 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        unsafe { self.rxdma.start_read(rx_request, rx_src, data, Default::default()) };
-        let rx_f = Transfer::new(&mut self.rxdma);
+        let rx_f = unsafe { Transfer::new_read(&mut self.rxdma, rx_request, rx_src, data, Default::default()) };
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
         let clock_byte = 0x00u8;
-        let tx_f = crate::dma::write_repeated(&mut self.txdma, tx_request, &clock_byte, clock_byte_count, tx_dst);
+        let tx_f = unsafe {
+            Transfer::new_write_repeated(
+                &mut self.txdma,
+                tx_request,
+                &clock_byte,
+                clock_byte_count,
+                tx_dst,
+                Default::default(),
+            )
+        };
 
         unsafe {
             set_txdmaen(T::REGS, true);
@@ -521,13 +528,11 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let rx_request = self.rxdma.request();
         let rx_src = T::REGS.rx_ptr();
-        unsafe { self.rxdma.start_read(rx_request, rx_src, read, Default::default()) };
-        let rx_f = Transfer::new(&mut self.rxdma);
+        let rx_f = unsafe { Transfer::new_read_raw(&mut self.rxdma, rx_request, rx_src, read, Default::default()) };
 
         let tx_request = self.txdma.request();
         let tx_dst = T::REGS.tx_ptr();
-        unsafe { self.txdma.start_write(tx_request, write, tx_dst, Default::default()) }
-        let tx_f = Transfer::new(&mut self.txdma);
+        let tx_f = unsafe { Transfer::new_write_raw(&mut self.txdma, tx_request, write, tx_dst, Default::default()) };
 
         unsafe {
             set_txdmaen(T::REGS, true);
