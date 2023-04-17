@@ -1,8 +1,5 @@
 //! RTC peripheral abstraction
 use core::marker::PhantomData;
-
-#[cfg_attr(feature = "chrono", path = "datetime_chrono.rs")]
-#[cfg_attr(not(feature = "chrono"), path = "datetime_no_deps.rs")]
 mod datetime;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};

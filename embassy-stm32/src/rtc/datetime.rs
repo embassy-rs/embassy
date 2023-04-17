@@ -1,3 +1,8 @@
+use core::convert::From;
+
+#[cfg(feature = "chrono")]
+use chrono::{self, Datelike, NaiveDate, Timelike, Weekday};
+
 use super::byte_to_bcd2;
 use crate::pac::rtc::Rtc;
 
@@ -41,6 +46,35 @@ pub struct DateTime {
     pub second: u8,
 }
 
+#[cfg(feature = "chrono")]
+impl From<chrono::NaiveDateTime> for DateTime {
+    fn from(date_time: chrono::NaiveDateTime) -> Self {
+        Self {
+            year: (date_time.year() - 1970) as u16,
+            month: date_time.month() as u8,
+            day: date_time.day() as u8,
+            day_of_week: date_time.weekday().into(),
+            hour: date_time.hour() as u8,
+            minute: date_time.minute() as u8,
+            second: date_time.second() as u8,
+        }
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl From<DateTime> for chrono::NaiveDateTime {
+    fn from(date_time: DateTime) -> Self {
+        NaiveDate::from_ymd_opt(
+            (date_time.year + 1970) as i32,
+            date_time.month as u32,
+            date_time.day as u32,
+        )
+        .unwrap()
+        .and_hms_opt(date_time.hour as u32, date_time.minute as u32, date_time.second as u32)
+        .unwrap()
+    }
+}
+
 /// A day of the week
 #[repr(u8)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -53,6 +87,28 @@ pub enum DayOfWeek {
     Friday = 4,
     Saturday = 5,
     Sunday = 6,
+}
+
+#[cfg(feature = "chrono")]
+impl From<chrono::Weekday> for DayOfWeek {
+    fn from(weekday: Weekday) -> Self {
+        day_of_week_from_u8(weekday.number_from_monday() as u8).unwrap()
+    }
+}
+
+#[cfg(feature = "chrono")]
+impl From<DayOfWeek> for chrono::Weekday {
+    fn from(weekday: DayOfWeek) -> Self {
+        match weekday {
+            DayOfWeek::Monday => Weekday::Mon,
+            DayOfWeek::Tuesday => Weekday::Tue,
+            DayOfWeek::Wednesday => Weekday::Wed,
+            DayOfWeek::Thursday => Weekday::Thu,
+            DayOfWeek::Friday => Weekday::Fri,
+            DayOfWeek::Saturday => Weekday::Sat,
+            DayOfWeek::Sunday => Weekday::Sun,
+        }
+    }
 }
 
 fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
