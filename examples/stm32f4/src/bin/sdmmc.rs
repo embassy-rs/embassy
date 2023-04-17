@@ -39,7 +39,18 @@ async fn main(_spawner: Spawner) {
     // Should print 400kHz for initialization
     info!("Configured clock: {}", sdmmc.clock().0);
 
-    unwrap!(sdmmc.init_card(mhz(48)).await);
+    let mut err = None;
+    loop {
+        match sdmmc.init_card(mhz(24)).await {
+            Ok(_) => break,
+            Err(e) => {
+                if err != Some(e) {
+                    info!("waiting for card error, retrying: {:?}", e);
+                    err = Some(e);
+                }
+            }
+        }
+    }
 
     let card = unwrap!(sdmmc.card());
 
