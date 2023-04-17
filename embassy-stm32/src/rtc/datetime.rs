@@ -1,3 +1,4 @@
+#[cfg(feature = "chrono")]
 use core::convert::From;
 
 #[cfg(feature = "chrono")]
