@@ -10,7 +10,7 @@ pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
     any(
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
     ),
-    path = "v2/mod.rs"
+    path = "v2.rs"
 )]
 #[cfg_attr(any(rtc_v3, rtc_v3u5), path = "v3.rs")]
 mod versions;

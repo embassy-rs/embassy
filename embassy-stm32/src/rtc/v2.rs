@@ -3,20 +3,6 @@ use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 use super::{Instance, RtcConfig};
 use crate::pac::rtc::Rtc;
 
-#[cfg_attr(rtc_v2f0, path = "v2f0.rs")]
-#[cfg_attr(rtc_v2f2, path = "v2f2.rs")]
-#[cfg_attr(rtc_v2f3, path = "v2f3.rs")]
-#[cfg_attr(rtc_v2f4, path = "v2f4.rs")]
-#[cfg_attr(rtc_v2f7, path = "v2f7.rs")]
-#[cfg_attr(rtc_v2h7, path = "v2h7.rs")]
-#[cfg_attr(rtc_v2l0, path = "v2l0.rs")]
-#[cfg_attr(rtc_v2l1, path = "v2l1.rs")]
-#[cfg_attr(rtc_v2l4, path = "v2l4.rs")]
-#[cfg_attr(rtc_v2wb, path = "v2wb.rs")]
-mod family;
-
-pub use family::*;
-
 impl<'d, T: Instance> super::Rtc<'d, T> {
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
@@ -167,5 +153,83 @@ pub fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
 pub fn write_backup_register(rtc: &Rtc, register: usize, value: u32) {
     if register < BACKUP_REGISTER_COUNT {
         unsafe { rtc.bkpr(register).write(|w| w.set_bkp(value)) }
+    }
+}
+
+pub(crate) unsafe fn enable_peripheral_clk() {
+    #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2l4, rtc_v2wb))]
+    {
+        // enable peripheral clock for communication
+        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+
+        // read to allow the pwr clock to enable
+        crate::pac::PWR.cr1().read();
+    }
+}
+
+pub const BACKUP_REGISTER_COUNT: usize = 20;
+
+pub(super) unsafe fn unlock_backup_domain(clock_config: u8) {
+    #[cfg(not(rtc_v2wb))]
+    use stm32_metapac::rcc::vals::Rtcsel;
+
+    #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
+    let cr = crate::pac::PWR.cr();
+    #[cfg(any(rtc_v2f0, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+    let cr = crate::pac::PWR.cr1();
+
+    // TODO: Missing from PAC for l0?
+    #[cfg(not(rtc_v2l0))]
+    {
+        cr.modify(|w| w.set_dbp(true));
+        while !cr.read().dbp() {}
+    }
+
+    #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+    let reg = crate::pac::RCC.bdcr().read();
+    #[cfg(any(rtc_v2l0, rtc_v2l1))]
+    let reg = crate::pac::RCC.csr().read();
+
+    #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+    assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
+
+    #[cfg(rtc_v2wb)]
+    let rtcsel = reg.rtcsel();
+    #[cfg(not(rtc_v2wb))]
+    let rtcsel = reg.rtcsel().0;
+
+    if !reg.rtcen() || rtcsel != clock_config {
+        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+        crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
+
+        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+        let cr = crate::pac::RCC.bdcr();
+        #[cfg(any(rtc_v2l0, rtc_v2l1))]
+        let cr = crate::pac::RCC.csr();
+
+        cr.modify(|w| {
+            // Reset
+            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+            w.set_bdrst(false);
+
+            // Select RTC source
+            #[cfg(not(rtc_v2wb))]
+            w.set_rtcsel(Rtcsel(clock_config));
+            #[cfg(rtc_v2wb)]
+            w.set_rtcsel(clock_config);
+            w.set_rtcen(true);
+
+            // Restore bcdr
+            #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2l4, rtc_v2wb))]
+            w.set_lscosel(reg.lscosel());
+            #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2l4, rtc_v2wb))]
+            w.set_lscoen(reg.lscoen());
+
+            w.set_lseon(reg.lseon());
+
+            #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+            w.set_lsedrv(reg.lsedrv());
+            w.set_lsebyp(reg.lsebyp());
+        });
     }
 }
