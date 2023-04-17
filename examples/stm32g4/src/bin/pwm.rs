@@ -15,8 +15,8 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let ch1 = PwmPin::new_ch1(p.PA5);
-    let mut pwm = SimplePwm::new(p.TIM2, Some(ch1), None, None, None, khz(10));
+    let ch1 = PwmPin::new_ch1(p.PC0);
+    let mut pwm = SimplePwm::new(p.TIM1, Some(ch1), None, None, None, khz(10));
     let max = pwm.get_max_duty();
     pwm.enable(Channel::Ch1);
 

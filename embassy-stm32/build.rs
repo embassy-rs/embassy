@@ -81,11 +81,74 @@ fn main() {
         singletons.push(c.name.to_string());
     }
 
+    // ========
+    // Handle time-driver-XXXX features.
+
+    let time_driver = match env::vars()
+        .map(|(a, _)| a)
+        .filter(|x| x.starts_with("CARGO_FEATURE_TIME_DRIVER_"))
+        .get_one()
+    {
+        Ok(x) => Some(
+            x.strip_prefix("CARGO_FEATURE_TIME_DRIVER_")
+                .unwrap()
+                .to_ascii_lowercase(),
+        ),
+        Err(GetOneError::None) => None,
+        Err(GetOneError::Multiple) => panic!("Multiple stm32xx Cargo features enabled"),
+    };
+
+    let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
+        None => "",
+        Some("tim2") => "TIM2",
+        Some("tim3") => "TIM3",
+        Some("tim4") => "TIM4",
+        Some("tim5") => "TIM5",
+        Some("tim12") => "TIM12",
+        Some("tim15") => "TIM15",
+        Some("any") => {
+            if singletons.contains(&"TIM2".to_string()) {
+                "TIM2"
+            } else if singletons.contains(&"TIM3".to_string()) {
+                "TIM3"
+            } else if singletons.contains(&"TIM4".to_string()) {
+                "TIM4"
+            } else if singletons.contains(&"TIM5".to_string()) {
+                "TIM5"
+            } else if singletons.contains(&"TIM12".to_string()) {
+                "TIM12"
+            } else if singletons.contains(&"TIM15".to_string()) {
+                "TIM15"
+            } else {
+                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM12 or TIM15.")
+            }
+        }
+        _ => panic!("unknown time_driver {:?}", time_driver),
+    };
+
+    if time_driver_singleton != "" {
+        println!("cargo:rustc-cfg=time_driver_{}", time_driver_singleton.to_lowercase());
+    }
+
+    // ========
+    // Write singletons
+
     let mut g = TokenStream::new();
 
     let singleton_tokens: Vec<_> = singletons.iter().map(|s| format_ident!("{}", s)).collect();
+
     g.extend(quote! {
-        embassy_hal_common::peripherals!(#(#singleton_tokens),*);
+        embassy_hal_common::peripherals_definition!(#(#singleton_tokens),*);
+    });
+
+    let singleton_tokens: Vec<_> = singletons
+        .iter()
+        .filter(|s| *s != &time_driver_singleton.to_string())
+        .map(|s| format_ident!("{}", s))
+        .collect();
+
+    g.extend(quote! {
+        embassy_hal_common::peripherals_struct!(#(#singleton_tokens),*);
     });
 
     // ========
@@ -837,51 +900,6 @@ fn main() {
     println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
     println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
     println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
-
-    // ========
-    // Handle time-driver-XXXX features.
-
-    let time_driver = match env::vars()
-        .map(|(a, _)| a)
-        .filter(|x| x.starts_with("CARGO_FEATURE_TIME_DRIVER_"))
-        .get_one()
-    {
-        Ok(x) => Some(
-            x.strip_prefix("CARGO_FEATURE_TIME_DRIVER_")
-                .unwrap()
-                .to_ascii_lowercase(),
-        ),
-        Err(GetOneError::None) => None,
-        Err(GetOneError::Multiple) => panic!("Multiple stm32xx Cargo features enabled"),
-    };
-
-    match time_driver.as_ref().map(|x| x.as_ref()) {
-        None => {}
-        Some("tim2") => println!("cargo:rustc-cfg=time_driver_tim2"),
-        Some("tim3") => println!("cargo:rustc-cfg=time_driver_tim3"),
-        Some("tim4") => println!("cargo:rustc-cfg=time_driver_tim4"),
-        Some("tim5") => println!("cargo:rustc-cfg=time_driver_tim5"),
-        Some("tim12") => println!("cargo:rustc-cfg=time_driver_tim12"),
-        Some("tim15") => println!("cargo:rustc-cfg=time_driver_tim15"),
-        Some("any") => {
-            if singletons.contains(&"TIM2".to_string()) {
-                println!("cargo:rustc-cfg=time_driver_tim2");
-            } else if singletons.contains(&"TIM3".to_string()) {
-                println!("cargo:rustc-cfg=time_driver_tim3");
-            } else if singletons.contains(&"TIM4".to_string()) {
-                println!("cargo:rustc-cfg=time_driver_tim4");
-            } else if singletons.contains(&"TIM5".to_string()) {
-                println!("cargo:rustc-cfg=time_driver_tim5");
-            } else if singletons.contains(&"TIM12".to_string()) {
-                println!("cargo:rustc-cfg=time_driver_tim12");
-            } else if singletons.contains(&"TIM15".to_string()) {
-                println!("cargo:rustc-cfg=time_driver_tim15");
-            } else {
-                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM12 or TIM15.")
-            }
-        }
-        _ => panic!("unknown time_driver {:?}", time_driver),
-    }
 
     // Handle time-driver-XXXX features.
     if env::var("CARGO_FEATURE_TIME_DRIVER_ANY").is_ok() {}

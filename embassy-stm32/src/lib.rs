@@ -49,6 +49,8 @@ pub mod pwm;
 pub mod qspi;
 #[cfg(rng)]
 pub mod rng;
+#[cfg(all(rtc, not(any(rtc_v1, rtc_v2f0, rtc_v2f7, rtc_v3, rtc_v3u5))))]
+pub mod rtc;
 #[cfg(sdmmc)]
 pub mod sdmmc;
 #[cfg(spi)]
