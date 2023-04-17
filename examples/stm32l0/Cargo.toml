@@ -15,8 +15,8 @@ embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["de
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32l072cz", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx127x", "time", "defmt"], optional = true}
 
-lorawan-device = { version = "0.8.0", git = "https://github.com/ivajloip/rust-lorawan.git", rev = "7d3eb40bc2412536c846cea40caff25198b6b068", default-features = false, features = ["async"], optional = true }
-lorawan = { version = "0.7.1", git = "https://github.com/ivajloip/rust-lorawan.git", rev = "7d3eb40bc2412536c846cea40caff25198b6b068", default-features = false, features = ["default-crypto"], optional = true }
+lorawan-device = { version = "0.9.0", default-features = false, features = ["async"], optional = true }
+lorawan = { version = "0.7.2", default-features = false, features = ["default-crypto"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
