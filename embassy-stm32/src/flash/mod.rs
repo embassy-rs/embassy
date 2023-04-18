@@ -7,6 +7,7 @@ mod common;
 pub use common::*;
 
 pub use crate::_generated::flash_regions::*;
+pub use crate::_generated::MAX_ERASE_SIZE;
 pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 
 #[derive(Debug)]

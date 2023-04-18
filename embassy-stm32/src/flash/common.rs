@@ -2,7 +2,7 @@ use atomic_polyfill::{fence, Ordering};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use super::{family, Error, FlashLayout, FlashRegion, FlashSector, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+use super::{family, Error, FlashLayout, FlashRegion, FlashSector, FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
 use crate::flash::FlashBank;
 use crate::Peripheral;
 
@@ -159,6 +159,35 @@ impl FlashRegion {
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         unsafe { blocking_erase(self.base, from, to) }
+    }
+}
+
+impl embedded_storage::nor_flash::ErrorType for Flash<'_> {
+    type Error = Error;
+}
+
+impl embedded_storage::nor_flash::ReadNorFlash for Flash<'_> {
+    const READ_SIZE: usize = 1;
+
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(offset, bytes)
+    }
+
+    fn capacity(&self) -> usize {
+        FLASH_SIZE
+    }
+}
+
+impl embedded_storage::nor_flash::NorFlash for Flash<'_> {
+    const WRITE_SIZE: usize = WRITE_SIZE;
+    const ERASE_SIZE: usize = MAX_ERASE_SIZE;
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(offset, bytes)
+    }
+
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.blocking_erase(from, to)
     }
 }
 
