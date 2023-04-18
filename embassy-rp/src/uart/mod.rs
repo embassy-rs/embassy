@@ -5,6 +5,7 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
+use crate::pac::io::vals::{Inover, Outover};
 use crate::{pac, peripherals, Peripheral};
 
 #[cfg(feature = "nightly")]
@@ -53,6 +54,14 @@ pub struct Config {
     pub data_bits: DataBits,
     pub stop_bits: StopBits,
     pub parity: Parity,
+    /// Invert the tx pin output
+    pub invert_tx: bool,
+    /// Invert the rx pin input
+    pub invert_rx: bool,
+    // Invert the rts pin
+    pub invert_rts: bool,
+    // Invert the cts pin
+    pub invert_cts: bool,
 }
 
 impl Default for Config {
@@ -62,6 +71,10 @@ impl Default for Config {
             data_bits: DataBits::DataBits8,
             stop_bits: StopBits::STOP1,
             parity: Parity::ParityNone,
+            invert_rx: false,
+            invert_tx: false,
+            invert_rts: false,
+            invert_cts: false,
         }
     }
 }
@@ -167,7 +180,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
 }
 
 impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
-    /// Create a new DMA-enabled UART which can only send data
+    /// Create a new DMA-enabled UART which can only recieve data
     pub fn new(
         _uart: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
@@ -175,7 +188,7 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
         config: Config,
     ) -> Self {
         into_ref!(rx, rx_dma);
-        Uart::<T, M>::init(Some(rx.map_into()), None, None, None, config);
+        Uart::<T, M>::init(None, Some(rx.map_into()), None, None, config);
         Self::new_inner(Some(rx_dma.map_into()))
     }
 
@@ -381,19 +394,47 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         let r = T::regs();
         unsafe {
             if let Some(pin) = &tx {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_outover(if config.invert_tx {
+                        Outover::INVERT
+                    } else {
+                        Outover::NORMAL
+                    });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
             if let Some(pin) = &rx {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_inover(if config.invert_rx {
+                        Inover::INVERT
+                    } else {
+                        Inover::NORMAL
+                    });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
             if let Some(pin) = &cts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_inover(if config.invert_cts {
+                        Inover::INVERT
+                    } else {
+                        Inover::NORMAL
+                    });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
             if let Some(pin) = &rts {
-                pin.io().ctrl().write(|w| w.set_funcsel(2));
+                pin.io().ctrl().write(|w| {
+                    w.set_funcsel(2);
+                    w.set_outover(if config.invert_rts {
+                        Outover::INVERT
+                    } else {
+                        Outover::NORMAL
+                    });
+                });
                 pin.pad_ctrl().write(|w| w.set_ie(true));
             }
 
