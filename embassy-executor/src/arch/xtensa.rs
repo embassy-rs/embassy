@@ -6,7 +6,8 @@ pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
     use core::marker::PhantomData;
-    use core::sync::atomic::{AtomicBool, Ordering};
+
+    use atomic_polyfill::{AtomicBool, Ordering};
 
     use crate::raw::{Pender, PenderInner};
     use crate::{raw, Spawner};
