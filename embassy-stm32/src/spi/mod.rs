@@ -177,6 +177,23 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
+    pub fn new_txonly_nosck(
+        peri: impl Peripheral<P = T> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        rxdma: impl Peripheral<P = Rx> + 'd, // TODO: remove
+        freq: Hertz,
+        config: Config,
+    ) -> Self {
+        into_ref!(mosi);
+        unsafe {
+            mosi.set_as_af_pull(mosi.af_num(), AFType::OutputPushPull, Pull::Down);
+            mosi.set_speed(crate::gpio::Speed::Medium);
+        }
+
+        Self::new_inner(peri, None, Some(mosi.map_into()), None, txdma, rxdma, freq, config)
+    }
+
     /// Useful for on chip peripherals like SUBGHZ which are hardwired.
     /// The bus can optionally be exposed externally with `Spi::new()` still.
     #[allow(dead_code)]
