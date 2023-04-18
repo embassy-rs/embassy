@@ -255,6 +255,14 @@ fn main() {
         ];
     });
 
+    let max_erase_size = flash_memory_regions
+        .iter()
+        .map(|region| region.settings.as_ref().unwrap().erase_size)
+        .max()
+        .unwrap();
+
+    g.extend(quote! { pub const MAX_ERASE_SIZE: u32 = #max_erase_size });
+
     g.extend(quote! { pub mod flash_regions { #flash_regions } });
 
     // ========

@@ -2,7 +2,7 @@ use atomic_polyfill::{fence, Ordering};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use super::{family, Error, FlashLayout, FlashRegion, FlashSector, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+use super::{family, Error, FlashLayout, FlashRegion, FlashSector, FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
 use crate::flash::FlashBank;
 use crate::Peripheral;
 
@@ -179,8 +179,8 @@ impl embedded_storage::nor_flash::ReadNorFlash for Flash<'_> {
 }
 
 impl embedded_storage::nor_flash::NorFlash for Flash<'_> {
-    const WRITE_SIZE: usize = 8;
-    const ERASE_SIZE: usize = 2048;
+    const WRITE_SIZE: usize = WRITE_SIZE;
+    const ERASE_SIZE: usize = MAX_ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
         self.blocking_write(offset, bytes)
