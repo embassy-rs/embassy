@@ -5,7 +5,7 @@ pub mod enums;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use enums::*;
 
-use crate::dma::TransferOptions;
+use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::AnyPin;
 use crate::pac::quadspi::Quadspi as Regs;
@@ -230,9 +230,6 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         unsafe {
             self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
-            let request = self.dma.request();
-            let options = TransferOptions::default();
-
             T::REGS.ccr().modify(|v| {
                 v.set_fmode(QspiMode::IndirectRead.into());
             });
@@ -241,12 +238,18 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
                 v.set_address(current_ar);
             });
 
-            self.dma
-                .start_read(request, T::REGS.dr().ptr() as *mut u8, buf, options);
+            let request = self.dma.request();
+            let transfer = Transfer::new_read(
+                &mut self.dma,
+                request,
+                T::REGS.dr().ptr() as *mut u8,
+                buf,
+                Default::default(),
+            );
 
             T::REGS.cr().modify(|v| v.set_dmaen(true));
 
-            while self.dma.is_running() {}
+            transfer.blocking_wait();
         }
     }
 
@@ -257,19 +260,22 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         unsafe {
             self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
-            let request = self.dma.request();
-            let options = TransferOptions::default();
-
             T::REGS.ccr().modify(|v| {
                 v.set_fmode(QspiMode::IndirectWrite.into());
             });
 
-            self.dma
-                .start_write(request, buf, T::REGS.dr().ptr() as *mut u8, options);
+            let request = self.dma.request();
+            let transfer = Transfer::new_write(
+                &mut self.dma,
+                request,
+                buf,
+                T::REGS.dr().ptr() as *mut u8,
+                Default::default(),
+            );
 
             T::REGS.cr().modify(|v| v.set_dmaen(true));
 
-            while self.dma.is_running() {}
+            transfer.blocking_wait();
         }
     }
 
