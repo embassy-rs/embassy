@@ -434,9 +434,13 @@ where
         result
     }
 
+    #[cfg(not(dma))]
     async fn capture_giant(&mut self, _buffer: &mut [u32]) -> Result<(), Error> {
-        todo!()
-        /*
+        panic!("capturing to buffers larger than 0xffff is only supported on DMA for now, not on BDMA or GPDMA.");
+    }
+
+    #[cfg(dma)]
+    async fn capture_giant(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
         use crate::dma::TransferOptions;
 
         let data_len = buffer.len();
@@ -460,16 +464,24 @@ where
         let r = self.inner.regs();
         let src = r.dr().ptr() as *mut u32;
 
-        unsafe {
-            channel.start_double_buffered_read(request, src, m0ar, m1ar, chunk_size, TransferOptions::default());
-        }
+        let mut transfer = unsafe {
+            crate::dma::DoubleBuffered::new_read(
+                &mut self.dma,
+                request,
+                src,
+                m0ar,
+                m1ar,
+                chunk_size,
+                TransferOptions::default(),
+            )
+        };
 
         let mut last_chunk_set_for_transfer = false;
         let mut buffer0_last_accessible = false;
         let dma_result = poll_fn(|cx| {
-            channel.set_waker(cx.waker());
+            transfer.set_waker(cx.waker());
 
-            let buffer0_currently_accessible = unsafe { channel.is_buffer0_accessible() };
+            let buffer0_currently_accessible = transfer.is_buffer0_accessible();
 
             // check if the accessible buffer changed since last poll
             if buffer0_last_accessible == buffer0_currently_accessible {
@@ -480,21 +492,21 @@ where
             if remaining_chunks != 0 {
                 if remaining_chunks % 2 == 0 && buffer0_currently_accessible {
                     m0ar = unsafe { m0ar.add(2 * chunk_size) };
-                    unsafe { channel.set_buffer0(m0ar) }
+                    unsafe { transfer.set_buffer0(m0ar) }
                     remaining_chunks -= 1;
                 } else if !buffer0_currently_accessible {
                     m1ar = unsafe { m1ar.add(2 * chunk_size) };
-                    unsafe { channel.set_buffer1(m1ar) };
+                    unsafe { transfer.set_buffer1(m1ar) };
                     remaining_chunks -= 1;
                 }
             } else {
                 if buffer0_currently_accessible {
-                    unsafe { channel.set_buffer0(buffer.as_mut_ptr()) }
+                    unsafe { transfer.set_buffer0(buffer.as_mut_ptr()) }
                 } else {
-                    unsafe { channel.set_buffer1(buffer.as_mut_ptr()) }
+                    unsafe { transfer.set_buffer1(buffer.as_mut_ptr()) }
                 }
                 if last_chunk_set_for_transfer {
-                    channel.request_stop();
+                    transfer.request_stop();
                     return Poll::Ready(());
                 }
                 last_chunk_set_for_transfer = true;
@@ -542,7 +554,6 @@ where
         unsafe { Self::toggle(false) };
 
         result
-        */
     }
 }
 
