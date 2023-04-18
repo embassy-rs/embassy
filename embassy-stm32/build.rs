@@ -261,7 +261,7 @@ fn main() {
         .max()
         .unwrap();
 
-    g.extend(quote! { pub const MAX_ERASE_SIZE: u32 = #max_erase_size });
+    g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
     g.extend(quote! { pub mod flash_regions { #flash_regions } });
 
