@@ -27,12 +27,10 @@ use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
 use heapless::Vec;
+use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
-use smoltcp::iface::SocketHandle;
-use smoltcp::iface::{Interface, SocketSet, SocketStorage};
+use smoltcp::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "dhcpv4")]
-use smoltcp::socket::dhcpv4;
-use smoltcp::socket::dhcpv4::RetryConfig;
 use smoltcp::time::Duration;
 // smoltcp reexports
 pub use smoltcp::time::{Duration as SmolDuration, Instant as SmolInstant};
@@ -76,6 +74,7 @@ pub struct StaticConfig {
     pub dns_servers: Vec<Ipv4Address, 3>,
 }
 
+#[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DhcpConfig {
     pub max_lease_duration: Option<Duration>,
@@ -88,6 +87,7 @@ pub struct DhcpConfig {
     pub client_port: u16,
 }
 
+#[cfg(feature = "dhcpv4")]
 impl Default for DhcpConfig {
     fn default() -> Self {
         Self {
@@ -384,6 +384,7 @@ impl<D: Driver + 'static> Inner<D> {
         self.config = Some(config)
     }
 
+    #[cfg(feature = "dhcpv4")]
     fn apply_dhcp_config(&self, socket: &mut smoltcp::socket::dhcpv4::Socket, config: DhcpConfig) {
         socket.set_ignore_naks(config.ignore_naks);
         socket.set_max_lease_duration(config.max_lease_duration);
