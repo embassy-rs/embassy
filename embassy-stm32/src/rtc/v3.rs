@@ -9,43 +9,30 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
     pub(super) fn apply_config(&mut self, rtc_config: RtcConfig) {
         // Unlock the backup domain
         unsafe {
-            #[cfg(feature = "stm32g0c1ve")]
+            #[cfg(any(rtc_v3u5, rcc_g0))]
+            use crate::pac::rcc::vals::Rtcsel;
+            #[cfg(not(any(rtc_v3u5, rcc_g0, rcc_g4, rcc_wl5, rcc_wle)))]
+            use crate::pac::rtc::vals::Rtcsel;
+
+            #[cfg(not(any(rtc_v3u5, rcc_wl5, rcc_wle)))]
             {
                 crate::pac::PWR.cr1().modify(|w| w.set_dbp(true));
                 while !crate::pac::PWR.cr1().read().dbp() {}
             }
-
-            #[cfg(not(any(
-                feature = "stm32g0c1ve",
-                feature = "stm32g491re",
-                feature = "stm32u585zi",
-                feature = "stm32g473cc"
-            )))]
+            #[cfg(any(rcc_wl5, rcc_wle))]
             {
-                crate::pac::PWR
-                    .cr1()
-                    .modify(|w| w.set_dbp(stm32_metapac::pwr::vals::Dbp::ENABLED));
-                while crate::pac::PWR.cr1().read().dbp() != stm32_metapac::pwr::vals::Dbp::DISABLED {}
+                use crate::pac::pwr::vals::Dbp;
+
+                crate::pac::PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
+                while crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {}
             }
 
             let reg = crate::pac::RCC.bdcr().read();
             assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
             let config_rtcsel = rtc_config.clock_config as u8;
-            #[cfg(not(any(
-                feature = "stm32wl54jc-cm0p",
-                feature = "stm32wle5ub",
-                feature = "stm32g0c1ve",
-                feature = "stm32wl55jc-cm4",
-                feature = "stm32wl55uc-cm4",
-                feature = "stm32g491re",
-                feature = "stm32g473cc",
-                feature = "stm32u585zi",
-                feature = "stm32wle5jb"
-            )))]
-            let config_rtcsel = stm32_metapac::rtc::vals::Rtcsel(config_rtcsel);
-            #[cfg(feature = "stm32g0c1ve")]
-            let config_rtcsel = stm32_metapac::rcc::vals::Rtcsel(config_rtcsel);
+            #[cfg(not(any(rcc_wl5, rcc_wle, rcc_g4)))]
+            let config_rtcsel = Rtcsel(config_rtcsel);
 
             if !reg.rtcen() || reg.rtcsel() != config_rtcsel {
                 crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
