@@ -9,7 +9,8 @@ use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::regs;
 
-use super::{Dir, Word, WordSize};
+use super::word::{Word, WordSize};
+use super::Dir;
 use crate::_generated::DMA_CHANNEL_COUNT;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::dma::vals;
@@ -246,7 +247,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             ptr as *mut u32,
             len,
             true,
-            W::bits(),
+            W::size(),
             options,
         )
     }
@@ -281,7 +282,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             ptr as *mut u32,
             len,
             true,
-            W::bits(),
+            W::size(),
             options,
         )
     }
@@ -304,7 +305,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             repeated as *const W as *mut u32,
             count,
             false,
-            W::bits(),
+            W::size(),
             options,
         )
     }
@@ -464,7 +465,7 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         assert!(len > 0 && len <= 0xFFFF);
 
         let dir = Dir::PeripheralToMemory;
-        let data_size = W::bits();
+        let data_size = W::size();
 
         let channel_number = channel.num();
         let dma = channel.regs();

@@ -9,7 +9,8 @@ use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::{Dir, Word, WordSize};
+use super::word::{Word, WordSize};
+use super::Dir;
 use crate::_generated::GPDMA_CHANNEL_COUNT;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac;
@@ -165,7 +166,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             ptr as *mut u32,
             len,
             true,
-            W::bits(),
+            W::size(),
             options,
         )
     }
@@ -200,7 +201,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             ptr as *mut u32,
             len,
             true,
-            W::bits(),
+            W::size(),
             options,
         )
     }
@@ -223,7 +224,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             repeated as *const W as *mut u32,
             count,
             false,
-            W::bits(),
+            W::size(),
             options,
         )
     }

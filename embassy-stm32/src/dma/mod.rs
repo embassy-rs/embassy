@@ -21,6 +21,8 @@ pub use gpdma::*;
 #[cfg(dmamux)]
 mod dmamux;
 
+pub mod word;
+
 use core::mem;
 
 use embassy_cortex_m::interrupt::Priority;
@@ -34,53 +36,6 @@ pub use self::dmamux::*;
 enum Dir {
     MemoryToPeripheral,
     PeripheralToMemory,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum WordSize {
-    OneByte,
-    TwoBytes,
-    FourBytes,
-}
-
-impl WordSize {
-    pub fn bytes(&self) -> usize {
-        match self {
-            Self::OneByte => 1,
-            Self::TwoBytes => 2,
-            Self::FourBytes => 4,
-        }
-    }
-}
-
-mod word_sealed {
-    pub trait Word {}
-}
-
-pub trait Word: word_sealed::Word {
-    fn bits() -> WordSize;
-}
-
-impl word_sealed::Word for u8 {}
-impl Word for u8 {
-    fn bits() -> WordSize {
-        WordSize::OneByte
-    }
-}
-
-impl word_sealed::Word for u16 {}
-impl Word for u16 {
-    fn bits() -> WordSize {
-        WordSize::TwoBytes
-    }
-}
-
-impl word_sealed::Word for u32 {}
-impl Word for u32 {
-    fn bits() -> WordSize {
-        WordSize::FourBytes
-    }
 }
 
 pub struct NoDma;
