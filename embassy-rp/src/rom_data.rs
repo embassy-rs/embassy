@@ -56,50 +56,11 @@ macro_rules! declare_rom_function {
         fn $name:ident( $($argname:ident: $ty:ty),* ) -> $ret:ty
         $lookup:block
     ) => {
-        #[doc = r"Additional access for the `"]
-        #[doc = stringify!($name)]
-        #[doc = r"` ROM function."]
-        pub mod $name {
-            /// Retrieve a function pointer.
-            #[cfg(not(feature = "rom-func-cache"))]
-            pub fn ptr() -> extern "C" fn( $($argname: $ty),* ) -> $ret {
-                let p: *const u32 = $lookup;
-                unsafe {
-                    let func : extern "C" fn( $($argname: $ty),* ) -> $ret = core::mem::transmute(p);
-                    func
-                }
-            }
-
-            /// Retrieve a function pointer.
-            #[cfg(feature = "rom-func-cache")]
-            pub fn ptr() -> extern "C" fn( $($argname: $ty),* ) -> $ret {
-                use core::sync::atomic::{AtomicU16, Ordering};
-
-                // All pointers in the ROM fit in 16 bits, so we don't need a
-                // full width word to store the cached value.
-                static CACHED_PTR: AtomicU16 = AtomicU16::new(0);
-                // This is safe because the lookup will always resolve
-                // to the same value.  So even if an interrupt or another
-                // core starts at the same time, it just repeats some
-                // work and eventually writes back the correct value.
-                let p: *const u32 = match CACHED_PTR.load(Ordering::Relaxed) {
-                    0 => {
-                        let raw: *const u32 = $lookup;
-                        CACHED_PTR.store(raw as u16, Ordering::Relaxed);
-                        raw
-                    },
-                    val => val as *const u32,
-                };
-                unsafe {
-                    let func : extern "C" fn( $($argname: $ty),* ) -> $ret = core::mem::transmute(p);
-                    func
-                }
-            }
-        }
-
-        $(#[$outer])*
-        pub extern "C" fn $name( $($argname: $ty),* ) -> $ret {
-            $name::ptr()($($argname),*)
+        declare_rom_function!{
+            __internal ,
+            $(#[$outer])*
+            fn $name( $($argname: $ty),* ) -> $ret
+            $lookup
         }
     };
 
@@ -108,49 +69,79 @@ macro_rules! declare_rom_function {
         unsafe fn $name:ident( $($argname:ident: $ty:ty),* ) -> $ret:ty
         $lookup:block
     ) => {
+        declare_rom_function!{
+            __internal unsafe ,
+            $(#[$outer])*
+            fn $name( $($argname: $ty),* ) -> $ret
+            $lookup
+        }
+    };
+
+    (
+        __internal
+        $( $maybe_unsafe:ident )? ,
+        $(#[$outer:meta])*
+        fn $name:ident( $($argname:ident: $ty:ty),* ) -> $ret:ty
+        $lookup:block
+    ) => {
         #[doc = r"Additional access for the `"]
         #[doc = stringify!($name)]
         #[doc = r"` ROM function."]
         pub mod $name {
             /// Retrieve a function pointer.
             #[cfg(not(feature = "rom-func-cache"))]
-            pub fn ptr() -> unsafe extern "C" fn( $($argname: $ty),* ) -> $ret {
+            pub fn ptr() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
                 let p: *const u32 = $lookup;
                 unsafe {
-                    let func : unsafe extern "C" fn( $($argname: $ty),* ) -> $ret = core::mem::transmute(p);
+                    let func : $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret
+                        = core::mem::transmute(p);
                     func
+                }
+            }
+
+            #[cfg(feature = "rom-func-cache")]
+            // unlike rp2040-hal we store a full word, containing the full function pointer.
+            // rp2040-hal saves two bytes by storing only the rom offset, at the cost of
+            // having to do an indirection and an atomic operation on every rom call.
+            static mut CACHE: $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret
+                = trampoline;
+
+            #[cfg(feature = "rom-func-cache")]
+            $( $maybe_unsafe )? extern "C" fn trampoline( $($argname: $ty),* ) -> $ret {
+                use core::sync::atomic::{compiler_fence, Ordering};
+
+                let p: *const u32 = $lookup;
+                #[allow(unused_unsafe)]
+                unsafe {
+                    CACHE = core::mem::transmute(p);
+                    compiler_fence(Ordering::Release);
+                    CACHE($($argname),*)
                 }
             }
 
             /// Retrieve a function pointer.
             #[cfg(feature = "rom-func-cache")]
-            pub fn ptr() -> unsafe extern "C" fn( $($argname: $ty),* ) -> $ret {
-                use core::sync::atomic::{AtomicU16, Ordering};
+            pub fn ptr() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
+                use core::sync::atomic::{compiler_fence, Ordering};
 
-                // All pointers in the ROM fit in 16 bits, so we don't need a
-                // full width word to store the cached value.
-                static CACHED_PTR: AtomicU16 = AtomicU16::new(0);
                 // This is safe because the lookup will always resolve
                 // to the same value.  So even if an interrupt or another
                 // core starts at the same time, it just repeats some
                 // work and eventually writes back the correct value.
-                let p: *const u32 = match CACHED_PTR.load(Ordering::Relaxed) {
-                    0 => {
-                        let raw: *const u32 = $lookup;
-                        CACHED_PTR.store(raw as u16, Ordering::Relaxed);
-                        raw
-                    },
-                    val => val as *const u32,
-                };
+                //
+                // We easily get away with using only compiler fences here
+                // because RP2040 SRAM is not cached. If it were we'd need
+                // to make sure updates propagate quickly, or just take the
+                // hit and let each core resolve every function once.
+                compiler_fence(Ordering::Acquire);
                 unsafe {
-                    let func : unsafe extern "C" fn( $($argname: $ty),* ) -> $ret = core::mem::transmute(p);
-                    func
+                    CACHE
                 }
             }
         }
 
         $(#[$outer])*
-        pub unsafe extern "C" fn $name( $($argname: $ty),* ) -> $ret {
+        pub $( $maybe_unsafe )? extern "C" fn $name( $($argname: $ty),* ) -> $ret {
             $name::ptr()($($argname),*)
         }
     };
@@ -369,6 +360,7 @@ pub fn fplib_start() -> *const u8 {
 }
 
 /// See Table 180 in the RP2040 datasheet for the contents of this table.
+#[cfg_attr(feature = "rom-func-cache", inline(never))]
 pub fn soft_float_table() -> *const usize {
     rom_table_lookup(DATA_TABLE, *b"SF")
 }
@@ -379,6 +371,7 @@ pub fn fplib_end() -> *const u8 {
 }
 
 /// This entry is only present in the V2 bootrom. See Table 182 in the RP2040 datasheet for the contents of this table.
+#[cfg_attr(feature = "rom-func-cache", inline(never))]
 pub fn soft_double_table() -> *const usize {
     if rom_version_number() < 2 {
         panic!(
