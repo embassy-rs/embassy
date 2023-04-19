@@ -1,6 +1,6 @@
 use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Init, Key, Osel, Pol, TampalrmPu, TampalrmType};
 
-use super::{Instance, RtcCalibrationCyclePeriod, RtcConfig};
+use super::{sealed, Instance, RtcCalibrationCyclePeriod, RtcConfig};
 use crate::pac::rtc::Rtc;
 
 impl<'d, T: Instance> super::Rtc<'d, T> {
@@ -182,32 +182,24 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
     }
 }
 
-pub(super) unsafe fn enable_peripheral_clk() {
-    // Nothing to do
-}
+impl sealed::Instance for crate::peripherals::RTC {
+    const BACKUP_REGISTER_COUNT: usize = 32;
 
-pub const BACKUP_REGISTER_COUNT: usize = 32;
+    fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            //Some(rtc.bkpr()[register].read().bits())
+            None // RTC3 backup registers come from the TAMP peripe=heral, not RTC. Not() even in the L412 PAC
+        } else {
+            None
+        }
+    }
 
-/// Read content of the backup register.
-///
-/// The registers retain their values during wakes from standby mode or system resets. They also
-/// retain their value when Vdd is switched off as long as V_BAT is powered.
-pub fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
-    if register < BACKUP_REGISTER_COUNT {
-        //Some(rtc.bkpr()[register].read().bits())
-        None // RTC3 backup registers come from the TAMP peripe=heral, not RTC. Not() even in the L412 PAC
-    } else {
-        None
+    fn write_backup_register(_rtc: &Rtc, register: usize, _value: u32) {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            // RTC3 backup registers come from the TAMP peripe=heral, not RTC. Not() even in the L412 PAC
+            //unsafe { self.rtc.bkpr()[register].write(|w| w.bits(value)) }
+        }
     }
 }
 
-/// Set content of the backup register.
-///
-/// The registers retain their values during wakes from standby mode or system resets. They also
-/// retain their value when Vdd is switched off as long as V_BAT is powered.
-pub fn write_backup_register(_rtc: &Rtc, register: usize, _value: u32) {
-    if register < BACKUP_REGISTER_COUNT {
-        // RTC3 backup registers come from the TAMP peripe=heral, not RTC. Not() even in the L412 PAC
-        //unsafe { self.rtc.bkpr()[register].write(|w| w.bits(value)) }
-    }
-}
+impl Instance for crate::peripherals::RTC {}

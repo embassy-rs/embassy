@@ -1,6 +1,6 @@
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
-use super::{Instance, RtcConfig};
+use super::{sealed, Instance, RtcConfig};
 use crate::pac::rtc::Rtc;
 
 impl<'d, T: Instance> super::Rtc<'d, T> {
@@ -197,37 +197,33 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
     }
 }
 
-/// Read content of the backup register.
-///
-/// The registers retain their values during wakes from standby mode or system resets. They also
-/// retain their value when Vdd is switched off as long as V_BAT is powered.
-pub fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
-    if register < BACKUP_REGISTER_COUNT {
-        Some(unsafe { rtc.bkpr(register).read().bkp() })
-    } else {
-        None
+impl sealed::Instance for crate::peripherals::RTC {
+    const BACKUP_REGISTER_COUNT: usize = 20;
+
+    unsafe fn enable_peripheral_clk() {
+        #[cfg(any(rtc_v2l4, rtc_v2wb))]
+        {
+            // enable peripheral clock for communication
+            crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+
+            // read to allow the pwr clock to enable
+            crate::pac::PWR.cr1().read();
+        }
+    }
+
+    fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            Some(unsafe { rtc.bkpr(register).read().bkp() })
+        } else {
+            None
+        }
+    }
+
+    fn write_backup_register(rtc: &Rtc, register: usize, value: u32) {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            unsafe { rtc.bkpr(register).write(|w| w.set_bkp(value)) }
+        }
     }
 }
 
-/// Set content of the backup register.
-///
-/// The registers retain their values during wakes from standby mode or system resets. They also
-/// retain their value when Vdd is switched off as long as V_BAT is powered.
-pub fn write_backup_register(rtc: &Rtc, register: usize, value: u32) {
-    if register < BACKUP_REGISTER_COUNT {
-        unsafe { rtc.bkpr(register).write(|w| w.set_bkp(value)) }
-    }
-}
-
-pub(crate) unsafe fn enable_peripheral_clk() {
-    #[cfg(any(rtc_v2l4, rtc_v2wb))]
-    {
-        // enable peripheral clock for communication
-        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
-
-        // read to allow the pwr clock to enable
-        crate::pac::PWR.cr1().read();
-    }
-}
-
-pub const BACKUP_REGISTER_COUNT: usize = 20;
+impl Instance for crate::peripherals::RTC {}

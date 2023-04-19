@@ -13,9 +13,9 @@ pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
     path = "v2.rs"
 )]
 #[cfg_attr(any(rtc_v3, rtc_v3u5), path = "v3.rs")]
-mod versions;
+mod _version;
+pub use _version::*;
 use embassy_hal_common::Peripheral;
-pub use versions::*;
 
 /// Errors that can occur on methods on [RtcClock]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,7 +113,7 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl<'d, T: Instance> Rtc<'d, T> {
     pub fn new(_rtc: impl Peripheral<P = T> + 'd, rtc_config: RtcConfig) -> Self {
-        unsafe { enable_peripheral_clk() };
+        unsafe { T::enable_peripheral_clk() };
 
         let mut rtc_struct = Self {
             phantom: PhantomData,
@@ -179,14 +179,14 @@ impl<'d, T: Instance> Rtc<'d, T> {
         self.rtc_config
     }
 
-    pub const BACKUP_REGISTER_COUNT: usize = BACKUP_REGISTER_COUNT;
+    pub const BACKUP_REGISTER_COUNT: usize = T::BACKUP_REGISTER_COUNT;
 
     /// Read content of the backup register.
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
     pub fn read_backup_register(&self, register: usize) -> Option<u32> {
-        read_backup_register(&T::regs(), register)
+        T::read_backup_register(&T::regs(), register)
     }
 
     /// Set content of the backup register.
@@ -194,7 +194,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
     pub fn write_backup_register(&self, register: usize, value: u32) {
-        write_backup_register(&T::regs(), register, value)
+        T::write_backup_register(&T::regs(), register, value)
     }
 }
 
@@ -219,17 +219,31 @@ pub(crate) fn bcd2_to_byte(bcd: (u8, u8)) -> u8 {
 }
 
 pub(crate) mod sealed {
+    use crate::pac::rtc::Rtc;
+
     pub trait Instance {
-        fn regs() -> crate::pac::rtc::Rtc;
+        const BACKUP_REGISTER_COUNT: usize;
+
+        fn regs() -> Rtc {
+            crate::pac::RTC
+        }
+
+        unsafe fn enable_peripheral_clk() {}
+
+        /// Read content of the backup register.
+        ///
+        /// The registers retain their values during wakes from standby mode or system resets. They also
+        /// retain their value when Vdd is switched off as long as V_BAT is powered.
+        fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32>;
+
+        /// Set content of the backup register.
+        ///
+        /// The registers retain their values during wakes from standby mode or system resets. They also
+        /// retain their value when Vdd is switched off as long as V_BAT is powered.
+        fn write_backup_register(rtc: &Rtc, register: usize, value: u32);
+
+        // fn apply_config(&mut self, rtc_config: RtcConfig);
     }
 }
 
 pub trait Instance: sealed::Instance + 'static {}
-
-impl sealed::Instance for crate::peripherals::RTC {
-    fn regs() -> crate::pac::rtc::Rtc {
-        crate::pac::RTC
-    }
-}
-
-impl Instance for crate::peripherals::RTC {}
