@@ -485,6 +485,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         poll_fn(|cx| {
             state.waker.register(cx.waker());
 
+            let isr = unsafe { T::regs().isr().read() };
             if remaining_len == total_len {
                 // NOTE(unsafe) self.tx_dma does not fiddle with the i2c registers
                 if first_slice {
@@ -503,6 +504,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         T::regs().cr1().modify(|w| w.set_tcie(true));
                     }
                 }
+            } else if !(isr.tcr() || isr.tc()) {
+                // poll_fn was woken without an interrupt present
+                return Poll::Pending;
             } else if remaining_len == 0 {
                 return Poll::Ready(Ok(()));
             } else {
@@ -575,6 +579,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         poll_fn(|cx| {
             state.waker.register(cx.waker());
+
+            let isr = unsafe { T::regs().isr().read() };
             if remaining_len == total_len {
                 // NOTE(unsafe) self.rx_dma does not fiddle with the i2c registers
                 unsafe {
@@ -587,6 +593,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         &check_timeout,
                     )?;
                 }
+            } else if !(isr.tcr() || isr.tc()) {
+                // poll_fn was woken without an interrupt present
+                return Poll::Pending;
             } else if remaining_len == 0 {
                 return Poll::Ready(Ok(()));
             } else {
