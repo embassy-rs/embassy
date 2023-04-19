@@ -8,7 +8,7 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::NoDma;
+use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
@@ -476,7 +476,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
             let ch = &mut self.tx_dma;
             let request = ch.request();
-            crate::dma::write(ch, request, write, dst)
+            Transfer::new_write(ch, request, write, dst, Default::default())
         };
 
         let state = T::state();
@@ -576,7 +576,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
             let ch = &mut self.rx_dma;
             let request = ch.request();
-            crate::dma::read(ch, request, src, buffer)
+            Transfer::new_read(ch, request, src, buffer, Default::default())
         };
 
         let state = T::state();

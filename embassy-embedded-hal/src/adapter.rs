@@ -131,48 +131,6 @@ where
     type Error = E;
 }
 
-#[cfg(feature = "_todo_embedded_hal_serial")]
-impl<T, E> embedded_hal_async::serial::Read for BlockingAsync<T>
-where
-    T: serial::Read<u8, Error = E>,
-    E: embedded_hal_1::serial::Error + 'static,
-{
-    type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where T: 'a;
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        async move {
-            let mut pos = 0;
-            while pos < buf.len() {
-                match self.wrapped.read() {
-                    Err(nb::Error::WouldBlock) => {}
-                    Err(nb::Error::Other(e)) => return Err(e),
-                    Ok(b) => {
-                        buf[pos] = b;
-                        pos += 1;
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
-}
-
-#[cfg(feature = "_todo_embedded_hal_serial")]
-impl<T, E> embedded_hal_async::serial::Write for BlockingAsync<T>
-where
-    T: blocking::serial::Write<u8, Error = E> + serial::Read<u8, Error = E>,
-    E: embedded_hal_1::serial::Error + 'static,
-{
-    type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where T: 'a;
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        async move { self.wrapped.bwrite_all(buf) }
-    }
-
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where T: 'a;
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        async move { self.wrapped.bflush() }
-    }
-}
-
 /// NOR flash wrapper
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
