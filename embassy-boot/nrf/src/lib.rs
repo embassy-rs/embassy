@@ -1,5 +1,4 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(type_alias_impl_trait))]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 mod fmt;
