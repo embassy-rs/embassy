@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
     radio_config.calibrate_image = CalibrateImage::ISM_863_870;
     let radio = SubGhzRadio::new(radio, rfs, irq, radio_config).unwrap();
 
-    let mut region: region::Configuration = region::EU868::default().into();
+    let mut region = region::Configuration::new(region::Region::EU868);
 
     // NOTE: This is specific for TTN, as they have a special RX1 delay
     region.set_receive_delay1(5000);

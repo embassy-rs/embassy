@@ -18,7 +18,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"], optional = true }
 panic-reset = { version = "0.1.1", optional = true }
 embedded-hal = { version = "0.2.6" }
 
-cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 
 [features]

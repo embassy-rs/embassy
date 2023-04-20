@@ -20,14 +20,14 @@ embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defm
 embedded-io = "0.4.0"
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx126x", "time", "defmt"], optional = true }
 
-lorawan-device = { version = "0.8.0", default-features = false, features = ["async"], optional = true }
-lorawan = { version = "0.7.1", default-features = false, features = ["default-crypto"], optional = true }
+lorawan-device = { version = "0.9.0", default-features = false, features = ["async"], optional = true }
+lorawan = { version = "0.7.2", default-features = false, features = ["default-crypto"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
 
 static_cell = "1.0"
-cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
