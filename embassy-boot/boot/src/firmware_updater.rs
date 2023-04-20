@@ -520,6 +520,7 @@ mod tests {
     use crate::mem_flash::MemFlash;
 
     #[test]
+    #[cfg(feature = "nightly")]
     fn can_verify_sha1() {
         const STATE: Partition = Partition::new(0, 4096);
         const DFU: Partition = Partition::new(65536, 131072);
