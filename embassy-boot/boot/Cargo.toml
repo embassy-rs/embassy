@@ -45,7 +45,6 @@ default_features = false
 features = ["rand", "std", "u32_backend"]
 
 [features]
-default = ["nightly"]
 ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
 ed25519-salty = ["dep:salty", "_verify"]
 
