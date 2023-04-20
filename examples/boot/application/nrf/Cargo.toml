@@ -9,8 +9,8 @@ embassy-sync = { version = "0.2.0", path = "../../../../embassy-sync" }
 embassy-executor = { version = "0.1.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "nightly", "integrated-timers", "arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.1.0", path = "../../../../embassy-time", features = ["nightly"] }
 embassy-nrf = { version = "0.1.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", "nightly"] }
-embassy-boot = { version = "0.1.0", path = "../../../../embassy-boot/boot" }
-embassy-boot-nrf = { version = "0.1.0", path = "../../../../embassy-boot/nrf" }
+embassy-boot = { version = "0.1.0", path = "../../../../embassy-boot/boot", features = ["nightly"] }
+embassy-boot-nrf = { version = "0.1.0", path = "../../../../embassy-boot/nrf", features = ["nightly"] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = { version = "0.3", optional = true }
