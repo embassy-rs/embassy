@@ -61,6 +61,7 @@ jobs:
           mkdir crates
           builder ./embassy-boot/boot crates/embassy-boot/git.zup
           builder ./embassy-boot/nrf crates/embassy-boot-nrf/git.zup
+          builder ./embassy-boot/rp crates/embassy-boot-rp/git.zup
           builder ./embassy-boot/stm32 crates/embassy-boot-stm32/git.zup
           builder ./embassy-cortex-m crates/embassy-cortex-m/git.zup
           builder ./embassy-embedded-hal crates/embassy-embedded-hal/git.zup
@@ -84,5 +85,3 @@ jobs:
           echo "${{secrets.KUBECONFIG}}" > ~/.kube/config
           POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
           kubectl cp crates $POD:/data
-
-          
