@@ -231,7 +231,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         let len = (max_packet_size + 63) / 64 * 64;
 
         let addr = self.ep_mem_free;
-        if addr + len > EP_MEMORY_SIZE as _ {
+        if addr + len > EP_MEMORY_SIZE as u16 {
             warn!("Endpoint memory full");
             return Err(EndpointAllocError);
         }

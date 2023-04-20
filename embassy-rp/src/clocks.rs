@@ -155,8 +155,8 @@ unsafe fn configure_pll(p: pac::pll::Pll, refdiv: u32, vco_freq: u32, post_div1:
     let cs = p.cs().read();
     let prim = p.prim().read();
     if cs.lock()
-        && cs.refdiv() == refdiv as _
-        && p.fbdiv_int().read().fbdiv_int() == fbdiv as _
+        && cs.refdiv() == refdiv as u8
+        && p.fbdiv_int().read().fbdiv_int() == fbdiv as u16
         && prim.postdiv1() == post_div1
         && prim.postdiv2() == post_div2
     {
