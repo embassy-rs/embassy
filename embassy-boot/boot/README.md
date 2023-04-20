@@ -13,6 +13,7 @@ By design, the bootloader does not provide any network capabilities. Networking 
 The bootloader supports different hardware in separate crates:
 
 * `embassy-boot-nrf` - for the nRF microcontrollers.
+* `embassy-boot-rp` - for the RP2040 microcontrollers.
 * `embassy-boot-stm32` - for the STM32 microcontrollers.
 
 ## Minimum supported Rust version (MSRV)

@@ -12,6 +12,7 @@ mod intrinsics;
 
 pub mod adc;
 pub mod dma;
+mod float;
 pub mod gpio;
 pub mod i2c;
 pub mod interrupt;
