@@ -18,14 +18,14 @@ defmt-rtt = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
 
 embassy-sync = { path = "../../embassy-sync" }
-embassy-rp = { path = "../../embassy-rp", default-features = false, features = ["nightly"] }
+embassy-rp = { path = "../../embassy-rp", default-features = false }
 embassy-boot = { path = "../boot", default-features = false }
-embassy-time = { path = "../../embassy-time", features = ["nightly"] }
+embassy-time = { path = "../../embassy-time" }
 
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
-embedded-storage-async = "0.4.0"
+embedded-storage-async = { version = "0.4.0", optional = true }
 cfg-if = "1.0.0"
 
 [features]
@@ -40,6 +40,12 @@ log = [
     "embassy-rp/log",
 ]
 debug = ["defmt-rtt"]
+nightly = [
+    "dep:embedded-storage-async",
+    "embassy-boot/nightly",
+    "embassy-rp/nightly",
+    "embassy-time/nightly"
+]
 
 [profile.dev]
 debug = 2

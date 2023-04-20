@@ -1,4 +1,4 @@
-#![feature(async_fn_in_trait)]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 #![allow(incomplete_features)]
 #![no_std]
 #![warn(missing_docs)]
@@ -83,7 +83,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "_verify"))]
+    #[cfg(all(feature = "nightly", not(feature = "_verify")))]
     fn test_swap_state() {
         const STATE: Partition = Partition::new(0, 4096);
         const ACTIVE: Partition = Partition::new(4096, 61440);
@@ -136,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "_verify"))]
+    #[cfg(all(feature = "nightly", not(feature = "_verify")))]
     fn test_separate_flash_active_page_biggest() {
         const STATE: Partition = Partition::new(2048, 4096);
         const ACTIVE: Partition = Partition::new(4096, 16384);
@@ -173,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(feature = "_verify"))]
+    #[cfg(all(feature = "nightly", not(feature = "_verify")))]
     fn test_separate_flash_dfu_page_biggest() {
         const STATE: Partition = Partition::new(2048, 4096);
         const ACTIVE: Partition = Partition::new(4096, 16384);
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "_verify")]
+    #[cfg(all(feature = "nightly", feature = "_verify"))]
     fn test_verify() {
         // The following key setup is based on:
         // https://docs.rs/ed25519-dalek/latest/ed25519_dalek/#example

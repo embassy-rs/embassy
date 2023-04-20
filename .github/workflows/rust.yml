@@ -71,7 +71,7 @@ jobs:
 
       - name: Test boot
         working-directory: ./embassy-boot/boot
-        run: cargo test && cargo test --features "ed25519-dalek" && cargo test --features "ed25519-salty"
+        run: cargo test && cargo test --features nightly && cargo test --features "ed25519-dalek,nightly" && cargo test --features "ed25519-salty,nightly"
 
       - name: Test sync
         working-directory: ./embassy-sync

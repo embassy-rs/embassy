@@ -1,4 +1,5 @@
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+#[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
 /// A region in flash used by the bootloader.
@@ -23,6 +24,7 @@ impl Partition {
     }
 
     /// Read from the partition on the provided flash
+    #[cfg(feature = "nightly")]
     pub async fn read<F: AsyncReadNorFlash>(
         &self,
         flash: &mut F,
@@ -34,6 +36,7 @@ impl Partition {
     }
 
     /// Write to the partition on the provided flash
+    #[cfg(feature = "nightly")]
     pub async fn write<F: AsyncNorFlash>(&self, flash: &mut F, offset: u32, bytes: &[u8]) -> Result<(), F::Error> {
         let offset = self.from as u32 + offset;
         flash.write(offset, bytes).await?;
@@ -42,6 +45,7 @@ impl Partition {
     }
 
     /// Erase part of the partition on the provided flash
+    #[cfg(feature = "nightly")]
     pub async fn erase<F: AsyncNorFlash>(&self, flash: &mut F, from: u32, to: u32) -> Result<(), F::Error> {
         let from = self.from as u32 + from;
         let to = self.from as u32 + to;
@@ -51,6 +55,7 @@ impl Partition {
     }
 
     /// Erase the entire partition
+    #[cfg(feature = "nightly")]
     pub(crate) async fn wipe<F: AsyncNorFlash>(&self, flash: &mut F) -> Result<(), F::Error> {
         let from = self.from as u32;
         let to = self.to as u32;
