@@ -13,7 +13,7 @@ NOTE: The applications using this bootloader should not link with the `link-rp.x
 
 ## Minimum supported Rust version (MSRV)
 
-`embassy-boot-rp` requires Rust nightly to compile as it relies on async traits for interacting with the flash peripherals.
+`embassy-boot-rp` is guaranteed to compile on the latest stable Rust version at the time of release. It might compile with older versions but that may change in any new patch release.
 
 ## License
 

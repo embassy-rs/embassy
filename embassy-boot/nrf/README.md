@@ -13,7 +13,7 @@ An adaptation of `embassy-boot` for nRF.
 
 ## Minimum supported Rust version (MSRV)
 
-`embassy-boot-nrf` requires Rust nightly to compile as it relies on async traits for interacting with the flash peripherals.
+`embassy-boot-nrf` is guaranteed to compile on the latest stable Rust version at the time of release. It might compile with older versions but that may change in any new patch release.
 
 ## License
 
