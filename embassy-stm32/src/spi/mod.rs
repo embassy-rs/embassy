@@ -197,7 +197,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     /// Useful for on chip peripherals like SUBGHZ which are hardwired.
     /// The bus can optionally be exposed externally with `Spi::new()` still.
     #[allow(dead_code)]
-    pub(crate) fn new_internal(
+    pub fn new_subghz(
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd,

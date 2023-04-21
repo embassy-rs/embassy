@@ -13,15 +13,15 @@ nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-net/night
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["nightly", "unstable-traits", "defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"], optional = true }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt", "msos-descriptor",], optional = true }
 embedded-io = "0.4.0"
-embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx126x", "time", "defmt"], optional = true }
-
-lorawan-device = { version = "0.9.0", default-features = false, features = ["async"], optional = true }
-lorawan = { version = "0.7.2", default-features = false, features = ["default-crypto"], optional = true }
+embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx126x", "time", "defmt", "external-lora-phy"], optional = true }
+lora-phy = { version = "1", path = "../../../lora-phy" }
+lorawan-device = { version = "0.9.0", path = "../../../rust-lorawan/device", default-features = false, features = ["async", "external-lora-phy"], optional = true }
+lorawan = { version = "0.7.2", path = "../../../rust-lorawan/encoding", default-features = false, features = ["default-crypto"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.4"

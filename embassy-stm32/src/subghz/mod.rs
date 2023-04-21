@@ -224,7 +224,7 @@ impl<'d, Tx, Rx> SubGhz<'d, Tx, Rx> {
         let mut config = SpiConfig::default();
         config.mode = MODE_0;
         config.bit_order = BitOrder::MsbFirst;
-        let spi = Spi::new_internal(peri, txdma, rxdma, clk, config);
+        let spi = Spi::new_subghz(peri, txdma, rxdma, clk, config);
 
         unsafe { wakeup() };
 

@@ -5,6 +5,9 @@
 //! crate's async LoRaWAN MAC implementation.
 
 pub(crate) mod fmt;
+#[cfg(feature = "external-lora-phy")]
+/// interface variants required by the external lora crate
+pub mod iv;
 
 #[cfg(feature = "stm32wl")]
 pub mod stm32wl;
