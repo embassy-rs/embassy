@@ -11,7 +11,7 @@ embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["ni
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "unstable-traits", "defmt", "stm32wl55jc-cm4", "time-driver-any", "memory-x", "unstable-pac", "exti"]  }
 embassy-embedded-hal = {version = "0.1.0", path = "../../embassy-embedded-hal" }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time", "defmt", "external-lora-phy"] }
-lora-phy = { version = "1", path = "../../../lora-phy" }
+lora-phy = { version = "1" }
 lorawan-device = { version = "0.9.0", path = "../../../rust-lorawan/device", default-features = false, features = ["async", "external-lora-phy"] }
 lorawan = { version = "0.7.2", path = "../../../rust-lorawan/encoding", default-features = false, features = ["default-crypto"] }
 

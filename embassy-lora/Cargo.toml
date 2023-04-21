@@ -36,9 +36,9 @@ embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10" }
 embedded-hal-async = { version = "=0.2.0-alpha.1" }
 embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
-embedded-hal = { version = "0.2.6" }
+embedded-hal = { version = "0.2", features = ["unproven"] }
 bit_field = { version = "0.10" }
 
-lora-phy = { version = "1", path = "../../lora-phy", optional = true }
+lora-phy = { version = "1", optional = true }
 lorawan-device = { version = "0.9.0", path = "../../rust-lorawan/device", default-features = false, features = ["async"] }
 lorawan = { version = "0.7.2", path = "../../rust-lorawan/encoding", default-features = false }
