@@ -4,6 +4,7 @@ use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::regs::Cfgr;
 use stm32_metapac::rcc::vals::{Lsedrv, Mcopre, Mcosel};
 
+pub use super::common::{AHBPrescaler, APBPrescaler};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
@@ -76,30 +77,6 @@ pub enum PLLDiv {
     Div2,
     Div3,
     Div4,
-}
-
-/// AHB prescaler
-#[derive(Clone, Copy, PartialEq)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
 }
 
 /// PLL clock input source
@@ -205,34 +182,6 @@ impl From<PLLSource> for Pllsrc {
             PLLSource::HSI16 => Pllsrc::HSI16,
             PLLSource::HSE(_) => Pllsrc::HSE,
             PLLSource::MSI(_) => Pllsrc::MSI,
-        }
-    }
-}
-
-impl From<APBPrescaler> for Ppre {
-    fn from(val: APBPrescaler) -> Ppre {
-        match val {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
-    }
-}
-
-impl From<AHBPrescaler> for Hpre {
-    fn from(val: AHBPrescaler) -> Hpre {
-        match val {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
         }
     }
 }

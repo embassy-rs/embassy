@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use stm32_metapac::rcc::vals::{Hpre, Ppre, Timpre};
+use stm32_metapac::rcc::vals::Timpre;
 
 use crate::pac::pwr::vals::Vos;
 use crate::pac::rcc::vals::{Hseext, Hsidiv, Mco1, Mco2, Pllrge, Pllsrc, Pllvcosel, Sw};
@@ -26,21 +26,7 @@ const VCO_MAX: u32 = 420_000_000;
 const VCO_WIDE_MIN: u32 = 128_000_000;
 const VCO_WIDE_MAX: u32 = 560_000_000;
 
-/// Voltage Scale
-///
-/// Represents the voltage range feeding the CPU core. The maximum core
-/// clock frequency depends on this value.
-#[derive(Copy, Clone, PartialEq)]
-pub enum VoltageScale {
-    /// VOS 0 range VCORE 1.30V - 1.40V
-    Scale0,
-    /// VOS 1 range VCORE 1.15V - 1.26V
-    Scale1,
-    /// VOS 2 range VCORE 1.05V - 1.15V
-    Scale2,
-    /// VOS 3 range VCORE 0.95V - 1.05V
-    Scale3,
-}
+pub use super::common::{AHBPrescaler, APBPrescaler, VoltageScale};
 
 pub enum HseMode {
     /// crystal/ceramic oscillator (HSEBYP=0)
@@ -105,57 +91,7 @@ pub struct Pll {
     pub divr: Option<u16>,
 }
 
-/// AHB prescaler
-#[derive(Clone, Copy, PartialEq)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
-
-impl AHBPrescaler {
-    fn div(&self, clk: Hertz) -> Hertz {
-        match self {
-            Self::NotDivided => clk,
-            Self::Div2 => clk / 2u32,
-            Self::Div4 => clk / 4u32,
-            Self::Div8 => clk / 8u32,
-            Self::Div16 => clk / 16u32,
-            Self::Div64 => clk / 64u32,
-            Self::Div128 => clk / 128u32,
-            Self::Div256 => clk / 256u32,
-            Self::Div512 => clk / 512u32,
-        }
-    }
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-}
-
 impl APBPrescaler {
-    fn div(&self, clk: Hertz) -> Hertz {
-        match self {
-            Self::NotDivided => clk,
-            Self::Div2 => clk / 2u32,
-            Self::Div4 => clk / 4u32,
-            Self::Div8 => clk / 8u32,
-            Self::Div16 => clk / 16u32,
-        }
-    }
-
     fn div_tim(&self, clk: Hertz, tim: TimerPrescaler) -> Hertz {
         match (tim, self) {
             // The timers kernel clock is equal to rcc_hclk1 if PPRE1 or PPRE2 corresponds to a
@@ -189,34 +125,6 @@ impl From<TimerPrescaler> for Timpre {
         match value {
             TimerPrescaler::DefaultX2 => Timpre::DEFAULTX2,
             TimerPrescaler::DefaultX4 => Timpre::DEFAULTX4,
-        }
-    }
-}
-
-impl From<APBPrescaler> for Ppre {
-    fn from(val: APBPrescaler) -> Ppre {
-        match val {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
-    }
-}
-
-impl From<AHBPrescaler> for Hpre {
-    fn from(val: AHBPrescaler) -> Hpre {
-        match val {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
         }
     }
 }
@@ -406,13 +314,13 @@ pub(crate) unsafe fn init(config: Config) {
     };
     assert!(sys <= max_clk);
 
-    let hclk = config.ahb_pre.div(sys);
+    let hclk = sys / config.ahb_pre;
 
-    let apb1 = config.apb1_pre.div(hclk);
+    let apb1 = hclk / config.apb1_pre;
     let apb1_tim = config.apb1_pre.div_tim(hclk, config.timer_prescaler);
-    let apb2 = config.apb2_pre.div(hclk);
+    let apb2 = hclk / config.apb2_pre;
     let apb2_tim = config.apb2_pre.div_tim(hclk, config.timer_prescaler);
-    let apb3 = config.apb3_pre.div(hclk);
+    let apb3 = hclk / config.apb3_pre;
 
     flash_setup(hclk, config.voltage_scale);
 

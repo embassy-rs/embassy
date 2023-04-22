@@ -1,5 +1,6 @@
-use stm32_metapac::rcc::vals::{Hpre, Msirange, Msirgsel, Pllm, Pllsrc, Ppre, Sw};
+use stm32_metapac::rcc::vals::{Msirange, Msirgsel, Pllm, Pllsrc, Sw};
 
+pub use super::common::{AHBPrescaler, APBPrescaler};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -10,19 +11,7 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-/// Voltage Scale
-///
-/// Represents the voltage range feeding the CPU core. The maximum core
-/// clock frequency depends on this value.
-#[derive(Copy, Clone, PartialEq)]
-pub enum VoltageScale {
-    // Highest frequency
-    Range1,
-    Range2,
-    Range3,
-    // Lowest power
-    Range4,
-}
+pub use super::common::VoltageScale;
 
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
@@ -130,36 +119,6 @@ impl Into<Pllm> for PllM {
     }
 }
 
-/// AHB prescaler
-#[derive(Clone, Copy, PartialEq)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
-
-impl Into<Hpre> for AHBPrescaler {
-    fn into(self) -> Hpre {
-        match self {
-            AHBPrescaler::NotDivided => Hpre::NONE,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
-        }
-    }
-}
-
 impl Into<u8> for AHBPrescaler {
     fn into(self) -> u8 {
         match self {
@@ -179,28 +138,6 @@ impl Into<u8> for AHBPrescaler {
 impl Default for AHBPrescaler {
     fn default() -> Self {
         AHBPrescaler::NotDivided
-    }
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-}
-
-impl Into<Ppre> for APBPrescaler {
-    fn into(self) -> Ppre {
-        match self {
-            APBPrescaler::NotDivided => Ppre::NONE,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
     }
 }
 
@@ -389,12 +326,12 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     // TODO make configurable
-    let power_vos = VoltageScale::Range4;
+    let power_vos = VoltageScale::Scale3;
 
     // states and programming delay
     let wait_states = match power_vos {
         // VOS 0 range VCORE 1.26V - 1.40V
-        VoltageScale::Range1 => {
+        VoltageScale::Scale0 => {
             if sys_clk < 32_000_000 {
                 0
             } else if sys_clk < 64_000_000 {
@@ -408,7 +345,7 @@ pub(crate) unsafe fn init(config: Config) {
             }
         }
         // VOS 1 range VCORE 1.15V - 1.26V
-        VoltageScale::Range2 => {
+        VoltageScale::Scale1 => {
             if sys_clk < 30_000_000 {
                 0
             } else if sys_clk < 60_000_000 {
@@ -420,7 +357,7 @@ pub(crate) unsafe fn init(config: Config) {
             }
         }
         // VOS 2 range VCORE 1.05V - 1.15V
-        VoltageScale::Range3 => {
+        VoltageScale::Scale2 => {
             if sys_clk < 24_000_000 {
                 0
             } else if sys_clk < 48_000_000 {
@@ -430,7 +367,7 @@ pub(crate) unsafe fn init(config: Config) {
             }
         }
         // VOS 3 range VCORE 0.95V - 1.05V
-        VoltageScale::Range4 => {
+        VoltageScale::Scale3 => {
             if sys_clk < 12_000_000 {
                 0
             } else {

@@ -1,5 +1,7 @@
-use crate::rcc::Clocks;
-use crate::time::{khz, mhz, Hertz};
+pub use super::common::{AHBPrescaler, APBPrescaler};
+use crate::pac::RCC;
+use crate::rcc::{set_freqs, Clocks, Clocks};
+use crate::time::{khz, mhz, Hertz, Hertz};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.
@@ -100,68 +102,6 @@ pub struct Pll {
     pub divq: Option<u16>,
     /// PLL R division factor. If None, PLL R output is disabled. Must be between 1 and 128.
     pub divr: Option<u16>,
-}
-
-/// AHB prescaler
-#[derive(Clone, Copy, PartialEq)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div3,
-    Div4,
-    Div5,
-    Div6,
-    Div8,
-    Div10,
-    Div16,
-    Div32,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-}
-
-impl Into<u8> for APBPrescaler {
-    fn into(self) -> u8 {
-        match self {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 0x04,
-            APBPrescaler::Div4 => 0x05,
-            APBPrescaler::Div8 => 0x06,
-            APBPrescaler::Div16 => 0x07,
-        }
-    }
-}
-
-impl Into<u8> for AHBPrescaler {
-    fn into(self) -> u8 {
-        match self {
-            AHBPrescaler::NotDivided => 0x0,
-            AHBPrescaler::Div2 => 0x08,
-            AHBPrescaler::Div3 => 0x01,
-            AHBPrescaler::Div4 => 0x09,
-            AHBPrescaler::Div5 => 0x02,
-            AHBPrescaler::Div6 => 0x05,
-            AHBPrescaler::Div8 => 0x0a,
-            AHBPrescaler::Div10 => 0x06,
-            AHBPrescaler::Div16 => 0x0b,
-            AHBPrescaler::Div32 => 0x07,
-            AHBPrescaler::Div64 => 0x0c,
-            AHBPrescaler::Div128 => 0x0d,
-            AHBPrescaler::Div256 => 0x0e,
-            AHBPrescaler::Div512 => 0x0f,
-        }
-    }
 }
 
 /// Clocks configutation
