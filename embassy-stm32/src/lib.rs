@@ -36,6 +36,8 @@ pub mod dcmi;
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;
+#[cfg(any(rcc_h5))]
+pub mod fmac;
 #[cfg(fmc)]
 pub mod fmc;
 #[cfg(i2c)]
