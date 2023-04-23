@@ -1,6 +1,6 @@
 //! This example runs on the RAK4631 WisBlock, which has an nRF52840 MCU and Semtech Sx126x radio.
 //! Other nrf/sx126x combinations may work with appropriate pin modifications.
-//! It demonstrates LoRa Rx duty cycle functionality in conjunction with the lora_p2p_send example.
+//! It demonstrates LORA P2P receive functionality in conjunction with the lora_p2p_send example.
 #![no_std]
 #![no_main]
 #![macro_use]
@@ -87,20 +87,8 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    // See "RM0453 Reference manual STM32WL5x advanced Arm®-based 32-bit MCUs with sub-GHz radio solution" for the best explanation of Rx duty cycle processing.
     match lora
-        .prepare_for_rx(
-            &mdltn_params,
-            &rx_pkt_params,
-            Some(&DutyCycleParams {
-                rx_time: 300_000,    // 300_000 units * 15.625 us/unit = 4.69 s
-                sleep_time: 200_000, // 200_000 units * 15.625 us/unit = 3.13 s
-            }),
-            false,
-            false,
-            0,
-            0,
-        )
+        .prepare_for_rx(&mdltn_params, &rx_pkt_params, None, true, false, 0, 0x00ffffffu32)
         .await
     {
         Ok(()) => {}
@@ -110,22 +98,24 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    receiving_buffer = [00u8; 100];
-    match lora.rx(&rx_pkt_params, &mut receiving_buffer).await {
-        Ok((received_len, _rx_pkt_status)) => {
-            if (received_len == 3)
-                && (receiving_buffer[0] == 0x01u8)
-                && (receiving_buffer[1] == 0x02u8)
-                && (receiving_buffer[2] == 0x03u8)
-            {
-                info!("rx successful");
-                debug_indicator.set_high();
-                Timer::after(Duration::from_secs(5)).await;
-                debug_indicator.set_low();
-            } else {
-                info!("rx unknown packet")
+    loop {
+        receiving_buffer = [00u8; 100];
+        match lora.rx(&rx_pkt_params, &mut receiving_buffer).await {
+            Ok((received_len, _rx_pkt_status)) => {
+                if (received_len == 3)
+                    && (receiving_buffer[0] == 0x01u8)
+                    && (receiving_buffer[1] == 0x02u8)
+                    && (receiving_buffer[2] == 0x03u8)
+                {
+                    info!("rx successful");
+                    debug_indicator.set_high();
+                    Timer::after(Duration::from_secs(5)).await;
+                    debug_indicator.set_low();
+                } else {
+                    info!("rx unknown packet");
+                }
             }
+            Err(err) => info!("rx unsuccessful = {}", err),
         }
-        Err(err) => info!("rx unsuccessful = {}", err),
     }
 }

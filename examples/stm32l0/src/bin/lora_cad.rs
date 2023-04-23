@@ -1,5 +1,5 @@
 //! This example runs on the STM32 LoRa Discovery board, which has a builtin Semtech Sx1276 radio.
-//! It demonstrates LORA P2P receive functionality in conjunction with the lora_p2p_send example.
+//! It demonstrates LORA P2P CAD functionality.
 #![no_std]
 #![no_main]
 #![macro_use]
@@ -66,8 +66,6 @@ async fn main(_spawner: Spawner) {
     Timer::after(Duration::from_secs(5)).await;
     start_indicator.set_low();
 
-    let mut receiving_buffer = [00u8; 100];
-
     let mdltn_params = {
         match lora.create_modulation_params(
             SpreadingFactor::_10,
@@ -83,20 +81,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let rx_pkt_params = {
-        match lora.create_rx_packet_params(4, false, receiving_buffer.len() as u8, true, false, &mdltn_params) {
-            Ok(pp) => pp,
-            Err(err) => {
-                info!("Radio error = {}", err);
-                return;
-            }
-        }
-    };
-
-    match lora
-        .prepare_for_rx(&mdltn_params, &rx_pkt_params, None, true, false, 0, 0x00ffffffu32)
-        .await
-    {
+    match lora.prepare_for_cad(&mdltn_params, true).await {
         Ok(()) => {}
         Err(err) => {
             info!("Radio error = {}", err);
@@ -104,24 +89,17 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    loop {
-        receiving_buffer = [00u8; 100];
-        match lora.rx(&rx_pkt_params, &mut receiving_buffer).await {
-            Ok((received_len, _rx_pkt_status)) => {
-                if (received_len == 3)
-                    && (receiving_buffer[0] == 0x01u8)
-                    && (receiving_buffer[1] == 0x02u8)
-                    && (receiving_buffer[2] == 0x03u8)
-                {
-                    info!("rx successful");
-                    debug_indicator.set_high();
-                    Timer::after(Duration::from_secs(5)).await;
-                    debug_indicator.set_low();
-                } else {
-                    info!("rx unknown packet");
-                }
+    match lora.cad().await {
+        Ok(cad_activity_detected) => {
+            if cad_activity_detected {
+                info!("cad successful with activity detected")
+            } else {
+                info!("cad successful without activity detected")
             }
-            Err(err) => info!("rx unsuccessful = {}", err),
+            debug_indicator.set_high();
+            Timer::after(Duration::from_secs(5)).await;
+            debug_indicator.set_low();
         }
+        Err(err) => info!("cad unsuccessful = {}", err),
     }
 }

@@ -1,6 +1,6 @@
 //! This example runs on the RAK4631 WisBlock, which has an nRF52840 MCU and Semtech Sx126x radio.
 //! Other nrf/sx126x combinations may work with appropriate pin modifications.
-//! It demonstrates LoRa Rx duty cycle functionality in conjunction with the lora_p2p_send example.
+//! It demonstrates LORA P2P send functionality.
 #![no_std]
 #![no_main]
 #![macro_use]
@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_lora::iv::GenericSx126xInterfaceVariant;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pin as _, Pull};
 use embassy_nrf::{bind_interrupts, peripherals, spim};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::Delay;
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
 use lora_phy::LoRa;
@@ -53,15 +53,6 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let mut debug_indicator = Output::new(p.P1_03, Level::Low, OutputDrive::Standard);
-    let mut start_indicator = Output::new(p.P1_04, Level::Low, OutputDrive::Standard);
-
-    start_indicator.set_high();
-    Timer::after(Duration::from_secs(5)).await;
-    start_indicator.set_low();
-
-    let mut receiving_buffer = [00u8; 100];
-
     let mdltn_params = {
         match lora.create_modulation_params(
             SpreadingFactor::_10,
@@ -77,8 +68,8 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let rx_pkt_params = {
-        match lora.create_rx_packet_params(4, false, receiving_buffer.len() as u8, true, false, &mdltn_params) {
+    let mut tx_pkt_params = {
+        match lora.create_tx_packet_params(4, false, true, false, &mdltn_params) {
             Ok(pp) => pp,
             Err(err) => {
                 info!("Radio error = {}", err);
@@ -87,22 +78,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    // See "RM0453 Reference manual STM32WL5x advanced Arm®-based 32-bit MCUs with sub-GHz radio solution" for the best explanation of Rx duty cycle processing.
-    match lora
-        .prepare_for_rx(
-            &mdltn_params,
-            &rx_pkt_params,
-            Some(&DutyCycleParams {
-                rx_time: 300_000,    // 300_000 units * 15.625 us/unit = 4.69 s
-                sleep_time: 200_000, // 200_000 units * 15.625 us/unit = 3.13 s
-            }),
-            false,
-            false,
-            0,
-            0,
-        )
-        .await
-    {
+    match lora.prepare_for_tx(&mdltn_params, 20, false).await {
         Ok(()) => {}
         Err(err) => {
             info!("Radio error = {}", err);
@@ -110,22 +86,19 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    receiving_buffer = [00u8; 100];
-    match lora.rx(&rx_pkt_params, &mut receiving_buffer).await {
-        Ok((received_len, _rx_pkt_status)) => {
-            if (received_len == 3)
-                && (receiving_buffer[0] == 0x01u8)
-                && (receiving_buffer[1] == 0x02u8)
-                && (receiving_buffer[2] == 0x03u8)
-            {
-                info!("rx successful");
-                debug_indicator.set_high();
-                Timer::after(Duration::from_secs(5)).await;
-                debug_indicator.set_low();
-            } else {
-                info!("rx unknown packet")
-            }
+    let buffer = [0x01u8, 0x02u8, 0x03u8];
+    match lora.tx(&mdltn_params, &mut tx_pkt_params, &buffer, 0xffffff).await {
+        Ok(()) => {
+            info!("TX DONE");
         }
-        Err(err) => info!("rx unsuccessful = {}", err),
+        Err(err) => {
+            info!("Radio error = {}", err);
+            return;
+        }
+    };
+
+    match lora.sleep(&mut delay).await {
+        Ok(()) => info!("Sleep successful"),
+        Err(err) => info!("Sleep unsuccessful = {}", err),
     }
 }

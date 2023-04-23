@@ -1,6 +1,6 @@
 //! This example runs on the RAK4631 WisBlock, which has an nRF52840 MCU and Semtech Sx126x radio.
 //! Other nrf/sx126x combinations may work with appropriate pin modifications.
-//! It demonstrates LORA CAD functionality.
+//! It demonstrates LoRaWAN join functionality.
 #![no_std]
 #![no_main]
 #![macro_use]
@@ -9,18 +9,24 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_lora::iv::GenericSx126xInterfaceVariant;
+use embassy_lora::LoraTimer;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pin as _, Pull};
-use embassy_nrf::{bind_interrupts, peripherals, spim};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_nrf::rng::Rng;
+use embassy_nrf::{bind_interrupts, peripherals, rng, spim};
+use embassy_time::Delay;
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
 use lora_phy::LoRa;
+use lorawan::default_crypto::DefaultFactory as Crypto;
+use lorawan_device::async_device::lora_radio::LoRaRadio;
+use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
 
-const LORA_FREQUENCY_IN_HZ: u32 = 903_900_000; // warning: set this appropriately for the region
+const LORAWAN_REGION: region::Region = region::Region::EU868; // warning: set this appropriately for the region
 
 bind_interrupts!(struct Irqs {
     SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1 => spim::InterruptHandler<peripherals::TWISPI1>;
+    RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
 #[embassy_executor::main]
@@ -43,8 +49,8 @@ async fn main(_spawner: Spawner) {
 
     let mut delay = Delay;
 
-    let mut lora = {
-        match LoRa::new(SX1261_2::new(BoardType::Rak4631Sx1262, spim, iv), false, &mut delay).await {
+    let lora = {
+        match LoRa::new(SX1261_2::new(BoardType::Rak4631Sx1262, spim, iv), true, &mut delay).await {
             Ok(l) => l,
             Err(err) => {
                 info!("Radio error = {}", err);
@@ -53,47 +59,25 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let mut debug_indicator = Output::new(p.P1_03, Level::Low, OutputDrive::Standard);
-    let mut start_indicator = Output::new(p.P1_04, Level::Low, OutputDrive::Standard);
+    let radio = LoRaRadio::new(lora);
+    let region: region::Configuration = region::Configuration::new(LORAWAN_REGION);
+    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer::new(), Rng::new(p.RNG, Irqs));
 
-    start_indicator.set_high();
-    Timer::after(Duration::from_secs(5)).await;
-    start_indicator.set_low();
+    defmt::info!("Joining LoRaWAN network");
 
-    let mdltn_params = {
-        match lora.create_modulation_params(
-            SpreadingFactor::_10,
-            Bandwidth::_250KHz,
-            CodingRate::_4_8,
-            LORA_FREQUENCY_IN_HZ,
-        ) {
-            Ok(mp) => mp,
-            Err(err) => {
-                info!("Radio error = {}", err);
-                return;
-            }
-        }
-    };
-
-    match lora.prepare_for_cad(&mdltn_params, true).await {
-        Ok(()) => {}
+    // TODO: Adjust the EUI and Keys according to your network credentials
+    match device
+        .join(&JoinMode::OTAA {
+            deveui: [0, 0, 0, 0, 0, 0, 0, 0],
+            appeui: [0, 0, 0, 0, 0, 0, 0, 0],
+            appkey: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        })
+        .await
+    {
+        Ok(()) => defmt::info!("LoRaWAN network joined"),
         Err(err) => {
             info!("Radio error = {}", err);
             return;
         }
     };
-
-    match lora.cad().await {
-        Ok(cad_activity_detected) => {
-            if cad_activity_detected {
-                info!("cad successful with activity detected")
-            } else {
-                info!("cad successful without activity detected")
-            }
-            debug_indicator.set_high();
-            Timer::after(Duration::from_secs(5)).await;
-            debug_indicator.set_low();
-        }
-        Err(err) => info!("cad unsuccessful = {}", err),
-    }
 }

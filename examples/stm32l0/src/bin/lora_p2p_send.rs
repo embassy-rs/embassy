@@ -1,25 +1,20 @@
-//! This example runs on a STM32WL board, which has a builtin Semtech Sx1262 radio.
+//! This example runs on the STM32 LoRa Discovery board, which has a builtin Semtech Sx1276 radio.
 //! It demonstrates LORA P2P send functionality.
 #![no_std]
 #![no_main]
 #![macro_use]
-#![feature(type_alias_impl_trait, async_fn_in_trait)]
-#![allow(incomplete_features)]
+#![feature(type_alias_impl_trait)]
 
-use defmt::info;
-use embassy_embedded_hal::adapter::BlockingAsync;
+use defmt::*;
 use embassy_executor::Spawner;
-use embassy_lora::iv::Stm32wlInterfaceVariant;
-use embassy_stm32::dma::NoDma;
-use embassy_stm32::gpio::{Level, Output, Pin, Speed};
-use embassy_stm32::peripherals::SUBGHZSPI;
-use embassy_stm32::rcc::low_level::RccPeripheral;
-use embassy_stm32::spi::{BitOrder, Config as SpiConfig, Spi, MODE_0};
-use embassy_stm32::time::Hertz;
-use embassy_stm32::{interrupt, into_ref, Peripheral};
+use embassy_lora::iv::Stm32l0InterfaceVariant;
+use embassy_stm32::exti::{Channel, ExtiInput};
+use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
+use embassy_stm32::spi;
+use embassy_stm32::time::khz;
 use embassy_time::Delay;
 use lora_phy::mod_params::*;
-use lora_phy::sx1261_2::SX1261_2;
+use lora_phy::sx1276_7_8_9::SX1276_7_8_9;
 use lora_phy::LoRa;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -28,29 +23,34 @@ const LORA_FREQUENCY_IN_HZ: u32 = 903_900_000; // warning: set this appropriatel
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
+    config.rcc.enable_hsi48 = true;
     let p = embassy_stm32::init(config);
 
-    let clk = Hertz(core::cmp::min(SUBGHZSPI::frequency().0 / 2, 16_000_000));
-    let mut spi_config = SpiConfig::default();
-    spi_config.mode = MODE_0;
-    spi_config.bit_order = BitOrder::MsbFirst;
-    let spi = Spi::new_subghz(p.SUBGHZSPI, NoDma, NoDma, clk, spi_config);
+    // SPI for sx1276
+    let spi = spi::Spi::new(
+        p.SPI1,
+        p.PB3,
+        p.PA7,
+        p.PA6,
+        p.DMA1_CH3,
+        p.DMA1_CH2,
+        khz(200),
+        spi::Config::default(),
+    );
 
-    let spi = BlockingAsync::new(spi);
+    let nss = Output::new(p.PA15.degrade(), Level::High, Speed::Low);
+    let reset = Output::new(p.PC0.degrade(), Level::High, Speed::Low);
 
-    let irq = interrupt::take!(SUBGHZ_RADIO);
-    into_ref!(irq);
-    // Set CTRL1 and CTRL3 for high-power transmission, while CTRL2 acts as an RF switch between tx and rx
-    let _ctrl1 = Output::new(p.PC4.degrade(), Level::Low, Speed::High);
-    let ctrl2 = Output::new(p.PC5.degrade(), Level::High, Speed::High);
-    let _ctrl3 = Output::new(p.PC3.degrade(), Level::High, Speed::High);
-    let iv = Stm32wlInterfaceVariant::new(irq, None, Some(ctrl2)).unwrap();
+    let irq_pin = Input::new(p.PB4.degrade(), Pull::Up);
+    let irq = ExtiInput::new(irq_pin, p.EXTI4.degrade());
+
+    let iv = Stm32l0InterfaceVariant::new(nss, reset, irq, None, None).unwrap();
 
     let mut delay = Delay;
 
     let mut lora = {
-        match LoRa::new(SX1261_2::new(BoardType::Stm32wlSx1262, spi, iv), false, &mut delay).await {
+        match LoRa::new(SX1276_7_8_9::new(BoardType::Stm32l0Sx1276, spi, iv), false, &mut delay).await {
             Ok(l) => l,
             Err(err) => {
                 info!("Radio error = {}", err);
@@ -84,7 +84,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    match lora.prepare_for_tx(&mdltn_params, 20, false).await {
+    match lora.prepare_for_tx(&mdltn_params, 17, true).await {
         Ok(()) => {}
         Err(err) => {
             info!("Radio error = {}", err);
