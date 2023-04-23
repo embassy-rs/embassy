@@ -352,7 +352,6 @@ core::arch::global_asm!(
     ".endm",
 );
 
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 macro_rules! division_function {
     (
         $name:ident $($intrinsic:ident)* ( $argty:ty ) {
@@ -362,10 +361,11 @@ macro_rules! division_function {
         #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         core::arch::global_asm!(
             // Mangle the name slightly, since this is a global symbol.
-            concat!(".global _rphal_", stringify!($name)),
-            concat!(".type _rphal_", stringify!($name), ", %function"),
+            concat!(".section .text._erphal_", stringify!($name)),
+            concat!(".global _erphal_", stringify!($name)),
+            concat!(".type _erphal_", stringify!($name), ", %function"),
             ".align 2",
-            concat!("_rphal_", stringify!($name), ":"),
+            concat!("_erphal_", stringify!($name), ":"),
             $(
                 concat!(".global ", stringify!($intrinsic)),
                 concat!(".type ", stringify!($intrinsic), ", %function"),
@@ -380,10 +380,11 @@ macro_rules! division_function {
         #[cfg(all(target_arch = "arm", not(feature = "intrinsics")))]
         core::arch::global_asm!(
             // Mangle the name slightly, since this is a global symbol.
-            concat!(".global _rphal_", stringify!($name)),
-            concat!(".type _rphal_", stringify!($name), ", %function"),
+            concat!(".section .text._erphal_", stringify!($name)),
+            concat!(".global _erphal_", stringify!($name)),
+            concat!(".type _erphal_", stringify!($name), ", %function"),
             ".align 2",
-            concat!("_rphal_", stringify!($name), ":"),
+            concat!("_erphal_", stringify!($name), ":"),
 
             "hwdivider_head",
             $($begin),+ ,
@@ -393,7 +394,7 @@ macro_rules! division_function {
         #[cfg(target_arch = "arm")]
         extern "aapcs" {
             // Connect a local name to global symbol above through FFI.
-            #[link_name = concat!("_rphal_", stringify!($name)) ]
+            #[link_name = concat!("_erphal_", stringify!($name)) ]
             fn $name(n: $argty, d: $argty) -> u64;
         }
 
@@ -403,7 +404,6 @@ macro_rules! division_function {
     };
 }
 
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 division_function! {
     unsigned_divmod __aeabi_uidivmod __aeabi_uidiv ( u32 ) {
         "str    r0, [r2, #0x060]", // DIV_UDIVIDEND
@@ -411,7 +411,6 @@ division_function! {
     }
 }
 
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 division_function! {
     signed_divmod __aeabi_idivmod __aeabi_idiv ( i32 ) {
         "str    r0, [r2, #0x068]", // DIV_SDIVIDEND
@@ -419,7 +418,6 @@ division_function! {
     }
 }
 
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 fn divider_unsigned(n: u32, d: u32) -> DivResult<u32> {
     let packed = unsafe { unsigned_divmod(n, d) };
     DivResult {
@@ -428,7 +426,6 @@ fn divider_unsigned(n: u32, d: u32) -> DivResult<u32> {
     }
 }
 
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 fn divider_signed(n: i32, d: i32) -> DivResult<i32> {
     let packed = unsafe { signed_divmod(n, d) };
     // Double casts to avoid sign extension
@@ -439,7 +436,6 @@ fn divider_signed(n: i32, d: i32) -> DivResult<i32> {
 }
 
 /// Result of divide/modulo operation
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 struct DivResult<T> {
     /// The quotient of divide/modulo operation
     pub quotient: T,
@@ -447,7 +443,6 @@ struct DivResult<T> {
     pub remainder: T,
 }
 
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 intrinsics! {
     extern "C" fn __udivsi3(n: u32, d: u32) -> u32 {
         divider_unsigned(n, d).quotient
