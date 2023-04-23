@@ -21,6 +21,7 @@ pub mod interrupt;
 pub mod pio;
 #[cfg(feature = "pio")]
 pub mod pio_instr_util;
+pub mod pwm;
 #[cfg(feature = "pio")]
 pub mod relocate;
 
@@ -108,6 +109,15 @@ embassy_hal_common::peripherals! {
     DMA_CH9,
     DMA_CH10,
     DMA_CH11,
+
+    PWM_CH0,
+    PWM_CH1,
+    PWM_CH2,
+    PWM_CH3,
+    PWM_CH4,
+    PWM_CH5,
+    PWM_CH6,
+    PWM_CH7,
 
     USB,
 

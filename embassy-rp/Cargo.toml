@@ -60,8 +60,9 @@ chrono = { version = "0.4", default-features = false, optional = true }
 embedded-io = { version = "0.4.0", features = ["async"], optional = true }
 embedded-storage = { version = "0.3" }
 rand_core = "0.6.4"
+fixed = "1.23.1"
 
-rp-pac = { version = "1", features = ["rt"] }
+rp-pac = { version = "2", features = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
