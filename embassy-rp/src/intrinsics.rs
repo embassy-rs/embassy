@@ -402,6 +402,7 @@ macro_rules! division_function {
     };
 }
 
+#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 division_function! {
     unsigned_divmod __aeabi_uidivmod __aeabi_uidiv ( u32 ) {
         "str    r0, [r2, #0x060]", // DIV_UDIVIDEND
@@ -409,6 +410,7 @@ division_function! {
     }
 }
 
+#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 division_function! {
     signed_divmod __aeabi_idivmod __aeabi_idiv ( i32 ) {
         "str    r0, [r2, #0x068]", // DIV_SDIVIDEND
@@ -416,6 +418,7 @@ division_function! {
     }
 }
 
+#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 fn divider_unsigned(n: u32, d: u32) -> DivResult<u32> {
     let packed = unsafe { unsigned_divmod(n, d) };
     DivResult {
@@ -424,6 +427,7 @@ fn divider_unsigned(n: u32, d: u32) -> DivResult<u32> {
     }
 }
 
+#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 fn divider_signed(n: i32, d: i32) -> DivResult<i32> {
     let packed = unsafe { signed_divmod(n, d) };
     // Double casts to avoid sign extension
@@ -441,6 +445,7 @@ struct DivResult<T> {
     pub remainder: T,
 }
 
+#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 intrinsics! {
     extern "C" fn __udivsi3(n: u32, d: u32) -> u32 {
         divider_unsigned(n, d).quotient
