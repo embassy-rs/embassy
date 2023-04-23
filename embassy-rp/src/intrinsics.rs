@@ -361,10 +361,11 @@ macro_rules! division_function {
         #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         core::arch::global_asm!(
             // Mangle the name slightly, since this is a global symbol.
-            concat!(".global _rphal_", stringify!($name)),
-            concat!(".type _rphal_", stringify!($name), ", %function"),
+            concat!(".section .text._erphal_", stringify!($name)),
+            concat!(".global _erphal_", stringify!($name)),
+            concat!(".type _erphal_", stringify!($name), ", %function"),
             ".align 2",
-            concat!("_rphal_", stringify!($name), ":"),
+            concat!("_erphal_", stringify!($name), ":"),
             $(
                 concat!(".global ", stringify!($intrinsic)),
                 concat!(".type ", stringify!($intrinsic), ", %function"),
@@ -379,10 +380,11 @@ macro_rules! division_function {
         #[cfg(all(target_arch = "arm", not(feature = "intrinsics")))]
         core::arch::global_asm!(
             // Mangle the name slightly, since this is a global symbol.
-            concat!(".global _rphal_", stringify!($name)),
-            concat!(".type _rphal_", stringify!($name), ", %function"),
+            concat!(".section .text._erphal_", stringify!($name)),
+            concat!(".global _erphal_", stringify!($name)),
+            concat!(".type _erphal_", stringify!($name), ", %function"),
             ".align 2",
-            concat!("_rphal_", stringify!($name), ":"),
+            concat!("_erphal_", stringify!($name), ":"),
 
             "hwdivider_head",
             $($begin),+ ,
@@ -392,7 +394,7 @@ macro_rules! division_function {
         #[cfg(target_arch = "arm")]
         extern "aapcs" {
             // Connect a local name to global symbol above through FFI.
-            #[link_name = concat!("_rphal_", stringify!($name)) ]
+            #[link_name = concat!("_erphal_", stringify!($name)) ]
             fn $name(n: $argty, d: $argty) -> u64;
         }
 
