@@ -284,7 +284,7 @@ macro_rules! intrinsics {
 // alias the division operators to these for a similar reason r0 is the
 // result either way and r1 a scratch register, so the caller can't assume it
 // retains the argument value.
-#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
+#[cfg(target_arch = "arm")]
 core::arch::global_asm!(
     ".macro hwdivider_head",
     "ldr    r2, =(0xd0000000)", // SIO_BASE
@@ -352,6 +352,7 @@ core::arch::global_asm!(
     ".endm",
 );
 
+#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 macro_rules! division_function {
     (
         $name:ident $($intrinsic:ident)* ( $argty:ty ) {
@@ -438,6 +439,7 @@ fn divider_signed(n: i32, d: i32) -> DivResult<i32> {
 }
 
 /// Result of divide/modulo operation
+#[cfg(all(target_arch = "arm", feature = "intrinsics"))]
 struct DivResult<T> {
     /// The quotient of divide/modulo operation
     pub quotient: T,
