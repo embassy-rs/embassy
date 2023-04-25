@@ -331,34 +331,34 @@ impl Message {
     }
 }
 
-const EVENT_BITS: usize = ((Event::LAST as usize + 31) & !31) / 32;
-
 #[derive(Default)]
 struct EventMask {
-    mask: [u32; EVENT_BITS],
+    mask: [u32; Self::WORD_COUNT],
 }
 
 impl EventMask {
+    const WORD_COUNT: usize = ((Event::LAST as u32 + (u32::BITS - 1)) / u32::BITS) as usize;
+
     fn enable(&mut self, event: Event) {
         let n = event as u32;
-        let word = n >> 5;
-        let bit = n & 0b11111;
+        let word = n / u32::BITS;
+        let bit = n % u32::BITS;
 
         self.mask[word as usize] |= (1 << bit);
     }
 
     fn disable(&mut self, event: Event) {
         let n = event as u32;
-        let word = n >> 5;
-        let bit = n & 0b11111;
+        let word = n / u32::BITS;
+        let bit = n % u32::BITS;
 
         self.mask[word as usize] &= !(1 << bit);
     }
 
     fn is_enabled(&self, event: Event) -> bool {
         let n = event as u32;
-        let word = n >> 5;
-        let bit = n & 0b11111;
+        let word = n / u32::BITS;
+        let bit = n % u32::BITS;
 
         self.mask[word as usize] & (1 << bit) > 0
     }
