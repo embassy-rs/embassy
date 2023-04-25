@@ -51,7 +51,7 @@ pub struct DateTime {
 impl From<chrono::NaiveDateTime> for DateTime {
     fn from(date_time: chrono::NaiveDateTime) -> Self {
         Self {
-            year: (date_time.year() - 1970) as u16,
+            year: date_time.year() as u16,
             month: date_time.month() as u8,
             day: date_time.day() as u8,
             day_of_week: date_time.weekday().into(),
@@ -65,14 +65,10 @@ impl From<chrono::NaiveDateTime> for DateTime {
 #[cfg(feature = "chrono")]
 impl From<DateTime> for chrono::NaiveDateTime {
     fn from(date_time: DateTime) -> Self {
-        NaiveDate::from_ymd_opt(
-            (date_time.year + 1970) as i32,
-            date_time.month as u32,
-            date_time.day as u32,
-        )
-        .unwrap()
-        .and_hms_opt(date_time.hour as u32, date_time.minute as u32, date_time.second as u32)
-        .unwrap()
+        NaiveDate::from_ymd_opt(date_time.year as i32, date_time.month as u32, date_time.day as u32)
+            .unwrap()
+            .and_hms_opt(date_time.hour as u32, date_time.minute as u32, date_time.second as u32)
+            .unwrap()
     }
 }
 
@@ -159,6 +155,8 @@ pub(super) fn write_date_time(rtc: &Rtc, t: DateTime) {
     let (yt, yu) = byte_to_bcd2(yr_offset);
 
     unsafe {
+        use crate::pac::rtc::vals::Ampm;
+
         rtc.tr().write(|w| {
             w.set_ht(ht);
             w.set_hu(hu);
@@ -166,7 +164,7 @@ pub(super) fn write_date_time(rtc: &Rtc, t: DateTime) {
             w.set_mnu(mnu);
             w.set_st(st);
             w.set_su(su);
-            w.set_pm(stm32_metapac::rtc::vals::Ampm::AM);
+            w.set_pm(Ampm::AM);
         });
 
         rtc.dr().write(|w| {
