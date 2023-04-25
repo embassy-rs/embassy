@@ -328,7 +328,6 @@ impl<PIO: PioInstance, SM: SmInstance> PioStateMachine for PioStateMachineInstan
 
 pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn pio_no(&self) -> u8 {
-        let _ = self;
         Self::Pio::PIO_NO
     }
 
@@ -337,7 +336,6 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn restart(&mut self) {
-        let _ = self;
         unsafe {
             Self::Pio::PIO
                 .ctrl()
@@ -345,7 +343,6 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         }
     }
     fn set_enable(&mut self, enable: bool) {
-        let _ = self;
         let mask = 1u8 << Self::Sm::SM_NO;
         unsafe {
             Self::Pio::PIO
@@ -355,25 +352,20 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn is_enabled(&self) -> bool {
-        let _ = self;
         unsafe { Self::Pio::PIO.ctrl().read().sm_enable() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
 
     fn is_tx_empty(&self) -> bool {
-        let _ = self;
         unsafe { Self::Pio::PIO.fstat().read().txempty() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
     fn is_tx_full(&self) -> bool {
-        let _ = self;
         unsafe { Self::Pio::PIO.fstat().read().txfull() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
 
     fn is_rx_empty(&self) -> bool {
-        let _ = self;
         unsafe { Self::Pio::PIO.fstat().read().rxempty() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
     fn is_rx_full(&self) -> bool {
-        let _ = self;
         unsafe { Self::Pio::PIO.fstat().read().rxfull() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
 
@@ -430,7 +422,6 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn clkdiv_restart(&mut self) {
-        let _ = self;
         unsafe {
             Self::Pio::PIO
                 .ctrl()
@@ -785,7 +776,6 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     where
         I: Iterator<Item = u16>,
     {
-        let _ = self;
         write_instr(
             Self::Pio::PIO,
             Self::Pio::PIO_NO,
@@ -953,7 +943,6 @@ pub trait PioCommon: sealed::PioCommon + Sized {
     where
         I: Iterator<Item = u16>,
     {
-        let _ = self;
         write_instr(Self::Pio::PIO, Self::Pio::PIO_NO, start, instrs, MEM_USED_BY_COMMON);
     }
 
@@ -1024,7 +1013,6 @@ impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {}
 
 pub trait PioPeripheral: sealed::PioPeripheral + Sized {
     fn pio(&self) -> u8 {
-        let _ = self;
         Self::Pio::PIO_NO
     }
 
@@ -1037,7 +1025,6 @@ pub trait PioPeripheral: sealed::PioPeripheral + Sized {
         PioStateMachineInstance<Self::Pio, SmInstanceBase<2>>,
         PioStateMachineInstance<Self::Pio, SmInstanceBase<3>>,
     ) {
-        let _ = self;
         (
             PioCommonInstance {
                 pio: PhantomData::default(),
