@@ -197,18 +197,20 @@ impl<'a> Control<'a> {
     async fn wait_for_join(&mut self, i: SsidInfo) {
         self.events.mask.enable(&[Event::JOIN, Event::AUTH]);
         let mut subscriber = self.events.queue.subscriber().unwrap();
+        // the actual join operation starts here
+        // we make sure to enable events before so we don't miss any
         self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
             .await;
         // set_ssid
 
         loop {
             let msg = subscriber.next_message_pure().await;
-            if msg.header.event_type == Event::AUTH && msg.header.status != 0 {
+            if msg.header.event_type == Event::AUTH && msg.header.status != EStatus::SUCCESS {
                 // retry
                 warn!("JOIN failed with status={}", msg.header.status);
                 self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
                     .await;
-            } else if msg.header.event_type == Event::JOIN && msg.header.status == 0 {
+            } else if msg.header.event_type == Event::JOIN && msg.header.status == EStatus::SUCCESS {
                 // successful join
                 break;
             }

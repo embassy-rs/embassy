@@ -406,6 +406,10 @@ where
                     let status = event_packet.msg.status;
                     let event_payload = events::Payload::None;
 
+                    // this intentionally uses the non-blocking publish immediate
+                    // publish() is a deadlock risk in the current design as awaiting here prevents ioctls
+                    // The `Runner` always yields when accessing the device, so consumers always have a chance to receive the event
+                    // (if they are actively awaiting the queue)
                     self.events.queue.publish_immediate(events::Message::new(
                         Status {
                             event_type: evt_type,
