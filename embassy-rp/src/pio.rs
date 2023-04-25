@@ -79,6 +79,20 @@ unsafe fn PIO1_IRQ_0() {
     pac::PIO1.irqs(0).inte().write_clear(|m| m.0 = ints);
 }
 
+pub(crate) unsafe fn init() {
+    let irq = interrupt::PIO0_IRQ_0::steal();
+    irq.disable();
+    irq.set_priority(interrupt::Priority::P3);
+    pac::PIO0.irqs(0).inte().write(|m| m.0 = 0);
+    irq.enable();
+
+    let irq = interrupt::PIO1_IRQ_0::steal();
+    irq.disable();
+    irq.set_priority(interrupt::Priority::P3);
+    pac::PIO1.irqs(0).inte().write(|m| m.0 = 0);
+    irq.enable();
+}
+
 /// Future that waits for TX-FIFO to become writable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FifoOutFuture<'a, PIO: PioInstance, SM: PioStateMachine + Unpin> {
@@ -89,14 +103,6 @@ pub struct FifoOutFuture<'a, PIO: PioInstance, SM: PioStateMachine + Unpin> {
 
 impl<'a, PIO: PioInstance, SM: PioStateMachine + Unpin> FifoOutFuture<'a, PIO, SM> {
     pub fn new(sm: &'a mut SM, value: u32) -> Self {
-        unsafe {
-            critical_section::with(|_| {
-                let irq = PIO::Irq::steal();
-                irq.set_priority(interrupt::Priority::P3);
-
-                irq.enable();
-            });
-        }
         FifoOutFuture {
             sm,
             pio: PhantomData::default(),
@@ -115,12 +121,9 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture
         } else {
             WAKERS[PIO::PIO_NO as usize].fifo_out()[SM::Sm::SM_NO as usize].register(cx.waker());
             unsafe {
-                let irq = PIO::Irq::steal();
-                irq.disable();
                 PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
                     m.0 = TXNFULL_MASK << SM::Sm::SM_NO;
                 });
-                irq.enable();
             }
             // debug!("Pending");
             Poll::Pending
@@ -147,14 +150,6 @@ pub struct FifoInFuture<'a, PIO: PioInstance, SM: PioStateMachine> {
 
 impl<'a, PIO: PioInstance, SM: PioStateMachine> FifoInFuture<'a, PIO, SM> {
     pub fn new(sm: &'a mut SM) -> Self {
-        unsafe {
-            critical_section::with(|_| {
-                let irq = PIO::Irq::steal();
-                irq.set_priority(interrupt::Priority::P3);
-
-                irq.enable();
-            });
-        }
         FifoInFuture {
             sm,
             pio: PhantomData::default(),
@@ -171,12 +166,9 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO,
         } else {
             WAKERS[PIO::PIO_NO as usize].fifo_in()[SM::Sm::SM_NO as usize].register(cx.waker());
             unsafe {
-                let irq = PIO::Irq::steal();
-                irq.disable();
                 PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
                     m.0 = RXNEMPTY_MASK << SM::Sm::SM_NO;
                 });
-                irq.enable();
             }
             //debug!("Pending");
             Poll::Pending
@@ -203,14 +195,6 @@ pub struct IrqFuture<PIO: PioInstance> {
 
 impl<'a, PIO: PioInstance> IrqFuture<PIO> {
     pub fn new(irq_no: u8) -> Self {
-        unsafe {
-            critical_section::with(|_| {
-                let irq = PIO::Irq::steal();
-                irq.set_priority(interrupt::Priority::P3);
-
-                irq.enable();
-            });
-        }
         IrqFuture {
             pio: PhantomData::default(),
             irq_no,
@@ -240,12 +224,9 @@ impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
 
         WAKERS[PIO::PIO_NO as usize].irq()[self.irq_no as usize].register(cx.waker());
         unsafe {
-            let irq = PIO::Irq::steal();
-            irq.disable();
             PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
                 m.0 = SMIRQ_MASK << self.irq_no;
             });
-            irq.enable();
         }
         Poll::Pending
     }
@@ -1171,17 +1152,14 @@ pub struct PioInstanceBase<const PIO_NO: u8> {}
 
 pub trait PioInstance: Unpin {
     const PIO_NO: u8;
-    type Irq: Interrupt;
 }
 
 impl PioInstance for PioInstanceBase<0> {
     const PIO_NO: u8 = 0;
-    type Irq = interrupt::PIO0_IRQ_0;
 }
 
 impl PioInstance for PioInstanceBase<1> {
     const PIO_NO: u8 = 1;
-    type Irq = interrupt::PIO1_IRQ_0;
 }
 
 pub type Pio0 = PioInstanceBase<0>;
