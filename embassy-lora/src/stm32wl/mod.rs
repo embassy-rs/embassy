@@ -1,4 +1,5 @@
 //! A radio driver integration for the radio found on STM32WL family devices.
+#![allow(deprecated)]
 use core::future::poll_fn;
 use core::task::Poll;
 
