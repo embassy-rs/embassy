@@ -12,6 +12,7 @@ use crate::dma::{Channel, Transfer};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{Drive, Pin, Pull, SlewRate};
 use crate::pac::dma::vals::{DataSize, TreqSel};
+use crate::pio::sealed::{PioInstance as _, SmInstance as _};
 use crate::{interrupt, pac, peripherals, RegExt};
 
 struct Wakers([AtomicWaker; 12]);
@@ -320,14 +321,13 @@ pub struct PioStateMachineInstance<PIO: PioInstance, SM: SmInstance> {
     sm: PhantomData<SM>,
 }
 
-impl<PIO: PioInstance, SM: SmInstance> PioStateMachine for PioStateMachineInstance<PIO, SM> {
+impl<PIO: PioInstance, SM: SmInstance> sealed::PioStateMachine for PioStateMachineInstance<PIO, SM> {
     type Pio = PIO;
     type Sm = SM;
 }
+impl<PIO: PioInstance, SM: SmInstance> PioStateMachine for PioStateMachineInstance<PIO, SM> {}
 
-pub trait PioStateMachine: Sized + Unpin {
-    type Pio: PioInstance;
-    type Sm: SmInstance;
+pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn pio_no(&self) -> u8 {
         let _ = self;
         Self::Pio::PIO_NO
@@ -1027,9 +1027,10 @@ pub struct PioCommonInstance<PIO: PioInstance> {
     pio: PhantomData<PIO>,
 }
 
-impl<PIO: PioInstance> PioCommon for PioCommonInstance<PIO> {
+impl<PIO: PioInstance> sealed::PioCommon for PioCommonInstance<PIO> {
     type Pio = PIO;
 }
+impl<PIO: PioInstance> PioCommon for PioCommonInstance<PIO> {}
 
 fn write_instr<I>(pio_no: u8, start: usize, instrs: I, mem_user: u32)
 where
@@ -1051,9 +1052,7 @@ where
     }
 }
 
-pub trait PioCommon: Sized {
-    type Pio: PioInstance;
-
+pub trait PioCommon: sealed::PioCommon + Sized {
     fn write_instr<I>(&mut self, start: usize, instrs: I)
     where
         I: Iterator<Item = u16>,
@@ -1096,16 +1095,14 @@ pub trait PioCommon: Sized {
 // Identifies a specific state machine inside a PIO device
 pub struct SmInstanceBase<const SM_NO: u8> {}
 
-pub trait SmInstance: Unpin {
-    const SM_NO: u8;
-}
+pub trait SmInstance: sealed::SmInstance + Unpin {}
 
-impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {
+impl<const SM_NO: u8> sealed::SmInstance for SmInstanceBase<SM_NO> {
     const SM_NO: u8 = SM_NO;
 }
+impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {}
 
-pub trait PioPeripheral: Sized {
-    type Pio: PioInstance;
+pub trait PioPeripheral: sealed::PioPeripheral + Sized {
     fn pio(&self) -> u8 {
         let _ = self;
         Self::Pio::PIO_NO
@@ -1145,20 +1142,43 @@ pub trait PioPeripheral: Sized {
     }
 }
 
+mod sealed {
+    pub trait PioInstance {
+        const PIO_NO: u8;
+    }
+
+    pub trait PioCommon {
+        type Pio: super::PioInstance;
+    }
+
+    pub trait PioStateMachine {
+        type Pio: super::PioInstance;
+        type Sm: super::SmInstance;
+    }
+
+    pub trait SmInstance {
+        const SM_NO: u8;
+    }
+
+    pub trait PioPeripheral {
+        type Pio: super::PioInstance;
+    }
+}
+
 // Identifies a specific PIO device
 pub struct PioInstanceBase<const PIO_NO: u8> {}
 
-pub trait PioInstance: Unpin {
-    const PIO_NO: u8;
-}
+pub trait PioInstance: sealed::PioInstance + Unpin {}
 
-impl PioInstance for PioInstanceBase<0> {
+impl sealed::PioInstance for PioInstanceBase<0> {
     const PIO_NO: u8 = 0;
 }
+impl PioInstance for PioInstanceBase<0> {}
 
-impl PioInstance for PioInstanceBase<1> {
+impl sealed::PioInstance for PioInstanceBase<1> {
     const PIO_NO: u8 = 1;
 }
+impl PioInstance for PioInstanceBase<1> {}
 
 pub type Pio0 = PioInstanceBase<0>;
 pub type Pio1 = PioInstanceBase<1>;
@@ -1170,9 +1190,10 @@ pub type Sm3 = SmInstanceBase<3>;
 
 macro_rules! impl_pio_sm {
     ($name:ident, $pio:expr) => {
-        impl PioPeripheral for peripherals::$name {
+        impl sealed::PioPeripheral for peripherals::$name {
             type Pio = PioInstanceBase<$pio>;
         }
+        impl PioPeripheral for peripherals::$name {}
     };
 }
 
