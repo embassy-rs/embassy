@@ -904,19 +904,19 @@ impl<const SM_NO: u8> sealed::SmInstance for SmInstanceBase<SM_NO> {
 }
 impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {}
 
-pub trait PioPeripheral: sealed::PioPeripheral + Sized {
+pub trait PioInstance: sealed::PioInstance + Sized + Unpin {
     fn pio(&self) -> u8 {
-        Self::Pio::PIO_NO
+        Self::PIO_NO
     }
 
     fn split(
         self,
     ) -> (
-        PioCommonInstance<Self::Pio>,
-        PioStateMachineInstance<Self::Pio, SmInstanceBase<0>>,
-        PioStateMachineInstance<Self::Pio, SmInstanceBase<1>>,
-        PioStateMachineInstance<Self::Pio, SmInstanceBase<2>>,
-        PioStateMachineInstance<Self::Pio, SmInstanceBase<3>>,
+        PioCommonInstance<Self>,
+        PioStateMachineInstance<Self, SmInstanceBase<0>>,
+        PioStateMachineInstance<Self, SmInstanceBase<1>>,
+        PioStateMachineInstance<Self, SmInstanceBase<2>>,
+        PioStateMachineInstance<Self, SmInstanceBase<3>>,
     ) {
         (
             PioCommonInstance {
@@ -944,12 +944,6 @@ pub trait PioPeripheral: sealed::PioPeripheral + Sized {
 }
 
 mod sealed {
-    pub trait PioInstance {
-        const PIO_NO: u8;
-        const PIO: &'static crate::pac::pio::Pio;
-        const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
-    }
-
     pub trait PioCommon {
         type Pio: super::PioInstance;
     }
@@ -968,46 +962,28 @@ mod sealed {
         const SM_NO: u8;
     }
 
-    pub trait PioPeripheral {
-        type Pio: super::PioInstance;
+    pub trait PioInstance {
+        const PIO_NO: u8;
+        const PIO: &'static crate::pac::pio::Pio;
+        const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
     }
 }
-
-// Identifies a specific PIO device
-pub struct PioInstanceBase<const PIO_NO: u8> {}
-
-pub trait PioInstance: sealed::PioInstance + Unpin {}
-
-impl sealed::PioInstance for PioInstanceBase<0> {
-    const PIO_NO: u8 = 0;
-    const PIO: &'static pac::pio::Pio = &pac::PIO0;
-    const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::PIO0_0;
-}
-impl PioInstance for PioInstanceBase<0> {}
-
-impl sealed::PioInstance for PioInstanceBase<1> {
-    const PIO_NO: u8 = 1;
-    const PIO: &'static pac::pio::Pio = &pac::PIO1;
-    const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::PIO1_0;
-}
-impl PioInstance for PioInstanceBase<1> {}
-
-pub type Pio0 = PioInstanceBase<0>;
-pub type Pio1 = PioInstanceBase<1>;
 
 pub type Sm0 = SmInstanceBase<0>;
 pub type Sm1 = SmInstanceBase<1>;
 pub type Sm2 = SmInstanceBase<2>;
 pub type Sm3 = SmInstanceBase<3>;
 
-macro_rules! impl_pio_sm {
-    ($name:ident, $pio:expr) => {
-        impl sealed::PioPeripheral for peripherals::$name {
-            type Pio = PioInstanceBase<$pio>;
+macro_rules! impl_pio {
+    ($name:ident, $pio:expr, $pac:ident, $funcsel:ident) => {
+        impl sealed::PioInstance for peripherals::$name {
+            const PIO_NO: u8 = $pio;
+            const PIO: &'static pac::pio::Pio = &pac::$pac;
+            const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::$funcsel;
         }
-        impl PioPeripheral for peripherals::$name {}
+        impl PioInstance for peripherals::$name {}
     };
 }
 
-impl_pio_sm!(PIO0, 0);
-impl_pio_sm!(PIO1, 1);
+impl_pio!(PIO0, 0, PIO0, PIO0_0);
+impl_pio!(PIO1, 1, PIO1, PIO1_0);

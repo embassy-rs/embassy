@@ -6,8 +6,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{self, Pin};
 use embassy_rp::pio::{
-    FifoJoin, PioCommon, PioCommonInstance, PioInstance, PioPeripheral, PioStateMachine, PioStateMachineInstance,
-    ShiftDirection, SmInstance,
+    FifoJoin, PioCommon, PioCommonInstance, PioInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection,
+    SmInstance,
 };
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
