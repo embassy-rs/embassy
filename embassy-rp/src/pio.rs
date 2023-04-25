@@ -32,7 +32,6 @@ impl Wakers {
     }
 }
 
-const PIOS: [&pac::pio::Pio; 2] = [&pac::PIO0, &pac::PIO1];
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 const PIO_WAKERS_INIT: Wakers = Wakers([NEW_AW; 12]);
 static WAKERS: [Wakers; 2] = [PIO_WAKERS_INIT; 2];
@@ -122,7 +121,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture
         } else {
             WAKERS[PIO::PIO_NO as usize].fifo_out()[SM::Sm::SM_NO as usize].register(cx.waker());
             unsafe {
-                PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
+                PIO::PIO.irqs(0).inte().write_set(|m| {
                     m.0 = TXNFULL_MASK << SM::Sm::SM_NO;
                 });
             }
@@ -135,7 +134,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture
 impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Drop for FifoOutFuture<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
-            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_clear(|m| {
+            PIO::PIO.irqs(0).inte().write_clear(|m| {
                 m.0 = TXNFULL_MASK << SM::Sm::SM_NO;
             });
         }
@@ -167,7 +166,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO,
         } else {
             WAKERS[PIO::PIO_NO as usize].fifo_in()[SM::Sm::SM_NO as usize].register(cx.waker());
             unsafe {
-                PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
+                PIO::PIO.irqs(0).inte().write_set(|m| {
                     m.0 = RXNEMPTY_MASK << SM::Sm::SM_NO;
                 });
             }
@@ -180,7 +179,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO,
 impl<'d, PIO: PioInstance, SM: PioStateMachine> Drop for FifoInFuture<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
-            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_clear(|m| {
+            PIO::PIO.irqs(0).inte().write_clear(|m| {
                 m.0 = RXNEMPTY_MASK << SM::Sm::SM_NO;
             });
         }
@@ -210,7 +209,7 @@ impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
 
         // Check if IRQ flag is already set
         if critical_section::with(|_| unsafe {
-            let irq_flags = PIOS[PIO::PIO_NO as usize].irq();
+            let irq_flags = PIO::PIO.irq();
             if irq_flags.read().0 & (1 << self.irq_no) != 0 {
                 irq_flags.write(|m| {
                     m.0 = 1 << self.irq_no;
@@ -225,7 +224,7 @@ impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
 
         WAKERS[PIO::PIO_NO as usize].irq()[self.irq_no as usize].register(cx.waker());
         unsafe {
-            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
+            PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = SMIRQ_MASK << self.irq_no;
             });
         }
@@ -236,7 +235,7 @@ impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
 impl<'d, PIO: PioInstance> Drop for IrqFuture<PIO> {
     fn drop(&mut self) {
         unsafe {
-            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_clear(|m| {
+            PIO::PIO.irqs(0).inte().write_clear(|m| {
                 m.0 = SMIRQ_MASK << self.irq_no;
             });
         }
@@ -299,7 +298,7 @@ impl<PIO: PioInstance> PioPin<PIO> {
     pub fn set_input_sync_bypass<'a>(&mut self, bypass: bool) {
         let mask = 1 << self.pin();
         unsafe {
-            PIOS[PIO::PIO_NO as usize]
+            PIO::PIO
                 .input_sync_bypass()
                 .modify(|w| *w = if bypass { *w & !mask } else { *w | mask });
         }
@@ -340,7 +339,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn restart(&mut self) {
         let _ = self;
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .ctrl()
                 .modify(|w| w.set_sm_restart(1u8 << Self::Sm::SM_NO));
         }
@@ -349,7 +348,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         let _ = self;
         let mask = 1u8 << Self::Sm::SM_NO;
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .ctrl()
                 .modify(|w| w.set_sm_enable((w.sm_enable() & !mask) | (if enable { mask } else { 0 })));
         }
@@ -357,46 +356,44 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn is_enabled(&self) -> bool {
         let _ = self;
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].ctrl().read().sm_enable() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.ctrl().read().sm_enable() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
 
     fn is_tx_empty(&self) -> bool {
         let _ = self;
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].fstat().read().txempty() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().txempty() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
     fn is_tx_full(&self) -> bool {
         let _ = self;
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].fstat().read().txfull() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().txfull() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
 
     fn is_rx_empty(&self) -> bool {
         let _ = self;
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].fstat().read().rxempty() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().rxempty() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
     fn is_rx_full(&self) -> bool {
         let _ = self;
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].fstat().read().rxfull() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().rxfull() & (1u8 << Self::Sm::SM_NO) != 0 }
     }
 
     fn tx_level(&self) -> u8 {
         unsafe {
-            let flevel = PIOS[Self::Pio::PIO_NO as usize].flevel().read().0;
+            let flevel = Self::Pio::PIO.flevel().read().0;
             (flevel >> (Self::Sm::SM_NO * 8)) as u8 & 0x0f
         }
     }
 
     fn rx_level(&self) -> u8 {
         unsafe {
-            let flevel = PIOS[Self::Pio::PIO_NO as usize].flevel().read().0;
+            let flevel = Self::Pio::PIO.flevel().read().0;
             (flevel >> (Self::Sm::SM_NO * 8 + 4)) as u8 & 0x0f
         }
     }
 
     fn push_tx(&mut self, v: u32) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .txf(Self::Sm::SM_NO as usize)
-                .write_value(v);
+            Self::Pio::PIO.txf(Self::Sm::SM_NO as usize).write_value(v);
         }
     }
 
@@ -409,7 +406,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn pull_rx(&mut self) -> u32 {
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].rxf(Self::Sm::SM_NO as usize).read() }
+        unsafe { Self::Pio::PIO.rxf(Self::Sm::SM_NO as usize).read() }
     }
 
     fn try_pull_rx(&mut self) -> Option<u32> {
@@ -421,7 +418,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_clkdiv(&mut self, div_x_256: u32) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .clkdiv()
                 .write(|w| w.0 = div_x_256 << 8);
@@ -429,20 +426,13 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn get_clkdiv(&self) -> u32 {
-        unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .clkdiv()
-                .read()
-                .0
-                >> 8
-        }
+        unsafe { Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).clkdiv().read().0 >> 8 }
     }
 
     fn clkdiv_restart(&mut self) {
         let _ = self;
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .ctrl()
                 .modify(|w| w.set_clkdiv_restart(1u8 << Self::Sm::SM_NO));
         }
@@ -450,7 +440,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_side_enable(&self, enable: bool) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .execctrl()
                 .modify(|w| w.set_side_en(enable));
@@ -458,18 +448,12 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn is_side_enabled(&self) -> bool {
-        unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .execctrl()
-                .read()
-                .side_en()
-        }
+        unsafe { Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).execctrl().read().side_en() }
     }
 
     fn set_side_pindir(&mut self, pindir: bool) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .execctrl()
                 .modify(|w| w.set_side_pindir(pindir));
@@ -478,7 +462,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn is_side_pindir(&self) -> bool {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .execctrl()
                 .read()
@@ -488,7 +472,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_jmp_pin(&mut self, pin: u8) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .execctrl()
                 .modify(|w| w.set_jmp_pin(pin));
@@ -496,34 +480,22 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn get_jmp_pin(&mut self) -> u8 {
-        unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .execctrl()
-                .read()
-                .jmp_pin()
-        }
+        unsafe { Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).execctrl().read().jmp_pin() }
     }
 
     fn set_wrap(&self, source: u8, target: u8) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .execctrl()
-                .modify(|w| {
-                    w.set_wrap_top(source);
-                    w.set_wrap_bottom(target)
-                });
+            Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).execctrl().modify(|w| {
+                w.set_wrap_top(source);
+                w.set_wrap_bottom(target)
+            });
         }
     }
 
     /// Get wrapping addresses. Returns (source, target).
     fn get_wrap(&self) -> (u8, u8) {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .execctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).execctrl().read();
             (r.wrap_top(), r.wrap_bottom())
         }
     }
@@ -535,21 +507,15 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
             FifoJoin::TxOnly => (false, true),
         };
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .shiftctrl()
-                .modify(|w| {
-                    w.set_fjoin_rx(rx);
-                    w.set_fjoin_tx(tx)
-                });
+            Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).shiftctrl().modify(|w| {
+                w.set_fjoin_rx(rx);
+                w.set_fjoin_tx(tx)
+            });
         }
     }
     fn get_fifo_join(&self) -> FifoJoin {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .shiftctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).shiftctrl().read();
             // Ignores the invalid state when both bits are set
             if r.fjoin_rx() {
                 FifoJoin::RxOnly
@@ -564,9 +530,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn clear_fifos(&mut self) {
         // Toggle FJOIN_RX to flush FIFOs
         unsafe {
-            let shiftctrl = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .shiftctrl();
+            let shiftctrl = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).shiftctrl();
             shiftctrl.modify(|w| {
                 w.set_fjoin_rx(!w.fjoin_rx());
             });
@@ -578,7 +542,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_pull_threshold(&mut self, threshold: u8) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .modify(|w| w.set_pull_thresh(threshold));
@@ -587,16 +551,13 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn get_pull_threshold(&self) -> u8 {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .shiftctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).shiftctrl().read();
             r.pull_thresh()
         }
     }
     fn set_push_threshold(&mut self, threshold: u8) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .modify(|w| w.set_push_thresh(threshold));
@@ -605,17 +566,14 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn get_push_threshold(&self) -> u8 {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .shiftctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).shiftctrl().read();
             r.push_thresh()
         }
     }
 
     fn set_out_shift_dir(&mut self, dir: ShiftDirection) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .modify(|w| w.set_out_shiftdir(dir == ShiftDirection::Right));
@@ -623,7 +581,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
     fn get_out_shiftdir(&self) -> ShiftDirection {
         unsafe {
-            if PIOS[Self::Pio::PIO_NO as usize]
+            if Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .read()
@@ -638,7 +596,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_in_shift_dir(&mut self, dir: ShiftDirection) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .modify(|w| w.set_in_shiftdir(dir == ShiftDirection::Right));
@@ -646,7 +604,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
     fn get_in_shiftdir(&self) -> ShiftDirection {
         unsafe {
-            if PIOS[Self::Pio::PIO_NO as usize]
+            if Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .read()
@@ -661,7 +619,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_autopull(&mut self, auto: bool) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .modify(|w| w.set_autopull(auto));
@@ -670,7 +628,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn is_autopull(&self) -> bool {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .read()
@@ -680,7 +638,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_autopush(&mut self, auto: bool) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .modify(|w| w.set_autopush(auto));
@@ -689,7 +647,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn is_autopush(&self) -> bool {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .shiftctrl()
                 .read()
@@ -699,16 +657,13 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn get_addr(&self) -> u8 {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .addr()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).addr().read();
             r.addr()
         }
     }
     fn set_sideset_count(&mut self, count: u8) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .pinctrl()
                 .modify(|w| w.set_sideset_count(count));
@@ -717,10 +672,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn get_sideset_count(&self) -> u8 {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .pinctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).pinctrl().read();
             r.sideset_count()
         }
     }
@@ -747,7 +699,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn set_sideset_base_pin(&mut self, base_pin: &PioPin<Self::Pio>) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .pinctrl()
                 .modify(|w| w.set_sideset_base(base_pin.pin()));
@@ -756,10 +708,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn get_sideset_base(&self) -> u8 {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .pinctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).pinctrl().read();
             r.sideset_base()
         }
     }
@@ -768,30 +717,24 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn set_set_range(&mut self, base: u8, count: u8) {
         assert!(base + count < 32);
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .pinctrl()
-                .modify(|w| {
-                    w.set_set_base(base);
-                    w.set_set_count(count)
-                });
+            Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).pinctrl().modify(|w| {
+                w.set_set_base(base);
+                w.set_set_count(count)
+            });
         }
     }
 
     /// Get the range of out pins affected by a set instruction. Returns (base, count).
     fn get_set_range(&self) -> (u8, u8) {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .pinctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).pinctrl().read();
             (r.set_base(), r.set_count())
         }
     }
 
     fn set_in_base_pin(&mut self, base: &PioPin<Self::Pio>) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .pinctrl()
                 .modify(|w| w.set_in_base(base.pin()));
@@ -800,10 +743,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn get_in_base(&self) -> u8 {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .pinctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).pinctrl().read();
             r.in_base()
         }
     }
@@ -811,23 +751,17 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn set_out_range(&mut self, base: u8, count: u8) {
         assert!(base + count < 32);
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .pinctrl()
-                .modify(|w| {
-                    w.set_out_base(base);
-                    w.set_out_count(count)
-                });
+            Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).pinctrl().modify(|w| {
+                w.set_out_base(base);
+                w.set_out_count(count)
+            });
         }
     }
 
     /// Get the range of out pins affected by a set instruction. Returns (base, count).
     fn get_out_range(&self) -> (u8, u8) {
         unsafe {
-            let r = PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .pinctrl()
-                .read();
+            let r = Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).pinctrl().read();
             (r.out_base(), r.out_count())
         }
     }
@@ -855,18 +789,12 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn get_current_instr() -> u32 {
-        unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .sm(Self::Sm::SM_NO as usize)
-                .instr()
-                .read()
-                .0
-        }
+        unsafe { Self::Pio::PIO.sm(Self::Sm::SM_NO as usize).instr().read().0 }
     }
 
     fn exec_instr(&mut self, instr: u16) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .sm(Self::Sm::SM_NO as usize)
                 .instr()
                 .write(|w| w.set_instr(instr));
@@ -879,6 +807,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     {
         let _ = self;
         write_instr(
+            Self::Pio::PIO,
             Self::Pio::PIO_NO,
             start,
             instrs,
@@ -889,14 +818,14 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn is_irq_set(&self, irq_no: u8) -> bool {
         assert!(irq_no < 8);
         unsafe {
-            let irq_flags = PIOS[Self::Pio::PIO_NO as usize].irq();
+            let irq_flags = Self::Pio::PIO.irq();
             irq_flags.read().0 & (1 << irq_no) != 0
         }
     }
 
     fn clear_irq(&mut self, irq_no: usize) {
         assert!(irq_no < 8);
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].irq().write(|w| w.set_irq(1 << irq_no)) }
+        unsafe { Self::Pio::PIO.irq().write(|w| w.set_irq(1 << irq_no)) }
     }
 
     fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, Self::Pio, Self> {
@@ -913,7 +842,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn has_tx_stalled(&self) -> bool {
         unsafe {
-            let fdebug = PIOS[Self::Pio::PIO_NO as usize].fdebug();
+            let fdebug = Self::Pio::PIO.fdebug();
             let ret = fdebug.read().txstall() & (1 << Self::Sm::SM_NO) != 0;
             fdebug.write(|w| w.set_txstall(1 << Self::Sm::SM_NO));
             ret
@@ -922,7 +851,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn has_tx_overflowed(&self) -> bool {
         unsafe {
-            let fdebug = PIOS[Self::Pio::PIO_NO as usize].fdebug();
+            let fdebug = Self::Pio::PIO.fdebug();
             let ret = fdebug.read().txover() & (1 << Self::Sm::SM_NO) != 0;
             fdebug.write(|w| w.set_txover(1 << Self::Sm::SM_NO));
             ret
@@ -931,7 +860,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn has_rx_stalled(&self) -> bool {
         unsafe {
-            let fdebug = PIOS[Self::Pio::PIO_NO as usize].fdebug();
+            let fdebug = Self::Pio::PIO.fdebug();
             let ret = fdebug.read().rxstall() & (1 << Self::Sm::SM_NO) != 0;
             fdebug.write(|w| w.set_rxstall(1 << Self::Sm::SM_NO));
             ret
@@ -940,7 +869,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
 
     fn has_rx_underflowed(&self) -> bool {
         unsafe {
-            let fdebug = PIOS[Self::Pio::PIO_NO as usize].fdebug();
+            let fdebug = Self::Pio::PIO.fdebug();
             let ret = fdebug.read().rxunder() & (1 << Self::Sm::SM_NO) != 0;
             fdebug.write(|w| w.set_rxunder(1 << Self::Sm::SM_NO));
             ret
@@ -954,7 +883,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
             let p = ch.regs();
             p.read_addr().write_value(data.as_ptr() as u32);
             p.write_addr()
-                .write_value(PIOS[pio_no as usize].txf(sm_no as usize).ptr() as u32);
+                .write_value(Self::Pio::PIO.txf(sm_no as usize).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
             p.ctrl_trig().write(|w| {
                 // Set TX DREQ for this statemachine
@@ -977,7 +906,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
             let p = ch.regs();
             p.write_addr().write_value(data.as_ptr() as u32);
             p.read_addr()
-                .write_value(PIOS[pio_no as usize].rxf(sm_no as usize).ptr() as u32);
+                .write_value(Self::Pio::PIO.rxf(sm_no as usize).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
             p.ctrl_trig().write(|w| {
                 // Set TX DREQ for this statemachine
@@ -1032,7 +961,7 @@ impl<PIO: PioInstance> sealed::PioCommon for PioCommonInstance<PIO> {
 }
 impl<PIO: PioInstance> PioCommon for PioCommonInstance<PIO> {}
 
-fn write_instr<I>(pio_no: u8, start: usize, instrs: I, mem_user: u32)
+fn write_instr<I>(pio: &pac::pio::Pio, pio_no: u8, start: usize, instrs: I, mem_user: u32)
 where
     I: Iterator<Item = u16>,
 {
@@ -1044,7 +973,7 @@ where
             addr
         );
         unsafe {
-            PIOS[pio_no as usize].instr_mem(addr as usize).write(|w| {
+            pio.instr_mem(addr as usize).write(|w| {
                 w.set_instr_mem(instr);
             });
             instr_mem_set_status(pio_no, addr, mem_user);
@@ -1058,37 +987,33 @@ pub trait PioCommon: sealed::PioCommon + Sized {
         I: Iterator<Item = u16>,
     {
         let _ = self;
-        write_instr(Self::Pio::PIO_NO, start, instrs, MEM_USED_BY_COMMON);
+        write_instr(Self::Pio::PIO, Self::Pio::PIO_NO, start, instrs, MEM_USED_BY_COMMON);
     }
 
     fn clear_irq(&mut self, irq_no: usize) {
         assert!(irq_no < 8);
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].irq().write(|w| w.set_irq(1 << irq_no)) }
+        unsafe { Self::Pio::PIO.irq().write(|w| w.set_irq(1 << irq_no)) }
     }
 
     fn clear_irqs(&mut self, mask: u8) {
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].irq().write(|w| w.set_irq(mask)) }
+        unsafe { Self::Pio::PIO.irq().write(|w| w.set_irq(mask)) }
     }
 
     fn force_irq(&mut self, irq_no: usize) {
         assert!(irq_no < 8);
-        unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
-                .irq_force()
-                .write(|w| w.set_irq_force(1 << irq_no))
-        }
+        unsafe { Self::Pio::PIO.irq_force().write(|w| w.set_irq_force(1 << irq_no)) }
     }
 
     fn set_input_sync_bypass<'a>(&'a mut self, bypass: u32, mask: u32) {
         unsafe {
-            PIOS[Self::Pio::PIO_NO as usize]
+            Self::Pio::PIO
                 .input_sync_bypass()
                 .modify(|w| *w = (*w & !mask) | (bypass & mask));
         }
     }
 
     fn get_input_sync_bypass(&self) -> u32 {
-        unsafe { PIOS[Self::Pio::PIO_NO as usize].input_sync_bypass().read() }
+        unsafe { Self::Pio::PIO.input_sync_bypass().read() }
     }
 }
 
@@ -1145,6 +1070,7 @@ pub trait PioPeripheral: sealed::PioPeripheral + Sized {
 mod sealed {
     pub trait PioInstance {
         const PIO_NO: u8;
+        const PIO: &'static crate::pac::pio::Pio;
     }
 
     pub trait PioCommon {
@@ -1172,11 +1098,13 @@ pub trait PioInstance: sealed::PioInstance + Unpin {}
 
 impl sealed::PioInstance for PioInstanceBase<0> {
     const PIO_NO: u8 = 0;
+    const PIO: &'static pac::pio::Pio = &pac::PIO0;
 }
 impl PioInstance for PioInstanceBase<0> {}
 
 impl sealed::PioInstance for PioInstanceBase<1> {
     const PIO_NO: u8 = 1;
+    const PIO: &'static pac::pio::Pio = &pac::PIO1;
 }
 impl PioInstance for PioInstanceBase<1> {}
 
