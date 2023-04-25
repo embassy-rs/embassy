@@ -959,17 +959,7 @@ pub trait PioCommon: sealed::PioCommon + Sized {
 
     fn make_pio_pin(&self, pin: impl Pin) -> PioPin<Self::Pio> {
         unsafe {
-            pin.io().ctrl().write(|w| {
-                w.set_funcsel(
-                    if Self::Pio::PIO_NO == 1 {
-                        pac::io::vals::Gpio0ctrlFuncsel::PIO1_0
-                    } else {
-                        // PIO == 0
-                        pac::io::vals::Gpio0ctrlFuncsel::PIO0_0
-                    }
-                    .0,
-                );
-            });
+            pin.io().ctrl().write(|w| w.set_funcsel(Self::Pio::FUNCSEL.0));
         }
         PioPin {
             pin_bank: pin.pin_bank(),
@@ -1031,6 +1021,7 @@ mod sealed {
     pub trait PioInstance {
         const PIO_NO: u8;
         const PIO: &'static crate::pac::pio::Pio;
+        const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
     }
 
     pub trait PioCommon {
@@ -1059,12 +1050,14 @@ pub trait PioInstance: sealed::PioInstance + Unpin {}
 impl sealed::PioInstance for PioInstanceBase<0> {
     const PIO_NO: u8 = 0;
     const PIO: &'static pac::pio::Pio = &pac::PIO0;
+    const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::PIO0_0;
 }
 impl PioInstance for PioInstanceBase<0> {}
 
 impl sealed::PioInstance for PioInstanceBase<1> {
     const PIO_NO: u8 = 1;
     const PIO: &'static pac::pio::Pio = &pac::PIO1;
+    const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::PIO1_0;
 }
 impl PioInstance for PioInstanceBase<1> {}
 
