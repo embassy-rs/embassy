@@ -772,19 +772,6 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         }
     }
 
-    fn write_instr<I>(&mut self, start: usize, instrs: I)
-    where
-        I: Iterator<Item = u16>,
-    {
-        write_instr(
-            Self::Pio::PIO,
-            Self::Pio::PIO_NO,
-            start,
-            instrs,
-            MEM_USED_BY_STATEMACHINE | Self::Sm::SM_NO as u32,
-        );
-    }
-
     fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, Self::Pio, Self> {
         FifoOutFuture::new(self, value)
     }
@@ -880,71 +867,59 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 }
 
-/*
-This is a bit array containing 4 bits for every word in the PIO instruction memory.
-*/
-// Bit 3-2
-//const MEM_USE_MASK: u32 = 0b1100;
-const MEM_NOT_USED: u32 = 0b0000;
-const MEM_USED_BY_STATEMACHINE: u32 = 0b0100;
-const MEM_USED_BY_COMMON: u32 = 0b1000;
-
-// Bit 1-0 is the number of the state machine
-//const MEM_STATE_MASK: u32 = 0b0011;
-
-// Should use mutex if running on multiple cores
-static mut INSTR_MEM_STATUS: &'static mut [[u32; 4]; 2] = &mut [[0; 4]; 2];
-
-fn instr_mem_get_status(pio_no: u8, addr: u8) -> u32 {
-    ((unsafe { INSTR_MEM_STATUS[pio_no as usize][(addr >> 3) as usize] }) >> ((addr & 0x07) * 4)) & 0xf
-}
-
-fn instr_mem_set_status(pio_no: u8, addr: u8, status: u32) {
-    let w = unsafe { &mut INSTR_MEM_STATUS[pio_no as usize][(addr >> 3) as usize] };
-    let shift = (addr & 0x07) * 4;
-    *w = (*w & !(0xf << shift)) | (status << shift);
-}
-
-fn instr_mem_is_free(pio_no: u8, addr: u8) -> bool {
-    instr_mem_get_status(pio_no, addr) == MEM_NOT_USED
-}
-
 pub struct PioCommonInstance<PIO: PioInstance> {
+    instructions_used: u32,
+    pio: PhantomData<PIO>,
+}
+
+pub struct PioInstanceMemory<PIO: PioInstance> {
+    used_mask: u32,
     pio: PhantomData<PIO>,
 }
 
 impl<PIO: PioInstance> sealed::PioCommon for PioCommonInstance<PIO> {
     type Pio = PIO;
 }
-impl<PIO: PioInstance> PioCommon for PioCommonInstance<PIO> {}
-
-fn write_instr<I>(pio: &pac::pio::Pio, pio_no: u8, start: usize, instrs: I, mem_user: u32)
-where
-    I: Iterator<Item = u16>,
-{
-    for (i, instr) in instrs.enumerate() {
-        let addr = (i + start) as u8;
-        assert!(
-            instr_mem_is_free(pio_no, addr),
-            "Trying to write already used PIO instruction memory at {}",
-            addr
-        );
-        unsafe {
-            pio.instr_mem(addr as usize).write(|w| {
-                w.set_instr_mem(instr);
-            });
-            instr_mem_set_status(pio_no, addr, mem_user);
+impl<PIO: PioInstance> PioCommon for PioCommonInstance<PIO> {
+    fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<Self::Pio>
+    where
+        I: Iterator<Item = u16>,
+    {
+        let mut used_mask = 0;
+        for (i, instr) in instrs.enumerate() {
+            let addr = (i + start) as u8;
+            let mask = 1 << (addr as usize);
+            assert!(
+                self.instructions_used & mask == 0,
+                "Trying to write already used PIO instruction memory at {}",
+                addr
+            );
+            unsafe {
+                PIO::PIO.instr_mem(addr as usize).write(|w| {
+                    w.set_instr_mem(instr);
+                });
+            }
+            used_mask |= mask;
         }
+        self.instructions_used |= used_mask;
+        PioInstanceMemory {
+            used_mask,
+            pio: PhantomData,
+        }
+    }
+
+    fn free_instr(&mut self, instrs: PioInstanceMemory<Self::Pio>) {
+        self.instructions_used &= !instrs.used_mask;
     }
 }
 
 pub trait PioCommon: sealed::PioCommon + Sized {
-    fn write_instr<I>(&mut self, start: usize, instrs: I)
+    fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<Self::Pio>
     where
-        I: Iterator<Item = u16>,
-    {
-        write_instr(Self::Pio::PIO, Self::Pio::PIO_NO, start, instrs, MEM_USED_BY_COMMON);
-    }
+        I: Iterator<Item = u16>;
+
+    // TODO make instruction memory that is currently in use unfreeable
+    fn free_instr(&mut self, instrs: PioInstanceMemory<Self::Pio>);
 
     fn is_irq_set(&self, irq_no: u8) -> bool {
         assert!(irq_no < 8);
@@ -1027,6 +1002,7 @@ pub trait PioPeripheral: sealed::PioPeripheral + Sized {
     ) {
         (
             PioCommonInstance {
+                instructions_used: 0,
                 pio: PhantomData::default(),
             },
             PioStateMachineInstance {

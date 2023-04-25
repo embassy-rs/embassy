@@ -19,7 +19,7 @@ pub struct Ws2812<P: PioInstance, S: SmInstance> {
 }
 
 impl<P: PioInstance, S: SmInstance> Ws2812<P, S> {
-    pub fn new(pio: PioCommonInstance<P>, mut sm: PioStateMachineInstance<P, S>, pin: gpio::AnyPin) -> Self {
+    pub fn new(mut pio: PioCommonInstance<P>, mut sm: PioStateMachineInstance<P, S>, pin: gpio::AnyPin) -> Self {
         // Setup sm0
 
         // prepare the PIO program
@@ -50,7 +50,7 @@ impl<P: PioInstance, S: SmInstance> Ws2812<P, S> {
         let prg = a.assemble_with_wrap(wrap_source, wrap_target);
 
         let relocated = RelocatedProgram::new(&prg);
-        sm.write_instr(relocated.origin() as usize, relocated.code());
+        pio.write_instr(relocated.origin() as usize, relocated.code());
         pio_instr_util::exec_jmp(&mut sm, relocated.origin());
 
         // Pin config
