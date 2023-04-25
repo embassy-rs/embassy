@@ -8,7 +8,7 @@ use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::PeripheralRef;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::{self, Channel, Transfer};
+use crate::dma::{Channel, Transfer};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{Drive, Pin, Pull, SlewRate};
 use crate::pac::dma::vals::{DataSize, TreqSel};
@@ -949,7 +949,6 @@ pub trait PioStateMachine: Sized + Unpin {
 
     fn dma_push<'a, C: Channel>(&'a self, ch: PeripheralRef<'a, C>, data: &'a [u32]) -> Transfer<'a, C> {
         unsafe {
-            dma::init();
             let pio_no = Self::Pio::PIO_NO;
             let sm_no = Self::Sm::SM_NO;
             let p = ch.regs();
@@ -973,7 +972,6 @@ pub trait PioStateMachine: Sized + Unpin {
 
     fn dma_pull<'a, C: Channel>(&'a self, ch: PeripheralRef<'a, C>, data: &'a mut [u32]) -> Transfer<'a, C> {
         unsafe {
-            dma::init();
             let pio_no = Self::Pio::PIO_NO;
             let sm_no = Self::Sm::SM_NO;
             let p = ch.regs();
