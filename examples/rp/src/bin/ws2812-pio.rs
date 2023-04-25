@@ -6,7 +6,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{self, Pin};
 use embassy_rp::pio::{
-    FifoJoin, PioInstance, PioPeripheral, PioStateMachine, PioStateMachineInstance, ShiftDirection, SmInstance,
+    FifoJoin, PioCommon, PioCommonInstance, PioInstance, PioPeripheral, PioStateMachine, PioStateMachineInstance,
+    ShiftDirection, SmInstance,
 };
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
@@ -18,7 +19,7 @@ pub struct Ws2812<P: PioInstance, S: SmInstance> {
 }
 
 impl<P: PioInstance, S: SmInstance> Ws2812<P, S> {
-    pub fn new(mut sm: PioStateMachineInstance<P, S>, pin: gpio::AnyPin) -> Self {
+    pub fn new(pio: PioCommonInstance<P>, mut sm: PioStateMachineInstance<P, S>, pin: gpio::AnyPin) -> Self {
         // Setup sm0
 
         // prepare the PIO program
@@ -53,7 +54,7 @@ impl<P: PioInstance, S: SmInstance> Ws2812<P, S> {
         pio_instr_util::exec_jmp(&mut sm, relocated.origin());
 
         // Pin config
-        let out_pin = sm.make_pio_pin(pin);
+        let out_pin = pio.make_pio_pin(pin);
         sm.set_set_pins(&[&out_pin]);
         sm.set_sideset_base_pin(&out_pin);
         sm.set_sideset_count(1);
@@ -115,7 +116,7 @@ async fn main(_spawner: Spawner) {
     info!("Start");
     let p = embassy_rp::init(Default::default());
 
-    let (_pio0, sm0, _sm1, _sm2, _sm3) = p.PIO0.split();
+    let (pio0, sm0, _sm1, _sm2, _sm3) = p.PIO0.split();
 
     // This is the number of leds in the string. Helpfully, the sparkfun thing plus and adafruit
     // feather boards for the 2040 both have one built in.
@@ -124,7 +125,7 @@ async fn main(_spawner: Spawner) {
 
     // For the thing plus, use pin 8
     // For the feather, use pin 16
-    let mut ws2812 = Ws2812::new(sm0, p.PIN_8.degrade());
+    let mut ws2812 = Ws2812::new(pio0, sm0, p.PIN_8.degrade());
 
     // Loop forever making RGB values and pushing them out to the WS2812.
     loop {

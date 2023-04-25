@@ -4,13 +4,15 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{AnyPin, Pin};
-use embassy_rp::pio::{Pio0, PioPeripheral, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2};
+use embassy_rp::pio::{
+    Pio0, PioCommon, PioCommonInstance, PioPeripheral, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0,
+    Sm1, Sm2,
+};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::task]
-async fn pio_task_sm0(mut sm: PioStateMachineInstance<Pio0, Sm0>, pin: AnyPin) {
+fn setup_pio_task_sm0(pio: &mut PioCommonInstance<Pio0>, sm: &mut PioStateMachineInstance<Pio0, Sm0>, pin: AnyPin) {
     // Setup sm0
 
     // Send data serially to pin
@@ -23,11 +25,11 @@ async fn pio_task_sm0(mut sm: PioStateMachineInstance<Pio0, Sm0>, pin: AnyPin) {
     );
 
     let relocated = RelocatedProgram::new(&prg.program);
-    let out_pin = sm.make_pio_pin(pin);
+    let out_pin = pio.make_pio_pin(pin);
     let pio_pins = [&out_pin];
     sm.set_out_pins(&pio_pins);
     sm.write_instr(relocated.origin() as usize, relocated.code());
-    pio_instr_util::exec_jmp(&mut sm, relocated.origin());
+    pio_instr_util::exec_jmp(sm, relocated.origin());
     sm.set_clkdiv((125e6 / 20.0 / 2e2 * 256.0) as u32);
     sm.set_set_range(0, 1);
     let pio::Wrap { source, target } = relocated.wrap();
@@ -35,7 +37,10 @@ async fn pio_task_sm0(mut sm: PioStateMachineInstance<Pio0, Sm0>, pin: AnyPin) {
 
     sm.set_autopull(true);
     sm.set_out_shift_dir(ShiftDirection::Left);
+}
 
+#[embassy_executor::task]
+async fn pio_task_sm0(mut sm: PioStateMachineInstance<Pio0, Sm0>) {
     sm.set_enable(true);
 
     let mut v = 0x0f0caffa;
@@ -104,9 +109,10 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let pio = p.PIO0;
 
-    let (_, sm0, sm1, sm2, ..) = pio.split();
+    let (mut pio0, mut sm0, sm1, sm2, ..) = pio.split();
 
-    spawner.spawn(pio_task_sm0(sm0, p.PIN_0.degrade())).unwrap();
+    setup_pio_task_sm0(&mut pio0, &mut sm0, p.PIN_0.degrade());
+    spawner.spawn(pio_task_sm0(sm0)).unwrap();
     spawner.spawn(pio_task_sm1(sm1)).unwrap();
     spawner.spawn(pio_task_sm2(sm2)).unwrap();
 }

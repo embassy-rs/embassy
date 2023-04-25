@@ -677,26 +677,6 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         }
     }
 
-    fn make_pio_pin(&self, pin: impl Pin) -> PioPin<Self::Pio> {
-        unsafe {
-            pin.io().ctrl().write(|w| {
-                w.set_funcsel(
-                    if Self::Pio::PIO_NO == 1 {
-                        pac::io::vals::Gpio0ctrlFuncsel::PIO1_0
-                    } else {
-                        // PIO == 0
-                        pac::io::vals::Gpio0ctrlFuncsel::PIO0_0
-                    }
-                    .0,
-                );
-            });
-        }
-        PioPin {
-            pin_bank: pin.pin_bank(),
-            pio: PhantomData::default(),
-        }
-    }
-
     fn set_sideset_base_pin(&mut self, base_pin: &PioPin<Self::Pio>) {
         unsafe {
             Self::Pio::PIO
@@ -813,19 +793,6 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
             instrs,
             MEM_USED_BY_STATEMACHINE | Self::Sm::SM_NO as u32,
         );
-    }
-
-    fn is_irq_set(&self, irq_no: u8) -> bool {
-        assert!(irq_no < 8);
-        unsafe {
-            let irq_flags = Self::Pio::PIO.irq();
-            irq_flags.read().0 & (1 << irq_no) != 0
-        }
-    }
-
-    fn clear_irq(&mut self, irq_no: usize) {
-        assert!(irq_no < 8);
-        unsafe { Self::Pio::PIO.irq().write(|w| w.set_irq(1 << irq_no)) }
     }
 
     fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, Self::Pio, Self> {
@@ -990,6 +957,14 @@ pub trait PioCommon: sealed::PioCommon + Sized {
         write_instr(Self::Pio::PIO, Self::Pio::PIO_NO, start, instrs, MEM_USED_BY_COMMON);
     }
 
+    fn is_irq_set(&self, irq_no: u8) -> bool {
+        assert!(irq_no < 8);
+        unsafe {
+            let irq_flags = Self::Pio::PIO.irq();
+            irq_flags.read().0 & (1 << irq_no) != 0
+        }
+    }
+
     fn clear_irq(&mut self, irq_no: usize) {
         assert!(irq_no < 8);
         unsafe { Self::Pio::PIO.irq().write(|w| w.set_irq(1 << irq_no)) }
@@ -1014,6 +989,26 @@ pub trait PioCommon: sealed::PioCommon + Sized {
 
     fn get_input_sync_bypass(&self) -> u32 {
         unsafe { Self::Pio::PIO.input_sync_bypass().read() }
+    }
+
+    fn make_pio_pin(&self, pin: impl Pin) -> PioPin<Self::Pio> {
+        unsafe {
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(
+                    if Self::Pio::PIO_NO == 1 {
+                        pac::io::vals::Gpio0ctrlFuncsel::PIO1_0
+                    } else {
+                        // PIO == 0
+                        pac::io::vals::Gpio0ctrlFuncsel::PIO0_0
+                    }
+                    .0,
+                );
+            });
+        }
+        PioPin {
+            pin_bank: pin.pin_bank(),
+            pio: PhantomData::default(),
+        }
     }
 }
 
