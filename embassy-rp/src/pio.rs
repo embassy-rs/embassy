@@ -298,9 +298,11 @@ impl<PIO: PioInstance> PioPin<PIO> {
     pub fn set_input_sync_bypass<'a>(&mut self, bypass: bool) {
         let mask = 1 << self.pin();
         unsafe {
-            PIO::PIO
-                .input_sync_bypass()
-                .modify(|w| *w = if bypass { *w & !mask } else { *w | mask });
+            if bypass {
+                PIO::PIO.input_sync_bypass().write_set(|w| *w = mask);
+            } else {
+                PIO::PIO.input_sync_bypass().write_clear(|w| *w = mask);
+            }
         }
     }
 
@@ -336,18 +338,19 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn restart(&mut self) {
+        let mask = 1u8 << Self::Sm::SM_NO;
         unsafe {
-            Self::Pio::PIO
-                .ctrl()
-                .modify(|w| w.set_sm_restart(1u8 << Self::Sm::SM_NO));
+            Self::Pio::PIO.ctrl().write_set(|w| w.set_sm_restart(mask));
         }
     }
     fn set_enable(&mut self, enable: bool) {
         let mask = 1u8 << Self::Sm::SM_NO;
         unsafe {
-            Self::Pio::PIO
-                .ctrl()
-                .modify(|w| w.set_sm_enable((w.sm_enable() & !mask) | (if enable { mask } else { 0 })));
+            if enable {
+                Self::Pio::PIO.ctrl().write_set(|w| w.set_sm_enable(mask));
+            } else {
+                Self::Pio::PIO.ctrl().write_clear(|w| w.set_sm_enable(mask));
+            }
         }
     }
 
@@ -419,10 +422,9 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn clkdiv_restart(&mut self) {
+        let mask = 1u8 << Self::Sm::SM_NO;
         unsafe {
-            Self::Pio::PIO
-                .ctrl()
-                .modify(|w| w.set_clkdiv_restart(1u8 << Self::Sm::SM_NO));
+            Self::Pio::PIO.ctrl().write_set(|w| w.set_clkdiv_restart(mask));
         }
     }
 
@@ -869,9 +871,11 @@ pub trait PioCommon: sealed::PioCommon + Sized {
 
     fn set_input_sync_bypass<'a>(&'a mut self, bypass: u32, mask: u32) {
         unsafe {
-            Self::Pio::PIO
-                .input_sync_bypass()
-                .modify(|w| *w = (*w & !mask) | (bypass & mask));
+            // this can interfere with per-pin bypass functions. splitting the
+            // modification is going to be fine since nothing that relies on
+            // it can reasonably run before we finish.
+            Self::Pio::PIO.input_sync_bypass().write_set(|w| *w = mask & bypass);
+            Self::Pio::PIO.input_sync_bypass().write_clear(|w| *w = mask & !bypass);
         }
     }
 
