@@ -117,10 +117,8 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture
             unsafe {
                 let irq = PIO::Irq::steal();
                 irq.disable();
-                critical_section::with(|_| {
-                    PIOS[PIO::PIO_NO as usize].irqs(0).inte().modify(|m| {
-                        m.0 |= TXNFULL_MASK << SM::Sm::SM_NO;
-                    });
+                PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
+                    m.0 = TXNFULL_MASK << SM::Sm::SM_NO;
                 });
                 irq.enable();
             }
@@ -133,10 +131,8 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture
 impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Drop for FifoOutFuture<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
-            critical_section::with(|_| {
-                PIOS[PIO::PIO_NO as usize].irqs(0).inte().modify(|m| {
-                    m.0 &= !(TXNFULL_MASK << SM::Sm::SM_NO);
-                });
+            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_clear(|m| {
+                m.0 = TXNFULL_MASK << SM::Sm::SM_NO;
             });
         }
     }
@@ -177,10 +173,8 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO,
             unsafe {
                 let irq = PIO::Irq::steal();
                 irq.disable();
-                critical_section::with(|_| {
-                    PIOS[PIO::PIO_NO as usize].irqs(0).inte().modify(|m| {
-                        m.0 |= RXNEMPTY_MASK << SM::Sm::SM_NO;
-                    });
+                PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
+                    m.0 = RXNEMPTY_MASK << SM::Sm::SM_NO;
                 });
                 irq.enable();
             }
@@ -193,10 +187,8 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO,
 impl<'d, PIO: PioInstance, SM: PioStateMachine> Drop for FifoInFuture<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
-            critical_section::with(|_| {
-                PIOS[PIO::PIO_NO as usize].irqs(0).inte().modify(|m| {
-                    m.0 &= !(RXNEMPTY_MASK << SM::Sm::SM_NO);
-                });
+            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_clear(|m| {
+                m.0 = RXNEMPTY_MASK << SM::Sm::SM_NO;
             });
         }
     }
@@ -250,10 +242,8 @@ impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
         unsafe {
             let irq = PIO::Irq::steal();
             irq.disable();
-            critical_section::with(|_| {
-                PIOS[PIO::PIO_NO as usize].irqs(0).inte().modify(|m| {
-                    m.0 |= SMIRQ_MASK << self.irq_no;
-                });
+            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_set(|m| {
+                m.0 = SMIRQ_MASK << self.irq_no;
             });
             irq.enable();
         }
@@ -264,10 +254,8 @@ impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
 impl<'d, PIO: PioInstance> Drop for IrqFuture<PIO> {
     fn drop(&mut self) {
         unsafe {
-            critical_section::with(|_| {
-                PIOS[PIO::PIO_NO as usize].irqs(0).inte().modify(|m| {
-                    m.0 &= !(SMIRQ_MASK << self.irq_no);
-                });
+            PIOS[PIO::PIO_NO as usize].irqs(0).inte().write_clear(|m| {
+                m.0 = SMIRQ_MASK << self.irq_no;
             });
         }
     }
