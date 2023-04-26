@@ -2,6 +2,8 @@
 
 set -euxo pipefail
 
+export DEFMT_LOG=trace
+
 # build examples
 #==================
 
