@@ -21,6 +21,7 @@ pub use gpdma::*;
 #[cfg(dmamux)]
 mod dmamux;
 
+pub(crate) mod ringbuffer;
 pub mod word;
 
 use core::mem;

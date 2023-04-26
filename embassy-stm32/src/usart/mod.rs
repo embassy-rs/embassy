@@ -283,8 +283,8 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
         let (sr, cr1, cr3) = unsafe { (sr(r).read(), r.cr1().read(), r.cr3().read()) };
 
+        let mut wake = false;
         let has_errors = (sr.pe() && cr1.peie()) || ((sr.fe() || sr.ne() || sr.ore()) && cr3.eie());
-
         if has_errors {
             // clear all interrupts and DMA Rx Request
             unsafe {
@@ -304,22 +304,35 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 });
             }
 
-            compiler_fence(Ordering::SeqCst);
+            wake = true;
+        } else {
+            if cr1.idleie() && sr.idle() {
+                // IDLE detected: no more data will come
+                unsafe {
+                    r.cr1().modify(|w| {
+                        // disable idle line detection
+                        w.set_idleie(false);
+                    });
 
-            s.rx_waker.wake();
-        } else if cr1.idleie() && sr.idle() {
-            // IDLE detected: no more data will come
-            unsafe {
-                r.cr1().modify(|w| {
-                    // disable idle line detection
-                    w.set_idleie(false);
-                });
+                    r.cr3().modify(|w| {
+                        // disable DMA Rx Request
+                        w.set_dmar(false);
+                    });
+                }
 
-                r.cr3().modify(|w| {
-                    // disable DMA Rx Request
-                    w.set_dmar(false);
-                });
+                wake = true;
             }
+
+            if cr1.rxneie() {
+                // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
+
+                // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
+
+                wake = true;
+            }
+        }
+
+        if wake {
             compiler_fence(Ordering::SeqCst);
 
             s.rx_waker.wake();
@@ -972,6 +985,8 @@ mod eio {
 pub use buffered::*;
 #[cfg(feature = "nightly")]
 mod buffered;
+mod rx_ringbuffered;
+pub use rx_ringbuffered::RingBufferedUartRx;
 
 #[cfg(usart_v1)]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {

@@ -9,6 +9,7 @@ use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::regs;
 
+use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::DMA_CHANNEL_COUNT;
@@ -445,7 +446,6 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
 
 // ==================================
 
-#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct DoubleBuffered<'a, C: Channel, W: Word> {
     channel: PeripheralRef<'a, C>,
     _phantom: PhantomData<W>,
@@ -578,18 +578,184 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         let ch = self.channel.regs().st(self.channel.num());
         unsafe { ch.ndtr().read() }.ndt()
     }
+}
 
-    pub fn blocking_wait(mut self) {
+impl<'a, C: Channel, W: Word> Drop for DoubleBuffered<'a, C, W> {
+    fn drop(&mut self) {
+        self.request_stop();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
-
-        core::mem::forget(self);
     }
 }
 
-impl<'a, C: Channel, W: Word> Drop for DoubleBuffered<'a, C, W> {
+// ==============================
+
+impl<C: Channel> DmaCtrl for C {
+    fn tcif(&self) -> bool {
+        let channel_number = self.num();
+        let dma = self.regs();
+        let isrn = channel_number / 4;
+        let isrbit = channel_number % 4;
+
+        unsafe { dma.isr(isrn).read() }.tcif(isrbit)
+    }
+
+    fn clear_tcif(&mut self) {
+        let channel_number = self.num();
+        let dma = self.regs();
+        let isrn = channel_number / 4;
+        let isrbit = channel_number % 4;
+
+        unsafe {
+            dma.ifcr(isrn).write(|w| {
+                w.set_tcif(isrbit, true);
+            })
+        }
+    }
+
+    fn ndtr(&self) -> usize {
+        let ch = self.regs().st(self.num());
+        unsafe { ch.ndtr().read() }.ndt() as usize
+    }
+}
+
+pub struct RingBuffer<'a, C: Channel, W: Word> {
+    cr: regs::Cr,
+    channel: PeripheralRef<'a, C>,
+    ringbuf: DmaRingBuffer<'a, W>,
+}
+
+impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
+    pub unsafe fn new_read(
+        channel: impl Peripheral<P = C> + 'a,
+        _request: Request,
+        peri_addr: *mut W,
+        buffer: &'a mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        let len = buffer.len();
+        assert!(len > 0 && len <= 0xFFFF);
+
+        let dir = Dir::PeripheralToMemory;
+        let data_size = W::size();
+
+        let channel_number = channel.num();
+        let dma = channel.regs();
+
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        let mut w = regs::Cr(0);
+        w.set_dir(dir.into());
+        w.set_msize(data_size.into());
+        w.set_psize(data_size.into());
+        w.set_pl(vals::Pl::VERYHIGH);
+        w.set_minc(vals::Inc::INCREMENTED);
+        w.set_pinc(vals::Inc::FIXED);
+        w.set_teie(true);
+        w.set_tcie(false);
+        w.set_circ(vals::Circ::ENABLED);
+        #[cfg(dma_v1)]
+        w.set_trbuff(true);
+        #[cfg(dma_v2)]
+        w.set_chsel(_request);
+        w.set_pburst(options.pburst.into());
+        w.set_mburst(options.mburst.into());
+        w.set_pfctrl(options.flow_ctrl.into());
+        w.set_en(true);
+
+        let buffer_ptr = buffer.as_mut_ptr();
+        let mut this = Self {
+            channel,
+            cr: w,
+            ringbuf: DmaRingBuffer::new(buffer),
+        };
+        this.clear_irqs();
+
+        #[cfg(dmamux)]
+        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+
+        let ch = dma.st(channel_number);
+        ch.par().write_value(peri_addr as u32);
+        ch.m0ar().write_value(buffer_ptr as u32);
+        ch.ndtr().write_value(regs::Ndtr(len as _));
+        ch.fcr().write(|w| {
+            if let Some(fth) = options.fifo_threshold {
+                // FIFO mode
+                w.set_dmdis(vals::Dmdis::DISABLED);
+                w.set_fth(fth.into());
+            } else {
+                // Direct mode
+                w.set_dmdis(vals::Dmdis::ENABLED);
+            }
+        });
+
+        this
+    }
+
+    pub fn start(&mut self) {
+        let ch = self.channel.regs().st(self.channel.num());
+        unsafe { ch.cr().write_value(self.cr) }
+    }
+
+    pub fn clear(&mut self) {
+        self.ringbuf.clear();
+    }
+
+    /// Read bytes from the ring buffer
+    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
+    pub fn read(&mut self, buf: &mut [W]) -> Result<usize, OverrunError> {
+        self.ringbuf.read(&mut *self.channel, buf)
+    }
+
+    fn clear_irqs(&mut self) {
+        let channel_number = self.channel.num();
+        let dma = self.channel.regs();
+        let isrn = channel_number / 4;
+        let isrbit = channel_number % 4;
+
+        unsafe {
+            dma.ifcr(isrn).write(|w| {
+                w.set_tcif(isrbit, true);
+                w.set_teif(isrbit, true);
+            })
+        }
+    }
+
+    pub fn request_stop(&mut self) {
+        let ch = self.channel.regs().st(self.channel.num());
+
+        // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        unsafe {
+            ch.cr().write(|w| {
+                w.set_teie(true);
+                w.set_tcie(true);
+            })
+        }
+    }
+
+    pub fn is_running(&mut self) -> bool {
+        let ch = self.channel.regs().st(self.channel.num());
+        unsafe { ch.cr().read() }.en()
+    }
+
+    /// Gets the total remaining transfers for the channel
+    /// Note: this will be zero for transfers that completed without cancellation.
+    pub fn get_remaining_transfers(&self) -> usize {
+        let ch = self.channel.regs().st(self.channel.num());
+        unsafe { ch.ndtr().read() }.ndt() as usize
+    }
+
+    pub fn set_ndtr(&mut self, ndtr: usize) {
+        self.ringbuf.ndtr = ndtr;
+    }
+}
+
+impl<'a, C: Channel, W: Word> Drop for RingBuffer<'a, C, W> {
     fn drop(&mut self) {
         self.request_stop();
         while self.is_running() {}
