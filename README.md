@@ -106,10 +106,10 @@ git submodule init
 git submodule update
 ```
 
-- Install `probe-run` with defmt support.
+- Install `probe-rs-cli` with defmt support.
 
 ```bash
-cargo install probe-run
+cargo install probe-rs-cli
 ```
 
 - Change directory to the sample's base directory. For example:
