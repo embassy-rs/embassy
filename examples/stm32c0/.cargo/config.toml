@@ -1,5 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# replace STM32G071C8Rx with your chip as listed in `probe-run --list-chips`
+# replace STM32G071C8Rx with your chip as listed in `probe-rs-cli chip list`
 runner = "probe-rs-cli run --speed 100 --chip STM32c031c6tx"
 
 [build]
