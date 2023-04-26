@@ -24,7 +24,7 @@ TODO:
 
 ## Running the example
 
-- `cargo install probe-run`
+- `cargo install probe-rs-cli`
 - `cd examples/rpi-pico-w`
 - `WIFI_NETWORK=MyWifiNetwork WIFI_PASSWORD=MyWifiPassword cargo run --release`
 
