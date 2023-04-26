@@ -792,7 +792,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 }
 
-pub struct PioCommonInstance<'d, PIO: PioInstance> {
+pub struct PioCommon<'d, PIO: PioInstance> {
     instructions_used: u32,
     pio: PhantomData<&'d PIO>,
 }
@@ -802,11 +802,8 @@ pub struct PioInstanceMemory<'d, PIO: PioInstance> {
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance> sealed::PioCommon for PioCommonInstance<'d, PIO> {
-    type Pio = PIO;
-}
-impl<'d, PIO: PioInstance> PioCommon for PioCommonInstance<'d, PIO> {
-    fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<'d, Self::Pio>
+impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
+    pub fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<'d, PIO>
     where
         I: Iterator<Item = u16>,
     {
@@ -833,58 +830,50 @@ impl<'d, PIO: PioInstance> PioCommon for PioCommonInstance<'d, PIO> {
         }
     }
 
-    fn free_instr(&mut self, instrs: PioInstanceMemory<Self::Pio>) {
+    // TODO make instruction memory that is currently in use unfreeable
+    pub fn free_instr(&mut self, instrs: PioInstanceMemory<PIO>) {
         self.instructions_used &= !instrs.used_mask;
     }
-}
 
-pub trait PioCommon: sealed::PioCommon + Sized {
-    fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<Self::Pio>
-    where
-        I: Iterator<Item = u16>;
-
-    // TODO make instruction memory that is currently in use unfreeable
-    fn free_instr(&mut self, instrs: PioInstanceMemory<Self::Pio>);
-
-    fn is_irq_set(&self, irq_no: u8) -> bool {
+    pub fn is_irq_set(&self, irq_no: u8) -> bool {
         assert!(irq_no < 8);
         unsafe {
-            let irq_flags = Self::Pio::PIO.irq();
+            let irq_flags = PIO::PIO.irq();
             irq_flags.read().0 & (1 << irq_no) != 0
         }
     }
 
-    fn clear_irq(&mut self, irq_no: usize) {
+    pub fn clear_irq(&mut self, irq_no: usize) {
         assert!(irq_no < 8);
-        unsafe { Self::Pio::PIO.irq().write(|w| w.set_irq(1 << irq_no)) }
+        unsafe { PIO::PIO.irq().write(|w| w.set_irq(1 << irq_no)) }
     }
 
-    fn clear_irqs(&mut self, mask: u8) {
-        unsafe { Self::Pio::PIO.irq().write(|w| w.set_irq(mask)) }
+    pub fn clear_irqs(&mut self, mask: u8) {
+        unsafe { PIO::PIO.irq().write(|w| w.set_irq(mask)) }
     }
 
-    fn force_irq(&mut self, irq_no: usize) {
+    pub fn force_irq(&mut self, irq_no: usize) {
         assert!(irq_no < 8);
-        unsafe { Self::Pio::PIO.irq_force().write(|w| w.set_irq_force(1 << irq_no)) }
+        unsafe { PIO::PIO.irq_force().write(|w| w.set_irq_force(1 << irq_no)) }
     }
 
-    fn set_input_sync_bypass<'a>(&'a mut self, bypass: u32, mask: u32) {
+    pub fn set_input_sync_bypass<'a>(&'a mut self, bypass: u32, mask: u32) {
         unsafe {
             // this can interfere with per-pin bypass functions. splitting the
             // modification is going to be fine since nothing that relies on
             // it can reasonably run before we finish.
-            Self::Pio::PIO.input_sync_bypass().write_set(|w| *w = mask & bypass);
-            Self::Pio::PIO.input_sync_bypass().write_clear(|w| *w = mask & !bypass);
+            PIO::PIO.input_sync_bypass().write_set(|w| *w = mask & bypass);
+            PIO::PIO.input_sync_bypass().write_clear(|w| *w = mask & !bypass);
         }
     }
 
-    fn get_input_sync_bypass(&self) -> u32 {
-        unsafe { Self::Pio::PIO.input_sync_bypass().read() }
+    pub fn get_input_sync_bypass(&self) -> u32 {
+        unsafe { PIO::PIO.input_sync_bypass().read() }
     }
 
-    fn make_pio_pin(&self, pin: impl Pin) -> PioPin<Self::Pio> {
+    pub fn make_pio_pin(&self, pin: impl Pin) -> PioPin<PIO> {
         unsafe {
-            pin.io().ctrl().write(|w| w.set_funcsel(Self::Pio::FUNCSEL.0));
+            pin.io().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL.0));
         }
         PioPin {
             pin_bank: pin.pin_bank(),
@@ -904,7 +893,7 @@ impl<const SM_NO: u8> sealed::SmInstance for SmInstanceBase<SM_NO> {
 impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {}
 
 pub struct Pio<'d, PIO: PioInstance> {
-    pub common: PioCommonInstance<'d, PIO>,
+    pub common: PioCommon<'d, PIO>,
     pub sm0: PioStateMachineInstance<'d, PIO, SmInstanceBase<0>>,
     pub sm1: PioStateMachineInstance<'d, PIO, SmInstanceBase<1>>,
     pub sm2: PioStateMachineInstance<'d, PIO, SmInstanceBase<2>>,
@@ -914,7 +903,7 @@ pub struct Pio<'d, PIO: PioInstance> {
 impl<'d, PIO: PioInstance> Pio<'d, PIO> {
     pub fn new(_pio: impl Peripheral<P = PIO> + 'd) -> Self {
         Self {
-            common: PioCommonInstance {
+            common: PioCommon {
                 instructions_used: 0,
                 pio: PhantomData,
             },
@@ -945,10 +934,6 @@ pub trait PioInstance: sealed::PioInstance + Sized + Unpin {
 }
 
 mod sealed {
-    pub trait PioCommon {
-        type Pio: super::PioInstance;
-    }
-
     pub trait PioStateMachine {
         type Pio: super::PioInstance;
         type Sm: super::SmInstance;

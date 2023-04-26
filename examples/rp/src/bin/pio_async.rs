@@ -5,14 +5,12 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{AnyPin, Pin};
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{
-    Pio, PioCommon, PioCommonInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2,
-};
+use embassy_rp::pio::{Pio, PioCommon, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};
 
-fn setup_pio_task_sm0(pio: &mut PioCommonInstance<PIO0>, sm: &mut PioStateMachineInstance<PIO0, Sm0>, pin: AnyPin) {
+fn setup_pio_task_sm0(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, Sm0>, pin: AnyPin) {
     // Setup sm0
 
     // Send data serially to pin
@@ -51,7 +49,7 @@ async fn pio_task_sm0(mut sm: PioStateMachineInstance<'static, PIO0, Sm0>) {
     }
 }
 
-fn setup_pio_task_sm1(pio: &mut PioCommonInstance<PIO0>, sm: &mut PioStateMachineInstance<PIO0, Sm1>) {
+fn setup_pio_task_sm1(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, Sm1>) {
     // Setupm sm1
 
     // Read 0b10101 repeatedly until ISR is full
@@ -78,7 +76,7 @@ async fn pio_task_sm1(mut sm: PioStateMachineInstance<'static, PIO0, Sm1>) {
     }
 }
 
-fn setup_pio_task_sm2(pio: &mut PioCommonInstance<PIO0>, sm: &mut PioStateMachineInstance<PIO0, Sm2>) {
+fn setup_pio_task_sm2(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, Sm2>) {
     // Setup sm2
 
     // Repeatedly trigger IRQ 3

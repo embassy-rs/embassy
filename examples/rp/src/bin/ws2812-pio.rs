@@ -6,8 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{self, Pin};
 use embassy_rp::pio::{
-    FifoJoin, Pio, PioCommon, PioCommonInstance, PioInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection,
-    SmInstance,
+    FifoJoin, Pio, PioCommon, PioInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection, SmInstance,
 };
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
@@ -19,11 +18,7 @@ pub struct Ws2812<'d, P: PioInstance, S: SmInstance> {
 }
 
 impl<'d, P: PioInstance, S: SmInstance> Ws2812<'d, P, S> {
-    pub fn new(
-        mut pio: PioCommonInstance<'d, P>,
-        mut sm: PioStateMachineInstance<'d, P, S>,
-        pin: gpio::AnyPin,
-    ) -> Self {
+    pub fn new(mut pio: PioCommon<'d, P>, mut sm: PioStateMachineInstance<'d, P, S>, pin: gpio::AnyPin) -> Self {
         // Setup sm0
 
         // prepare the PIO program
