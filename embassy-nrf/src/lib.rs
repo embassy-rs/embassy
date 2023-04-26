@@ -184,6 +184,34 @@ pub mod config {
         NotConfigured,
     }
 
+    /// Settings for enabling the built in DCDC converters.
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+    pub struct DcdcConfig {
+        /// Config for the first stage DCDC (VDDH -> VDD), if disabled LDO will be used.
+        #[cfg(feature = "nrf52840")]
+        pub reg0: bool,
+        /// Config for the second stage DCDC (VDD -> DEC4), if disabled LDO will be used.
+        pub reg1: bool,
+    }
+
+    /// Settings for enabling the built in DCDC converters.
+    #[cfg(feature = "_nrf5340-app")]
+    pub struct DcdcConfig {
+        /// Config for the high voltage stage, if disabled LDO will be used.
+        pub regh: bool,
+        /// Config for the main rail, if disabled LDO will be used.
+        pub regmain: bool,
+        /// Config for the radio rail, if disabled LDO will be used.
+        pub regradio: bool,
+    }
+
+    /// Settings for enabling the built in DCDC converter.
+    #[cfg(feature = "_nrf9160")]
+    pub struct DcdcConfig {
+        /// Config for the main rail, if disabled LDO will be used.
+        pub regmain: bool,
+    }
+
     /// Configuration for peripherals. Default configuration should work on any nRF chip.
     #[non_exhaustive]
     pub struct Config {
@@ -191,6 +219,9 @@ pub mod config {
         pub hfclk_source: HfclkSource,
         /// Low frequency clock source.
         pub lfclk_source: LfclkSource,
+        #[cfg(not(feature = "_nrf5340-net"))]
+        /// DCDC configuration.
+        pub dcdc: DcdcConfig,
         /// GPIOTE interrupt priority. Should be lower priority than softdevice if used.
         #[cfg(feature = "gpiote")]
         pub gpiote_interrupt_priority: crate::interrupt::Priority,
@@ -209,6 +240,20 @@ pub mod config {
                 // xtals if they know they have them.
                 hfclk_source: HfclkSource::Internal,
                 lfclk_source: LfclkSource::InternalRC,
+                #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+                dcdc: DcdcConfig {
+                    #[cfg(feature = "nrf52840")]
+                    reg0: false,
+                    reg1: false,
+                },
+                #[cfg(feature = "_nrf5340-app")]
+                dcdc: DcdcConfig {
+                    regh: false,
+                    regmain: false,
+                    regradio: false,
+                },
+                #[cfg(feature = "_nrf9160")]
+                dcdc: DcdcConfig { regmain: false },
                 #[cfg(feature = "gpiote")]
                 gpiote_interrupt_priority: crate::interrupt::Priority::P0,
                 #[cfg(feature = "_time-driver")]
@@ -453,6 +498,41 @@ pub fn init(config: config::Config) -> Peripherals {
     r.events_lfclkstarted.write(|w| unsafe { w.bits(0) });
     r.tasks_lfclkstart.write(|w| unsafe { w.bits(1) });
     while r.events_lfclkstarted.read().bits() == 0 {}
+
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+    {
+        // Setup DCDCs.
+        let pwr = unsafe { &*pac::POWER::ptr() };
+        #[cfg(feature = "nrf52840")]
+        if config.dcdc.reg0 {
+            pwr.dcdcen0.write(|w| w.dcdcen().set_bit());
+        }
+        if config.dcdc.reg1 {
+            pwr.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+    }
+    #[cfg(feature = "_nrf9160")]
+    {
+        // Setup DCDC.
+        let reg = unsafe { &*pac::REGULATORS::ptr() };
+        if config.dcdc.regmain {
+            reg.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+    }
+    #[cfg(feature = "_nrf5340-app")]
+    {
+        // Setup DCDC.
+        let reg = unsafe { &*pac::REGULATORS::ptr() };
+        if config.dcdc.regh {
+            reg.vregh.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+        if config.dcdc.regmain {
+            reg.vregmain.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+        if config.dcdc.regradio {
+            reg.vregradio.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+    }
 
     // Init GPIOTE
     #[cfg(feature = "gpiote")]
