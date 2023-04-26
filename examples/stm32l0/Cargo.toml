@@ -6,7 +6,8 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan", "embedded-io/async"]
+nightly = ["embassy-stm32/nightly", "embassy-time/nightly", "embassy-time/unstable-traits",
+           "embassy-lora", "lorawan-device", "lorawan", "embedded-io/async"]
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
