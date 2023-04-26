@@ -29,7 +29,6 @@ time-driver = []
 rom-func-cache = []
 intrinsics = []
 rom-v2-intrinsics = []
-pio = ["dep:pio", "dep:pio-proc"]
 
 # Enable nightly-only features
 nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
@@ -70,5 +69,5 @@ embedded-hal-async = { version = "=0.2.0-alpha.1", optional = true}
 embedded-hal-nb = { version = "=1.0.0-alpha.2", optional = true}
 
 paste = "1.0"
-pio-proc = {version= "0.2", optional = true}
-pio = {version= "0.2.1", optional = true}
+pio-proc = {version= "0.2" }
+pio = {version= "0.2.1" }

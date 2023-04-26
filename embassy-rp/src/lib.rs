@@ -11,20 +11,16 @@ mod critical_section_impl;
 mod intrinsics;
 
 pub mod adc;
+pub mod clocks;
 pub mod dma;
+pub mod flash;
 mod float;
 pub mod gpio;
 pub mod i2c;
 pub mod interrupt;
-
-#[cfg(feature = "pio")]
-pub mod pio;
-#[cfg(feature = "pio")]
-pub mod pio_instr_util;
+pub mod multicore;
 pub mod pwm;
-#[cfg(feature = "pio")]
-pub mod relocate;
-
+mod reset;
 pub mod rom_data;
 pub mod rtc;
 pub mod spi;
@@ -33,15 +29,15 @@ pub mod timer;
 pub mod uart;
 #[cfg(feature = "nightly")]
 pub mod usb;
-
-pub mod clocks;
-pub mod flash;
-pub mod multicore;
-mod reset;
 pub mod watchdog;
 
-// Reexports
+// PIO
+// TODO: move `pio_instr_util` and `relocate` to inside `pio`
+pub mod pio;
+pub mod pio_instr_util;
+pub mod relocate;
 
+// Reexports
 pub use embassy_cortex_m::executor;
 pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
