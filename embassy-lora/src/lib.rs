@@ -5,12 +5,18 @@
 //! crate's async LoRaWAN MAC implementation.
 
 pub(crate) mod fmt;
+#[cfg(feature = "external-lora-phy")]
+/// interface variants required by the external lora crate
+pub mod iv;
 
 #[cfg(feature = "stm32wl")]
+#[deprecated(note = "use the external LoRa physical layer crate - https://crates.io/crates/lora-phy")]
 pub mod stm32wl;
 #[cfg(feature = "sx126x")]
+#[deprecated(note = "use the external LoRa physical layer crate - https://crates.io/crates/lora-phy")]
 pub mod sx126x;
 #[cfg(feature = "sx127x")]
+#[deprecated(note = "use the external LoRa physical layer crate - https://crates.io/crates/lora-phy")]
 pub mod sx127x;
 
 #[cfg(feature = "time")]

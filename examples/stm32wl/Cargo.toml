@@ -7,12 +7,13 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "stm32wl55jc-cm4", "time-driver-any", "memory-x", "unstable-pac", "exti"]  }
-embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time", "defmt"] }
-
-lorawan-device = { version = "0.9.0", default-features = false, features = ["async"] }
-lorawan = { version = "0.7.2", default-features = false, features = ["default-crypto"] }
+embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["nightly", "unstable-traits", "defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "unstable-traits", "defmt", "stm32wl55jc-cm4", "time-driver-any", "memory-x", "unstable-pac", "exti"]  }
+embassy-embedded-hal = {version = "0.1.0", path = "../../embassy-embedded-hal" }
+embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time", "defmt", "external-lora-phy"] }
+lora-phy = { version = "1" }
+lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"] }
+lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
