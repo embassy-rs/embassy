@@ -115,7 +115,6 @@ impl SdpcmHeader {
 }
 
 #[derive(Debug, Clone, Copy)]
-// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C, packed(2))]
 pub struct CdcHeader {
     pub cmd: u32,
@@ -125,6 +124,25 @@ pub struct CdcHeader {
     pub status: u32,
 }
 impl_bytes!(CdcHeader);
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for CdcHeader {
+    fn format(&self, fmt: defmt::Formatter) {
+        fn copy<T: Copy>(t: T) -> T {
+            t
+        }
+
+        defmt::write!(
+            fmt,
+            "CdcHeader{{cmd: {=u32:08x}, len: {=u32:08x}, flags: {=u16:04x}, id: {=u16:04x}, status: {=u32:08x}}}",
+            copy(self.cmd),
+            copy(self.len),
+            copy(self.flags),
+            copy(self.id),
+            copy(self.status),
+        )
+    }
+}
 
 impl CdcHeader {
     pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
