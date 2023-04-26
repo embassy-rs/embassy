@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
-use embassy_hal_common::PeripheralRef;
+use embassy_hal_common::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{Channel, Transfer, Word};
@@ -316,16 +316,16 @@ impl<PIO: PioInstance> SealedPin for PioPin<PIO> {
     }
 }
 
-pub struct PioStateMachineInstance<PIO: PioInstance, SM: SmInstance> {
-    pio: PhantomData<PIO>,
+pub struct PioStateMachineInstance<'d, PIO: PioInstance, SM: SmInstance> {
+    pio: PhantomData<&'d PIO>,
     sm: PhantomData<SM>,
 }
 
-impl<PIO: PioInstance, SM: SmInstance> sealed::PioStateMachine for PioStateMachineInstance<PIO, SM> {
+impl<'d, PIO: PioInstance, SM: SmInstance> sealed::PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {
     type Pio = PIO;
     type Sm = SM;
 }
-impl<PIO: PioInstance, SM: SmInstance> PioStateMachine for PioStateMachineInstance<PIO, SM> {}
+impl<'d, PIO: PioInstance, SM: SmInstance> PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {}
 
 pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn pio_no(&self) -> u8 {
@@ -792,21 +792,21 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 }
 
-pub struct PioCommonInstance<PIO: PioInstance> {
+pub struct PioCommonInstance<'d, PIO: PioInstance> {
     instructions_used: u32,
-    pio: PhantomData<PIO>,
+    pio: PhantomData<&'d PIO>,
 }
 
-pub struct PioInstanceMemory<PIO: PioInstance> {
+pub struct PioInstanceMemory<'d, PIO: PioInstance> {
     used_mask: u32,
-    pio: PhantomData<PIO>,
+    pio: PhantomData<&'d PIO>,
 }
 
-impl<PIO: PioInstance> sealed::PioCommon for PioCommonInstance<PIO> {
+impl<'d, PIO: PioInstance> sealed::PioCommon for PioCommonInstance<'d, PIO> {
     type Pio = PIO;
 }
-impl<PIO: PioInstance> PioCommon for PioCommonInstance<PIO> {
-    fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<Self::Pio>
+impl<'d, PIO: PioInstance> PioCommon for PioCommonInstance<'d, PIO> {
+    fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<'d, Self::Pio>
     where
         I: Iterator<Item = u16>,
     {
@@ -903,42 +903,44 @@ impl<const SM_NO: u8> sealed::SmInstance for SmInstanceBase<SM_NO> {
 }
 impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {}
 
+pub struct Pio<'d, PIO: PioInstance> {
+    pub common: PioCommonInstance<'d, PIO>,
+    pub sm0: PioStateMachineInstance<'d, PIO, SmInstanceBase<0>>,
+    pub sm1: PioStateMachineInstance<'d, PIO, SmInstanceBase<1>>,
+    pub sm2: PioStateMachineInstance<'d, PIO, SmInstanceBase<2>>,
+    pub sm3: PioStateMachineInstance<'d, PIO, SmInstanceBase<3>>,
+}
+
+impl<'d, PIO: PioInstance> Pio<'d, PIO> {
+    pub fn new(_pio: impl Peripheral<P = PIO> + 'd) -> Self {
+        Self {
+            common: PioCommonInstance {
+                instructions_used: 0,
+                pio: PhantomData,
+            },
+            sm0: PioStateMachineInstance {
+                sm: PhantomData,
+                pio: PhantomData,
+            },
+            sm1: PioStateMachineInstance {
+                sm: PhantomData,
+                pio: PhantomData,
+            },
+            sm2: PioStateMachineInstance {
+                sm: PhantomData,
+                pio: PhantomData,
+            },
+            sm3: PioStateMachineInstance {
+                sm: PhantomData,
+                pio: PhantomData,
+            },
+        }
+    }
+}
+
 pub trait PioInstance: sealed::PioInstance + Sized + Unpin {
     fn pio(&self) -> u8 {
         Self::PIO_NO
-    }
-
-    fn split(
-        self,
-    ) -> (
-        PioCommonInstance<Self>,
-        PioStateMachineInstance<Self, SmInstanceBase<0>>,
-        PioStateMachineInstance<Self, SmInstanceBase<1>>,
-        PioStateMachineInstance<Self, SmInstanceBase<2>>,
-        PioStateMachineInstance<Self, SmInstanceBase<3>>,
-    ) {
-        (
-            PioCommonInstance {
-                instructions_used: 0,
-                pio: PhantomData::default(),
-            },
-            PioStateMachineInstance {
-                sm: PhantomData::default(),
-                pio: PhantomData::default(),
-            },
-            PioStateMachineInstance {
-                sm: PhantomData::default(),
-                pio: PhantomData::default(),
-            },
-            PioStateMachineInstance {
-                sm: PhantomData::default(),
-                pio: PhantomData::default(),
-            },
-            PioStateMachineInstance {
-                sm: PhantomData::default(),
-                pio: PhantomData::default(),
-            },
-        )
     }
 }
 

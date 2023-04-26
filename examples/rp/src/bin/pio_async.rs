@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::{AnyPin, Pin};
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{
-    PioCommon, PioCommonInstance, PioInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2,
+    Pio, PioCommon, PioCommonInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection, Sm0, Sm1, Sm2,
 };
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
@@ -40,7 +40,7 @@ fn setup_pio_task_sm0(pio: &mut PioCommonInstance<PIO0>, sm: &mut PioStateMachin
 }
 
 #[embassy_executor::task]
-async fn pio_task_sm0(mut sm: PioStateMachineInstance<PIO0, Sm0>) {
+async fn pio_task_sm0(mut sm: PioStateMachineInstance<'static, PIO0, Sm0>) {
     sm.set_enable(true);
 
     let mut v = 0x0f0caffa;
@@ -70,7 +70,7 @@ fn setup_pio_task_sm1(pio: &mut PioCommonInstance<PIO0>, sm: &mut PioStateMachin
 }
 
 #[embassy_executor::task]
-async fn pio_task_sm1(mut sm: PioStateMachineInstance<PIO0, Sm1>) {
+async fn pio_task_sm1(mut sm: PioStateMachineInstance<'static, PIO0, Sm1>) {
     sm.set_enable(true);
     loop {
         let rx = sm.wait_pull().await;
@@ -102,7 +102,7 @@ fn setup_pio_task_sm2(pio: &mut PioCommonInstance<PIO0>, sm: &mut PioStateMachin
 }
 
 #[embassy_executor::task]
-async fn pio_task_sm2(mut sm: PioStateMachineInstance<PIO0, Sm2>) {
+async fn pio_task_sm2(mut sm: PioStateMachineInstance<'static, PIO0, Sm2>) {
     sm.set_enable(true);
     loop {
         sm.wait_irq(3).await;
@@ -115,11 +115,17 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let pio = p.PIO0;
 
-    let (mut pio0, mut sm0, mut sm1, mut sm2, ..) = pio.split();
+    let Pio {
+        mut common,
+        mut sm0,
+        mut sm1,
+        mut sm2,
+        ..
+    } = Pio::new(pio);
 
-    setup_pio_task_sm0(&mut pio0, &mut sm0, p.PIN_0.degrade());
-    setup_pio_task_sm1(&mut pio0, &mut sm1);
-    setup_pio_task_sm2(&mut pio0, &mut sm2);
+    setup_pio_task_sm0(&mut common, &mut sm0, p.PIN_0.degrade());
+    setup_pio_task_sm1(&mut common, &mut sm1);
+    setup_pio_task_sm2(&mut common, &mut sm2);
     spawner.spawn(pio_task_sm0(sm0)).unwrap();
     spawner.spawn(pio_task_sm1(sm1)).unwrap();
     spawner.spawn(pio_task_sm2(sm2)).unwrap();

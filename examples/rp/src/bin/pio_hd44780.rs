@@ -9,7 +9,7 @@ use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::gpio::Pin;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{
-    FifoJoin, PioCommon, PioInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection, SmInstanceBase,
+    FifoJoin, Pio, PioCommon, PioStateMachine, PioStateMachineInstance, ShiftDirection, SmInstanceBase,
 };
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_rp::relocate::RelocatedProgram;
@@ -67,14 +67,14 @@ async fn main(_spawner: Spawner) {
 
 pub struct HD44780<'l> {
     dma: PeripheralRef<'l, AnyChannel>,
-    sm: PioStateMachineInstance<PIO0, SmInstanceBase<0>>,
+    sm: PioStateMachineInstance<'l, PIO0, SmInstanceBase<0>>,
 
     buf: [u8; 40],
 }
 
 impl<'l> HD44780<'l> {
     pub async fn new(
-        pio: PIO0,
+        pio: impl Peripheral<P = PIO0> + 'l,
         dma: impl Peripheral<P = impl Channel> + 'l,
         rs: impl Pin,
         rw: impl Pin,
@@ -87,7 +87,9 @@ impl<'l> HD44780<'l> {
         into_ref!(dma);
 
         let db7pin = db7.pin();
-        let (mut common, mut sm0, ..) = pio.split();
+        let Pio {
+            mut common, mut sm0, ..
+        } = Pio::new(pio);
 
         // takes command words (<wait:24> <command:4> <0:4>)
         let prg = pio_proc::pio_asm!(
