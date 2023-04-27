@@ -6,7 +6,7 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::PeripheralRef;
 use futures::future::{select, Either};
 
-use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
+use super::{rdr, sr, BasicInstance, Error, UartRx};
 use crate::dma::ringbuffer::OverrunError;
 use crate::dma::RingBuffer;
 
