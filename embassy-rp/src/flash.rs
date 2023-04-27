@@ -174,25 +174,17 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
         crate::multicore::pause_core1();
 
         critical_section::with(|_| {
-            // Pause all DMA channels for the duration of the ram operation
-            for (number, status) in dma_status.iter_mut().enumerate() {
-                let ch = crate::pac::DMA.ch(number as _);
-                *status = ch.ctrl_trig().read().en();
-                if *status {
-                    ch.ctrl_trig().modify(|w| w.set_en(false));
+            // Wait for all DMA channels in flash to finish before ram operation
+            const SRAM_LOWER: u32 = 0x2000_0000;
+            for n in 0..crate::dma::CHANNEL_COUNT {
+                let ch = crate::pac::DMA.ch(n);
+                if ch.read_addr().read() < SRAM_LOWER {
+                    while ch.ctrl_trig().read().busy() {}
                 }
             }
 
             // Run our flash operation in RAM
             operation();
-
-            // Re-enable previously enabled DMA channels
-            for (number, status) in dma_status.iter().enumerate() {
-                let ch = crate::pac::DMA.ch(number as _);
-                if *status {
-                    ch.ctrl_trig().modify(|w| w.set_en(true));
-                }
-            }
         });
 
         // Resume CORE1 execution
