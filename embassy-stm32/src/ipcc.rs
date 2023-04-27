@@ -1,6 +1,8 @@
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 
+use crate::ipcc::sealed::Instance;
 use crate::peripherals::IPCC;
+use crate::rcc::sealed::RccPeripheral;
 
 #[non_exhaustive]
 #[derive(Clone, Copy, Default)]
