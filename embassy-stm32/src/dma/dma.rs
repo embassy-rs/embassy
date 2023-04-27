@@ -4,6 +4,7 @@ use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll, Waker};
 
+use atomic_polyfill::AtomicUsize;
 use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -129,13 +130,16 @@ impl From<FifoThreshold> for vals::Fth {
 
 struct State {
     ch_wakers: [AtomicWaker; DMA_CHANNEL_COUNT],
+    complete_count: [AtomicUsize; DMA_CHANNEL_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
+        const ZERO: AtomicUsize = AtomicUsize::new(0);
         const AW: AtomicWaker = AtomicWaker::new();
         Self {
             ch_wakers: [AW; DMA_CHANNEL_COUNT],
+            complete_count: [ZERO; DMA_CHANNEL_COUNT],
         }
     }
 }
@@ -184,10 +188,40 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::dma::Dma, channel_num: usize, index:
         panic!("DMA: error on DMA@{:08x} channel {}", dma.0 as u32, channel_num);
     }
 
-    if isr.tcif(channel_num % 4) && cr.read().tcie() {
-        /* acknowledge transfer complete interrupt */
-        dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
+    let mut wake = false;
+
+    if isr.htif(channel_num % 4) && cr.read().htie() {
+        // Acknowledge half transfer complete interrupt
+        dma.ifcr(channel_num / 4).write(|w| w.set_htif(channel_num % 4, true));
+        wake = true;
+    }
+
+    wake |= process_tcif(dma, channel_num, index);
+
+    if wake {
         STATE.ch_wakers[index].wake();
+    }
+}
+
+unsafe fn process_tcif(dma: pac::dma::Dma, channel_num: usize, index: usize) -> bool {
+    let isr_reg = dma.isr(channel_num / 4);
+    let cr_reg = dma.st(channel_num).cr();
+
+    // First, figure out if tcif is set without a cs.
+    if isr_reg.read().tcif(channel_num % 4) && cr_reg.read().tcie() {
+        // Make tcif test again within a cs to avoid race when incrementing complete_count.
+        critical_section::with(|_| {
+            if isr_reg.read().tcif(channel_num % 4) && cr_reg.read().tcie() {
+                // Acknowledge transfer complete interrupt
+                dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
+                STATE.complete_count[index].fetch_add(1, Ordering::Release);
+                true
+            } else {
+                false
+            }
+        })
+    } else {
+        false
     }
 }
 
@@ -530,6 +564,7 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
 
         unsafe {
             dma.ifcr(isrn).write(|w| {
+                w.set_htif(isrbit, true);
                 w.set_tcif(isrbit, true);
                 w.set_teif(isrbit, true);
             })
@@ -593,31 +628,27 @@ impl<'a, C: Channel, W: Word> Drop for DoubleBuffered<'a, C, W> {
 // ==============================
 
 impl<C: Channel> DmaCtrl for C {
-    fn tcif(&self) -> bool {
-        let channel_number = self.num();
-        let dma = self.regs();
-        let isrn = channel_number / 4;
-        let isrbit = channel_number % 4;
-
-        unsafe { dma.isr(isrn).read() }.tcif(isrbit)
-    }
-
-    fn clear_tcif(&mut self) {
-        let channel_number = self.num();
-        let dma = self.regs();
-        let isrn = channel_number / 4;
-        let isrbit = channel_number % 4;
-
-        unsafe {
-            dma.ifcr(isrn).write(|w| {
-                w.set_tcif(isrbit, true);
-            })
-        }
-    }
-
     fn ndtr(&self) -> usize {
         let ch = self.regs().st(self.num());
         unsafe { ch.ndtr().read() }.ndt() as usize
+    }
+
+    fn get_complete_count(&self) -> usize {
+        let dma = self.regs();
+        let channel_num = self.num();
+        let index = self.index();
+        // Manually process tcif in case transfer was completed and we are in a higher priority task.
+        unsafe { process_tcif(dma, channel_num, index) };
+        STATE.complete_count[index].load(Ordering::Acquire)
+    }
+
+    fn reset_complete_count(&mut self) -> usize {
+        let dma = self.regs();
+        let channel_num = self.num();
+        let index = self.index();
+        // Manually process tcif in case transfer was completed and we are in a higher priority task.
+        unsafe { process_tcif(dma, channel_num, index) };
+        STATE.complete_count[index].swap(0, Ordering::AcqRel)
     }
 }
 
@@ -657,7 +688,8 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         w.set_minc(vals::Inc::INCREMENTED);
         w.set_pinc(vals::Inc::FIXED);
         w.set_teie(true);
-        w.set_tcie(false);
+        w.set_htie(true);
+        w.set_tcie(true);
         w.set_circ(vals::Circ::ENABLED);
         #[cfg(dma_v1)]
         w.set_trbuff(true);
@@ -703,13 +735,29 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
     }
 
     pub fn clear(&mut self) {
-        self.ringbuf.clear();
+        self.ringbuf.clear(&mut *self.channel);
     }
 
     /// Read bytes from the ring buffer
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, buf: &mut [W]) -> Result<usize, OverrunError> {
         self.ringbuf.read(&mut *self.channel, buf)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ringbuf.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.ringbuf.len()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.ringbuf.dma_buf.len()
+    }
+
+    pub fn set_waker(&mut self, waker: &Waker) {
+        STATE.ch_wakers[self.channel.index()].register(waker);
     }
 
     fn clear_irqs(&mut self) {
@@ -720,6 +768,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
 
         unsafe {
             dma.ifcr(isrn).write(|w| {
+                w.set_htif(isrbit, true);
                 w.set_tcif(isrbit, true);
                 w.set_teif(isrbit, true);
             })
@@ -733,6 +782,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         unsafe {
             ch.cr().write(|w| {
                 w.set_teie(true);
+                w.set_htie(true);
                 w.set_tcie(true);
             })
         }
@@ -743,15 +793,10 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         unsafe { ch.cr().read() }.en()
     }
 
-    /// Gets the total remaining transfers for the channel
-    /// Note: this will be zero for transfers that completed without cancellation.
-    pub fn get_remaining_transfers(&self) -> usize {
+    /// Synchronize the position of the ring buffer to the actual DMA controller position
+    pub fn reload_position(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.ndtr().read() }.ndt() as usize
-    }
-
-    pub fn set_ndtr(&mut self, ndtr: usize) {
-        self.ringbuf.ndtr = ndtr;
+        self.ringbuf.ndtr = unsafe { ch.ndtr().read() }.ndt() as usize;
     }
 }
 

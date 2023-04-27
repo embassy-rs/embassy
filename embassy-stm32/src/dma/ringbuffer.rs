@@ -10,14 +10,6 @@ use super::word::Word;
 /// to the current register value. `ndtr` describes the current position of the DMA
 /// write.
 ///
-/// # Safety
-///
-/// The ring buffer controls the TCIF (transfer completed interrupt flag) to
-/// detect buffer overruns, hence this interrupt must be disabled.
-/// The buffer can detect overruns up to one period, that is, for a X byte buffer,
-/// overruns can be detected if they happen from byte X+1 up to 2X. After this
-/// point, overrunds may or may not be detected.
-///
 /// # Buffer layout
 ///
 /// ```text
@@ -39,7 +31,6 @@ pub struct DmaRingBuffer<'a, W: Word> {
     pub(crate) dma_buf: &'a mut [W],
     first: usize,
     pub ndtr: usize,
-    expect_next_read_to_wrap: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -50,13 +41,13 @@ pub trait DmaCtrl {
     /// buffer until the dma writer wraps.
     fn ndtr(&self) -> usize;
 
-    /// Read the transfer completed interrupt flag
-    /// This flag is set by the dma controller when NDTR is reloaded,
+    /// Get the transfer completed counter.
+    /// This counter is incremented by the dma controller when NDTR is reloaded,
     /// i.e. when the writing wraps.
-    fn tcif(&self) -> bool;
+    fn get_complete_count(&self) -> usize;
 
-    /// Clear the transfer completed interrupt flag
-    fn clear_tcif(&mut self);
+    /// Reset the transfer completed counter to 0 and return the value just prior to the reset.
+    fn reset_complete_count(&mut self) -> usize;
 }
 
 impl<'a, W: Word> DmaRingBuffer<'a, W> {
@@ -66,15 +57,14 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
             dma_buf,
             first: 0,
             ndtr,
-            expect_next_read_to_wrap: false,
         }
     }
 
     /// Reset the ring buffer to its initial state
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self, dma: &mut impl DmaCtrl) {
         self.first = 0;
         self.ndtr = self.dma_buf.len();
-        self.expect_next_read_to_wrap = false;
+        dma.reset_complete_count();
     }
 
     /// The buffer end position
@@ -83,14 +73,12 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
     }
 
     /// Returns whether the buffer is empty
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.first == self.end()
     }
 
     /// The current number of bytes in the buffer
     /// This may change at any time if dma is currently active
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         // Read out a stable end (the dma periheral can change it at anytime)
         let end = self.end();
@@ -112,27 +100,19 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
         if self.first == end {
             // The buffer is currently empty
 
-            if dma.tcif() {
-                // The dma controller has written such that the ring buffer now wraps
-                // This is the special case where exactly n*dma_buf.len(), n = 1,2,..., bytes was written,
-                // but where additional bytes are now written causing the ring buffer to wrap.
-                // This is only an error if the writing has passed the current unread region.
+            if dma.get_complete_count() > 0 {
+                // The DMA has written such that the ring buffer wraps at least once
                 self.ndtr = dma.ndtr();
-                if self.end() > self.first {
-                    dma.clear_tcif();
+                if self.end() > self.first || dma.get_complete_count() > 1 {
                     return Err(OverrunError);
                 }
             }
 
-            self.expect_next_read_to_wrap = false;
             Ok(0)
         } else if self.first < end {
             // The available, unread portion in the ring buffer DOES NOT wrap
 
-            if self.expect_next_read_to_wrap {
-                // The read was expected to wrap but it did not
-
-                dma.clear_tcif();
+            if dma.get_complete_count() > 1 {
                 return Err(OverrunError);
             }
 
@@ -141,35 +121,39 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
 
             compiler_fence(Ordering::SeqCst);
 
-            if dma.tcif() {
-                // The dma controller has written such that the ring buffer now wraps
-
-                self.ndtr = dma.ndtr();
-                if self.end() > self.first {
-                    // The bytes that we have copied out have overflowed
-                    // as the writer has now both wrapped and is currently writing
-                    // within the region that we have just copied out
-
-                    // Clear transfer completed interrupt flag
-                    dma.clear_tcif();
+            match dma.get_complete_count() {
+                0 => {
+                    // The DMA writer has not wrapped before nor after the copy
+                }
+                1 => {
+                    // The DMA writer has written such that the ring buffer now wraps
+                    self.ndtr = dma.ndtr();
+                    if self.end() > self.first || dma.get_complete_count() > 1 {
+                        // The bytes that we have copied out have overflowed
+                        // as the writer has now both wrapped and is currently writing
+                        // within the region that we have just copied out
+                        return Err(OverrunError);
+                    }
+                }
+                _ => {
                     return Err(OverrunError);
                 }
             }
 
             self.first = (self.first + len) % self.dma_buf.len();
-            self.expect_next_read_to_wrap = false;
             Ok(len)
         } else {
             // The available, unread portion in the ring buffer DOES wrap
-            // The dma controller has wrapped since we last read and is currently
+            // The DMA writer has wrapped since we last read and is currently
             // writing (or the next byte added will be) in the beginning of the ring buffer.
 
-            // If the unread portion wraps then the writer must also have wrapped,
-            // or it has wrapped and we already cleared the TCIF flag
-            assert!(dma.tcif() || self.expect_next_read_to_wrap);
+            let complete_count = dma.get_complete_count();
+            if complete_count > 1 {
+                return Err(OverrunError);
+            }
 
-            // Clear transfer completed interrupt flag
-            dma.clear_tcif();
+            // If the unread portion wraps then the writer must also have wrapped
+            assert!(complete_count == 1);
 
             if self.first + buf.len() < self.dma_buf.len() {
                 // The provided read buffer is not large enough to include all bytes from the tail of the dma buffer.
@@ -182,13 +166,12 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
                 // We have now copied out the data from dma_buf
                 // Make sure that the just read part was not overwritten during the copy
                 self.ndtr = dma.ndtr();
-                if self.end() > self.first || dma.tcif() {
+                if self.end() > self.first || dma.get_complete_count() > 1 {
                     // The writer has entered the data that we have just read since we read out `end` in the beginning and until now.
                     return Err(OverrunError);
                 }
 
                 self.first = (self.first + len) % self.dma_buf.len();
-                self.expect_next_read_to_wrap = true;
                 Ok(len)
             } else {
                 // The provided read buffer is large enough to include all bytes from the tail of the dma buffer,
@@ -201,14 +184,14 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
                 compiler_fence(Ordering::SeqCst);
 
                 // We have now copied out the data from dma_buf
-                // Make sure that the just read part was not overwritten during the copy
+                // Reset complete counter and make sure that the just read part was not overwritten during the copy
                 self.ndtr = dma.ndtr();
-                if self.end() > self.first || dma.tcif() {
+                let complete_count = dma.reset_complete_count();
+                if self.end() > self.first || complete_count > 1 {
                     return Err(OverrunError);
                 }
 
                 self.first = head;
-                self.expect_next_read_to_wrap = false;
                 Ok(tail + head)
             }
         }
@@ -243,14 +226,14 @@ mod tests {
 
     struct TestCtrl {
         next_ndtr: RefCell<Option<usize>>,
-        tcif: bool,
+        complete_count: usize,
     }
 
     impl TestCtrl {
         pub const fn new() -> Self {
             Self {
                 next_ndtr: RefCell::new(None),
-                tcif: false,
+                complete_count: 0,
             }
         }
 
@@ -264,12 +247,14 @@ mod tests {
             self.next_ndtr.borrow_mut().unwrap()
         }
 
-        fn tcif(&self) -> bool {
-            self.tcif
+        fn get_complete_count(&self) -> usize {
+            self.complete_count
         }
 
-        fn clear_tcif(&mut self) {
-            self.tcif = false;
+        fn reset_complete_count(&mut self) -> usize {
+            let old = self.complete_count;
+            self.complete_count = 0;
+            old
         }
     }
 
@@ -320,7 +305,7 @@ mod tests {
         ringbuf.ndtr = 10;
 
         // The dma controller has written 4 + 6 bytes and has reloaded NDTR
-        ctrl.tcif = true;
+        ctrl.complete_count = 1;
         ctrl.set_next_ndtr(10);
 
         assert!(!ringbuf.is_empty());
@@ -346,14 +331,14 @@ mod tests {
         ringbuf.ndtr = 6;
 
         // The dma controller has written 6 + 2 bytes and has reloaded NDTR
-        ctrl.tcif = true;
+        ctrl.complete_count = 1;
         ctrl.set_next_ndtr(14);
 
         let mut buf = [0; 2];
         assert_eq!(2, ringbuf.read(&mut ctrl, &mut buf).unwrap());
         assert_eq!([2, 3], buf);
 
-        assert_eq!(true, ctrl.tcif); // The interrupt flag IS NOT cleared
+        assert_eq!(1, ctrl.complete_count); // The interrupt flag IS NOT cleared
     }
 
     #[test]
@@ -365,14 +350,14 @@ mod tests {
         ringbuf.ndtr = 10;
 
         // The dma controller has written 6 + 2 bytes and has reloaded NDTR
-        ctrl.tcif = true;
+        ctrl.complete_count = 1;
         ctrl.set_next_ndtr(14);
 
         let mut buf = [0; 10];
         assert_eq!(10, ringbuf.read(&mut ctrl, &mut buf).unwrap());
         assert_eq!([12, 13, 14, 15, 0, 1, 2, 3, 4, 5], buf);
 
-        assert_eq!(false, ctrl.tcif); // The interrupt flag IS cleared
+        assert_eq!(0, ctrl.complete_count); // The interrupt flag IS cleared
     }
 
     #[test]
@@ -387,12 +372,12 @@ mod tests {
         assert!(ringbuf.is_empty()); // The ring buffer thinks that it is empty
 
         // The dma controller has written exactly 16 bytes
-        ctrl.tcif = true;
+        ctrl.complete_count = 1;
 
         let mut buf = [0; 2];
         assert_eq!(Err(OverrunError), ringbuf.read(&mut ctrl, &mut buf));
 
-        assert_eq!(false, ctrl.tcif); // The interrupt flag IS cleared
+        assert_eq!(1, ctrl.complete_count); // The complete counter is not reset
     }
 
     #[test]
@@ -404,13 +389,13 @@ mod tests {
         ringbuf.ndtr = 6;
 
         // The dma controller has written 6 + 3 bytes and has reloaded NDTR
-        ctrl.tcif = true;
+        ctrl.complete_count = 1;
         ctrl.set_next_ndtr(13);
 
         let mut buf = [0; 2];
         assert_eq!(Err(OverrunError), ringbuf.read(&mut ctrl, &mut buf));
 
-        assert_eq!(false, ctrl.tcif); // The interrupt flag IS cleared
+        assert_eq!(1, ctrl.complete_count); // The complete counter is not reset
     }
 
     #[test]
@@ -422,12 +407,12 @@ mod tests {
         ringbuf.ndtr = 10;
 
         // The dma controller has written 6 + 13 bytes and has reloaded NDTR
-        ctrl.tcif = true;
+        ctrl.complete_count = 1;
         ctrl.set_next_ndtr(3);
 
         let mut buf = [0; 2];
         assert_eq!(Err(OverrunError), ringbuf.read(&mut ctrl, &mut buf));
 
-        assert_eq!(false, ctrl.tcif); // The interrupt flag IS cleared
+        assert_eq!(1, ctrl.complete_count); // The complete counter is not reset
     }
 }

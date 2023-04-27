@@ -56,6 +56,7 @@ mod board {
 }
 
 const ONE_BYTE_DURATION_US: u32 = 9_000_000 / 115200;
+const DMA_BUF_SIZE: usize = 64;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -114,7 +115,7 @@ async fn main(spawner: Spawner) {
 
     let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config);
     let (tx, rx) = usart.split();
-    static mut DMA_BUF: [u8; 64] = [0; 64];
+    static mut DMA_BUF: [u8; DMA_BUF_SIZE] = [0; DMA_BUF_SIZE];
     let dma_buf = unsafe { DMA_BUF.as_mut() };
     let rx = rx.into_ring_buffered(dma_buf);
 
@@ -159,7 +160,14 @@ async fn receive_task(mut rx: RingBufferedUartRx<'static, board::Uart, board::Rx
     loop {
         let mut buf = [0; 100];
         let max_len = 1 + (rng.next_u32() as usize % (buf.len() - 1));
-        let received = rx.read(&mut buf[..max_len]).await.unwrap();
+        let received = match rx.read(&mut buf[..max_len]).await {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Test fail! read error: {:?}", e);
+                cortex_m::asm::bkpt();
+                return;
+            }
+        };
 
         if expected.is_none() {
             info!("Test started");
@@ -176,8 +184,11 @@ async fn receive_task(mut rx: RingBufferedUartRx<'static, board::Uart, board::Rx
         }
 
         if received < max_len {
-            let byte_count = rng.next_u32() % 64;
-            Timer::after(Duration::from_micros((byte_count * ONE_BYTE_DURATION_US) as _)).await;
+            let byte_count = rng.next_u32() % (DMA_BUF_SIZE as u32);
+            let random_delay_us = (byte_count * ONE_BYTE_DURATION_US) as u64;
+            if random_delay_us > 200 {
+                Timer::after(Duration::from_micros(random_delay_us - 200)).await;
+            }
         }
 
         i += 1;

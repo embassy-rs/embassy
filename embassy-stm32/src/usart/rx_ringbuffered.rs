@@ -4,8 +4,9 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::PeripheralRef;
+use futures::future::{select, Either};
 
-use super::{rdr, sr, BasicInstance, Error, UartRx};
+use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
 use crate::dma::ringbuffer::OverrunError;
 use crate::dma::RingBuffer;
 
@@ -98,7 +99,8 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
     }
 
     /// Read bytes that are readily available in the ring buffer.
-    /// If no bytes are currently available in the buffer the call waits until data are received.
+    /// If no bytes are currently available in the buffer the call waits until the some
+    /// bytes are available (at least one byte and at most half the buffer size)
     ///
     /// Background receive is started if `start()` has not been previously called.
     ///
@@ -107,10 +109,9 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let r = T::regs();
 
+        // Start background receive if it was not already started
         // SAFETY: read only
         let is_started = unsafe { r.cr3().read().dmar() };
-
-        // Start background receive if it was not already started
         if !is_started {
             self.start()?;
         }
@@ -132,8 +133,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
             }
         }
 
-        let ndtr = self.ring_buf.get_remaining_transfers();
-        self.ring_buf.set_ndtr(ndtr);
+        self.ring_buf.reload_position();
         match self.ring_buf.read(buf) {
             Ok(len) if len == 0 => {}
             Ok(len) => {
@@ -148,28 +148,32 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
             }
         }
 
-        // Wait for any data since `ndtr`
-        self.wait_for_data(ndtr).await?;
+        loop {
+            self.wait_for_data_or_idle().await?;
 
-        // ndtr is now different than the value provided to `wait_for_data()`
-        // Re-sample ndtr now when it has changed.
-        self.ring_buf.set_ndtr(self.ring_buf.get_remaining_transfers());
+            self.ring_buf.reload_position();
+            if !self.ring_buf.is_empty() {
+                break;
+            }
+        }
+
         let len = self.ring_buf.read(buf).map_err(|_err| Error::Overrun)?;
         assert!(len > 0);
+
         Ok(len)
     }
 
-    /// Wait for uart data
-    async fn wait_for_data(&mut self, old_ndtr: usize) -> Result<(), Error> {
+    /// Wait for uart idle or dma half-full or full
+    async fn wait_for_data_or_idle(&mut self) -> Result<(), Error> {
         let r = T::regs();
 
-        // make sure USART state is restored to neutral state when this future is dropped
-        let _drop = OnDrop::new(move || {
+        // make sure USART state is restored to neutral state
+        let _on_drop = OnDrop::new(move || {
             // SAFETY: only clears Rx related flags
             unsafe {
                 r.cr1().modify(|w| {
-                    // disable RXNE interrupt
-                    w.set_rxneie(false);
+                    // disable idle line interrupt
+                    w.set_idleie(false);
                 });
             }
         });
@@ -177,76 +181,65 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         // SAFETY: only sets Rx related flags
         unsafe {
             r.cr1().modify(|w| {
-                // enable RXNE interrupt
-                w.set_rxneie(true);
+                // enable idle line interrupt
+                w.set_idleie(true);
             });
         }
 
-        // future which completes when RX "not empty" is detected,
-        // i.e. when there is data in uart rx register
-        let rxne = poll_fn(|cx| {
-            let s = T::state();
+        compiler_fence(Ordering::SeqCst);
 
-            // Register waker to be awaken when RXNE interrupt is received
+        // Future which completes when there is dma is half full or full
+        let dma = poll_fn(|cx| {
+            self.ring_buf.set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            self.ring_buf.reload_position();
+            if !self.ring_buf.is_empty() {
+                // Some data is now available
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        });
+
+        // Future which completes when idle line is detected
+        let uart = poll_fn(|cx| {
+            let s = T::state();
             s.rx_waker.register(cx.waker());
 
             compiler_fence(Ordering::SeqCst);
 
             // SAFETY: read only and we only use Rx related flags
-            let s = unsafe { sr(r).read() };
-            let has_errors = s.pe() || s.fe() || s.ne() || s.ore();
+            let sr = unsafe { sr(r).read() };
+
+            let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
             if has_errors {
-                if s.pe() {
+                if sr.pe() {
                     return Poll::Ready(Err(Error::Parity));
-                } else if s.fe() {
+                } else if sr.fe() {
                     return Poll::Ready(Err(Error::Framing));
-                } else if s.ne() {
+                } else if sr.ne() {
                     return Poll::Ready(Err(Error::Noise));
                 } else {
                     return Poll::Ready(Err(Error::Overrun));
                 }
             }
 
-            // Re-sample ndtr and determine if it has changed since we started
-            // waiting for data.
-            let new_ndtr = self.ring_buf.get_remaining_transfers();
-            if new_ndtr != old_ndtr {
-                // Some data was received as NDTR has changed
+            if sr.idle() {
+                // Idle line is detected
                 Poll::Ready(Ok(()))
             } else {
-                // It may be that the DMA controller is currently busy consuming the
-                // RX data register. We therefore wait register to become empty.
-                while unsafe { sr(r).read().rxne() } {}
-
-                compiler_fence(Ordering::SeqCst);
-
-                // Re-get again: This time we know that the DMA controller has consumed
-                // the current read register if it was busy doing so
-                let new_ndtr = self.ring_buf.get_remaining_transfers();
-                if new_ndtr != old_ndtr {
-                    // Some data was received as NDTR has changed
-                    Poll::Ready(Ok(()))
-                } else {
-                    Poll::Pending
-                }
+                Poll::Pending
             }
         });
 
-        compiler_fence(Ordering::SeqCst);
-
-        let new_ndtr = self.ring_buf.get_remaining_transfers();
-        if new_ndtr != old_ndtr {
-            // Fast path - NDTR has already changed, no reason to poll
-            Ok(())
-        } else {
-            // NDTR has not changed since we first read from the ring buffer
-            // Wait for RXNE interrupt...
-            match rxne.await {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    self.teardown_uart();
-                    Err(e)
-                }
+        match select(dma, uart).await {
+            Either::Left(((), _)) => Ok(()),
+            Either::Right((Ok(()), _)) => Ok(()),
+            Either::Right((Err(e), _)) => {
+                self.teardown_uart();
+                Err(e)
             }
         }
     }
