@@ -180,21 +180,12 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoInFuture<'a, 'd, PI
 
 /// Future that waits for IRQ
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct IrqFuture<PIO: PioInstance> {
-    pio: PhantomData<PIO>,
+pub struct IrqFuture<'a, 'd, PIO: PioInstance> {
+    pio: PhantomData<&'a PioIrq<'d, PIO, 0>>,
     irq_no: u8,
 }
 
-impl<'a, PIO: PioInstance> IrqFuture<PIO> {
-    pub fn new(irq_no: u8) -> Self {
-        IrqFuture {
-            pio: PhantomData::default(),
-            irq_no,
-        }
-    }
-}
-
-impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
+impl<'a, 'd, PIO: PioInstance> Future for IrqFuture<'a, 'd, PIO> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
@@ -224,7 +215,7 @@ impl<'d, PIO: PioInstance> Future for IrqFuture<PIO> {
     }
 }
 
-impl<'d, PIO: PioInstance> Drop for IrqFuture<PIO> {
+impl<'a, 'd, PIO: PioInstance> Drop for IrqFuture<'a, 'd, PIO> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
@@ -688,10 +679,6 @@ impl<'d, PIO: PioInstance + 'd, const SM: usize> PioStateMachine<'d, PIO, SM> {
         FifoInFuture::new(self)
     }
 
-    pub fn wait_irq(&self, irq_no: u8) -> IrqFuture<PIO> {
-        IrqFuture::new(irq_no)
-    }
-
     pub fn has_tx_stalled(&self) -> bool {
         unsafe {
             let fdebug = PIO::PIO.fdebug();
@@ -862,7 +849,8 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
 
     /// Register a pin for PIO usage. Pins will be released from the PIO block
     /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`PioCommon`] *and*
-    /// all [`PioStateMachine`]s for this block have been dropped.
+    /// all [`PioStateMachine`]s for this block have been dropped. **Other members
+    /// of [`Pio`] do not keep pin registrations alive.**
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
         unsafe {
@@ -877,8 +865,25 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
     }
 }
 
+pub struct PioIrq<'d, PIO: PioInstance, const N: usize> {
+    pio: PhantomData<&'d PIO>,
+}
+
+impl<'d, PIO: PioInstance, const N: usize> PioIrq<'d, PIO, N> {
+    pub fn wait<'a>(&'a mut self) -> IrqFuture<'a, 'd, PIO> {
+        IrqFuture {
+            pio: PhantomData,
+            irq_no: N as u8,
+        }
+    }
+}
+
 pub struct Pio<'d, PIO: PioInstance> {
     pub common: PioCommon<'d, PIO>,
+    pub irq0: PioIrq<'d, PIO, 0>,
+    pub irq1: PioIrq<'d, PIO, 1>,
+    pub irq2: PioIrq<'d, PIO, 2>,
+    pub irq3: PioIrq<'d, PIO, 3>,
     pub sm0: PioStateMachine<'d, PIO, 0>,
     pub sm1: PioStateMachine<'d, PIO, 1>,
     pub sm2: PioStateMachine<'d, PIO, 2>,
@@ -894,6 +899,10 @@ impl<'d, PIO: PioInstance> Pio<'d, PIO> {
                 instructions_used: 0,
                 pio: PhantomData,
             },
+            irq0: PioIrq { pio: PhantomData },
+            irq1: PioIrq { pio: PhantomData },
+            irq2: PioIrq { pio: PhantomData },
+            irq3: PioIrq { pio: PhantomData },
             sm0: PioStateMachine { pio: PhantomData },
             sm1: PioStateMachine { pio: PhantomData },
             sm2: PioStateMachine { pio: PhantomData },

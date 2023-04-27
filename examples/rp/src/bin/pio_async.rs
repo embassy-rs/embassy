@@ -4,7 +4,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{Pio, PioCommon, PioPin, PioStateMachine, ShiftDirection};
+use embassy_rp::pio::{Pio, PioCommon, PioIrq, PioPin, PioStateMachine, ShiftDirection};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};
@@ -99,10 +99,10 @@ fn setup_pio_task_sm2(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachine<PIO0, 
 }
 
 #[embassy_executor::task]
-async fn pio_task_sm2(mut sm: PioStateMachine<'static, PIO0, 2>) {
+async fn pio_task_sm2(mut irq: PioIrq<'static, PIO0, 3>, mut sm: PioStateMachine<'static, PIO0, 2>) {
     sm.set_enable(true);
     loop {
-        sm.wait_irq(3).await;
+        irq.wait().await;
         info!("IRQ trigged");
     }
 }
@@ -114,6 +114,7 @@ async fn main(spawner: Spawner) {
 
     let Pio {
         mut common,
+        irq3,
         mut sm0,
         mut sm1,
         mut sm2,
@@ -125,5 +126,5 @@ async fn main(spawner: Spawner) {
     setup_pio_task_sm2(&mut common, &mut sm2);
     spawner.spawn(pio_task_sm0(sm0)).unwrap();
     spawner.spawn(pio_task_sm1(sm1)).unwrap();
-    spawner.spawn(pio_task_sm2(sm2)).unwrap();
+    spawner.spawn(pio_task_sm2(irq3, sm2)).unwrap();
 }

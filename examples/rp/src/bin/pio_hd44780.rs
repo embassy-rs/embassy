@@ -85,7 +85,10 @@ impl<'l> HD44780<'l> {
 
         let db7pin = db7.pin();
         let Pio {
-            mut common, mut sm0, ..
+            mut common,
+            mut irq0,
+            mut sm0,
+            ..
         } = Pio::new(pio);
 
         // takes command words (<wait:24> <command:4> <0:4>)
@@ -145,7 +148,7 @@ impl<'l> HD44780<'l> {
         sm0.push_tx((50 << 8) | 0x20);
         sm0.push_tx(0b1100_0000);
 
-        sm0.wait_irq(0).await;
+        irq0.wait().await;
         sm0.set_enable(false);
 
         // takes command sequences (<rs:1> <count:7>, data...)
