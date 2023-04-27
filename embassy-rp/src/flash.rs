@@ -162,8 +162,6 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     /// - interrupts must be disabled
     /// - DMA must not access flash memory
     unsafe fn in_ram(&mut self, operation: impl FnOnce()) -> Result<(), Error> {
-        let dma_status = &mut [false; crate::dma::CHANNEL_COUNT];
-
         // Make sure we're running on CORE0
         let core_id: u32 = unsafe { pac::SIO.cpuid().read() };
         if core_id != 0 {
@@ -178,9 +176,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
             const SRAM_LOWER: u32 = 0x2000_0000;
             for n in 0..crate::dma::CHANNEL_COUNT {
                 let ch = crate::pac::DMA.ch(n);
-                if ch.read_addr().read() < SRAM_LOWER {
-                    while ch.ctrl_trig().read().busy() {}
-                }
+                while ch.read_addr().read() < SRAM_LOWER && ch.ctrl_trig().read().busy() {}
             }
 
             // Run our flash operation in RAM
