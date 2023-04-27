@@ -313,11 +313,6 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                         // disable idle line detection
                         w.set_idleie(false);
                     });
-
-                    r.cr3().modify(|w| {
-                        // disable DMA Rx Request
-                        w.set_dmar(false);
-                    });
                 }
 
                 wake = true;
