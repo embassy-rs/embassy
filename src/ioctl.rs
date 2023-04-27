@@ -25,10 +25,18 @@ enum IoctlStateInner {
     Done { resp_len: usize },
 }
 
-#[derive(Default)]
 struct Wakers {
     control: WakerRegistration,
     runner: WakerRegistration,
+}
+
+impl Default for Wakers {
+    fn default() -> Self {
+        Self {
+            control: WakerRegistration::new(),
+            runner: WakerRegistration::new(),
+        }
+    }
 }
 
 pub struct IoctlState {
