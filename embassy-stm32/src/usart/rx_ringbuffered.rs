@@ -6,7 +6,7 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::PeripheralRef;
 use futures::future::{select, Either};
 
-use super::{rdr, sr, BasicInstance, Error, UartRx};
+use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
 use crate::dma::ringbuffer::OverrunError;
 use crate::dma::RingBuffer;
 
@@ -212,6 +212,13 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
             // SAFETY: read only and we only use Rx related flags
             let sr = unsafe { sr(r).read() };
+
+            // SAFETY: only clears Rx related flags
+            unsafe {
+                // This read also clears the error and idle interrupt flags on v1.
+                rdr(r).read_volatile();
+                clear_interrupt_flags(r, sr);
+            }
 
             let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
             if has_errors {
