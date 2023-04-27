@@ -6,7 +6,7 @@ use embassy_time::{Duration, Timer};
 
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
-use crate::events::{Event, EventQueue};
+use crate::events::{Event, Events};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
@@ -14,15 +14,15 @@ use crate::{countries, PowerManagementMode};
 
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
-    event_sub: &'a EventQueue,
+    events: &'a Events,
     ioctl_state: &'a IoctlState,
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a EventQueue, ioctl_state: &'a IoctlState) -> Self {
+    pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a Events, ioctl_state: &'a IoctlState) -> Self {
         Self {
             state_ch,
-            event_sub,
+            events: event_sub,
             ioctl_state,
         }
     }
@@ -195,24 +195,27 @@ impl<'a> Control<'a> {
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo) {
-        let mut subscriber = self.event_sub.subscriber().unwrap();
+        self.events.mask.enable(&[Event::JOIN, Event::AUTH]);
+        let mut subscriber = self.events.queue.subscriber().unwrap();
+        // the actual join operation starts here
+        // we make sure to enable events before so we don't miss any
         self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
             .await;
         // set_ssid
 
         loop {
             let msg = subscriber.next_message_pure().await;
-            if msg.event_type == Event::AUTH && msg.status != 0 {
+            if msg.header.event_type == Event::AUTH && msg.header.status != EStatus::SUCCESS {
                 // retry
-                warn!("JOIN failed with status={}", msg.status);
+                warn!("JOIN failed with status={}", msg.header.status);
                 self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
                     .await;
-            } else if msg.event_type == Event::JOIN && msg.status == 0 {
+            } else if msg.header.event_type == Event::JOIN && msg.header.status == EStatus::SUCCESS {
                 // successful join
                 break;
             }
         }
-
+        self.events.mask.disable_all();
         self.state_ch.set_link_state(LinkState::Up);
         info!("JOINED");
     }

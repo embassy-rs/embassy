@@ -4,6 +4,8 @@ use core::task::{Poll, Waker};
 
 use embassy_sync::waitqueue::WakerRegistration;
 
+use crate::fmt::Bytes;
+
 #[derive(Clone, Copy)]
 pub enum IoctlType {
     Get = 0,
@@ -108,6 +110,8 @@ impl IoctlState {
 
     pub fn ioctl_done(&self, response: &[u8]) {
         if let IoctlStateInner::Sent { buf } = self.state.get() {
+            info!("IOCTL Response: {:02x}", Bytes(response));
+
             // TODO fix this
             (unsafe { &mut *buf }[..response.len()]).copy_from_slice(response);
 
@@ -115,6 +119,8 @@ impl IoctlState {
                 resp_len: response.len(),
             });
             self.wake_control();
+        } else {
+            warn!("IOCTL Response but no pending Ioctl");
         }
     }
 }

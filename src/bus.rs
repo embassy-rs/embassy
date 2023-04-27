@@ -1,11 +1,10 @@
-use core::slice;
-
 use embassy_futures::yield_now;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
+use crate::slice8_mut;
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -326,9 +325,4 @@ fn swap16(x: u32) -> u32 {
 
 fn cmd_word(write: bool, incr: bool, func: u32, addr: u32, len: u32) -> u32 {
     (write as u32) << 31 | (incr as u32) << 30 | (func & 0b11) << 28 | (addr & 0x1FFFF) << 11 | (len & 0x7FF)
-}
-
-fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
-    let len = x.len() * 4;
-    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }

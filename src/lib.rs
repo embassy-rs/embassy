@@ -18,9 +18,11 @@ mod control;
 mod nvram;
 mod runner;
 
+use core::slice;
+
 use embassy_net_driver_channel as ch;
 use embedded_hal_1::digital::OutputPin;
-use events::EventQueue;
+use events::Events;
 use ioctl::IoctlState;
 
 use crate::bus::Bus;
@@ -103,7 +105,7 @@ const CHIP: Chip = Chip {
 pub struct State {
     ioctl_state: IoctlState,
     ch: ch::State<MTU, 4, 4>,
-    events: EventQueue,
+    events: Events,
 }
 
 impl State {
@@ -111,7 +113,7 @@ impl State {
         Self {
             ioctl_state: IoctlState::new(),
             ch: ch::State::new(),
-            events: EventQueue::new(),
+            events: Events::new(),
         }
     }
 }
@@ -224,4 +226,9 @@ where
         Control::new(state_ch, &state.events, &state.ioctl_state),
         runner,
     )
+}
+
+fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
+    let len = x.len() * 4;
+    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }

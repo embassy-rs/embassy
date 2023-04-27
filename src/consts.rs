@@ -109,6 +109,50 @@ pub(crate) const READ: bool = false;
 pub(crate) const INC_ADDR: bool = true;
 pub(crate) const FIXED_ADDR: bool = false;
 
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone)]
+#[repr(u8)]
+pub enum EStatus {
+    /// operation was successful
+    SUCCESS = 0,
+    /// operation failed
+    FAIL = 1,
+    /// operation timed out
+    TIMEOUT = 2,
+    /// failed due to no matching network found
+    NO_NETWORKS = 3,
+    /// operation was aborted
+    ABORT = 4,
+    /// protocol failure: packet not ack'd
+    NO_ACK = 5,
+    /// AUTH or ASSOC packet was unsolicited
+    UNSOLICITED = 6,
+    /// attempt to assoc to an auto auth configuration
+    ATTEMPT = 7,
+    /// scan results are incomplete
+    PARTIAL = 8,
+    /// scan aborted by another scan
+    NEWSCAN = 9,
+    /// scan aborted due to assoc in progress
+    NEWASSOC = 10,
+    /// 802.11h quiet period started
+    _11HQUIET = 11,
+    /// user disabled scanning (WLC_SET_SCANSUPPRESS)
+    SUPPRESS = 12,
+    /// no allowable channels to scan
+    NOCHANS = 13,
+    /// scan aborted due to CCX fast roam
+    CCXFASTRM = 14,
+    /// abort channel select
+    CS_ABORT = 15,
+}
+
+impl PartialEq<EStatus> for u32 {
+    fn eq(&self, other: &EStatus) -> bool {
+        *self == *other as Self
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) struct FormatStatus(pub u32);
 
