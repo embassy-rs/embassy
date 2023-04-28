@@ -170,16 +170,6 @@ impl sealed::Instance for crate::peripherals::IPCC {
     }
 }
 
-/// extension trait that constrains the [`Ipcc`] peripheral
-pub trait IpccExt<'d> {
-    fn constrain(self) -> Ipcc<'d>;
-}
-impl<'d> IpccExt<'d> for IPCC {
-    fn constrain(self) -> Ipcc<'d> {
-        Ipcc { _peri: self.into_ref() }
-    }
-}
-
 unsafe fn _configure_pwr() {
     let rcc = crate::pac::RCC;
 
