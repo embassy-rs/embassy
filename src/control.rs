@@ -309,6 +309,13 @@ impl<'a> Control<'a> {
         resp_len
     }
 
+    /// Start a wifi scan
+    ///
+    /// Returns a `Stream` of networks found by the device
+    ///
+    /// # Note
+    /// Device events are currently implemented using a bounded queue.
+    /// To not miss any events, you should make sure to always await the stream.
     pub async fn scan(&mut self) -> Scanner<'_> {
         const SCANTYPE_PASSIVE: u8 = 1;
 
@@ -346,6 +353,7 @@ pub struct Scanner<'a> {
 }
 
 impl Scanner<'_> {
+    /// wait for the next found network
     pub async fn next(&mut self) -> Option<BssInfo> {
         let event = self.subscriber.next_message_pure().await;
         if event.header.status != EStatus::PARTIAL {
