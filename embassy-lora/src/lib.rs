@@ -4,7 +4,7 @@
 //! embassy-lora holds LoRa-specific functionality.
 
 pub(crate) mod fmt;
-#[cfg(feature = "external-lora-phy")]
+
 /// interface variants required by the external lora physical layer crate (lora-phy)
 pub mod iv;
 

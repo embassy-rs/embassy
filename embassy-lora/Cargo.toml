@@ -7,18 +7,13 @@ license = "MIT OR Apache-2.0"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-lora-v$VERSION/embassy-lora/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-lora/src/"
-features = ["time", "defmt"]
-flavors = [
-    { name = "stm32wl", target = "thumbv7em-none-eabihf", features = ["stm32wl", "embassy-stm32?/stm32wl55jc-cm4", "embassy-stm32?/time-driver-any"] },
-]
-
-[lib]
+features = ["stm32wl", "time", "defmt"]
+target = "thumbv7em-none-eabi"
 
 [features]
 stm32wl = ["dep:embassy-stm32"]
 time = []
 defmt = ["dep:defmt", "lorawan-device/defmt"]
-external-lora-phy = ["dep:lora-phy"]
 
 [dependencies]
 
@@ -35,5 +30,5 @@ futures = { version = "0.3.17", default-features = false, features = [ "async-aw
 embedded-hal = { version = "0.2", features = ["unproven"] }
 bit_field = { version = "0.10" }
 
-lora-phy = { version = "1", optional = true }
+lora-phy = { version = "1" }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async"] }

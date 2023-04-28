@@ -18,7 +18,7 @@ embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defm
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"], optional = true }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt", "msos-descriptor",], optional = true }
 embedded-io = "0.4.0"
-embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt", "external-lora-phy"], optional = true }
+embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"], optional = true }
 lora-phy = { version = "1", optional = true }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
 lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"], optional = true }
