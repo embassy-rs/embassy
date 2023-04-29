@@ -74,7 +74,7 @@ pub(crate) fn init_buffers<'d, T: Instance + 'd>(
     // to pend the ISR when we want data transmission to start.
     let regs = T::regs();
     unsafe {
-        regs.uartimsc().write_set(|w| {
+        regs.uartimsc().write(|w| {
             w.set_rxim(true);
             w.set_rtim(true);
             w.set_txim(true);
