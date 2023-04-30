@@ -404,3 +404,84 @@ impl EventMask {
         self.events[evt / 8] &= !(1 << (evt % 8));
     }
 }
+
+/// Parameters for a wifi scan
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct ScanParams {
+    pub version: u32,
+    pub action: u16,
+    pub sync_id: u16,
+    pub ssid_len: u32,
+    pub ssid: [u8; 32],
+    pub bssid: [u8; 6],
+    pub bss_type: u8,
+    pub scan_type: u8,
+    pub nprobes: u32,
+    pub active_time: u32,
+    pub passive_time: u32,
+    pub home_time: u32,
+    pub channel_num: u32,
+    pub channel_list: [u16; 1],
+}
+impl_bytes!(ScanParams);
+
+/// Wifi Scan Results Header, followed by `bss_count` `BssInfo`
+#[derive(Clone, Copy)]
+// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C, packed(2))]
+pub struct ScanResults {
+    pub buflen: u32,
+    pub version: u32,
+    pub sync_id: u16,
+    pub bss_count: u16,
+}
+impl_bytes!(ScanResults);
+
+impl ScanResults {
+    pub fn parse(packet: &mut [u8]) -> Option<(&mut ScanResults, &mut [u8])> {
+        if packet.len() < ScanResults::SIZE {
+            return None;
+        }
+
+        let (scan_results, bssinfo) = packet.split_at_mut(ScanResults::SIZE);
+        let scan_results = ScanResults::from_bytes_mut(scan_results.try_into().unwrap());
+
+        if scan_results.bss_count > 0 && bssinfo.len() < BssInfo::SIZE {
+            warn!("Scan result, incomplete BssInfo");
+            return None;
+        }
+
+        Some((scan_results, bssinfo))
+    }
+}
+
+/// Wifi Scan Result
+#[derive(Clone, Copy)]
+// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C, packed(2))]
+#[non_exhaustive]
+pub struct BssInfo {
+    pub version: u32,
+    pub length: u32,
+    pub bssid: [u8; 6],
+    pub beacon_period: u16,
+    pub capability: u16,
+    pub ssid_len: u8,
+    pub ssid: [u8; 32],
+    // there will be more stuff here
+}
+impl_bytes!(BssInfo);
+
+impl BssInfo {
+    pub fn parse(packet: &mut [u8]) -> Option<&mut Self> {
+        if packet.len() < BssInfo::SIZE {
+            return None;
+        }
+
+        Some(BssInfo::from_bytes_mut(
+            packet[..BssInfo::SIZE].as_mut().try_into().unwrap(),
+        ))
+    }
+}

@@ -143,4 +143,3 @@ async fn main(spawner: Spawner) {
         }
     }
 }
-

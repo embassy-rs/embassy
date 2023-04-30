@@ -29,6 +29,7 @@ use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 pub use crate::control::Control;
 pub use crate::runner::Runner;
+pub use crate::structs::BssInfo;
 
 const MTU: usize = 1514;
 

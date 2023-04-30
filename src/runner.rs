@@ -7,7 +7,7 @@ use embedded_hal_1::digital::OutputPin;
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
-use crate::events::{Events, Status};
+use crate::events::{Event, Events, Status};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
@@ -351,6 +351,8 @@ where
                         panic!("IOCTL error {}", cdc_header.status as i32);
                     }
 
+                    info!("IOCTL Response: {:02x}", Bytes(response));
+
                     self.ioctl_state.ioctl_done(response);
                 }
             }
@@ -404,7 +406,15 @@ where
 
                 if self.events.mask.is_enabled(evt_type) {
                     let status = event_packet.msg.status;
-                    let event_payload = events::Payload::None;
+                    let event_payload = match evt_type {
+                        Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
+                            let Some((_, bss_info)) = ScanResults::parse(evt_data) else { return };
+                            let Some(bss_info) = BssInfo::parse(bss_info) else { return };
+                            events::Payload::BssInfo(*bss_info)
+                        }
+                        Event::ESCAN_RESULT => events::Payload::None,
+                        _ => events::Payload::None,
+                    };
 
                     // this intentionally uses the non-blocking publish immediate
                     // publish() is a deadlock risk in the current design as awaiting here prevents ioctls

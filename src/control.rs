@@ -6,11 +6,11 @@ use embassy_time::{Duration, Timer};
 
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
-use crate::events::{Event, Events};
+use crate::events::{Event, EventSubscriber, Events};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
-use crate::{countries, PowerManagementMode};
+use crate::{countries, events, PowerManagementMode};
 
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
@@ -245,9 +245,13 @@ impl<'a> Control<'a> {
     }
 
     async fn set_iovar(&mut self, name: &str, val: &[u8]) {
+        self.set_iovar_v::<64>(name, val).await
+    }
+
+    async fn set_iovar_v<const BUFSIZE: usize>(&mut self, name: &str, val: &[u8]) {
         info!("set {} = {:02x}", name, Bytes(val));
 
-        let mut buf = [0; 64];
+        let mut buf = [0; BUFSIZE];
         buf[..name.len()].copy_from_slice(name.as_bytes());
         buf[name.len()] = 0;
         buf[name.len() + 1..][..val.len()].copy_from_slice(val);
@@ -303,5 +307,70 @@ impl<'a> Control<'a> {
         ioctl.defuse();
 
         resp_len
+    }
+
+    /// Start a wifi scan
+    ///
+    /// Returns a `Stream` of networks found by the device
+    ///
+    /// # Note
+    /// Device events are currently implemented using a bounded queue.
+    /// To not miss any events, you should make sure to always await the stream.
+    pub async fn scan(&mut self) -> Scanner<'_> {
+        const SCANTYPE_PASSIVE: u8 = 1;
+
+        let scan_params = ScanParams {
+            version: 1,
+            action: 1,
+            sync_id: 1,
+            ssid_len: 0,
+            ssid: [0; 32],
+            bssid: [0xff; 6],
+            bss_type: 2,
+            scan_type: SCANTYPE_PASSIVE,
+            nprobes: !0,
+            active_time: !0,
+            passive_time: !0,
+            home_time: !0,
+            channel_num: 0,
+            channel_list: [0; 1],
+        };
+
+        self.events.mask.enable(&[Event::ESCAN_RESULT]);
+        let subscriber = self.events.queue.subscriber().unwrap();
+        self.set_iovar_v::<256>("escan", &scan_params.to_bytes()).await;
+
+        Scanner {
+            subscriber,
+            events: &self.events,
+        }
+    }
+}
+
+pub struct Scanner<'a> {
+    subscriber: EventSubscriber<'a>,
+    events: &'a Events,
+}
+
+impl Scanner<'_> {
+    /// wait for the next found network
+    pub async fn next(&mut self) -> Option<BssInfo> {
+        let event = self.subscriber.next_message_pure().await;
+        if event.header.status != EStatus::PARTIAL {
+            self.events.mask.disable_all();
+            return None;
+        }
+
+        if let events::Payload::BssInfo(bss) = event.payload {
+            Some(bss)
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for Scanner<'_> {
+    fn drop(&mut self) {
+        self.events.mask.disable_all();
     }
 }
