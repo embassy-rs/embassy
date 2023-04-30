@@ -183,64 +183,56 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         Self { phantom: PhantomData }
     }
 
-    fn read<'a>(buf: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
+    fn read<'a>(buf: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + 'a
+    where
+        T: 'd,
+    {
         poll_fn(move |cx| {
-            if buf.is_empty() {
-                return Poll::Ready(Ok(0));
+            if let Poll::Ready(r) = Self::try_read(buf) {
+                return Poll::Ready(r);
             }
-
-            let state = T::buffered_state();
-            let mut rx_reader = unsafe { state.rx_buf.reader() };
-            let n = rx_reader.pop(|data| {
-                let n = data.len().min(buf.len());
-                buf[..n].copy_from_slice(&data[..n]);
-                n
-            });
-            if n == 0 {
-                state.rx_waker.register(cx.waker());
-                return Poll::Pending;
-            }
-
-            // (Re-)Enable the interrupt to receive more data in case it was
-            // disabled because the buffer was full.
-            let regs = T::regs();
-            unsafe {
-                regs.uartimsc().write_set(|w| {
-                    w.set_rxim(true);
-                    w.set_rtim(true);
-                });
-            }
-
-            Poll::Ready(Ok(n))
+            T::buffered_state().rx_waker.register(cx.waker());
+            Poll::Pending
         })
     }
 
-    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    fn try_read(buf: &mut [u8]) -> Poll<Result<usize, Error>> {
         if buf.is_empty() {
-            return Ok(0);
+            return Poll::Ready(Ok(0));
         }
 
-        loop {
-            let state = T::buffered_state();
-            let mut rx_reader = unsafe { state.rx_buf.reader() };
-            let n = rx_reader.pop(|data| {
-                let n = data.len().min(buf.len());
-                buf[..n].copy_from_slice(&data[..n]);
-                n
+        let state = T::buffered_state();
+        let mut rx_reader = unsafe { state.rx_buf.reader() };
+        let n = rx_reader.pop(|data| {
+            let n = data.len().min(buf.len());
+            buf[..n].copy_from_slice(&data[..n]);
+            n
+        });
+
+        let result = if n == 0 {
+            return Poll::Pending;
+        } else {
+            Ok(n)
+        };
+
+        // (Re-)Enable the interrupt to receive more data in case it was
+        // disabled because the buffer was full.
+        let regs = T::regs();
+        unsafe {
+            regs.uartimsc().write_set(|w| {
+                w.set_rxim(true);
+                w.set_rtim(true);
             });
+        }
 
-            if n > 0 {
-                // (Re-)Enable the interrupt to receive more data in case it was
-                // disabled because the buffer was full.
-                let regs = T::regs();
-                unsafe {
-                    regs.uartimsc().write_set(|w| {
-                        w.set_rxim(true);
-                        w.set_rtim(true);
-                    });
-                }
+        Poll::Ready(result)
+    }
 
-                return Ok(n);
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        loop {
+            match Self::try_read(buf) {
+                Poll::Ready(res) => return res,
+                Poll::Pending => continue,
             }
         }
     }
