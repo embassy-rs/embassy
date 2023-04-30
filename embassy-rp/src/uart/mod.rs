@@ -206,7 +206,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let ch = self.tx_dma.as_mut().unwrap();
         let transfer = unsafe {
-            T::regs().uartdmacr().modify(|reg| {
+            T::regs().uartdmacr().write_set(|reg| {
                 reg.set_txdmae(true);
             });
             // If we don't assign future to a variable, the data register pointer
@@ -296,7 +296,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         let ch = self.rx_dma.as_mut().unwrap();
         let transfer = unsafe {
-            T::regs().uartdmacr().modify(|reg| {
+            T::regs().uartdmacr().write_set(|reg| {
                 reg.set_rxdmae(true);
             });
             // If we don't assign future to a variable, the data register pointer
