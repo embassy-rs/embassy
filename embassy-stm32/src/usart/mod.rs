@@ -497,28 +497,24 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 unreachable!();
             }
 
-            if !enable_idle_line_detection {
-                transfer.await;
+            if enable_idle_line_detection {
+                // clear idle flag
+                let sr = sr(r).read();
+                // This read also clears the error and idle interrupt flags on v1.
+                rdr(r).read_volatile();
+                clear_interrupt_flags(r, sr);
 
-                return Ok(ReadCompletionEvent::DmaCompleted);
+                // enable idle interrupt
+                r.cr1().modify(|w| {
+                    w.set_idleie(true);
+                });
             }
-
-            // clear idle flag
-            let sr = sr(r).read();
-            // This read also clears the error and idle interrupt flags on v1.
-            rdr(r).read_volatile();
-            clear_interrupt_flags(r, sr);
-
-            // enable idle interrupt
-            r.cr1().modify(|w| {
-                w.set_idleie(true);
-            });
         }
 
         compiler_fence(Ordering::SeqCst);
 
-        // future which completes when idle line is detected
-        let idle = poll_fn(move |cx| {
+        // future which completes when idle line or error is detected
+        let abort = poll_fn(move |cx| {
             let s = T::state();
 
             s.rx_waker.register(cx.waker());
@@ -554,7 +550,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
                 }
             }
 
-            if sr.idle() {
+            if enable_idle_line_detection && sr.idle() {
                 // Idle line detected
                 return Poll::Ready(Ok(()));
             }
@@ -565,7 +561,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         // wait for the first of DMA request or idle line detected to completes
         // select consumes its arguments
         // when transfer is dropped, it will stop the DMA request
-        let r = match select(transfer, idle).await {
+        let r = match select(transfer, abort).await {
             // DMA transfer completed first
             Either::Left(((), _)) => Ok(ReadCompletionEvent::DmaCompleted),
 
