@@ -129,7 +129,7 @@ where
         let write_bits = write.len() * 32 - 1;
         let read_bits = 31;
 
-        defmt::trace!("write={} read={}", write_bits, read_bits);
+        // defmt::trace!("write={} read={}", write_bits, read_bits);
 
         let mut dma = Peripheral::into_ref(&mut self.dma);
         pio_instr_util::set_x(&mut self.sm, write_bits as u32);
@@ -151,7 +151,7 @@ where
         let write_bits = 31;
         let read_bits = read.len() * 32 + 32 - 1;
 
-        defmt::trace!("write={} read={}", write_bits, read_bits);
+        // defmt::trace!("write={} read={}", write_bits, read_bits);
 
         let mut dma = Peripheral::into_ref(&mut self.dma);
         pio_instr_util::set_y(&mut self.sm, read_bits as u32);
