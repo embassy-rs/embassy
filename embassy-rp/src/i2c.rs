@@ -617,6 +617,28 @@ mod eh02 {
             self.blocking_write_read(address, bytes, buffer)
         }
     }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, T, M> {
+        type Error = Error;
+
+        fn exec(
+            &mut self,
+            address: u8,
+            operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            Self::setup(address.into())?;
+            for i in 0..operations.len() {
+                let last = i == operations.len() - 1;
+                match &mut operations[i] {
+                    embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
+                        self.read_blocking_internal(buf, false, last)?
+                    }
+                    embedded_hal_02::blocking::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+                }
+            }
+            Ok(())
+        }
+    }
 }
 
 #[cfg(feature = "unstable-traits")]
