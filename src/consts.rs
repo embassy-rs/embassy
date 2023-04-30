@@ -112,6 +112,21 @@ pub(crate) const READ: bool = false;
 pub(crate) const INC_ADDR: bool = true;
 pub(crate) const FIXED_ADDR: bool = false;
 
+pub(crate) const AES_ENABLED: u32 = 0x0004;
+pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
+
+pub(crate) const MIN_PSK_LEN: usize = 8;
+pub(crate) const MAX_PSK_LEN: usize = 64;
+
+// Security type (authentication and encryption types are combined using bit mask)
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, PartialEq)]
+#[repr(u32)]
+pub(crate) enum Security {
+    OPEN = 0,
+    WPA2_AES_PSK = WPA2_SECURITY | AES_ENABLED,
+}
+
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone)]
 #[repr(u8)]

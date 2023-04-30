@@ -227,6 +227,20 @@ impl<'a> Control<'a> {
     }
 
     pub async fn start_ap_open(&mut self, ssid: &str, channel: u8) {
+        self.start_ap(ssid, "", Security::OPEN, channel).await;
+    }
+
+    pub async fn start_ap_wpa2(&mut self, ssid: &str, passphrase: &str, channel: u8) {
+        self.start_ap(ssid, passphrase, Security::WPA2_AES_PSK, channel).await;
+    }
+
+    async fn start_ap(&mut self, ssid: &str, passphrase: &str, security: Security, channel: u8) {
+        if security != Security::OPEN
+            && (passphrase.as_bytes().len() < MIN_PSK_LEN || passphrase.as_bytes().len() > MAX_PSK_LEN)
+        {
+            panic!("Passphrase is too short or too long");
+        }
+
         // Temporarily set wifi down
         self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
 
@@ -254,7 +268,23 @@ impl<'a> Control<'a> {
         self.ioctl_set_u32(IOCTL_CMD_SET_CHANNEL, 0, channel as u32).await;
 
         // Set security
-        self.set_iovar_u32x2("bsscfg:wsec", 0, 0).await; // wsec = open
+        self.set_iovar_u32x2("bsscfg:wsec", 0, (security as u32) & 0xFF).await;
+
+        if security != Security::OPEN {
+            self.set_iovar_u32x2("bsscfg:wpa_auth", 0, 0x0084).await; // wpa_auth = WPA2_AUTH_PSK | WPA_AUTH_PSK
+
+            Timer::after(Duration::from_millis(100)).await;
+
+            // Set passphrase
+            let mut pfi = PassphraseInfo {
+                len: passphrase.as_bytes().len() as _,
+                flags: 1, // WSEC_PASSPHRASE
+                passphrase: [0; 64],
+            };
+            pfi.passphrase[..passphrase.as_bytes().len()].copy_from_slice(passphrase.as_bytes());
+            self.ioctl(IoctlType::Set, IOCTL_CMD_SET_PASSPHRASE, 0, &mut pfi.to_bytes())
+                .await;
+        }
 
         // Change mutlicast rate from 1 Mbps to 11 Mbps
         self.set_iovar_u32("2g_mrate", 11000000 / 500000).await;
