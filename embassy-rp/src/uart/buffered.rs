@@ -5,8 +5,10 @@ use core::task::Poll;
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::{Duration, Timer};
 
 use super::*;
+use crate::clocks::clk_peri_freq;
 use crate::RegExt;
 
 pub struct State {
@@ -134,6 +136,14 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
 
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    pub fn busy(&self) -> bool {
+        self.tx.busy()
+    }
+
+    pub async fn send_break(&mut self, bits: u32) {
+        self.tx.send_break(bits).await
     }
 
     pub fn split(self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
@@ -369,6 +379,43 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
             if state.tx_buf.is_empty() {
                 return Ok(());
             }
+        }
+    }
+
+    pub fn busy(&self) -> bool {
+        unsafe { T::regs().uartfr().read().busy() }
+    }
+
+    /// Assert a break condition after waiting for the transmit buffers to empty,
+    /// for the specified number of bit times. This condition must be asserted
+    /// for at least two frame times to be effective, `bits` will adjusted
+    /// according to frame size, parity, and stop bit settings to ensure this.
+    ///
+    /// This method may block for a long amount of time since it has to wait
+    /// for the transmit fifo to empty, which may take a while on slow links.
+    pub async fn send_break(&mut self, bits: u32) {
+        let regs = T::regs();
+        let bits = bits.max(unsafe {
+            let lcr = regs.uartlcr_h().read();
+            let width = lcr.wlen() as u32 + 5;
+            let parity = lcr.pen() as u32;
+            let stops = 1 + lcr.stp2() as u32;
+            2 * (1 + width + parity + stops)
+        });
+        let divx64 = unsafe {
+            ((regs.uartibrd().read().baud_divint() as u32) << 6) + regs.uartfbrd().read().baud_divfrac() as u32
+        } as u64;
+        let div_clk = clk_peri_freq() as u64 * 64;
+        let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
+
+        Self::flush().await.unwrap();
+        while self.busy() {}
+        unsafe {
+            regs.uartlcr_h().write_set(|w| w.set_brk(true));
+        }
+        Timer::after(Duration::from_micros(wait_usecs)).await;
+        unsafe {
+            regs.uartlcr_h().write_clear(|w| w.set_brk(true));
         }
     }
 }
