@@ -238,32 +238,36 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
         }
     }
 
-    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        let r = T::regs();
-        unsafe {
-            for b in buffer {
-                *b = loop {
-                    if r.uartfr().read().rxfe() {
-                        continue;
-                    }
-
-                    let dr = r.uartdr().read();
-
-                    if dr.oe() {
-                        return Err(Error::Overrun);
-                    } else if dr.be() {
-                        return Err(Error::Break);
-                    } else if dr.pe() {
-                        return Err(Error::Parity);
-                    } else if dr.fe() {
-                        return Err(Error::Framing);
-                    } else {
-                        break dr.data();
-                    }
-                };
-            }
+    pub fn blocking_read(&mut self, mut buffer: &mut [u8]) -> Result<(), Error> {
+        while buffer.len() > 0 {
+            let received = self.drain_fifo(buffer)?;
+            buffer = &mut buffer[received..];
         }
         Ok(())
+    }
+
+    fn drain_fifo(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let r = T::regs();
+        for (i, b) in buffer.iter_mut().enumerate() {
+            if unsafe { r.uartfr().read().rxfe() } {
+                return Ok(i);
+            }
+
+            let dr = unsafe { r.uartdr().read() };
+
+            if dr.oe() {
+                return Err(Error::Overrun);
+            } else if dr.be() {
+                return Err(Error::Break);
+            } else if dr.pe() {
+                return Err(Error::Parity);
+            } else if dr.fe() {
+                return Err(Error::Framing);
+            } else {
+                *b = dr.data();
+            }
+        }
+        Ok(buffer.len())
     }
 }
 
