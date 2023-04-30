@@ -57,9 +57,6 @@ pub mod rtc;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
-#[cfg(stm32wl)]
-#[deprecated(note = "use the external LoRa physical layer crate - https://crates.io/crates/lora-phy")]
-pub mod subghz;
 #[cfg(usart)]
 pub mod usart;
 #[cfg(all(usb, feature = "time"))]
