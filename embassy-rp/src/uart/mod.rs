@@ -229,6 +229,16 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
 }
 
 impl<'d, T: Instance> UartRx<'d, T, Blocking> {
+    pub fn new_blocking(
+        _uart: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(rx);
+        Uart::<T, Blocking>::init(None, Some(rx.map_into()), None, None, config);
+        Self::new_inner(None)
+    }
+
     #[cfg(feature = "nightly")]
     pub fn into_buffered(
         self,
