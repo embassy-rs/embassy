@@ -2,6 +2,7 @@ use core::future::{poll_fn, Future};
 use core::slice;
 use core::task::Poll;
 
+use atomic_polyfill::{AtomicU8, Ordering};
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -16,7 +17,14 @@ pub struct State {
     tx_buf: RingBuffer,
     rx_waker: AtomicWaker,
     rx_buf: RingBuffer,
+    rx_error: AtomicU8,
 }
+
+// these must match bits 8..11 in UARTDR
+const RXE_OVERRUN: u8 = 8;
+const RXE_BREAK: u8 = 4;
+const RXE_PARITY: u8 = 2;
+const RXE_FRAMING: u8 = 1;
 
 impl State {
     pub const fn new() -> Self {
@@ -25,6 +33,7 @@ impl State {
             tx_buf: RingBuffer::new(),
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
+            rx_error: AtomicU8::new(0),
         }
     }
 }
@@ -196,7 +205,25 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         })
     }
 
-    fn try_read(buf: &mut [u8]) -> Poll<Result<usize, Error>> {
+    fn get_rx_error() -> Option<Error> {
+        let errs = T::buffered_state().rx_error.swap(0, Ordering::Relaxed);
+        if errs & RXE_OVERRUN != 0 {
+            Some(Error::Overrun)
+        } else if errs & RXE_BREAK != 0 {
+            Some(Error::Break)
+        } else if errs & RXE_PARITY != 0 {
+            Some(Error::Parity)
+        } else if errs & RXE_FRAMING != 0 {
+            Some(Error::Framing)
+        } else {
+            None
+        }
+    }
+
+    fn try_read(buf: &mut [u8]) -> Poll<Result<usize, Error>>
+    where
+        T: 'd,
+    {
         if buf.is_empty() {
             return Poll::Ready(Ok(0));
         }
@@ -210,13 +237,16 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         });
 
         let result = if n == 0 {
-            return Poll::Pending;
+            match Self::get_rx_error() {
+                None => return Poll::Pending,
+                Some(e) => Err(e),
+            }
         } else {
             Ok(n)
         };
 
         // (Re-)Enable the interrupt to receive more data in case it was
-        // disabled because the buffer was full.
+        // disabled because the buffer was full or errors were detected.
         let regs = T::regs();
         unsafe {
             regs.uartimsc().write_set(|w| {
@@ -237,18 +267,28 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         }
     }
 
-    fn fill_buf<'a>() -> impl Future<Output = Result<&'a [u8], Error>> {
+    fn fill_buf<'a>() -> impl Future<Output = Result<&'a [u8], Error>>
+    where
+        T: 'd,
+    {
         poll_fn(move |cx| {
             let state = T::buffered_state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let (p, n) = rx_reader.pop_buf();
-            if n == 0 {
-                state.rx_waker.register(cx.waker());
-                return Poll::Pending;
-            }
+            let result = if n == 0 {
+                match Self::get_rx_error() {
+                    None => {
+                        state.rx_waker.register(cx.waker());
+                        return Poll::Pending;
+                    }
+                    Some(e) => Err(e),
+                }
+            } else {
+                let buf = unsafe { slice::from_raw_parts(p, n) };
+                Ok(buf)
+            };
 
-            let buf = unsafe { slice::from_raw_parts(p, n) };
-            Poll::Ready(Ok(buf))
+            Poll::Ready(result)
         })
     }
 
@@ -258,7 +298,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         rx_reader.pop_done(amt);
 
         // (Re-)Enable the interrupt to receive more data in case it was
-        // disabled because the buffer was full.
+        // disabled because the buffer was full or errors were detected.
         let regs = T::regs();
         unsafe {
             regs.uartimsc().write_set(|w| {
@@ -478,19 +518,37 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
         let mut rx_writer = s.rx_buf.writer();
         let rx_buf = rx_writer.push_slice();
         let mut n_read = 0;
+        let mut error = false;
         for rx_byte in rx_buf {
             if r.uartfr().read().rxfe() {
                 break;
             }
-            *rx_byte = r.uartdr().read().data();
+            let dr = r.uartdr().read();
+            if (dr.0 >> 8) != 0 {
+                s.rx_error.fetch_or((dr.0 >> 8) as u8, Ordering::Relaxed);
+                error = true;
+                // only fill the buffer with valid characters. the current character is fine
+                // if the error is an overrun, but if we add it to the buffer we'll report
+                // the overrun one character too late. drop it instead and pretend we were
+                // a bit slower at draining the rx fifo than we actually were.
+                // this is consistent with blocking uart error reporting.
+                break;
+            }
+            *rx_byte = dr.data();
             n_read += 1;
         }
         if n_read > 0 {
             rx_writer.push_done(n_read);
             s.rx_waker.wake();
+        } else if error {
+            s.rx_waker.wake();
         }
-        // Disable any further RX interrupts when the buffer becomes full.
-        if s.rx_buf.is_full() {
+        // Disable any further RX interrupts when the buffer becomes full or
+        // errors have occured. this lets us buffer additional errors in the
+        // fifo without needing more error storage locations, and most applications
+        // will want to do a full reset of their uart state anyway once an error
+        // has happened.
+        if s.rx_buf.is_full() || error {
             r.uartimsc().write_clear(|w| {
                 w.set_rxim(true);
                 w.set_rtim(true);
