@@ -93,8 +93,11 @@ pub(crate) const IRQ_F2_INTR: u16 = 0x4000;
 pub(crate) const IRQ_F3_INTR: u16 = 0x8000;
 
 pub(crate) const IOCTL_CMD_UP: u32 = 2;
+pub(crate) const IOCTL_CMD_DOWN: u32 = 3;
 pub(crate) const IOCTL_CMD_SET_SSID: u32 = 26;
+pub(crate) const IOCTL_CMD_SET_CHANNEL: u32 = 30;
 pub(crate) const IOCTL_CMD_ANTDIV: u32 = 64;
+pub(crate) const IOCTL_CMD_SET_AP: u32 = 118;
 pub(crate) const IOCTL_CMD_SET_VAR: u32 = 263;
 pub(crate) const IOCTL_CMD_GET_VAR: u32 = 262;
 pub(crate) const IOCTL_CMD_SET_PASSPHRASE: u32 = 268;

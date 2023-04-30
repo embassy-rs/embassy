@@ -226,6 +226,43 @@ impl<'a> Control<'a> {
             .await
     }
 
+    pub async fn start_ap_open(&mut self, ssid: &str, channel: u8) {
+        // Temporarily set wifi down
+        self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
+
+        // Turn off APSTA mode
+        self.set_iovar_u32("apsta", 0).await;
+
+        // Set wifi up again
+        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+
+        // Turn on AP mode
+        self.ioctl_set_u32(IOCTL_CMD_SET_AP, 0, 1).await;
+
+        // Set SSID
+        let mut i = SsidInfoWithIndex {
+            index: 0,
+            ssid_info: SsidInfo {
+                len: ssid.as_bytes().len() as _,
+                ssid: [0; 32],
+            },
+        };
+        i.ssid_info.ssid[..ssid.as_bytes().len()].copy_from_slice(ssid.as_bytes());
+        self.set_iovar("bsscfg:ssid", &i.to_bytes()).await;
+
+        // Set channel number
+        self.ioctl_set_u32(IOCTL_CMD_SET_CHANNEL, 0, channel as u32).await;
+
+        // Set security
+        self.set_iovar_u32x2("bsscfg:wsec", 0, 0).await; // wsec = open
+
+        // Change mutlicast rate from 1 Mbps to 11 Mbps
+        self.set_iovar_u32("2g_mrate", 11000000 / 500000).await;
+
+        // Start AP
+        self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
+    }
+
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
         let mut buf = [0; 8];
         buf[0..4].copy_from_slice(&val1.to_le_bytes());
