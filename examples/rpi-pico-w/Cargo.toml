@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 cyw43 = { path = "../../", features = ["defmt", "firmware-logs"] }
-cyw43-pio = { path = "../../cyw43-pio" }
+cyw43-pio = { path = "../../cyw43-pio", features = ["defmt"] }
 embassy-executor = { version = "0.1.0",  features = ["defmt", "integrated-timers", "executor-thread", "arch-cortex-m"] }
 embassy-time = { version = "0.1.0",  features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.1.0",  features = ["defmt", "unstable-traits", "nightly", "unstable-pac", "time-driver"] }
