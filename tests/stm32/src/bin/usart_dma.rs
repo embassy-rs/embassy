@@ -6,6 +6,7 @@
 mod example_common;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::interrupt;
 use embassy_stm32::usart::{Config, Uart};
 use example_common::*;
@@ -76,18 +77,26 @@ async fn main(_spawner: Spawner) {
         (p.PB6, p.PB7, p.USART1, interrupt::take!(USART1), p.DMA1_CH1, p.DMA1_CH2);
 
     let config = Config::default();
-    let mut usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config);
+    let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config);
 
-    // We can't send too many bytes, they have to fit in the FIFO.
-    // This is because we aren't sending+receiving at the same time.
-    // For whatever reason, blocking works with 2 bytes but DMA only with 1??
+    const LEN: usize = 128;
+    let mut tx_buf = [0; LEN];
+    let mut rx_buf = [0; LEN];
+    for i in 0..LEN {
+        tx_buf[i] = i as u8;
+    }
 
-    let data = [0x42];
-    usart.write(&data).await.unwrap();
+    let (mut tx, mut rx) = usart.split();
 
-    let mut buf = [0; 1];
-    usart.read(&mut buf).await.unwrap();
-    assert_eq!(buf, data);
+    let tx_fut = async {
+        tx.write(&tx_buf).await.unwrap();
+    };
+    let rx_fut = async {
+        rx.read(&mut rx_buf).await.unwrap();
+    };
+    join(rx_fut, tx_fut).await;
+
+    assert_eq!(tx_buf, rx_buf);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
