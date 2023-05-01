@@ -3,18 +3,20 @@
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
+use atomic_polyfill::AtomicUsize;
 use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::BDMA_CHANNEL_COUNT;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac;
-use crate::pac::bdma::vals;
+use crate::pac::bdma::{regs, vals};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -48,13 +50,16 @@ impl From<Dir> for vals::Dir {
 
 struct State {
     ch_wakers: [AtomicWaker; BDMA_CHANNEL_COUNT],
+    complete_count: [AtomicUsize; BDMA_CHANNEL_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
+        const ZERO: AtomicUsize = AtomicUsize::new(0);
         const AW: AtomicWaker = AtomicWaker::new();
         Self {
             ch_wakers: [AW; BDMA_CHANNEL_COUNT],
+            complete_count: [ZERO; BDMA_CHANNEL_COUNT],
         }
     }
 }
@@ -105,8 +110,23 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::bdma::Dma, channel_num: usize, index
     if isr.teif(channel_num) {
         panic!("DMA: error on BDMA@{:08x} channel {}", dma.0 as u32, channel_num);
     }
+
+    let mut wake = false;
+
+    if isr.htif(channel_num) && cr.read().htie() {
+        // Acknowledge half transfer complete interrupt
+        dma.ifcr().write(|w| w.set_htif(channel_num, true));
+        wake = true;
+    }
+
     if isr.tcif(channel_num) && cr.read().tcie() {
-        cr.write(|_| ()); // Disable channel interrupts with the default value.
+        // Acknowledge transfer complete interrupt
+        dma.ifcr().write(|w| w.set_tcif(channel_num, true));
+        STATE.complete_count[index].fetch_add(1, Ordering::Release);
+        wake = true;
+    }
+
+    if wake {
         STATE.ch_wakers[index].wake();
     }
 }
@@ -252,6 +272,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
 
         let mut this = Self { channel };
         this.clear_irqs();
+        STATE.complete_count[this.channel.index()].store(0, Ordering::Release);
 
         #[cfg(dmamux)]
         super::dmamux::configure_dmamux(&mut *this.channel, _request);
@@ -299,7 +320,9 @@ impl<'a, C: Channel> Transfer<'a, C> {
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
-        unsafe { ch.cr().read() }.en()
+        let en = unsafe { ch.cr().read() }.en();
+        let tcif = STATE.complete_count[self.channel.index()].load(Ordering::Acquire) != 0;
+        en && !tcif
     }
 
     /// Gets the total remaining transfers for the channel
@@ -340,5 +363,161 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
         } else {
             Poll::Ready(())
         }
+    }
+}
+
+// ==============================
+
+impl<C: Channel> DmaCtrl for C {
+    fn ndtr(&self) -> usize {
+        let ch = self.regs().ch(self.num());
+        unsafe { ch.ndtr().read() }.ndt() as usize
+    }
+
+    fn get_complete_count(&self) -> usize {
+        STATE.complete_count[self.index()].load(Ordering::Acquire)
+    }
+
+    fn reset_complete_count(&mut self) -> usize {
+        STATE.complete_count[self.index()].swap(0, Ordering::AcqRel)
+    }
+}
+
+pub struct RingBuffer<'a, C: Channel, W: Word> {
+    cr: regs::Cr,
+    channel: PeripheralRef<'a, C>,
+    ringbuf: DmaRingBuffer<'a, W>,
+}
+
+impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
+    pub unsafe fn new_read(
+        channel: impl Peripheral<P = C> + 'a,
+        _request: Request,
+        peri_addr: *mut W,
+        buffer: &'a mut [W],
+        _options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        let len = buffer.len();
+        assert!(len > 0 && len <= 0xFFFF);
+
+        let dir = Dir::PeripheralToMemory;
+        let data_size = W::size();
+
+        let channel_number = channel.num();
+        let dma = channel.regs();
+
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        #[cfg(bdma_v2)]
+        critical_section::with(|_| channel.regs().cselr().modify(|w| w.set_cs(channel.num(), _request)));
+
+        let mut w = regs::Cr(0);
+        w.set_psize(data_size.into());
+        w.set_msize(data_size.into());
+        w.set_minc(vals::Inc::ENABLED);
+        w.set_dir(dir.into());
+        w.set_teie(true);
+        w.set_htie(true);
+        w.set_tcie(true);
+        w.set_circ(vals::Circ::ENABLED);
+        w.set_pl(vals::Pl::VERYHIGH);
+        w.set_en(true);
+
+        let buffer_ptr = buffer.as_mut_ptr();
+        let mut this = Self {
+            channel,
+            cr: w,
+            ringbuf: DmaRingBuffer::new(buffer),
+        };
+        this.clear_irqs();
+
+        #[cfg(dmamux)]
+        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+
+        let ch = dma.ch(channel_number);
+        ch.par().write_value(peri_addr as u32);
+        ch.mar().write_value(buffer_ptr as u32);
+        ch.ndtr().write(|w| w.set_ndt(len as u16));
+
+        this
+    }
+
+    pub fn start(&mut self) {
+        let ch = self.channel.regs().ch(self.channel.num());
+        unsafe { ch.cr().write_value(self.cr) }
+    }
+
+    pub fn clear(&mut self) {
+        self.ringbuf.clear(&mut *self.channel);
+    }
+
+    /// Read bytes from the ring buffer
+    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
+    pub fn read(&mut self, buf: &mut [W]) -> Result<usize, OverrunError> {
+        self.ringbuf.read(&mut *self.channel, buf)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ringbuf.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.ringbuf.len()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.ringbuf.dma_buf.len()
+    }
+
+    pub fn set_waker(&mut self, waker: &Waker) {
+        STATE.ch_wakers[self.channel.index()].register(waker);
+    }
+
+    fn clear_irqs(&mut self) {
+        let dma = self.channel.regs();
+        unsafe {
+            dma.ifcr().write(|w| {
+                w.set_htif(self.channel.num(), true);
+                w.set_tcif(self.channel.num(), true);
+                w.set_teif(self.channel.num(), true);
+            })
+        }
+    }
+
+    pub fn request_stop(&mut self) {
+        let ch = self.channel.regs().ch(self.channel.num());
+
+        // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        unsafe {
+            ch.cr().write(|w| {
+                w.set_teie(true);
+                w.set_htie(true);
+                w.set_tcie(true);
+            })
+        }
+    }
+
+    pub fn is_running(&mut self) -> bool {
+        let ch = self.channel.regs().ch(self.channel.num());
+        unsafe { ch.cr().read() }.en()
+    }
+
+    /// Synchronize the position of the ring buffer to the actual DMA controller position
+    pub fn reload_position(&mut self) {
+        let ch = self.channel.regs().ch(self.channel.num());
+        self.ringbuf.ndtr = unsafe { ch.ndtr().read() }.ndt() as usize;
+    }
+}
+
+impl<'a, C: Channel, W: Word> Drop for RingBuffer<'a, C, W> {
+    fn drop(&mut self) {
+        self.request_stop();
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
     }
 }
