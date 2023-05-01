@@ -7,6 +7,8 @@ WIP driver for the CYW43439 wifi chip, used in the Raspberry Pi Pico W. Implemen
 Working:
 
 - Station mode (joining an AP).
+- AP mode (creating an AP)
+- Scanning
 - Sending and receiving Ethernet frames.
 - Using the default MAC address.
 - [`embassy-net`](https://embassy.dev) integration.
@@ -16,10 +18,7 @@ Working:
 
 TODO:
 
-- AP mode (creating an AP)
-- Scanning
 - Setting a custom MAC address.
-- Investigate why can [this](https://github.com/raspberrypi/pico-sdk/tree/master/src/rp2_common/pico_cyw43_driver) use higher PIO speed. 
 - Bus sleep (unclear what the benefit is. Is it needed for IRQs? or is it just power consumption optimization?)
 
 ## Running the example
