@@ -8,14 +8,13 @@ use atomic_polyfill::AtomicUsize;
 use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::dma::regs;
 
 use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::DMA_CHANNEL_COUNT;
 use crate::interrupt::{Interrupt, InterruptExt};
-use crate::pac::dma::vals;
+use crate::pac::dma::{regs, vals};
 use crate::{interrupt, pac};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -196,32 +195,15 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::dma::Dma, channel_num: usize, index:
         wake = true;
     }
 
-    wake |= process_tcif(dma, channel_num, index);
+    if isr.tcif(channel_num % 4) && cr.read().tcie() {
+        // Acknowledge  transfer complete interrupt
+        dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
+        STATE.complete_count[index].fetch_add(1, Ordering::Release);
+        wake = true;
+    }
 
     if wake {
         STATE.ch_wakers[index].wake();
-    }
-}
-
-unsafe fn process_tcif(dma: pac::dma::Dma, channel_num: usize, index: usize) -> bool {
-    let isr_reg = dma.isr(channel_num / 4);
-    let cr_reg = dma.st(channel_num).cr();
-
-    // First, figure out if tcif is set without a cs.
-    if isr_reg.read().tcif(channel_num % 4) && cr_reg.read().tcie() {
-        // Make tcif test again within a cs to avoid race when incrementing complete_count.
-        critical_section::with(|_| {
-            if isr_reg.read().tcif(channel_num % 4) && cr_reg.read().tcie() {
-                // Acknowledge transfer complete interrupt
-                dma.ifcr(channel_num / 4).write(|w| w.set_tcif(channel_num % 4, true));
-                STATE.complete_count[index].fetch_add(1, Ordering::Release);
-                true
-            } else {
-                false
-            }
-        })
-    } else {
-        false
     }
 }
 
@@ -634,21 +616,11 @@ impl<C: Channel> DmaCtrl for C {
     }
 
     fn get_complete_count(&self) -> usize {
-        let dma = self.regs();
-        let channel_num = self.num();
-        let index = self.index();
-        // Manually process tcif in case transfer was completed and we are in a higher priority task.
-        unsafe { process_tcif(dma, channel_num, index) };
-        STATE.complete_count[index].load(Ordering::Acquire)
+        STATE.complete_count[self.index()].load(Ordering::Acquire)
     }
 
     fn reset_complete_count(&mut self) -> usize {
-        let dma = self.regs();
-        let channel_num = self.num();
-        let index = self.index();
-        // Manually process tcif in case transfer was completed and we are in a higher priority task.
-        unsafe { process_tcif(dma, channel_num, index) };
-        STATE.complete_count[index].swap(0, Ordering::AcqRel)
+        STATE.complete_count[self.index()].swap(0, Ordering::AcqRel)
     }
 }
 
