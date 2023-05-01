@@ -6,6 +6,7 @@
 
 #[path = "../example_common.rs"]
 mod example_common;
+use defmt::{assert_eq, panic};
 use embassy_executor::Spawner;
 use embassy_stm32::interrupt;
 use embassy_stm32::usart::{Config, DataBits, Parity, RingBufferedUartRx, StopBits, Uart, UartTx};
@@ -34,9 +35,9 @@ mod board {
 }
 #[cfg(feature = "stm32f429zi")]
 mod board {
-    pub type Uart = embassy_stm32::peripherals::USART2;
-    pub type TxDma = embassy_stm32::peripherals::DMA1_CH6;
-    pub type RxDma = embassy_stm32::peripherals::DMA1_CH5;
+    pub type Uart = embassy_stm32::peripherals::USART6;
+    pub type TxDma = embassy_stm32::peripherals::DMA2_CH6;
+    pub type RxDma = embassy_stm32::peripherals::DMA2_CH1;
 }
 #[cfg(feature = "stm32wb55rg")]
 mod board {
@@ -56,9 +57,14 @@ mod board {
     pub type TxDma = embassy_stm32::peripherals::GPDMA1_CH0;
     pub type RxDma = embassy_stm32::peripherals::GPDMA1_CH1;
 }
+#[cfg(feature = "stm32c031c6")]
+mod board {
+    pub type Uart = embassy_stm32::peripherals::USART1;
+    pub type TxDma = embassy_stm32::peripherals::DMA1_CH1;
+    pub type RxDma = embassy_stm32::peripherals::DMA1_CH2;
+}
 
-const ONE_BYTE_DURATION_US: u32 = 9_000_000 / 115200;
-const DMA_BUF_SIZE: usize = 64;
+const DMA_BUF_SIZE: usize = 256;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -83,8 +89,14 @@ async fn main(spawner: Spawner) {
     let (tx, rx, usart, irq, tx_dma, rx_dma) =
         (p.PC4, p.PC5, p.USART1, interrupt::take!(USART1), p.DMA1_CH1, p.DMA1_CH2);
     #[cfg(feature = "stm32f429zi")]
-    let (tx, rx, usart, irq, tx_dma, rx_dma) =
-        (p.PA2, p.PA3, p.USART2, interrupt::take!(USART2), p.DMA1_CH6, p.DMA1_CH5);
+    let (tx, rx, usart, irq, tx_dma, rx_dma) = (
+        p.PG14,
+        p.PG9,
+        p.USART6,
+        interrupt::take!(USART6),
+        p.DMA2_CH6,
+        p.DMA2_CH1,
+    );
     #[cfg(feature = "stm32wb55rg")]
     let (tx, rx, usart, irq, tx_dma, rx_dma) = (
         p.PA2,
@@ -106,11 +118,16 @@ async fn main(spawner: Spawner) {
         p.GPDMA1_CH0,
         p.GPDMA1_CH1,
     );
+    #[cfg(feature = "stm32c031c6")]
+    let (tx, rx, usart, irq, tx_dma, rx_dma) =
+        (p.PB6, p.PB7, p.USART1, interrupt::take!(USART1), p.DMA1_CH1, p.DMA1_CH2);
 
     // To run this test, use the saturating_serial test utility to saturate the serial port
 
     let mut config = Config::default();
-    config.baudrate = 115200;
+    // this is the fastest we can go without tuning RCC
+    // some chips have default pclk=8mhz, and uart can run at max pclk/16
+    config.baudrate = 500_000;
     config.data_bits = DataBits::DataBits8;
     config.stop_bits = StopBits::STOP1;
     config.parity = Parity::ParityNone;
@@ -135,19 +152,14 @@ async fn transmit_task(mut tx: UartTx<'static, board::Uart, board::TxDma>) {
     let mut i: u8 = 0;
     loop {
         let mut buf = [0; 32];
-        let len = 1 + (rng.next_u32() as usize % (buf.len() - 1));
+        let len = 1 + (rng.next_u32() as usize % buf.len());
         for b in &mut buf[..len] {
             *b = i;
             i = i.wrapping_add(1);
         }
 
         tx.write(&buf[..len]).await.unwrap();
-        Timer::after(Duration::from_micros((rng.next_u32() % 10000) as _)).await;
-
-        //i += 1;
-        //if i % 1000 == 0 {
-        //    trace!("Wrote {} times", i);
-        //}
+        Timer::after(Duration::from_micros((rng.next_u32() % 1000) as _)).await;
     }
 }
 
@@ -158,44 +170,31 @@ async fn receive_task(mut rx: RingBufferedUartRx<'static, board::Uart, board::Rx
     let mut rng = ChaCha8Rng::seed_from_u64(1337);
 
     let mut i = 0;
-    let mut expected: Option<u8> = None;
+    let mut expected = 0;
     loop {
         let mut buf = [0; 100];
-        let max_len = 1 + (rng.next_u32() as usize % (buf.len() - 1));
+        let max_len = 1 + (rng.next_u32() as usize % buf.len());
         let received = match rx.read(&mut buf[..max_len]).await {
             Ok(r) => r,
             Err(e) => {
-                error!("Test fail! read error: {:?}", e);
-                cortex_m::asm::bkpt();
-                return;
+                panic!("Test fail! read error: {:?}", e);
             }
         };
 
-        if expected.is_none() {
-            info!("Test started");
-            expected = Some(buf[0]);
-        }
-
         for byte in &buf[..received] {
-            if byte != &expected.unwrap() {
-                error!("Test fail! received {}, expected {}", *byte, expected.unwrap());
-                cortex_m::asm::bkpt();
-                return;
-            }
-            expected = Some(expected.unwrap().wrapping_add(1));
+            assert_eq!(*byte, expected);
+            expected = expected.wrapping_add(1);
         }
 
         if received < max_len {
-            let byte_count = rng.next_u32() % (DMA_BUF_SIZE as u32);
-            let random_delay_us = (byte_count * ONE_BYTE_DURATION_US) as u64;
-            if random_delay_us > 200 {
-                Timer::after(Duration::from_micros(random_delay_us - 200)).await;
-            }
+            Timer::after(Duration::from_micros((rng.next_u32() % 1000) as _)).await;
         }
 
-        i += 1;
-        if i % 1000 == 0 {
-            trace!("Read {} times", i);
+        i += received;
+
+        if i > 100000 {
+            info!("Test OK!");
+            cortex_m::asm::bkpt();
         }
     }
 }
