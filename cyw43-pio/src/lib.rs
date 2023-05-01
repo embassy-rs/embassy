@@ -129,6 +129,7 @@ where
         let write_bits = write.len() * 32 - 1;
         let read_bits = 31;
 
+        #[cfg(feature = "defmt")]
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
         let mut dma = Peripheral::into_ref(&mut self.dma);
@@ -151,6 +152,7 @@ where
         let write_bits = 31;
         let read_bits = read.len() * 32 + 32 - 1;
 
+        #[cfg(feature = "defmt")]
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
         let mut dma = Peripheral::into_ref(&mut self.dma);
