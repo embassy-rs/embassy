@@ -763,7 +763,7 @@ mod sealed {
         fn regs() -> pac::uart::Uart;
 
         #[cfg(feature = "nightly")]
-        fn state() -> &'static buffered::State;
+        fn buffered_state() -> &'static buffered::State;
     }
     pub trait TxPin<T: Instance> {}
     pub trait RxPin<T: Instance> {}
@@ -801,7 +801,7 @@ macro_rules! impl_instance {
             }
 
             #[cfg(feature = "nightly")]
-            fn state() -> &'static buffered::State {
+            fn buffered_state() -> &'static buffered::State {
                 static STATE: buffered::State = buffered::State::new();
                 &STATE
             }

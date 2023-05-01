@@ -47,7 +47,7 @@ pub(crate) fn init_buffers<'d, T: Instance + 'd>(
     tx_buffer: &'d mut [u8],
     rx_buffer: &'d mut [u8],
 ) {
-    let state = T::state();
+    let state = T::buffered_state();
     let len = tx_buffer.len();
     unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
     let len = rx_buffer.len();
@@ -189,7 +189,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
                 return Poll::Ready(Ok(0));
             }
 
-            let state = T::state();
+            let state = T::buffered_state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let n = rx_reader.pop(|data| {
                 let n = data.len().min(buf.len());
@@ -221,7 +221,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         }
 
         loop {
-            let state = T::state();
+            let state = T::buffered_state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let n = rx_reader.pop(|data| {
                 let n = data.len().min(buf.len());
@@ -247,7 +247,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 
     fn fill_buf<'a>() -> impl Future<Output = Result<&'a [u8], Error>> {
         poll_fn(move |cx| {
-            let state = T::state();
+            let state = T::buffered_state();
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let (p, n) = rx_reader.pop_buf();
             if n == 0 {
@@ -261,7 +261,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
     }
 
     fn consume(amt: usize) {
-        let state = T::state();
+        let state = T::buffered_state();
         let mut rx_reader = unsafe { state.rx_buf.reader() };
         rx_reader.pop_done(amt);
 
@@ -315,7 +315,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
                 return Poll::Ready(Ok(0));
             }
 
-            let state = T::state();
+            let state = T::buffered_state();
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let n = tx_writer.push(|data| {
                 let n = data.len().min(buf.len());
@@ -338,7 +338,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
 
     fn flush() -> impl Future<Output = Result<(), Error>> {
         poll_fn(move |cx| {
-            let state = T::state();
+            let state = T::buffered_state();
             if !state.tx_buf.is_empty() {
                 state.tx_waker.register(cx.waker());
                 return Poll::Pending;
@@ -354,7 +354,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         }
 
         loop {
-            let state = T::state();
+            let state = T::buffered_state();
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let n = tx_writer.push(|data| {
                 let n = data.len().min(buf.len());
@@ -375,7 +375,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
 
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         loop {
-            let state = T::state();
+            let state = T::buffered_state();
             if state.tx_buf.is_empty() {
                 return Ok(());
             }
@@ -422,7 +422,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
 
 impl<'d, T: Instance> Drop for BufferedUartRx<'d, T> {
     fn drop(&mut self) {
-        let state = T::state();
+        let state = T::buffered_state();
         unsafe {
             state.rx_buf.deinit();
 
@@ -437,7 +437,7 @@ impl<'d, T: Instance> Drop for BufferedUartRx<'d, T> {
 
 impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
     fn drop(&mut self) {
-        let state = T::state();
+        let state = T::buffered_state();
         unsafe {
             state.tx_buf.deinit();
 
@@ -452,7 +452,7 @@ impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
 
 pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
     let r = T::regs();
-    let s = T::state();
+    let s = T::buffered_state();
 
     unsafe {
         // Clear TX and error interrupt flags
