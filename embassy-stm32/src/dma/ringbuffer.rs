@@ -1,3 +1,5 @@
+#![cfg_attr(gpdma, allow(unused))]
+
 use core::ops::Range;
 use core::sync::atomic::{compiler_fence, Ordering};
 

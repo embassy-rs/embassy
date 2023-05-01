@@ -5,18 +5,19 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [features]
-stm32f103c8 = ["embassy-stm32/stm32f103c8"]     # Blue Pill
-stm32f429zi = ["embassy-stm32/stm32f429zi", "sdmmc", "chrono"]     # Nucleo
-stm32g071rb = ["embassy-stm32/stm32g071rb"]     # Nucleo
-stm32c031c6 = ["embassy-stm32/stm32c031c6"]     # Nucleo
-stm32g491re = ["embassy-stm32/stm32g491re"]     # Nucleo
-stm32h755zi = ["embassy-stm32/stm32h755zi-cm7"] # Nucleo
-stm32wb55rg = ["embassy-stm32/stm32wb55rg"]     # Nucleo
+stm32f103c8 = ["embassy-stm32/stm32f103c8", "not-gpdma"]     # Blue Pill
+stm32f429zi = ["embassy-stm32/stm32f429zi", "sdmmc", "chrono", "not-gpdma"]     # Nucleo
+stm32g071rb = ["embassy-stm32/stm32g071rb", "not-gpdma"]     # Nucleo
+stm32c031c6 = ["embassy-stm32/stm32c031c6", "not-gpdma"]     # Nucleo
+stm32g491re = ["embassy-stm32/stm32g491re", "not-gpdma"]     # Nucleo
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-gpdma"] # Nucleo
+stm32wb55rg = ["embassy-stm32/stm32wb55rg", "not-gpdma"]     # Nucleo
 stm32h563zi = ["embassy-stm32/stm32h563zi"]     # Nucleo
 stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
 
 sdmmc = []
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
+not-gpdma = []
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
@@ -79,6 +80,11 @@ required-features = []
 name = "usart_dma"
 path = "src/bin/usart_dma.rs"
 required-features = []
+
+[[bin]]
+name = "usart_rx_ringbuffered"
+path = "src/bin/usart_rx_ringbuffered.rs"
+required-features = [ "not-gpdma",]
 
 # END TESTS
 
