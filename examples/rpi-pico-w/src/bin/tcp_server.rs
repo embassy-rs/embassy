@@ -48,9 +48,8 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_rp::init(Default::default());
 
-    // Include the WiFi firmware and Country Locale Matrix (CLM) blobs.
-    let fw = include_bytes!("../../../firmware/43439A0.bin");
-    let clm = include_bytes!("../../../firmware/43439A0_clm.bin");
+    let fw = include_bytes!("../../../../firmware/43439A0.bin");
+    let clm = include_bytes!("../../../../firmware/43439A0_clm.bin");
 
     // To make flashing faster for development, you may want to flash the firmwares independently
     // at hardcoded addresses, instead of baking them into the program with `include_bytes!`:
