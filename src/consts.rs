@@ -93,8 +93,11 @@ pub(crate) const IRQ_F2_INTR: u16 = 0x4000;
 pub(crate) const IRQ_F3_INTR: u16 = 0x8000;
 
 pub(crate) const IOCTL_CMD_UP: u32 = 2;
+pub(crate) const IOCTL_CMD_DOWN: u32 = 3;
 pub(crate) const IOCTL_CMD_SET_SSID: u32 = 26;
+pub(crate) const IOCTL_CMD_SET_CHANNEL: u32 = 30;
 pub(crate) const IOCTL_CMD_ANTDIV: u32 = 64;
+pub(crate) const IOCTL_CMD_SET_AP: u32 = 118;
 pub(crate) const IOCTL_CMD_SET_VAR: u32 = 263;
 pub(crate) const IOCTL_CMD_GET_VAR: u32 = 262;
 pub(crate) const IOCTL_CMD_SET_PASSPHRASE: u32 = 268;
@@ -108,6 +111,21 @@ pub(crate) const WRITE: bool = true;
 pub(crate) const READ: bool = false;
 pub(crate) const INC_ADDR: bool = true;
 pub(crate) const FIXED_ADDR: bool = false;
+
+pub(crate) const AES_ENABLED: u32 = 0x0004;
+pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
+
+pub(crate) const MIN_PSK_LEN: usize = 8;
+pub(crate) const MAX_PSK_LEN: usize = 64;
+
+// Security type (authentication and encryption types are combined using bit mask)
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, PartialEq)]
+#[repr(u32)]
+pub(crate) enum Security {
+    OPEN = 0,
+    WPA2_AES_PSK = WPA2_SECURITY | AES_ENABLED,
+}
 
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone)]

@@ -392,6 +392,15 @@ impl_bytes!(PassphraseInfo);
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
+pub struct SsidInfoWithIndex {
+    pub index: u32,
+    pub ssid_info: SsidInfo,
+}
+impl_bytes!(SsidInfoWithIndex);
+
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
 pub struct EventMask {
     pub iface: u32,
     pub events: [u8; 24],
