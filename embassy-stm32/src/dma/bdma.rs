@@ -368,18 +368,20 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
 
 // ==============================
 
-impl<C: Channel> DmaCtrl for C {
+struct DmaCtrlImpl<'a, C: Channel>(PeripheralRef<'a, C>);
+
+impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     fn ndtr(&self) -> usize {
-        let ch = self.regs().ch(self.num());
+        let ch = self.0.regs().ch(self.0.num());
         unsafe { ch.ndtr().read() }.ndt() as usize
     }
 
     fn get_complete_count(&self) -> usize {
-        STATE.complete_count[self.index()].load(Ordering::Acquire)
+        STATE.complete_count[self.0.index()].load(Ordering::Acquire)
     }
 
     fn reset_complete_count(&mut self) -> usize {
-        STATE.complete_count[self.index()].swap(0, Ordering::AcqRel)
+        STATE.complete_count[self.0.index()].swap(0, Ordering::AcqRel)
     }
 }
 
@@ -451,13 +453,13 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
     }
 
     pub fn clear(&mut self) {
-        self.ringbuf.clear(&mut *self.channel);
+        self.ringbuf.clear(DmaCtrlImpl(self.channel.reborrow()));
     }
 
     /// Read bytes from the ring buffer
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, buf: &mut [W]) -> Result<usize, OverrunError> {
-        self.ringbuf.read(&mut *self.channel, buf)
+        self.ringbuf.read(DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
     pub fn is_empty(&self) -> bool {

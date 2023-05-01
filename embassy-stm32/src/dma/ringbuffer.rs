@@ -63,7 +63,7 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
     }
 
     /// Reset the ring buffer to its initial state
-    pub fn clear(&mut self, dma: &mut impl DmaCtrl) {
+    pub fn clear(&mut self, mut dma: impl DmaCtrl) {
         self.first = 0;
         self.ndtr = self.dma_buf.len();
         dma.reset_complete_count();
@@ -94,7 +94,7 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
 
     /// Read bytes from the ring buffer
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<usize, OverrunError> {
+    pub fn read(&mut self, mut dma: impl DmaCtrl, buf: &mut [W]) -> Result<usize, OverrunError> {
         let end = self.end();
 
         compiler_fence(Ordering::SeqCst);
@@ -244,7 +244,7 @@ mod tests {
         }
     }
 
-    impl DmaCtrl for TestCtrl {
+    impl DmaCtrl for &mut TestCtrl {
         fn ndtr(&self) -> usize {
             self.next_ndtr.borrow_mut().unwrap()
         }
