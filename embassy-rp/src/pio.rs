@@ -277,15 +277,14 @@ impl<PIO: PioInstance> PioPin<PIO> {
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
         unsafe {
-            self.pad_ctrl().modify(|w| match pull {
-                Pull::Up => w.set_pue(true),
-                Pull::Down => w.set_pde(true),
-                Pull::None => {}
+            self.pad_ctrl().modify(|w| {
+                w.set_pue(pull == Pull::Up);
+                w.set_pde(pull == Pull::Down);
             });
         }
     }
 
-    /// Set the pin's pull.
+    /// Set the pin's schmitt trigger.
     #[inline]
     pub fn set_schmitt(&mut self, enable: bool) {
         unsafe {
