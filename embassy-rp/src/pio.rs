@@ -827,8 +827,10 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
         }
     }
 
-    // TODO make instruction memory that is currently in use unfreeable
-    pub fn free_instr(&mut self, instrs: PioInstanceMemory<PIO>) {
+    /// Free instruction memory previously allocated with [`PioCommon::write_instr`].
+    /// This is always possible but unsafe if any state machine is still using this
+    /// bit of memory.
+    pub unsafe fn free_instr(&mut self, instrs: PioInstanceMemory<PIO>) {
         self.instructions_used &= !instrs.used_mask;
     }
 
