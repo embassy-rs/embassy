@@ -8,7 +8,7 @@ use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::gpio::Pin;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{FifoJoin, Pio, PioStateMachine, PioStateMachineInstance, ShiftDirection, SmInstanceBase};
+use embassy_rp::pio::{FifoJoin, Pio, PioStateMachine, PioStateMachineInstance, ShiftDirection};
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{into_ref, Peripheral, PeripheralRef};
@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
 
 pub struct HD44780<'l> {
     dma: PeripheralRef<'l, AnyChannel>,
-    sm: PioStateMachineInstance<'l, PIO0, SmInstanceBase<0>>,
+    sm: PioStateMachineInstance<'l, PIO0, 0>,
 
     buf: [u8; 40],
 }

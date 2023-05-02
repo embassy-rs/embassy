@@ -12,7 +12,7 @@ use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{Drive, Pin, Pull, SlewRate};
 use crate::pac::dma::vals::TreqSel;
-use crate::pio::sealed::{PioInstance as _, SmInstance as _};
+use crate::pio::sealed::PioInstance as _;
 use crate::{interrupt, pac, peripherals, RegExt};
 
 struct Wakers([AtomicWaker; 12]);
@@ -119,10 +119,10 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture
         if self.get_mut().sm.try_push_tx(value) {
             Poll::Ready(())
         } else {
-            WAKERS[PIO::PIO_NO as usize].fifo_out()[SM::Sm::SM_NO as usize].register(cx.waker());
+            WAKERS[PIO::PIO_NO as usize].fifo_out()[SM::SM as usize].register(cx.waker());
             unsafe {
                 PIO::PIO.irqs(0).inte().write_set(|m| {
-                    m.0 = TXNFULL_MASK << SM::Sm::SM_NO;
+                    m.0 = TXNFULL_MASK << SM::SM;
                 });
             }
             // debug!("Pending");
@@ -135,7 +135,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Drop for FifoOutFuture<'
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
-                m.0 = TXNFULL_MASK << SM::Sm::SM_NO;
+                m.0 = TXNFULL_MASK << SM::SM;
             });
         }
     }
@@ -164,10 +164,10 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO,
         if let Some(v) = self.sm.try_pull_rx() {
             Poll::Ready(v)
         } else {
-            WAKERS[PIO::PIO_NO as usize].fifo_in()[SM::Sm::SM_NO as usize].register(cx.waker());
+            WAKERS[PIO::PIO_NO as usize].fifo_in()[SM::SM].register(cx.waker());
             unsafe {
                 PIO::PIO.irqs(0).inte().write_set(|m| {
-                    m.0 = RXNEMPTY_MASK << SM::Sm::SM_NO;
+                    m.0 = RXNEMPTY_MASK << SM::SM;
                 });
             }
             //debug!("Pending");
@@ -180,7 +180,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Drop for FifoInFuture<'d, PIO, S
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
-                m.0 = RXNEMPTY_MASK << SM::Sm::SM_NO;
+                m.0 = RXNEMPTY_MASK << SM::SM;
             });
         }
     }
@@ -316,16 +316,15 @@ impl<PIO: PioInstance> SealedPin for PioPin<PIO> {
     }
 }
 
-pub struct PioStateMachineInstance<'d, PIO: PioInstance, SM: SmInstance> {
+pub struct PioStateMachineInstance<'d, PIO: PioInstance, const SM: usize> {
     pio: PhantomData<&'d PIO>,
-    sm: PhantomData<SM>,
 }
 
-impl<'d, PIO: PioInstance, SM: SmInstance> sealed::PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {
+impl<'d, PIO: PioInstance, const SM: usize> sealed::PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {
     type Pio = PIO;
-    type Sm = SM;
+    const SM: usize = SM;
 }
-impl<'d, PIO: PioInstance, SM: SmInstance> PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {}
+impl<'d, PIO: PioInstance, const SM: usize> PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {}
 
 pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn pio_no(&self) -> u8 {
@@ -333,17 +332,17 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn sm_no(&self) -> u8 {
-        Self::Sm::SM_NO
+        Self::SM as u8
     }
 
     fn restart(&mut self) {
-        let mask = 1u8 << Self::Sm::SM_NO;
+        let mask = 1u8 << Self::SM;
         unsafe {
             Self::Pio::PIO.ctrl().write_set(|w| w.set_sm_restart(mask));
         }
     }
     fn set_enable(&mut self, enable: bool) {
-        let mask = 1u8 << Self::Sm::SM_NO;
+        let mask = 1u8 << Self::SM;
         unsafe {
             if enable {
                 Self::Pio::PIO.ctrl().write_set(|w| w.set_sm_enable(mask));
@@ -354,40 +353,40 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn is_enabled(&self) -> bool {
-        unsafe { Self::Pio::PIO.ctrl().read().sm_enable() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.ctrl().read().sm_enable() & (1u8 << Self::SM) != 0 }
     }
 
     fn is_tx_empty(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().txempty() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().txempty() & (1u8 << Self::SM) != 0 }
     }
     fn is_tx_full(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().txfull() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().txfull() & (1u8 << Self::SM) != 0 }
     }
 
     fn is_rx_empty(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().rxempty() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().rxempty() & (1u8 << Self::SM) != 0 }
     }
     fn is_rx_full(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().rxfull() & (1u8 << Self::Sm::SM_NO) != 0 }
+        unsafe { Self::Pio::PIO.fstat().read().rxfull() & (1u8 << Self::SM) != 0 }
     }
 
     fn tx_level(&self) -> u8 {
         unsafe {
             let flevel = Self::Pio::PIO.flevel().read().0;
-            (flevel >> (Self::Sm::SM_NO * 8)) as u8 & 0x0f
+            (flevel >> (Self::SM * 8)) as u8 & 0x0f
         }
     }
 
     fn rx_level(&self) -> u8 {
         unsafe {
             let flevel = Self::Pio::PIO.flevel().read().0;
-            (flevel >> (Self::Sm::SM_NO * 8 + 4)) as u8 & 0x0f
+            (flevel >> (Self::SM * 8 + 4)) as u8 & 0x0f
         }
     }
 
     fn push_tx(&mut self, v: u32) {
         unsafe {
-            Self::Pio::PIO.txf(Self::Sm::SM_NO as usize).write_value(v);
+            Self::Pio::PIO.txf(Self::SM).write_value(v);
         }
     }
 
@@ -400,7 +399,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn pull_rx(&mut self) -> u32 {
-        unsafe { Self::Pio::PIO.rxf(Self::Sm::SM_NO as usize).read() }
+        unsafe { Self::Pio::PIO.rxf(Self::SM).read() }
     }
 
     fn try_pull_rx(&mut self) -> Option<u32> {
@@ -421,7 +420,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     }
 
     fn clkdiv_restart(&mut self) {
-        let mask = 1u8 << Self::Sm::SM_NO;
+        let mask = 1u8 << Self::SM;
         unsafe {
             Self::Pio::PIO.ctrl().write_set(|w| w.set_clkdiv_restart(mask));
         }
@@ -710,8 +709,8 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn has_tx_stalled(&self) -> bool {
         unsafe {
             let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().txstall() & (1 << Self::Sm::SM_NO) != 0;
-            fdebug.write(|w| w.set_txstall(1 << Self::Sm::SM_NO));
+            let ret = fdebug.read().txstall() & (1 << Self::SM) != 0;
+            fdebug.write(|w| w.set_txstall(1 << Self::SM));
             ret
         }
     }
@@ -719,8 +718,8 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn has_tx_overflowed(&self) -> bool {
         unsafe {
             let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().txover() & (1 << Self::Sm::SM_NO) != 0;
-            fdebug.write(|w| w.set_txover(1 << Self::Sm::SM_NO));
+            let ret = fdebug.read().txover() & (1 << Self::SM) != 0;
+            fdebug.write(|w| w.set_txover(1 << Self::SM));
             ret
         }
     }
@@ -728,8 +727,8 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn has_rx_stalled(&self) -> bool {
         unsafe {
             let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().rxstall() & (1 << Self::Sm::SM_NO) != 0;
-            fdebug.write(|w| w.set_rxstall(1 << Self::Sm::SM_NO));
+            let ret = fdebug.read().rxstall() & (1 << Self::SM) != 0;
+            fdebug.write(|w| w.set_rxstall(1 << Self::SM));
             ret
         }
     }
@@ -737,8 +736,8 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn has_rx_underflowed(&self) -> bool {
         unsafe {
             let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().rxunder() & (1 << Self::Sm::SM_NO) != 0;
-            fdebug.write(|w| w.set_rxunder(1 << Self::Sm::SM_NO));
+            let ret = fdebug.read().rxunder() & (1 << Self::SM) != 0;
+            fdebug.write(|w| w.set_rxunder(1 << Self::SM));
             ret
         }
     }
@@ -746,16 +745,15 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn dma_push<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
         unsafe {
             let pio_no = Self::Pio::PIO_NO;
-            let sm_no = Self::Sm::SM_NO;
+            let sm_no = Self::SM;
             let p = ch.regs();
             p.read_addr().write_value(data.as_ptr() as u32);
-            p.write_addr()
-                .write_value(Self::Pio::PIO.txf(sm_no as usize).ptr() as u32);
+            p.write_addr().write_value(Self::Pio::PIO.txf(sm_no).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
             compiler_fence(Ordering::SeqCst);
             p.ctrl_trig().write(|w| {
                 // Set TX DREQ for this statemachine
-                w.set_treq_sel(TreqSel(pio_no * 8 + sm_no));
+                w.set_treq_sel(TreqSel(pio_no * 8 + sm_no as u8));
                 w.set_data_size(W::size());
                 w.set_chain_to(ch.number());
                 w.set_incr_read(true);
@@ -770,16 +768,15 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
     fn dma_pull<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a mut [W]) -> Transfer<'a, C> {
         unsafe {
             let pio_no = Self::Pio::PIO_NO;
-            let sm_no = Self::Sm::SM_NO;
+            let sm_no = Self::SM;
             let p = ch.regs();
             p.write_addr().write_value(data.as_ptr() as u32);
-            p.read_addr()
-                .write_value(Self::Pio::PIO.rxf(sm_no as usize).ptr() as u32);
+            p.read_addr().write_value(Self::Pio::PIO.rxf(sm_no).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
             compiler_fence(Ordering::SeqCst);
             p.ctrl_trig().write(|w| {
                 // Set RX DREQ for this statemachine
-                w.set_treq_sel(TreqSel(pio_no * 8 + sm_no + 4));
+                w.set_treq_sel(TreqSel(pio_no * 8 + sm_no as u8 + 4));
                 w.set_data_size(W::size());
                 w.set_chain_to(ch.number());
                 w.set_incr_read(false);
@@ -882,22 +879,12 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
     }
 }
 
-// Identifies a specific state machine inside a PIO device
-pub struct SmInstanceBase<const SM_NO: u8> {}
-
-pub trait SmInstance: sealed::SmInstance + Unpin {}
-
-impl<const SM_NO: u8> sealed::SmInstance for SmInstanceBase<SM_NO> {
-    const SM_NO: u8 = SM_NO;
-}
-impl<const SM_NO: u8> SmInstance for SmInstanceBase<SM_NO> {}
-
 pub struct Pio<'d, PIO: PioInstance> {
     pub common: PioCommon<'d, PIO>,
-    pub sm0: PioStateMachineInstance<'d, PIO, SmInstanceBase<0>>,
-    pub sm1: PioStateMachineInstance<'d, PIO, SmInstanceBase<1>>,
-    pub sm2: PioStateMachineInstance<'d, PIO, SmInstanceBase<2>>,
-    pub sm3: PioStateMachineInstance<'d, PIO, SmInstanceBase<3>>,
+    pub sm0: PioStateMachineInstance<'d, PIO, 0>,
+    pub sm1: PioStateMachineInstance<'d, PIO, 1>,
+    pub sm2: PioStateMachineInstance<'d, PIO, 2>,
+    pub sm3: PioStateMachineInstance<'d, PIO, 3>,
 }
 
 impl<'d, PIO: PioInstance> Pio<'d, PIO> {
@@ -907,22 +894,10 @@ impl<'d, PIO: PioInstance> Pio<'d, PIO> {
                 instructions_used: 0,
                 pio: PhantomData,
             },
-            sm0: PioStateMachineInstance {
-                sm: PhantomData,
-                pio: PhantomData,
-            },
-            sm1: PioStateMachineInstance {
-                sm: PhantomData,
-                pio: PhantomData,
-            },
-            sm2: PioStateMachineInstance {
-                sm: PhantomData,
-                pio: PhantomData,
-            },
-            sm3: PioStateMachineInstance {
-                sm: PhantomData,
-                pio: PhantomData,
-            },
+            sm0: PioStateMachineInstance { pio: PhantomData },
+            sm1: PioStateMachineInstance { pio: PhantomData },
+            sm2: PioStateMachineInstance { pio: PhantomData },
+            sm3: PioStateMachineInstance { pio: PhantomData },
         }
     }
 }
@@ -936,16 +911,12 @@ pub trait PioInstance: sealed::PioInstance + Sized + Unpin {
 mod sealed {
     pub trait PioStateMachine {
         type Pio: super::PioInstance;
-        type Sm: super::SmInstance;
+        const SM: usize;
 
         #[inline(always)]
         fn this_sm() -> crate::pac::pio::StateMachine {
-            Self::Pio::PIO.sm(Self::Sm::SM_NO as usize)
+            Self::Pio::PIO.sm(Self::SM as usize)
         }
-    }
-
-    pub trait SmInstance {
-        const SM_NO: u8;
     }
 
     pub trait PioInstance {
@@ -954,11 +925,6 @@ mod sealed {
         const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
     }
 }
-
-pub type Sm0 = SmInstanceBase<0>;
-pub type Sm1 = SmInstanceBase<1>;
-pub type Sm2 = SmInstanceBase<2>;
-pub type Sm3 = SmInstanceBase<3>;
 
 macro_rules! impl_pio {
     ($name:ident, $pio:expr, $pac:ident, $funcsel:ident) => {
