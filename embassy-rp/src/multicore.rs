@@ -33,7 +33,7 @@ use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::peripherals::CORE1;
-use crate::{interrupt, pac};
+use crate::{gpio, interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
@@ -68,6 +68,9 @@ fn install_stack_guard(stack_bottom: *mut usize) {
 #[inline(always)]
 fn core1_setup(stack_bottom: *mut usize) {
     install_stack_guard(stack_bottom);
+    unsafe {
+        gpio::init();
+    }
 }
 
 /// Data type for a properly aligned stack of N bytes

@@ -9,7 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 const PIN_COUNT: usize = 30;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -136,16 +136,11 @@ pub enum InterruptTrigger {
     AnyEdge,
 }
 
-impl InterruptTrigger {
-    fn from_u32(value: u32) -> Option<InterruptTrigger> {
-        match value {
-            1 => Some(InterruptTrigger::LevelLow),
-            2 => Some(InterruptTrigger::LevelHigh),
-            3 => Some(InterruptTrigger::EdgeLow),
-            4 => Some(InterruptTrigger::EdgeHigh),
-            _ => None,
-        }
-    }
+pub(crate) unsafe fn init() {
+    let irq = interrupt::IO_IRQ_BANK0::steal();
+    irq.disable();
+    irq.set_priority(interrupt::Priority::P3);
+    irq.enable();
 }
 
 #[interrupt]
@@ -166,27 +161,15 @@ unsafe fn IO_IRQ_BANK0() {
         let pin_group = (pin % 8) as usize;
         let event = (intsx.read().0 >> pin_group * 4) & 0xf as u32;
 
-        if let Some(trigger) = InterruptTrigger::from_u32(event) {
-            critical_section::with(|_| {
-                proc_intx.inte(pin / 8).modify(|w| match trigger {
-                    InterruptTrigger::AnyEdge => {
-                        w.set_edge_high(pin_group, false);
-                        w.set_edge_low(pin_group, false);
-                    }
-                    InterruptTrigger::LevelHigh => {
-                        trace!("IO_IRQ_BANK0 pin {} LevelHigh triggered", pin);
-                        w.set_level_high(pin_group, false);
-                    }
-                    InterruptTrigger::LevelLow => {
-                        w.set_level_low(pin_group, false);
-                    }
-                    InterruptTrigger::EdgeHigh => {
-                        w.set_edge_high(pin_group, false);
-                    }
-                    InterruptTrigger::EdgeLow => {
-                        w.set_edge_low(pin_group, false);
-                    }
-                });
+        // no more than one event can be awaited per pin at any given time, so
+        // we can just clear all interrupt enables for that pin without having
+        // to check which event was signalled.
+        if event != 0 {
+            proc_intx.inte(pin / 8).write_clear(|w| {
+                w.set_edge_high(pin_group, true);
+                w.set_edge_low(pin_group, true);
+                w.set_level_high(pin_group, true);
+                w.set_level_low(pin_group, true);
             });
             INTERRUPT_WAKERS[pin as usize].wake();
         }
@@ -203,16 +186,26 @@ impl<'d, T: Pin> InputFuture<'d, T> {
     pub fn new(pin: impl Peripheral<P = T> + 'd, level: InterruptTrigger) -> Self {
         into_ref!(pin);
         unsafe {
-            let irq = interrupt::IO_IRQ_BANK0::steal();
-            irq.disable();
-            irq.set_priority(interrupt::Priority::P3);
+            let pin_group = (pin.pin() % 8) as usize;
+            // first, clear the INTR register bits. without this INTR will still
+            // contain reports of previous edges, causing the IRQ to fire early
+            // on stale state. clearing these means that we can only detect edges
+            // that occur *after* the clear happened, but since both this and the
+            // alternative are fundamentally racy it's probably fine.
+            // (the alternative being checking the current level and waiting for
+            // its inverse, but that requires reading the current level and thus
+            // missing anything that happened before the level was read.)
+            pac::IO_BANK0.intr(pin.pin() as usize / 8).write(|w| {
+                w.set_edge_high(pin_group, true);
+                w.set_edge_low(pin_group, true);
+            });
 
             // Each INTR register is divided into 8 groups, one group for each
             // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
             // and EGDE_HIGH.
-            let pin_group = (pin.pin() % 8) as usize;
-            critical_section::with(|_| {
-                pin.int_proc().inte((pin.pin() / 8) as usize).modify(|w| match level {
+            pin.int_proc()
+                .inte((pin.pin() / 8) as usize)
+                .write_set(|w| match level {
                     InterruptTrigger::LevelHigh => {
                         trace!("InputFuture::new enable LevelHigh for pin {}", pin.pin());
                         w.set_level_high(pin_group, true);
@@ -227,12 +220,10 @@ impl<'d, T: Pin> InputFuture<'d, T> {
                         w.set_edge_low(pin_group, true);
                     }
                     InterruptTrigger::AnyEdge => {
-                        // noop
+                        w.set_edge_high(pin_group, true);
+                        w.set_edge_low(pin_group, true);
                     }
                 });
-            });
-
-            irq.enable();
         }
 
         Self { pin, level }
@@ -257,47 +248,21 @@ impl<'d, T: Pin> Future for InputFuture<'d, T> {
         // LEVEL_HIGH, EDGE_LOW, and EDGE_HIGH for each pin.
         let pin_group = (self.pin.pin() % 8) as usize;
 
-        // This should check the the level of the interrupt trigger level of
-        // the pin and if it has been disabled that means it was done by the
-        // interrupt service routine, so we then know that the event/trigger
-        // happened and Poll::Ready will be returned.
-        trace!("{:?} for pin {}", self.level, self.pin.pin());
-        match self.level {
-            InterruptTrigger::AnyEdge => {
-                if !inte.edge_high(pin_group) && !inte.edge_low(pin_group) {
-                    #[rustfmt::skip]
-                    trace!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
-                    return Poll::Ready(());
-                }
-            }
-            InterruptTrigger::LevelHigh => {
-                if !inte.level_high(pin_group) {
-                    #[rustfmt::skip]
-                    trace!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
-                    return Poll::Ready(());
-                }
-            }
-            InterruptTrigger::LevelLow => {
-                if !inte.level_low(pin_group) {
-                    #[rustfmt::skip]
-                    trace!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
-                    return Poll::Ready(());
-                }
-            }
-            InterruptTrigger::EdgeHigh => {
-                if !inte.edge_high(pin_group) {
-                    #[rustfmt::skip]
-                    trace!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
-                    return Poll::Ready(());
-                }
-            }
-            InterruptTrigger::EdgeLow => {
-                if !inte.edge_low(pin_group) {
-                    #[rustfmt::skip]
-                    trace!("{:?} for pin {} was cleared, return Poll::Ready", self.level, self.pin.pin());
-                    return Poll::Ready(());
-                }
-            }
+        // since the interrupt handler clears all INTE flags we'll check that
+        // all have been cleared and unconditionally return Ready(()) if so.
+        // we don't need further handshaking since only a single event wait
+        // is possible for any given pin at any given time.
+        if !inte.edge_high(pin_group)
+            && !inte.edge_low(pin_group)
+            && !inte.level_high(pin_group)
+            && !inte.level_low(pin_group)
+        {
+            trace!(
+                "{:?} for pin {} was cleared, return Poll::Ready",
+                self.level,
+                self.pin.pin()
+            );
+            return Poll::Ready(());
         }
         trace!("InputFuture::poll return Poll::Pending");
         Poll::Pending
@@ -644,23 +609,17 @@ impl<'d, T: Pin> Flex<'d, T> {
 
     #[inline]
     pub async fn wait_for_rising_edge(&mut self) {
-        self.wait_for_low().await;
-        self.wait_for_high().await;
+        InputFuture::new(&mut self.pin, InterruptTrigger::EdgeHigh).await;
     }
 
     #[inline]
     pub async fn wait_for_falling_edge(&mut self) {
-        self.wait_for_high().await;
-        self.wait_for_low().await;
+        InputFuture::new(&mut self.pin, InterruptTrigger::EdgeLow).await;
     }
 
     #[inline]
     pub async fn wait_for_any_edge(&mut self) {
-        if self.is_high() {
-            self.wait_for_low().await;
-        } else {
-            self.wait_for_high().await;
-        }
+        InputFuture::new(&mut self.pin, InterruptTrigger::AnyEdge).await;
     }
 }
 
