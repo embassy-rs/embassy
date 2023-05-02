@@ -53,10 +53,6 @@ async fn main(_spawner: Spawner) {
     let (mut tx, mut rx, mut uart) = (p.PIN_0, p.PIN_1, p.UART0);
     let mut irq = interrupt::take!(UART0_IRQ);
 
-    // TODO
-    // nuclear error reporting. just abort the entire transfer and invalidate the
-    // dma buffer, buffered buffer, fifo etc.
-
     // We can't send too many bytes, they have to fit in the FIFO.
     // This is because we aren't sending+receiving at the same time.
     {
