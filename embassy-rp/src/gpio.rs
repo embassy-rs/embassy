@@ -136,6 +136,13 @@ pub enum InterruptTrigger {
     AnyEdge,
 }
 
+pub(crate) unsafe fn init() {
+    let irq = interrupt::IO_IRQ_BANK0::steal();
+    irq.disable();
+    irq.set_priority(interrupt::Priority::P3);
+    irq.enable();
+}
+
 #[interrupt]
 unsafe fn IO_IRQ_BANK0() {
     let cpu = SIO.cpuid().read() as usize;
@@ -179,10 +186,6 @@ impl<'d, T: Pin> InputFuture<'d, T> {
     pub fn new(pin: impl Peripheral<P = T> + 'd, level: InterruptTrigger) -> Self {
         into_ref!(pin);
         unsafe {
-            let irq = interrupt::IO_IRQ_BANK0::steal();
-            irq.disable();
-            irq.set_priority(interrupt::Priority::P3);
-
             let pin_group = (pin.pin() % 8) as usize;
             // first, clear the INTR register bits. without this INTR will still
             // contain reports of previous edges, causing the IRQ to fire early
@@ -221,8 +224,6 @@ impl<'d, T: Pin> InputFuture<'d, T> {
                         w.set_edge_low(pin_group, true);
                     }
                 });
-
-            irq.enable();
         }
 
         Self { pin, level }
