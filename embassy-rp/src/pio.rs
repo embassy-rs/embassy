@@ -8,10 +8,10 @@ use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::PeripheralRef;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::{Channel, Transfer};
+use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{Drive, Pin, Pull, SlewRate};
-use crate::pac::dma::vals::{DataSize, TreqSel};
+use crate::pac::dma::vals::TreqSel;
 use crate::pio::sealed::{PioInstance as _, SmInstance as _};
 use crate::{interrupt, pac, peripherals, RegExt};
 
@@ -820,7 +820,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         }
     }
 
-    fn dma_push<'a, C: Channel>(&'a self, ch: PeripheralRef<'a, C>, data: &'a [u32]) -> Transfer<'a, C> {
+    fn dma_push<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
         unsafe {
             let pio_no = Self::Pio::PIO_NO;
             let sm_no = Self::Sm::SM_NO;
@@ -829,10 +829,11 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
             p.write_addr()
                 .write_value(Self::Pio::PIO.txf(sm_no as usize).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
+            compiler_fence(Ordering::SeqCst);
             p.ctrl_trig().write(|w| {
                 // Set TX DREQ for this statemachine
                 w.set_treq_sel(TreqSel(pio_no * 8 + sm_no));
-                w.set_data_size(DataSize::SIZE_WORD);
+                w.set_data_size(W::size());
                 w.set_chain_to(ch.number());
                 w.set_incr_read(true);
                 w.set_incr_write(false);
@@ -843,7 +844,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         Transfer::new(ch)
     }
 
-    fn dma_pull<'a, C: Channel>(&'a self, ch: PeripheralRef<'a, C>, data: &'a mut [u32]) -> Transfer<'a, C> {
+    fn dma_pull<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a mut [W]) -> Transfer<'a, C> {
         unsafe {
             let pio_no = Self::Pio::PIO_NO;
             let sm_no = Self::Sm::SM_NO;
@@ -852,10 +853,11 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
             p.read_addr()
                 .write_value(Self::Pio::PIO.rxf(sm_no as usize).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
+            compiler_fence(Ordering::SeqCst);
             p.ctrl_trig().write(|w| {
-                // Set TX DREQ for this statemachine
+                // Set RX DREQ for this statemachine
                 w.set_treq_sel(TreqSel(pio_no * 8 + sm_no + 4));
-                w.set_data_size(DataSize::SIZE_WORD);
+                w.set_data_size(W::size());
                 w.set_chain_to(ch.number());
                 w.set_incr_read(false);
                 w.set_incr_write(true);
