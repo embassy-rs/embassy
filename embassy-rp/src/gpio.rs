@@ -9,7 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 const PIN_COUNT: usize = 30;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
@@ -158,13 +158,11 @@ unsafe fn IO_IRQ_BANK0() {
         // we can just clear all interrupt enables for that pin without having
         // to check which event was signalled.
         if event != 0 {
-            critical_section::with(|_| {
-                proc_intx.inte(pin / 8).modify(|w| {
-                    w.set_edge_high(pin_group, false);
-                    w.set_edge_low(pin_group, false);
-                    w.set_level_high(pin_group, false);
-                    w.set_level_low(pin_group, false);
-                });
+            proc_intx.inte(pin / 8).write_clear(|w| {
+                w.set_edge_high(pin_group, true);
+                w.set_edge_low(pin_group, true);
+                w.set_level_high(pin_group, true);
+                w.set_level_low(pin_group, true);
             });
             INTERRUPT_WAKERS[pin as usize].wake();
         }
@@ -202,8 +200,9 @@ impl<'d, T: Pin> InputFuture<'d, T> {
             // Each INTR register is divided into 8 groups, one group for each
             // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
             // and EGDE_HIGH.
-            critical_section::with(|_| {
-                pin.int_proc().inte((pin.pin() / 8) as usize).modify(|w| match level {
+            pin.int_proc()
+                .inte((pin.pin() / 8) as usize)
+                .write_set(|w| match level {
                     InterruptTrigger::LevelHigh => {
                         trace!("InputFuture::new enable LevelHigh for pin {}", pin.pin());
                         w.set_level_high(pin_group, true);
@@ -222,7 +221,6 @@ impl<'d, T: Pin> InputFuture<'d, T> {
                         w.set_edge_low(pin_group, true);
                     }
                 });
-            });
 
             irq.enable();
         }
