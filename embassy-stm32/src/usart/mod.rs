@@ -12,10 +12,11 @@ use futures::future::{select, Either};
 
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
-#[cfg(any(lpuart_v1, lpuart_v2))]
-use crate::pac::lpuart::{regs, vals, Lpuart as Regs};
-#[cfg(not(any(lpuart_v1, lpuart_v2)))]
-use crate::pac::usart::{regs, vals, Usart as Regs};
+#[cfg(not(any(usart_v1, usart_v2)))]
+use crate::pac::usart::Lpuart as Regs;
+#[cfg(any(usart_v1, usart_v2))]
+use crate::pac::usart::Usart as Regs;
+use crate::pac::usart::{regs, vals};
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
@@ -159,7 +160,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
         }
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER, false, true);
+        configure(r, &config, T::frequency(), T::KIND, false, true);
 
         // create state once!
         let _s = T::state();
@@ -261,7 +262,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             rx.set_as_af(rx.af_num(), AFType::Input);
         }
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER, true, false);
+        configure(r, &config, T::frequency(), T::KIND, true, false);
 
         irq.set_handler(Self::on_interrupt);
         irq.unpend();
@@ -653,7 +654,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         Self::new_inner(peri, rx, tx, irq, tx_dma, rx_dma, config)
     }
 
-    #[cfg(not(usart_v1))]
+    #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
@@ -696,7 +697,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
         }
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER, true, true);
+        configure(r, &config, T::frequency(), T::KIND, true, true);
 
         irq.set_handler(UartRx::<T, RxDma>::on_interrupt);
         irq.unpend();
@@ -763,16 +764,74 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32, enable_rx: bool, enable_tx: bool) {
+fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: bool, enable_tx: bool) {
     if !enable_rx && !enable_tx {
         panic!("USART: At least one of RX or TX should be enabled");
     }
 
-    // TODO: better calculation, including error checking and OVER8 if possible.
-    let div = (pclk_freq.0 + (config.baudrate / 2)) / config.baudrate * multiplier;
+    #[cfg(not(usart_v4))]
+    static DIVS: [(u16, ()); 1] = [(1, ())];
+
+    #[cfg(usart_v4)]
+    static DIVS: [(u16, vals::Presc); 12] = [
+        (1, vals::Presc::DIV1),
+        (2, vals::Presc::DIV2),
+        (4, vals::Presc::DIV4),
+        (6, vals::Presc::DIV6),
+        (8, vals::Presc::DIV8),
+        (10, vals::Presc::DIV10),
+        (12, vals::Presc::DIV12),
+        (16, vals::Presc::DIV16),
+        (32, vals::Presc::DIV32),
+        (64, vals::Presc::DIV64),
+        (128, vals::Presc::DIV128),
+        (256, vals::Presc::DIV256),
+    ];
+
+    let (mul, brr_min, brr_max) = match kind {
+        #[cfg(any(usart_v3, usart_v4))]
+        Kind::Lpuart => (256, 0x300, 0x10_0000),
+        Kind::Uart => (1, 0x10, 0x1_0000),
+    };
+
+    #[cfg(not(usart_v1))]
+    let mut over8 = false;
+    let mut found = false;
+    for &(presc, _presc_val) in &DIVS {
+        let denom = (config.baudrate * presc as u32) as u64;
+        let div = (pclk_freq.0 as u64 * mul + (denom / 2)) / denom;
+        trace!("USART: presc={} div={:08x}", presc, div);
+
+        if div < brr_min {
+            #[cfg(not(usart_v1))]
+            if div * 2 >= brr_min && kind == Kind::Uart && !cfg!(usart_v1) {
+                over8 = true;
+                let div = div as u32;
+                unsafe {
+                    r.brr().write_value(regs::Brr(((div << 1) & !0xF) | (div & 0x07)));
+                    #[cfg(usart_v4)]
+                    r.presc().write(|w| w.set_prescaler(_presc_val));
+                }
+                found = true;
+                break;
+            }
+            panic!("USART: baudrate too high");
+        }
+
+        if div < brr_max {
+            unsafe {
+                r.brr().write_value(regs::Brr(div as u32));
+                #[cfg(usart_v4)]
+                r.presc().write(|w| w.set_prescaler(_presc_val));
+            }
+            found = true;
+            break;
+        }
+    }
+
+    assert!(found, "USART: baudrate too low");
 
     unsafe {
-        r.brr().write_value(regs::Brr(div));
         r.cr2().write(|w| {
             w.set_stop(match config.stop_bits {
                 StopBits::STOP0P5 => vals::Stop::STOP0P5,
@@ -801,6 +860,8 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, multiplier: u32, enable
                 Parity::ParityEven => vals::Ps::EVEN,
                 _ => vals::Ps::EVEN,
             });
+            #[cfg(not(usart_v1))]
+            w.set_over8(vals::Over8(over8 as _));
         });
     }
 }
@@ -986,43 +1047,45 @@ mod rx_ringbuffered;
 #[cfg(not(gpdma))]
 pub use rx_ringbuffered::RingBufferedUartRx;
 
-#[cfg(usart_v1)]
+use self::sealed::Kind;
+
+#[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
     r.dr().ptr() as _
 }
 
-#[cfg(usart_v1)]
+#[cfg(any(usart_v1, usart_v2))]
 fn rdr(r: crate::pac::usart::Usart) -> *mut u8 {
     r.dr().ptr() as _
 }
 
-#[cfg(usart_v1)]
+#[cfg(any(usart_v1, usart_v2))]
 fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Sr, crate::pac::common::RW> {
     r.sr()
 }
 
-#[cfg(usart_v1)]
+#[cfg(any(usart_v1, usart_v2))]
 #[allow(unused)]
 unsafe fn clear_interrupt_flags(_r: Regs, _sr: regs::Sr) {
     // On v1 the flags are cleared implicitly by reads and writes to DR.
 }
 
-#[cfg(usart_v2)]
+#[cfg(any(usart_v3, usart_v4))]
 fn tdr(r: Regs) -> *mut u8 {
     r.tdr().ptr() as _
 }
 
-#[cfg(usart_v2)]
+#[cfg(any(usart_v3, usart_v4))]
 fn rdr(r: Regs) -> *mut u8 {
     r.rdr().ptr() as _
 }
 
-#[cfg(usart_v2)]
+#[cfg(any(usart_v3, usart_v4))]
 fn sr(r: Regs) -> crate::pac::common::Reg<regs::Isr, crate::pac::common::R> {
     r.isr()
 }
 
-#[cfg(usart_v2)]
+#[cfg(any(usart_v3, usart_v4))]
 #[allow(unused)]
 unsafe fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
     r.icr().write(|w| *w = regs::Icr(sr.0));
@@ -1032,6 +1095,13 @@ pub(crate) mod sealed {
     use embassy_sync::waitqueue::AtomicWaker;
 
     use super::*;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub enum Kind {
+        Uart,
+        #[cfg(any(usart_v3, usart_v4))]
+        Lpuart,
+    }
 
     pub struct State {
         pub rx_waker: AtomicWaker,
@@ -1048,7 +1118,7 @@ pub(crate) mod sealed {
     }
 
     pub trait BasicInstance: crate::rcc::RccPeripheral {
-        const MULTIPLIER: u32;
+        const KIND: Kind;
         type Interrupt: crate::interrupt::Interrupt;
 
         fn regs() -> Regs;
@@ -1077,10 +1147,10 @@ pin_trait!(DePin, BasicInstance);
 dma_trait!(TxDma, BasicInstance);
 dma_trait!(RxDma, BasicInstance);
 
-macro_rules! impl_lpuart {
-    ($inst:ident, $irq:ident, $mul:expr) => {
+macro_rules! impl_usart {
+    ($inst:ident, $irq:ident, $kind:expr) => {
         impl sealed::BasicInstance for crate::peripherals::$inst {
-            const MULTIPLIER: u32 = $mul;
+            const KIND: Kind = $kind;
             type Interrupt = crate::interrupt::$irq;
 
             fn regs() -> Regs {
@@ -1104,21 +1174,19 @@ macro_rules! impl_lpuart {
 }
 
 foreach_interrupt!(
-    ($inst:ident, lpuart, $block:ident, $signal_name:ident, $irq:ident) => {
-        impl_lpuart!($inst, $irq, 256);
+    ($inst:ident, usart, LPUART, $signal_name:ident, $irq:ident) => {
+        impl_usart!($inst, $irq, Kind::Lpuart);
     };
 
     ($inst:ident, usart, $block:ident, $signal_name:ident, $irq:ident) => {
-        impl_lpuart!($inst, $irq, 1);
+        impl_usart!($inst, $irq, Kind::Uart);
 
         impl sealed::FullInstance for peripherals::$inst {
-
             fn regs_uart() -> crate::pac::usart::Usart {
                 crate::pac::$inst
             }
         }
 
-        impl FullInstance for peripherals::$inst {
-        }
+        impl FullInstance for peripherals::$inst {}
     };
 );
