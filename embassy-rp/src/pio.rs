@@ -4,9 +4,11 @@ use core::pin::Pin as FuturePin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
+use atomic_polyfill::{AtomicU32, AtomicU8};
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+use pac::io::vals::Gpio0ctrlFuncsel;
 
 use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
@@ -318,6 +320,12 @@ impl<PIO: PioInstance> SealedPin for PioPin<PIO> {
 
 pub struct PioStateMachineInstance<'d, PIO: PioInstance, const SM: usize> {
     pio: PhantomData<&'d PIO>,
+}
+
+impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachineInstance<'d, PIO, SM> {
+    fn drop(&mut self) {
+        on_pio_drop::<PIO>();
+    }
 }
 
 impl<'d, PIO: PioInstance, const SM: usize> sealed::PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {
@@ -794,6 +802,12 @@ pub struct PioCommon<'d, PIO: PioInstance> {
     pio: PhantomData<&'d PIO>,
 }
 
+impl<'d, PIO: PioInstance> Drop for PioCommon<'d, PIO> {
+    fn drop(&mut self) {
+        on_pio_drop::<PIO>();
+    }
+}
+
 pub struct PioInstanceMemory<'d, PIO: PioInstance> {
     used_mask: u32,
     pio: PhantomData<&'d PIO>,
@@ -870,10 +884,15 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
         unsafe { PIO::PIO.input_sync_bypass().read() }
     }
 
-    pub fn make_pio_pin(&self, pin: impl Pin) -> PioPin<PIO> {
+    /// Register a pin for PIO usage. Pins will be released from the PIO block
+    /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`PioCommon`] *and*
+    /// all [`PioStateMachine`]s for this block have been dropped.
+    pub fn make_pio_pin(&mut self, pin: impl Pin) -> PioPin<PIO> {
         unsafe {
             pin.io().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL.0));
         }
+        // we can be relaxed about this because we're &mut here and nothing is cached
+        PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         PioPin {
             pin_bank: pin.pin_bank(),
             pio: PhantomData::default(),
@@ -891,6 +910,8 @@ pub struct Pio<'d, PIO: PioInstance> {
 
 impl<'d, PIO: PioInstance> Pio<'d, PIO> {
     pub fn new(_pio: impl Peripheral<P = PIO> + 'd) -> Self {
+        PIO::state().users.store(5, Ordering::Release);
+        PIO::state().used_pins.store(0, Ordering::Release);
         Self {
             common: PioCommon {
                 instructions_used: 0,
@@ -904,13 +925,35 @@ impl<'d, PIO: PioInstance> Pio<'d, PIO> {
     }
 }
 
-pub trait PioInstance: sealed::PioInstance + Sized + Unpin {
-    fn pio(&self) -> u8 {
-        Self::PIO_NO
+// we need to keep a record of which pins are assigned to each PIO. make_pio_pin
+// notionally takes ownership of the pin it is given, but the wrapped pin cannot
+// be treated as an owned resource since dropping it would have to deconfigure
+// the pin, breaking running state machines in the process. pins are also shared
+// between all state machines, which makes ownership even messier to track any
+// other way.
+pub struct State {
+    users: AtomicU8,
+    used_pins: AtomicU32,
+}
+
+fn on_pio_drop<PIO: PioInstance>() {
+    let state = PIO::state();
+    if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
+        let used_pins = state.used_pins.load(Ordering::Relaxed);
+        let null = Gpio0ctrlFuncsel::NULL.0;
+        for i in 0..32 {
+            if used_pins & (1 << i) != 0 {
+                unsafe {
+                    pac::IO_BANK0.gpio(i).ctrl().write(|w| w.set_funcsel(null));
+                }
+            }
+        }
     }
 }
 
 mod sealed {
+    use super::*;
+
     pub trait PioStateMachine {
         type Pio: super::PioInstance;
         const SM: usize;
@@ -925,6 +968,22 @@ mod sealed {
         const PIO_NO: u8;
         const PIO: &'static crate::pac::pio::Pio;
         const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
+
+        #[inline]
+        fn state() -> &'static State {
+            static STATE: State = State {
+                users: AtomicU8::new(0),
+                used_pins: AtomicU32::new(0),
+            };
+
+            &STATE
+        }
+    }
+}
+
+pub trait PioInstance: sealed::PioInstance + Sized + Unpin {
+    fn pio(&self) -> u8 {
+        Self::PIO_NO
     }
 }
 
