@@ -874,7 +874,6 @@ mod sealed {
     pub trait Instance {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
-        const ID: usize;
 
         type Interrupt: crate::interrupt::Interrupt;
 
@@ -909,11 +908,10 @@ impl_mode!(Async);
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($inst:ident, $irq:ident, $id:expr, $tx_dreq:expr, $rx_dreq:expr) => {
+    ($inst:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$inst {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
-            const ID: usize = $id;
 
             type Interrupt = crate::interrupt::$irq;
 
@@ -939,8 +937,8 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(UART0, UART0_IRQ, 0, 20, 21);
-impl_instance!(UART1, UART1_IRQ, 1, 22, 23);
+impl_instance!(UART0, UART0_IRQ, 20, 21);
+impl_instance!(UART1, UART1_IRQ, 22, 23);
 
 pub trait TxPin<T: Instance>: sealed::TxPin<T> + crate::gpio::Pin {}
 pub trait RxPin<T: Instance>: sealed::RxPin<T> + crate::gpio::Pin {}
