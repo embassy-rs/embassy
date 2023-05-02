@@ -145,13 +145,16 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 async fn transmit_task(mut tx: UartTx<'static, board::Uart, board::TxDma>) {
+    // workaround https://github.com/embassy-rs/embassy/issues/1426
+    Timer::after(Duration::from_millis(100) as _).await;
+
     let mut rng = ChaCha8Rng::seed_from_u64(1337);
 
     info!("Starting random transmissions into void...");
 
     let mut i: u8 = 0;
     loop {
-        let mut buf = [0; 32];
+        let mut buf = [0; 256];
         let len = 1 + (rng.next_u32() as usize % buf.len());
         for b in &mut buf[..len] {
             *b = i;
@@ -172,7 +175,7 @@ async fn receive_task(mut rx: RingBufferedUartRx<'static, board::Uart, board::Rx
     let mut i = 0;
     let mut expected = 0;
     loop {
-        let mut buf = [0; 100];
+        let mut buf = [0; 256];
         let max_len = 1 + (rng.next_u32() as usize % buf.len());
         let received = match rx.read(&mut buf[..max_len]).await {
             Ok(r) => r,
