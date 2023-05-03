@@ -14,7 +14,6 @@ use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{self, AnyPin, Drive, Pull, SlewRate};
 use crate::pac::dma::vals::TreqSel;
-use crate::pio::sealed::PioInstance as _;
 use crate::{interrupt, pac, peripherals, RegExt};
 
 struct Wakers([AtomicWaker; 12]);
@@ -97,23 +96,18 @@ pub(crate) unsafe fn init() {
 
 /// Future that waits for TX-FIFO to become writable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct FifoOutFuture<'a, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> {
-    sm: &'a mut SM,
-    pio: PhantomData<PIO>,
+pub struct FifoOutFuture<'a, 'd, PIO: PioInstance, const SM: usize> {
+    sm: &'a mut PioStateMachine<'d, PIO, SM>,
     value: u32,
 }
 
-impl<'a, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> FifoOutFuture<'a, PIO, SM> {
-    pub fn new(sm: &'a mut SM, value: u32) -> Self {
-        FifoOutFuture {
-            sm,
-            pio: PhantomData::default(),
-            value,
-        }
+impl<'a, 'd, PIO: PioInstance, const SM: usize> FifoOutFuture<'a, 'd, PIO, SM> {
+    pub fn new(sm: &'a mut PioStateMachine<'d, PIO, SM>, value: u32) -> Self {
+        FifoOutFuture { sm, value }
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> Future for FifoOutFuture<'d, PIO, SM> {
+impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoOutFuture<'a, 'd, PIO, SM> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
@@ -121,10 +115,10 @@ impl<'d, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> Future for FifoO
         if self.get_mut().sm.try_push_tx(value) {
             Poll::Ready(())
         } else {
-            WAKERS[PIO::PIO_NO as usize].fifo_out()[SM::SM as usize].register(cx.waker());
+            WAKERS[PIO::PIO_NO as usize].fifo_out()[SM].register(cx.waker());
             unsafe {
                 PIO::PIO.irqs(0).inte().write_set(|m| {
-                    m.0 = TXNFULL_MASK << SM::SM;
+                    m.0 = TXNFULL_MASK << SM;
                 });
             }
             // debug!("Pending");
@@ -133,11 +127,11 @@ impl<'d, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> Future for FifoO
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> Drop for FifoOutFuture<'d, PIO, SM> {
+impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoOutFuture<'a, 'd, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
-                m.0 = TXNFULL_MASK << SM::SM;
+                m.0 = TXNFULL_MASK << SM;
             });
         }
     }
@@ -145,31 +139,27 @@ impl<'d, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> Drop for FifoOut
 
 /// Future that waits for RX-FIFO to become readable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct FifoInFuture<'a, PIO: PioInstance, SM: PioStateMachineInstance> {
-    sm: &'a mut SM,
-    pio: PhantomData<PIO>,
+pub struct FifoInFuture<'a, 'd, PIO: PioInstance, const SM: usize> {
+    sm: &'a mut PioStateMachine<'d, PIO, SM>,
 }
 
-impl<'a, PIO: PioInstance, SM: PioStateMachineInstance> FifoInFuture<'a, PIO, SM> {
-    pub fn new(sm: &'a mut SM) -> Self {
-        FifoInFuture {
-            sm,
-            pio: PhantomData::default(),
-        }
+impl<'a, 'd, PIO: PioInstance, const SM: usize> FifoInFuture<'a, 'd, PIO, SM> {
+    pub fn new(sm: &'a mut PioStateMachine<'d, PIO, SM>) -> Self {
+        FifoInFuture { sm }
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachineInstance> Future for FifoInFuture<'d, PIO, SM> {
+impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO, SM> {
     type Output = u32;
     fn poll(mut self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
         if let Some(v) = self.sm.try_pull_rx() {
             Poll::Ready(v)
         } else {
-            WAKERS[PIO::PIO_NO as usize].fifo_in()[SM::SM].register(cx.waker());
+            WAKERS[PIO::PIO_NO as usize].fifo_in()[SM].register(cx.waker());
             unsafe {
                 PIO::PIO.irqs(0).inte().write_set(|m| {
-                    m.0 = RXNEMPTY_MASK << SM::SM;
+                    m.0 = RXNEMPTY_MASK << SM;
                 });
             }
             //debug!("Pending");
@@ -178,11 +168,11 @@ impl<'d, PIO: PioInstance, SM: PioStateMachineInstance> Future for FifoInFuture<
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachineInstance> Drop for FifoInFuture<'d, PIO, SM> {
+impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoInFuture<'a, 'd, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
-                m.0 = RXNEMPTY_MASK << SM::SM;
+                m.0 = RXNEMPTY_MASK << SM;
             });
         }
     }
@@ -325,69 +315,68 @@ impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachine<'d, PIO, SM
     }
 }
 
-impl<'d, PIO: PioInstance, const SM: usize> sealed::PioStateMachineInstance for PioStateMachine<'d, PIO, SM> {
-    type Pio = PIO;
-    const SM: usize = SM;
-}
-impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineInstance for PioStateMachine<'d, PIO, SM> {}
+impl<'d, PIO: PioInstance + 'd, const SM: usize> PioStateMachine<'d, PIO, SM> {
+    #[inline(always)]
+    fn this_sm() -> crate::pac::pio::StateMachine {
+        PIO::PIO.sm(SM)
+    }
 
-pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unpin {
-    fn restart(&mut self) {
-        let mask = 1u8 << Self::SM;
+    pub fn restart(&mut self) {
+        let mask = 1u8 << SM;
         unsafe {
-            Self::Pio::PIO.ctrl().write_set(|w| w.set_sm_restart(mask));
+            PIO::PIO.ctrl().write_set(|w| w.set_sm_restart(mask));
         }
     }
-    fn set_enable(&mut self, enable: bool) {
-        let mask = 1u8 << Self::SM;
+    pub fn set_enable(&mut self, enable: bool) {
+        let mask = 1u8 << SM;
         unsafe {
             if enable {
-                Self::Pio::PIO.ctrl().write_set(|w| w.set_sm_enable(mask));
+                PIO::PIO.ctrl().write_set(|w| w.set_sm_enable(mask));
             } else {
-                Self::Pio::PIO.ctrl().write_clear(|w| w.set_sm_enable(mask));
+                PIO::PIO.ctrl().write_clear(|w| w.set_sm_enable(mask));
             }
         }
     }
 
-    fn is_enabled(&self) -> bool {
-        unsafe { Self::Pio::PIO.ctrl().read().sm_enable() & (1u8 << Self::SM) != 0 }
+    pub fn is_enabled(&self) -> bool {
+        unsafe { PIO::PIO.ctrl().read().sm_enable() & (1u8 << SM) != 0 }
     }
 
-    fn is_tx_empty(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().txempty() & (1u8 << Self::SM) != 0 }
+    pub fn is_tx_empty(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().txempty() & (1u8 << SM) != 0 }
     }
-    fn is_tx_full(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().txfull() & (1u8 << Self::SM) != 0 }
-    }
-
-    fn is_rx_empty(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().rxempty() & (1u8 << Self::SM) != 0 }
-    }
-    fn is_rx_full(&self) -> bool {
-        unsafe { Self::Pio::PIO.fstat().read().rxfull() & (1u8 << Self::SM) != 0 }
+    pub fn is_tx_full(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().txfull() & (1u8 << SM) != 0 }
     }
 
-    fn tx_level(&self) -> u8 {
+    pub fn is_rx_empty(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().rxempty() & (1u8 << SM) != 0 }
+    }
+    pub fn is_rx_full(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().rxfull() & (1u8 << SM) != 0 }
+    }
+
+    pub fn tx_level(&self) -> u8 {
         unsafe {
-            let flevel = Self::Pio::PIO.flevel().read().0;
-            (flevel >> (Self::SM * 8)) as u8 & 0x0f
+            let flevel = PIO::PIO.flevel().read().0;
+            (flevel >> (SM * 8)) as u8 & 0x0f
         }
     }
 
-    fn rx_level(&self) -> u8 {
+    pub fn rx_level(&self) -> u8 {
         unsafe {
-            let flevel = Self::Pio::PIO.flevel().read().0;
-            (flevel >> (Self::SM * 8 + 4)) as u8 & 0x0f
+            let flevel = PIO::PIO.flevel().read().0;
+            (flevel >> (SM * 8 + 4)) as u8 & 0x0f
         }
     }
 
-    fn push_tx(&mut self, v: u32) {
+    pub fn push_tx(&mut self, v: u32) {
         unsafe {
-            Self::Pio::PIO.txf(Self::SM).write_value(v);
+            PIO::PIO.txf(SM).write_value(v);
         }
     }
 
-    fn try_push_tx(&mut self, v: u32) -> bool {
+    pub fn try_push_tx(&mut self, v: u32) -> bool {
         if self.is_tx_full() {
             return false;
         }
@@ -395,65 +384,65 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         true
     }
 
-    fn pull_rx(&mut self) -> u32 {
-        unsafe { Self::Pio::PIO.rxf(Self::SM).read() }
+    pub fn pull_rx(&mut self) -> u32 {
+        unsafe { PIO::PIO.rxf(SM).read() }
     }
 
-    fn try_pull_rx(&mut self) -> Option<u32> {
+    pub fn try_pull_rx(&mut self) -> Option<u32> {
         if self.is_rx_empty() {
             return None;
         }
         Some(self.pull_rx())
     }
 
-    fn set_clkdiv(&mut self, div_x_256: u32) {
+    pub fn set_clkdiv(&mut self, div_x_256: u32) {
         unsafe {
             Self::this_sm().clkdiv().write(|w| w.0 = div_x_256 << 8);
         }
     }
 
-    fn get_clkdiv(&self) -> u32 {
+    pub fn get_clkdiv(&self) -> u32 {
         unsafe { Self::this_sm().clkdiv().read().0 >> 8 }
     }
 
-    fn clkdiv_restart(&mut self) {
-        let mask = 1u8 << Self::SM;
+    pub fn clkdiv_restart(&mut self) {
+        let mask = 1u8 << SM;
         unsafe {
-            Self::Pio::PIO.ctrl().write_set(|w| w.set_clkdiv_restart(mask));
+            PIO::PIO.ctrl().write_set(|w| w.set_clkdiv_restart(mask));
         }
     }
 
-    fn set_side_enable(&self, enable: bool) {
+    pub fn set_side_enable(&self, enable: bool) {
         unsafe {
             Self::this_sm().execctrl().modify(|w| w.set_side_en(enable));
         }
     }
 
-    fn is_side_enabled(&self) -> bool {
+    pub fn is_side_enabled(&self) -> bool {
         unsafe { Self::this_sm().execctrl().read().side_en() }
     }
 
-    fn set_side_pindir(&mut self, pindir: bool) {
+    pub fn set_side_pindir(&mut self, pindir: bool) {
         unsafe {
             Self::this_sm().execctrl().modify(|w| w.set_side_pindir(pindir));
         }
     }
 
-    fn is_side_pindir(&self) -> bool {
+    pub fn is_side_pindir(&self) -> bool {
         unsafe { Self::this_sm().execctrl().read().side_pindir() }
     }
 
-    fn set_jmp_pin(&mut self, pin: u8) {
+    pub fn set_jmp_pin(&mut self, pin: u8) {
         unsafe {
             Self::this_sm().execctrl().modify(|w| w.set_jmp_pin(pin));
         }
     }
 
-    fn get_jmp_pin(&mut self) -> u8 {
+    pub fn get_jmp_pin(&mut self) -> u8 {
         unsafe { Self::this_sm().execctrl().read().jmp_pin() }
     }
 
-    fn set_wrap(&self, source: u8, target: u8) {
+    pub fn set_wrap(&self, source: u8, target: u8) {
         unsafe {
             Self::this_sm().execctrl().modify(|w| {
                 w.set_wrap_top(source);
@@ -463,14 +452,14 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
     }
 
     /// Get wrapping addresses. Returns (source, target).
-    fn get_wrap(&self) -> (u8, u8) {
+    pub fn get_wrap(&self) -> (u8, u8) {
         unsafe {
             let r = Self::this_sm().execctrl().read();
             (r.wrap_top(), r.wrap_bottom())
         }
     }
 
-    fn set_fifo_join(&mut self, join: FifoJoin) {
+    pub fn set_fifo_join(&mut self, join: FifoJoin) {
         let (rx, tx) = match join {
             FifoJoin::Duplex => (false, false),
             FifoJoin::RxOnly => (true, false),
@@ -483,7 +472,7 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
             });
         }
     }
-    fn get_fifo_join(&self) -> FifoJoin {
+    pub fn get_fifo_join(&self) -> FifoJoin {
         unsafe {
             let r = Self::this_sm().shiftctrl().read();
             // Ignores the invalid state when both bits are set
@@ -497,7 +486,7 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         }
     }
 
-    fn clear_fifos(&mut self) {
+    pub fn clear_fifos(&mut self) {
         // Toggle FJOIN_RX to flush FIFOs
         unsafe {
             let shiftctrl = Self::this_sm().shiftctrl();
@@ -510,33 +499,33 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         }
     }
 
-    fn set_pull_threshold(&mut self, threshold: u8) {
+    pub fn set_pull_threshold(&mut self, threshold: u8) {
         unsafe {
             Self::this_sm().shiftctrl().modify(|w| w.set_pull_thresh(threshold));
         }
     }
 
-    fn get_pull_threshold(&self) -> u8 {
+    pub fn get_pull_threshold(&self) -> u8 {
         unsafe { Self::this_sm().shiftctrl().read().pull_thresh() }
     }
-    fn set_push_threshold(&mut self, threshold: u8) {
+    pub fn set_push_threshold(&mut self, threshold: u8) {
         unsafe {
             Self::this_sm().shiftctrl().modify(|w| w.set_push_thresh(threshold));
         }
     }
 
-    fn get_push_threshold(&self) -> u8 {
+    pub fn get_push_threshold(&self) -> u8 {
         unsafe { Self::this_sm().shiftctrl().read().push_thresh() }
     }
 
-    fn set_out_shift_dir(&mut self, dir: ShiftDirection) {
+    pub fn set_out_shift_dir(&mut self, dir: ShiftDirection) {
         unsafe {
             Self::this_sm()
                 .shiftctrl()
                 .modify(|w| w.set_out_shiftdir(dir == ShiftDirection::Right));
         }
     }
-    fn get_out_shiftdir(&self) -> ShiftDirection {
+    pub fn get_out_shiftdir(&self) -> ShiftDirection {
         unsafe {
             if Self::this_sm().shiftctrl().read().out_shiftdir() {
                 ShiftDirection::Right
@@ -546,14 +535,14 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         }
     }
 
-    fn set_in_shift_dir(&mut self, dir: ShiftDirection) {
+    pub fn set_in_shift_dir(&mut self, dir: ShiftDirection) {
         unsafe {
             Self::this_sm()
                 .shiftctrl()
                 .modify(|w| w.set_in_shiftdir(dir == ShiftDirection::Right));
         }
     }
-    fn get_in_shiftdir(&self) -> ShiftDirection {
+    pub fn get_in_shiftdir(&self) -> ShiftDirection {
         unsafe {
             if Self::this_sm().shiftctrl().read().in_shiftdir() {
                 ShiftDirection::Right
@@ -563,46 +552,46 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         }
     }
 
-    fn set_autopull(&mut self, auto: bool) {
+    pub fn set_autopull(&mut self, auto: bool) {
         unsafe {
             Self::this_sm().shiftctrl().modify(|w| w.set_autopull(auto));
         }
     }
 
-    fn is_autopull(&self) -> bool {
+    pub fn is_autopull(&self) -> bool {
         unsafe { Self::this_sm().shiftctrl().read().autopull() }
     }
 
-    fn set_autopush(&mut self, auto: bool) {
+    pub fn set_autopush(&mut self, auto: bool) {
         unsafe {
             Self::this_sm().shiftctrl().modify(|w| w.set_autopush(auto));
         }
     }
 
-    fn is_autopush(&self) -> bool {
+    pub fn is_autopush(&self) -> bool {
         unsafe { Self::this_sm().shiftctrl().read().autopush() }
     }
 
-    fn get_addr(&self) -> u8 {
+    pub fn get_addr(&self) -> u8 {
         unsafe { Self::this_sm().addr().read().addr() }
     }
-    fn set_sideset_count(&mut self, count: u8) {
+    pub fn set_sideset_count(&mut self, count: u8) {
         unsafe {
             Self::this_sm().pinctrl().modify(|w| w.set_sideset_count(count));
         }
     }
 
-    fn get_sideset_count(&self) -> u8 {
+    pub fn get_sideset_count(&self) -> u8 {
         unsafe { Self::this_sm().pinctrl().read().sideset_count() }
     }
 
-    fn set_sideset_base_pin(&mut self, base_pin: &Pin<Self::Pio>) {
+    pub fn set_sideset_base_pin(&mut self, base_pin: &Pin<PIO>) {
         unsafe {
             Self::this_sm().pinctrl().modify(|w| w.set_sideset_base(base_pin.pin()));
         }
     }
 
-    fn get_sideset_base(&self) -> u8 {
+    pub fn get_sideset_base(&self) -> u8 {
         unsafe {
             let r = Self::this_sm().pinctrl().read();
             r.sideset_base()
@@ -610,7 +599,7 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
     }
 
     /// Set the range of out pins affected by a set instruction.
-    fn set_set_range(&mut self, base: u8, count: u8) {
+    pub fn set_set_range(&mut self, base: u8, count: u8) {
         assert!(base + count < 32);
         unsafe {
             Self::this_sm().pinctrl().modify(|w| {
@@ -621,27 +610,27 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
     }
 
     /// Get the range of out pins affected by a set instruction. Returns (base, count).
-    fn get_set_range(&self) -> (u8, u8) {
+    pub fn get_set_range(&self) -> (u8, u8) {
         unsafe {
             let r = Self::this_sm().pinctrl().read();
             (r.set_base(), r.set_count())
         }
     }
 
-    fn set_in_base_pin(&mut self, base: &Pin<Self::Pio>) {
+    pub fn set_in_base_pin(&mut self, base: &Pin<PIO>) {
         unsafe {
             Self::this_sm().pinctrl().modify(|w| w.set_in_base(base.pin()));
         }
     }
 
-    fn get_in_base(&self) -> u8 {
+    pub fn get_in_base(&self) -> u8 {
         unsafe {
             let r = Self::this_sm().pinctrl().read();
             r.in_base()
         }
     }
 
-    fn set_out_range(&mut self, base: u8, count: u8) {
+    pub fn set_out_range(&mut self, base: u8, count: u8) {
         assert!(base + count < 32);
         unsafe {
             Self::this_sm().pinctrl().modify(|w| {
@@ -652,14 +641,14 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
     }
 
     /// Get the range of out pins affected by a set instruction. Returns (base, count).
-    fn get_out_range(&self) -> (u8, u8) {
+    pub fn get_out_range(&self) -> (u8, u8) {
         unsafe {
             let r = Self::this_sm().pinctrl().read();
             (r.out_base(), r.out_count())
         }
     }
 
-    fn set_out_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<Self::Pio>]) {
+    pub fn set_out_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<PIO>]) {
         let count = pins.len();
         assert!(count >= 1);
         let start = pins[0].pin() as usize;
@@ -670,7 +659,7 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         self.set_out_range(start as u8, count as u8);
     }
 
-    fn set_set_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<Self::Pio>]) {
+    pub fn set_set_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<PIO>]) {
         let count = pins.len();
         assert!(count >= 1);
         let start = pins[0].pin() as usize;
@@ -681,76 +670,75 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         self.set_set_range(start as u8, count as u8);
     }
 
-    fn get_current_instr() -> u32 {
+    pub fn get_current_instr() -> u32 {
         unsafe { Self::this_sm().instr().read().0 }
     }
 
-    fn exec_instr(&mut self, instr: u16) {
+    pub fn exec_instr(&mut self, instr: u16) {
         unsafe {
             Self::this_sm().instr().write(|w| w.set_instr(instr));
         }
     }
 
-    fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, Self::Pio, Self> {
+    pub fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, 'd, PIO, SM> {
         FifoOutFuture::new(self, value)
     }
 
-    fn wait_pull<'a>(&'a mut self) -> FifoInFuture<'a, Self::Pio, Self> {
+    pub fn wait_pull<'a>(&'a mut self) -> FifoInFuture<'a, 'd, PIO, SM> {
         FifoInFuture::new(self)
     }
 
-    fn wait_irq(&self, irq_no: u8) -> IrqFuture<Self::Pio> {
+    pub fn wait_irq(&self, irq_no: u8) -> IrqFuture<PIO> {
         IrqFuture::new(irq_no)
     }
 
-    fn has_tx_stalled(&self) -> bool {
+    pub fn has_tx_stalled(&self) -> bool {
         unsafe {
-            let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().txstall() & (1 << Self::SM) != 0;
-            fdebug.write(|w| w.set_txstall(1 << Self::SM));
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().txstall() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_txstall(1 << SM));
             ret
         }
     }
 
-    fn has_tx_overflowed(&self) -> bool {
+    pub fn has_tx_overflowed(&self) -> bool {
         unsafe {
-            let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().txover() & (1 << Self::SM) != 0;
-            fdebug.write(|w| w.set_txover(1 << Self::SM));
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().txover() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_txover(1 << SM));
             ret
         }
     }
 
-    fn has_rx_stalled(&self) -> bool {
+    pub fn has_rx_stalled(&self) -> bool {
         unsafe {
-            let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().rxstall() & (1 << Self::SM) != 0;
-            fdebug.write(|w| w.set_rxstall(1 << Self::SM));
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().rxstall() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_rxstall(1 << SM));
             ret
         }
     }
 
-    fn has_rx_underflowed(&self) -> bool {
+    pub fn has_rx_underflowed(&self) -> bool {
         unsafe {
-            let fdebug = Self::Pio::PIO.fdebug();
-            let ret = fdebug.read().rxunder() & (1 << Self::SM) != 0;
-            fdebug.write(|w| w.set_rxunder(1 << Self::SM));
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().rxunder() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_rxunder(1 << SM));
             ret
         }
     }
 
-    fn dma_push<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
+    pub fn dma_push<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
         unsafe {
-            let pio_no = Self::Pio::PIO_NO;
-            let sm_no = Self::SM;
+            let pio_no = PIO::PIO_NO;
             let p = ch.regs();
             p.read_addr().write_value(data.as_ptr() as u32);
-            p.write_addr().write_value(Self::Pio::PIO.txf(sm_no).ptr() as u32);
+            p.write_addr().write_value(PIO::PIO.txf(SM).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
             compiler_fence(Ordering::SeqCst);
             p.ctrl_trig().write(|w| {
                 // Set TX DREQ for this statemachine
-                w.set_treq_sel(TreqSel(pio_no * 8 + sm_no as u8));
+                w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8));
                 w.set_data_size(W::size());
                 w.set_chain_to(ch.number());
                 w.set_incr_read(true);
@@ -762,18 +750,17 @@ pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unp
         Transfer::new(ch)
     }
 
-    fn dma_pull<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a mut [W]) -> Transfer<'a, C> {
+    pub fn dma_pull<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a mut [W]) -> Transfer<'a, C> {
         unsafe {
-            let pio_no = Self::Pio::PIO_NO;
-            let sm_no = Self::SM;
+            let pio_no = PIO::PIO_NO;
             let p = ch.regs();
             p.write_addr().write_value(data.as_ptr() as u32);
-            p.read_addr().write_value(Self::Pio::PIO.rxf(sm_no).ptr() as u32);
+            p.read_addr().write_value(PIO::PIO.rxf(SM).ptr() as u32);
             p.trans_count().write_value(data.len() as u32);
             compiler_fence(Ordering::SeqCst);
             p.ctrl_trig().write(|w| {
                 // Set RX DREQ for this statemachine
-                w.set_treq_sel(TreqSel(pio_no * 8 + sm_no as u8 + 4));
+                w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8 + 4));
                 w.set_data_size(W::size());
                 w.set_chain_to(ch.number());
                 w.set_incr_read(false);
@@ -943,16 +930,6 @@ fn on_pio_drop<PIO: PioInstance>() {
 
 mod sealed {
     use super::*;
-
-    pub trait PioStateMachineInstance {
-        type Pio: super::PioInstance;
-        const SM: usize;
-
-        #[inline(always)]
-        fn this_sm() -> crate::pac::pio::StateMachine {
-            Self::Pio::PIO.sm(Self::SM as usize)
-        }
-    }
 
     pub trait PioPin {}
 

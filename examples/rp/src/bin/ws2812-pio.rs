@@ -4,9 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::pio::{
-    FifoJoin, Pio, PioCommon, PioInstance, PioPin, PioStateMachine, PioStateMachineInstance, ShiftDirection,
-};
+use embassy_rp::pio::{FifoJoin, Pio, PioCommon, PioInstance, PioPin, PioStateMachine, ShiftDirection};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_time::{Duration, Timer};

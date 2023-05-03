@@ -7,7 +7,7 @@ use core::fmt::Write;
 use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{FifoJoin, Pio, PioPin, PioStateMachine, PioStateMachineInstance, ShiftDirection};
+use embassy_rp::pio::{FifoJoin, Pio, PioPin, PioStateMachine, ShiftDirection};
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{into_ref, Peripheral, PeripheralRef};
