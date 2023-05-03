@@ -3,14 +3,13 @@
 #![feature(type_alias_impl_trait)]
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{AnyPin, Pin};
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{Pio, PioCommon, PioStateMachine, PioStateMachineInstance, ShiftDirection};
+use embassy_rp::pio::{Pio, PioCommon, PioPin, PioStateMachine, PioStateMachineInstance, ShiftDirection};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};
 
-fn setup_pio_task_sm0(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, 0>, pin: AnyPin) {
+fn setup_pio_task_sm0(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, 0>, pin: impl PioPin) {
     // Setup sm0
 
     // Send data serially to pin
@@ -121,7 +120,7 @@ async fn main(spawner: Spawner) {
         ..
     } = Pio::new(pio);
 
-    setup_pio_task_sm0(&mut common, &mut sm0, p.PIN_0.degrade());
+    setup_pio_task_sm0(&mut common, &mut sm0, p.PIN_0);
     setup_pio_task_sm1(&mut common, &mut sm1);
     setup_pio_task_sm2(&mut common, &mut sm2);
     spawner.spawn(pio_task_sm0(sm0)).unwrap();

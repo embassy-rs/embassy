@@ -6,9 +6,8 @@ use core::fmt::Write;
 
 use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
-use embassy_rp::gpio::Pin;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{FifoJoin, Pio, PioStateMachine, PioStateMachineInstance, ShiftDirection};
+use embassy_rp::pio::{FifoJoin, Pio, PioPin, PioStateMachine, PioStateMachineInstance, ShiftDirection};
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{into_ref, Peripheral, PeripheralRef};
@@ -74,13 +73,13 @@ impl<'l> HD44780<'l> {
     pub async fn new(
         pio: impl Peripheral<P = PIO0> + 'l,
         dma: impl Peripheral<P = impl Channel> + 'l,
-        rs: impl Pin,
-        rw: impl Pin,
-        e: impl Pin,
-        db4: impl Pin,
-        db5: impl Pin,
-        db6: impl Pin,
-        db7: impl Pin,
+        rs: impl PioPin,
+        rw: impl PioPin,
+        e: impl PioPin,
+        db4: impl PioPin,
+        db5: impl PioPin,
+        db6: impl PioPin,
+        db7: impl PioPin,
     ) -> HD44780<'l> {
         into_ref!(dma);
 

@@ -12,7 +12,7 @@ use pac::io::vals::Gpio0ctrlFuncsel;
 
 use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
-use crate::gpio::{Drive, Pin, Pull, SlewRate};
+use crate::gpio::{self, Drive, Pull, SlewRate};
 use crate::pac::dma::vals::TreqSel;
 use crate::pio::sealed::PioInstance as _;
 use crate::{interrupt, pac, peripherals, RegExt};
@@ -244,12 +244,12 @@ impl<'d, PIO: PioInstance> Drop for IrqFuture<PIO> {
     }
 }
 
-pub struct PioPin<PIO: PioInstance> {
+pub struct Pin<PIO: PioInstance> {
     pin_bank: u8,
     pio: PhantomData<PIO>,
 }
 
-impl<PIO: PioInstance> PioPin<PIO> {
+impl<PIO: PioInstance> Pin<PIO> {
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
@@ -312,7 +312,7 @@ impl<PIO: PioInstance> PioPin<PIO> {
     }
 }
 
-impl<PIO: PioInstance> SealedPin for PioPin<PIO> {
+impl<PIO: PioInstance> SealedPin for Pin<PIO> {
     fn pin_bank(&self) -> u8 {
         self.pin_bank
     }
@@ -610,7 +610,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         unsafe { Self::this_sm().pinctrl().read().sideset_count() }
     }
 
-    fn set_sideset_base_pin(&mut self, base_pin: &PioPin<Self::Pio>) {
+    fn set_sideset_base_pin(&mut self, base_pin: &Pin<Self::Pio>) {
         unsafe {
             Self::this_sm().pinctrl().modify(|w| w.set_sideset_base(base_pin.pin()));
         }
@@ -642,7 +642,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         }
     }
 
-    fn set_in_base_pin(&mut self, base: &PioPin<Self::Pio>) {
+    fn set_in_base_pin(&mut self, base: &Pin<Self::Pio>) {
         unsafe {
             Self::this_sm().pinctrl().modify(|w| w.set_in_base(base.pin()));
         }
@@ -673,7 +673,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         }
     }
 
-    fn set_out_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&PioPin<Self::Pio>]) {
+    fn set_out_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<Self::Pio>]) {
         let count = pins.len();
         assert!(count >= 1);
         let start = pins[0].pin() as usize;
@@ -684,7 +684,7 @@ pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
         self.set_out_range(start as u8, count as u8);
     }
 
-    fn set_set_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&PioPin<Self::Pio>]) {
+    fn set_set_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<Self::Pio>]) {
         let count = pins.len();
         assert!(count >= 1);
         let start = pins[0].pin() as usize;
@@ -890,13 +890,13 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
     /// Register a pin for PIO usage. Pins will be released from the PIO block
     /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`PioCommon`] *and*
     /// all [`PioStateMachine`]s for this block have been dropped.
-    pub fn make_pio_pin(&mut self, pin: impl Pin) -> PioPin<PIO> {
+    pub fn make_pio_pin(&mut self, pin: impl PioPin) -> Pin<PIO> {
         unsafe {
             pin.io().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL.0));
         }
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
-        PioPin {
+        Pin {
             pin_bank: pin.pin_bank(),
             pio: PhantomData::default(),
         }
@@ -967,6 +967,8 @@ mod sealed {
         }
     }
 
+    pub trait PioPin {}
+
     pub trait PioInstance {
         const PIO_NO: u8;
         const PIO: &'static crate::pac::pio::Pio;
@@ -1003,3 +1005,22 @@ macro_rules! impl_pio {
 
 impl_pio!(PIO0, 0, PIO0, PIO0_0);
 impl_pio!(PIO1, 1, PIO1, PIO1_0);
+
+pub trait PioPin: sealed::PioPin + gpio::Pin {}
+
+macro_rules! impl_pio_pin {
+    ($( $num:tt )*) => {
+        $(
+            paste::paste!{
+                impl sealed::PioPin for peripherals::[< PIN_ $num >] {}
+                impl PioPin for peripherals::[< PIN_ $num >] {}
+            }
+        )*
+    };
+}
+
+impl_pio_pin! {
+    0 1 2 3 4 5 6 7 8 9
+    10 11 12 13 14 15 16 17 18 19
+    20 21 22 23 24 25 26 27 28 29
+}
