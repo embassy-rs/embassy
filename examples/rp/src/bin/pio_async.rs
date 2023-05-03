@@ -42,7 +42,7 @@ async fn pio_task_sm0(mut sm: PioStateMachine<'static, PIO0, 0>) {
 
     let mut v = 0x0f0caffa;
     loop {
-        sm.wait_push(v).await;
+        sm.tx().wait_push(v).await;
         v ^= 0xffff;
         info!("Pushed {:032b} to FIFO", v);
     }
@@ -70,7 +70,7 @@ fn setup_pio_task_sm1(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachine<PIO0, 
 async fn pio_task_sm1(mut sm: PioStateMachine<'static, PIO0, 1>) {
     sm.set_enable(true);
     loop {
-        let rx = sm.wait_pull().await;
+        let rx = sm.rx().wait_pull().await;
         info!("Pulled {:032b} from FIFO", rx);
     }
 }

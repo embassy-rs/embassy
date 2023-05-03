@@ -97,13 +97,13 @@ pub(crate) unsafe fn init() {
 /// Future that waits for TX-FIFO to become writable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FifoOutFuture<'a, 'd, PIO: PioInstance, const SM: usize> {
-    sm: &'a mut PioStateMachine<'d, PIO, SM>,
+    sm_tx: &'a mut PioStateMachineTx<'d, PIO, SM>,
     value: u32,
 }
 
 impl<'a, 'd, PIO: PioInstance, const SM: usize> FifoOutFuture<'a, 'd, PIO, SM> {
-    pub fn new(sm: &'a mut PioStateMachine<'d, PIO, SM>, value: u32) -> Self {
-        FifoOutFuture { sm, value }
+    pub fn new(sm: &'a mut PioStateMachineTx<'d, PIO, SM>, value: u32) -> Self {
+        FifoOutFuture { sm_tx: sm, value }
     }
 }
 
@@ -112,7 +112,7 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoOutFuture<'a, 'd,
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
         let value = self.value;
-        if self.get_mut().sm.try_push_tx(value) {
+        if self.get_mut().sm_tx.try_push(value) {
             Poll::Ready(())
         } else {
             WAKERS[PIO::PIO_NO as usize].fifo_out()[SM].register(cx.waker());
@@ -140,12 +140,12 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoOutFuture<'a, 'd, P
 /// Future that waits for RX-FIFO to become readable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FifoInFuture<'a, 'd, PIO: PioInstance, const SM: usize> {
-    sm: &'a mut PioStateMachine<'d, PIO, SM>,
+    sm_rx: &'a mut PioStateMachineRx<'d, PIO, SM>,
 }
 
 impl<'a, 'd, PIO: PioInstance, const SM: usize> FifoInFuture<'a, 'd, PIO, SM> {
-    pub fn new(sm: &'a mut PioStateMachine<'d, PIO, SM>) -> Self {
-        FifoInFuture { sm }
+    pub fn new(sm: &'a mut PioStateMachineRx<'d, PIO, SM>) -> Self {
+        FifoInFuture { sm_rx: sm }
     }
 }
 
@@ -153,7 +153,7 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoInFuture<'a, 'd, 
     type Output = u32;
     fn poll(mut self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
-        if let Some(v) = self.sm.try_pull_rx() {
+        if let Some(v) = self.sm_rx.try_pull() {
             Poll::Ready(v)
         } else {
             WAKERS[PIO::PIO_NO as usize].fifo_in()[SM].register(cx.waker());
@@ -293,8 +293,161 @@ impl<'l, PIO: PioInstance> Pin<'l, PIO> {
     }
 }
 
-pub struct PioStateMachine<'d, PIO: PioInstance, const SM: usize> {
+pub struct PioStateMachineRx<'d, PIO: PioInstance, const SM: usize> {
     pio: PhantomData<&'d PIO>,
+}
+
+impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineRx<'d, PIO, SM> {
+    pub fn empty(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().rxempty() & (1u8 << SM) != 0 }
+    }
+
+    pub fn full(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().rxfull() & (1u8 << SM) != 0 }
+    }
+
+    pub fn level(&self) -> u8 {
+        unsafe { (PIO::PIO.flevel().read().0 >> (SM * 8 + 4)) as u8 & 0x0f }
+    }
+
+    pub fn stalled(&self) -> bool {
+        unsafe {
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().rxstall() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_rxstall(1 << SM));
+            ret
+        }
+    }
+
+    pub fn underflowed(&self) -> bool {
+        unsafe {
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().rxunder() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_rxunder(1 << SM));
+            ret
+        }
+    }
+
+    pub fn pull(&mut self) -> u32 {
+        unsafe { PIO::PIO.rxf(SM).read() }
+    }
+
+    pub fn try_pull(&mut self) -> Option<u32> {
+        if self.empty() {
+            return None;
+        }
+        Some(self.pull())
+    }
+
+    pub fn wait_pull<'a>(&'a mut self) -> FifoInFuture<'a, 'd, PIO, SM> {
+        FifoInFuture::new(self)
+    }
+
+    pub fn dma_pull<'a, C: Channel, W: Word>(
+        &'a mut self,
+        ch: PeripheralRef<'a, C>,
+        data: &'a mut [W],
+    ) -> Transfer<'a, C> {
+        unsafe {
+            let pio_no = PIO::PIO_NO;
+            let p = ch.regs();
+            p.write_addr().write_value(data.as_ptr() as u32);
+            p.read_addr().write_value(PIO::PIO.rxf(SM).ptr() as u32);
+            p.trans_count().write_value(data.len() as u32);
+            compiler_fence(Ordering::SeqCst);
+            p.ctrl_trig().write(|w| {
+                // Set RX DREQ for this statemachine
+                w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8 + 4));
+                w.set_data_size(W::size());
+                w.set_chain_to(ch.number());
+                w.set_incr_read(false);
+                w.set_incr_write(true);
+                w.set_en(true);
+            });
+            compiler_fence(Ordering::SeqCst);
+        }
+        Transfer::new(ch)
+    }
+}
+
+pub struct PioStateMachineTx<'d, PIO: PioInstance, const SM: usize> {
+    pio: PhantomData<&'d PIO>,
+}
+
+impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineTx<'d, PIO, SM> {
+    pub fn empty(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().txempty() & (1u8 << SM) != 0 }
+    }
+    pub fn full(&self) -> bool {
+        unsafe { PIO::PIO.fstat().read().txfull() & (1u8 << SM) != 0 }
+    }
+
+    pub fn level(&self) -> u8 {
+        unsafe { (PIO::PIO.flevel().read().0 >> (SM * 8)) as u8 & 0x0f }
+    }
+
+    pub fn stalled(&self) -> bool {
+        unsafe {
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().txstall() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_txstall(1 << SM));
+            ret
+        }
+    }
+
+    pub fn overflowed(&self) -> bool {
+        unsafe {
+            let fdebug = PIO::PIO.fdebug();
+            let ret = fdebug.read().txover() & (1 << SM) != 0;
+            fdebug.write(|w| w.set_txover(1 << SM));
+            ret
+        }
+    }
+
+    pub fn push(&mut self, v: u32) {
+        unsafe {
+            PIO::PIO.txf(SM).write_value(v);
+        }
+    }
+
+    pub fn try_push(&mut self, v: u32) -> bool {
+        if self.full() {
+            return false;
+        }
+        self.push(v);
+        true
+    }
+
+    pub fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, 'd, PIO, SM> {
+        FifoOutFuture::new(self, value)
+    }
+
+    pub fn dma_push<'a, C: Channel, W: Word>(&'a mut self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
+        unsafe {
+            let pio_no = PIO::PIO_NO;
+            let p = ch.regs();
+            p.read_addr().write_value(data.as_ptr() as u32);
+            p.write_addr().write_value(PIO::PIO.txf(SM).ptr() as u32);
+            p.trans_count().write_value(data.len() as u32);
+            compiler_fence(Ordering::SeqCst);
+            p.ctrl_trig().write(|w| {
+                // Set TX DREQ for this statemachine
+                w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8));
+                w.set_data_size(W::size());
+                w.set_chain_to(ch.number());
+                w.set_incr_read(true);
+                w.set_incr_write(false);
+                w.set_en(true);
+            });
+            compiler_fence(Ordering::SeqCst);
+        }
+        Transfer::new(ch)
+    }
+}
+
+pub struct PioStateMachine<'d, PIO: PioInstance, const SM: usize> {
+    rx: PioStateMachineRx<'d, PIO, SM>,
+    tx: PioStateMachineTx<'d, PIO, SM>,
 }
 
 impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachine<'d, PIO, SM> {
@@ -331,59 +484,6 @@ impl<'d, PIO: PioInstance + 'd, const SM: usize> PioStateMachine<'d, PIO, SM> {
 
     pub fn is_enabled(&self) -> bool {
         unsafe { PIO::PIO.ctrl().read().sm_enable() & (1u8 << SM) != 0 }
-    }
-
-    pub fn is_tx_empty(&self) -> bool {
-        unsafe { PIO::PIO.fstat().read().txempty() & (1u8 << SM) != 0 }
-    }
-    pub fn is_tx_full(&self) -> bool {
-        unsafe { PIO::PIO.fstat().read().txfull() & (1u8 << SM) != 0 }
-    }
-
-    pub fn is_rx_empty(&self) -> bool {
-        unsafe { PIO::PIO.fstat().read().rxempty() & (1u8 << SM) != 0 }
-    }
-    pub fn is_rx_full(&self) -> bool {
-        unsafe { PIO::PIO.fstat().read().rxfull() & (1u8 << SM) != 0 }
-    }
-
-    pub fn tx_level(&self) -> u8 {
-        unsafe {
-            let flevel = PIO::PIO.flevel().read().0;
-            (flevel >> (SM * 8)) as u8 & 0x0f
-        }
-    }
-
-    pub fn rx_level(&self) -> u8 {
-        unsafe {
-            let flevel = PIO::PIO.flevel().read().0;
-            (flevel >> (SM * 8 + 4)) as u8 & 0x0f
-        }
-    }
-
-    pub fn push_tx(&mut self, v: u32) {
-        unsafe {
-            PIO::PIO.txf(SM).write_value(v);
-        }
-    }
-
-    pub fn try_push_tx(&mut self, v: u32) -> bool {
-        if self.is_tx_full() {
-            return false;
-        }
-        self.push_tx(v);
-        true
-    }
-
-    pub fn pull_rx(&mut self) -> u32 {
-        unsafe { PIO::PIO.rxf(SM).read() }
-    }
-
-    pub fn try_pull_rx(&mut self) -> Option<u32> {
-        if self.is_rx_empty() {
-            return None;
-        }
-        Some(self.pull_rx())
     }
 
     pub fn set_clkdiv(&mut self, div_x_256: u32) {
@@ -671,92 +771,14 @@ impl<'d, PIO: PioInstance + 'd, const SM: usize> PioStateMachine<'d, PIO, SM> {
         }
     }
 
-    pub fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, 'd, PIO, SM> {
-        FifoOutFuture::new(self, value)
+    pub fn rx(&mut self) -> &mut PioStateMachineRx<'d, PIO, SM> {
+        &mut self.rx
     }
-
-    pub fn wait_pull<'a>(&'a mut self) -> FifoInFuture<'a, 'd, PIO, SM> {
-        FifoInFuture::new(self)
+    pub fn tx(&mut self) -> &mut PioStateMachineTx<'d, PIO, SM> {
+        &mut self.tx
     }
-
-    pub fn has_tx_stalled(&self) -> bool {
-        unsafe {
-            let fdebug = PIO::PIO.fdebug();
-            let ret = fdebug.read().txstall() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_txstall(1 << SM));
-            ret
-        }
-    }
-
-    pub fn has_tx_overflowed(&self) -> bool {
-        unsafe {
-            let fdebug = PIO::PIO.fdebug();
-            let ret = fdebug.read().txover() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_txover(1 << SM));
-            ret
-        }
-    }
-
-    pub fn has_rx_stalled(&self) -> bool {
-        unsafe {
-            let fdebug = PIO::PIO.fdebug();
-            let ret = fdebug.read().rxstall() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_rxstall(1 << SM));
-            ret
-        }
-    }
-
-    pub fn has_rx_underflowed(&self) -> bool {
-        unsafe {
-            let fdebug = PIO::PIO.fdebug();
-            let ret = fdebug.read().rxunder() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_rxunder(1 << SM));
-            ret
-        }
-    }
-
-    pub fn dma_push<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
-        unsafe {
-            let pio_no = PIO::PIO_NO;
-            let p = ch.regs();
-            p.read_addr().write_value(data.as_ptr() as u32);
-            p.write_addr().write_value(PIO::PIO.txf(SM).ptr() as u32);
-            p.trans_count().write_value(data.len() as u32);
-            compiler_fence(Ordering::SeqCst);
-            p.ctrl_trig().write(|w| {
-                // Set TX DREQ for this statemachine
-                w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8));
-                w.set_data_size(W::size());
-                w.set_chain_to(ch.number());
-                w.set_incr_read(true);
-                w.set_incr_write(false);
-                w.set_en(true);
-            });
-            compiler_fence(Ordering::SeqCst);
-        }
-        Transfer::new(ch)
-    }
-
-    pub fn dma_pull<'a, C: Channel, W: Word>(&'a self, ch: PeripheralRef<'a, C>, data: &'a mut [W]) -> Transfer<'a, C> {
-        unsafe {
-            let pio_no = PIO::PIO_NO;
-            let p = ch.regs();
-            p.write_addr().write_value(data.as_ptr() as u32);
-            p.read_addr().write_value(PIO::PIO.rxf(SM).ptr() as u32);
-            p.trans_count().write_value(data.len() as u32);
-            compiler_fence(Ordering::SeqCst);
-            p.ctrl_trig().write(|w| {
-                // Set RX DREQ for this statemachine
-                w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8 + 4));
-                w.set_data_size(W::size());
-                w.set_chain_to(ch.number());
-                w.set_incr_read(false);
-                w.set_incr_write(true);
-                w.set_en(true);
-            });
-            compiler_fence(Ordering::SeqCst);
-        }
-        Transfer::new(ch)
+    pub fn rx_tx(&mut self) -> (&mut PioStateMachineRx<'d, PIO, SM>, &mut PioStateMachineTx<'d, PIO, SM>) {
+        (&mut self.rx, &mut self.tx)
     }
 }
 
@@ -921,10 +943,22 @@ impl<'d, PIO: PioInstance> Pio<'d, PIO> {
             irq1: PioIrq { pio: PhantomData },
             irq2: PioIrq { pio: PhantomData },
             irq3: PioIrq { pio: PhantomData },
-            sm0: PioStateMachine { pio: PhantomData },
-            sm1: PioStateMachine { pio: PhantomData },
-            sm2: PioStateMachine { pio: PhantomData },
-            sm3: PioStateMachine { pio: PhantomData },
+            sm0: PioStateMachine {
+                rx: PioStateMachineRx { pio: PhantomData },
+                tx: PioStateMachineTx { pio: PhantomData },
+            },
+            sm1: PioStateMachine {
+                rx: PioStateMachineRx { pio: PhantomData },
+                tx: PioStateMachineTx { pio: PhantomData },
+            },
+            sm2: PioStateMachine {
+                rx: PioStateMachineRx { pio: PhantomData },
+                tx: PioStateMachineTx { pio: PhantomData },
+            },
+            sm3: PioStateMachine {
+                rx: PioStateMachineRx { pio: PhantomData },
+                tx: PioStateMachineTx { pio: PhantomData },
+            },
         }
     }
 }

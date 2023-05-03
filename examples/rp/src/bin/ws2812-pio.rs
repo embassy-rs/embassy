@@ -87,7 +87,7 @@ impl<'d, P: PioInstance, const S: usize> Ws2812<'d, P, S> {
     pub async fn write(&mut self, colors: &[RGB8]) {
         for color in colors {
             let word = (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
-            self.sm.wait_push(word).await;
+            self.sm.tx().wait_push(word).await;
         }
     }
 }

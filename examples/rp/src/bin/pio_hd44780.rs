@@ -139,14 +139,14 @@ impl<'l> HD44780<'l> {
 
         sm0.set_enable(true);
         // init to 8 bit thrice
-        sm0.push_tx((50000 << 8) | 0x30);
-        sm0.push_tx((5000 << 8) | 0x30);
-        sm0.push_tx((200 << 8) | 0x30);
+        sm0.tx().push((50000 << 8) | 0x30);
+        sm0.tx().push((5000 << 8) | 0x30);
+        sm0.tx().push((200 << 8) | 0x30);
         // init 4 bit
-        sm0.push_tx((200 << 8) | 0x20);
+        sm0.tx().push((200 << 8) | 0x20);
         // set font and lines
-        sm0.push_tx((50 << 8) | 0x20);
-        sm0.push_tx(0b1100_0000);
+        sm0.tx().push((50 << 8) | 0x20);
+        sm0.tx().push(0b1100_0000);
 
         irq0.wait().await;
         sm0.set_enable(false);
@@ -216,7 +216,7 @@ impl<'l> HD44780<'l> {
         sm0.set_enable(true);
 
         // display on and cursor on and blinking, reset display
-        sm0.dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1]).await;
+        sm0.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1]).await;
 
         Self {
             dma: dma.map_into(),
@@ -240,6 +240,6 @@ impl<'l> HD44780<'l> {
         // set cursor to 1:15
         self.buf[38..].copy_from_slice(&[0x80, 0xcf]);
 
-        self.sm.dma_push(self.dma.reborrow(), &self.buf).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), &self.buf).await;
     }
 }

@@ -8,7 +8,7 @@ pub fn set_x<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<PIO, SM
         bit_count: 32,
     }
     .encode();
-    sm.push_tx(value);
+    sm.tx().push(value);
     sm.exec_instr(OUT);
 }
 
@@ -19,7 +19,7 @@ pub fn get_x<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<PIO, SM
     }
     .encode();
     sm.exec_instr(IN);
-    sm.pull_rx()
+    sm.rx().pull()
 }
 
 pub fn set_y<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<PIO, SM>, value: u32) {
@@ -28,7 +28,7 @@ pub fn set_y<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<PIO, SM
         bit_count: 32,
     }
     .encode();
-    sm.push_tx(value);
+    sm.tx().push(value);
     sm.exec_instr(OUT);
 }
 
@@ -40,7 +40,7 @@ pub fn get_y<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<PIO, SM
     .encode();
     sm.exec_instr(IN);
 
-    sm.pull_rx()
+    sm.rx().pull()
 }
 
 pub fn set_pindir<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<PIO, SM>, data: u8) {
@@ -67,7 +67,7 @@ pub fn set_out_pin<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<P
         bit_count: 32,
     }
     .encode();
-    sm.push_tx(data);
+    sm.tx().push(data);
     sm.exec_instr(OUT);
 }
 pub fn set_out_pindir<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachine<PIO, SM>, data: u32) {
@@ -76,7 +76,7 @@ pub fn set_out_pindir<PIO: PioInstance, const SM: usize>(sm: &mut PioStateMachin
         bit_count: 32,
     }
     .encode();
-    sm.push_tx(data);
+    sm.tx().push(data);
     sm.exec_instr(OUT);
 }
 

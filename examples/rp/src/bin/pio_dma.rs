@@ -60,9 +60,10 @@ async fn main(_spawner: Spawner) {
     }
     let mut din = [0u32; 29];
     loop {
+        let (rx, tx) = sm.rx_tx();
         join(
-            sm.dma_push(dma_out_ref.reborrow(), &dout),
-            sm.dma_pull(dma_in_ref.reborrow(), &mut din),
+            tx.dma_push(dma_out_ref.reborrow(), &dout),
+            rx.dma_pull(dma_in_ref.reborrow(), &mut din),
         )
         .await;
         for i in 0..din.len() {
