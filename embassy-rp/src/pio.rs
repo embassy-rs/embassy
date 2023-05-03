@@ -6,13 +6,13 @@ use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
-use embassy_hal_common::{Peripheral, PeripheralRef};
+use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::io::vals::Gpio0ctrlFuncsel;
 
 use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
-use crate::gpio::{self, Drive, Pull, SlewRate};
+use crate::gpio::{self, AnyPin, Drive, Pull, SlewRate};
 use crate::pac::dma::vals::TreqSel;
 use crate::pio::sealed::PioInstance as _;
 use crate::{interrupt, pac, peripherals, RegExt};
@@ -244,17 +244,17 @@ impl<'d, PIO: PioInstance> Drop for IrqFuture<PIO> {
     }
 }
 
-pub struct Pin<PIO: PioInstance> {
-    pin_bank: u8,
+pub struct Pin<'l, PIO: PioInstance> {
+    pin: PeripheralRef<'l, AnyPin>,
     pio: PhantomData<PIO>,
 }
 
-impl<PIO: PioInstance> Pin<PIO> {
+impl<'l, PIO: PioInstance> Pin<'l, PIO> {
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
         unsafe {
-            self.pad_ctrl().modify(|w| {
+            self.pin.pad_ctrl().modify(|w| {
                 w.set_drive(match strength {
                     Drive::_2mA => pac::pads::vals::Drive::_2MA,
                     Drive::_4mA => pac::pads::vals::Drive::_4MA,
@@ -269,7 +269,7 @@ impl<PIO: PioInstance> Pin<PIO> {
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         unsafe {
-            self.pad_ctrl().modify(|w| {
+            self.pin.pad_ctrl().modify(|w| {
                 w.set_slewfast(slew_rate == SlewRate::Fast);
             });
         }
@@ -279,7 +279,7 @@ impl<PIO: PioInstance> Pin<PIO> {
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
         unsafe {
-            self.pad_ctrl().modify(|w| {
+            self.pin.pad_ctrl().modify(|w| {
                 w.set_pue(pull == Pull::Up);
                 w.set_pde(pull == Pull::Down);
             });
@@ -290,7 +290,7 @@ impl<PIO: PioInstance> Pin<PIO> {
     #[inline]
     pub fn set_schmitt(&mut self, enable: bool) {
         unsafe {
-            self.pad_ctrl().modify(|w| {
+            self.pin.pad_ctrl().modify(|w| {
                 w.set_schmitt(enable);
             });
         }
@@ -308,13 +308,7 @@ impl<PIO: PioInstance> Pin<PIO> {
     }
 
     pub fn pin(&self) -> u8 {
-        self._pin()
-    }
-}
-
-impl<PIO: PioInstance> SealedPin for Pin<PIO> {
-    fn pin_bank(&self) -> u8 {
-        self.pin_bank
+        self.pin._pin()
     }
 }
 
@@ -890,14 +884,15 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
     /// Register a pin for PIO usage. Pins will be released from the PIO block
     /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`PioCommon`] *and*
     /// all [`PioStateMachine`]s for this block have been dropped.
-    pub fn make_pio_pin(&mut self, pin: impl PioPin) -> Pin<PIO> {
+    pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
+        into_ref!(pin);
         unsafe {
             pin.io().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL.0));
         }
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         Pin {
-            pin_bank: pin.pin_bank(),
+            pin: pin.into_ref().map_into(),
             pio: PhantomData::default(),
         }
     }
