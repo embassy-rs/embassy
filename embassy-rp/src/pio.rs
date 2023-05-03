@@ -811,28 +811,6 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
         self.instructions_used &= !instrs.used_mask;
     }
 
-    pub fn is_irq_set(&self, irq_no: u8) -> bool {
-        assert!(irq_no < 8);
-        unsafe {
-            let irq_flags = PIO::PIO.irq();
-            irq_flags.read().0 & (1 << irq_no) != 0
-        }
-    }
-
-    pub fn clear_irq(&mut self, irq_no: usize) {
-        assert!(irq_no < 8);
-        unsafe { PIO::PIO.irq().write(|w| w.set_irq(1 << irq_no)) }
-    }
-
-    pub fn clear_irqs(&mut self, mask: u8) {
-        unsafe { PIO::PIO.irq().write(|w| w.set_irq(mask)) }
-    }
-
-    pub fn force_irq(&mut self, irq_no: usize) {
-        assert!(irq_no < 8);
-        unsafe { PIO::PIO.irq_force().write(|w| w.set_irq_force(1 << irq_no)) }
-    }
-
     pub fn set_input_sync_bypass<'a>(&'a mut self, bypass: u32, mask: u32) {
         unsafe {
             // this can interfere with per-pin bypass functions. splitting the
@@ -878,8 +856,47 @@ impl<'d, PIO: PioInstance, const N: usize> PioIrq<'d, PIO, N> {
     }
 }
 
+#[derive(Clone)]
+pub struct PioIrqFlags<'d, PIO: PioInstance> {
+    pio: PhantomData<&'d PIO>,
+}
+
+impl<'d, PIO: PioInstance> PioIrqFlags<'d, PIO> {
+    pub fn check(&self, irq_no: u8) -> bool {
+        assert!(irq_no < 8);
+        self.check_any(1 << irq_no)
+    }
+
+    pub fn check_any(&self, irqs: u8) -> bool {
+        unsafe { PIO::PIO.irq().read().irq() & irqs != 0 }
+    }
+
+    pub fn check_all(&self, irqs: u8) -> bool {
+        unsafe { PIO::PIO.irq().read().irq() & irqs == irqs }
+    }
+
+    pub fn clear(&self, irq_no: usize) {
+        assert!(irq_no < 8);
+        self.clear_all(1 << irq_no);
+    }
+
+    pub fn clear_all(&self, irqs: u8) {
+        unsafe { PIO::PIO.irq().write(|w| w.set_irq(irqs)) }
+    }
+
+    pub fn set(&self, irq_no: usize) {
+        assert!(irq_no < 8);
+        self.set_all(1 << irq_no);
+    }
+
+    pub fn set_all(&self, irqs: u8) {
+        unsafe { PIO::PIO.irq_force().write(|w| w.set_irq_force(irqs)) }
+    }
+}
+
 pub struct Pio<'d, PIO: PioInstance> {
     pub common: PioCommon<'d, PIO>,
+    pub irq_flags: PioIrqFlags<'d, PIO>,
     pub irq0: PioIrq<'d, PIO, 0>,
     pub irq1: PioIrq<'d, PIO, 1>,
     pub irq2: PioIrq<'d, PIO, 2>,
@@ -899,6 +916,7 @@ impl<'d, PIO: PioInstance> Pio<'d, PIO> {
                 instructions_used: 0,
                 pio: PhantomData,
             },
+            irq_flags: PioIrqFlags { pio: PhantomData },
             irq0: PioIrq { pio: PhantomData },
             irq1: PioIrq { pio: PhantomData },
             irq2: PioIrq { pio: PhantomData },
