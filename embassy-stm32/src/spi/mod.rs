@@ -207,6 +207,17 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Self::new_inner(peri, None, None, None, txdma, rxdma, freq, config)
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn new_internal(
+        peri: impl Peripheral<P = T> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        rxdma: impl Peripheral<P = Rx> + 'd,
+        freq: Hertz,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(peri, None, None, None, txdma, rxdma, freq, config)
+    }
+
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         sck: Option<PeripheralRef<'d, AnyPin>>,
@@ -1039,6 +1050,10 @@ pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
 pin_trait!(SckPin, Instance);
 pin_trait!(MosiPin, Instance);
 pin_trait!(MisoPin, Instance);
+pin_trait!(CsPin, Instance);
+pin_trait!(MckPin, Instance);
+pin_trait!(CkPin, Instance);
+pin_trait!(WsPin, Instance);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 
