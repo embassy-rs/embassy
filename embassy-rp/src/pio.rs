@@ -332,14 +332,6 @@ impl<'d, PIO: PioInstance, const SM: usize> sealed::PioStateMachine for PioState
 impl<'d, PIO: PioInstance, const SM: usize> PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {}
 
 pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
-    fn pio_no(&self) -> u8 {
-        Self::Pio::PIO_NO
-    }
-
-    fn sm_no(&self) -> u8 {
-        Self::SM as u8
-    }
-
     fn restart(&mut self) {
         let mask = 1u8 << Self::SM;
         unsafe {
@@ -981,11 +973,7 @@ mod sealed {
     }
 }
 
-pub trait PioInstance: sealed::PioInstance + Sized + Unpin {
-    fn pio(&self) -> u8 {
-        Self::PIO_NO
-    }
-}
+pub trait PioInstance: sealed::PioInstance + Sized + Unpin {}
 
 macro_rules! impl_pio {
     ($name:ident, $pio:expr, $pac:ident, $funcsel:ident) => {
