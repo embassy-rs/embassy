@@ -13,11 +13,11 @@ use embassy_time::{Duration, Timer};
 use smart_leds::RGB8;
 use {defmt_rtt as _, panic_probe as _};
 pub struct Ws2812<'d, P: PioInstance, const S: usize> {
-    sm: PioStateMachineInstance<'d, P, S>,
+    sm: PioStateMachine<'d, P, S>,
 }
 
 impl<'d, P: PioInstance, const S: usize> Ws2812<'d, P, S> {
-    pub fn new(mut pio: PioCommon<'d, P>, mut sm: PioStateMachineInstance<'d, P, S>, pin: impl PioPin) -> Self {
+    pub fn new(mut pio: PioCommon<'d, P>, mut sm: PioStateMachine<'d, P, S>, pin: impl PioPin) -> Self {
         // Setup sm0
 
         // prepare the PIO program

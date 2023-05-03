@@ -97,13 +97,13 @@ pub(crate) unsafe fn init() {
 
 /// Future that waits for TX-FIFO to become writable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct FifoOutFuture<'a, PIO: PioInstance, SM: PioStateMachine + Unpin> {
+pub struct FifoOutFuture<'a, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> {
     sm: &'a mut SM,
     pio: PhantomData<PIO>,
     value: u32,
 }
 
-impl<'a, PIO: PioInstance, SM: PioStateMachine + Unpin> FifoOutFuture<'a, PIO, SM> {
+impl<'a, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> FifoOutFuture<'a, PIO, SM> {
     pub fn new(sm: &'a mut SM, value: u32) -> Self {
         FifoOutFuture {
             sm,
@@ -113,7 +113,7 @@ impl<'a, PIO: PioInstance, SM: PioStateMachine + Unpin> FifoOutFuture<'a, PIO, S
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture<'d, PIO, SM> {
+impl<'d, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> Future for FifoOutFuture<'d, PIO, SM> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
@@ -133,7 +133,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Future for FifoOutFuture
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Drop for FifoOutFuture<'d, PIO, SM> {
+impl<'d, PIO: PioInstance, SM: PioStateMachineInstance + Unpin> Drop for FifoOutFuture<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
@@ -145,12 +145,12 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine + Unpin> Drop for FifoOutFuture<'
 
 /// Future that waits for RX-FIFO to become readable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct FifoInFuture<'a, PIO: PioInstance, SM: PioStateMachine> {
+pub struct FifoInFuture<'a, PIO: PioInstance, SM: PioStateMachineInstance> {
     sm: &'a mut SM,
     pio: PhantomData<PIO>,
 }
 
-impl<'a, PIO: PioInstance, SM: PioStateMachine> FifoInFuture<'a, PIO, SM> {
+impl<'a, PIO: PioInstance, SM: PioStateMachineInstance> FifoInFuture<'a, PIO, SM> {
     pub fn new(sm: &'a mut SM) -> Self {
         FifoInFuture {
             sm,
@@ -159,7 +159,7 @@ impl<'a, PIO: PioInstance, SM: PioStateMachine> FifoInFuture<'a, PIO, SM> {
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO, SM> {
+impl<'d, PIO: PioInstance, SM: PioStateMachineInstance> Future for FifoInFuture<'d, PIO, SM> {
     type Output = u32;
     fn poll(mut self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
@@ -178,7 +178,7 @@ impl<'d, PIO: PioInstance, SM: PioStateMachine> Future for FifoInFuture<'d, PIO,
     }
 }
 
-impl<'d, PIO: PioInstance, SM: PioStateMachine> Drop for FifoInFuture<'d, PIO, SM> {
+impl<'d, PIO: PioInstance, SM: PioStateMachineInstance> Drop for FifoInFuture<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
@@ -312,11 +312,11 @@ impl<'l, PIO: PioInstance> Pin<'l, PIO> {
     }
 }
 
-pub struct PioStateMachineInstance<'d, PIO: PioInstance, const SM: usize> {
+pub struct PioStateMachine<'d, PIO: PioInstance, const SM: usize> {
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachineInstance<'d, PIO, SM> {
+impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachine<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.ctrl().write_clear(|w| w.set_sm_enable(1 << SM));
@@ -325,13 +325,13 @@ impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachineInstance<'d,
     }
 }
 
-impl<'d, PIO: PioInstance, const SM: usize> sealed::PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {
+impl<'d, PIO: PioInstance, const SM: usize> sealed::PioStateMachineInstance for PioStateMachine<'d, PIO, SM> {
     type Pio = PIO;
     const SM: usize = SM;
 }
-impl<'d, PIO: PioInstance, const SM: usize> PioStateMachine for PioStateMachineInstance<'d, PIO, SM> {}
+impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineInstance for PioStateMachine<'d, PIO, SM> {}
 
-pub trait PioStateMachine: sealed::PioStateMachine + Sized + Unpin {
+pub trait PioStateMachineInstance: sealed::PioStateMachineInstance + Sized + Unpin {
     fn restart(&mut self) {
         let mask = 1u8 << Self::SM;
         unsafe {
@@ -892,10 +892,10 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
 
 pub struct Pio<'d, PIO: PioInstance> {
     pub common: PioCommon<'d, PIO>,
-    pub sm0: PioStateMachineInstance<'d, PIO, 0>,
-    pub sm1: PioStateMachineInstance<'d, PIO, 1>,
-    pub sm2: PioStateMachineInstance<'d, PIO, 2>,
-    pub sm3: PioStateMachineInstance<'d, PIO, 3>,
+    pub sm0: PioStateMachine<'d, PIO, 0>,
+    pub sm1: PioStateMachine<'d, PIO, 1>,
+    pub sm2: PioStateMachine<'d, PIO, 2>,
+    pub sm3: PioStateMachine<'d, PIO, 3>,
 }
 
 impl<'d, PIO: PioInstance> Pio<'d, PIO> {
@@ -907,10 +907,10 @@ impl<'d, PIO: PioInstance> Pio<'d, PIO> {
                 instructions_used: 0,
                 pio: PhantomData,
             },
-            sm0: PioStateMachineInstance { pio: PhantomData },
-            sm1: PioStateMachineInstance { pio: PhantomData },
-            sm2: PioStateMachineInstance { pio: PhantomData },
-            sm3: PioStateMachineInstance { pio: PhantomData },
+            sm0: PioStateMachine { pio: PhantomData },
+            sm1: PioStateMachine { pio: PhantomData },
+            sm2: PioStateMachine { pio: PhantomData },
+            sm3: PioStateMachine { pio: PhantomData },
         }
     }
 }
@@ -944,7 +944,7 @@ fn on_pio_drop<PIO: PioInstance>() {
 mod sealed {
     use super::*;
 
-    pub trait PioStateMachine {
+    pub trait PioStateMachineInstance {
         type Pio: super::PioInstance;
         const SM: usize;
 

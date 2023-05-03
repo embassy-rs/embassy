@@ -64,7 +64,7 @@ async fn main(_spawner: Spawner) {
 
 pub struct HD44780<'l> {
     dma: PeripheralRef<'l, AnyChannel>,
-    sm: PioStateMachineInstance<'l, PIO0, 0>,
+    sm: PioStateMachine<'l, PIO0, 0>,
 
     buf: [u8; 40],
 }

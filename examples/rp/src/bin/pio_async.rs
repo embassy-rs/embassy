@@ -9,7 +9,7 @@ use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};
 
-fn setup_pio_task_sm0(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, 0>, pin: impl PioPin) {
+fn setup_pio_task_sm0(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachine<PIO0, 0>, pin: impl PioPin) {
     // Setup sm0
 
     // Send data serially to pin
@@ -37,7 +37,7 @@ fn setup_pio_task_sm0(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstanc
 }
 
 #[embassy_executor::task]
-async fn pio_task_sm0(mut sm: PioStateMachineInstance<'static, PIO0, 0>) {
+async fn pio_task_sm0(mut sm: PioStateMachine<'static, PIO0, 0>) {
     sm.set_enable(true);
 
     let mut v = 0x0f0caffa;
@@ -48,7 +48,7 @@ async fn pio_task_sm0(mut sm: PioStateMachineInstance<'static, PIO0, 0>) {
     }
 }
 
-fn setup_pio_task_sm1(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, 1>) {
+fn setup_pio_task_sm1(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachine<PIO0, 1>) {
     // Setupm sm1
 
     // Read 0b10101 repeatedly until ISR is full
@@ -67,7 +67,7 @@ fn setup_pio_task_sm1(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstanc
 }
 
 #[embassy_executor::task]
-async fn pio_task_sm1(mut sm: PioStateMachineInstance<'static, PIO0, 1>) {
+async fn pio_task_sm1(mut sm: PioStateMachine<'static, PIO0, 1>) {
     sm.set_enable(true);
     loop {
         let rx = sm.wait_pull().await;
@@ -75,7 +75,7 @@ async fn pio_task_sm1(mut sm: PioStateMachineInstance<'static, PIO0, 1>) {
     }
 }
 
-fn setup_pio_task_sm2(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstance<PIO0, 2>) {
+fn setup_pio_task_sm2(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachine<PIO0, 2>) {
     // Setup sm2
 
     // Repeatedly trigger IRQ 3
@@ -99,7 +99,7 @@ fn setup_pio_task_sm2(pio: &mut PioCommon<PIO0>, sm: &mut PioStateMachineInstanc
 }
 
 #[embassy_executor::task]
-async fn pio_task_sm2(mut sm: PioStateMachineInstance<'static, PIO0, 2>) {
+async fn pio_task_sm2(mut sm: PioStateMachine<'static, PIO0, 2>) {
     sm.set_enable(true);
     loop {
         sm.wait_irq(3).await;
