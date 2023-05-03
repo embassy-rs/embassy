@@ -110,7 +110,7 @@ impl IoctlState {
 
     pub fn ioctl_done(&self, response: &[u8]) {
         if let IoctlStateInner::Sent { buf } = self.state.get() {
-            info!("IOCTL Response: {:02x}", Bytes(response));
+            trace!("IOCTL Response: {:02x}", Bytes(response));
 
             // TODO fix this
             (unsafe { &mut *buf }[..response.len()]).copy_from_slice(response);

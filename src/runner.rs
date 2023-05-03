@@ -351,8 +351,6 @@ where
                         panic!("IOCTL error {}", cdc_header.status as i32);
                     }
 
-                    info!("IOCTL Response: {:02x}", Bytes(response));
-
                     self.ioctl_state.ioctl_done(response);
                 }
             }
