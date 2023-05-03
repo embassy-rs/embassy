@@ -324,6 +324,9 @@ pub struct PioStateMachineInstance<'d, PIO: PioInstance, const SM: usize> {
 
 impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachineInstance<'d, PIO, SM> {
     fn drop(&mut self) {
+        unsafe {
+            PIO::PIO.ctrl().write_clear(|w| w.set_sm_enable(1 << SM));
+        }
         on_pio_drop::<PIO>();
     }
 }
