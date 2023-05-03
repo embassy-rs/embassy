@@ -96,18 +96,18 @@ pub(crate) unsafe fn init() {
 
 /// Future that waits for TX-FIFO to become writable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct FifoOutFuture<'a, 'd, PIO: PioInstance, const SM: usize> {
-    sm_tx: &'a mut PioStateMachineTx<'d, PIO, SM>,
+pub struct FifoOutFuture<'a, 'd, PIO: Instance, const SM: usize> {
+    sm_tx: &'a mut StateMachineTx<'d, PIO, SM>,
     value: u32,
 }
 
-impl<'a, 'd, PIO: PioInstance, const SM: usize> FifoOutFuture<'a, 'd, PIO, SM> {
-    pub fn new(sm: &'a mut PioStateMachineTx<'d, PIO, SM>, value: u32) -> Self {
+impl<'a, 'd, PIO: Instance, const SM: usize> FifoOutFuture<'a, 'd, PIO, SM> {
+    pub fn new(sm: &'a mut StateMachineTx<'d, PIO, SM>, value: u32) -> Self {
         FifoOutFuture { sm_tx: sm, value }
     }
 }
 
-impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoOutFuture<'a, 'd, PIO, SM> {
+impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PIO, SM> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
@@ -127,7 +127,7 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoOutFuture<'a, 'd,
     }
 }
 
-impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoOutFuture<'a, 'd, PIO, SM> {
+impl<'a, 'd, PIO: Instance, const SM: usize> Drop for FifoOutFuture<'a, 'd, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
@@ -139,17 +139,17 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoOutFuture<'a, 'd, P
 
 /// Future that waits for RX-FIFO to become readable
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct FifoInFuture<'a, 'd, PIO: PioInstance, const SM: usize> {
-    sm_rx: &'a mut PioStateMachineRx<'d, PIO, SM>,
+pub struct FifoInFuture<'a, 'd, PIO: Instance, const SM: usize> {
+    sm_rx: &'a mut StateMachineRx<'d, PIO, SM>,
 }
 
-impl<'a, 'd, PIO: PioInstance, const SM: usize> FifoInFuture<'a, 'd, PIO, SM> {
-    pub fn new(sm: &'a mut PioStateMachineRx<'d, PIO, SM>) -> Self {
+impl<'a, 'd, PIO: Instance, const SM: usize> FifoInFuture<'a, 'd, PIO, SM> {
+    pub fn new(sm: &'a mut StateMachineRx<'d, PIO, SM>) -> Self {
         FifoInFuture { sm_rx: sm }
     }
 }
 
-impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO, SM> {
+impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO, SM> {
     type Output = u32;
     fn poll(mut self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
@@ -168,7 +168,7 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Future for FifoInFuture<'a, 'd, 
     }
 }
 
-impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoInFuture<'a, 'd, PIO, SM> {
+impl<'a, 'd, PIO: Instance, const SM: usize> Drop for FifoInFuture<'a, 'd, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
@@ -180,12 +180,12 @@ impl<'a, 'd, PIO: PioInstance, const SM: usize> Drop for FifoInFuture<'a, 'd, PI
 
 /// Future that waits for IRQ
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct IrqFuture<'a, 'd, PIO: PioInstance> {
-    pio: PhantomData<&'a PioIrq<'d, PIO, 0>>,
+pub struct IrqFuture<'a, 'd, PIO: Instance> {
+    pio: PhantomData<&'a Irq<'d, PIO, 0>>,
     irq_no: u8,
 }
 
-impl<'a, 'd, PIO: PioInstance> Future for IrqFuture<'a, 'd, PIO> {
+impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
@@ -215,7 +215,7 @@ impl<'a, 'd, PIO: PioInstance> Future for IrqFuture<'a, 'd, PIO> {
     }
 }
 
-impl<'a, 'd, PIO: PioInstance> Drop for IrqFuture<'a, 'd, PIO> {
+impl<'a, 'd, PIO: Instance> Drop for IrqFuture<'a, 'd, PIO> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.irqs(0).inte().write_clear(|m| {
@@ -225,12 +225,12 @@ impl<'a, 'd, PIO: PioInstance> Drop for IrqFuture<'a, 'd, PIO> {
     }
 }
 
-pub struct Pin<'l, PIO: PioInstance> {
+pub struct Pin<'l, PIO: Instance> {
     pin: PeripheralRef<'l, AnyPin>,
     pio: PhantomData<PIO>,
 }
 
-impl<'l, PIO: PioInstance> Pin<'l, PIO> {
+impl<'l, PIO: Instance> Pin<'l, PIO> {
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
@@ -293,11 +293,11 @@ impl<'l, PIO: PioInstance> Pin<'l, PIO> {
     }
 }
 
-pub struct PioStateMachineRx<'d, PIO: PioInstance, const SM: usize> {
+pub struct StateMachineRx<'d, PIO: Instance, const SM: usize> {
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineRx<'d, PIO, SM> {
+impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     pub fn empty(&self) -> bool {
         unsafe { PIO::PIO.fstat().read().rxempty() & (1u8 << SM) != 0 }
     }
@@ -370,11 +370,11 @@ impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineRx<'d, PIO, SM> {
     }
 }
 
-pub struct PioStateMachineTx<'d, PIO: PioInstance, const SM: usize> {
+pub struct StateMachineTx<'d, PIO: Instance, const SM: usize> {
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineTx<'d, PIO, SM> {
+impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     pub fn empty(&self) -> bool {
         unsafe { PIO::PIO.fstat().read().txempty() & (1u8 << SM) != 0 }
     }
@@ -445,12 +445,12 @@ impl<'d, PIO: PioInstance, const SM: usize> PioStateMachineTx<'d, PIO, SM> {
     }
 }
 
-pub struct PioStateMachine<'d, PIO: PioInstance, const SM: usize> {
-    rx: PioStateMachineRx<'d, PIO, SM>,
-    tx: PioStateMachineTx<'d, PIO, SM>,
+pub struct StateMachine<'d, PIO: Instance, const SM: usize> {
+    rx: StateMachineRx<'d, PIO, SM>,
+    tx: StateMachineTx<'d, PIO, SM>,
 }
 
-impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachine<'d, PIO, SM> {
+impl<'d, PIO: Instance, const SM: usize> Drop for StateMachine<'d, PIO, SM> {
     fn drop(&mut self) {
         unsafe {
             PIO::PIO.ctrl().write_clear(|w| w.set_sm_enable(1 << SM));
@@ -459,7 +459,7 @@ impl<'d, PIO: PioInstance, const SM: usize> Drop for PioStateMachine<'d, PIO, SM
     }
 }
 
-impl<'d, PIO: PioInstance + 'd, const SM: usize> PioStateMachine<'d, PIO, SM> {
+impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     #[inline(always)]
     fn this_sm() -> crate::pac::pio::StateMachine {
         PIO::PIO.sm(SM)
@@ -771,35 +771,35 @@ impl<'d, PIO: PioInstance + 'd, const SM: usize> PioStateMachine<'d, PIO, SM> {
         }
     }
 
-    pub fn rx(&mut self) -> &mut PioStateMachineRx<'d, PIO, SM> {
+    pub fn rx(&mut self) -> &mut StateMachineRx<'d, PIO, SM> {
         &mut self.rx
     }
-    pub fn tx(&mut self) -> &mut PioStateMachineTx<'d, PIO, SM> {
+    pub fn tx(&mut self) -> &mut StateMachineTx<'d, PIO, SM> {
         &mut self.tx
     }
-    pub fn rx_tx(&mut self) -> (&mut PioStateMachineRx<'d, PIO, SM>, &mut PioStateMachineTx<'d, PIO, SM>) {
+    pub fn rx_tx(&mut self) -> (&mut StateMachineRx<'d, PIO, SM>, &mut StateMachineTx<'d, PIO, SM>) {
         (&mut self.rx, &mut self.tx)
     }
 }
 
-pub struct PioCommon<'d, PIO: PioInstance> {
+pub struct Common<'d, PIO: Instance> {
     instructions_used: u32,
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance> Drop for PioCommon<'d, PIO> {
+impl<'d, PIO: Instance> Drop for Common<'d, PIO> {
     fn drop(&mut self) {
         on_pio_drop::<PIO>();
     }
 }
 
-pub struct PioInstanceMemory<'d, PIO: PioInstance> {
+pub struct InstanceMemory<'d, PIO: Instance> {
     used_mask: u32,
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
-    pub fn write_instr<I>(&mut self, start: usize, instrs: I) -> PioInstanceMemory<'d, PIO>
+impl<'d, PIO: Instance> Common<'d, PIO> {
+    pub fn write_instr<I>(&mut self, start: usize, instrs: I) -> InstanceMemory<'d, PIO>
     where
         I: Iterator<Item = u16>,
     {
@@ -820,16 +820,16 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
             used_mask |= mask;
         }
         self.instructions_used |= used_mask;
-        PioInstanceMemory {
+        InstanceMemory {
             used_mask,
             pio: PhantomData,
         }
     }
 
-    /// Free instruction memory previously allocated with [`PioCommon::write_instr`].
+    /// Free instruction memory previously allocated with [`Common::write_instr`].
     /// This is always possible but unsafe if any state machine is still using this
     /// bit of memory.
-    pub unsafe fn free_instr(&mut self, instrs: PioInstanceMemory<PIO>) {
+    pub unsafe fn free_instr(&mut self, instrs: InstanceMemory<PIO>) {
         self.instructions_used &= !instrs.used_mask;
     }
 
@@ -848,8 +848,8 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
     }
 
     /// Register a pin for PIO usage. Pins will be released from the PIO block
-    /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`PioCommon`] *and*
-    /// all [`PioStateMachine`]s for this block have been dropped. **Other members
+    /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`Common`] *and*
+    /// all [`StateMachine`]s for this block have been dropped. **Other members
     /// of [`Pio`] do not keep pin registrations alive.**
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
@@ -865,11 +865,11 @@ impl<'d, PIO: PioInstance> PioCommon<'d, PIO> {
     }
 }
 
-pub struct PioIrq<'d, PIO: PioInstance, const N: usize> {
+pub struct Irq<'d, PIO: Instance, const N: usize> {
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance, const N: usize> PioIrq<'d, PIO, N> {
+impl<'d, PIO: Instance, const N: usize> Irq<'d, PIO, N> {
     pub fn wait<'a>(&'a mut self) -> IrqFuture<'a, 'd, PIO> {
         IrqFuture {
             pio: PhantomData,
@@ -879,11 +879,11 @@ impl<'d, PIO: PioInstance, const N: usize> PioIrq<'d, PIO, N> {
 }
 
 #[derive(Clone)]
-pub struct PioIrqFlags<'d, PIO: PioInstance> {
+pub struct IrqFlags<'d, PIO: Instance> {
     pio: PhantomData<&'d PIO>,
 }
 
-impl<'d, PIO: PioInstance> PioIrqFlags<'d, PIO> {
+impl<'d, PIO: Instance> IrqFlags<'d, PIO> {
     pub fn check(&self, irq_no: u8) -> bool {
         assert!(irq_no < 8);
         self.check_any(1 << irq_no)
@@ -916,48 +916,48 @@ impl<'d, PIO: PioInstance> PioIrqFlags<'d, PIO> {
     }
 }
 
-pub struct Pio<'d, PIO: PioInstance> {
-    pub common: PioCommon<'d, PIO>,
-    pub irq_flags: PioIrqFlags<'d, PIO>,
-    pub irq0: PioIrq<'d, PIO, 0>,
-    pub irq1: PioIrq<'d, PIO, 1>,
-    pub irq2: PioIrq<'d, PIO, 2>,
-    pub irq3: PioIrq<'d, PIO, 3>,
-    pub sm0: PioStateMachine<'d, PIO, 0>,
-    pub sm1: PioStateMachine<'d, PIO, 1>,
-    pub sm2: PioStateMachine<'d, PIO, 2>,
-    pub sm3: PioStateMachine<'d, PIO, 3>,
+pub struct Pio<'d, PIO: Instance> {
+    pub common: Common<'d, PIO>,
+    pub irq_flags: IrqFlags<'d, PIO>,
+    pub irq0: Irq<'d, PIO, 0>,
+    pub irq1: Irq<'d, PIO, 1>,
+    pub irq2: Irq<'d, PIO, 2>,
+    pub irq3: Irq<'d, PIO, 3>,
+    pub sm0: StateMachine<'d, PIO, 0>,
+    pub sm1: StateMachine<'d, PIO, 1>,
+    pub sm2: StateMachine<'d, PIO, 2>,
+    pub sm3: StateMachine<'d, PIO, 3>,
 }
 
-impl<'d, PIO: PioInstance> Pio<'d, PIO> {
+impl<'d, PIO: Instance> Pio<'d, PIO> {
     pub fn new(_pio: impl Peripheral<P = PIO> + 'd) -> Self {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
         Self {
-            common: PioCommon {
+            common: Common {
                 instructions_used: 0,
                 pio: PhantomData,
             },
-            irq_flags: PioIrqFlags { pio: PhantomData },
-            irq0: PioIrq { pio: PhantomData },
-            irq1: PioIrq { pio: PhantomData },
-            irq2: PioIrq { pio: PhantomData },
-            irq3: PioIrq { pio: PhantomData },
-            sm0: PioStateMachine {
-                rx: PioStateMachineRx { pio: PhantomData },
-                tx: PioStateMachineTx { pio: PhantomData },
+            irq_flags: IrqFlags { pio: PhantomData },
+            irq0: Irq { pio: PhantomData },
+            irq1: Irq { pio: PhantomData },
+            irq2: Irq { pio: PhantomData },
+            irq3: Irq { pio: PhantomData },
+            sm0: StateMachine {
+                rx: StateMachineRx { pio: PhantomData },
+                tx: StateMachineTx { pio: PhantomData },
             },
-            sm1: PioStateMachine {
-                rx: PioStateMachineRx { pio: PhantomData },
-                tx: PioStateMachineTx { pio: PhantomData },
+            sm1: StateMachine {
+                rx: StateMachineRx { pio: PhantomData },
+                tx: StateMachineTx { pio: PhantomData },
             },
-            sm2: PioStateMachine {
-                rx: PioStateMachineRx { pio: PhantomData },
-                tx: PioStateMachineTx { pio: PhantomData },
+            sm2: StateMachine {
+                rx: StateMachineRx { pio: PhantomData },
+                tx: StateMachineTx { pio: PhantomData },
             },
-            sm3: PioStateMachine {
-                rx: PioStateMachineRx { pio: PhantomData },
-                tx: PioStateMachineTx { pio: PhantomData },
+            sm3: StateMachine {
+                rx: StateMachineRx { pio: PhantomData },
+                tx: StateMachineTx { pio: PhantomData },
             },
         }
     }
@@ -974,7 +974,7 @@ pub struct State {
     used_pins: AtomicU32,
 }
 
-fn on_pio_drop<PIO: PioInstance>() {
+fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
     if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
@@ -994,7 +994,7 @@ mod sealed {
 
     pub trait PioPin {}
 
-    pub trait PioInstance {
+    pub trait Instance {
         const PIO_NO: u8;
         const PIO: &'static crate::pac::pio::Pio;
         const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
@@ -1011,16 +1011,16 @@ mod sealed {
     }
 }
 
-pub trait PioInstance: sealed::PioInstance + Sized + Unpin {}
+pub trait Instance: sealed::Instance + Sized + Unpin {}
 
 macro_rules! impl_pio {
     ($name:ident, $pio:expr, $pac:ident, $funcsel:ident) => {
-        impl sealed::PioInstance for peripherals::$name {
+        impl sealed::Instance for peripherals::$name {
             const PIO_NO: u8 = $pio;
             const PIO: &'static pac::pio::Pio = &pac::$pac;
             const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::$funcsel;
         }
-        impl PioInstance for peripherals::$name {}
+        impl Instance for peripherals::$name {}
     };
 }
 

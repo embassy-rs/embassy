@@ -4,18 +4,18 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::pio::{FifoJoin, Pio, PioCommon, PioInstance, PioPin, PioStateMachine, ShiftDirection};
+use embassy_rp::pio::{Common, FifoJoin, Instance, Pio, PioPin, ShiftDirection, StateMachine};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_time::{Duration, Timer};
 use smart_leds::RGB8;
 use {defmt_rtt as _, panic_probe as _};
-pub struct Ws2812<'d, P: PioInstance, const S: usize> {
-    sm: PioStateMachine<'d, P, S>,
+pub struct Ws2812<'d, P: Instance, const S: usize> {
+    sm: StateMachine<'d, P, S>,
 }
 
-impl<'d, P: PioInstance, const S: usize> Ws2812<'d, P, S> {
-    pub fn new(mut pio: PioCommon<'d, P>, mut sm: PioStateMachine<'d, P, S>, pin: impl PioPin) -> Self {
+impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
+    pub fn new(mut pio: Common<'d, P>, mut sm: StateMachine<'d, P, S>, pin: impl PioPin) -> Self {
         // Setup sm0
 
         // prepare the PIO program
