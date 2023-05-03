@@ -113,7 +113,7 @@ pub struct DeviceInfoTable {
 
 #[repr(C, packed)]
 struct BleTable {
-    pcmd_buffer: *const CmdPacket,
+    pcmd_buffer: *mut CmdPacket,
     pcs_buffer: *const u8,
     pevt_queue: *const u8,
     phci_acl_data_buffer: *mut AclDataPacket,
