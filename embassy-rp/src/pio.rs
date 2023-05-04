@@ -307,7 +307,9 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         unsafe {
             let fdebug = PIO::PIO.fdebug();
             let ret = fdebug.read().rxstall() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_rxstall(1 << SM));
+            if ret {
+                fdebug.write(|w| w.set_rxstall(1 << SM));
+            }
             ret
         }
     }
@@ -316,7 +318,9 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         unsafe {
             let fdebug = PIO::PIO.fdebug();
             let ret = fdebug.read().rxunder() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_rxunder(1 << SM));
+            if ret {
+                fdebug.write(|w| w.set_rxunder(1 << SM));
+            }
             ret
         }
     }
@@ -383,7 +387,9 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         unsafe {
             let fdebug = PIO::PIO.fdebug();
             let ret = fdebug.read().txstall() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_txstall(1 << SM));
+            if ret {
+                fdebug.write(|w| w.set_txstall(1 << SM));
+            }
             ret
         }
     }
@@ -392,7 +398,9 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         unsafe {
             let fdebug = PIO::PIO.fdebug();
             let ret = fdebug.read().txover() & (1 << SM) != 0;
-            fdebug.write(|w| w.set_txover(1 << SM));
+            if ret {
+                fdebug.write(|w| w.set_txover(1 << SM));
+            }
             ret
         }
     }
