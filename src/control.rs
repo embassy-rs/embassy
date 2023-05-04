@@ -12,6 +12,11 @@ use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
 use crate::{countries, events, PowerManagementMode};
 
+#[derive(Debug)]
+pub struct Error {
+    pub status: u32,
+}
+
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
@@ -145,7 +150,7 @@ impl<'a> Control<'a> {
         self.ioctl_set_u32(86, 0, mode_num).await;
     }
 
-    pub async fn join_open(&mut self, ssid: &str) {
+    pub async fn join_open(&mut self, ssid: &str) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         self.ioctl_set_u32(134, 0, 0).await; // wsec = open
@@ -159,10 +164,10 @@ impl<'a> Control<'a> {
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
-        self.wait_for_join(i).await;
+        self.wait_for_join(i).await
     }
 
-    pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) {
+    pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         self.ioctl_set_u32(134, 0, 4).await; // wsec = wpa2
@@ -191,33 +196,42 @@ impl<'a> Control<'a> {
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
-        self.wait_for_join(i).await;
+        self.wait_for_join(i).await
     }
 
-    async fn wait_for_join(&mut self, i: SsidInfo) {
-        self.events.mask.enable(&[Event::JOIN, Event::AUTH]);
+    async fn wait_for_join(&mut self, i: SsidInfo) -> Result<(), Error> {
+        self.events.mask.enable(&[Event::SET_SSID, Event::AUTH]);
         let mut subscriber = self.events.queue.subscriber().unwrap();
         // the actual join operation starts here
         // we make sure to enable events before so we don't miss any
+
+        // set_ssid
         self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
             .await;
-        // set_ssid
 
-        loop {
+        // to complete the join, we wait for a SET_SSID event
+        // we also save the AUTH status for the user, it may be interesting
+        let mut auth_status = 0;
+        let status = loop {
             let msg = subscriber.next_message_pure().await;
             if msg.header.event_type == Event::AUTH && msg.header.status != EStatus::SUCCESS {
-                // retry
-                warn!("JOIN failed with status={}", msg.header.status);
-                self.ioctl(IoctlType::Set, IOCTL_CMD_SET_SSID, 0, &mut i.to_bytes())
-                    .await;
-            } else if msg.header.event_type == Event::JOIN && msg.header.status == EStatus::SUCCESS {
-                // successful join
-                break;
+                auth_status = msg.header.status;
+            } else if msg.header.event_type == Event::SET_SSID {
+                // join operation ends with SET_SSID event
+                break msg.header.status;
             }
-        }
+        };
+
         self.events.mask.disable_all();
-        self.state_ch.set_link_state(LinkState::Up);
-        info!("JOINED");
+        if status == EStatus::SUCCESS {
+            // successful join
+            self.state_ch.set_link_state(LinkState::Up);
+            info!("JOINED");
+            Ok(())
+        } else {
+            warn!("JOIN failed with status={} auth={}", status, auth_status);
+            Err(Error { status })
+        }
     }
 
     pub async fn gpio_set(&mut self, gpio_n: u8, gpio_en: bool) {

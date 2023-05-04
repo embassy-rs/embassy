@@ -94,8 +94,15 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(net_task(stack)));
 
-    //control.join_open(env!("WIFI_NETWORK")).await;
-    control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
+    loop {
+        //control.join_open(env!("WIFI_NETWORK")).await;
+        match control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await {
+            Ok(_) => break,
+            Err(err) => {
+                info!("join failed with status={}", err.status);
+            }
+        }
+    }
 
     // And now we can use it!
 
