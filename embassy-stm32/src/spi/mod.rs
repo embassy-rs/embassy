@@ -195,15 +195,20 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     /// Useful for on chip peripherals like SUBGHZ which are hardwired.
-    /// The bus can optionally be exposed externally with `Spi::new()` still.
     #[allow(dead_code)]
     pub fn new_subghz(
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd,
-        freq: Hertz,
-        config: Config,
+        pclk3_freq: u32,
     ) -> Self {
+        // see RM0453 rev 1 section 7.2.13 page 291
+        // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
+        // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
+        let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
+        let mut config = Config::default();
+        config.mode = MODE_0;
+        config.bit_order = BitOrder::MsbFirst;
         Self::new_inner(peri, None, None, None, txdma, rxdma, freq, config)
     }
 
