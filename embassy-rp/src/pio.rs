@@ -181,7 +181,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Drop for FifoInFuture<'a, 'd, PIO, 
 /// Future that waits for IRQ
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct IrqFuture<'a, 'd, PIO: Instance> {
-    pio: PhantomData<&'a Irq<'d, PIO, 0>>,
+    pio: PhantomData<&'a mut Irq<'d, PIO, 0>>,
     irq_no: u8,
 }
 
@@ -287,7 +287,7 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
 }
 
 pub struct StateMachineRx<'d, PIO: Instance, const SM: usize> {
-    pio: PhantomData<&'d PIO>,
+    pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
@@ -364,7 +364,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
 }
 
 pub struct StateMachineTx<'d, PIO: Instance, const SM: usize> {
-    pio: PhantomData<&'d PIO>,
+    pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
@@ -777,7 +777,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
 
 pub struct Common<'d, PIO: Instance> {
     instructions_used: u32,
-    pio: PhantomData<&'d PIO>,
+    pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance> Drop for Common<'d, PIO> {
@@ -788,7 +788,7 @@ impl<'d, PIO: Instance> Drop for Common<'d, PIO> {
 
 pub struct InstanceMemory<'d, PIO: Instance> {
     used_mask: u32,
-    pio: PhantomData<&'d PIO>,
+    pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance> Common<'d, PIO> {
@@ -859,7 +859,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
 }
 
 pub struct Irq<'d, PIO: Instance, const N: usize> {
-    pio: PhantomData<&'d PIO>,
+    pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance, const N: usize> Irq<'d, PIO, N> {
@@ -873,7 +873,7 @@ impl<'d, PIO: Instance, const N: usize> Irq<'d, PIO, N> {
 
 #[derive(Clone)]
 pub struct IrqFlags<'d, PIO: Instance> {
-    pio: PhantomData<&'d PIO>,
+    pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance> IrqFlags<'d, PIO> {
@@ -920,6 +920,7 @@ pub struct Pio<'d, PIO: Instance> {
     pub sm1: StateMachine<'d, PIO, 1>,
     pub sm2: StateMachine<'d, PIO, 2>,
     pub sm3: StateMachine<'d, PIO, 3>,
+    _pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance> Pio<'d, PIO> {
@@ -952,6 +953,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
                 rx: StateMachineRx { pio: PhantomData },
                 tx: StateMachineTx { pio: PhantomData },
             },
+            _pio: PhantomData,
         }
     }
 }
