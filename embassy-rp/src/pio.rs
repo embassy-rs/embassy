@@ -191,17 +191,10 @@ impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
 
         // Check if IRQ flag is already set
-        if critical_section::with(|_| unsafe {
-            let irq_flags = PIO::PIO.irq();
-            if irq_flags.read().0 & (1 << self.irq_no) != 0 {
-                irq_flags.write(|m| {
-                    m.0 = 1 << self.irq_no;
-                });
-                true
-            } else {
-                false
+        if unsafe { PIO::PIO.irq().read().0 & (1 << self.irq_no) != 0 } {
+            unsafe {
+                PIO::PIO.irq().write(|m| m.0 = 1 << self.irq_no);
             }
-        }) {
             return Poll::Ready(());
         }
 
