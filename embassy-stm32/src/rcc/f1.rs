@@ -148,10 +148,8 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     if let Some(pllmul_bits) = pllmul_bits {
-        {
-            let pllctpre_flag: u8 = if config.pllxtpre { 1 } else { 0 };
-            RCC.cfgr().modify(|w| w.set_pllxtpre(Pllxtpre(pllctpre_flag)));
-        }
+        let pllctpre_flag: u8 = if config.pllxtpre { 1 } else { 0 };
+        RCC.cfgr().modify(|w| w.set_pllxtpre(Pllxtpre(pllctpre_flag)));
 
         // enable PLL and wait for it to be ready
         RCC.cfgr().modify(|w| {
