@@ -2,15 +2,19 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt::*;
+// required-features: ble
+
+#[path = "../example_common.rs"]
+mod example_common;
 use embassy_executor::Spawner;
 use embassy_stm32::ipcc::{Config, Ipcc};
 use embassy_stm32::tl_mbox::TlMbox;
-use {defmt_rtt as _, panic_probe as _};
+use embassy_time::{Duration, Timer};
+use example_common::*;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     let config = Config::default();
@@ -38,5 +42,10 @@ async fn main(_spawner: Spawner) {
                 break;
             }
         }
+
+        Timer::after(Duration::from_millis(500)).await;
     }
+
+    info!("Test OK");
+    cortex_m::asm::bkpt();
 }
