@@ -84,7 +84,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         Self::new_inner(peri, irq, rx, tx, tx_buffer, rx_buffer, config)
     }
 
-    #[cfg(not(usart_v1))]
+    #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de(
         peri: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -133,7 +133,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
         }
 
-        configure(r, &config, T::frequency(), T::MULTIPLIER, true, true);
+        configure(r, &config, T::frequency(), T::KIND, true, true);
 
         unsafe {
             r.cr1().modify(|w| {

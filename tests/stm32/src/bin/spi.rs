@@ -35,7 +35,6 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "stm32c031c6")]
     let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
 
-    info!("asdfa;");
     let mut spi = Spi::new(
         spi,
         sck,  // Arduino D13

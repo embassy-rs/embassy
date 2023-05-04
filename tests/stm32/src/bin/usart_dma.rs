@@ -94,6 +94,9 @@ async fn main(_spawner: Spawner) {
     let rx_fut = async {
         rx.read(&mut rx_buf).await.unwrap();
     };
+
+    // note: rx needs to be polled first, to workaround this bug:
+    // https://github.com/embassy-rs/embassy/issues/1426
     join(rx_fut, tx_fut).await;
 
     assert_eq!(tx_buf, rx_buf);

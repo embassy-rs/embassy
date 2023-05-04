@@ -16,5 +16,10 @@ pub fn config() -> Config {
         config.rcc.pll1.q_ck = Some(Hertz(100_000_000));
     }
 
+    #[cfg(feature = "stm32u585ai")]
+    {
+        config.rcc.mux = embassy_stm32::rcc::ClockSrc::MSI(embassy_stm32::rcc::MSIRange::Range48mhz);
+    }
+
     config
 }

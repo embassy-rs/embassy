@@ -157,6 +157,7 @@ pub fn init(_config: config::Config) -> Peripherals {
         timer::init();
         dma::init();
         pio::init();
+        gpio::init();
     }
 
     peripherals
