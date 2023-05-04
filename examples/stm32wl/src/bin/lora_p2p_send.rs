@@ -10,8 +10,6 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_lora::iv::Stm32wlInterfaceVariant;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
-use embassy_stm32::peripherals::SUBGHZSPI;
-use embassy_stm32::rcc::low_level::RccPeripheral;
 use embassy_stm32::spi::Spi;
 use embassy_stm32::{interrupt, into_ref, Peripheral};
 use embassy_time::Delay;
@@ -28,8 +26,7 @@ async fn main(_spawner: Spawner) {
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
     let p = embassy_stm32::init(config);
 
-    let pclk3_freq = SUBGHZSPI::frequency().0;
-    let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2, pclk3_freq);
+    let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2);
 
     let irq = interrupt::take!(SUBGHZ_RADIO);
     into_ref!(irq);

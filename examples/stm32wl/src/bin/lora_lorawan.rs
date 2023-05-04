@@ -11,8 +11,6 @@ use embassy_executor::Spawner;
 use embassy_lora::iv::Stm32wlInterfaceVariant;
 use embassy_lora::LoraTimer;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
-use embassy_stm32::peripherals::SUBGHZSPI;
-use embassy_stm32::rcc::low_level::RccPeripheral;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
 use embassy_stm32::{interrupt, into_ref, pac, Peripheral};
@@ -36,8 +34,7 @@ async fn main(_spawner: Spawner) {
 
     unsafe { pac::RCC.ccipr().modify(|w| w.set_rngsel(0b01)) }
 
-    let pclk3_freq = SUBGHZSPI::frequency().0;
-    let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2, pclk3_freq);
+    let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2);
 
     let irq = interrupt::take!(SUBGHZ_RADIO);
     into_ref!(irq);
