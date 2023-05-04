@@ -7,17 +7,14 @@
 #![allow(incomplete_features)]
 
 use defmt::info;
-use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_lora::iv::Stm32wlInterfaceVariant;
 use embassy_lora::LoraTimer;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_stm32::peripherals::SUBGHZSPI;
 use embassy_stm32::rcc::low_level::RccPeripheral;
 use embassy_stm32::rng::Rng;
-use embassy_stm32::spi::{BitOrder, Config as SpiConfig, Spi, MODE_0};
-use embassy_stm32::time::Hertz;
+use embassy_stm32::spi::Spi;
 use embassy_stm32::{interrupt, into_ref, pac, Peripheral};
 use embassy_time::Delay;
 use lora_phy::mod_params::*;
@@ -33,19 +30,14 @@ const LORAWAN_REGION: region::Region = region::Region::EU868; // warning: set th
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
-    config.rcc.enable_lsi = true;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
+    config.rcc.enable_lsi = true; // enable RNG
     let p = embassy_stm32::init(config);
 
     unsafe { pac::RCC.ccipr().modify(|w| w.set_rngsel(0b01)) }
 
-    let clk = Hertz(core::cmp::min(SUBGHZSPI::frequency().0 / 2, 16_000_000));
-    let mut spi_config = SpiConfig::default();
-    spi_config.mode = MODE_0;
-    spi_config.bit_order = BitOrder::MsbFirst;
-    let spi = Spi::new_subghz(p.SUBGHZSPI, NoDma, NoDma, clk, spi_config);
-
-    let spi = BlockingAsync::new(spi);
+    let pclk3_freq = SUBGHZSPI::frequency().0;
+    let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2, pclk3_freq);
 
     let irq = interrupt::take!(SUBGHZ_RADIO);
     into_ref!(irq);
