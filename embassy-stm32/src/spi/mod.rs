@@ -194,17 +194,17 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Self::new_inner(peri, None, Some(mosi.map_into()), None, txdma, rxdma, freq, config)
     }
 
+    #[cfg(stm32wl)]
     /// Useful for on chip peripherals like SUBGHZ which are hardwired.
-    #[allow(dead_code)]
     pub fn new_subghz(
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd,
-        pclk3_freq: u32,
     ) -> Self {
         // see RM0453 rev 1 section 7.2.13 page 291
         // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
         // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
+        let pclk3_freq = <peripherals::SUBGHZSPI as crate::rcc::sealed::RccPeripheral>::frequency().0;
         let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
         let mut config = Config::default();
         config.mode = MODE_0;
