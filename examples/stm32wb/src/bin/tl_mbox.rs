@@ -6,6 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::ipcc::{Config, Ipcc};
 use embassy_stm32::tl_mbox::TlMbox;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -38,5 +39,7 @@ async fn main(_spawner: Spawner) {
                 break;
             }
         }
+
+        Timer::after(Duration::from_millis(500)).await;
     }
 }

@@ -196,67 +196,67 @@ pub struct RefTable {
 #[link_section = "TL_REF_TABLE"]
 pub static mut TL_REF_TABLE: MaybeUninit<RefTable> = MaybeUninit::uninit();
 
-#[link_section = "TL_DEVICE_INFO_TABLE"]
+#[link_section = "MB_MEM1"]
 static mut TL_DEVICE_INFO_TABLE: MaybeUninit<DeviceInfoTable> = MaybeUninit::uninit();
 
-#[link_section = "TL_BLE_TABLE"]
+#[link_section = "MB_MEM1"]
 static mut TL_BLE_TABLE: MaybeUninit<BleTable> = MaybeUninit::uninit();
 
-#[link_section = "TL_THREAD_TABLE"]
+#[link_section = "MB_MEM1"]
 static mut TL_THREAD_TABLE: MaybeUninit<ThreadTable> = MaybeUninit::uninit();
 
-#[link_section = "TL_SYS_TABLE"]
+#[link_section = "MB_MEM1"]
 static mut TL_SYS_TABLE: MaybeUninit<SysTable> = MaybeUninit::uninit();
 
-#[link_section = "TL_MEM_MANAGER_TABLE"]
+#[link_section = "MB_MEM1"]
 static mut TL_MEM_MANAGER_TABLE: MaybeUninit<MemManagerTable> = MaybeUninit::uninit();
 
-#[link_section = "TL_TRACES_TABLE"]
+#[link_section = "MB_MEM1"]
 static mut TL_TRACES_TABLE: MaybeUninit<TracesTable> = MaybeUninit::uninit();
 
-#[link_section = "TL_MAC_802_15_4_TABLE"]
+#[link_section = "MB_MEM1"]
 static mut TL_MAC_802_15_4_TABLE: MaybeUninit<Mac802_15_4Table> = MaybeUninit::uninit();
 
 #[allow(dead_code)] // Not used currently but reserved
-#[link_section = "FREE_BUF_QUEUE"]
+#[link_section = "MB_MEM2"]
 static mut FREE_BUFF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 // not in shared RAM
 static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[allow(dead_code)] // Not used currently but reserved
-#[link_section = "TRACES_EVT_QUEUE"]
+#[link_section = "MB_MEM2"]
 static mut TRACES_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
-#[link_section = "CS_BUFFER"]
+#[link_section = "MB_MEM2"]
 static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
     MaybeUninit::uninit();
 
-#[link_section = "EVT_QUEUE"]
+#[link_section = "MB_MEM2"]
 static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
-#[link_section = "SYSTEM_EVT_QUEUE"]
+#[link_section = "MB_MEM2"]
 static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
-#[link_section = "SYS_CMD_BUF"]
+#[link_section = "MB_MEM2"]
 static mut SYS_CMD_BUF: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
-#[link_section = "EVT_POOL"]
+#[link_section = "MB_MEM2"]
 static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
 
-#[link_section = "SYS_SPARE_EVT_BUF"]
+#[link_section = "MB_MEM2"]
 static mut SYS_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
-#[link_section = "BLE_SPARE_EVT_BUF"]
+#[link_section = "MB_MEM2"]
 static mut BLE_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
-#[link_section = "BLE_CMD_BUFFER"]
+#[link_section = "MB_MEM2"]
 static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
-#[link_section = "HCI_ACL_DATA_BUFFER"]
-//                                                "magic" numbers from ST ---v---v
+#[link_section = "MB_MEM2"]
+//                                            "magic" numbers from ST ---v---v
 static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();
 
 pub struct TlMbox {
