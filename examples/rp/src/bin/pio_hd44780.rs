@@ -6,9 +6,8 @@ use core::fmt::Write;
 
 use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
-use embassy_rp::gpio::Pin;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{FifoJoin, Pio, PioStateMachine, PioStateMachineInstance, ShiftDirection};
+use embassy_rp::pio::{FifoJoin, Pio, PioPin, PioStateMachine, ShiftDirection};
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{into_ref, Peripheral, PeripheralRef};
@@ -65,7 +64,7 @@ async fn main(_spawner: Spawner) {
 
 pub struct HD44780<'l> {
     dma: PeripheralRef<'l, AnyChannel>,
-    sm: PioStateMachineInstance<'l, PIO0, 0>,
+    sm: PioStateMachine<'l, PIO0, 0>,
 
     buf: [u8; 40],
 }
@@ -74,19 +73,22 @@ impl<'l> HD44780<'l> {
     pub async fn new(
         pio: impl Peripheral<P = PIO0> + 'l,
         dma: impl Peripheral<P = impl Channel> + 'l,
-        rs: impl Pin,
-        rw: impl Pin,
-        e: impl Pin,
-        db4: impl Pin,
-        db5: impl Pin,
-        db6: impl Pin,
-        db7: impl Pin,
+        rs: impl PioPin,
+        rw: impl PioPin,
+        e: impl PioPin,
+        db4: impl PioPin,
+        db5: impl PioPin,
+        db6: impl PioPin,
+        db7: impl PioPin,
     ) -> HD44780<'l> {
         into_ref!(dma);
 
         let db7pin = db7.pin();
         let Pio {
-            mut common, mut sm0, ..
+            mut common,
+            mut irq0,
+            mut sm0,
+            ..
         } = Pio::new(pio);
 
         // takes command words (<wait:24> <command:4> <0:4>)
@@ -137,16 +139,16 @@ impl<'l> HD44780<'l> {
 
         sm0.set_enable(true);
         // init to 8 bit thrice
-        sm0.push_tx((50000 << 8) | 0x30);
-        sm0.push_tx((5000 << 8) | 0x30);
-        sm0.push_tx((200 << 8) | 0x30);
+        sm0.tx().push((50000 << 8) | 0x30);
+        sm0.tx().push((5000 << 8) | 0x30);
+        sm0.tx().push((200 << 8) | 0x30);
         // init 4 bit
-        sm0.push_tx((200 << 8) | 0x20);
+        sm0.tx().push((200 << 8) | 0x20);
         // set font and lines
-        sm0.push_tx((50 << 8) | 0x20);
-        sm0.push_tx(0b1100_0000);
+        sm0.tx().push((50 << 8) | 0x20);
+        sm0.tx().push(0b1100_0000);
 
-        sm0.wait_irq(0).await;
+        irq0.wait().await;
         sm0.set_enable(false);
 
         // takes command sequences (<rs:1> <count:7>, data...)
@@ -214,7 +216,7 @@ impl<'l> HD44780<'l> {
         sm0.set_enable(true);
 
         // display on and cursor on and blinking, reset display
-        sm0.dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1]).await;
+        sm0.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1]).await;
 
         Self {
             dma: dma.map_into(),
@@ -238,6 +240,6 @@ impl<'l> HD44780<'l> {
         // set cursor to 1:15
         self.buf[38..].copy_from_slice(&[0x80, 0xcf]);
 
-        self.sm.dma_push(self.dma.reborrow(), &self.buf).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), &self.buf).await;
     }
 }

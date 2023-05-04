@@ -4,7 +4,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_rp::pio::{Pio, PioStateMachine, ShiftDirection};
+use embassy_rp::pio::{Pio, ShiftDirection};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{pio_instr_util, Peripheral};
 use {defmt_rtt as _, panic_probe as _};
@@ -60,9 +60,10 @@ async fn main(_spawner: Spawner) {
     }
     let mut din = [0u32; 29];
     loop {
+        let (rx, tx) = sm.rx_tx();
         join(
-            sm.dma_push(dma_out_ref.reborrow(), &dout),
-            sm.dma_pull(dma_in_ref.reborrow(), &mut din),
+            tx.dma_push(dma_out_ref.reborrow(), &dout),
+            rx.dma_pull(dma_in_ref.reborrow(), &mut din),
         )
         .await;
         for i in 0..din.len() {

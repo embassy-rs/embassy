@@ -4,21 +4,18 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::gpio::{self, Pin};
-use embassy_rp::pio::{
-    FifoJoin, Pio, PioCommon, PioInstance, PioStateMachine, PioStateMachineInstance, ShiftDirection,
-};
+use embassy_rp::pio::{FifoJoin, Pio, PioCommon, PioInstance, PioPin, PioStateMachine, ShiftDirection};
 use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_time::{Duration, Timer};
 use smart_leds::RGB8;
 use {defmt_rtt as _, panic_probe as _};
 pub struct Ws2812<'d, P: PioInstance, const S: usize> {
-    sm: PioStateMachineInstance<'d, P, S>,
+    sm: PioStateMachine<'d, P, S>,
 }
 
 impl<'d, P: PioInstance, const S: usize> Ws2812<'d, P, S> {
-    pub fn new(mut pio: PioCommon<'d, P>, mut sm: PioStateMachineInstance<'d, P, S>, pin: gpio::AnyPin) -> Self {
+    pub fn new(mut pio: PioCommon<'d, P>, mut sm: PioStateMachine<'d, P, S>, pin: impl PioPin) -> Self {
         // Setup sm0
 
         // prepare the PIO program
@@ -90,7 +87,7 @@ impl<'d, P: PioInstance, const S: usize> Ws2812<'d, P, S> {
     pub async fn write(&mut self, colors: &[RGB8]) {
         for color in colors {
             let word = (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
-            self.sm.wait_push(word).await;
+            self.sm.tx().wait_push(word).await;
         }
     }
 }
@@ -124,7 +121,7 @@ async fn main(_spawner: Spawner) {
 
     // For the thing plus, use pin 8
     // For the feather, use pin 16
-    let mut ws2812 = Ws2812::new(common, sm0, p.PIN_8.degrade());
+    let mut ws2812 = Ws2812::new(common, sm0, p.PIN_8);
 
     // Loop forever making RGB values and pushing them out to the WS2812.
     loop {
