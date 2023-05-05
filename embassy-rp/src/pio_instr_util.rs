@@ -2,7 +2,7 @@ use pio::{InSource, InstructionOperands, JmpCondition, OutDestination, SetDestin
 
 use crate::pio::{Instance, StateMachine};
 
-pub fn set_x<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, value: u32) {
+pub unsafe fn set_x<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, value: u32) {
     const OUT: u16 = InstructionOperands::OUT {
         destination: OutDestination::X,
         bit_count: 32,
@@ -12,7 +12,7 @@ pub fn set_x<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, val
     sm.exec_instr(OUT);
 }
 
-pub fn get_x<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>) -> u32 {
+pub unsafe fn get_x<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>) -> u32 {
     const IN: u16 = InstructionOperands::IN {
         source: InSource::X,
         bit_count: 32,
@@ -22,7 +22,7 @@ pub fn get_x<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>) -> 
     sm.rx().pull()
 }
 
-pub fn set_y<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, value: u32) {
+pub unsafe fn set_y<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, value: u32) {
     const OUT: u16 = InstructionOperands::OUT {
         destination: OutDestination::Y,
         bit_count: 32,
@@ -32,7 +32,7 @@ pub fn set_y<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, val
     sm.exec_instr(OUT);
 }
 
-pub fn get_y<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>) -> u32 {
+pub unsafe fn get_y<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>) -> u32 {
     const IN: u16 = InstructionOperands::IN {
         source: InSource::Y,
         bit_count: 32,
@@ -43,7 +43,7 @@ pub fn get_y<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>) -> 
     sm.rx().pull()
 }
 
-pub fn set_pindir<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u8) {
+pub unsafe fn set_pindir<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u8) {
     let set: u16 = InstructionOperands::SET {
         destination: SetDestination::PINDIRS,
         data,
@@ -52,7 +52,7 @@ pub fn set_pindir<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>
     sm.exec_instr(set);
 }
 
-pub fn set_pin<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u8) {
+pub unsafe fn set_pin<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u8) {
     let set: u16 = InstructionOperands::SET {
         destination: SetDestination::PINS,
         data,
@@ -61,7 +61,7 @@ pub fn set_pin<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, d
     sm.exec_instr(set);
 }
 
-pub fn set_out_pin<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u32) {
+pub unsafe fn set_out_pin<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u32) {
     const OUT: u16 = InstructionOperands::OUT {
         destination: OutDestination::PINS,
         bit_count: 32,
@@ -70,7 +70,7 @@ pub fn set_out_pin<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM
     sm.tx().push(data);
     sm.exec_instr(OUT);
 }
-pub fn set_out_pindir<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u32) {
+pub unsafe fn set_out_pindir<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, data: u32) {
     const OUT: u16 = InstructionOperands::OUT {
         destination: OutDestination::PINDIRS,
         bit_count: 32,
@@ -80,7 +80,7 @@ pub fn set_out_pindir<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO,
     sm.exec_instr(OUT);
 }
 
-pub fn exec_jmp<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, to_addr: u8) {
+pub unsafe fn exec_jmp<PIO: Instance, const SM: usize>(sm: &mut StateMachine<PIO, SM>, to_addr: u8) {
     let jmp: u16 = InstructionOperands::JMP {
         address: to_addr,
         condition: JmpCondition::Always,
