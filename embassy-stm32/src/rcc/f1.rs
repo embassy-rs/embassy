@@ -28,10 +28,8 @@ pub struct Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    let pllsrcclk = config
-        .hse
-        .map(|hse| if config.pllxtpre { hse.0 / 2 } else { hse.0 })
-        .unwrap_or(HSI_FREQ.0 / 2);
+    let pllxtpre_div = if config.pllxtpre { 2 } else { 1 };
+    let pllsrcclk = config.hse.map(|hse| hse.0 / pllxtpre_div).unwrap_or(HSI_FREQ.0 / 2);
 
     let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
     let pllmul = sysclk / pllsrcclk;
