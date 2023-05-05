@@ -24,10 +24,13 @@ pub struct Config {
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
     pub adcclk: Option<Hertz>,
+    pub pllxtpre: bool,
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0 / 2);
+    let pllxtpre_div = if config.pllxtpre { 2 } else { 1 };
+    let pllsrcclk = config.hse.map(|hse| hse.0 / pllxtpre_div).unwrap_or(HSI_FREQ.0 / 2);
+
     let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
     let pllmul = sysclk / pllsrcclk;
 
@@ -143,6 +146,9 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     if let Some(pllmul_bits) = pllmul_bits {
+        let pllctpre_flag: u8 = if config.pllxtpre { 1 } else { 0 };
+        RCC.cfgr().modify(|w| w.set_pllxtpre(Pllxtpre(pllctpre_flag)));
+
         // enable PLL and wait for it to be ready
         RCC.cfgr().modify(|w| {
             w.set_pllmul(Pllmul(pllmul_bits));
