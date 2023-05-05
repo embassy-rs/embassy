@@ -9,12 +9,14 @@ use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::io::vals::Gpio0ctrlFuncsel;
+use pio::{SideSet, Wrap};
 
 use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{self, AnyPin, Drive, Pull, SlewRate};
 use crate::pac::dma::vals::TreqSel;
-use crate::{interrupt, pac, peripherals, RegExt};
+use crate::relocate::RelocatedProgram;
+use crate::{interrupt, pac, peripherals, pio_instr_util, RegExt};
 
 struct Wakers([AtomicWaker; 12]);
 
@@ -460,6 +462,13 @@ impl<'d, PIO: Instance, const SM: usize> Drop for StateMachine<'d, PIO, SM> {
     }
 }
 
+fn assert_consecutive<'d, PIO: Instance>(pins: &[&Pin<'d, PIO>]) {
+    for (p1, p2) in pins.iter().zip(pins.iter().skip(1)) {
+        // purposely does not allow wrap-around because we can't claim pins 30 and 31.
+        assert!(p1.pin() + 1 == p2.pin(), "pins must be consecutive");
+    }
+}
+
 impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     #[inline(always)]
     fn this_sm() -> crate::pac::pio::StateMachine {
@@ -504,24 +513,24 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         }
     }
 
-    pub fn set_side_enable(&self, enable: bool) {
+    /// Configures this state machine to use the given program, including jumping to the origin
+    /// of the program. The state machine is not started.
+    pub fn use_program(&mut self, prog: &LoadedProgram<'d, PIO>, side_set: &[&Pin<'d, PIO>]) {
+        assert!((prog.side_set.bits() - prog.side_set.optional() as u8) as usize == side_set.len());
+        assert_consecutive(side_set);
         unsafe {
-            Self::this_sm().execctrl().modify(|w| w.set_side_en(enable));
+            Self::this_sm().execctrl().modify(|w| {
+                w.set_side_en(prog.side_set.optional());
+                w.set_side_pindir(prog.side_set.pindirs());
+                w.set_wrap_bottom(prog.wrap.target);
+                w.set_wrap_top(prog.wrap.source);
+            });
+            Self::this_sm().pinctrl().modify(|w| {
+                w.set_sideset_count(prog.side_set.bits());
+                w.set_sideset_base(side_set.first().map_or(0, |p| p.pin()));
+            });
+            pio_instr_util::exec_jmp(self, prog.origin);
         }
-    }
-
-    pub fn is_side_enabled(&self) -> bool {
-        unsafe { Self::this_sm().execctrl().read().side_en() }
-    }
-
-    pub fn set_side_pindir(&mut self, pindir: bool) {
-        unsafe {
-            Self::this_sm().execctrl().modify(|w| w.set_side_pindir(pindir));
-        }
-    }
-
-    pub fn is_side_pindir(&self) -> bool {
-        unsafe { Self::this_sm().execctrl().read().side_pindir() }
     }
 
     pub fn set_jmp_pin(&mut self, pin: u8) {
@@ -532,23 +541,6 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
 
     pub fn get_jmp_pin(&mut self) -> u8 {
         unsafe { Self::this_sm().execctrl().read().jmp_pin() }
-    }
-
-    pub fn set_wrap(&self, source: u8, target: u8) {
-        unsafe {
-            Self::this_sm().execctrl().modify(|w| {
-                w.set_wrap_top(source);
-                w.set_wrap_bottom(target)
-            });
-        }
-    }
-
-    /// Get wrapping addresses. Returns (source, target).
-    pub fn get_wrap(&self) -> (u8, u8) {
-        unsafe {
-            let r = Self::this_sm().execctrl().read();
-            (r.wrap_top(), r.wrap_bottom())
-        }
     }
 
     pub fn set_fifo_join(&mut self, join: FifoJoin) {
@@ -667,28 +659,6 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     pub fn get_addr(&self) -> u8 {
         unsafe { Self::this_sm().addr().read().addr() }
     }
-    pub fn set_sideset_count(&mut self, count: u8) {
-        unsafe {
-            Self::this_sm().pinctrl().modify(|w| w.set_sideset_count(count));
-        }
-    }
-
-    pub fn get_sideset_count(&self) -> u8 {
-        unsafe { Self::this_sm().pinctrl().read().sideset_count() }
-    }
-
-    pub fn set_sideset_base_pin(&mut self, base_pin: &Pin<PIO>) {
-        unsafe {
-            Self::this_sm().pinctrl().modify(|w| w.set_sideset_base(base_pin.pin()));
-        }
-    }
-
-    pub fn get_sideset_base(&self) -> u8 {
-        unsafe {
-            let r = Self::this_sm().pinctrl().read();
-            r.sideset_base()
-        }
-    }
 
     /// Set the range of out pins affected by a set instruction.
     pub fn set_set_range(&mut self, base: u8, count: u8) {
@@ -799,8 +769,35 @@ pub struct InstanceMemory<'d, PIO: Instance> {
     pio: PhantomData<&'d mut PIO>,
 }
 
+pub struct LoadedProgram<'d, PIO: Instance> {
+    pub used_memory: InstanceMemory<'d, PIO>,
+    origin: u8,
+    wrap: Wrap,
+    side_set: SideSet,
+}
+
 impl<'d, PIO: Instance> Common<'d, PIO> {
-    pub fn write_instr<I>(&mut self, start: usize, instrs: I) -> InstanceMemory<'d, PIO>
+    pub fn load_program<const SIZE: usize>(&mut self, prog: &RelocatedProgram<SIZE>) -> LoadedProgram<'d, PIO> {
+        match self.try_load_program(prog) {
+            Ok(r) => r,
+            Err(at) => panic!("Trying to write already used PIO instruction memory at {}", at),
+        }
+    }
+
+    pub fn try_load_program<const SIZE: usize>(
+        &mut self,
+        prog: &RelocatedProgram<SIZE>,
+    ) -> Result<LoadedProgram<'d, PIO>, usize> {
+        let used_memory = self.try_write_instr(prog.origin() as _, prog.code())?;
+        Ok(LoadedProgram {
+            used_memory,
+            origin: prog.origin(),
+            wrap: prog.wrap(),
+            side_set: prog.side_set(),
+        })
+    }
+
+    pub fn try_write_instr<I>(&mut self, start: usize, instrs: I) -> Result<InstanceMemory<'d, PIO>, usize>
     where
         I: Iterator<Item = u16>,
     {
@@ -808,11 +805,9 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         for (i, instr) in instrs.enumerate() {
             let addr = (i + start) as u8;
             let mask = 1 << (addr as usize);
-            assert!(
-                self.instructions_used & mask == 0,
-                "Trying to write already used PIO instruction memory at {}",
-                addr
-            );
+            if self.instructions_used & mask != 0 {
+                return Err(addr as usize);
+            }
             unsafe {
                 PIO::PIO.instr_mem(addr as usize).write(|w| {
                     w.set_instr_mem(instr);
@@ -821,15 +816,14 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
             used_mask |= mask;
         }
         self.instructions_used |= used_mask;
-        InstanceMemory {
+        Ok(InstanceMemory {
             used_mask,
             pio: PhantomData,
-        }
+        })
     }
 
-    /// Free instruction memory previously allocated with [`Common::write_instr`].
-    /// This is always possible but unsafe if any state machine is still using this
-    /// bit of memory.
+    /// Free instruction memory. This is always possible but unsafe if any
+    /// state machine is still using this bit of memory.
     pub unsafe fn free_instr(&mut self, instrs: InstanceMemory<PIO>) {
         self.instructions_used &= !instrs.used_mask;
     }

@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::pio::{Pio, ShiftDirection};
 use embassy_rp::relocate::RelocatedProgram;
-use embassy_rp::{pio_instr_util, Peripheral};
+use embassy_rp::Peripheral;
 use {defmt_rtt as _, panic_probe as _};
 
 fn swap_nibbles(v: u32) -> u32 {
@@ -38,11 +38,8 @@ async fn main(_spawner: Spawner) {
     );
 
     let relocated = RelocatedProgram::new(&prg.program);
-    common.write_instr(relocated.origin() as usize, relocated.code());
-    pio_instr_util::exec_jmp(&mut sm, relocated.origin());
+    sm.use_program(&common.load_program(&relocated), &[]);
     sm.set_clkdiv((125e6 / 10e3 * 256.0) as u32);
-    let pio::Wrap { source, target } = relocated.wrap();
-    sm.set_wrap(source, target);
     sm.set_autopull(true);
     sm.set_autopush(true);
     sm.set_pull_threshold(32);

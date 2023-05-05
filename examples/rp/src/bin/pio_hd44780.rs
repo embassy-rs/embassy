@@ -123,15 +123,9 @@ impl<'l> HD44780<'l> {
         embassy_rp::pio_instr_util::set_pindir(&mut sm0, 0b11111);
 
         let relocated = RelocatedProgram::new(&prg.program);
-        common.write_instr(relocated.origin() as usize, relocated.code());
-        embassy_rp::pio_instr_util::exec_jmp(&mut sm0, relocated.origin());
+        sm0.use_program(&common.load_program(&relocated), &[&e]);
         sm0.set_clkdiv(125 * 256);
-        let pio::Wrap { source, target } = relocated.wrap();
-        sm0.set_wrap(source, target);
-        sm0.set_side_enable(true);
         sm0.set_out_pins(&[&db4, &db5, &db6, &db7]);
-        sm0.set_sideset_base_pin(&e);
-        sm0.set_sideset_count(2);
         sm0.set_out_shift_dir(ShiftDirection::Left);
         sm0.set_fifo_join(FifoJoin::TxOnly);
         sm0.set_autopull(true);
@@ -199,17 +193,11 @@ impl<'l> HD44780<'l> {
         );
 
         let relocated = RelocatedProgram::new(&prg.program);
-        common.write_instr(relocated.origin() as usize, relocated.code());
-        embassy_rp::pio_instr_util::exec_jmp(&mut sm0, relocated.origin());
-        let pio::Wrap { source, target } = relocated.wrap();
+        sm0.use_program(&common.load_program(&relocated), &[&e]);
         sm0.set_clkdiv(8 * 256); // ~64ns/insn
-        sm0.set_side_enable(false);
         sm0.set_jmp_pin(db7pin);
-        sm0.set_wrap(source, target);
         sm0.set_set_pins(&[&rs, &rw]);
         sm0.set_out_pins(&[&db4, &db5, &db6, &db7]);
-        sm0.set_sideset_base_pin(&e);
-        sm0.set_sideset_count(1);
         sm0.set_out_shift_dir(ShiftDirection::Left);
         sm0.set_fifo_join(FifoJoin::TxOnly);
 

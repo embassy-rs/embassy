@@ -5,7 +5,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::pio::{Common, FifoJoin, Instance, Pio, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::pio_instr_util;
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_time::{Duration, Timer};
 use smart_leds::RGB8;
@@ -45,15 +44,11 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
 
         let prg = a.assemble_with_wrap(wrap_source, wrap_target);
 
-        let relocated = RelocatedProgram::new(&prg);
-        pio.write_instr(relocated.origin() as usize, relocated.code());
-        pio_instr_util::exec_jmp(&mut sm, relocated.origin());
-
         // Pin config
         let out_pin = pio.make_pio_pin(pin);
-        sm.set_set_pins(&[&out_pin]);
-        sm.set_sideset_base_pin(&out_pin);
-        sm.set_sideset_count(1);
+
+        let relocated = RelocatedProgram::new(&prg);
+        sm.use_program(&pio.load_program(&relocated), &[&out_pin]);
 
         // Clock config
         // TODO CLOCK_FREQ should come from embassy_rp
@@ -70,8 +65,6 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
         }
 
         sm.set_clkdiv((int << 8) | frac);
-        let pio::Wrap { source, target } = relocated.wrap();
-        sm.set_wrap(source, target);
 
         // FIFO config
         sm.set_autopull(true);
