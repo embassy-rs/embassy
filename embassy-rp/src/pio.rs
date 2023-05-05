@@ -13,7 +13,7 @@ use pio::{SideSet, Wrap};
 
 use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
-use crate::gpio::{self, AnyPin, Drive, Pull, SlewRate};
+use crate::gpio::{self, AnyPin, Drive, Level, Pull, SlewRate};
 use crate::pac::dma::vals::TreqSel;
 use crate::relocate::RelocatedProgram;
 use crate::{interrupt, pac, peripherals, pio_instr_util, RegExt};
@@ -52,6 +52,14 @@ pub enum FifoJoin {
 pub enum ShiftDirection {
     Right = 1,
     Left = 0,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Direction {
+    In = 0,
+    Out = 1,
 }
 
 const RXNEMPTY_MASK: u32 = 1 << 0;
@@ -531,6 +539,56 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             });
             pio_instr_util::exec_jmp(self, prog.origin);
         }
+    }
+
+    fn with_paused(&mut self, f: impl FnOnce(&mut Self)) {
+        let enabled = self.is_enabled();
+        self.set_enable(false);
+        let pincfg = unsafe { Self::this_sm().pinctrl().read() };
+        let execcfg = unsafe { Self::this_sm().execctrl().read() };
+        unsafe {
+            Self::this_sm().execctrl().write_clear(|w| w.set_out_sticky(true));
+        }
+        f(self);
+        unsafe {
+            Self::this_sm().pinctrl().write_value(pincfg);
+            Self::this_sm().execctrl().write_value(execcfg);
+        }
+        self.set_enable(enabled);
+    }
+
+    /// Sets pin directions. This pauses the current state machine to run `SET` commands
+    /// and temporarily unsets the `OUT_STICKY` bit.
+    pub fn set_pin_dirs(&mut self, dir: Direction, pins: &[&Pin<'d, PIO>]) {
+        self.with_paused(|sm| {
+            for pin in pins {
+                unsafe {
+                    Self::this_sm().pinctrl().write(|w| {
+                        w.set_set_base(pin.pin());
+                        w.set_set_count(1);
+                    });
+                    // SET PINDIRS, (dir)
+                    sm.exec_instr(0b111_00000_100_00000 | dir as u16);
+                }
+            }
+        });
+    }
+
+    /// Sets pin output values. This pauses the current state machine to run
+    /// `SET` commands and temporarily unsets the `OUT_STICKY` bit.
+    pub fn set_pins(&mut self, level: Level, pins: &[&Pin<'d, PIO>]) {
+        self.with_paused(|sm| {
+            for pin in pins {
+                unsafe {
+                    Self::this_sm().pinctrl().write(|w| {
+                        w.set_set_base(pin.pin());
+                        w.set_set_count(1);
+                    });
+                    // SET PINS, (dir)
+                    sm.exec_instr(0b111_00000_000_00000 | level as u16);
+                }
+            }
+        });
     }
 
     pub fn set_jmp_pin(&mut self, pin: u8) {

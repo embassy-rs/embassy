@@ -7,7 +7,7 @@ use core::fmt::Write;
 use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{FifoJoin, Pio, PioPin, ShiftDirection, StateMachine};
+use embassy_rp::pio::{Direction, FifoJoin, Pio, PioPin, ShiftDirection, StateMachine};
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{into_ref, Peripheral, PeripheralRef};
@@ -115,12 +115,7 @@ impl<'l> HD44780<'l> {
         let db6 = common.make_pio_pin(db6);
         let db7 = common.make_pio_pin(db7);
 
-        sm0.set_set_pins(&[&rs, &rw]);
-        embassy_rp::pio_instr_util::set_pindir(&mut sm0, 0b11);
-        sm0.set_set_pins(&[&e]);
-        embassy_rp::pio_instr_util::set_pindir(&mut sm0, 0b1);
-        sm0.set_set_pins(&[&db4, &db5, &db6, &db7]);
-        embassy_rp::pio_instr_util::set_pindir(&mut sm0, 0b11111);
+        sm0.set_pin_dirs(Direction::Out, &[&rs, &rw, &e, &db4, &db5, &db6, &db7]);
 
         let relocated = RelocatedProgram::new(&prg.program);
         sm0.use_program(&common.load_program(&relocated), &[&e]);
