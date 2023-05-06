@@ -22,6 +22,8 @@ lorawan = { version = "0.7.3", default-features = false, features = ["default-cr
 
 defmt = "0.3"
 defmt-rtt = "0.4"
+fixed = "1.23.1"
+fixed-macro = "1.2"
 
 #cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }

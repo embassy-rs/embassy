@@ -2,10 +2,13 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 use defmt::info;
+use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{Common, Irq, Pio, PioPin, ShiftDirection, StateMachine};
+use embassy_rp::pio::{Common, Config, Irq, Pio, PioPin, ShiftDirection, StateMachine};
 use embassy_rp::relocate::RelocatedProgram;
+use fixed::traits::ToFixed;
+use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
 
 fn setup_pio_task_sm0<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, PIO0, 0>, pin: impl PioPin) {
@@ -21,15 +24,14 @@ fn setup_pio_task_sm0<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
     );
 
     let relocated = RelocatedProgram::new(&prg.program);
-    sm.use_program(&pio.load_program(&relocated), &[]);
+    let mut cfg = Config::default();
+    cfg.use_program(&pio.load_program(&relocated), &[]);
     let out_pin = pio.make_pio_pin(pin);
-    let pio_pins = [&out_pin];
-    sm.set_out_pins(&pio_pins);
-    sm.set_clkdiv((125e6 / 20.0 / 2e2 * 256.0) as u32);
-    sm.set_set_range(0, 1);
-
-    sm.set_autopull(true);
-    sm.set_out_shift_dir(ShiftDirection::Left);
+    cfg.set_out_pins(&[&out_pin]);
+    cfg.set_set_pins(&[&out_pin]);
+    cfg.clock_divider = (U56F8!(125_000_000) / 20 / 200).to_fixed();
+    cfg.shift_out.auto_fill = true;
+    sm.set_config(&cfg);
 }
 
 #[embassy_executor::task]
@@ -51,11 +53,12 @@ fn setup_pio_task_sm1<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
     let prg = pio_proc::pio_asm!(".origin 8", "set x, 0x15", ".wrap_target", "in x, 5 [31]", ".wrap",);
 
     let relocated = RelocatedProgram::new(&prg.program);
-    sm.use_program(&pio.load_program(&relocated), &[]);
-    sm.set_clkdiv((125e6 / 2e3 * 256.0) as u32);
-    sm.set_set_range(0, 0);
-    sm.set_autopush(true);
-    sm.set_in_shift_dir(ShiftDirection::Right);
+    let mut cfg = Config::default();
+    cfg.use_program(&pio.load_program(&relocated), &[]);
+    cfg.clock_divider = (U56F8!(125_000_000) / 2000).to_fixed();
+    cfg.shift_in.auto_fill = true;
+    cfg.shift_in.direction = ShiftDirection::Right;
+    sm.set_config(&cfg);
 }
 
 #[embassy_executor::task]
@@ -81,8 +84,10 @@ fn setup_pio_task_sm2<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
         ".wrap",
     );
     let relocated = RelocatedProgram::new(&prg.program);
-    sm.use_program(&pio.load_program(&relocated), &[]);
-    sm.set_clkdiv((125e6 / 2e3 * 256.0) as u32);
+    let mut cfg = Config::default();
+    cfg.use_program(&pio.load_program(&relocated), &[]);
+    cfg.clock_divider = (U56F8!(125_000_000) / 2000).to_fixed();
+    sm.set_config(&cfg);
 }
 
 #[embassy_executor::task]

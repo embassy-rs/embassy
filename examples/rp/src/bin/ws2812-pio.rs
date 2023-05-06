@@ -3,10 +3,12 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
+use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
-use embassy_rp::pio::{Common, FifoJoin, Instance, Pio, PioPin, ShiftDirection, StateMachine};
+use embassy_rp::pio::{Common, Config, FifoJoin, Instance, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_time::{Duration, Timer};
+use fixed_macro::fixed;
 use smart_leds::RGB8;
 use {defmt_rtt as _, panic_probe as _};
 pub struct Ws2812<'d, P: Instance, const S: usize> {
@@ -43,35 +45,30 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
         a.bind(&mut wrap_source);
 
         let prg = a.assemble_with_wrap(wrap_source, wrap_target);
+        let mut cfg = Config::default();
 
         // Pin config
         let out_pin = pio.make_pio_pin(pin);
 
         let relocated = RelocatedProgram::new(&prg);
-        sm.use_program(&pio.load_program(&relocated), &[&out_pin]);
+        cfg.use_program(&pio.load_program(&relocated), &[&out_pin]);
 
-        // Clock config
+        // Clock config, measured in kHz to avoid overflows
         // TODO CLOCK_FREQ should come from embassy_rp
-        const CLOCK_FREQ: u32 = 125_000_000;
-        const WS2812_FREQ: u32 = 800_000;
-
-        let bit_freq = WS2812_FREQ * CYCLES_PER_BIT;
-        let mut int = CLOCK_FREQ / bit_freq;
-        let rem = CLOCK_FREQ - (int * bit_freq);
-        let frac = (rem * 256) / bit_freq;
-        // 65536.0 is represented as 0 in the pio's clock divider
-        if int == 65536 {
-            int = 0;
-        }
-
-        sm.set_clkdiv((int << 8) | frac);
+        let clock_freq = fixed!(125_000: U24F8);
+        let ws2812_freq = fixed!(800: U24F8);
+        let bit_freq = ws2812_freq * CYCLES_PER_BIT;
+        cfg.clock_divider = clock_freq / bit_freq;
 
         // FIFO config
-        sm.set_autopull(true);
-        sm.set_fifo_join(FifoJoin::TxOnly);
-        sm.set_pull_threshold(24);
-        sm.set_out_shift_dir(ShiftDirection::Left);
+        cfg.fifo_join = FifoJoin::TxOnly;
+        cfg.shift_out = ShiftConfig {
+            auto_fill: true,
+            threshold: 24,
+            direction: ShiftDirection::Left,
+        };
 
+        sm.set_config(&cfg);
         sm.set_enable(true);
 
         Self { sm }

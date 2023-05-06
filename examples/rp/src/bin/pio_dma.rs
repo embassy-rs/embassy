@@ -2,11 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 use defmt::info;
+use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_rp::pio::{Pio, ShiftDirection};
+use embassy_rp::pio::{Config, Pio, ShiftConfig, ShiftDirection};
 use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::Peripheral;
+use fixed::traits::ToFixed;
+use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
 
 fn swap_nibbles(v: u32) -> u32 {
@@ -38,15 +41,21 @@ async fn main(_spawner: Spawner) {
     );
 
     let relocated = RelocatedProgram::new(&prg.program);
-    sm.use_program(&common.load_program(&relocated), &[]);
-    sm.set_clkdiv((125e6 / 10e3 * 256.0) as u32);
-    sm.set_autopull(true);
-    sm.set_autopush(true);
-    sm.set_pull_threshold(32);
-    sm.set_push_threshold(32);
-    sm.set_out_shift_dir(ShiftDirection::Right);
-    sm.set_in_shift_dir(ShiftDirection::Left);
+    let mut cfg = Config::default();
+    cfg.use_program(&common.load_program(&relocated), &[]);
+    cfg.clock_divider = (U56F8!(125_000_000) / U56F8!(10_000)).to_fixed();
+    cfg.shift_in = ShiftConfig {
+        auto_fill: true,
+        threshold: 32,
+        direction: ShiftDirection::Left,
+    };
+    cfg.shift_out = ShiftConfig {
+        auto_fill: true,
+        threshold: 32,
+        direction: ShiftDirection::Right,
+    };
 
+    sm.set_config(&cfg);
     sm.set_enable(true);
 
     let mut dma_out_ref = p.DMA_CH0.into_ref();

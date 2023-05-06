@@ -6,9 +6,13 @@ use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+use fixed::types::extra::U8;
+use fixed::FixedU32;
 use pac::io::vals::Gpio0ctrlFuncsel;
+use pac::pio::vals::SmExecctrlStatusSel;
 use pio::{SideSet, Wrap};
 
 use crate::dma::{Channel, Transfer, Word};
@@ -39,8 +43,12 @@ const NEW_AW: AtomicWaker = AtomicWaker::new();
 const PIO_WAKERS_INIT: Wakers = Wakers([NEW_AW; 12]);
 static WAKERS: [Wakers; 2] = [PIO_WAKERS_INIT; 2];
 
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
 pub enum FifoJoin {
     /// Both TX and RX fifo is enabled
+    #[default]
     Duplex,
     /// Rx fifo twice as deep. TX fifo disabled
     RxOnly,
@@ -48,8 +56,11 @@ pub enum FifoJoin {
     TxOnly,
 }
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
 pub enum ShiftDirection {
+    #[default]
     Right = 1,
     Left = 0,
 }
@@ -60,6 +71,15 @@ pub enum ShiftDirection {
 pub enum Direction {
     In = 0,
     Out = 1,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum StatusSource {
+    #[default]
+    TxFifoLevel = 0,
+    RxFifoLevel = 1,
 }
 
 const RXNEMPTY_MASK: u32 = 1 << 0;
@@ -477,6 +497,202 @@ fn assert_consecutive<'d, PIO: Instance>(pins: &[&Pin<'d, PIO>]) {
     }
 }
 
+#[derive(Clone, Copy, Default, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct ExecConfig {
+    pub side_en: bool,
+    pub side_pindir: bool,
+    pub jmp_pin: u8,
+    pub wrap_top: u8,
+    pub wrap_bottom: u8,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ShiftConfig {
+    pub threshold: u8,
+    pub direction: ShiftDirection,
+    pub auto_fill: bool,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct PinConfig {
+    pub sideset_count: u8,
+    pub set_count: u8,
+    pub out_count: u8,
+    pub in_base: u8,
+    pub sideset_base: u8,
+    pub set_base: u8,
+    pub out_base: u8,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Config<'d, PIO: Instance> {
+    // CLKDIV
+    pub clock_divider: FixedU32<U8>,
+    // EXECCTRL
+    pub out_en_sel: u8,
+    pub inline_out_en: bool,
+    pub out_sticky: bool,
+    pub status_sel: StatusSource,
+    pub status_n: u8,
+    exec: ExecConfig,
+    origin: Option<u8>,
+    // SHIFTCTRL
+    pub fifo_join: FifoJoin,
+    pub shift_in: ShiftConfig,
+    pub shift_out: ShiftConfig,
+    // PINCTRL
+    pins: PinConfig,
+    in_count: u8,
+    _pio: PhantomData<&'d mut PIO>,
+}
+
+impl<'d, PIO: Instance> Default for Config<'d, PIO> {
+    fn default() -> Self {
+        Self {
+            clock_divider: 1u8.into(),
+            out_en_sel: Default::default(),
+            inline_out_en: Default::default(),
+            out_sticky: Default::default(),
+            status_sel: Default::default(),
+            status_n: Default::default(),
+            exec: Default::default(),
+            origin: Default::default(),
+            fifo_join: Default::default(),
+            shift_in: Default::default(),
+            shift_out: Default::default(),
+            pins: Default::default(),
+            in_count: Default::default(),
+            _pio: Default::default(),
+        }
+    }
+}
+
+impl<'d, PIO: Instance> Config<'d, PIO> {
+    pub fn get_exec(&self) -> ExecConfig {
+        self.exec
+    }
+    pub unsafe fn set_exec(&mut self, e: ExecConfig) {
+        self.exec = e;
+    }
+
+    pub fn get_pins(&self) -> PinConfig {
+        self.pins
+    }
+    pub unsafe fn set_pins(&mut self, p: PinConfig) {
+        self.pins = p;
+    }
+
+    /// Configures this state machine to use the given program, including jumping to the origin
+    /// of the program. The state machine is not started.
+    ///
+    /// `side_set` sets the range of pins affected by side-sets. The range must be consecutive.
+    /// Side-set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
+    /// effective.
+    pub fn use_program(&mut self, prog: &LoadedProgram<'d, PIO>, side_set: &[&Pin<'d, PIO>]) {
+        assert!((prog.side_set.bits() - prog.side_set.optional() as u8) as usize == side_set.len());
+        assert_consecutive(side_set);
+        self.exec.side_en = prog.side_set.optional();
+        self.exec.side_pindir = prog.side_set.pindirs();
+        self.exec.wrap_bottom = prog.wrap.target;
+        self.exec.wrap_top = prog.wrap.source;
+        self.pins.sideset_count = prog.side_set.bits();
+        self.pins.sideset_base = side_set.first().map_or(0, |p| p.pin());
+        self.origin = Some(prog.origin);
+    }
+
+    pub fn set_jmp_pin(&mut self, pin: &Pin<'d, PIO>) {
+        self.exec.jmp_pin = pin.pin();
+    }
+
+    /// Sets the range of pins affected by SET instructions. The range must be consecutive.
+    /// Set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
+    /// effective.
+    pub fn set_set_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
+        assert!(pins.len() <= 5);
+        assert_consecutive(pins);
+        self.pins.set_base = pins.first().map_or(0, |p| p.pin());
+        self.pins.set_count = pins.len() as u8;
+    }
+
+    /// Sets the range of pins affected by OUT instructions. The range must be consecutive.
+    /// Out pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
+    /// effective.
+    pub fn set_out_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
+        assert_consecutive(pins);
+        self.pins.out_base = pins.first().map_or(0, |p| p.pin());
+        self.pins.out_count = pins.len() as u8;
+    }
+
+    /// Sets the range of pins used by IN instructions. The range must be consecutive.
+    /// In pins must configured as inputs using [`StateMachine::set_pin_dirs`] to be
+    /// effective.
+    pub fn set_in_pins(&mut self, pins: &[&Pin<'d, PIO>]) {
+        assert_consecutive(pins);
+        self.pins.in_base = pins.first().map_or(0, |p| p.pin());
+        self.in_count = pins.len() as u8;
+    }
+}
+
+impl<'d, PIO: Instance, const SM: usize> SetConfig for StateMachine<'d, PIO, SM> {
+    type Config = Config<'d, PIO>;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        // sm expects 0 for 65536, truncation makes that happen
+        assert!(config.clock_divider <= 65536, "clkdiv must be <= 65536");
+        assert!(config.clock_divider >= 1, "clkdiv must be >= 1");
+        assert!(config.out_en_sel < 32, "out_en_sel must be < 32");
+        assert!(config.status_n < 32, "status_n must be < 32");
+        // sm expects 0 for 32, truncation makes that happen
+        assert!(config.shift_in.threshold <= 32, "shift_in.threshold must be <= 32");
+        assert!(config.shift_out.threshold <= 32, "shift_out.threshold must be <= 32");
+        let sm = Self::this_sm();
+        unsafe {
+            sm.clkdiv().write(|w| w.0 = config.clock_divider.to_bits() << 8);
+            sm.execctrl().write(|w| {
+                w.set_side_en(config.exec.side_en);
+                w.set_side_pindir(config.exec.side_pindir);
+                w.set_jmp_pin(config.exec.jmp_pin);
+                w.set_out_en_sel(config.out_en_sel);
+                w.set_inline_out_en(config.inline_out_en);
+                w.set_out_sticky(config.out_sticky);
+                w.set_wrap_top(config.exec.wrap_top);
+                w.set_wrap_bottom(config.exec.wrap_bottom);
+                w.set_status_sel(match config.status_sel {
+                    StatusSource::TxFifoLevel => SmExecctrlStatusSel::TXLEVEL,
+                    StatusSource::RxFifoLevel => SmExecctrlStatusSel::RXLEVEL,
+                });
+                w.set_status_n(config.status_n);
+            });
+            sm.shiftctrl().write(|w| {
+                w.set_fjoin_rx(config.fifo_join == FifoJoin::RxOnly);
+                w.set_fjoin_tx(config.fifo_join == FifoJoin::TxOnly);
+                w.set_pull_thresh(config.shift_out.threshold);
+                w.set_push_thresh(config.shift_in.threshold);
+                w.set_out_shiftdir(config.shift_out.direction == ShiftDirection::Right);
+                w.set_in_shiftdir(config.shift_in.direction == ShiftDirection::Right);
+                w.set_autopull(config.shift_out.auto_fill);
+                w.set_autopush(config.shift_in.auto_fill);
+            });
+            sm.pinctrl().write(|w| {
+                w.set_sideset_count(config.pins.sideset_count);
+                w.set_set_count(config.pins.set_count);
+                w.set_out_count(config.pins.out_count);
+                w.set_in_base(config.pins.in_base);
+                w.set_sideset_base(config.pins.sideset_base);
+                w.set_set_base(config.pins.set_base);
+                w.set_out_base(config.pins.out_base);
+            });
+            if let Some(origin) = config.origin {
+                pio_instr_util::exec_jmp(self, origin);
+            }
+        }
+    }
+}
+
 impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     #[inline(always)]
     fn this_sm() -> crate::pac::pio::StateMachine {
@@ -504,40 +720,10 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         unsafe { PIO::PIO.ctrl().read().sm_enable() & (1u8 << SM) != 0 }
     }
 
-    pub fn set_clkdiv(&mut self, div_x_256: u32) {
-        unsafe {
-            Self::this_sm().clkdiv().write(|w| w.0 = div_x_256 << 8);
-        }
-    }
-
-    pub fn get_clkdiv(&self) -> u32 {
-        unsafe { Self::this_sm().clkdiv().read().0 >> 8 }
-    }
-
     pub fn clkdiv_restart(&mut self) {
         let mask = 1u8 << SM;
         unsafe {
             PIO::PIO.ctrl().write_set(|w| w.set_clkdiv_restart(mask));
-        }
-    }
-
-    /// Configures this state machine to use the given program, including jumping to the origin
-    /// of the program. The state machine is not started.
-    pub fn use_program(&mut self, prog: &LoadedProgram<'d, PIO>, side_set: &[&Pin<'d, PIO>]) {
-        assert!((prog.side_set.bits() - prog.side_set.optional() as u8) as usize == side_set.len());
-        assert_consecutive(side_set);
-        unsafe {
-            Self::this_sm().execctrl().modify(|w| {
-                w.set_side_en(prog.side_set.optional());
-                w.set_side_pindir(prog.side_set.pindirs());
-                w.set_wrap_bottom(prog.wrap.target);
-                w.set_wrap_top(prog.wrap.source);
-            });
-            Self::this_sm().pinctrl().modify(|w| {
-                w.set_sideset_count(prog.side_set.bits());
-                w.set_sideset_base(side_set.first().map_or(0, |p| p.pin()));
-            });
-            pio_instr_util::exec_jmp(self, prog.origin);
         }
     }
 
@@ -591,43 +777,6 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         });
     }
 
-    pub fn set_jmp_pin(&mut self, pin: u8) {
-        unsafe {
-            Self::this_sm().execctrl().modify(|w| w.set_jmp_pin(pin));
-        }
-    }
-
-    pub fn get_jmp_pin(&mut self) -> u8 {
-        unsafe { Self::this_sm().execctrl().read().jmp_pin() }
-    }
-
-    pub fn set_fifo_join(&mut self, join: FifoJoin) {
-        let (rx, tx) = match join {
-            FifoJoin::Duplex => (false, false),
-            FifoJoin::RxOnly => (true, false),
-            FifoJoin::TxOnly => (false, true),
-        };
-        unsafe {
-            Self::this_sm().shiftctrl().modify(|w| {
-                w.set_fjoin_rx(rx);
-                w.set_fjoin_tx(tx)
-            });
-        }
-    }
-    pub fn get_fifo_join(&self) -> FifoJoin {
-        unsafe {
-            let r = Self::this_sm().shiftctrl().read();
-            // Ignores the invalid state when both bits are set
-            if r.fjoin_rx() {
-                FifoJoin::RxOnly
-            } else if r.fjoin_tx() {
-                FifoJoin::TxOnly
-            } else {
-                FifoJoin::Duplex
-            }
-        }
-    }
-
     pub fn clear_fifos(&mut self) {
         // Toggle FJOIN_RX to flush FIFOs
         unsafe {
@@ -639,159 +788,6 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 w.set_fjoin_rx(!w.fjoin_rx());
             });
         }
-    }
-
-    pub fn set_pull_threshold(&mut self, threshold: u8) {
-        unsafe {
-            Self::this_sm().shiftctrl().modify(|w| w.set_pull_thresh(threshold));
-        }
-    }
-
-    pub fn get_pull_threshold(&self) -> u8 {
-        unsafe { Self::this_sm().shiftctrl().read().pull_thresh() }
-    }
-    pub fn set_push_threshold(&mut self, threshold: u8) {
-        unsafe {
-            Self::this_sm().shiftctrl().modify(|w| w.set_push_thresh(threshold));
-        }
-    }
-
-    pub fn get_push_threshold(&self) -> u8 {
-        unsafe { Self::this_sm().shiftctrl().read().push_thresh() }
-    }
-
-    pub fn set_out_shift_dir(&mut self, dir: ShiftDirection) {
-        unsafe {
-            Self::this_sm()
-                .shiftctrl()
-                .modify(|w| w.set_out_shiftdir(dir == ShiftDirection::Right));
-        }
-    }
-    pub fn get_out_shiftdir(&self) -> ShiftDirection {
-        unsafe {
-            if Self::this_sm().shiftctrl().read().out_shiftdir() {
-                ShiftDirection::Right
-            } else {
-                ShiftDirection::Left
-            }
-        }
-    }
-
-    pub fn set_in_shift_dir(&mut self, dir: ShiftDirection) {
-        unsafe {
-            Self::this_sm()
-                .shiftctrl()
-                .modify(|w| w.set_in_shiftdir(dir == ShiftDirection::Right));
-        }
-    }
-    pub fn get_in_shiftdir(&self) -> ShiftDirection {
-        unsafe {
-            if Self::this_sm().shiftctrl().read().in_shiftdir() {
-                ShiftDirection::Right
-            } else {
-                ShiftDirection::Left
-            }
-        }
-    }
-
-    pub fn set_autopull(&mut self, auto: bool) {
-        unsafe {
-            Self::this_sm().shiftctrl().modify(|w| w.set_autopull(auto));
-        }
-    }
-
-    pub fn is_autopull(&self) -> bool {
-        unsafe { Self::this_sm().shiftctrl().read().autopull() }
-    }
-
-    pub fn set_autopush(&mut self, auto: bool) {
-        unsafe {
-            Self::this_sm().shiftctrl().modify(|w| w.set_autopush(auto));
-        }
-    }
-
-    pub fn is_autopush(&self) -> bool {
-        unsafe { Self::this_sm().shiftctrl().read().autopush() }
-    }
-
-    pub fn get_addr(&self) -> u8 {
-        unsafe { Self::this_sm().addr().read().addr() }
-    }
-
-    /// Set the range of out pins affected by a set instruction.
-    pub fn set_set_range(&mut self, base: u8, count: u8) {
-        assert!(base + count < 32);
-        unsafe {
-            Self::this_sm().pinctrl().modify(|w| {
-                w.set_set_base(base);
-                w.set_set_count(count)
-            });
-        }
-    }
-
-    /// Get the range of out pins affected by a set instruction. Returns (base, count).
-    pub fn get_set_range(&self) -> (u8, u8) {
-        unsafe {
-            let r = Self::this_sm().pinctrl().read();
-            (r.set_base(), r.set_count())
-        }
-    }
-
-    pub fn set_in_base_pin(&mut self, base: &Pin<PIO>) {
-        unsafe {
-            Self::this_sm().pinctrl().modify(|w| w.set_in_base(base.pin()));
-        }
-    }
-
-    pub fn get_in_base(&self) -> u8 {
-        unsafe {
-            let r = Self::this_sm().pinctrl().read();
-            r.in_base()
-        }
-    }
-
-    pub fn set_out_range(&mut self, base: u8, count: u8) {
-        assert!(base + count < 32);
-        unsafe {
-            Self::this_sm().pinctrl().modify(|w| {
-                w.set_out_base(base);
-                w.set_out_count(count)
-            });
-        }
-    }
-
-    /// Get the range of out pins affected by a set instruction. Returns (base, count).
-    pub fn get_out_range(&self) -> (u8, u8) {
-        unsafe {
-            let r = Self::this_sm().pinctrl().read();
-            (r.out_base(), r.out_count())
-        }
-    }
-
-    pub fn set_out_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<PIO>]) {
-        let count = pins.len();
-        assert!(count >= 1);
-        let start = pins[0].pin() as usize;
-        assert!(start + pins.len() <= 32);
-        for i in 0..count {
-            assert!(pins[i].pin() as usize == start + i, "Pins must be sequential");
-        }
-        self.set_out_range(start as u8, count as u8);
-    }
-
-    pub fn set_set_pins<'a, 'b: 'a>(&'a mut self, pins: &'b [&Pin<PIO>]) {
-        let count = pins.len();
-        assert!(count >= 1);
-        let start = pins[0].pin() as usize;
-        assert!(start + pins.len() <= 32);
-        for i in 0..count {
-            assert!(pins[i].pin() as usize == start + i, "Pins must be sequential");
-        }
-        self.set_set_range(start as u8, count as u8);
-    }
-
-    pub fn get_current_instr() -> u32 {
-        unsafe { Self::this_sm().instr().read().0 }
     }
 
     pub fn exec_instr(&mut self, instr: u16) {
