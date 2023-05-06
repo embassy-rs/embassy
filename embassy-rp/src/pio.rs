@@ -855,13 +855,14 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     {
         let mut used_mask = 0;
         for (i, instr) in instrs.enumerate() {
-            let addr = (i + start) as u8;
-            let mask = 1 << (addr as usize);
-            if self.instructions_used & mask != 0 {
-                return Err(addr as usize);
+            // wrapping around the end of program memory is valid, let's make use of that.
+            let addr = (i + start) % 32;
+            let mask = 1 << addr;
+            if (self.instructions_used | used_mask) & mask != 0 {
+                return Err(addr);
             }
             unsafe {
-                PIO::PIO.instr_mem(addr as usize).write(|w| {
+                PIO::PIO.instr_mem(addr).write(|w| {
                     w.set_instr_mem(instr);
                 });
             }

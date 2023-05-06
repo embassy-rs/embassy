@@ -95,6 +95,7 @@ impl<'l> HD44780<'l> {
         let prg = pio_proc::pio_asm!(
             r#"
                 .side_set 1 opt
+                .origin 20
 
                 loop:
                     out x,     24
@@ -148,7 +149,7 @@ impl<'l> HD44780<'l> {
         // many side sets are only there to free up a delay bit!
         let prg = pio_proc::pio_asm!(
             r#"
-                .origin 7
+                .origin 27
                 .side_set 1
 
                 .wrap_target
