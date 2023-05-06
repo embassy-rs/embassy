@@ -61,7 +61,7 @@ embedded-storage = { version = "0.3" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { version = "2", features = ["rt"], path = "../../rp-pac" }
+rp-pac = { features = ["rt"], git = "https://github.com/fakusb/rp-pac.git", rev = "b1e0a150f37efb69644f5474d879e9180eeb167b" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
