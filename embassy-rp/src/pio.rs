@@ -790,10 +790,8 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         }
     }
 
-    pub fn exec_instr(&mut self, instr: u16) {
-        unsafe {
-            Self::this_sm().instr().write(|w| w.set_instr(instr));
-        }
+    pub unsafe fn exec_instr(&mut self, instr: u16) {
+        Self::this_sm().instr().write(|w| w.set_instr(instr));
     }
 
     pub fn rx(&mut self) -> &mut StateMachineRx<'d, PIO, SM> {
