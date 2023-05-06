@@ -912,6 +912,47 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
             pio: PhantomData::default(),
         }
     }
+
+    pub fn apply_sm_batch(&mut self, f: impl FnOnce(&mut PioBatch<'d, PIO>)) {
+        let mut batch = PioBatch {
+            clkdiv_restart: 0,
+            sm_restart: 0,
+            sm_enable_mask: 0,
+            sm_enable: 0,
+            _pio: PhantomData,
+        };
+        f(&mut batch);
+        unsafe {
+            PIO::PIO.ctrl().modify(|w| {
+                w.set_clkdiv_restart(batch.clkdiv_restart);
+                w.set_sm_restart(batch.sm_restart);
+                w.set_sm_enable((w.sm_enable() & !batch.sm_enable_mask) | batch.sm_enable);
+            });
+        }
+    }
+}
+
+pub struct PioBatch<'a, PIO: Instance> {
+    clkdiv_restart: u8,
+    sm_restart: u8,
+    sm_enable_mask: u8,
+    sm_enable: u8,
+    _pio: PhantomData<&'a PIO>,
+}
+
+impl<'a, PIO: Instance> PioBatch<'a, PIO> {
+    pub fn restart_clockdiv<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>) {
+        self.clkdiv_restart |= 1 << SM;
+    }
+
+    pub fn restart<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>) {
+        self.clkdiv_restart |= 1 << SM;
+    }
+
+    pub fn set_enable<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>, enable: bool) {
+        self.sm_enable_mask |= 1 << SM;
+        self.sm_enable |= (enable as u8) << SM;
+    }
 }
 
 pub struct Irq<'d, PIO: Instance, const N: usize> {
