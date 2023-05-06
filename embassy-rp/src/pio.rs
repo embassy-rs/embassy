@@ -1070,7 +1070,8 @@ fn on_pio_drop<PIO: Instance>() {
     if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
         let null = Gpio0ctrlFuncsel::NULL.0;
-        for i in 0..32 {
+        // we only have 30 pins. don't test the other two since gpio() asserts.
+        for i in 0..30 {
             if used_pins & (1 << i) != 0 {
                 unsafe {
                     pac::IO_BANK0.gpio(i).ctrl().write(|w| w.set_funcsel(null));
