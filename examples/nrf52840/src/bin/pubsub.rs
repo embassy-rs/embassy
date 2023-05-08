@@ -74,9 +74,9 @@ async fn fast_logger(mut messages: Subscriber<'static, ThreadModeRawMutex, Messa
 }
 
 /// A logger task that awaits the messages, but also does some other work.
-/// Because of this, depeding on how the messages were published, the subscriber might miss some messages
+/// Because of this, depending on how the messages were published, the subscriber might miss some messages.
 ///
-/// This takes the dynamic `DynSubscriber`. This is not as performant as the generic version, but let's you ignore some of the generics
+/// This takes the dynamic `DynSubscriber`. This is not as performant as the generic version, but let's you ignore some of the generics.
 #[embassy_executor::task]
 async fn slow_logger(mut messages: DynSubscriber<'static, Message>) {
     loop {

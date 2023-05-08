@@ -25,7 +25,7 @@ pub const ERASE_SIZE: usize = 4096;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// Opration using a location not in flash.
+    /// Operation using a location not in flash.
     OutOfBounds,
     /// Unaligned operation or using unaligned buffers.
     Unaligned,

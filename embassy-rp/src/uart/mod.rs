@@ -231,7 +231,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
 }
 
 impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
-    /// Create a new DMA-enabled UART which can only recieve data
+    /// Create a new DMA-enabled UART which can only receive data
     pub fn new(
         _uart: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
@@ -690,7 +690,7 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
         self.tx.send_break(bits).await
     }
 
-    /// Split the Uart into a transmitter and receiver, which is particuarly
+    /// Split the Uart into a transmitter and receiver, which is particularly
     /// useful when having two tasks correlating to transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, T, M>, UartRx<'d, T, M>) {
         (self.tx, self.rx)

@@ -186,7 +186,7 @@ impl<'d> MsOsDescriptorWriter<'d> {
             capability_type::PLATFORM,
             &[
                 0, // reserved
-                // platform capability UUID, Microsoft OS 2.0 platform compabitility
+                // platform capability UUID, Microsoft OS 2.0 platform compatibility
                 0xdf,
                 0x60,
                 0xdd,
