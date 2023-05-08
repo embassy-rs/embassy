@@ -26,11 +26,7 @@ where
             Some(if instr & 0b1110_0000_0000_0000 == 0 {
                 // this is a JMP instruction -> add offset to address
                 let address = (instr & 0b1_1111) as u8;
-                let address = address + self.offset;
-                assert!(
-                    address < pio::RP2040_MAX_PROGRAM_SIZE as u8,
-                    "Invalid JMP out of the program after offset addition"
-                );
+                let address = address.wrapping_add(self.offset) % 32;
                 instr & (!0b11111) | address as u16
             } else {
                 instr
@@ -62,8 +58,8 @@ impl<'a, const PROGRAM_SIZE: usize> RelocatedProgram<'a, PROGRAM_SIZE> {
         let wrap = self.program.wrap;
         let origin = self.origin;
         Wrap {
-            source: wrap.source + origin,
-            target: wrap.target + origin,
+            source: wrap.source.wrapping_add(origin) % 32,
+            target: wrap.target.wrapping_add(origin) % 32,
         }
     }
 
