@@ -2,7 +2,8 @@ use pac::clocks::vals::*;
 
 use crate::{pac, reset};
 
-static mut EXTERNAL_HZ: u32 = 0;
+// TODO fix terrible use of global here
+static mut XIN_HZ: u32 = 0;
 
 pub struct ClockConfig {
     rosc_config: Option<RoscConfig>,
@@ -49,7 +50,7 @@ impl ClockConfig {
             ref_clk_config: (RefClkSrc::Xosc, 1),
             sys_clk_config: (SysClkSrc::Aux(ClkSysCtrlAuxsrc::CLKSRC_PLL_SYS), 1),
             peri_clk_src: Some(ClkPeriCtrlAuxsrc::CLK_SYS),
-            usb_clk_config: Some((ClkUsbCtrlAuxsrc::CLKSRC_PLL_SYS, 1)),
+            usb_clk_config: Some((ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB, 1)),
             adc_clk_config: Some((ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB, 1)),
             rtc_clk_config: Some((ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB, 1024)),
         }
@@ -164,7 +165,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     if let Some(config) = config.xosc_config {
-        EXTERNAL_HZ = config.hz;
+        XIN_HZ = config.hz;
 
         pac::WATCHDOG.tick().write(|w| {
             w.set_cycles((config.hz / 1_000_000) as u16);
@@ -343,22 +344,64 @@ pub fn estimate_rosc_freq() -> u32 {
     base / div
 }
 
-pub(crate) fn clk_sys_freq() -> u32 {
+pub fn xosc_freq() -> u32 {
+    unsafe { XIN_HZ }
+}
+
+pub fn gpin0_freq() -> u32 {
+    todo!()
+}
+pub fn gpin1_freq() -> u32 {
+    todo!()
+}
+
+pub fn pll_sys_freq() -> u32 {
+    let p = pac::PLL_SYS;
+
+    let input_freq = xosc_freq();
+    let cs = unsafe { p.cs().read() };
+
+    let refdiv = cs.refdiv() as u32;
+    let fbdiv = unsafe { p.fbdiv_int().read().fbdiv_int() } as u32;
+    let (postdiv1, postdiv2) = unsafe {
+        let prim = p.prim().read();
+        (prim.postdiv1() as u32, prim.postdiv2() as u32)
+    };
+
+    (((input_freq / refdiv) * fbdiv) / postdiv1) / postdiv2
+}
+
+pub fn pll_usb_freq() -> u32 {
+    let p = pac::PLL_USB;
+
+    let input_freq = xosc_freq();
+    let cs = unsafe { p.cs().read() };
+
+    let refdiv = cs.refdiv() as u32;
+    let fbdiv = unsafe { p.fbdiv_int().read().fbdiv_int() } as u32;
+    let (postdiv1, postdiv2) = unsafe {
+        let prim = p.prim().read();
+        (prim.postdiv1() as u32, prim.postdiv2() as u32)
+    };
+
+    (((input_freq / refdiv) * fbdiv) / postdiv1) / postdiv2
+}
+
+pub fn clk_sys_freq() -> u32 {
     let c = pac::CLOCKS;
     let ctrl = unsafe { c.clk_sys_ctrl().read() };
 
     let base = match ctrl.src() {
         ClkSysCtrlSrc::CLK_REF => clk_ref_freq(),
-        ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX => {
-            match ctrl.auxsrc() {
-                ClkSysCtrlAuxsrc::CLKSRC_PLL_SYS => clk_sys_pll_freq(),
-                ClkSysCtrlAuxsrc::CLKSRC_PLL_USB => clk_usb_pll_freq(),
-                ClkSysCtrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
-                ClkSysCtrlAuxsrc::XOSC_CLKSRC => unsafe { EXTERNAL_HZ },
-                // TODO not sure how to handle clkin sources
-                _ => todo!(),
-            }
-        }
+        ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX => match ctrl.auxsrc() {
+            ClkSysCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+            ClkSysCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+            ClkSysCtrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
+            ClkSysCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+            ClkSysCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+            ClkSysCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+            _ => unreachable!(),
+        },
         _ => unreachable!(),
     };
 
@@ -370,85 +413,153 @@ pub(crate) fn clk_sys_freq() -> u32 {
     base / int
 }
 
-pub(crate) fn clk_sys_pll_freq() -> u32 {
-    let p = pac::PLL_SYS;
-
-    let input_freq = unsafe { EXTERNAL_HZ };
-    let cs = unsafe { p.cs().read() };
-
-    let refdiv = cs.refdiv() as u32;
-    let fbdiv = unsafe { p.fbdiv_int().read().fbdiv_int() } as u32;
-    let (postdiv1, postdiv2) = unsafe {
-        let prim = p.prim().read();
-        (prim.postdiv1() as u32, prim.postdiv2() as u32)
-    };
-
-    (((input_freq / refdiv) * fbdiv) / postdiv1) / postdiv2
-}
-
-pub(crate) fn clk_usb_pll_freq() -> u32 {
-    let p = pac::PLL_USB;
-
-    let input_freq = unsafe { EXTERNAL_HZ };
-    let cs = unsafe { p.cs().read() };
-
-    let refdiv = cs.refdiv() as u32;
-    let fbdiv = unsafe { p.fbdiv_int().read().fbdiv_int() } as u32;
-    let (postdiv1, postdiv2) = unsafe {
-        let prim = p.prim().read();
-        (prim.postdiv1() as u32, prim.postdiv2() as u32)
-    };
-
-    (((input_freq / refdiv) * fbdiv) / postdiv1) / postdiv2
-}
-
-pub(crate) fn clk_peri_freq() -> u32 {
-    let c = pac::CLOCKS;
-    let src = unsafe { c.clk_peri_ctrl().read().auxsrc() };
-
-    match src {
-        ClkPeriCtrlAuxsrc::CLK_SYS => clk_sys_freq(),
-        ClkPeriCtrlAuxsrc::CLKSRC_PLL_SYS => clk_sys_pll_freq(),
-        ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH => estimate_rosc_freq(),
-        ClkPeriCtrlAuxsrc::XOSC_CLKSRC => unsafe { EXTERNAL_HZ },
-        // TODO not sure how to handle clkin sources
-        _ => todo!(),
-    }
-}
-
 pub fn clk_ref_freq() -> u32 {
     let c = pac::CLOCKS;
     let ctrl = unsafe { c.clk_ref_ctrl().read() };
 
     let base = match ctrl.src() {
         ClkRefCtrlSrc::ROSC_CLKSRC_PH => estimate_rosc_freq(),
-        ClkRefCtrlSrc::XOSC_CLKSRC => unsafe { EXTERNAL_HZ },
-        ClkRefCtrlSrc::CLKSRC_CLK_REF_AUX => todo!(),
+        ClkRefCtrlSrc::XOSC_CLKSRC => xosc_freq(),
+        ClkRefCtrlSrc::CLKSRC_CLK_REF_AUX => match ctrl.auxsrc() {
+            ClkRefCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+            ClkRefCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+            ClkRefCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+            _ => unreachable!(),
+        },
         _ => unreachable!(),
     };
 
-    let mut div = unsafe { c.clk_ref_div().read().int() } as u32;
-    if div == 0 {
-        div = 4;
-    }
+    let div = unsafe { c.clk_ref_div().read() };
+    let int = if div.int() == 0 { 4 } else { div.int() as u32 };
 
-    base / div
+    base / int
 }
 
-pub(crate) fn clk_rtc_freq() -> u32 {
+pub fn clk_peri_freq() -> u32 {
+    let c = pac::CLOCKS;
+    let src = unsafe { c.clk_peri_ctrl().read().auxsrc() };
+
+    match src {
+        ClkPeriCtrlAuxsrc::CLK_SYS => clk_sys_freq(),
+        ClkPeriCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+        ClkPeriCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+        ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH => estimate_rosc_freq(),
+        ClkPeriCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+        ClkPeriCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+        ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+        _ => unreachable!(),
+    }
+}
+
+pub fn clk_usb_freq() -> u32 {
+    let c = pac::CLOCKS;
+    let ctrl = unsafe { c.clk_usb_ctrl().read() };
+
+    let base = match ctrl.auxsrc() {
+        ClkUsbCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+        ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+        ClkUsbCtrlAuxsrc::ROSC_CLKSRC_PH => estimate_rosc_freq(),
+        ClkUsbCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+        ClkUsbCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+        ClkUsbCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+        _ => unreachable!(),
+    };
+
+    let div = unsafe { c.clk_ref_div().read() };
+    let int = if div.int() == 0 { 4 } else { div.int() as u32 };
+
+    base / int
+}
+
+pub fn clk_adc_freq() -> u32 {
+    let c = pac::CLOCKS;
+    let ctrl = unsafe { c.clk_adc_ctrl().read() };
+
+    let base = match ctrl.auxsrc() {
+        ClkAdcCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+        ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+        ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH => estimate_rosc_freq(),
+        ClkAdcCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+        ClkAdcCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+        ClkAdcCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+        _ => unreachable!(),
+    };
+
+    let div = unsafe { c.clk_adc_div().read() };
+    let int = if div.int() == 0 { 4 } else { div.int() as u32 };
+
+    base / int
+}
+
+pub fn clk_rtc_freq() -> u32 {
     let c = pac::CLOCKS;
     let src = unsafe { c.clk_rtc_ctrl().read().auxsrc() };
 
     let base = match src {
-        ClkRtcCtrlAuxsrc::XOSC_CLKSRC => unsafe { EXTERNAL_HZ },
+        ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+        ClkRtcCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
         ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH => estimate_rosc_freq(),
-        ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB => clk_usb_pll_freq(),
-        ClkRtcCtrlAuxsrc::CLKSRC_PLL_SYS => clk_sys_pll_freq(),
-        // TODO not sure how to handle clkin sources
-        _ => todo!(),
+        ClkRtcCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+        ClkRtcCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+        ClkRtcCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+        _ => unreachable!(),
     };
 
     let div = unsafe { c.clk_rtc_div().read() };
+    let int = if div.int() == 0 { 65536 } else { div.int() };
+    // TODO handle fractional clock div
+    let _frac = div.frac();
+
+    base / int
+}
+
+pub fn clk_gpout0_freq() -> u32 {
+    let c = pac::CLOCKS;
+    let src = unsafe { c.clk_gpout0_ctrl().read().auxsrc() };
+
+    let base = match src {
+        ClkGpout0ctrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+        ClkGpout0ctrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+        ClkGpout0ctrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+        ClkGpout0ctrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+        ClkGpout0ctrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
+        ClkGpout0ctrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+        ClkGpout0ctrlAuxsrc::CLK_SYS => clk_sys_freq(),
+        ClkGpout0ctrlAuxsrc::CLK_USB => clk_usb_freq(),
+        ClkGpout0ctrlAuxsrc::CLK_ADC => clk_adc_freq(),
+        ClkGpout0ctrlAuxsrc::CLK_RTC => clk_rtc_freq(),
+        ClkGpout0ctrlAuxsrc::CLK_REF => clk_ref_freq(),
+        _ => unreachable!(),
+    };
+
+    let div = unsafe { c.clk_gpout0_div().read() };
+    let int = if div.int() == 0 { 65536 } else { div.int() };
+    // TODO handle fractional clock div
+    let _frac = div.frac();
+
+    base / int
+}
+
+pub fn clk_gpout1_freq() -> u32 {
+    let c = pac::CLOCKS;
+    let src = unsafe { c.clk_gpout1_ctrl().read().auxsrc() };
+
+    let base = match src {
+        ClkGpout1ctrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+        ClkGpout1ctrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+        ClkGpout1ctrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+        ClkGpout1ctrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+        ClkGpout1ctrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
+        ClkGpout1ctrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+        ClkGpout1ctrlAuxsrc::CLK_SYS => clk_sys_freq(),
+        ClkGpout1ctrlAuxsrc::CLK_USB => clk_usb_freq(),
+        ClkGpout1ctrlAuxsrc::CLK_ADC => clk_adc_freq(),
+        ClkGpout1ctrlAuxsrc::CLK_RTC => clk_rtc_freq(),
+        ClkGpout1ctrlAuxsrc::CLK_REF => clk_ref_freq(),
+        _ => unreachable!(),
+    };
+
+    let div = unsafe { c.clk_gpout1_div().read() };
     let int = if div.int() == 0 { 65536 } else { div.int() };
     // TODO handle fractional clock div
     let _frac = div.frac();
@@ -524,6 +635,48 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
 
     // Turn on post divider
     p.pwr().modify(|w| w.set_postdivpd(false));
+}
+
+pub struct Gpout0 {
+    _pin: crate::peripherals::PIN_21,
+}
+
+impl Gpout0 {
+    pub fn new(pin: crate::peripherals::PIN_21) -> Self {
+        unsafe {
+            let p = pac::IO_BANK0.gpio(21).ctrl();
+            p.write(|w| w.set_funcsel(pac::io::vals::Gpio21ctrlFuncsel::CLOCKS_GPOUT_0.0))
+        }
+        Self { _pin: pin }
+    }
+
+    pub fn set_div(&self, int: u32, frac: u8) {
+        unsafe {
+            let c = pac::CLOCKS;
+            c.clk_gpout0_div().write(|w| {
+                w.set_int(int);
+                w.set_frac(frac);
+            });
+        }
+    }
+
+    pub fn set_src(&self, src: ClkGpout0ctrlAuxsrc) {
+        unsafe {
+            let c = pac::CLOCKS;
+            c.clk_gpout0_ctrl().modify(|w| {
+                w.set_auxsrc(src);
+            });
+        }
+    }
+
+    pub fn enable(&self) {
+        unsafe {
+            let c = pac::CLOCKS;
+            c.clk_gpout0_ctrl().modify(|w| {
+                w.set_enable(true);
+            });
+        }
+    }
 }
 
 /// Random number generator based on the ROSC RANDOMBIT register.
