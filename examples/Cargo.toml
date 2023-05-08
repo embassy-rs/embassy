@@ -1,0 +1,70 @@
+[package]
+name = "embassy-net-w5500-examples"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embassy-executor = { version = "0.1.0",  features = ["defmt", "integrated-timers", "executor-thread", "arch-cortex-m"] }
+embassy-time = { version = "0.1.0",  features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.1.0",  features = ["defmt", "unstable-traits", "nightly", "unstable-pac", "time-driver"] }
+embassy-net = { version = "0.1.0", features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet", "unstable-traits", "nightly"] }
+embassy-sync = { version = "0.1.0" }
+embassy-futures = { version = "0.1.0" }
+embassy-net-driver = { version = "0.1.0" }
+embassy-net-driver-channel = { version = "0.1.0" }
+atomic-polyfill = "0.1.5"
+static_cell = "1.0"
+
+defmt = "=0.3.2"
+defmt-rtt = "0.3"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+
+embedded-io = { version = "0.4.0", features = ["async", "defmt"] }
+heapless = "0.7.15"
+embedded-hal = { version = "1.0.0-alpha.10" }
+embedded-hal-async = { version = "=0.2.0-alpha.1" }
+rand = { version = "0.8.5", default-features = false }
+
+embassy-net-w5500 = { path = "../" }
+
+[patch.crates-io]
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-net-driver = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+opt-level = 1
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 1
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 'z'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false

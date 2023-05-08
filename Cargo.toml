@@ -1,0 +1,26 @@
+[package]
+name = "embassy-net-w5500"
+version = "0.1.0"
+description = "embassy-net driver for the W5500 ethernet chip"
+keywords = ["embedded", "w5500", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[dependencies]
+embedded-hal = { version = "1.0.0-alpha.10" }
+embedded-hal-async = { version = "=0.2.0-alpha.1" }
+embassy-net-driver-channel = { version = "0.1.0" }
+embassy-time = { version = "0.1.0" }
+embassy-futures = { version = "0.1.0" }
+defmt = { version = "0.3", optional = true }
+
+[patch.crates-io]
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-net-driver = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
