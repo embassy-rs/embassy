@@ -6,32 +6,25 @@ use crate::{pac, reset};
 static mut XIN_HZ: u32 = 0;
 
 pub struct ClockConfig {
-    rosc_config: Option<RoscConfig>,
-    xosc_config: Option<XoscConfig>,
-    ref_clk_config: (RefClkSrc, u8),
-    sys_clk_config: (SysClkSrc, u32),
+    rosc: Option<RoscConfig>,
+    xosc: Option<XoscConfig>,
+    ref_clk: RefClkConfig,
+    sys_clk: SysClkConfig,
     peri_clk_src: Option<ClkPeriCtrlAuxsrc>,
-    usb_clk_config: Option<(ClkUsbCtrlAuxsrc, u8)>,
-    adc_clk_config: Option<(ClkAdcCtrlAuxsrc, u8)>,
-    rtc_clk_config: Option<(ClkRtcCtrlAuxsrc, u32)>,
+    usb_clk: Option<UsbClkConfig>,
+    adc_clk: Option<AdcClkConfig>,
+    rtc_clk: Option<RtcClkConfig>,
 }
 
 impl ClockConfig {
     pub fn crystal(crystal_hz: u32) -> Self {
         Self {
-            rosc_config: Some(RoscConfig {
+            rosc: Some(RoscConfig {
                 range: pac::rosc::vals::FreqRange::MEDIUM,
-                drive_strength_0: 0,
-                drive_strength_1: 0,
-                drive_strength_2: 0,
-                drive_strength_3: 0,
-                drive_strength_4: 0,
-                drive_strength_5: 0,
-                drive_strength_6: 0,
-                drive_strength_7: 0,
+                drive_strength: [0; 8],
                 div: 16,
             }),
-            xosc_config: Some(XoscConfig {
+            xosc: Some(XoscConfig {
                 hz: crystal_hz,
                 clock_type: ExternalClock::Crystal,
                 sys_pll: Some(PllConfig {
@@ -47,42 +40,68 @@ impl ClockConfig {
                     post_div2: 2,
                 }),
             }),
-            ref_clk_config: (RefClkSrc::Xosc, 1),
-            sys_clk_config: (SysClkSrc::Aux(ClkSysCtrlAuxsrc::CLKSRC_PLL_SYS), 1),
+            ref_clk: RefClkConfig {
+                src: RefClkSrc::Xosc,
+                div: 1,
+            },
+            sys_clk: SysClkConfig {
+                src: SysClkSrc::Aux(ClkSysCtrlAuxsrc::CLKSRC_PLL_SYS),
+                div_int: 1,
+                div_frac: 0,
+            },
             peri_clk_src: Some(ClkPeriCtrlAuxsrc::CLK_SYS),
-            usb_clk_config: Some((ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB, 1)),
-            adc_clk_config: Some((ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB, 1)),
-            rtc_clk_config: Some((ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB, 1024)),
+            usb_clk: Some(UsbClkConfig {
+                src: ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB,
+                div: 1,
+            }),
+            adc_clk: Some(AdcClkConfig {
+                src: ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB,
+                div: 1,
+            }),
+            rtc_clk: Some(RtcClkConfig {
+                src: ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB,
+                div_int: 1024,
+                div_frac: 0,
+            }),
         }
     }
 
     pub fn rosc() -> Self {
         Self {
-            rosc_config: Some(RoscConfig {
+            rosc: Some(RoscConfig {
                 range: pac::rosc::vals::FreqRange::HIGH,
-                drive_strength_0: 0,
-                drive_strength_1: 0,
-                drive_strength_2: 0,
-                drive_strength_3: 0,
-                drive_strength_4: 0,
-                drive_strength_5: 0,
-                drive_strength_6: 0,
-                drive_strength_7: 0,
+                drive_strength: [0; 8],
                 div: 1,
             }),
-            xosc_config: None,
-            ref_clk_config: (RefClkSrc::Rosc, 4),
-            sys_clk_config: (SysClkSrc::Aux(ClkSysCtrlAuxsrc::ROSC_CLKSRC), 1),
+            xosc: None,
+            ref_clk: RefClkConfig {
+                src: RefClkSrc::Rosc,
+                div: 1,
+            },
+            sys_clk: SysClkConfig {
+                src: SysClkSrc::Aux(ClkSysCtrlAuxsrc::ROSC_CLKSRC),
+                div_int: 1,
+                div_frac: 0,
+            },
             peri_clk_src: Some(ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH),
-            usb_clk_config: None,
-            adc_clk_config: Some((ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH, 1)),
-            rtc_clk_config: Some((ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH, 1024)),
+            usb_clk: None,
+            adc_clk: Some(AdcClkConfig {
+                src: ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH,
+                div: 1,
+            }),
+            rtc_clk: Some(RtcClkConfig {
+                src: ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH,
+                div_int: 1024,
+                div_frac: 0,
+            }),
         }
     }
 }
-pub enum ExternalClock {
-    Crystal,
-    Clock,
+
+pub struct RoscConfig {
+    range: pac::rosc::vals::FreqRange,
+    drive_strength: [u8; 8],
+    div: u16,
 }
 
 pub struct XoscConfig {
@@ -92,19 +111,6 @@ pub struct XoscConfig {
     usb_pll: Option<PllConfig>,
 }
 
-pub struct RoscConfig {
-    range: pac::rosc::vals::FreqRange,
-    drive_strength_0: u8,
-    drive_strength_1: u8,
-    drive_strength_2: u8,
-    drive_strength_3: u8,
-    drive_strength_4: u8,
-    drive_strength_5: u8,
-    drive_strength_6: u8,
-    drive_strength_7: u8,
-    div: u16,
-}
-
 pub struct PllConfig {
     pub refdiv: u32,
     pub vco_freq: u32,
@@ -112,9 +118,13 @@ pub struct PllConfig {
     pub post_div2: u8,
 }
 
+pub enum ExternalClock {
+    Crystal,
+    Clock,
+}
 pub struct RefClkConfig {
-    pub src: RefClkSrc,
-    pub div: u8,
+    src: RefClkSrc,
+    div: u8,
 }
 
 pub enum RefClkSrc {
@@ -123,14 +133,31 @@ pub enum RefClkSrc {
     Aux(ClkRefCtrlAuxsrc),
 }
 
-pub struct SysClkConfig {
-    pub src: SysClkSrc,
-    pub div: u32,
-}
-
 pub enum SysClkSrc {
     Ref,
     Aux(ClkSysCtrlAuxsrc),
+}
+
+pub struct SysClkConfig {
+    src: SysClkSrc,
+    div_int: u32,
+    div_frac: u8,
+}
+
+pub struct UsbClkConfig {
+    src: ClkUsbCtrlAuxsrc,
+    div: u8,
+}
+
+pub struct AdcClkConfig {
+    src: ClkAdcCtrlAuxsrc,
+    div: u8,
+}
+
+pub struct RtcClkConfig {
+    src: ClkRtcCtrlAuxsrc,
+    div_int: u32,
+    div_frac: u8,
 }
 
 /// safety: must be called exactly once at bootup
@@ -160,11 +187,11 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     c.clk_ref_ctrl().modify(|w| w.set_src(ClkRefCtrlSrc::ROSC_CLKSRC_PH));
     while c.clk_ref_selected().read() != 1 {}
 
-    if let Some(config) = config.rosc_config {
+    if let Some(config) = config.rosc {
         configure_rosc(config);
     }
 
-    if let Some(config) = config.xosc_config {
+    if let Some(config) = config.xosc {
         XIN_HZ = config.hz;
 
         pac::WATCHDOG.tick().write(|w| {
@@ -188,21 +215,18 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         }
     }
 
-    let (src, div) = config.ref_clk_config;
-    match src {
+    match config.ref_clk.src {
         RefClkSrc::Xosc => {
             c.clk_ref_ctrl().write(|w| {
                 w.set_src(ClkRefCtrlSrc::XOSC_CLKSRC);
             });
             while c.clk_ref_selected().read() != 1 << ClkRefCtrlSrc::XOSC_CLKSRC.0 {}
-            c.clk_ref_div().write(|w| w.set_int(div));
         }
         RefClkSrc::Rosc => {
             c.clk_ref_ctrl().write(|w| {
                 w.set_src(ClkRefCtrlSrc::ROSC_CLKSRC_PH);
             });
             while c.clk_ref_selected().read() != 1 << ClkRefCtrlSrc::ROSC_CLKSRC_PH.0 {}
-            c.clk_ref_div().write(|w| w.set_int(div));
         }
         RefClkSrc::Aux(src) => {
             c.clk_ref_ctrl().write(|w| {
@@ -210,23 +234,23 @@ pub(crate) unsafe fn init(config: ClockConfig) {
                 w.set_src(ClkRefCtrlSrc::CLKSRC_CLK_REF_AUX);
             });
             while c.clk_ref_selected().read() != 1 << ClkRefCtrlSrc::CLKSRC_CLK_REF_AUX.0 {}
-            c.clk_ref_div().write(|w| w.set_int(div));
         }
     }
+    c.clk_ref_div().write(|w| {
+        w.set_int(config.ref_clk.div);
+    });
 
     pac::WATCHDOG.tick().write(|w| {
         w.set_cycles((clk_ref_freq() / 1_000_000) as u16);
         w.set_enable(true);
     });
 
-    let (src, div) = config.sys_clk_config;
-    match src {
+    match config.sys_clk.src {
         SysClkSrc::Ref => {
             c.clk_sys_ctrl().write(|w| {
                 w.set_src(ClkSysCtrlSrc::CLK_REF);
             });
             while c.clk_sys_selected().read() != 1 << ClkSysCtrlSrc::CLK_REF.0 {}
-            c.clk_sys_div().write(|w| w.set_int(div));
         }
         SysClkSrc::Aux(src) => {
             c.clk_sys_ctrl().write(|w| {
@@ -234,7 +258,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             });
             while c.clk_sys_selected().read() != 1 << ClkSysCtrlSrc::CLK_REF.0 {}
 
-            c.clk_sys_div().write(|w| w.set_int(div));
             c.clk_sys_ctrl().write(|w| {
                 w.set_auxsrc(src);
                 w.set_src(ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX);
@@ -242,6 +265,10 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             while c.clk_sys_selected().read() != 1 << ClkSysCtrlSrc::CLKSRC_CLK_SYS_AUX.0 {}
         }
     }
+    c.clk_sys_div().write(|w| {
+        w.set_int(config.sys_clk.div_int);
+        w.set_frac(config.sys_clk.div_frac);
+    });
 
     let mut peris = reset::ALL_PERIPHERALS;
 
@@ -257,37 +284,40 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         peris.set_uart1(false);
     }
 
-    if let Some((src, div)) = config.usb_clk_config {
+    if let Some(conf) = config.usb_clk {
         // CLK USB = PLL USB (48MHz) / 1 = 48MHz
-        c.clk_usb_div().write(|w| w.set_int(div));
+        c.clk_usb_div().write(|w| w.set_int(conf.div));
         c.clk_usb_ctrl().write(|w| {
             w.set_enable(true);
-            w.set_auxsrc(src);
+            w.set_auxsrc(conf.src);
         });
     } else {
         peris.set_usbctrl(false);
     }
 
-    if let Some((src, div)) = config.adc_clk_config {
+    if let Some(conf) = config.adc_clk {
         // CLK ADC = PLL USB (48MHZ) / 1 = 48MHz
-        c.clk_adc_div().write(|w| w.set_int(div));
+        c.clk_adc_div().write(|w| w.set_int(conf.div));
         c.clk_adc_ctrl().write(|w| {
             w.set_enable(true);
-            w.set_auxsrc(src);
+            w.set_auxsrc(conf.src);
         });
     } else {
         peris.set_adc(false);
     }
 
-    if let Some((src, div)) = config.rtc_clk_config {
+    if let Some(conf) = config.rtc_clk {
         // CLK RTC = PLL USB (48MHz) / 1024 = 46875Hz
         c.clk_rtc_ctrl().modify(|w| {
             w.set_enable(false);
         });
-        c.clk_rtc_div().write(|w| w.set_int(div));
+        c.clk_rtc_div().write(|w| {
+            w.set_int(conf.div_int);
+            w.set_frac(conf.div_frac);
+        });
         c.clk_rtc_ctrl().write(|w| {
             w.set_enable(true);
-            w.set_auxsrc(src);
+            w.set_auxsrc(conf.src);
         });
     } else {
         peris.set_rtc(false);
@@ -302,18 +332,18 @@ unsafe fn configure_rosc(config: RoscConfig) {
 
     p.freqa().write(|w| {
         w.set_passwd(pac::rosc::vals::Passwd::PASS);
-        w.set_ds0(config.drive_strength_0);
-        w.set_ds1(config.drive_strength_1);
-        w.set_ds2(config.drive_strength_2);
-        w.set_ds3(config.drive_strength_3);
+        w.set_ds0(config.drive_strength[0]);
+        w.set_ds1(config.drive_strength[1]);
+        w.set_ds2(config.drive_strength[2]);
+        w.set_ds3(config.drive_strength[3]);
     });
 
     p.freqb().write(|w| {
         w.set_passwd(pac::rosc::vals::Passwd::PASS);
-        w.set_ds4(config.drive_strength_4);
-        w.set_ds5(config.drive_strength_5);
-        w.set_ds6(config.drive_strength_6);
-        w.set_ds7(config.drive_strength_7);
+        w.set_ds4(config.drive_strength[4]);
+        w.set_ds5(config.drive_strength[5]);
+        w.set_ds6(config.drive_strength[6]);
+        w.set_ds7(config.drive_strength[7]);
     });
 
     p.div().write(|w| {
@@ -637,17 +667,31 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     p.pwr().modify(|w| w.set_postdivpd(false));
 }
 
-pub struct Gpout0 {
-    _pin: crate::peripherals::PIN_21,
+pub trait GpoutPin {}
+
+impl GpoutPin for crate::peripherals::PIN_21 {}
+impl GpoutPin for crate::peripherals::PIN_23 {}
+impl GpoutPin for crate::peripherals::PIN_24 {}
+impl GpoutPin for crate::peripherals::PIN_25 {}
+
+use embassy_hal_common::{into_ref, PeripheralRef};
+
+use crate::Peripheral;
+
+pub struct Gpout<'d, T: GpoutPin> {
+    _pin: PeripheralRef<'d, T>,
 }
 
-impl Gpout0 {
-    pub fn new(pin: crate::peripherals::PIN_21) -> Self {
+impl<'d, T: GpoutPin> Gpout<'d, T> {
+    pub fn new(_pin: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(_pin);
+
         unsafe {
             let p = pac::IO_BANK0.gpio(21).ctrl();
-            p.write(|w| w.set_funcsel(pac::io::vals::Gpio21ctrlFuncsel::CLOCKS_GPOUT_0.0))
+            p.write(|w| w.set_funcsel(pac::io::vals::Gpio21ctrlFuncsel::CLOCKS_GPOUT_0.0));
         }
-        Self { _pin: pin }
+
+        Self { _pin }
     }
 
     pub fn set_div(&self, int: u32, frac: u8) {
@@ -670,6 +714,15 @@ impl Gpout0 {
     }
 
     pub fn enable(&self) {
+        unsafe {
+            let c = pac::CLOCKS;
+            c.clk_gpout0_ctrl().modify(|w| {
+                w.set_enable(true);
+            });
+        }
+    }
+
+    pub fn disable(&self) {
         unsafe {
             let c = pac::CLOCKS;
             c.clk_gpout0_ctrl().modify(|w| {
