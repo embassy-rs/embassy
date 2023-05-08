@@ -14,7 +14,7 @@ embassy-net = { version = "0.1.0", features = ["defmt", "tcp", "dhcpv4", "medium
 atomic-polyfill = "0.1.5"
 static_cell = "1.0"
 
-defmt = "=0.3.2"
+defmt = "0.3.4"
 defmt-rtt = "0.3"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 
