@@ -370,7 +370,7 @@ pub struct Sender<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Sender<'d, D> {
     /// Write a packet.
     ///
-    /// This waits until the packet is succesfully stored in the CDC-NCM endpoint buffers.
+    /// This waits until the packet is successfully stored in the CDC-NCM endpoint buffers.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
         let seq = self.seq;
         self.seq = self.seq.wrapping_add(1);
@@ -436,7 +436,7 @@ pub struct Receiver<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> Receiver<'d, D> {
     /// Write a network packet.
     ///
-    /// This waits until a packet is succesfully received from the endpoint buffers.
+    /// This waits until a packet is successfully received from the endpoint buffers.
     pub async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         // Retry loop
         loop {

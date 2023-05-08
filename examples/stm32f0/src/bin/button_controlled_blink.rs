@@ -17,8 +17,8 @@ static BLINK_MS: AtomicU32 = AtomicU32::new(0);
 
 #[embassy_executor::task]
 async fn led_task(led: AnyPin) {
-    // Configure the LED pin as a push pull ouput and obtain handler.
-    // On the Nucleo F091RC theres an on-board LED connected to pin PA5.
+    // Configure the LED pin as a push pull output and obtain handler.
+    // On the Nucleo F091RC there's an on-board LED connected to pin PA5.
     let mut led = Output::new(led, Level::Low, Speed::Low);
 
     loop {

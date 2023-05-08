@@ -544,7 +544,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
             s.rx_waker.wake();
         }
         // Disable any further RX interrupts when the buffer becomes full or
-        // errors have occured. this lets us buffer additional errors in the
+        // errors have occurred. This lets us buffer additional errors in the
         // fifo without needing more error storage locations, and most applications
         // will want to do a full reset of their uart state anyway once an error
         // has happened.

@@ -320,7 +320,7 @@ impl<'d, T: Instance> Twis<'d, T> {
     fn blocking_listen_wait_end(&mut self, status: Status) -> Result<Command, Error> {
         let r = T::regs();
         loop {
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -346,7 +346,7 @@ impl<'d, T: Instance> Twis<'d, T> {
     fn blocking_wait(&mut self) -> Result<usize, Error> {
         let r = T::regs();
         loop {
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -372,7 +372,7 @@ impl<'d, T: Instance> Twis<'d, T> {
         let r = T::regs();
         let deadline = Instant::now() + timeout;
         loop {
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -432,7 +432,7 @@ impl<'d, T: Instance> Twis<'d, T> {
         let r = T::regs();
         let deadline = Instant::now() + timeout;
         loop {
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -465,7 +465,7 @@ impl<'d, T: Instance> Twis<'d, T> {
 
             s.waker.register(cx.waker());
 
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -495,7 +495,7 @@ impl<'d, T: Instance> Twis<'d, T> {
 
             s.waker.register(cx.waker());
 
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -522,7 +522,7 @@ impl<'d, T: Instance> Twis<'d, T> {
 
             s.waker.register(cx.waker());
 
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });

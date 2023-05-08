@@ -165,7 +165,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
         }
     }
 
-    /// Splits into seperate readers/writers for input and output reports.
+    /// Splits into separate readers/writers for input and output reports.
     pub fn split(self) -> (HidReader<'d, D, READ_N>, HidWriter<'d, D, WRITE_N>) {
         (self.reader, self.writer)
     }

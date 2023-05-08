@@ -250,7 +250,7 @@ impl RtcDriver {
         // Call after clearing alarm, so the callback can set another alarm.
 
         // safety:
-        // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
+        // - we can ignore the possibility of `f` being unset (null) because of the safety contract of `allocate_alarm`.
         // - other than that we only store valid function pointers into alarm.callback
         let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
         f(alarm.ctx.get());

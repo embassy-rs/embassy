@@ -551,7 +551,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
 
                 if abort_reason.is_err() || (send_stop && last) {
                     // If the transaction was aborted or if it completed
-                    // successfully wait until the STOP condition has occured.
+                    // successfully wait until the STOP condition has occurred.
 
                     while !p.ic_raw_intr_stat().read().stop_det() {}
 

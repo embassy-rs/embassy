@@ -97,7 +97,7 @@ impl EndpointAddress {
     }
 }
 
-/// Infomation for an endpoint.
+/// Information for an endpoint.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EndpointInfo {
