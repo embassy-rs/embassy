@@ -165,7 +165,7 @@ pub const BDC_VERSION_SHIFT: u8 = 4;
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
-pub struct BcdHeader {
+pub struct BdcHeader {
     pub flags: u8,
     /// 802.1d Priority (low 3 bits)
     pub priority: u8,
@@ -173,24 +173,24 @@ pub struct BcdHeader {
     /// Offset from end of BDC header to packet data, in 4-uint8_t words. Leaves room for optional headers.
     pub data_offset: u8,
 }
-impl_bytes!(BcdHeader);
+impl_bytes!(BdcHeader);
 
-impl BcdHeader {
+impl BdcHeader {
     pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
         if packet.len() < Self::SIZE {
             return None;
         }
 
-        let (bcd_header, bcd_packet) = packet.split_at_mut(Self::SIZE);
-        let bcd_header = Self::from_bytes_mut(bcd_header.try_into().unwrap());
-        trace!("    {:?}", bcd_header);
+        let (bdc_header, bdc_packet) = packet.split_at_mut(Self::SIZE);
+        let bdc_header = Self::from_bytes_mut(bdc_header.try_into().unwrap());
+        trace!("    {:?}", bdc_header);
 
-        let packet_start = 4 * bcd_header.data_offset as usize;
+        let packet_start = 4 * bdc_header.data_offset as usize;
 
-        let bcd_packet = bcd_packet.get_mut(packet_start..)?;
-        trace!("    {:02x}", Bytes(&bcd_packet[..bcd_packet.len().min(36)]));
+        let bdc_packet = bdc_packet.get_mut(packet_start..)?;
+        trace!("    {:02x}", Bytes(&bdc_packet[..bdc_packet.len().min(36)]));
 
-        Some((bcd_header, bcd_packet))
+        Some((bdc_header, bdc_packet))
     }
 }
 

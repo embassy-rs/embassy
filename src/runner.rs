@@ -249,7 +249,7 @@ where
                         let mut buf = [0; 512];
                         let buf8 = slice8_mut(&mut buf);
 
-                        // There MUST be 2 bytes of padding between the SDPCM and BCD headers.
+                        // There MUST be 2 bytes of padding between the SDPCM and BDC headers.
                         // And ONLY for data packets!
                         // No idea why, but the firmware will append two zero bytes to the tx'd packets
                         // otherwise. If the packet is exactly 1514 bytes (the max MTU), this makes it
@@ -258,7 +258,7 @@ where
                         // and adds it to the header size her https://github.com/Infineon/wifi-host-driver/blob/c04fcbb6b0d049304f376cf483fd7b1b570c8cd5/WiFi_Host_Driver/src/whd_sdpcm.c#L597
                         // ¯\_(ツ)_/¯
                         const PADDING_SIZE: usize = 2;
-                        let total_len = SdpcmHeader::SIZE + PADDING_SIZE + BcdHeader::SIZE + packet.len();
+                        let total_len = SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE + packet.len();
 
                         let seq = self.sdpcm_seq;
                         self.sdpcm_seq = self.sdpcm_seq.wrapping_add(1);
@@ -275,19 +275,19 @@ where
                             reserved: [0, 0],
                         };
 
-                        let bcd_header = BcdHeader {
+                        let bdc_header = BdcHeader {
                             flags: BDC_VERSION << BDC_VERSION_SHIFT,
                             priority: 0,
                             flags2: 0,
                             data_offset: 0,
                         };
                         trace!("tx {:?}", sdpcm_header);
-                        trace!("    {:?}", bcd_header);
+                        trace!("    {:?}", bdc_header);
 
                         buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BcdHeader::SIZE]
-                            .copy_from_slice(&bcd_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE + PADDING_SIZE + BcdHeader::SIZE..][..packet.len()]
+                        buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
+                            .copy_from_slice(&bdc_header.to_bytes());
+                        buf8[SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE..][..packet.len()]
                             .copy_from_slice(packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
@@ -366,13 +366,13 @@ where
                 }
             }
             CHANNEL_TYPE_EVENT => {
-                let Some((_, bcd_packet)) = BcdHeader::parse(payload) else {
-                    warn!("BCD event, incomplete header");
+                let Some((_, bdc_packet)) = BdcHeader::parse(payload) else {
+                    warn!("BDC event, incomplete header");
                     return;
                 };
 
-                let Some((event_packet, evt_data)) = EventPacket::parse(bcd_packet) else {
-                    warn!("BCD event, incomplete data");
+                let Some((event_packet, evt_data)) = EventPacket::parse(bdc_packet) else {
+                    warn!("BDC event, incomplete data");
                     return;
                 };
 
@@ -439,7 +439,7 @@ where
                 }
             }
             CHANNEL_TYPE_DATA => {
-                let Some((_, packet)) = BcdHeader::parse(payload) else { return };
+                let Some((_, packet)) = BdcHeader::parse(payload) else { return };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                 match self.ch.try_rx_buf() {
