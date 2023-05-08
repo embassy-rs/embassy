@@ -249,7 +249,16 @@ where
                         let mut buf = [0; 512];
                         let buf8 = slice8_mut(&mut buf);
 
-                        let total_len = SdpcmHeader::SIZE + BcdHeader::SIZE + packet.len();
+                        // There MUST be 2 bytes of padding between the SDPCM and BCD headers.
+                        // And ONLY for data packets!
+                        // No idea why, but the firmware will append two zero bytes to the tx'd packets
+                        // otherwise. If the packet is exactly 1514 bytes (the max MTU), this makes it
+                        // be oversized and get dropped.
+                        // WHD adds it here https://github.com/Infineon/wifi-host-driver/blob/c04fcbb6b0d049304f376cf483fd7b1b570c8cd5/WiFi_Host_Driver/src/include/whd_sdpcm.h#L90
+                        // and adds it to the header size her https://github.com/Infineon/wifi-host-driver/blob/c04fcbb6b0d049304f376cf483fd7b1b570c8cd5/WiFi_Host_Driver/src/whd_sdpcm.c#L597
+                        // ¯\_(ツ)_/¯
+                        const PADDING_SIZE: usize = 2;
+                        let total_len = SdpcmHeader::SIZE + PADDING_SIZE + BcdHeader::SIZE + packet.len();
 
                         let seq = self.sdpcm_seq;
                         self.sdpcm_seq = self.sdpcm_seq.wrapping_add(1);
@@ -260,7 +269,7 @@ where
                             sequence: seq,
                             channel_and_flags: CHANNEL_TYPE_DATA,
                             next_length: 0,
-                            header_length: SdpcmHeader::SIZE as _,
+                            header_length: (SdpcmHeader::SIZE + PADDING_SIZE) as _,
                             wireless_flow_control: 0,
                             bus_data_credit: 0,
                             reserved: [0, 0],
@@ -276,8 +285,10 @@ where
                         trace!("    {:?}", bcd_header);
 
                         buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE..][..BcdHeader::SIZE].copy_from_slice(&bcd_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE + BcdHeader::SIZE..][..packet.len()].copy_from_slice(packet);
+                        buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BcdHeader::SIZE]
+                            .copy_from_slice(&bcd_header.to_bytes());
+                        buf8[SdpcmHeader::SIZE + PADDING_SIZE + BcdHeader::SIZE..][..packet.len()]
+                            .copy_from_slice(packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
