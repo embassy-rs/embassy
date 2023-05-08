@@ -35,7 +35,7 @@ impl<'a> Control<'a> {
     pub async fn init(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
 
-        info!("Downloading CLM...");
+        debug!("Downloading CLM...");
 
         let mut offs = 0;
         for chunk in clm.chunks(CHUNK_SIZE) {
@@ -65,7 +65,7 @@ impl<'a> Control<'a> {
         // check clmload ok
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
 
-        info!("Configuring misc stuff...");
+        debug!("Configuring misc stuff...");
 
         // Disable tx gloming which transfers multiple packets in one request.
         // 'glom' is short for "conglomerate" which means "gather together into
@@ -76,7 +76,7 @@ impl<'a> Control<'a> {
         // read MAC addr.
         let mut mac_addr = [0; 6];
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
-        info!("mac addr: {:02x}", Bytes(&mac_addr));
+        debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
         let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
@@ -135,7 +135,7 @@ impl<'a> Control<'a> {
 
         self.state_ch.set_ethernet_address(mac_addr);
 
-        info!("INIT DONE");
+        debug!("INIT DONE");
     }
 
     pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
@@ -226,7 +226,7 @@ impl<'a> Control<'a> {
         if status == EStatus::SUCCESS {
             // successful join
             self.state_ch.set_link_state(LinkState::Up);
-            info!("JOINED");
+            debug!("JOINED");
             Ok(())
         } else {
             warn!("JOIN failed with status={} auth={}", status, auth_status);
@@ -330,7 +330,7 @@ impl<'a> Control<'a> {
     }
 
     async fn set_iovar_v<const BUFSIZE: usize>(&mut self, name: &str, val: &[u8]) {
-        info!("set {} = {:02x}", name, Bytes(val));
+        debug!("set {} = {:02x}", name, Bytes(val));
 
         let mut buf = [0; BUFSIZE];
         buf[..name.len()].copy_from_slice(name.as_bytes());
@@ -344,7 +344,7 @@ impl<'a> Control<'a> {
 
     // TODO this is not really working, it always returns all zeros.
     async fn get_iovar(&mut self, name: &str, res: &mut [u8]) -> usize {
-        info!("get {}", name);
+        debug!("get {}", name);
 
         let mut buf = [0; 64];
         buf[..name.len()].copy_from_slice(name.as_bytes());

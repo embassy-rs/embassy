@@ -80,12 +80,12 @@ where
         self.bus
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
             .await;
-        info!("waiting for clock...");
+        debug!("waiting for clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
-        info!("clock ok");
+        debug!("clock ok");
 
         let chip_id = self.bus.bp_read16(0x1800_0000).await;
-        info!("chip ID: {}", chip_id);
+        debug!("chip ID: {}", chip_id);
 
         // Upload firmware.
         self.core_disable(Core::WLAN).await;
@@ -95,10 +95,10 @@ where
 
         let ram_addr = CHIP.atcm_ram_base_address;
 
-        info!("loading fw");
+        debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
 
-        info!("loading nvram");
+        debug!("loading nvram");
         // Round up to 4 bytes.
         let nvram_len = (NVRAM.len() + 3) / 4 * 4;
         self.bus
@@ -112,7 +112,7 @@ where
             .await;
 
         // Start core!
-        info!("starting up core...");
+        debug!("starting up core...");
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
@@ -132,7 +132,7 @@ where
             .await;
 
         // wait for wifi startup
-        info!("waiting for wifi init...");
+        debug!("waiting for wifi init...");
         while self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY == 0 {}
 
         // Some random configs related to sleep.
@@ -158,14 +158,14 @@ where
 
         // start HT clock
         //self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await;
-        //info!("waiting for HT clock...");
+        //debug!("waiting for HT clock...");
         //while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
-        //info!("clock ok");
+        //debug!("clock ok");
 
         #[cfg(feature = "firmware-logs")]
         self.log_init().await;
 
-        info!("init done ");
+        debug!("wifi init done");
     }
 
     #[cfg(feature = "firmware-logs")]
@@ -174,7 +174,7 @@ where
 
         let addr = CHIP.atcm_ram_base_address + CHIP.chip_ram_size - 4 - CHIP.socram_srmem_size;
         let shared_addr = self.bus.bp_read32(addr).await;
-        info!("shared_addr {:08x}", shared_addr);
+        debug!("shared_addr {:08x}", shared_addr);
 
         let mut shared = [0; SharedMemData::SIZE];
         self.bus.bp_read(shared_addr, &mut shared).await;
