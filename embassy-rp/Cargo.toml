@@ -30,6 +30,15 @@ rom-func-cache = []
 intrinsics = []
 rom-v2-intrinsics = []
 
+# boot2 flash chip support. if none of these is enabled we'll default to w25q080 (used on the pico)
+boot2-at25sf128a = []
+boot2-gd25q64cs = []
+boot2-generic-03h = []
+boot2-is25lp080 = []
+boot2-ram-memcpy = []
+boot2-w25q080 = []
+boot2-w25x10cl = []
+
 # Enable nightly-only features
 nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
 
@@ -71,3 +80,4 @@ embedded-hal-nb = { version = "=1.0.0-alpha.2", optional = true}
 paste = "1.0"
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
+rp2040-boot2 = "0.3"
