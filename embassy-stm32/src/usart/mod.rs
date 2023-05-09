@@ -112,7 +112,7 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
 }
 
 impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
-    /// usefull if you only want Uart Tx. It saves 1 pin and consumes a little less power
+    /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
@@ -210,7 +210,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
 }
 
 impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
-    /// usefull if you only want Uart Rx. It saves 1 pin and consumes a little less power
+    /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         irq: impl Peripheral<P = T::Interrupt> + 'd,
@@ -757,7 +757,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 
     /// Split the Uart into a transmitter and receiver, which is
-    /// particuarly useful when having two tasks correlating to
+    /// particularly useful when having two tasks correlating to
     /// transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, T, TxDma>, UartRx<'d, T, RxDma>) {
         (self.tx, self.rx)

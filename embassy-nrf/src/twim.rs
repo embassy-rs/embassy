@@ -336,7 +336,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 return Poll::Ready(());
             }
 
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });

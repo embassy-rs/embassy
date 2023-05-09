@@ -133,7 +133,7 @@ impl<'a> Writer<'a> {
 
     /// Push one data byte.
     ///
-    /// Returns true if pushed succesfully.
+    /// Returns true if pushed successfully.
     pub fn push_one(&mut self, val: u8) -> bool {
         let n = self.push(|f| match f {
             [] => 0,
@@ -265,7 +265,7 @@ impl<'a> Reader<'a> {
 
     /// Pop one data byte.
     ///
-    /// Returns true if popped succesfully.
+    /// Returns true if popped successfully.
     pub fn pop_one(&mut self) -> Option<u8> {
         let mut res = None;
         self.pop(|f| match f {

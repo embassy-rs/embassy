@@ -48,7 +48,7 @@ async fn main(_spawner: Spawner) {
                         //Write suc.
                     }
                     Err(..) => {
-                        //Wasnt able to write
+                        //Wasn't able to write
                     }
                 }
             }

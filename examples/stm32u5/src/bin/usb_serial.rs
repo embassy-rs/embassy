@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
     config.product = Some("USB-serial example");
     config.serial_number = Some("12345678");
 
-    // Required for windows compatiblity.
+    // Required for windows compatibility.
     // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
     config.device_class = 0xEF;
     config.device_sub_class = 0x02;
