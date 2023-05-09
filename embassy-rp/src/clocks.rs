@@ -1,6 +1,7 @@
+use embassy_hal_common::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
 
-use crate::{pac, reset};
+use crate::{pac, reset, Peripheral};
 
 // TODO fix terrible use of global here
 static mut XIN_HZ: u32 = 0;
@@ -543,53 +544,26 @@ pub fn clk_rtc_freq() -> u32 {
     base / int
 }
 
-pub fn clk_gpout0_freq() -> u32 {
+pub fn clk_gpout_freq(num: usize) -> u32 {
     let c = pac::CLOCKS;
-    let src = unsafe { c.clk_gpout0_ctrl().read().auxsrc() };
+    let src = unsafe { c.clk_gpout_ctrl(num).read().auxsrc() };
 
     let base = match src {
-        ClkGpout0ctrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
-        ClkGpout0ctrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
-        ClkGpout0ctrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
-        ClkGpout0ctrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
-        ClkGpout0ctrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
-        ClkGpout0ctrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
-        ClkGpout0ctrlAuxsrc::CLK_SYS => clk_sys_freq(),
-        ClkGpout0ctrlAuxsrc::CLK_USB => clk_usb_freq(),
-        ClkGpout0ctrlAuxsrc::CLK_ADC => clk_adc_freq(),
-        ClkGpout0ctrlAuxsrc::CLK_RTC => clk_rtc_freq(),
-        ClkGpout0ctrlAuxsrc::CLK_REF => clk_ref_freq(),
+        ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+        ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+        ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+        ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+        ClkGpoutCtrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
+        ClkGpoutCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+        ClkGpoutCtrlAuxsrc::CLK_SYS => clk_sys_freq(),
+        ClkGpoutCtrlAuxsrc::CLK_USB => clk_usb_freq(),
+        ClkGpoutCtrlAuxsrc::CLK_ADC => clk_adc_freq(),
+        ClkGpoutCtrlAuxsrc::CLK_RTC => clk_rtc_freq(),
+        ClkGpoutCtrlAuxsrc::CLK_REF => clk_ref_freq(),
         _ => unreachable!(),
     };
 
-    let div = unsafe { c.clk_gpout0_div().read() };
-    let int = if div.int() == 0 { 65536 } else { div.int() };
-    // TODO handle fractional clock div
-    let _frac = div.frac();
-
-    base / int
-}
-
-pub fn clk_gpout1_freq() -> u32 {
-    let c = pac::CLOCKS;
-    let src = unsafe { c.clk_gpout1_ctrl().read().auxsrc() };
-
-    let base = match src {
-        ClkGpout1ctrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
-        ClkGpout1ctrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
-        ClkGpout1ctrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
-        ClkGpout1ctrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
-        ClkGpout1ctrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
-        ClkGpout1ctrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
-        ClkGpout1ctrlAuxsrc::CLK_SYS => clk_sys_freq(),
-        ClkGpout1ctrlAuxsrc::CLK_USB => clk_usb_freq(),
-        ClkGpout1ctrlAuxsrc::CLK_ADC => clk_adc_freq(),
-        ClkGpout1ctrlAuxsrc::CLK_RTC => clk_rtc_freq(),
-        ClkGpout1ctrlAuxsrc::CLK_REF => clk_ref_freq(),
-        _ => unreachable!(),
-    };
-
-    let div = unsafe { c.clk_gpout1_div().read() };
+    let div = unsafe { c.clk_gpout_div(num).read() };
     let int = if div.int() == 0 { 65536 } else { div.int() };
     // TODO handle fractional clock div
     let _frac = div.frac();
@@ -667,47 +641,106 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     p.pwr().modify(|w| w.set_postdivpd(false));
 }
 
-pub trait GpoutPin {}
+pub trait GpinPin {
+    fn gpin_number(&self) -> usize;
+    fn pin_number(&self) -> usize;
+}
 
-impl GpoutPin for crate::peripherals::PIN_21 {}
-impl GpoutPin for crate::peripherals::PIN_23 {}
-impl GpoutPin for crate::peripherals::PIN_24 {}
-impl GpoutPin for crate::peripherals::PIN_25 {}
+macro_rules! impl_gpinpin {
+    ($name:ident, $pin_num:expr, $gpin_num:expr) => {
+        impl GpinPin for crate::peripherals::$name {
+            fn gpin_number(&self) -> usize {
+                $gpin_num
+            }
+            fn pin_number(&self) -> usize {
+                $pin_num
+            }
+        }
+    };
+}
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+impl_gpinpin!(PIN_20, 20, 0);
+impl_gpinpin!(PIN_22, 22, 1);
 
-use crate::Peripheral;
+pub struct Gpin<'d, T: GpinPin> {
+    gpout: PeripheralRef<'d, T>,
+}
+
+impl<'d, T: GpinPin> Gpin<'d, T> {
+    pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(gpout);
+
+        unsafe {
+            let p = pac::IO_BANK0.gpio(gpout.pin_number()).ctrl();
+            p.write(|w| w.set_funcsel(0x08));
+        }
+
+        Self { gpout }
+    }
+}
+
+impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
+    fn drop(&mut self) {
+        unsafe {
+            let p = pac::IO_BANK0.gpio(self.gpout.pin_number()).ctrl();
+            p.write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
+        }
+    }
+}
+
+pub trait GpoutPin {
+    fn gpout_number(&self) -> usize;
+    fn pin_number(&self) -> usize;
+}
+
+macro_rules! impl_gpoutpin {
+    ($name:ident, $pin_num:expr, $gpout_num:expr) => {
+        impl GpoutPin for crate::peripherals::$name {
+            fn gpout_number(&self) -> usize {
+                $gpout_num
+            }
+            fn pin_number(&self) -> usize {
+                $pin_num
+            }
+        }
+    };
+}
+
+impl_gpoutpin!(PIN_21, 21, 0);
+impl_gpoutpin!(PIN_23, 23, 1);
+impl_gpoutpin!(PIN_24, 24, 2);
+impl_gpoutpin!(PIN_25, 25, 3);
 
 pub struct Gpout<'d, T: GpoutPin> {
-    _pin: PeripheralRef<'d, T>,
+    gpout: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: GpoutPin> Gpout<'d, T> {
-    pub fn new(_pin: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(_pin);
+    pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(gpout);
 
         unsafe {
-            let p = pac::IO_BANK0.gpio(21).ctrl();
-            p.write(|w| w.set_funcsel(pac::io::vals::Gpio21ctrlFuncsel::CLOCKS_GPOUT_0.0));
+            let p = pac::IO_BANK0.gpio(gpout.pin_number()).ctrl();
+            p.write(|w| w.set_funcsel(0x08));
         }
 
-        Self { _pin }
+        Self { gpout }
     }
 
     pub fn set_div(&self, int: u32, frac: u8) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout0_div().write(|w| {
+            c.clk_gpout_div(self.gpout.gpout_number()).write(|w| {
                 w.set_int(int);
                 w.set_frac(frac);
             });
         }
     }
 
-    pub fn set_src(&self, src: ClkGpout0ctrlAuxsrc) {
+    pub fn set_src(&self, src: ClkGpoutCtrlAuxsrc) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout0_ctrl().modify(|w| {
+            c.clk_gpout_ctrl(self.gpout.gpout_number()).modify(|w| {
                 w.set_auxsrc(src);
             });
         }
@@ -716,7 +749,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn enable(&self) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout0_ctrl().modify(|w| {
+            c.clk_gpout_ctrl(self.gpout.gpout_number()).modify(|w| {
                 w.set_enable(true);
             });
         }
@@ -725,9 +758,18 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn disable(&self) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout0_ctrl().modify(|w| {
+            c.clk_gpout_ctrl(self.gpout.gpout_number()).modify(|w| {
                 w.set_enable(true);
             });
+        }
+    }
+}
+
+impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
+    fn drop(&mut self) {
+        unsafe {
+            let p = pac::IO_BANK0.gpio(self.gpout.pin_number()).ctrl();
+            p.write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
         }
     }
 }

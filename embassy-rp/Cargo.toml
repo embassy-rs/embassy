@@ -61,7 +61,7 @@ embedded-storage = { version = "0.3" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { version = "2", features = ["rt"] }
+rp-pac = { version = "3", features = ["rt"] }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
@@ -71,3 +71,6 @@ embedded-hal-nb = { version = "=1.0.0-alpha.2", optional = true}
 paste = "1.0"
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
+
+[patch.crates-io]
+rp-pac = {git = "https://github.com/CBJamo/rp-pac.git"}
