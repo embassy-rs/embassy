@@ -48,6 +48,8 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
 
         // Pin config
         let out_pin = pio.make_pio_pin(pin);
+        cfg.set_out_pins(&[&out_pin]);
+        cfg.set_set_pins(&[&out_pin]);
 
         let relocated = RelocatedProgram::new(&prg);
         cfg.use_program(&pio.load_program(&relocated), &[&out_pin]);
@@ -76,7 +78,9 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
     pub async fn write(&mut self, colors: &[RGB8]) {
         for color in colors {
             let word = (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
-            self.sm.tx().wait_push(word).await;
+            if !self.sm.tx().try_push(word) {
+                self.sm.tx().wait_push(word).await;
+            }
         }
     }
 }
