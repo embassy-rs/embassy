@@ -10,7 +10,7 @@ export DEFMT_LOG=trace
 (cd examples; cargo build --bin multisocket --release)
 (cd examples; cargo build --bin tcp-client --release)
 (cd examples; cargo build --bin tcp-server --release)
-(cd examples; cargo build --bin tcp-udp --release)
+(cd examples; cargo build --bin udp --release)
 
 # build lib
 #============
