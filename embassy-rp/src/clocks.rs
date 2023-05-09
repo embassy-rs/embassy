@@ -6,15 +6,22 @@ use crate::{pac, reset, Peripheral};
 // TODO fix terrible use of global here
 static mut XIN_HZ: u32 = 0;
 
+pub use rp_pac::clocks::vals::{
+    ClkAdcCtrlAuxsrc as AdcAuxsrc, ClkGpoutCtrlAuxsrc as GpoutSrc, ClkPeriCtrlAuxsrc as PeriClkAuxsrc,
+    ClkRefCtrlAuxsrc as RefAuxsrc, ClkRtcCtrlAuxsrc as RtcAuxsrc, ClkSysCtrlAuxsrc as SysAuxsrc,
+    ClkUsbCtrlAuxsrc as UsbAuxsrc,
+};
+
+#[non_exhaustive]
 pub struct ClockConfig {
-    rosc: Option<RoscConfig>,
-    xosc: Option<XoscConfig>,
-    ref_clk: RefClkConfig,
-    sys_clk: SysClkConfig,
-    peri_clk_src: Option<ClkPeriCtrlAuxsrc>,
-    usb_clk: Option<UsbClkConfig>,
-    adc_clk: Option<AdcClkConfig>,
-    rtc_clk: Option<RtcClkConfig>,
+    pub rosc: Option<RoscConfig>,
+    pub xosc: Option<XoscConfig>,
+    pub ref_clk: RefClkConfig,
+    pub sys_clk: SysClkConfig,
+    pub peri_clk_src: Option<ClkPeriCtrlAuxsrc>,
+    pub usb_clk: Option<UsbClkConfig>,
+    pub adc_clk: Option<AdcClkConfig>,
+    pub rtc_clk: Option<RtcClkConfig>,
 }
 
 impl ClockConfig {
@@ -54,15 +61,18 @@ impl ClockConfig {
             usb_clk: Some(UsbClkConfig {
                 src: ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB,
                 div: 1,
+                phase: 0,
             }),
             adc_clk: Some(AdcClkConfig {
                 src: ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB,
                 div: 1,
+                phase: 0,
             }),
             rtc_clk: Some(RtcClkConfig {
                 src: ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB,
                 div_int: 1024,
                 div_frac: 0,
+                phase: 0,
             }),
         }
     }
@@ -89,27 +99,29 @@ impl ClockConfig {
             adc_clk: Some(AdcClkConfig {
                 src: ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH,
                 div: 1,
+                phase: 0,
             }),
             rtc_clk: Some(RtcClkConfig {
                 src: ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH,
                 div_int: 1024,
                 div_frac: 0,
+                phase: 0,
             }),
         }
     }
 }
 
 pub struct RoscConfig {
-    range: pac::rosc::vals::FreqRange,
-    drive_strength: [u8; 8],
-    div: u16,
+    pub range: pac::rosc::vals::FreqRange,
+    pub drive_strength: [u8; 8],
+    pub div: u16,
 }
 
 pub struct XoscConfig {
-    hz: u32,
-    clock_type: ExternalClock,
-    sys_pll: Option<PllConfig>,
-    usb_pll: Option<PllConfig>,
+    pub hz: u32,
+    pub clock_type: ExternalClock,
+    pub sys_pll: Option<PllConfig>,
+    pub usb_pll: Option<PllConfig>,
 }
 
 pub struct PllConfig {
@@ -124,8 +136,8 @@ pub enum ExternalClock {
     Clock,
 }
 pub struct RefClkConfig {
-    src: RefClkSrc,
-    div: u8,
+    pub src: RefClkSrc,
+    pub div: u8,
 }
 
 pub enum RefClkSrc {
@@ -140,25 +152,28 @@ pub enum SysClkSrc {
 }
 
 pub struct SysClkConfig {
-    src: SysClkSrc,
-    div_int: u32,
-    div_frac: u8,
+    pub src: SysClkSrc,
+    pub div_int: u32,
+    pub div_frac: u8,
 }
 
 pub struct UsbClkConfig {
-    src: ClkUsbCtrlAuxsrc,
-    div: u8,
+    pub src: ClkUsbCtrlAuxsrc,
+    pub div: u8,
+    pub phase: u8,
 }
 
 pub struct AdcClkConfig {
-    src: ClkAdcCtrlAuxsrc,
-    div: u8,
+    pub src: ClkAdcCtrlAuxsrc,
+    pub div: u8,
+    pub phase: u8,
 }
 
 pub struct RtcClkConfig {
-    src: ClkRtcCtrlAuxsrc,
-    div_int: u32,
-    div_frac: u8,
+    pub src: ClkRtcCtrlAuxsrc,
+    pub div_int: u32,
+    pub div_frac: u8,
+    pub phase: u8,
 }
 
 /// safety: must be called exactly once at bootup
@@ -289,6 +304,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         // CLK USB = PLL USB (48MHz) / 1 = 48MHz
         c.clk_usb_div().write(|w| w.set_int(conf.div));
         c.clk_usb_ctrl().write(|w| {
+            w.set_phase(conf.phase);
             w.set_enable(true);
             w.set_auxsrc(conf.src);
         });
@@ -300,6 +316,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         // CLK ADC = PLL USB (48MHZ) / 1 = 48MHz
         c.clk_adc_div().write(|w| w.set_int(conf.div));
         c.clk_adc_ctrl().write(|w| {
+            w.set_phase(conf.phase);
             w.set_enable(true);
             w.set_auxsrc(conf.src);
         });
@@ -317,6 +334,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             w.set_frac(conf.div_frac);
         });
         c.clk_rtc_ctrl().write(|w| {
+            w.set_phase(conf.phase);
             w.set_enable(true);
             w.set_auxsrc(conf.src);
         });
@@ -544,33 +562,6 @@ pub fn clk_rtc_freq() -> u32 {
     base / int
 }
 
-pub fn clk_gpout_freq<T: GpoutPin>(gpout: &Gpout<T>) -> u32 {
-    let c = pac::CLOCKS;
-    let src = unsafe { c.clk_gpout_ctrl(gpout.gpout.gpout_number()).read().auxsrc() };
-
-    let base = match src {
-        ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
-        ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
-        ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
-        ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
-        ClkGpoutCtrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
-        ClkGpoutCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
-        ClkGpoutCtrlAuxsrc::CLK_SYS => clk_sys_freq(),
-        ClkGpoutCtrlAuxsrc::CLK_USB => clk_usb_freq(),
-        ClkGpoutCtrlAuxsrc::CLK_ADC => clk_adc_freq(),
-        ClkGpoutCtrlAuxsrc::CLK_RTC => clk_rtc_freq(),
-        ClkGpoutCtrlAuxsrc::CLK_REF => clk_ref_freq(),
-        _ => unreachable!(),
-    };
-
-    let div = unsafe { c.clk_gpout_div(gpout.gpout.gpout_number()).read() };
-    let int = if div.int() == 0 { 65536 } else { div.int() };
-    // TODO handle fractional clock div
-    let _frac = div.frac();
-
-    base / int
-}
-
 unsafe fn start_xosc(crystal_hz: u32) {
     pac::XOSC
         .ctrl()
@@ -641,19 +632,15 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     p.pwr().modify(|w| w.set_postdivpd(false));
 }
 
-pub trait GpinPin {
-    fn gpin_number(&self) -> usize;
-    fn pin_number(&self) -> usize;
+pub trait GpinPin: crate::gpio::Pin {
+    fn number(&self) -> usize;
 }
 
 macro_rules! impl_gpinpin {
     ($name:ident, $pin_num:expr, $gpin_num:expr) => {
         impl GpinPin for crate::peripherals::$name {
-            fn gpin_number(&self) -> usize {
+            fn number(&self) -> usize {
                 $gpin_num
-            }
-            fn pin_number(&self) -> usize {
-                $pin_num
             }
         }
     };
@@ -663,53 +650,50 @@ impl_gpinpin!(PIN_20, 20, 0);
 impl_gpinpin!(PIN_22, 22, 1);
 
 pub struct Gpin<'d, T: GpinPin> {
-    gpout: PeripheralRef<'d, T>,
+    gpin: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: GpinPin> Gpin<'d, T> {
-    pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(gpout);
+    pub fn new(gpin: impl Peripheral<P = T> + 'd) -> Self {
+        into_ref!(gpin);
 
         unsafe {
-            let p = pac::IO_BANK0.gpio(gpout.pin_number()).ctrl();
-            p.write(|w| w.set_funcsel(0x08));
+            gpin.io().ctrl().write(|w| w.set_funcsel(0x08));
         }
 
-        Self { gpout }
+        Self { gpin }
     }
 }
 
 impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
         unsafe {
-            let p = pac::IO_BANK0.gpio(self.gpout.pin_number()).ctrl();
-            p.write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
+            self.gpin
+                .io()
+                .ctrl()
+                .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
         }
     }
 }
 
-pub trait GpoutPin {
-    fn gpout_number(&self) -> usize;
-    fn pin_number(&self) -> usize;
+pub trait GpoutPin: crate::gpio::Pin {
+    fn number(&self) -> usize;
 }
 
 macro_rules! impl_gpoutpin {
-    ($name:ident, $pin_num:expr, $gpout_num:expr) => {
+    ($name:ident, $gpout_num:expr) => {
         impl GpoutPin for crate::peripherals::$name {
-            fn gpout_number(&self) -> usize {
+            fn number(&self) -> usize {
                 $gpout_num
-            }
-            fn pin_number(&self) -> usize {
-                $pin_num
             }
         }
     };
 }
 
-impl_gpoutpin!(PIN_21, 21, 0);
-impl_gpoutpin!(PIN_23, 23, 1);
-impl_gpoutpin!(PIN_24, 24, 2);
-impl_gpoutpin!(PIN_25, 25, 3);
+impl_gpoutpin!(PIN_21, 0);
+impl_gpoutpin!(PIN_23, 1);
+impl_gpoutpin!(PIN_24, 2);
+impl_gpoutpin!(PIN_25, 3);
 
 pub struct Gpout<'d, T: GpoutPin> {
     gpout: PeripheralRef<'d, T>,
@@ -720,8 +704,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
         into_ref!(gpout);
 
         unsafe {
-            let p = pac::IO_BANK0.gpio(gpout.pin_number()).ctrl();
-            p.write(|w| w.set_funcsel(0x08));
+            gpout.io().ctrl().write(|w| w.set_funcsel(0x08));
         }
 
         Self { gpout }
@@ -730,7 +713,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn set_div(&self, int: u32, frac: u8) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout_div(self.gpout.gpout_number()).write(|w| {
+            c.clk_gpout_div(self.gpout.number()).write(|w| {
                 w.set_int(int);
                 w.set_frac(frac);
             });
@@ -740,7 +723,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn set_src(&self, src: ClkGpoutCtrlAuxsrc) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout_ctrl(self.gpout.gpout_number()).modify(|w| {
+            c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
                 w.set_auxsrc(src);
             });
         }
@@ -749,7 +732,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn enable(&self) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout_ctrl(self.gpout.gpout_number()).modify(|w| {
+            c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
                 w.set_enable(true);
             });
         }
@@ -758,18 +741,48 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn disable(&self) {
         unsafe {
             let c = pac::CLOCKS;
-            c.clk_gpout_ctrl(self.gpout.gpout_number()).modify(|w| {
+            c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
                 w.set_enable(false);
             });
         }
+    }
+
+    pub fn get_freq(&self) -> u32 {
+        let c = pac::CLOCKS;
+        let src = unsafe { c.clk_gpout_ctrl(self.gpout.number()).read().auxsrc() };
+
+        let base = match src {
+            ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
+            ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+            ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+            ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
+            ClkGpoutCtrlAuxsrc::ROSC_CLKSRC => estimate_rosc_freq(),
+            ClkGpoutCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
+            ClkGpoutCtrlAuxsrc::CLK_SYS => clk_sys_freq(),
+            ClkGpoutCtrlAuxsrc::CLK_USB => clk_usb_freq(),
+            ClkGpoutCtrlAuxsrc::CLK_ADC => clk_adc_freq(),
+            ClkGpoutCtrlAuxsrc::CLK_RTC => clk_rtc_freq(),
+            ClkGpoutCtrlAuxsrc::CLK_REF => clk_ref_freq(),
+            _ => unreachable!(),
+        };
+
+        let div = unsafe { c.clk_gpout_div(self.gpout.number()).read() };
+        let int = if div.int() == 0 { 65536 } else { div.int() };
+        // TODO handle fractional clock div
+        let _frac = div.frac();
+
+        base / int
     }
 }
 
 impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
     fn drop(&mut self) {
+        self.disable();
         unsafe {
-            let p = pac::IO_BANK0.gpio(self.gpout.pin_number()).ctrl();
-            p.write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
+            self.gpout
+                .io()
+                .ctrl()
+                .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
         }
     }
 }
