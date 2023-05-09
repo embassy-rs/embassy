@@ -159,23 +159,35 @@ select_bootloader! {
 }
 
 pub mod config {
+    use crate::clocks::ClockConfig;
+
     #[non_exhaustive]
-    pub struct Config {}
+    pub struct Config {
+        pub clocks: ClockConfig,
+    }
 
     impl Default for Config {
         fn default() -> Self {
-            Self {}
+            Self {
+                clocks: ClockConfig::crystal(12_000_000),
+            }
+        }
+    }
+
+    impl Config {
+        pub fn new(clocks: ClockConfig) -> Self {
+            Self { clocks }
         }
     }
 }
 
-pub fn init(_config: config::Config) -> Peripherals {
+pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();
 
     unsafe {
-        clocks::init();
+        clocks::init(config.clocks);
         #[cfg(feature = "time-driver")]
         timer::init();
         dma::init();
