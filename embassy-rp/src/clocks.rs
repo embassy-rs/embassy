@@ -544,9 +544,9 @@ pub fn clk_rtc_freq() -> u32 {
     base / int
 }
 
-pub fn clk_gpout_freq(num: usize) -> u32 {
+pub fn clk_gpout_freq<T: GpoutPin>(gpout: &Gpout<T>) -> u32 {
     let c = pac::CLOCKS;
-    let src = unsafe { c.clk_gpout_ctrl(num).read().auxsrc() };
+    let src = unsafe { c.clk_gpout_ctrl(gpout.gpout.gpout_number()).read().auxsrc() };
 
     let base = match src {
         ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
@@ -563,7 +563,7 @@ pub fn clk_gpout_freq(num: usize) -> u32 {
         _ => unreachable!(),
     };
 
-    let div = unsafe { c.clk_gpout_div(num).read() };
+    let div = unsafe { c.clk_gpout_div(gpout.gpout.gpout_number()).read() };
     let int = if div.int() == 0 { 65536 } else { div.int() };
     // TODO handle fractional clock div
     let _frac = div.frac();
@@ -759,7 +759,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
         unsafe {
             let c = pac::CLOCKS;
             c.clk_gpout_ctrl(self.gpout.gpout_number()).modify(|w| {
-                w.set_enable(true);
+                w.set_enable(false);
             });
         }
     }

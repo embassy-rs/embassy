@@ -5,17 +5,30 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::{clocks, pac};
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-    //let mut led = Output::new(p.PIN_25, Level::Low);
 
-    let gpout0 = clocks::Gpout0::new(p.PIN_21);
-    gpout0.set_src(pac::clocks::vals::ClkGpout0ctrlAuxsrc::CLK_SYS);
-    gpout0.set_div(1000, 0);
-    gpout0.enable();
+    let gpout3 = clocks::Gpout::new(p.PIN_25);
+    gpout3.set_div(1000, 0);
+    gpout3.enable();
 
-    info!("Pin 21 should be toggling at {} hz", clocks::clk_gpout0_freq());
+    loop {
+        gpout3.set_src(pac::clocks::vals::ClkGpoutCtrlAuxsrc::CLK_SYS);
+        info!(
+            "Pin 25 is now outputing CLK_SYS/1000, should be toggling at {}",
+            clocks::clk_gpout_freq(&gpout3)
+        );
+        Timer::after(Duration::from_secs(2)).await;
+
+        gpout3.set_src(pac::clocks::vals::ClkGpoutCtrlAuxsrc::CLK_REF);
+        info!(
+            "Pin 25 is now outputing CLK_REF/1000, should be toggling at {}",
+            clocks::clk_gpout_freq(&gpout3)
+        );
+        Timer::after(Duration::from_secs(2)).await;
+    }
 }

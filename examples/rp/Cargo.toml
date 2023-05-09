@@ -48,3 +48,6 @@ pio = "0.2.1"
 
 [profile.release]
 debug = true
+
+[patch.crates-io]
+rp-pac = {git = "https://github.com/CBJamo/rp-pac.git"}
