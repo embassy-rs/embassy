@@ -18,12 +18,61 @@ pub enum Error {
     // No errors for now
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+// #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Builder {
+    pub frequency: Option<u32>,
+    pub phase: Option<Phase>,
+    pub polarity: Option<Polarity>,
+}
+
+impl Builder {
+    pub fn frequency(self, frequency: u32) -> Self {
+        self.frequency = frequency;
+        self
+    }
+
+    pub fn phase(self, phase: Phase) -> Self {
+        self.phase = phase;
+        self
+    }
+
+    pub fn polarity(self, polarity: Polarity) -> Self {
+        self.polarity = polarity;
+        self
+    }
+
+    pub fn build(self) -> Config {
+        Config {
+            frequency: self.frequency.unwrap_or(1_000_000),
+            phase: self.frequency.unwrap_or(Phase::CaptureOnFirstTransition),
+            polarity: self.frequency.unwrap_or(Polarity::IdleLow),
+        }
+    }
+}
+
+impl Default for Builder {
+    fn default() -> Self {
+        Self {
+            frequency: Some(1_000_000),
+            phase: Some(Phase::CaptureOnFirstTransition),
+            polarity: Some(Polarity::IdleLow),
+        }
+    }
+}
+
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct Config {
     pub frequency: u32,
     pub phase: Phase,
     pub polarity: Polarity,
+}
+
+impl Config {
+    pub fn builder() -> Builder {
+        Builder::default()
+    }
 }
 
 impl Default for Config {
