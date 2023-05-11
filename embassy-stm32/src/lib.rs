@@ -57,6 +57,8 @@ pub mod rtc;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(stm32wb)]
+pub mod tl_mbox;
 #[cfg(usart)]
 pub mod usart;
 #[cfg(all(usb, feature = "time"))]

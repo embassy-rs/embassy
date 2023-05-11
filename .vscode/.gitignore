@@ -1,0 +1,3 @@
+*.cortex-debug.*.json
+launch.json
+tasks.json
