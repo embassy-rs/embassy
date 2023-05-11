@@ -16,8 +16,8 @@ async fn main(_spawner: Spawner) {
 
         - Obtain a NUCLEO-STM32WB55 from your preferred supplier.
         - Download and Install STM32CubeProgrammer.
-        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Stack_full_fw.bin, and Release_Notes.html from 
-          gh:STMicroelectronics/STM32CubeWB@2234d97/Projects/STM32WB_Copro_Wireless_Binaries/STM32WB5x 
+        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Stack_full_fw.bin, and Release_Notes.html from
+          gh:STMicroelectronics/STM32CubeWB@2234d97/Projects/STM32WB_Copro_Wireless_Binaries/STM32WB5x
         - Open STM32CubeProgrammer
         - On the right-hand pane, click "firmware upgrade" to upgrade the st-link firmware.
         - Once complete, click connect to connect to the device.
@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner) {
         - Once complete, in the Release_Notes.html, find the memory address that corresponds to your device for the
           stm32wb5x_BLE_Stack_full_fw.bin file. It should not be the same memory address.
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
-        - Disconnect from the device. 
+        - Disconnect from the device.
         - In the examples folder for stm32wb, modify the memory.x file to match your target device.
         - Run this example.
 
