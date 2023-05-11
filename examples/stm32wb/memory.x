@@ -1,14 +1,14 @@
 /*
     The size of this file must be exactly the same as in other memory_xx.x files.
     Memory size for STM32WB55xC with 256K FLASH
+*/
 
-    MEMORY
-    {
+MEMORY
+{
     FLASH (rx)                 : ORIGIN = 0x08000000, LENGTH = 256K
     RAM (xrw)                  : ORIGIN = 0x20000000, LENGTH = 192K
     RAM_SHARED (xrw)           : ORIGIN = 0x20030000, LENGTH = 10K
-    }
-*/
+}
 
 /* 
     Memory size for STM32WB55xC with 512K FLASH
