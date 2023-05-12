@@ -42,10 +42,10 @@ pub struct SafeBootInfoTable {
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-pub struct RssInfoTable {
+pub struct FusInfoTable {
     version: u32,
     memory_size: u32,
-    rss_info: u32,
+    fus_info: u32,
 }
 
 /// # Version
@@ -64,8 +64,8 @@ pub struct RssInfoTable {
 pub struct WirelessFwInfoTable {
     version: u32,
     memory_size: u32,
-    thread_info: u32,
-    ble_info: u32,
+    info_stack: u32,
+    reserved: u32,
 }
 
 impl WirelessFwInfoTable {
@@ -107,7 +107,7 @@ impl WirelessFwInfoTable {
 #[derive(Copy, Clone)]
 pub struct DeviceInfoTable {
     pub safe_boot_info_table: SafeBootInfoTable,
-    pub rss_info_table: RssInfoTable,
+    pub fus_info_table: FusInfoTable,
     pub wireless_fw_info_table: WirelessFwInfoTable,
 }
 
@@ -191,6 +191,9 @@ pub struct RefTable {
     mem_manager_table: *const MemManagerTable,
     traces_table: *const TracesTable,
     mac_802_15_4_table: *const Mac802_15_4Table,
+    zigbee_table: *const ZigbeeTable,
+    lld_tests_table: *const LldTestTable,
+    ble_lld_table: *const BleLldTable,
 }
 
 #[link_section = "TL_REF_TABLE"]
@@ -206,6 +209,12 @@ static mut TL_BLE_TABLE: MaybeUninit<BleTable> = MaybeUninit::uninit();
 static mut TL_THREAD_TABLE: MaybeUninit<ThreadTable> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM1"]
+static mut TL_LLD_TESTS_TABLE: MaybeUninit<LldTestTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+static mut TL_BLE_LLD_TABLE: MaybeUninit<BleLldTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
 static mut TL_SYS_TABLE: MaybeUninit<SysTable> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM1"]
@@ -217,25 +226,28 @@ static mut TL_TRACES_TABLE: MaybeUninit<TracesTable> = MaybeUninit::uninit();
 #[link_section = "MB_MEM1"]
 static mut TL_MAC_802_15_4_TABLE: MaybeUninit<Mac802_15_4Table> = MaybeUninit::uninit();
 
+#[link_section = "MB_MEM1"]
+static mut TL_ZIGBEE_TABLE: MaybeUninit<ZigbeeTable> = MaybeUninit::uninit();
+
 #[allow(dead_code)] // Not used currently but reserved
-#[link_section = "MB_MEM2"]
+#[link_section = "MB_MEM1"]
 static mut FREE_BUFF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 // not in shared RAM
 static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[allow(dead_code)] // Not used currently but reserved
-#[link_section = "MB_MEM2"]
+#[link_section = "MB_MEM1"]
 static mut TRACES_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
     MaybeUninit::uninit();
 
-#[link_section = "MB_MEM2"]
+#[link_section = "MB_MEM1"]
 static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
-#[link_section = "MB_MEM2"]
+#[link_section = "MB_MEM1"]
 static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
@@ -277,6 +289,9 @@ impl TlMbox {
                 mem_manager_table: TL_MEM_MANAGER_TABLE.as_ptr(),
                 traces_table: TL_TRACES_TABLE.as_ptr(),
                 mac_802_15_4_table: TL_MAC_802_15_4_TABLE.as_ptr(),
+                zigbee_table: TL_ZIGBEE_TABLE.as_ptr(),
+                lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
+                ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
 
             TL_SYS_TABLE = MaybeUninit::zeroed();
@@ -286,6 +301,9 @@ impl TlMbox {
             TL_MEM_MANAGER_TABLE = MaybeUninit::zeroed();
             TL_TRACES_TABLE = MaybeUninit::zeroed();
             TL_MAC_802_15_4_TABLE = MaybeUninit::zeroed();
+            TL_ZIGBEE_TABLE = MaybeUninit::zeroed();
+            TL_LLD_TESTS_TABLE = MaybeUninit::zeroed();
+            TL_BLE_LLD_TABLE = MaybeUninit::zeroed();
 
             EVT_POOL = MaybeUninit::zeroed();
             SYS_SPARE_EVT_BUF = MaybeUninit::zeroed();
