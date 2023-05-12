@@ -89,14 +89,12 @@ impl Watchdog {
     pub fn start(&mut self, period: Duration) {
         const MAX_PERIOD: u32 = 0xFFFFFF;
 
-        let delay_us = period.as_micros() as u32;
-        if delay_us > MAX_PERIOD / 2 {
-            panic!(
-                "Period cannot exceed maximum load value of {} ({} microseconds))",
-                MAX_PERIOD,
-                MAX_PERIOD / 2
-            );
+        let delay_us = period.as_micros();
+        if delay_us > (MAX_PERIOD / 2) as u64 {
+            panic!("Period cannot exceed {} microseconds", MAX_PERIOD / 2);
         }
+        let delay_us = delay_us as u32;
+
         // Due to a logic error, the watchdog decrements by 2 and
         // the load value must be compensated; see RP2040-E1
         self.load_value = delay_us * 2;
