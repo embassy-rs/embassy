@@ -576,6 +576,7 @@ unsafe fn start_xosc(crystal_hz: u32) {
     while !pac::XOSC.status().read().stable() {}
 }
 
+#[inline(always)]
 unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     let ref_freq = input_freq / config.refdiv;
 
