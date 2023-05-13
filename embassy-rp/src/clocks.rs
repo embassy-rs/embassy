@@ -37,15 +37,15 @@ impl ClockConfig {
                 clock_type: ExternalClock::Crystal,
                 sys_pll: Some(PllConfig {
                     refdiv: 1,
-                    vco_freq: 1500_000_000,
+                    fbdiv: 125,
                     post_div1: 6,
                     post_div2: 2,
                 }),
                 usb_pll: Some(PllConfig {
                     refdiv: 1,
-                    vco_freq: 480_000_000,
-                    post_div1: 5,
-                    post_div2: 2,
+                    fbdiv: 120,
+                    post_div1: 6,
+                    post_div2: 5,
                 }),
             }),
             ref_clk: RefClkConfig {
@@ -126,7 +126,7 @@ pub struct XoscConfig {
 
 pub struct PllConfig {
     pub refdiv: u32,
-    pub vco_freq: u32,
+    pub fbdiv: u16,
     pub post_div1: u8,
     pub post_div2: u8,
 }
@@ -587,16 +587,15 @@ unsafe fn start_xosc(crystal_hz: u32) {
 unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     let ref_freq = input_freq / config.refdiv;
 
-    let fbdiv = config.vco_freq / ref_freq;
-    assert!(fbdiv >= 16 && fbdiv <= 320);
+    assert!(config.fbdiv >= 16 && config.fbdiv <= 320);
     assert!(config.post_div1 >= 1 && config.post_div1 <= 7);
     assert!(config.post_div2 >= 1 && config.post_div2 <= 7);
     assert!(config.post_div2 <= config.post_div1);
-    assert!(ref_freq <= (config.vco_freq / 16));
+    assert!(ref_freq >= 5_000_000 && ref_freq <= 800_000_000);
 
     // Load VCO-related dividers before starting VCO
     p.cs().write(|w| w.set_refdiv(config.refdiv as _));
-    p.fbdiv_int().write(|w| w.set_fbdiv_int(fbdiv as _));
+    p.fbdiv_int().write(|w| w.set_fbdiv_int(config.fbdiv));
 
     // Turn on PLL
     p.pwr().modify(|w| {
