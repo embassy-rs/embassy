@@ -2,7 +2,6 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 use defmt::info;
-use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{Common, Config, Irq, Pio, PioPin, ShiftDirection, StateMachine};

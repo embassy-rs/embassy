@@ -3,7 +3,6 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::pwm::{Config, Pwm};
 use embassy_time::{Duration, Timer};

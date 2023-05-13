@@ -1,6 +1,5 @@
 //! Pulse Width Modulation (PWM)
 
-use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
@@ -151,6 +150,10 @@ impl<'d, T: Channel> Pwm<'d, T> {
     ) -> Self {
         into_ref!(a, b);
         Self::new_inner(inner, Some(a.map_into()), Some(b.map_into()), config, mode.into())
+    }
+
+    pub fn set_config(&mut self, config: &Config) {
+        Self::configure(self.inner.regs(), config);
     }
 
     fn configure(p: pac::pwm::Channel, config: &Config) {
@@ -329,10 +332,3 @@ impl_pin!(PIN_26, PWM_CH5, PwmPinA);
 impl_pin!(PIN_27, PWM_CH5, PwmPinB);
 impl_pin!(PIN_28, PWM_CH6, PwmPinA);
 impl_pin!(PIN_29, PWM_CH6, PwmPinB);
-
-impl<'d, T: Channel> SetConfig for Pwm<'d, T> {
-    type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
-        Self::configure(self.inner.regs(), config);
-    }
-}

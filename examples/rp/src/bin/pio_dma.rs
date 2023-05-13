@@ -2,7 +2,6 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 use defmt::info;
-use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::pio::{Config, Pio, ShiftConfig, ShiftDirection};
