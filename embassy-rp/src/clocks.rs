@@ -64,16 +64,19 @@ impl ClockConfig {
                 div_frac: 0,
             },
             peri_clk_src: Some(PeriClkSrc::Sys),
+            // CLK USB = PLL USB (48MHz) / 1 = 48MHz
             usb_clk: Some(UsbClkConfig {
                 src: UsbClkSrc::PllUsb,
                 div: 1,
                 phase: 0,
             }),
+            // CLK ADC = PLL USB (48MHZ) / 1 = 48MHz
             adc_clk: Some(AdcClkConfig {
                 src: AdcClkSrc::PllUsb,
                 div: 1,
                 phase: 0,
             }),
+            // CLK RTC = PLL USB (48MHz) / 1024 = 46875Hz
             rtc_clk: Some(RtcClkConfig {
                 src: RtcClkSrc::PllUsb,
                 div_int: 1024,
@@ -102,15 +105,17 @@ impl ClockConfig {
             },
             peri_clk_src: Some(PeriClkSrc::Rosc),
             usb_clk: None,
+            // CLK ADC = ROSC (140MHz) / 3 ≅ 48MHz
             adc_clk: Some(AdcClkConfig {
                 src: AdcClkSrc::Rosc,
-                div: 1,
+                div: 3,
                 phase: 0,
             }),
+            // CLK RTC = ROSC (140MHz) / 2986.667969 ≅ 46875Hz
             rtc_clk: Some(RtcClkConfig {
                 src: RtcClkSrc::Rosc,
-                div_int: 1024,
-                div_frac: 0,
+                div_int: 2986,
+                div_frac: 171,
                 phase: 0,
             }),
         }
@@ -362,7 +367,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     if let Some(conf) = config.usb_clk {
-        // CLK USB = PLL USB (48MHz) / 1 = 48MHz
         c.clk_usb_div().write(|w| w.set_int(conf.div));
         c.clk_usb_ctrl().write(|w| {
             w.set_phase(conf.phase);
@@ -374,7 +378,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     if let Some(conf) = config.adc_clk {
-        // CLK ADC = PLL USB (48MHZ) / 1 = 48MHz
         c.clk_adc_div().write(|w| w.set_int(conf.div));
         c.clk_adc_ctrl().write(|w| {
             w.set_phase(conf.phase);
@@ -386,7 +389,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     if let Some(conf) = config.rtc_clk {
-        // CLK RTC = PLL USB (48MHz) / 1024 = 46875Hz
         c.clk_rtc_ctrl().modify(|w| {
             w.set_enable(false);
         });
@@ -661,7 +663,7 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     // Wait for PLL to lock
     while !p.cs().read().lock() {}
 
-    // Wait for PLL to lock
+    // Set post-dividers
     p.prim().write(|w| {
         w.set_postdiv1(config.post_div1);
         w.set_postdiv2(config.post_div2);
