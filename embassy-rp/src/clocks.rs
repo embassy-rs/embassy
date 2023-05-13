@@ -203,6 +203,13 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     c.clk_ref_ctrl().modify(|w| w.set_src(ClkRefCtrlSrc::ROSC_CLKSRC_PH));
     while c.clk_ref_selected().read() != 1 {}
 
+    // Reset the PLLs
+    let mut peris = reset::Peripherals(0);
+    peris.set_pll_sys(true);
+    peris.set_pll_usb(true);
+    reset::reset(peris);
+    reset::unreset_wait(peris);
+
     if let Some(config) = config.rosc {
         configure_rosc(config);
     }
@@ -586,16 +593,6 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     assert!(config.post_div2 >= 1 && config.post_div2 <= 7);
     assert!(config.post_div2 <= config.post_div1);
     assert!(ref_freq <= (config.vco_freq / 16));
-
-    // Reset it
-    let mut peris = reset::Peripherals(0);
-    match p {
-        pac::PLL_SYS => peris.set_pll_sys(true),
-        pac::PLL_USB => peris.set_pll_usb(true),
-        _ => unreachable!(),
-    }
-    reset::reset(peris);
-    reset::unreset_wait(peris);
 
     // Load VCO-related dividers before starting VCO
     p.cs().write(|w| w.set_refdiv(config.refdiv as _));
