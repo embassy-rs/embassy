@@ -6,7 +6,6 @@ use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
-use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::extra::U8;
@@ -637,10 +636,8 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     }
 }
 
-impl<'d, PIO: Instance, const SM: usize> SetConfig for StateMachine<'d, PIO, SM> {
-    type Config = Config<'d, PIO>;
-
-    fn set_config(&mut self, config: &Self::Config) {
+impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
+    pub fn set_config(&mut self, config: &Config<'d, PIO>) {
         // sm expects 0 for 65536, truncation makes that happen
         assert!(config.clock_divider <= 65536, "clkdiv must be <= 65536");
         assert!(config.clock_divider >= 1, "clkdiv must be >= 1");
@@ -691,9 +688,7 @@ impl<'d, PIO: Instance, const SM: usize> SetConfig for StateMachine<'d, PIO, SM>
             }
         }
     }
-}
 
-impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     #[inline(always)]
     fn this_sm() -> crate::pac::pio::StateMachine {
         PIO::PIO.sm(SM)

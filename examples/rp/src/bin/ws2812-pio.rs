@@ -3,7 +3,6 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::pio::{Common, Config, FifoJoin, Instance, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine};
 use embassy_rp::relocate::RelocatedProgram;

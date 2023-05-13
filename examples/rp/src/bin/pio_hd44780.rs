@@ -4,7 +4,6 @@
 
 use core::fmt::Write;
 
-use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::peripherals::PIO0;
