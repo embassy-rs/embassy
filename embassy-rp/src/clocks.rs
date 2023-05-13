@@ -587,18 +587,6 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) {
     assert!(config.post_div2 <= config.post_div1);
     assert!(ref_freq <= (config.vco_freq / 16));
 
-    // do not disrupt PLL that is already correctly configured and operating
-    let cs = p.cs().read();
-    let prim = p.prim().read();
-    if cs.lock()
-        && cs.refdiv() == config.refdiv as u8
-        && p.fbdiv_int().read().fbdiv_int() == fbdiv as u16
-        && prim.postdiv1() == config.post_div1
-        && prim.postdiv2() == config.post_div2
-    {
-        return;
-    }
-
     // Reset it
     let mut peris = reset::Peripherals(0);
     match p {
