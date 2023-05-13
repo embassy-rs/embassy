@@ -22,7 +22,6 @@ pub enum Command {
 pub const INTR: u16 = 0x02;
 #[repr(u8)]
 pub enum Interrupt {
-    SendOk = 0b010000_u8,
     Receive = 0b00100_u8,
 }
 
@@ -32,16 +31,6 @@ pub async fn reset_interrupt<SPI: SpiDevice>(
 ) -> Result<(), SPI::Error> {
     let data = [code as u8];
     bus.write_frame(RegisterBlock::Socket0, INTR, &data).await
-}
-
-pub async fn is_interrupt<SPI: SpiDevice>(
-    bus: &mut SpiInterface<SPI>,
-    code: Interrupt,
-) -> Result<bool, SPI::Error> {
-    let mut data = [0u8];
-    bus.read_frame(RegisterBlock::Socket0, INTR, &mut data)
-        .await?;
-    Ok(data[0] & code as u8 != 0)
 }
 
 pub async fn get_tx_write_ptr<SPI: SpiDevice>(

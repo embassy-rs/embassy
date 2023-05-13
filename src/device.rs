@@ -123,31 +123,14 @@ impl<SPI: SpiDevice> W5500<SPI> {
 
     /// Write an ethernet frame to the device. Returns number of bytes written
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<usize, SPI::Error> {
-        let max_size = socket::get_tx_free_size(&mut self.bus).await? as usize;
-
-        let write_data = if frame.len() < max_size {
-            frame
-        } else {
-            &frame[..max_size]
-        };
-
+        while socket::get_tx_free_size(&mut self.bus).await? < frame.len() as u16 {}
         let write_ptr = socket::get_tx_write_ptr(&mut self.bus).await?;
         self.bus
-            .write_frame(RegisterBlock::TxBuf, write_ptr, write_data)
+            .write_frame(RegisterBlock::TxBuf, write_ptr, frame)
             .await?;
-        socket::set_tx_write_ptr(
-            &mut self.bus,
-            write_ptr.wrapping_add(write_data.len() as u16),
-        )
-        .await?;
-
-        socket::reset_interrupt(&mut self.bus, socket::Interrupt::SendOk).await?;
+        socket::set_tx_write_ptr(&mut self.bus, write_ptr.wrapping_add(frame.len() as u16)).await?;
         socket::command(&mut self.bus, socket::Command::Send).await?;
-        // Wait for TX to complete
-        while !socket::is_interrupt(&mut self.bus, socket::Interrupt::SendOk).await? {}
-        socket::reset_interrupt(&mut self.bus, socket::Interrupt::SendOk).await?;
-
-        Ok(write_data.len())
+        Ok(frame.len())
     }
 
     pub async fn is_link_up(&mut self) -> bool {
