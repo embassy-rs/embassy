@@ -76,6 +76,11 @@ mod thread {
                             // PS.INTLEVEL the critical section ends here
                             // take care not add code after `waiti` if it needs to be inside the CS
                             core::arch::asm!("waiti 0"); // critical section ends here
+
+                            // Re-lock the critical section to prevent possible xtensa-specific
+                            // deadlock (see #1449)
+                            let tkn: critical_section::RawRestoreState;
+                            core::arch::asm!("rsil {0}, 5", out(reg) tkn);
                         }
                     });
                 }
