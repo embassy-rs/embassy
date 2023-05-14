@@ -40,24 +40,46 @@ where
         DIO: PioPin,
         CLK: PioPin,
     {
+        #[cfg(feature = "overclock")]
         let program = pio_asm!(
             ".side_set 1"
 
             ".wrap_target"
             // write out x-1 bits
-            "lp:",
+            "lp:"
             "out pins, 1    side 0"
             "jmp x-- lp     side 1"
             // switch directions
             "set pindirs, 0 side 0"
-            // these nops seem to be necessary for fast clkdiv
-            //"nop            side 1"
-            //"nop            side 0"
-            "nop            side 1"
+            "nop            side 1"  // necessary for clkdiv=1.
+            "nop            side 0"
             // read in y-1 bits
             "lp2:"
-            "in pins, 1     side 0"
-            "jmp y-- lp2    side 1"
+            "in pins, 1     side 1"
+            "jmp y-- lp2    side 0"
+
+            // wait for event and irq host
+            "wait 1 pin 0   side 0"
+            "irq 0          side 0"
+
+            ".wrap"
+        );
+        #[cfg(not(feature = "overclock"))]
+        let program = pio_asm!(
+            ".side_set 1"
+
+            ".wrap_target"
+            // write out x-1 bits
+            "lp:"
+            "out pins, 1    side 0"
+            "jmp x-- lp     side 1"
+            // switch directions
+            "set pindirs, 0 side 0"
+            "nop            side 0"
+            // read in y-1 bits
+            "lp2:"
+            "in pins, 1     side 1"
+            "jmp y-- lp2    side 0"
 
             // wait for event and irq host
             "wait 1 pin 0   side 0"
@@ -72,8 +94,8 @@ where
         pin_io.set_pull(Pull::None);
         pin_io.set_schmitt(true);
         pin_io.set_input_sync_bypass(true);
-        //pin_io.set_drive_strength(Drive::_12mA);
-        //pin_io.set_slew_rate(SlewRate::Fast);
+        pin_io.set_drive_strength(Drive::_12mA);
+        pin_io.set_slew_rate(SlewRate::Fast);
 
         let mut pin_clk = common.make_pio_pin(clk);
         pin_clk.set_drive_strength(Drive::_12mA);
@@ -91,27 +113,24 @@ where
         cfg.shift_in.auto_fill = true;
         //cfg.shift_in.threshold = 32;
 
-        // theoretical maximum according to data sheet, 100Mhz Pio => 50Mhz SPI Freq
-        // seems to cause random corruption, probably due to jitter due to the fractional divider.
-        // cfg.clock_divider = FixedU32::from_bits(0x0140);
+        #[cfg(feature = "overclock")]
+        {
+            // 125mhz Pio => 62.5Mhz SPI Freq. 25% higher than theoretical maximum according to
+            // data sheet, but seems to work fine.
+            cfg.clock_divider = FixedU32::from_bits(0x0100);
+        }
 
-        // same speed as pico-sdk, 62.5Mhz
-        cfg.clock_divider = FixedU32::from_bits(0x0200);
-
-        // 32 Mhz
-        // cfg.clock_divider = FixedU32::from_bits(0x03E8);
-
-        // 16 Mhz
-        // cfg.clock_divider = FixedU32::from_bits(0x07d0);
-
-        // 8Mhz
-        // cfg.clock_divider = FixedU32::from_bits(0x0a_00);
-
-        // 1Mhz
-        // cfg.clock_divider = FixedU32::from_bits(0x7d_00);
-
-        // slowest possible
-        // cfg.clock_divider = FixedU32::from_bits(0xffff_00);
+        #[cfg(not(feature = "overclock"))]
+        {
+            // same speed as pico-sdk, 62.5Mhz
+            // This is actually the fastest we can go without overclocking.
+            // According to data sheet, the theoretical maximum is 100Mhz Pio => 50Mhz SPI Freq.
+            // However, the PIO uses a fractional divider, which works by introducing jitter when
+            // the divider is not an integer. It does some clocks at 125mhz and others at 62.5mhz
+            // so that it averages out to the desired frequency of 100mhz. The 125mhz clock cycles
+            // violate the maximum from the data sheet.
+            cfg.clock_divider = FixedU32::from_bits(0x0200);
+        }
 
         sm.set_config(&cfg);
 
