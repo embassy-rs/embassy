@@ -1,4 +1,9 @@
-//! DNS socket with async support.
+//! DNS client compatible with the `embedded-nal-async` traits.
+//!
+//! This exists only for compatibility with crates that use `embedded-nal-async`.
+//! Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
+//! not using `embedded-nal-async`.
+
 use heapless::Vec;
 pub use smoltcp::socket::dns::{DnsQuery, Socket};
 pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
@@ -34,7 +39,11 @@ impl From<StartQueryError> for Error {
     }
 }
 
-/// Async socket for making DNS queries.
+/// DNS client compatible with the `embedded-nal-async` traits.
+///
+/// This exists only for compatibility with crates that use `embedded-nal-async`.
+/// Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
+/// not using `embedded-nal-async`.
 pub struct DnsSocket<'a, D>
 where
     D: Driver + 'static,

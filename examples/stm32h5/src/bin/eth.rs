@@ -110,7 +110,7 @@ async fn main(spawner: Spawner) -> ! {
     loop {
         let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
 
-        socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
+        socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
         let remote_endpoint = (Ipv4Address::new(10, 42, 0, 1), 8000);
         info!("connecting...");

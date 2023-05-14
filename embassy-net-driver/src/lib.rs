@@ -1,20 +1,57 @@
 #![no_std]
+#![warn(missing_docs)]
+#![doc = include_str!("../README.md")]
 
 use core::task::Context;
 
+/// Main `embassy-net` driver API.
+///
+/// This is essentially an interface for sending and receiving raw network frames.
+///
+/// The interface is based on _tokens_, which are types that allow to receive/transmit a
+/// single packet. The `receive` and `transmit` functions only construct such tokens, the
+/// real sending/receiving operation are performed when the tokens are consumed.
 pub trait Driver {
+    /// A token to receive a single network packet.
     type RxToken<'a>: RxToken
     where
         Self: 'a;
+
+    /// A token to transmit a single network packet.
     type TxToken<'a>: TxToken
     where
         Self: 'a;
 
+    /// Construct a token pair consisting of one receive token and one transmit token.
+    ///
+    /// If there is a packet ready to be received, this function must return `Some`.
+    /// If there isn't, it must return `None`, and wake `cx.waker()` when a packet is ready.
+    ///
+    /// The additional transmit token makes it possible to generate a reply packet based
+    /// on the contents of the received packet. For example, this makes it possible to
+    /// handle arbitrarily large ICMP echo ("ping") requests, where the all received bytes
+    /// need to be sent back, without heap allocation.
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)>;
+
+    /// Construct a transmit token.
+    ///
+    /// If there is free space in the transmit buffer to transmit a packet, this function must return `Some`.
+    /// If there isn't, it must return `None`, and wake `cx.waker()` when space becomes available.
+    ///
+    /// Note that [`TxToken::consume`] is infallible, so it is not allowed to return a token
+    /// if there is no free space and fail later.
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>>;
+
+    /// Get the link state.
+    ///
+    /// This function must return the current link state of the device, and wake `cx.waker()` when
+    /// the link state changes.
     fn link_state(&mut self, cx: &mut Context) -> LinkState;
 
+    /// Get a description of device capabilities.
     fn capabilities(&self) -> Capabilities;
+
+    /// Get the device's Ethernet address.
     fn ethernet_address(&self) -> [u8; 6];
 }
 
@@ -140,10 +177,15 @@ impl Default for Medium {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct ChecksumCapabilities {
+    /// Checksum behavior for IPv4.
     pub ipv4: Checksum,
+    /// Checksum behavior for UDP.
     pub udp: Checksum,
+    /// Checksum behavior for TCP.
     pub tcp: Checksum,
+    /// Checksum behavior for ICMPv4.
     pub icmpv4: Checksum,
+    /// Checksum behavior for ICMPv6.
     pub icmpv6: Checksum,
 }
 
@@ -167,9 +209,12 @@ impl Default for Checksum {
     }
 }
 
+/// The link state of a network device.
 #[derive(PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum LinkState {
+    /// The link is down.
     Down,
+    /// The link is up.
     Up,
 }

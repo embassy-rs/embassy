@@ -11,6 +11,9 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/s
 features = ["nightly", "unstable-traits", "defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "igmp"]
 target = "thumbv7em-none-eabi"
 
+[package.metadata.docs.rs]
+features = ["nightly", "unstable-traits", "defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "igmp"]
+
 [features]
 default = []
 std = []
