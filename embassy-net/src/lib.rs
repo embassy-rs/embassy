@@ -28,13 +28,13 @@ use heapless::Vec;
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
+#[cfg(feature = "udp")]
+pub use smoltcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
 pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
-#[cfg(feature = "udp")]
-pub use smoltcp::{socket::udp::PacketMetadata, wire::IpListenEndpoint};
 
 use crate::device::DriverAdapter;
 use crate::time::{instant_from_smoltcp, instant_to_smoltcp};

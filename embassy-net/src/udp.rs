@@ -5,7 +5,8 @@ use core::task::Poll;
 
 use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
-use smoltcp::socket::udp::{self, PacketMetadata};
+use smoltcp::socket::udp;
+pub use smoltcp::socket::udp::PacketMetadata;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
 use crate::{SocketStack, Stack};

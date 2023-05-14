@@ -2,8 +2,8 @@
 
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
-use embassy_net::udp::UdpSocket;
-use embassy_net::{Config, Ipv4Address, Ipv4Cidr, PacketMetadata, Stack, StackResources};
+use embassy_net::udp::{PacketMetadata, UdpSocket};
+use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use heapless::Vec;
 use log::*;
 use rand_core::{OsRng, RngCore};
