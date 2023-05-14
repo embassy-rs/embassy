@@ -198,6 +198,7 @@ impl PowerManagementMode {
     fn mode(&self) -> u32 {
         match self {
             PowerManagementMode::ThroughputThrottling => 1,
+            PowerManagementMode::None => 0,
             _ => 2,
         }
     }
