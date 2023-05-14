@@ -1,11 +1,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
 #![cfg_attr(feature = "nightly", allow(incomplete_features))]
+#![warn(missing_docs)]
+#![doc = include_str!("../README.md")]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
-
-pub use embassy_net_driver as driver;
 
 mod device;
 #[cfg(feature = "dns")]
@@ -20,11 +20,14 @@ use core::cell::RefCell;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
+pub use embassy_net_driver as driver;
 use embassy_net_driver::{Driver, LinkState, Medium};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
 use heapless::Vec;
+#[cfg(feature = "igmp")]
+pub use smoltcp::iface::MulticastError;
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
@@ -44,6 +47,7 @@ const LOCAL_PORT_MAX: u16 = 65535;
 #[cfg(feature = "dns")]
 const MAX_QUERIES: usize = 4;
 
+/// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
     sockets: [SocketStorage<'static>; SOCK],
     #[cfg(feature = "dns")]
@@ -51,6 +55,7 @@ pub struct StackResources<const SOCK: usize> {
 }
 
 impl<const SOCK: usize> StackResources<SOCK> {
+    /// Create a new set of stack resources.
     pub fn new() -> Self {
         #[cfg(feature = "dns")]
         const INIT: Option<dns::DnsQuery> = None;
@@ -62,23 +67,35 @@ impl<const SOCK: usize> StackResources<SOCK> {
     }
 }
 
+/// Static IP address configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticConfig {
+    /// IP address and subnet mask.
     pub address: Ipv4Cidr,
+    /// Default gateway.
     pub gateway: Option<Ipv4Address>,
+    /// DNS servers.
     pub dns_servers: Vec<Ipv4Address, 3>,
 }
 
+/// DHCP configuration.
 #[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DhcpConfig {
+    /// Maximum lease duration.
+    ///
+    /// If not set, the lease duration specified by the server will be used.
+    /// If set, the lease duration will be capped at this value.
     pub max_lease_duration: Option<embassy_time::Duration>,
+    /// Retry configuration.
     pub retry_config: RetryConfig,
-    /// Ignore NAKs.
+    /// Ignore NAKs from DHCP servers.
+    ///
+    /// This is not compliant with the DHCP RFCs, since theoretically we must stop using the assigned IP when receiving a NAK. This can increase reliability on broken networks with buggy routers or rogue DHCP servers, however.
     pub ignore_naks: bool,
-    /// Server port config
+    /// Server port. This is almost always 67. Do not change unless you know what you're doing.
     pub server_port: u16,
-    /// Client port config
+    /// Client port. This is almost always 68. Do not change unless you know what you're doing.
     pub client_port: u16,
 }
 
@@ -95,12 +112,18 @@ impl Default for DhcpConfig {
     }
 }
 
+/// Network stack configuration.
 pub enum Config {
+    /// Use a static IP address configuration.
     Static(StaticConfig),
+    /// Use DHCP to obtain an IP address configuration.
     #[cfg(feature = "dhcpv4")]
     Dhcp(DhcpConfig),
 }
 
+/// A network stack.
+///
+/// This is the main entry point for the network stack.
 pub struct Stack<D: Driver> {
     pub(crate) socket: RefCell<SocketStack>,
     inner: RefCell<Inner<D>>,
@@ -126,6 +149,7 @@ pub(crate) struct SocketStack {
 }
 
 impl<D: Driver + 'static> Stack<D> {
+    /// Create a new network stack.
     pub fn new<const SOCK: usize>(
         mut device: D,
         config: Config,
@@ -203,22 +227,30 @@ impl<D: Driver + 'static> Stack<D> {
         f(&mut *self.socket.borrow_mut(), &mut *self.inner.borrow_mut())
     }
 
+    /// Get the MAC address of the network interface.
     pub fn ethernet_address(&self) -> [u8; 6] {
         self.with(|_s, i| i.device.ethernet_address())
     }
 
+    /// Get whether the link is up.
     pub fn is_link_up(&self) -> bool {
         self.with(|_s, i| i.link_up)
     }
 
+    /// Get whether the network stack has a valid IP configuration.
+    /// This is true if the network stack has a static IP configuration or if DHCP has completed
     pub fn is_config_up(&self) -> bool {
         self.with(|_s, i| i.config.is_some())
     }
 
+    /// Get the current IP configuration.
     pub fn config(&self) -> Option<StaticConfig> {
         self.with(|_s, i| i.config.clone())
     }
 
+    /// Run the network stack.
+    ///
+    /// You must call this in a background task, to process network events.
     pub async fn run(&self) -> ! {
         poll_fn(|cx| {
             self.with_mut(|s, i| i.poll(cx, s));
@@ -301,7 +333,8 @@ impl<D: Driver + 'static> Stack<D> {
 
 #[cfg(feature = "igmp")]
 impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
-    pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+    /// Join a multicast group.
+    pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
     where
         T: Into<IpAddress>,
     {
@@ -313,7 +346,8 @@ impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
         })
     }
 
-    pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, smoltcp::iface::MulticastError>
+    /// Leave a multicast group.
+    pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
     where
         T: Into<IpAddress>,
     {
@@ -325,6 +359,7 @@ impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
         })
     }
 
+    /// Get whether the network stack has joined the given multicast group.
     pub fn has_multicast_group<T: Into<IpAddress>>(&self, addr: T) -> bool {
         self.socket.borrow().iface.has_multicast_group(addr)
     }
