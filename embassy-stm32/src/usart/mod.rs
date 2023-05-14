@@ -109,6 +109,8 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
     _peri: PeripheralRef<'d, T>,
     rx_dma: PeripheralRef<'d, RxDma>,
     detect_previous_overrun: bool,
+    #[cfg(any(usart_v1, usart_v2))]
+    buffered_sr: stm32_metapac::usart::regs::Sr,
 }
 
 impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
@@ -275,6 +277,8 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             _peri: peri,
             rx_dma,
             detect_previous_overrun: config.detect_previous_overrun,
+            #[cfg(any(usart_v1, usart_v2))]
+            buffered_sr: stm32_metapac::usart::regs::Sr(0),
         }
     }
 
@@ -335,6 +339,59 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         }
     }
 
+    #[cfg(any(usart_v1, usart_v2))]
+    unsafe fn check_rx_flags(&mut self) -> Result<bool, Error> {
+        let r = T::regs();
+        loop {
+            // Handle all buffered error flags.
+            if self.buffered_sr.pe() {
+                self.buffered_sr.set_pe(false);
+                return Err(Error::Parity);
+            } else if self.buffered_sr.fe() {
+                self.buffered_sr.set_fe(false);
+                return Err(Error::Framing);
+            } else if self.buffered_sr.ne() {
+                self.buffered_sr.set_ne(false);
+                return Err(Error::Noise);
+            } else if self.buffered_sr.ore() {
+                self.buffered_sr.set_ore(false);
+                return Err(Error::Overrun);
+            } else if self.buffered_sr.rxne() {
+                self.buffered_sr.set_rxne(false);
+                return Ok(true);
+            } else {
+                // No error flags from previous iterations were set: Check the actual status register
+                let sr = r.sr().read();
+                if !sr.rxne() {
+                    return Ok(false);
+                }
+
+                // Buffer the status register and let the loop handle the error flags.
+                self.buffered_sr = sr;
+            }
+        }
+    }
+
+    #[cfg(any(usart_v3, usart_v4))]
+    unsafe fn check_rx_flags(&mut self) -> Result<bool, Error> {
+        let r = T::regs();
+        let sr = r.isr().read();
+        if sr.pe() {
+            r.icr().write(|w| w.set_pe(true));
+            return Err(Error::Parity);
+        } else if sr.fe() {
+            r.icr().write(|w| w.set_fe(true));
+            return Err(Error::Framing);
+        } else if sr.ne() {
+            r.icr().write(|w| w.set_ne(true));
+            return Err(Error::Noise);
+        } else if sr.ore() {
+            r.icr().write(|w| w.set_ore(true));
+            return Err(Error::Overrun);
+        }
+        Ok(sr.rxne())
+    }
+
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error>
     where
         RxDma: crate::usart::RxDma<T>,
@@ -347,20 +404,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     pub fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
         let r = T::regs();
         unsafe {
-            let sr = sr(r).read();
-            if sr.pe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Parity))
-            } else if sr.fe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Framing))
-            } else if sr.ne() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Noise))
-            } else if sr.ore() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Overrun))
-            } else if sr.rxne() {
+            if self.check_rx_flags()? {
                 Ok(rdr(r).read_volatile())
             } else {
                 Err(nb::Error::WouldBlock)
@@ -372,24 +416,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         unsafe {
             let r = T::regs();
             for b in buffer {
-                loop {
-                    let sr = sr(r).read();
-                    if sr.pe() {
-                        rdr(r).read_volatile();
-                        return Err(Error::Parity);
-                    } else if sr.fe() {
-                        rdr(r).read_volatile();
-                        return Err(Error::Framing);
-                    } else if sr.ne() {
-                        rdr(r).read_volatile();
-                        return Err(Error::Noise);
-                    } else if sr.ore() {
-                        rdr(r).read_volatile();
-                        return Err(Error::Overrun);
-                    } else if sr.rxne() {
-                        break;
-                    }
-                }
+                while !self.check_rx_flags()? {}
                 *b = rdr(r).read_volatile();
             }
         }
@@ -715,6 +742,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 _peri: peri,
                 rx_dma,
                 detect_previous_overrun: config.detect_previous_overrun,
+                #[cfg(any(usart_v1, usart_v2))]
+                buffered_sr: stm32_metapac::usart::regs::Sr(0),
             },
         }
     }
