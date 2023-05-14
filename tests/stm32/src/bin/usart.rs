@@ -8,7 +8,7 @@ use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::interrupt;
-use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::usart::{Config, Error, Uart};
 use embassy_time::{Duration, Instant};
 use example_common::*;
 
@@ -51,6 +51,26 @@ async fn main(_spawner: Spawner) {
         let mut buf = [0; 2];
         usart.blocking_read(&mut buf).unwrap();
         assert_eq!(buf, data);
+    }
+
+    // Test error handling with with an overflow error
+    {
+        let config = Config::default();
+        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, &mut irq, NoDma, NoDma, config);
+
+        // Send enough bytes to fill the RX FIFOs off all USART versions.
+        let data = [0xC0, 0xDE, 0x12, 0x23, 0x34];
+        usart.blocking_write(&data).unwrap();
+        usart.blocking_flush().unwrap();
+
+        // The error should be reported first.
+        let mut buf = [0; 1];
+        let err = usart.blocking_read(&mut buf);
+        assert_eq!(err, Err(Error::Overrun));
+
+        // At least the first data byte should still be available on all USART versions.
+        usart.blocking_read(&mut buf).unwrap();
+        assert_eq!(buf[0], data[0]);
     }
 
     // Test that baudrate divider is calculated correctly.
