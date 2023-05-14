@@ -1,8 +1,5 @@
 #![no_std]
-#![cfg_attr(
-    feature = "nightly",
-    feature(type_alias_impl_trait, async_fn_in_trait, impl_trait_projections)
-)]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
 #![cfg_attr(feature = "nightly", allow(incomplete_features))]
 
 // This must go FIRST so that all the other modules see its macros.
