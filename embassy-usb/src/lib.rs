@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(type_alias_impl_trait)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
