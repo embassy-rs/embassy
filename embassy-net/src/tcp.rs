@@ -4,11 +4,13 @@ use core::mem;
 use core::task::Poll;
 
 use embassy_net_driver::Driver;
+use embassy_time::Duration;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::tcp;
-use smoltcp::time::Duration;
+pub use smoltcp::socket::tcp::State;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
+use crate::time::duration_to_smoltcp;
 use crate::{SocketStack, Stack};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -155,11 +157,13 @@ impl<'a> TcpSocket<'a> {
     }
 
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
-        self.io.with_mut(|s, _| s.set_timeout(duration))
+        self.io
+            .with_mut(|s, _| s.set_timeout(duration.map(duration_to_smoltcp)))
     }
 
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
-        self.io.with_mut(|s, _| s.set_keep_alive(interval))
+        self.io
+            .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_smoltcp)))
     }
 
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
@@ -174,7 +178,7 @@ impl<'a> TcpSocket<'a> {
         self.io.with(|s, _| s.remote_endpoint())
     }
 
-    pub fn state(&self) -> tcp::State {
+    pub fn state(&self) -> State {
         self.io.with(|s, _| s.state())
     }
 

@@ -12,6 +12,7 @@ mod device;
 pub mod dns;
 #[cfg(feature = "tcp")]
 pub mod tcp;
+mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
 
@@ -27,10 +28,6 @@ use heapless::Vec;
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
-#[cfg(feature = "dhcpv4")]
-use smoltcp::time::Duration;
-// smoltcp reexports
-pub use smoltcp::time::{Duration as SmolDuration, Instant as SmolInstant};
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
 pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
@@ -40,6 +37,7 @@ pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
 pub use smoltcp::{socket::udp::PacketMetadata, wire::IpListenEndpoint};
 
 use crate::device::DriverAdapter;
+use crate::time::{instant_from_smoltcp, instant_to_smoltcp};
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
@@ -74,7 +72,7 @@ pub struct StaticConfig {
 #[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DhcpConfig {
-    pub max_lease_duration: Option<Duration>,
+    pub max_lease_duration: Option<embassy_time::Duration>,
     pub retry_config: RetryConfig,
     /// Ignore NAKs.
     pub ignore_naks: bool,
@@ -384,7 +382,7 @@ impl<D: Driver + 'static> Inner<D> {
     #[cfg(feature = "dhcpv4")]
     fn apply_dhcp_config(&self, socket: &mut smoltcp::socket::dhcpv4::Socket, config: DhcpConfig) {
         socket.set_ignore_naks(config.ignore_naks);
-        socket.set_max_lease_duration(config.max_lease_duration);
+        socket.set_max_lease_duration(config.max_lease_duration.map(crate::time::duration_to_smoltcp));
         socket.set_ports(config.server_port, config.client_port);
         socket.set_retry_config(config.retry_config);
     }
@@ -464,12 +462,4 @@ impl<D: Driver + 'static> Inner<D> {
             }
         }
     }
-}
-
-fn instant_to_smoltcp(instant: Instant) -> SmolInstant {
-    SmolInstant::from_millis(instant.as_millis() as i64)
-}
-
-fn instant_from_smoltcp(instant: SmolInstant) -> Instant {
-    Instant::from_millis(instant.total_millis() as u64)
 }

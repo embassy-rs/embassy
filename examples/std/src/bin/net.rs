@@ -6,6 +6,7 @@ use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_time::Duration;
 use embedded_io::asynch::Write;
 use heapless::Vec;
 use log::*;
@@ -75,7 +76,7 @@ async fn main_task(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
 
-    socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
+    socket.set_timeout(Some(Duration::from_secs(10)));
 
     let remote_endpoint = (Ipv4Address::new(192, 168, 69, 100), 8000);
     info!("connecting to {:?}...", remote_endpoint);
