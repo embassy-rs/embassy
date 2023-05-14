@@ -12,7 +12,7 @@ firmware-logs = []
 
 [dependencies]
 embassy-time = { version = "0.1.0" }
-embassy-sync = { version = "0.1.0" }
+embassy-sync = { version = "0.2.0" }
 embassy-futures = { version = "0.1.0" }
 embassy-net-driver-channel = { version = "0.1.0" }
 atomic-polyfill = "0.1.5"
@@ -28,11 +28,11 @@ embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.10" }
 num_enum = { version = "0.5.7", default-features = false }
 
 [patch.crates-io]
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
-embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "03d6363d5af5dcaf21b52734994a466ca593d2b6" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
 
 [workspace]
 members = ["cyw43-pio"]

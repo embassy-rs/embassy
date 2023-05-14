@@ -6,49 +6,80 @@ use core::slice;
 
 use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
-use embassy_rp::gpio::{Drive, Output, Pin, Pull, SlewRate};
-use embassy_rp::pio::{PioStateMachine, ShiftDirection};
+use embassy_rp::gpio::{Drive, Level, Output, Pin, Pull, SlewRate};
+use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
 use embassy_rp::relocate::RelocatedProgram;
-use embassy_rp::{pio_instr_util, Peripheral};
-use pio::Wrap;
+use embassy_rp::{pio_instr_util, Peripheral, PeripheralRef};
+use fixed::FixedU32;
 use pio_proc::pio_asm;
 
-pub struct PioSpi<CS: Pin, SM, DMA> {
-    cs: Output<'static, CS>,
-    sm: SM,
-    dma: DMA,
+pub struct PioSpi<'d, CS: Pin, PIO: Instance, const SM: usize, DMA> {
+    cs: Output<'d, CS>,
+    sm: StateMachine<'d, PIO, SM>,
+    irq: Irq<'d, PIO, 0>,
+    dma: PeripheralRef<'d, DMA>,
     wrap_target: u8,
 }
 
-impl<CS, SM, DMA> PioSpi<CS, SM, DMA>
+impl<'d, CS, PIO, const SM: usize, DMA> PioSpi<'d, CS, PIO, SM, DMA>
 where
-    SM: PioStateMachine,
     DMA: Channel,
     CS: Pin,
+    PIO: Instance,
 {
-    pub fn new<DIO, CLK>(mut sm: SM, cs: Output<'static, CS>, dio: DIO, clk: CLK, dma: DMA) -> Self
+    pub fn new<DIO, CLK>(
+        common: &mut Common<'d, PIO>,
+        mut sm: StateMachine<'d, PIO, SM>,
+        irq: Irq<'d, PIO, 0>,
+        cs: Output<'d, CS>,
+        dio: DIO,
+        clk: CLK,
+        dma: impl Peripheral<P = DMA> + 'd,
+    ) -> Self
     where
-        DIO: Pin,
-        CLK: Pin,
+        DIO: PioPin,
+        CLK: PioPin,
     {
+        #[cfg(feature = "overclock")]
         let program = pio_asm!(
             ".side_set 1"
 
             ".wrap_target"
             // write out x-1 bits
-            "lp:",
+            "lp:"
             "out pins, 1    side 0"
             "jmp x-- lp     side 1"
             // switch directions
             "set pindirs, 0 side 0"
-            // these nops seem to be necessary for fast clkdiv
-            "nop            side 1"
+            "nop            side 1"  // necessary for clkdiv=1.
             "nop            side 0"
-            "nop            side 1"
             // read in y-1 bits
             "lp2:"
-            "in pins, 1     side 0"
-            "jmp y-- lp2    side 1"
+            "in pins, 1     side 1"
+            "jmp y-- lp2    side 0"
+
+            // wait for event and irq host
+            "wait 1 pin 0   side 0"
+            "irq 0          side 0"
+
+            ".wrap"
+        );
+        #[cfg(not(feature = "overclock"))]
+        let program = pio_asm!(
+            ".side_set 1"
+
+            ".wrap_target"
+            // write out x-1 bits
+            "lp:"
+            "out pins, 1    side 0"
+            "jmp x-- lp     side 1"
+            // switch directions
+            "set pindirs, 0 side 0"
+            "nop            side 0"
+            // read in y-1 bits
+            "lp2:"
+            "in pins, 1     side 1"
+            "jmp y-- lp2    side 0"
 
             // wait for event and irq host
             "wait 1 pin 0   side 0"
@@ -59,68 +90,59 @@ where
 
         let relocated = RelocatedProgram::new(&program.program);
 
-        let mut pin_io = sm.make_pio_pin(dio);
-        pin_io.set_pull(Pull::Down);
+        let mut pin_io: embassy_rp::pio::Pin<PIO> = common.make_pio_pin(dio);
+        pin_io.set_pull(Pull::None);
         pin_io.set_schmitt(true);
         pin_io.set_input_sync_bypass(true);
+        pin_io.set_drive_strength(Drive::_12mA);
+        pin_io.set_slew_rate(SlewRate::Fast);
 
-        let mut pin_clk = sm.make_pio_pin(clk);
+        let mut pin_clk = common.make_pio_pin(clk);
         pin_clk.set_drive_strength(Drive::_12mA);
         pin_clk.set_slew_rate(SlewRate::Fast);
 
-        sm.write_instr(relocated.origin() as usize, relocated.code());
+        let mut cfg = Config::default();
+        cfg.use_program(&common.load_program(&relocated), &[&pin_clk]);
+        cfg.set_out_pins(&[&pin_io]);
+        cfg.set_in_pins(&[&pin_io]);
+        cfg.set_set_pins(&[&pin_io]);
+        cfg.shift_out.direction = ShiftDirection::Left;
+        cfg.shift_out.auto_fill = true;
+        //cfg.shift_out.threshold = 32;
+        cfg.shift_in.direction = ShiftDirection::Left;
+        cfg.shift_in.auto_fill = true;
+        //cfg.shift_in.threshold = 32;
 
-        // theoretical maximum according to data sheet, 100Mhz Pio => 50Mhz SPI Freq
-        sm.set_clkdiv(0x0140);
+        #[cfg(feature = "overclock")]
+        {
+            // 125mhz Pio => 62.5Mhz SPI Freq. 25% higher than theoretical maximum according to
+            // data sheet, but seems to work fine.
+            cfg.clock_divider = FixedU32::from_bits(0x0100);
+        }
 
-        // same speed as pico-sdk, 62.5Mhz
-        // sm.set_clkdiv(0x0200);
+        #[cfg(not(feature = "overclock"))]
+        {
+            // same speed as pico-sdk, 62.5Mhz
+            // This is actually the fastest we can go without overclocking.
+            // According to data sheet, the theoretical maximum is 100Mhz Pio => 50Mhz SPI Freq.
+            // However, the PIO uses a fractional divider, which works by introducing jitter when
+            // the divider is not an integer. It does some clocks at 125mhz and others at 62.5mhz
+            // so that it averages out to the desired frequency of 100mhz. The 125mhz clock cycles
+            // violate the maximum from the data sheet.
+            cfg.clock_divider = FixedU32::from_bits(0x0200);
+        }
 
-        // 32 Mhz
-        // sm.set_clkdiv(0x03E8);
+        sm.set_config(&cfg);
 
-        // 16 Mhz
-        // sm.set_clkdiv(0x07d0);
-
-        // 8Mhz
-        // sm.set_clkdiv(0x0a_00);
-
-        // 1Mhz
-        // sm.set_clkdiv(0x7d_00);
-
-        // slowest possible
-        // sm.set_clkdiv(0xffff_00);
-
-        sm.set_autopull(true);
-        // sm.set_pull_threshold(32);
-        sm.set_autopush(true);
-        // sm.set_push_threshold(32);
-
-        sm.set_out_pins(&[&pin_io]);
-        sm.set_in_base_pin(&pin_io);
-
-        sm.set_set_pins(&[&pin_clk]);
-        pio_instr_util::set_pindir(&mut sm, 0b1);
-        sm.set_set_pins(&[&pin_io]);
-        pio_instr_util::set_pindir(&mut sm, 0b1);
-
-        sm.set_sideset_base_pin(&pin_clk);
-        sm.set_sideset_count(1);
-
-        sm.set_out_shift_dir(ShiftDirection::Left);
-        sm.set_in_shift_dir(ShiftDirection::Left);
-
-        let Wrap { source, target } = relocated.wrap();
-        sm.set_wrap(source, target);
-
-        // pull low for startup
-        pio_instr_util::set_pin(&mut sm, 0);
+        sm.set_pin_dirs(Direction::Out, &[&pin_clk, &pin_io]);
+        sm.set_pins(Level::Low, &[&pin_clk, &pin_io]);
 
         Self {
             cs,
             sm,
-            dma,
-            wrap_target: target,
+            irq,
+            dma: dma.into_ref(),
+            wrap_target: relocated.wrap().target,
         }
     }
 
@@ -132,18 +154,22 @@ where
         #[cfg(feature = "defmt")]
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
-        let mut dma = Peripheral::into_ref(&mut self.dma);
-        pio_instr_util::set_x(&mut self.sm, write_bits as u32);
-        pio_instr_util::set_y(&mut self.sm, read_bits as u32);
-        pio_instr_util::set_pindir(&mut self.sm, 0b1);
-        pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+        unsafe {
+            pio_instr_util::set_x(&mut self.sm, write_bits as u32);
+            pio_instr_util::set_y(&mut self.sm, read_bits as u32);
+            pio_instr_util::set_pindir(&mut self.sm, 0b1);
+            pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+        }
 
         self.sm.set_enable(true);
 
-        self.sm.dma_push(dma.reborrow(), write).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), write).await;
 
         let mut status = 0;
-        self.sm.dma_pull(dma.reborrow(), slice::from_mut(&mut status)).await;
+        self.sm
+            .rx()
+            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status))
+            .await;
         status
     }
 
@@ -155,27 +181,32 @@ where
         #[cfg(feature = "defmt")]
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
-        let mut dma = Peripheral::into_ref(&mut self.dma);
-        pio_instr_util::set_y(&mut self.sm, read_bits as u32);
-        pio_instr_util::set_x(&mut self.sm, write_bits as u32);
-        pio_instr_util::set_pindir(&mut self.sm, 0b1);
-        pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+        unsafe {
+            pio_instr_util::set_y(&mut self.sm, read_bits as u32);
+            pio_instr_util::set_x(&mut self.sm, write_bits as u32);
+            pio_instr_util::set_pindir(&mut self.sm, 0b1);
+            pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+        }
+
         // self.cs.set_low();
         self.sm.set_enable(true);
 
-        self.sm.dma_push(dma.reborrow(), slice::from_ref(&cmd)).await;
-        self.sm.dma_pull(dma.reborrow(), read).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), slice::from_ref(&cmd)).await;
+        self.sm.rx().dma_pull(self.dma.reborrow(), read).await;
 
         let mut status = 0;
-        self.sm.dma_pull(dma.reborrow(), slice::from_mut(&mut status)).await;
+        self.sm
+            .rx()
+            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status))
+            .await;
         status
     }
 }
 
-impl<CS, SM, DMA> SpiBusCyw43 for PioSpi<CS, SM, DMA>
+impl<'d, CS, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'d, CS, PIO, SM, DMA>
 where
     CS: Pin,
-    SM: PioStateMachine,
+    PIO: Instance,
     DMA: Channel,
 {
     async fn cmd_write(&mut self, write: &[u32]) -> u32 {
@@ -193,7 +224,6 @@ where
     }
 
     async fn wait_for_event(&mut self) {
-        self.sm.wait_irq(0).await;
-        self.sm.clear_irq(0);
+        self.irq.wait().await;
     }
 }
