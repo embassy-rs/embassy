@@ -122,11 +122,16 @@ where
     extern "C" fn core1_startup<F: FnOnce() -> bad::Never>(
         _: u64,
         _: u64,
-        entry: &mut ManuallyDrop<F>,
+        entry: *mut ManuallyDrop<F>,
         stack_bottom: *mut usize,
     ) -> ! {
         core1_setup(stack_bottom);
-        let entry = unsafe { ManuallyDrop::take(entry) };
+
+        let entry = unsafe { ManuallyDrop::take(&mut *entry) };
+
+        // make sure the preceding read doesn't get reordered past the following fifo write
+        compiler_fence(Ordering::SeqCst);
+
         // Signal that it's safe for core 0 to get rid of the original value now.
         fifo_write(1);
 
@@ -164,7 +169,7 @@ where
 
         // Push `entry`.
         stack_ptr = stack_ptr.sub(1);
-        stack_ptr.cast::<&mut ManuallyDrop<F>>().write(&mut entry);
+        stack_ptr.cast::<*mut ManuallyDrop<F>>().write(&mut entry);
     }
 
     // Make sure the compiler does not reorder the stack writes after to after the
