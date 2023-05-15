@@ -95,39 +95,6 @@ impl EvtBox {
     /// writes an underlying [`EvtPacket`] into the provided buffer. Returns the number of bytes that were
     /// written. Returns an error if event kind is unkown or if provided buffer size is not enough
     pub fn copy_into_slice(&self, buf: &mut [u8]) -> Result<usize, ()> {
-        // TODO: double check this
-        // unsafe {
-        //     let evt_kind = TlPacketType::try_from((*self.ptr).evt_serial.kind)?;
-
-        //     if let TlPacketType::AclData = evt_kind {
-        //         let acl_data: *const AclDataPacket = self.ptr.cast();
-        //         let acl_serial: *const AclDataSerial = &(*acl_data).acl_data_serial;
-        //         let acl_serial_buf: *const u8 = acl_serial.cast();
-
-        //         let len = (*acl_serial).length as usize + 5;
-        //         if len > buf.len() {
-        //             return Err(());
-        //         }
-
-        //         core::ptr::copy(acl_serial_buf, buf.as_mut_ptr(), len);
-
-        //         Ok(len)
-        //     } else {
-        //         let evt_data: *const EvtPacket = self.ptr.cast();
-        //         let evt_serial: *const EvtSerial = &(*evt_data).evt_serial;
-        //         let evt_serial_buf: *const u8 = evt_serial.cast();
-
-        //         let len = (*evt_serial).evt.payload_len as usize + TL_EVT_HEADER_SIZE;
-        //         if len > buf.len() {
-        //             return Err(());
-        //         }
-
-        //         core::ptr::copy(evt_serial_buf, buf.as_mut_ptr(), len);
-
-        //         Ok(len)
-        //     }
-        // }
-
         unsafe {
             let evt_kind = TlPacketType::try_from((*self.ptr).evt_serial.kind)?;
 
