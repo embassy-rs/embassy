@@ -4,11 +4,16 @@
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::interrupt;
-use embassy_rp::uart::{Async, Config, Error, Instance, Parity, Uart, UartRx};
+use embassy_rp::peripherals::UART0;
+use embassy_rp::uart::{Async, Config, Error, Instance, InterruptHandler, Parity, Uart, UartRx};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UART0_IRQ => InterruptHandler<UART0>;
+});
 
 async fn read<const N: usize>(uart: &mut Uart<'_, impl Instance, Async>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
@@ -51,7 +56,6 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let (mut tx, mut rx, mut uart) = (p.PIN_0, p.PIN_1, p.UART0);
-    let mut irq = interrupt::take!(UART0_IRQ);
 
     // We can't send too many bytes, they have to fit in the FIFO.
     // This is because we aren't sending+receiving at the same time.
@@ -61,7 +65,7 @@ async fn main(_spawner: Spawner) {
             &mut uart,
             &mut tx,
             &mut rx,
-            &mut irq,
+            Irqs,
             &mut p.DMA_CH0,
             &mut p.DMA_CH1,
             config,
@@ -82,7 +86,7 @@ async fn main(_spawner: Spawner) {
             &mut uart,
             &mut tx,
             &mut rx,
-            &mut irq,
+            Irqs,
             &mut p.DMA_CH0,
             &mut p.DMA_CH1,
             config,
@@ -111,7 +115,7 @@ async fn main(_spawner: Spawner) {
             &mut uart,
             &mut tx,
             &mut rx,
-            &mut irq,
+            Irqs,
             &mut p.DMA_CH0,
             &mut p.DMA_CH1,
             config,
@@ -154,7 +158,7 @@ async fn main(_spawner: Spawner) {
         let mut config = Config::default();
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
-        let mut uart = UartRx::new(&mut uart, &mut rx, &mut irq, &mut p.DMA_CH0, config);
+        let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
 
         async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
@@ -199,7 +203,7 @@ async fn main(_spawner: Spawner) {
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
-        let mut uart = UartRx::new(&mut uart, &mut rx, &mut irq, &mut p.DMA_CH0, config);
+        let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
 
         async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, good: bool) {
             if good {

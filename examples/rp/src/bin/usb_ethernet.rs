@@ -6,14 +6,19 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
-use embassy_rp::usb::Driver;
-use embassy_rp::{interrupt, peripherals};
+use embassy_rp::peripherals::USB;
+use embassy_rp::usb::{Driver, InterruptHandler};
+use embassy_rp::{bind_interrupts, peripherals};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
 use embedded_io::asynch::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => InterruptHandler<USB>;
+});
 
 type MyDriver = Driver<'static, peripherals::USB>;
 
@@ -48,8 +53,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USBCTRL_IRQ);
-    let driver = Driver::new(p.USB, irq);
+    let driver = Driver::new(p.USB, Irqs);
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);

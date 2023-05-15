@@ -5,12 +5,17 @@
 use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_rp::interrupt;
-use embassy_rp::usb::{Driver, Instance};
+use embassy_rp::bind_interrupts;
+use embassy_rp::peripherals::USB;
+use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => InterruptHandler<USB>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -19,8 +24,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USBCTRL_IRQ);
-    let driver = Driver::new(p.USB, irq);
+    let driver = Driver::new(p.USB, Irqs);
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);

@@ -4,16 +4,19 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::adc::{Adc, Config};
-use embassy_rp::interrupt;
+use embassy_rp::adc::{Adc, Config, InterruptHandler};
+use embassy_rp::bind_interrupts;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    ADC_IRQ_FIFO => InterruptHandler;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-    let irq = interrupt::take!(ADC_IRQ_FIFO);
-    let mut adc = Adc::new(p.ADC, irq, Config::default());
+    let mut adc = Adc::new(p.ADC, Irqs, Config::default());
 
     let mut p26 = p.PIN_26;
     let mut p27 = p.PIN_27;

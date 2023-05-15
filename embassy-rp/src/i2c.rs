@@ -2,7 +2,7 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_cortex_m::interrupt::{self, Binding, Interrupt, InterruptExt};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
@@ -75,23 +75,21 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(scl, sda, irq);
+        into_ref!(scl, sda);
 
         let i2c = Self::new_inner(peri, scl.map_into(), sda.map_into(), config);
 
-        irq.set_handler(Self::on_interrupt);
         unsafe {
             let i2c = T::regs();
 
             // mask everything initially
             i2c.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
+            T::Interrupt::steal().unpend();
+            T::Interrupt::steal().enable();
         }
-        irq.unpend();
-        debug_assert!(!irq.is_pending());
-        irq.enable();
 
         i2c
     }
@@ -113,14 +111,6 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             r
         })
         .await
-    }
-
-    // Mask interrupts and wake any task waiting for this interrupt
-    unsafe fn on_interrupt(_: *mut ()) {
-        let i2c = T::regs();
-        i2c.ic_intr_mask().write_value(pac::i2c::regs::IcIntrMask::default());
-
-        T::waker().wake();
     }
 
     async fn read_async_internal(&mut self, buffer: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
@@ -317,6 +307,20 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
     pub async fn write_async(&mut self, addr: u16, bytes: impl IntoIterator<Item = u8>) -> Result<(), Error> {
         Self::setup(addr)?;
         self.write_async_internal(bytes, true).await
+    }
+}
+
+pub struct InterruptHandler<T: Instance> {
+    _uart: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    // Mask interrupts and wake any task waiting for this interrupt
+    unsafe fn on_interrupt() {
+        let i2c = T::regs();
+        i2c.ic_intr_mask().write_value(pac::i2c::regs::IcIntrMask::default());
+
+        T::waker().wake();
     }
 }
 

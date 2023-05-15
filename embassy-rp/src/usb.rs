@@ -4,7 +4,7 @@ use core::slice;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::into_ref;
+use embassy_cortex_m::interrupt::{self, Binding};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -105,11 +105,11 @@ pub struct Driver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
-    pub fn new(_usb: impl Peripheral<P = T> + 'd, irq: impl Peripheral<P = T::Interrupt> + 'd) -> Self {
-        into_ref!(irq);
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+    pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
+        unsafe {
+            T::Interrupt::steal().unpend();
+            T::Interrupt::steal().enable();
+        }
 
         let regs = T::regs();
         unsafe {
@@ -146,47 +146,6 @@ impl<'d, T: Instance> Driver<'d, T> {
             ep_in: [EndpointData::new(); EP_COUNT],
             ep_out: [EndpointData::new(); EP_COUNT],
             ep_mem_free: 0x180, // data buffer region
-        }
-    }
-
-    fn on_interrupt(_: *mut ()) {
-        unsafe {
-            let regs = T::regs();
-            //let x = regs.istr().read().0;
-            //trace!("USB IRQ: {:08x}", x);
-
-            let ints = regs.ints().read();
-
-            if ints.bus_reset() {
-                regs.inte().write_clear(|w| w.set_bus_reset(true));
-                BUS_WAKER.wake();
-            }
-            if ints.dev_resume_from_host() {
-                regs.inte().write_clear(|w| w.set_dev_resume_from_host(true));
-                BUS_WAKER.wake();
-            }
-            if ints.dev_suspend() {
-                regs.inte().write_clear(|w| w.set_dev_suspend(true));
-                BUS_WAKER.wake();
-            }
-            if ints.setup_req() {
-                regs.inte().write_clear(|w| w.set_setup_req(true));
-                EP_OUT_WAKERS[0].wake();
-            }
-
-            if ints.buff_status() {
-                let s = regs.buff_status().read();
-                regs.buff_status().write_value(s);
-
-                for i in 0..EP_COUNT {
-                    if s.ep_in(i) {
-                        EP_IN_WAKERS[i].wake();
-                    }
-                    if s.ep_out(i) {
-                        EP_OUT_WAKERS[i].wake();
-                    }
-                }
-            }
         }
     }
 
@@ -285,6 +244,51 @@ impl<'d, T: Instance> Driver<'d, T> {
             },
             buf,
         })
+    }
+}
+
+pub struct InterruptHandler<T: Instance> {
+    _uart: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let regs = T::regs();
+        //let x = regs.istr().read().0;
+        //trace!("USB IRQ: {:08x}", x);
+
+        let ints = regs.ints().read();
+
+        if ints.bus_reset() {
+            regs.inte().write_clear(|w| w.set_bus_reset(true));
+            BUS_WAKER.wake();
+        }
+        if ints.dev_resume_from_host() {
+            regs.inte().write_clear(|w| w.set_dev_resume_from_host(true));
+            BUS_WAKER.wake();
+        }
+        if ints.dev_suspend() {
+            regs.inte().write_clear(|w| w.set_dev_suspend(true));
+            BUS_WAKER.wake();
+        }
+        if ints.setup_req() {
+            regs.inte().write_clear(|w| w.set_setup_req(true));
+            EP_OUT_WAKERS[0].wake();
+        }
+
+        if ints.buff_status() {
+            let s = regs.buff_status().read();
+            regs.buff_status().write_value(s);
+
+            for i in 0..EP_COUNT {
+                if s.ep_in(i) {
+                    EP_IN_WAKERS[i].wake();
+                }
+                if s.ep_out(i) {
+                    EP_OUT_WAKERS[i].wake();
+                }
+            }
+        }
     }
 }
 

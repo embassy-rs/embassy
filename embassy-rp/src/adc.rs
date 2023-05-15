@@ -3,12 +3,12 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::into_ref;
+use embassy_cortex_m::interrupt::{Binding, Interrupt};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal_02::adc::{Channel, OneShot};
 
 use crate::gpio::Pin;
-use crate::interrupt::{self, InterruptExt};
+use crate::interrupt::{self, InterruptExt, ADC_IRQ_FIFO};
 use crate::peripherals::ADC;
 use crate::{pac, peripherals, Peripheral};
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -47,10 +47,9 @@ impl<'d> Adc<'d> {
 
     pub fn new(
         _inner: impl Peripheral<P = ADC> + 'd,
-        irq: impl Peripheral<P = interrupt::ADC_IRQ_FIFO> + 'd,
+        _irq: impl Binding<ADC_IRQ_FIFO, InterruptHandler>,
         _config: Config,
     ) -> Self {
-        into_ref!(irq);
         unsafe {
             let reset = Self::reset();
             crate::reset::reset(reset);
@@ -63,14 +62,10 @@ impl<'d> Adc<'d> {
         }
 
         // Setup IRQ
-        irq.disable();
-        irq.set_handler(|_| unsafe {
-            let r = Self::regs();
-            r.inte().write(|w| w.set_fifo(false));
-            WAKER.wake();
-        });
-        irq.unpend();
-        irq.enable();
+        unsafe {
+            ADC_IRQ_FIFO::steal().unpend();
+            ADC_IRQ_FIFO::steal().enable();
+        };
 
         Self { phantom: PhantomData }
     }
@@ -163,6 +158,18 @@ macro_rules! impl_pin {
             }
         }
     };
+}
+
+pub struct InterruptHandler {
+    _empty: (),
+}
+
+impl interrupt::Handler<ADC_IRQ_FIFO> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        let r = Adc::regs();
+        r.inte().write(|w| w.set_fifo(false));
+        WAKER.wake();
+    }
 }
 
 impl_pin!(PIN_26, 0);
