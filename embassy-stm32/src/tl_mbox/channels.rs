@@ -52,9 +52,9 @@
 pub mod cpu1 {
     use crate::ipcc::IpccChannel;
 
-    #[allow(dead_code)] // Not used currently but reserved
+    // Not used currently but reserved
     pub const IPCC_BLE_CMD_CHANNEL: IpccChannel = IpccChannel::Channel1;
-    #[allow(dead_code)] // Not used currently but reserved
+    // Not used currently but reserved
     pub const IPCC_SYSTEM_CMD_RSP_CHANNEL: IpccChannel = IpccChannel::Channel2;
     #[allow(dead_code)] // Not used currently but reserved
     pub const IPCC_THREAD_OT_CMD_RSP_CHANNEL: IpccChannel = IpccChannel::Channel3;
@@ -62,7 +62,7 @@ pub mod cpu1 {
     pub const IPCC_ZIGBEE_CMD_APPLI_CHANNEL: IpccChannel = IpccChannel::Channel3;
     #[allow(dead_code)] // Not used currently but reserved
     pub const IPCC_MAC_802_15_4_CMD_RSP_CHANNEL: IpccChannel = IpccChannel::Channel3;
-    #[allow(dead_code)] // Not used currently but reserved
+    // Not used currently but reserved
     pub const IPCC_MM_RELEASE_BUFFER_CHANNEL: IpccChannel = IpccChannel::Channel4;
     #[allow(dead_code)] // Not used currently but reserved
     pub const IPCC_THREAD_CLI_CMD_CHANNEL: IpccChannel = IpccChannel::Channel5;
@@ -88,7 +88,7 @@ pub mod cpu2 {
     #[allow(dead_code)] // Not used currently but reserved
     pub const IPCC_LDDTESTS_M0_CMD_CHANNEL: IpccChannel = IpccChannel::Channel3;
     #[allow(dead_code)] // Not used currently but reserved
-    pub const IPCC_BLE_LLDÇM0_CMD_CHANNEL: IpccChannel = IpccChannel::Channel3;
+    pub const IPCC_BLE_LLD_M0_CMD_CHANNEL: IpccChannel = IpccChannel::Channel3;
     #[allow(dead_code)] // Not used currently but reserved
     pub const IPCC_TRACES_CHANNEL: IpccChannel = IpccChannel::Channel4;
     #[allow(dead_code)] // Not used currently but reserved

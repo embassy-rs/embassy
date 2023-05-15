@@ -7,7 +7,6 @@ use embassy_executor::Spawner;
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc};
 use embassy_stm32::tl_mbox::TlMbox;
-use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -46,27 +45,52 @@ async fn main(_spawner: Spawner) {
 
     let mbox = TlMbox::init(&mut ipcc, rx_irq, tx_irq);
 
-    loop {
-        let wireless_fw_info = mbox.wireless_fw_info();
-        match wireless_fw_info {
-            None => error!("not yet initialized"),
-            Some(fw_info) => {
-                let version_major = fw_info.version_major();
-                let version_minor = fw_info.version_minor();
-                let subversion = fw_info.subversion();
+    // initialize ble stack, does not return a response
+    // mbox.shci_ble_init(&mut ipcc, Default::default());
 
-                let sram2a_size = fw_info.sram2a_size();
-                let sram2b_size = fw_info.sram2b_size();
+    info!("waiting for coprocessor to boot");
+    let event_box = mbox.read().await;
 
-                info!(
-                    "version {}.{}.{} - SRAM2a {} - SRAM2b {}",
-                    version_major, version_minor, subversion, sram2a_size, sram2b_size
-                );
+    let mut payload = [0u8; 6];
+    event_box.copy_into_slice(&mut payload).unwrap();
 
-                break;
-            }
-        }
+    let event_packet = event_box.evt();
+    let kind = event_packet.evt_serial.kind;
 
-        Timer::after(Duration::from_millis(500)).await;
+    // means recieved SYS event, which indicates in this case that the coprocessor is ready
+    if kind == 0x12 {
+        let code = event_packet.evt_serial.evt.evt_code;
+        let payload_len = event_packet.evt_serial.evt.payload_len;
+
+        info!(
+            "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+            kind,
+            code,
+            payload_len,
+            payload[3..]
+        );
     }
+
+    mbox.shci_ble_init(&mut ipcc, Default::default());
+
+    info!("resetting BLE");
+    mbox.send_ble_cmd(&mut ipcc, &[0x01, 0x03, 0x0c]);
+
+    let event_box = mbox.read().await;
+
+    let mut payload = [0u8; 7];
+    event_box.copy_into_slice(&mut payload).unwrap();
+
+    let event_packet = event_box.evt();
+    let kind = event_packet.evt_serial.kind;
+
+    let code = event_packet.evt_serial.evt.evt_code;
+    let payload_len = event_packet.evt_serial.evt.payload_len;
+
+    info!(
+        "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+        kind, code, payload_len, payload
+    );
+
+    loop {}
 }

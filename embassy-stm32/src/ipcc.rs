@@ -158,6 +158,10 @@ impl<'d> Ipcc<'d> {
     pub fn is_rx_pending(&self, channel: IpccChannel) -> bool {
         self.c2_is_active_flag(channel) && self.c1_get_rx_channel(channel)
     }
+
+    pub fn as_mut_ptr(&self) -> *mut Self {
+        unsafe { &mut core::ptr::read(self) as *mut _ }
+    }
 }
 
 impl sealed::Instance for crate::peripherals::IPCC {
@@ -175,4 +179,15 @@ unsafe fn _configure_pwr() {
 
     // set RF wake-up clock = LSE
     rcc.csr().modify(|w| w.set_rfwkpsel(0b01));
+}
+
+// TODO: if anyone has a better idea, please let me know
+/// extension trait that constrains the [`Ipcc`] peripheral
+pub trait IpccExt<'d> {
+    fn constrain(self) -> Ipcc<'d>;
+}
+impl<'d> IpccExt<'d> for IPCC {
+    fn constrain(self) -> Ipcc<'d> {
+        Ipcc { _peri: self.into_ref() }
+    }
 }
