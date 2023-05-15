@@ -153,7 +153,12 @@ where
         psm.frce_off().modify(|w| w.set_proc1(false));
     }
 
-    let mem = unsafe { core::slice::from_raw_parts_mut(stack.mem.as_mut_ptr() as *mut usize, stack.mem.len() / 4) };
+    // The ARM AAPCS ABI requires 8-byte stack alignment.
+    // #[align] on `struct Stack` ensures the bottom is aligned, but the top could still be
+    // unaligned if the user chooses a stack size that's not multiple of 8.
+    // So, we round down to the next multiple of 8.
+    let stack_words = stack.mem.len() / 8 * 2;
+    let mem = unsafe { core::slice::from_raw_parts_mut(stack.mem.as_mut_ptr() as *mut usize, stack_words) };
 
     // Set up the stack
     let mut stack_ptr = unsafe { mem.as_mut_ptr().add(mem.len()) };
