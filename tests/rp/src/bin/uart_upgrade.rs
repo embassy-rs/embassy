@@ -4,10 +4,15 @@
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
-use embassy_rp::interrupt;
-use embassy_rp::uart::{Config, Uart};
+use embassy_rp::bind_interrupts;
+use embassy_rp::peripherals::UART0;
+use embassy_rp::uart::{BufferedInterruptHandler, Config, Uart};
 use embedded_io::asynch::{Read, Write};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UART0_IRQ => BufferedInterruptHandler<UART0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -29,11 +34,10 @@ async fn main(_spawner: Spawner) {
     uart.blocking_read(&mut buf).unwrap();
     assert_eq!(buf, data);
 
-    let irq = interrupt::take!(UART0_IRQ);
     let tx_buf = &mut [0u8; 16];
     let rx_buf = &mut [0u8; 16];
 
-    let mut uart = uart.into_buffered(irq, tx_buf, rx_buf);
+    let mut uart = uart.into_buffered(Irqs, tx_buf, rx_buf);
 
     // Make sure we send more bytes than fits in the FIFO, to test the actual
     // bufferedUart.

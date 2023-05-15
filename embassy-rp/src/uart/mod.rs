@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::{self, Binding, Interrupt, InterruptExt};
 use embassy_futures::select::{select, Either};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -20,7 +20,7 @@ use crate::{pac, peripherals, Peripheral, RegExt};
 #[cfg(feature = "nightly")]
 mod buffered;
 #[cfg(feature = "nightly")]
-pub use buffered::{BufferedUart, BufferedUartRx, BufferedUartTx};
+pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
@@ -203,11 +203,9 @@ impl<'d, T: Instance> UartTx<'d, T, Blocking> {
     #[cfg(feature = "nightly")]
     pub fn into_buffered(
         self,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
     ) -> BufferedUartTx<'d, T> {
-        into_ref!(irq);
-
         buffered::init_buffers::<T>(irq, tx_buffer, &mut []);
 
         BufferedUartTx { phantom: PhantomData }
@@ -235,25 +233,24 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
     pub fn new(
         _uart: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         rx_dma: impl Peripheral<P = impl Channel> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rx, irq, rx_dma);
+        into_ref!(rx, rx_dma);
         Uart::<T, M>::init(None, Some(rx.map_into()), None, None, config);
-        Self::new_inner(Some(irq), Some(rx_dma.map_into()))
+        Self::new_inner(true, Some(rx_dma.map_into()))
     }
 
-    fn new_inner(irq: Option<PeripheralRef<'d, T::Interrupt>>, rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
-        debug_assert_eq!(irq.is_some(), rx_dma.is_some());
-        if let Some(irq) = irq {
+    fn new_inner(has_irq: bool, rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
+        debug_assert_eq!(has_irq, rx_dma.is_some());
+        if has_irq {
             unsafe {
                 // disable all error interrupts initially
                 T::regs().uartimsc().write(|w| w.0 = 0);
+                T::Interrupt::steal().unpend();
+                T::Interrupt::steal().enable();
             }
-            irq.set_handler(on_interrupt::<T>);
-            irq.unpend();
-            irq.enable();
         }
         Self {
             rx_dma,
@@ -299,6 +296,12 @@ impl<'d, T: Instance, M: Mode> Drop for UartRx<'d, T, M> {
         if let Some(_) = self.rx_dma {
             unsafe {
                 T::Interrupt::steal().disable();
+                // clear dma flags. irq handlers use these to disambiguate among themselves.
+                T::regs().uartdmacr().write_clear(|reg| {
+                    reg.set_rxdmae(true);
+                    reg.set_txdmae(true);
+                    reg.set_dmaonerr(true);
+                });
             }
         }
     }
@@ -312,33 +315,41 @@ impl<'d, T: Instance> UartRx<'d, T, Blocking> {
     ) -> Self {
         into_ref!(rx);
         Uart::<T, Blocking>::init(None, Some(rx.map_into()), None, None, config);
-        Self::new_inner(None, None)
+        Self::new_inner(false, None)
     }
 
     #[cfg(feature = "nightly")]
     pub fn into_buffered(
         self,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
     ) -> BufferedUartRx<'d, T> {
-        into_ref!(irq);
-
         buffered::init_buffers::<T>(irq, &mut [], rx_buffer);
 
         BufferedUartRx { phantom: PhantomData }
     }
 }
 
-unsafe fn on_interrupt<T: Instance>(_: *mut ()) {
-    let uart = T::regs();
-    let state = T::dma_state();
-    let errs = uart.uartris().read();
-    state.rx_errs.store(errs.0 as u16, Ordering::Relaxed);
-    state.rx_err_waker.wake();
-    // disable the error interrupts instead of clearing the flags. clearing the
-    // flags would allow the dma transfer to continue, potentially signaling
-    // completion before we can check for errors that happened *during* the transfer.
-    uart.uartimsc().write_clear(|w| w.0 = errs.0);
+pub struct InterruptHandler<T: Instance> {
+    _uart: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let uart = T::regs();
+        if !uart.uartdmacr().read().rxdmae() {
+            return;
+        }
+
+        let state = T::dma_state();
+        let errs = uart.uartris().read();
+        state.rx_errs.store(errs.0 as u16, Ordering::Relaxed);
+        state.rx_err_waker.wake();
+        // disable the error interrupts instead of clearing the flags. clearing the
+        // flags would allow the dma transfer to continue, potentially signaling
+        // completion before we can check for errors that happened *during* the transfer.
+        uart.uartimsc().write_clear(|w| w.0 = errs.0);
+    }
 }
 
 impl<'d, T: Instance> UartRx<'d, T, Async> {
@@ -428,7 +439,17 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
         config: Config,
     ) -> Self {
         into_ref!(tx, rx);
-        Self::new_inner(uart, tx.map_into(), rx.map_into(), None, None, None, None, None, config)
+        Self::new_inner(
+            uart,
+            tx.map_into(),
+            rx.map_into(),
+            None,
+            None,
+            false,
+            None,
+            None,
+            config,
+        )
     }
 
     /// Create a new UART with hardware flow control (RTS/CTS)
@@ -447,7 +468,7 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
             rx.map_into(),
             Some(rts.map_into()),
             Some(cts.map_into()),
-            None,
+            false,
             None,
             None,
             config,
@@ -457,12 +478,10 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
     #[cfg(feature = "nightly")]
     pub fn into_buffered(
         self,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
     ) -> BufferedUart<'d, T> {
-        into_ref!(irq);
-
         buffered::init_buffers::<T>(irq, tx_buffer, rx_buffer);
 
         BufferedUart {
@@ -478,19 +497,19 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
         uart: impl Peripheral<P = T> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         tx_dma: impl Peripheral<P = impl Channel> + 'd,
         rx_dma: impl Peripheral<P = impl Channel> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx, irq, tx_dma, rx_dma);
+        into_ref!(tx, rx, tx_dma, rx_dma);
         Self::new_inner(
             uart,
             tx.map_into(),
             rx.map_into(),
             None,
             None,
-            Some(irq),
+            true,
             Some(tx_dma.map_into()),
             Some(rx_dma.map_into()),
             config,
@@ -504,19 +523,19 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         tx_dma: impl Peripheral<P = impl Channel> + 'd,
         rx_dma: impl Peripheral<P = impl Channel> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(tx, rx, cts, rts, irq, tx_dma, rx_dma);
+        into_ref!(tx, rx, cts, rts, tx_dma, rx_dma);
         Self::new_inner(
             uart,
             tx.map_into(),
             rx.map_into(),
             Some(rts.map_into()),
             Some(cts.map_into()),
-            Some(irq),
+            true,
             Some(tx_dma.map_into()),
             Some(rx_dma.map_into()),
             config,
@@ -531,7 +550,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         mut rx: PeripheralRef<'d, AnyPin>,
         mut rts: Option<PeripheralRef<'d, AnyPin>>,
         mut cts: Option<PeripheralRef<'d, AnyPin>>,
-        irq: Option<PeripheralRef<'d, T::Interrupt>>,
+        has_irq: bool,
         tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
         config: Config,
@@ -546,7 +565,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
 
         Self {
             tx: UartTx::new_inner(tx_dma),
-            rx: UartRx::new_inner(irq, rx_dma),
+            rx: UartRx::new_inner(has_irq, rx_dma),
         }
     }
 

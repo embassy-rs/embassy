@@ -1,11 +1,7 @@
-//! Interrupt management
-//!
-//! This module implements an API for managing interrupts compatible with
-//! nrf_softdevice::interrupt. Intended for switching between the two at compile-time.
-
-// Re-exports
+//! Interrupt definitions and macros to bind them.
+pub use cortex_m::interrupt::{CriticalSection, Mutex};
 use embassy_cortex_m::interrupt::_export::declare;
-pub use embassy_cortex_m::interrupt::*;
+pub use embassy_cortex_m::interrupt::{Binding, Handler, Interrupt, InterruptExt, Priority};
 
 use crate::pac::Interrupt as InterruptEnum;
 declare!(TIMER_IRQ_0);
@@ -40,3 +36,30 @@ declare!(SWI_IRQ_2);
 declare!(SWI_IRQ_3);
 declare!(SWI_IRQ_4);
 declare!(SWI_IRQ_5);
+
+/// Macro to bind interrupts to handlers.
+///
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+// developer note: this macro can't be in `embassy-cortex-m` due to the use of `$crate`.
+#[macro_export]
+macro_rules! bind_interrupts {
+    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+        $vis struct $name;
+
+        $(
+            #[allow(non_snake_case)]
+            #[no_mangle]
+            unsafe extern "C" fn $irq() {
+                $(
+                    <$handler as $crate::interrupt::Handler<$crate::interrupt::$irq>>::on_interrupt();
+                )*
+            }
+
+            $(
+                unsafe impl $crate::interrupt::Binding<$crate::interrupt::$irq, $handler> for $name {}
+            )*
+        )*
+    };
+}

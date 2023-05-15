@@ -4,12 +4,17 @@
 
 use defmt::{assert_eq, panic, *};
 use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::interrupt;
-use embassy_rp::uart::{BufferedUart, BufferedUartRx, Config, Error, Instance, Parity};
+use embassy_rp::peripherals::UART0;
+use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config, Error, Instance, Parity};
 use embassy_time::{Duration, Timer};
 use embedded_io::asynch::{Read, ReadExactError, Write};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UART0_IRQ => BufferedInterruptHandler<UART0>;
+});
 
 async fn read<const N: usize>(uart: &mut BufferedUart<'_, impl Instance>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
@@ -60,13 +65,12 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let (mut tx, mut rx, mut uart) = (p.PIN_0, p.PIN_1, p.UART0);
-    let mut irq = interrupt::take!(UART0_IRQ);
 
     {
         let config = Config::default();
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, &mut irq, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
 
         // Make sure we send more bytes than fits in the FIFO, to test the actual
         // bufferedUart.
@@ -86,7 +90,7 @@ async fn main(_spawner: Spawner) {
         let config = Config::default();
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, &mut irq, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
 
         // Make sure we send more bytes than fits in the FIFO, to test the actual
         // bufferedUart.
@@ -121,7 +125,7 @@ async fn main(_spawner: Spawner) {
         config.baudrate = 1000;
         let tx_buf = &mut [0u8; 16];
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUart::new(&mut uart, &mut irq, &mut tx, &mut rx, tx_buf, rx_buf, config);
+        let mut uart = BufferedUart::new(&mut uart, Irqs, &mut tx, &mut rx, tx_buf, rx_buf, config);
 
         // break on empty buffer
         uart.send_break(20).await;
@@ -155,7 +159,7 @@ async fn main(_spawner: Spawner) {
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUartRx::new(&mut uart, &mut irq, &mut rx, rx_buf, config);
+        let mut uart = BufferedUartRx::new(&mut uart, Irqs, &mut rx, rx_buf, config);
 
         async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
@@ -202,7 +206,7 @@ async fn main(_spawner: Spawner) {
         let mut config = Config::default();
         config.baudrate = 1000;
         let rx_buf = &mut [0u8; 16];
-        let mut uart = BufferedUartRx::new(&mut uart, &mut irq, &mut rx, rx_buf, config);
+        let mut uart = BufferedUartRx::new(&mut uart, Irqs, &mut rx, rx_buf, config);
 
         async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, good: bool) {
             if good {
