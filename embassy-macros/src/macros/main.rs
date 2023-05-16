@@ -1,16 +1,30 @@
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{ReturnType, Type};
+use syn::{Expr, ReturnType, Type};
 
 use crate::util::ctxt::Ctxt;
 
 #[derive(Debug, FromMeta)]
-struct Args {}
+struct Args {
+    #[darling(default)]
+    entry: Option<String>,
+}
 
-pub fn riscv() -> TokenStream {
+pub fn riscv(args: syn::AttributeArgs) -> TokenStream {
+    let maybe_entry = match Args::from_list(&args) {
+        Ok(args) => args.entry,
+        Err(e) => return e.write_errors(),
+    };
+
+    let entry = maybe_entry.unwrap_or("riscv_rt::entry".into());
+    let entry = match Expr::from_string(&entry) {
+        Ok(expr) => expr,
+        Err(e) => return e.write_errors(),
+    };
+
     quote! {
-        #[riscv_rt::entry]
+        #[#entry]
         fn main() -> ! {
             let mut executor = ::embassy_executor::Executor::new();
             let executor = unsafe { __make_static(&mut executor) };

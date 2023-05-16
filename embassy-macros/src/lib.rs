@@ -79,6 +79,8 @@ pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
 /// * The function must not use generics.
 /// * Only a single `main` task may be declared.
 ///
+/// A user-defined entry macro can be optionally provided via the `entry` argument to override the default of `riscv_rt::entry`.
+///
 /// ## Examples
 /// Spawning a task:
 ///
@@ -88,11 +90,21 @@ pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
 ///     // Function body
 /// }
 /// ```
+///
+/// Spawning a task using a custom entry macro:
+/// ``` rust
+/// #[embassy_executor::main(entry = "esp_riscv_rt::entry")]
+/// async fn main(_s: embassy_executor::Spawner) {
+///     // Function body
+/// }
+/// ```
 #[proc_macro_attribute]
 pub fn main_riscv(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = syn::parse_macro_input!(args as syn::AttributeArgs);
     let f = syn::parse_macro_input!(item as syn::ItemFn);
-    main::run(args, f, main::riscv()).unwrap_or_else(|x| x).into()
+    main::run(args.clone(), f, main::riscv(args))
+        .unwrap_or_else(|x| x)
+        .into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for STD spawning the corresponding function body as an async task.
