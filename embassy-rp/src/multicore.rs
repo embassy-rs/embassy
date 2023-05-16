@@ -127,7 +127,7 @@ where
     ) -> ! {
         core1_setup(stack_bottom);
 
-        let entry = unsafe { ManuallyDrop::take(&mut *entry) };
+        let entry = unsafe { ManuallyDrop::take(&mut core::ptr::read(entry)) };
 
         // make sure the preceding read doesn't get reordered past the following fifo write
         compiler_fence(Ordering::SeqCst);
