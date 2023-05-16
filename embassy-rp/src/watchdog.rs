@@ -106,4 +106,17 @@ impl Watchdog {
         self.load_counter(self.load_value);
         self.enable(true);
     }
+
+    /// Trigger a system reset
+    pub fn trigger_reset(&mut self) {
+        unsafe {
+            self.configure_wdog_reset_triggers();
+            self.pause_on_debug(false);
+            self.enable(true);
+            let watchdog = pac::WATCHDOG;
+            watchdog.ctrl().write(|w| {
+                w.set_trigger(true);
+            })
+        }
+    }
 }
