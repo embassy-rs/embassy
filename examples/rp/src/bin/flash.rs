@@ -24,6 +24,16 @@ async fn main(_spawner: Spawner) {
     Timer::after(Duration::from_millis(10)).await;
 
     let mut flash = embassy_rp::flash::Flash::<_, FLASH_SIZE>::new(p.FLASH);
+
+    // Get JEDEC id
+    let jedec = flash.jedec_id().unwrap();
+    info!("jedec id: 0x{:x}", jedec);
+
+    // Get unique id
+    let mut uid = [0; 8];
+    flash.unique_id(&mut uid).unwrap();
+    info!("unique id: {:?}", uid);
+
     erase_write_sector(&mut flash, 0x00);
 
     multiwrite_bytes(&mut flash, ERASE_SIZE as u32);
