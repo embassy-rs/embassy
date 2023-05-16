@@ -34,7 +34,6 @@ impl ClockConfig {
             }),
             xosc: Some(XoscConfig {
                 hz: crystal_hz,
-                clock_type: ExternalClock::Crystal,
                 sys_pll: Some(PllConfig {
                     refdiv: 1,
                     fbdiv: 125,
@@ -119,7 +118,6 @@ pub struct RoscConfig {
 
 pub struct XoscConfig {
     pub hz: u32,
-    pub clock_type: ExternalClock,
     pub sys_pll: Option<PllConfig>,
     pub usb_pll: Option<PllConfig>,
 }
@@ -131,10 +129,6 @@ pub struct PllConfig {
     pub post_div2: u8,
 }
 
-pub enum ExternalClock {
-    Crystal,
-    Clock,
-}
 pub struct RefClkConfig {
     pub src: RefClkSrc,
     pub div: u8,
@@ -223,12 +217,9 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         });
 
         // start XOSC
-        match config.clock_type {
-            ExternalClock::Crystal => start_xosc(config.hz),
-            // TODO The datasheet says the xosc needs to be put into a bypass mode to use an
-            // external clock, but is mum about how to do that.
-            ExternalClock::Clock => todo!(),
-        }
+        // datasheet mentions support for clock inputs into XIN, but doesn't go into
+        // how this is achieved. pico-sdk doesn't support this at all.
+        start_xosc(config.hz);
 
         if let Some(sys_pll_config) = config.sys_pll {
             configure_pll(pac::PLL_SYS, config.hz, sys_pll_config);
