@@ -634,10 +634,12 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) ->
     p.fbdiv_int().write(|w| w.set_fbdiv_int(config.fbdiv));
 
     // Turn on PLL
-    p.pwr().modify(|w| {
+    let pwr = p.pwr().write(|w| {
+        w.set_dsmpd(true); // "nothing is achieved by setting this low"
         w.set_pd(false);
         w.set_vcopd(false);
         w.set_postdivpd(true);
+        *w
     });
 
     // Wait for PLL to lock
@@ -650,7 +652,10 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) ->
     });
 
     // Turn on post divider
-    p.pwr().modify(|w| w.set_postdivpd(false));
+    p.pwr().write(|w| {
+        *w = pwr;
+        w.set_postdivpd(false);
+    });
 
     vco_freq / ((config.post_div1 * config.post_div2) as u32)
 }
