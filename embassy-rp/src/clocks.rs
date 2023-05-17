@@ -821,11 +821,10 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
         };
 
         let div = unsafe { c.clk_gpout_div(self.gpout.number()).read() };
-        let int = if div.int() == 0 { 65536 } else { div.int() };
-        // TODO handle fractional clock div
-        let _frac = div.frac();
+        let int = if div.int() == 0 { 65536 } else { div.int() } as u64;
+        let frac = div.frac() as u64;
 
-        base / int
+        ((base as u64 * 256) / (int * 256 + frac)) as u32
     }
 }
 
