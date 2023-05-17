@@ -8,6 +8,10 @@ use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::{pac, reset, Peripheral};
 
+// NOTE: all gpin handling is commented out for future reference.
+// gpin is not usually safe to use during the boot init() call, so it won't
+// be very useful until we have runtime clock reconfiguration. once this
+// happens we can resurrect the commented-out gpin bits.
 struct Clocks {
     xosc: AtomicU32,
     sys: AtomicU32,
@@ -16,8 +20,8 @@ struct Clocks {
     pll_usb: AtomicU32,
     usb: AtomicU32,
     adc: AtomicU32,
-    gpin0: AtomicU32,
-    gpin1: AtomicU32,
+    // gpin0: AtomicU32,
+    // gpin1: AtomicU32,
     rosc: AtomicU32,
     peri: AtomicU32,
     rtc: AtomicU16,
@@ -31,8 +35,8 @@ static CLOCKS: Clocks = Clocks {
     pll_usb: AtomicU32::new(0),
     usb: AtomicU32::new(0),
     adc: AtomicU32::new(0),
-    gpin0: AtomicU32::new(0),
-    gpin1: AtomicU32::new(0),
+    // gpin0: AtomicU32::new(0),
+    // gpin1: AtomicU32::new(0),
     rosc: AtomicU32::new(0),
     peri: AtomicU32::new(0),
     rtc: AtomicU16::new(0),
@@ -47,8 +51,8 @@ pub enum PeriClkSrc {
     PllUsb = ClkPeriCtrlAuxsrc::CLKSRC_PLL_USB.0,
     Rosc = ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH.0,
     Xosc = ClkPeriCtrlAuxsrc::XOSC_CLKSRC.0,
-    Gpin0 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN0.0,
-    Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1.0,
+    // Gpin0 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN0.0,
+    // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1.0,
 }
 
 #[non_exhaustive]
@@ -61,8 +65,8 @@ pub struct ClockConfig {
     pub usb_clk: Option<UsbClkConfig>,
     pub adc_clk: Option<AdcClkConfig>,
     pub rtc_clk: Option<RtcClkConfig>,
-    gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
-    gpin1: Option<(u32, Gpin<'static, AnyPin>)>,
+    // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
+    // gpin1: Option<(u32, Gpin<'static, AnyPin>)>,
 }
 
 impl ClockConfig {
@@ -118,8 +122,8 @@ impl ClockConfig {
                 div_frac: 0,
                 phase: 0,
             }),
-            gpin0: None,
-            gpin1: None,
+            // gpin0: None,
+            // gpin1: None,
         }
     }
 
@@ -156,20 +160,20 @@ impl ClockConfig {
                 div_frac: 171,
                 phase: 0,
             }),
-            gpin0: None,
-            gpin1: None,
+            // gpin0: None,
+            // gpin1: None,
         }
     }
 
-    pub fn bind_gpin<P: GpinPin>(&mut self, gpin: Gpin<'static, P>, hz: u32) {
-        match P::NR {
-            0 => self.gpin0 = Some((hz, gpin.map_into())),
-            1 => self.gpin1 = Some((hz, gpin.map_into())),
-            _ => unreachable!(),
-        }
-        // pin is now provisionally bound. if the config is applied it must be forgotten,
-        // or Gpin::drop will deconfigure the clock input.
-    }
+    // pub fn bind_gpin<P: GpinPin>(&mut self, gpin: Gpin<'static, P>, hz: u32) {
+    //     match P::NR {
+    //         0 => self.gpin0 = Some((hz, gpin.map_into())),
+    //         1 => self.gpin1 = Some((hz, gpin.map_into())),
+    //         _ => unreachable!(),
+    //     }
+    //     // pin is now provisionally bound. if the config is applied it must be forgotten,
+    //     // or Gpin::drop will deconfigure the clock input.
+    // }
 }
 
 #[repr(u16)]
@@ -219,8 +223,8 @@ pub enum RefClkSrc {
     Rosc,
     // aux sources
     PllUsb,
-    Gpin0,
-    Gpin1,
+    // Gpin0,
+    // Gpin1,
 }
 
 #[non_exhaustive]
@@ -233,8 +237,8 @@ pub enum SysClkSrc {
     PllUsb,
     Rosc,
     Xosc,
-    Gpin0,
-    Gpin1,
+    // Gpin0,
+    // Gpin1,
 }
 
 pub struct SysClkConfig {
@@ -251,8 +255,8 @@ pub enum UsbClkSrc {
     PllSys = ClkUsbCtrlAuxsrc::CLKSRC_PLL_SYS.0,
     Rosc = ClkUsbCtrlAuxsrc::ROSC_CLKSRC_PH.0,
     Xosc = ClkUsbCtrlAuxsrc::XOSC_CLKSRC.0,
-    Gpin0 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN0.0,
-    Gpin1 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN1.0,
+    // Gpin0 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN0.0,
+    // Gpin1 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN1.0,
 }
 
 pub struct UsbClkConfig {
@@ -269,8 +273,8 @@ pub enum AdcClkSrc {
     PllSys = ClkAdcCtrlAuxsrc::CLKSRC_PLL_SYS.0,
     Rosc = ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH.0,
     Xosc = ClkAdcCtrlAuxsrc::XOSC_CLKSRC.0,
-    Gpin0 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN0.0,
-    Gpin1 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN1.0,
+    // Gpin0 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN0.0,
+    // Gpin1 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN1.0,
 }
 
 pub struct AdcClkConfig {
@@ -287,8 +291,8 @@ pub enum RtcClkSrc {
     PllSys = ClkRtcCtrlAuxsrc::CLKSRC_PLL_SYS.0,
     Rosc = ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH.0,
     Xosc = ClkRtcCtrlAuxsrc::XOSC_CLKSRC.0,
-    Gpin0 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN0.0,
-    Gpin1 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN1.0,
+    // Gpin0 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN0.0,
+    // Gpin1 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN1.0,
 }
 
 pub struct RtcClkConfig {
@@ -306,6 +310,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     // - USB, SYSCFG (breaks usb-to-swd on core1)
     let mut peris = reset::ALL_PERIPHERALS;
     peris.set_io_qspi(false);
+    // peris.set_io_bank0(false); // might be suicide if we're clocked from gpin
     peris.set_pads_qspi(false);
     peris.set_pll_sys(false);
     peris.set_pll_usb(false);
@@ -332,16 +337,16 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     reset::reset(peris);
     reset::unreset_wait(peris);
 
-    let gpin0_freq = config.gpin0.map_or(0, |p| {
-        core::mem::forget(p.1);
-        p.0
-    });
-    CLOCKS.gpin0.store(gpin0_freq, Ordering::Relaxed);
-    let gpin1_freq = config.gpin1.map_or(0, |p| {
-        core::mem::forget(p.1);
-        p.0
-    });
-    CLOCKS.gpin1.store(gpin1_freq, Ordering::Relaxed);
+    // let gpin0_freq = config.gpin0.map_or(0, |p| {
+    //     core::mem::forget(p.1);
+    //     p.0
+    // });
+    // CLOCKS.gpin0.store(gpin0_freq, Ordering::Relaxed);
+    // let gpin1_freq = config.gpin1.map_or(0, |p| {
+    //     core::mem::forget(p.1);
+    //     p.0
+    // });
+    // CLOCKS.gpin1.store(gpin1_freq, Ordering::Relaxed);
 
     let rosc_freq = match config.rosc {
         Some(config) => configure_rosc(config),
@@ -381,8 +386,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             RefClkSrc::Xosc => (Src::XOSC_CLKSRC, Aux::CLKSRC_PLL_USB, xosc_freq / div),
             RefClkSrc::Rosc => (Src::ROSC_CLKSRC_PH, Aux::CLKSRC_PLL_USB, rosc_freq / div),
             RefClkSrc::PllUsb => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq / div),
-            RefClkSrc::Gpin0 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN0, gpin0_freq / div),
-            RefClkSrc::Gpin1 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN1, gpin1_freq / div),
+            // RefClkSrc::Gpin0 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN0, gpin0_freq / div),
+            // RefClkSrc::Gpin1 => (Src::CLKSRC_CLK_REF_AUX, Aux::CLKSRC_GPIN1, gpin1_freq / div),
         }
     };
     assert!(clk_ref_freq != 0);
@@ -409,8 +414,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             SysClkSrc::PllUsb => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_PLL_USB, pll_usb_freq),
             SysClkSrc::Rosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::ROSC_CLKSRC, rosc_freq),
             SysClkSrc::Xosc => (Src::CLKSRC_CLK_SYS_AUX, Aux::XOSC_CLKSRC, xosc_freq),
-            SysClkSrc::Gpin0 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN0, gpin0_freq),
-            SysClkSrc::Gpin1 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN1, gpin1_freq),
+            // SysClkSrc::Gpin0 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN0, gpin0_freq),
+            // SysClkSrc::Gpin1 => (Src::CLKSRC_CLK_SYS_AUX, Aux::CLKSRC_GPIN1, gpin1_freq),
         };
         assert!(config.sys_clk.div_int <= 0x1000000);
         let div = config.sys_clk.div_int as u64 * 256 + config.sys_clk.div_frac as u64;
@@ -445,8 +450,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             PeriClkSrc::PllUsb => pll_usb_freq,
             PeriClkSrc::Rosc => rosc_freq,
             PeriClkSrc::Xosc => xosc_freq,
-            PeriClkSrc::Gpin0 => gpin0_freq,
-            PeriClkSrc::Gpin1 => gpin1_freq,
+            // PeriClkSrc::Gpin0 => gpin0_freq,
+            // PeriClkSrc::Gpin1 => gpin1_freq,
         };
         assert!(peri_freq != 0);
         CLOCKS.peri.store(peri_freq, Ordering::Relaxed);
@@ -470,8 +475,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             UsbClkSrc::PllSys => pll_sys_freq,
             UsbClkSrc::Rosc => rosc_freq,
             UsbClkSrc::Xosc => xosc_freq,
-            UsbClkSrc::Gpin0 => gpin0_freq,
-            UsbClkSrc::Gpin1 => gpin1_freq,
+            // UsbClkSrc::Gpin0 => gpin0_freq,
+            // UsbClkSrc::Gpin1 => gpin1_freq,
         };
         assert!(usb_freq != 0);
         assert!(conf.div >= 1 && conf.div <= 4);
@@ -493,8 +498,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             AdcClkSrc::PllSys => pll_sys_freq,
             AdcClkSrc::Rosc => rosc_freq,
             AdcClkSrc::Xosc => xosc_freq,
-            AdcClkSrc::Gpin0 => gpin0_freq,
-            AdcClkSrc::Gpin1 => gpin1_freq,
+            // AdcClkSrc::Gpin0 => gpin0_freq,
+            // AdcClkSrc::Gpin1 => gpin1_freq,
         };
         assert!(adc_in_freq != 0);
         assert!(conf.div >= 1 && conf.div <= 4);
@@ -519,8 +524,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             RtcClkSrc::PllSys => pll_sys_freq,
             RtcClkSrc::Rosc => rosc_freq,
             RtcClkSrc::Xosc => xosc_freq,
-            RtcClkSrc::Gpin0 => gpin0_freq,
-            RtcClkSrc::Gpin1 => gpin1_freq,
+            // RtcClkSrc::Gpin0 => gpin0_freq,
+            // RtcClkSrc::Gpin1 => gpin1_freq,
         };
         assert!(rtc_in_freq != 0);
         assert!(config.sys_clk.div_int <= 0x1000000);
@@ -576,12 +581,12 @@ pub fn xosc_freq() -> u32 {
     CLOCKS.xosc.load(Ordering::Relaxed)
 }
 
-pub fn gpin0_freq() -> u32 {
-    CLOCKS.gpin0.load(Ordering::Relaxed)
-}
-pub fn gpin1_freq() -> u32 {
-    CLOCKS.gpin1.load(Ordering::Relaxed)
-}
+// pub fn gpin0_freq() -> u32 {
+//     CLOCKS.gpin0.load(Ordering::Relaxed)
+// }
+// pub fn gpin1_freq() -> u32 {
+//     CLOCKS.gpin1.load(Ordering::Relaxed)
+// }
 
 pub fn pll_sys_freq() -> u32 {
     CLOCKS.pll_sys.load(Ordering::Relaxed)
@@ -705,9 +710,9 @@ impl<'d, T: Pin> Gpin<'d, T> {
         }
     }
 
-    fn map_into(self) -> Gpin<'d, AnyPin> {
-        unsafe { core::mem::transmute(self) }
-    }
+    // fn map_into(self) -> Gpin<'d, AnyPin> {
+    //     unsafe { core::mem::transmute(self) }
+    // }
 }
 
 impl<'d, T: Pin> Drop for Gpin<'d, T> {
@@ -743,8 +748,8 @@ impl_gpoutpin!(PIN_25, 3);
 #[repr(u8)]
 pub enum GpoutSrc {
     PllSys = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS.0,
-    Gpin0 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0.0,
-    Gpin1 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1.0,
+    // Gpin0 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0.0,
+    // Gpin1 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1.0,
     PllUsb = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB.0,
     Rosc = ClkGpoutCtrlAuxsrc::ROSC_CLKSRC.0,
     Xosc = ClkGpoutCtrlAuxsrc::XOSC_CLKSRC.0,
@@ -813,8 +818,8 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
 
         let base = match src {
             ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
-            ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
-            ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
+            // ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 => gpin0_freq(),
+            // ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 => gpin1_freq(),
             ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB => pll_usb_freq(),
             ClkGpoutCtrlAuxsrc::ROSC_CLKSRC => rosc_freq(),
             ClkGpoutCtrlAuxsrc::XOSC_CLKSRC => xosc_freq(),
