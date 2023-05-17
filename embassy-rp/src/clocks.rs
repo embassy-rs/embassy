@@ -351,11 +351,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
     let (xosc_freq, pll_sys_freq, pll_usb_freq) = match config.xosc {
         Some(config) => {
-            pac::WATCHDOG.tick().write(|w| {
-                w.set_cycles((config.hz / 1_000_000) as u16);
-                w.set_enable(true);
-            });
-
             // start XOSC
             // datasheet mentions support for clock inputs into XIN, but doesn't go into
             // how this is achieved. pico-sdk doesn't support this at all.
@@ -510,9 +505,6 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     if let Some(conf) = config.rtc_clk {
-        c.clk_rtc_ctrl().modify(|w| {
-            w.set_enable(false);
-        });
         c.clk_rtc_div().write(|w| {
             w.set_int(conf.div_int);
             w.set_frac(conf.div_frac);
