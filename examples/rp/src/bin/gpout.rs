@@ -17,14 +17,14 @@ async fn main(_spawner: Spawner) {
     gpout3.enable();
 
     loop {
-        gpout3.set_src(clocks::GpoutSrc::CLK_SYS);
+        gpout3.set_src(clocks::GpoutSrc::Sys);
         info!(
             "Pin 25 is now outputing CLK_SYS/1000, should be toggling at {}",
             gpout3.get_freq()
         );
         Timer::after(Duration::from_secs(2)).await;
 
-        gpout3.set_src(clocks::GpoutSrc::CLK_REF);
+        gpout3.set_src(clocks::GpoutSrc::Ref);
         info!(
             "Pin 25 is now outputing CLK_REF/1000, should be toggling at {}",
             gpout3.get_freq()

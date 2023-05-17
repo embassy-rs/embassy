@@ -26,12 +26,7 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
         into_ref!(inner);
 
         // Set the RTC divider
-        unsafe {
-            inner
-                .regs()
-                .clkdiv_m1()
-                .write(|w| w.set_clkdiv_m1(clk_rtc_freq() as u16 - 1))
-        };
+        unsafe { inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1)) };
 
         let mut result = Self { inner };
         result.set_leap_year_check(true); // should be on by default, make sure this is the case.
