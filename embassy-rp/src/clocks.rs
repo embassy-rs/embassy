@@ -1,8 +1,11 @@
+use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
 
+use crate::gpio::sealed::Pin;
+use crate::gpio::AnyPin;
 use crate::{pac, reset, Peripheral};
 
 struct Clocks {
@@ -58,8 +61,8 @@ pub struct ClockConfig {
     pub usb_clk: Option<UsbClkConfig>,
     pub adc_clk: Option<AdcClkConfig>,
     pub rtc_clk: Option<RtcClkConfig>,
-    pub gpin0_hz: Option<u32>,
-    pub gpin1_hz: Option<u32>,
+    gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
+    gpin1: Option<(u32, Gpin<'static, AnyPin>)>,
 }
 
 impl ClockConfig {
@@ -115,8 +118,8 @@ impl ClockConfig {
                 div_frac: 0,
                 phase: 0,
             }),
-            gpin0_hz: None,
-            gpin1_hz: None,
+            gpin0: None,
+            gpin1: None,
         }
     }
 
@@ -153,9 +156,19 @@ impl ClockConfig {
                 div_frac: 171,
                 phase: 0,
             }),
-            gpin0_hz: None,
-            gpin1_hz: None,
+            gpin0: None,
+            gpin1: None,
         }
+    }
+
+    pub fn bind_gpin<P: GpinPin>(&mut self, gpin: Gpin<'static, P>, hz: u32) {
+        match P::NR {
+            0 => self.gpin0 = Some((hz, gpin.map_into())),
+            1 => self.gpin1 = Some((hz, gpin.map_into())),
+            _ => unreachable!(),
+        }
+        // pin is now provisionally bound. if the config is applied it must be forgotten,
+        // or Gpin::drop will deconfigure the clock input.
     }
 }
 
@@ -319,9 +332,15 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     reset::reset(peris);
     reset::unreset_wait(peris);
 
-    let gpin0_freq = config.gpin0_hz.unwrap_or(0);
+    let gpin0_freq = config.gpin0.map_or(0, |p| {
+        core::mem::forget(p.1);
+        p.0
+    });
     CLOCKS.gpin0.store(gpin0_freq, Ordering::Relaxed);
-    let gpin1_freq = config.gpin1_hz.unwrap_or(0);
+    let gpin1_freq = config.gpin1.map_or(0, |p| {
+        core::mem::forget(p.1);
+        p.0
+    });
     CLOCKS.gpin1.store(gpin1_freq, Ordering::Relaxed);
 
     let rosc_freq = match config.rosc {
@@ -661,15 +680,13 @@ unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) ->
 }
 
 pub trait GpinPin: crate::gpio::Pin {
-    fn number(&self) -> usize;
+    const NR: usize;
 }
 
 macro_rules! impl_gpinpin {
     ($name:ident, $pin_num:expr, $gpin_num:expr) => {
         impl GpinPin for crate::peripherals::$name {
-            fn number(&self) -> usize {
-                $gpin_num
-            }
+            const NR: usize = $gpin_num;
         }
     };
 }
@@ -677,23 +694,31 @@ macro_rules! impl_gpinpin {
 impl_gpinpin!(PIN_20, 20, 0);
 impl_gpinpin!(PIN_22, 22, 1);
 
-pub struct Gpin<'d, T: GpinPin> {
-    gpin: PeripheralRef<'d, T>,
+pub struct Gpin<'d, T: Pin> {
+    gpin: PeripheralRef<'d, AnyPin>,
+    _phantom: PhantomData<T>,
 }
 
-impl<'d, T: GpinPin> Gpin<'d, T> {
-    pub fn new(gpin: impl Peripheral<P = T> + 'd) -> Self {
+impl<'d, T: Pin> Gpin<'d, T> {
+    pub fn new<P: GpinPin>(gpin: impl Peripheral<P = P> + 'd) -> Gpin<'d, P> {
         into_ref!(gpin);
 
         unsafe {
             gpin.io().ctrl().write(|w| w.set_funcsel(0x08));
         }
 
-        Self { gpin }
+        Gpin {
+            gpin: gpin.map_into(),
+            _phantom: PhantomData,
+        }
+    }
+
+    fn map_into(self) -> Gpin<'d, AnyPin> {
+        unsafe { core::mem::transmute(self) }
     }
 }
 
-impl<'d, T: GpinPin> Drop for Gpin<'d, T> {
+impl<'d, T: Pin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
         unsafe {
             self.gpin
