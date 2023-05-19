@@ -120,6 +120,11 @@ pub struct Config {
     /// read will abort, the error reported and cleared
     /// if false, the error is ignored and cleared
     pub detect_previous_overrun: bool,
+
+    /// Set this to true if the line is considered noise free.
+    /// This will increase the receivers tolerance to clock deviations,
+    /// but will effectively disable noise detection.
+    pub assume_noise_free: bool,
 }
 
 impl Default for Config {
@@ -131,6 +136,7 @@ impl Default for Config {
             parity: Parity::ParityNone,
             // historical behavior
             detect_previous_overrun: false,
+            assume_noise_free: false,
         }
     }
 }
@@ -832,7 +838,13 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
     for &(presc, _presc_val) in &DIVS {
         let denom = (config.baudrate * presc as u32) as u64;
         let div = (pclk_freq.0 as u64 * mul + (denom / 2)) / denom;
-        trace!("USART: presc={} div={:08x}", presc, div);
+        trace!(
+            "USART: presc={}, div=0x{:08x} (mantissa = {}, fraction = {})",
+            presc,
+            div,
+            div >> 4,
+            div & 0x0F
+        );
 
         if div < brr_min {
             #[cfg(not(usart_v1))]
@@ -862,6 +874,14 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
     }
 
     assert!(found, "USART: baudrate too low");
+
+    let brr = unsafe { r.brr().read().brr() as u32 };
+    trace!(
+        "Using {}, desired baudrate: {}, actual baudrate: {}",
+        if over8 { "OVER8" } else { "OVER16" },
+        config.baudrate,
+        pclk_freq.0 / brr
+    );
 
     unsafe {
         r.cr2().write(|w| {
@@ -894,6 +914,10 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
             });
             #[cfg(not(usart_v1))]
             w.set_over8(vals::Over8(over8 as _));
+        });
+
+        r.cr3().modify(|w| {
+            w.set_onebit(config.assume_noise_free);
         });
     }
 }
