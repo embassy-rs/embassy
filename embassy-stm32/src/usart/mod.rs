@@ -124,6 +124,7 @@ pub struct Config {
     /// Set this to true if the line is considered noise free.
     /// This will increase the receivers tolerance to clock deviations,
     /// but will effectively disable noise detection.
+    #[cfg(not(usart_v1))]
     pub assume_noise_free: bool,
 }
 
@@ -136,6 +137,7 @@ impl Default for Config {
             parity: Parity::ParityNone,
             // historical behavior
             detect_previous_overrun: false,
+            #[cfg(not(usart_v1))]
             assume_noise_free: false,
         }
     }
@@ -917,6 +919,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
         });
 
         r.cr3().modify(|w| {
+            #[cfg(not(usart_v1))]
             w.set_onebit(config.assume_noise_free);
         });
     }
