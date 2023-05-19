@@ -188,7 +188,9 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
 #[cfg(sdmmc_v1)]
 type Transfer<'a, C> = crate::dma::Transfer<'a, C>;
 #[cfg(sdmmc_v2)]
-type Transfer<'a, C> = core::marker::PhantomData<&'a mut C>;
+struct Transfer<'a, C> {
+    _dummy: core::marker::PhantomData<&'a mut C>,
+}
 
 #[cfg(all(sdmmc_v1, dma))]
 const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
@@ -539,7 +541,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             let transfer = {
                 regs.idmabase0r().write(|w| w.set_idmabase0(buffer.as_mut_ptr() as u32));
                 regs.idmactrlr().modify(|w| w.set_idmaen(true));
-                core::marker::PhantomData
+                Transfer {
+                    _dummy: core::marker::PhantomData,
+                }
             };
 
             regs.dctrl().modify(|w| {
@@ -593,7 +597,9 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             let transfer = {
                 regs.idmabase0r().write(|w| w.set_idmabase0(buffer.as_ptr() as u32));
                 regs.idmactrlr().modify(|w| w.set_idmaen(true));
-                core::marker::PhantomData
+                Transfer {
+                    _dummy: core::marker::PhantomData,
+                }
             };
 
             regs.dctrl().modify(|w| {

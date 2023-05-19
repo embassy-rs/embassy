@@ -1,5 +1,4 @@
 #![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
