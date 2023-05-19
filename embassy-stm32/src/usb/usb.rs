@@ -7,7 +7,6 @@ use core::task::Poll;
 
 use embassy_hal_common::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::{block_for, Duration};
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
@@ -200,7 +199,10 @@ impl<'d, T: Instance> Driver<'d, T> {
                 w.set_fres(true);
             });
 
-            block_for(Duration::from_millis(100));
+            #[cfg(time)]
+            embassy_time::block_for(embassy_time::Duration::from_millis(100));
+            #[cfg(not(time))]
+            cortex_m::asm::delay(crate::rcc::get_freqs().sys.0 / 10);
 
             #[cfg(not(usb_v4))]
             regs.btable().write(|w| w.set_btable(0));
