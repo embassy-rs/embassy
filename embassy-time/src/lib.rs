@@ -1,6 +1,5 @@
 #![cfg_attr(not(any(feature = "std", feature = "wasm", test)), no_std)]
 #![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
-#![cfg_attr(feature = "nightly", allow(incomplete_features))]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]

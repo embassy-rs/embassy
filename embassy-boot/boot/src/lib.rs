@@ -1,5 +1,4 @@
 #![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
-#![allow(incomplete_features)]
 #![no_std]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
