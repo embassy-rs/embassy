@@ -20,7 +20,13 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mut ipcc = Ipcc::new(p.IPCC, config);
 
-    let mbox = TlMbox::init(&mut ipcc);
+    let config = Config::default();
+    let mut ipcc = Ipcc::new(p.IPCC, config);
+
+    let rx_irq = interrupt::take!(IPCC_C1_RX);
+    let tx_irq = interrupt::take!(IPCC_C1_TX);
+
+    let mbox = TlMbox::init(&mut ipcc, rx_irq, tx_irq);
 
     loop {
         let wireless_fw_info = mbox.wireless_fw_info();
