@@ -64,7 +64,7 @@ impl InnerQueue {
         self.queue
             .iter_mut()
             .find(|timer| timer.waker.will_wake(waker))
-            .map(|mut timer| {
+            .map(|timer| {
                 timer.at = min(timer.at, at);
             })
             .unwrap_or_else(|| {
