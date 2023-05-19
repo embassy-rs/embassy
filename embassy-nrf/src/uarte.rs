@@ -791,20 +791,18 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
     }
 }
 
-#[cfg(not(any(feature = "_nrf9160", feature = "nrf5340")))]
+#[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340")))]
 pub(crate) fn apply_workaround_for_enable_anomaly(_r: &crate::pac::uarte0::RegisterBlock) {
     // Do nothing
 }
 
-#[cfg(any(feature = "_nrf9160", feature = "nrf5340"))]
+#[cfg(any(feature = "_nrf9160", feature = "_nrf5340"))]
 pub(crate) fn apply_workaround_for_enable_anomaly(r: &crate::pac::uarte0::RegisterBlock) {
-    use core::ops::Deref;
-
     // Apply workaround for anomalies:
     // - nRF9160 - anomaly 23
     // - nRF5340 - anomaly 44
-    let rxenable_reg: *const u32 = ((r.deref() as *const _ as usize) + 0x564) as *const u32;
-    let txenable_reg: *const u32 = ((r.deref() as *const _ as usize) + 0x568) as *const u32;
+    let rxenable_reg: *const u32 = ((r as *const _ as usize) + 0x564) as *const u32;
+    let txenable_reg: *const u32 = ((r as *const _ as usize) + 0x568) as *const u32;
 
     // NB Safety: This is taken from Nordic's driver -
     // https://github.com/NordicSemiconductor/nrfx/blob/master/drivers/src/nrfx_uarte.c#L197
