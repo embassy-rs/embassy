@@ -58,7 +58,7 @@ pub mod spi;
 pub mod tl_mbox;
 #[cfg(usart)]
 pub mod usart;
-#[cfg(all(usb, feature = "time"))]
+#[cfg(usb)]
 pub mod usb;
 #[cfg(otg)]
 pub mod usb_otg;
