@@ -4,18 +4,30 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::pio::{Common, Config, FifoJoin, Instance, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine};
 use embassy_rp::relocate::RelocatedProgram;
+use embassy_rp::{clocks, into_ref, Peripheral, PeripheralRef};
 use embassy_time::{Duration, Timer};
+use fixed::types::U24F8;
 use fixed_macro::fixed;
 use smart_leds::RGB8;
 use {defmt_rtt as _, panic_probe as _};
-pub struct Ws2812<'d, P: Instance, const S: usize> {
+
+pub struct Ws2812<'d, P: Instance, const S: usize, const N: usize> {
+    dma: PeripheralRef<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
 }
 
-impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
-    pub fn new(mut pio: Common<'d, P>, mut sm: StateMachine<'d, P, S>, pin: impl PioPin) -> Self {
+impl<'d, P: Instance, const S: usize, const N: usize> Ws2812<'d, P, S, N> {
+    pub fn new(
+        pio: &mut Common<'d, P>,
+        mut sm: StateMachine<'d, P, S>,
+        dma: impl Peripheral<P = impl Channel> + 'd,
+        pin: impl PioPin,
+    ) -> Self {
+        into_ref!(dma);
+
         // Setup sm0
 
         // prepare the PIO program
@@ -48,13 +60,15 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
 
         // Pin config
         let out_pin = pio.make_pio_pin(pin);
+        cfg.set_out_pins(&[&out_pin]);
+        cfg.set_set_pins(&[&out_pin]);
 
         let relocated = RelocatedProgram::new(&prg);
         cfg.use_program(&pio.load_program(&relocated), &[&out_pin]);
 
         // Clock config, measured in kHz to avoid overflows
         // TODO CLOCK_FREQ should come from embassy_rp
-        let clock_freq = fixed!(125_000: U24F8);
+        let clock_freq = U24F8::from_num(clocks::clk_sys_freq() / 1000);
         let ws2812_freq = fixed!(800: U24F8);
         let bit_freq = ws2812_freq * CYCLES_PER_BIT;
         cfg.clock_divider = clock_freq / bit_freq;
@@ -70,14 +84,22 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
         sm.set_config(&cfg);
         sm.set_enable(true);
 
-        Self { sm }
+        Self {
+            dma: dma.map_into(),
+            sm,
+        }
     }
 
-    pub async fn write(&mut self, colors: &[RGB8]) {
-        for color in colors {
-            let word = (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8);
-            self.sm.tx().wait_push(word).await;
+    pub async fn write(&mut self, colors: &[RGB8; N]) {
+        // Precompute the word bytes from the colors
+        let mut words = [0u32; N];
+        for i in 0..N {
+            let word = (u32::from(colors[i].g) << 24) | (u32::from(colors[i].r) << 16) | (u32::from(colors[i].b) << 8);
+            words[i] = word;
         }
+
+        // DMA transfer
+        self.sm.tx().dma_push(self.dma.reborrow(), &words).await;
     }
 }
 
@@ -101,7 +123,7 @@ async fn main(_spawner: Spawner) {
     info!("Start");
     let p = embassy_rp::init(Default::default());
 
-    let Pio { common, sm0, .. } = Pio::new(p.PIO0);
+    let Pio { mut common, sm0, .. } = Pio::new(p.PIO0);
 
     // This is the number of leds in the string. Helpfully, the sparkfun thing plus and adafruit
     // feather boards for the 2040 both have one built in.
@@ -110,7 +132,7 @@ async fn main(_spawner: Spawner) {
 
     // For the thing plus, use pin 8
     // For the feather, use pin 16
-    let mut ws2812 = Ws2812::new(common, sm0, p.PIN_8);
+    let mut ws2812 = Ws2812::new(&mut common, sm0, p.DMA_CH0, p.PIN_16);
 
     // Loop forever making RGB values and pushing them out to the WS2812.
     loop {
