@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
-pub use stm32_metapac::timer::vals::Ckd;
+use stm32_metapac::timer::vals::Ckd;
 
 use super::simple_pwm::*;
 use super::*;
@@ -114,11 +114,145 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
         unsafe { self.inner.set_compare_value(channel, duty) }
     }
 
-    pub fn set_dead_time_clock_division(&mut self, value: Ckd) {
-        unsafe { self.inner.set_dead_time_clock_division(value) }
+    /// Set the dead time as a proportion of max_duty
+    pub fn set_dead_time(&mut self, value: u16) {
+        let (ckd, value) = compute_dead_time_value(value);
+
+        unsafe {
+            self.inner.set_dead_time_clock_division(ckd);
+            self.inner.set_dead_time_value(value);
+        }
+    }
+}
+
+fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
+    /*
+        Dead-time = T_clk * T_dts * T_dtg
+
+        T_dts:
+        This bit-field indicates the division ratio between the timer clock (CK_INT) frequency and the
+        dead-time and sampling clock (tDTS)used by the dead-time generators and the digital filters
+        (ETR, TIx),
+        00: tDTS=tCK_INT
+        01: tDTS=2*tCK_INT
+        10: tDTS=4*tCK_INT
+
+        T_dtg:
+        This bit-field defines the duration of the dead-time inserted between the complementary
+        outputs. DT correspond to this duration.
+        DTG[7:5]=0xx => DT=DTG[7:0]x tdtg with tdtg=tDTS.
+        DTG[7:5]=10x => DT=(64+DTG[5:0])xtdtg with Tdtg=2xtDTS.
+        DTG[7:5]=110 => DT=(32+DTG[4:0])xtdtg with Tdtg=8xtDTS.
+        DTG[7:5]=111 => DT=(32+DTG[4:0])xtdtg with Tdtg=16xtDTS.
+        Example if TDTS=125ns (8MHz), dead-time possible values are:
+        0 to 15875 ns by 125 ns steps,
+        16 us to 31750 ns by 250 ns steps,
+        32 us to 63us by 1 us steps,
+        64 us to 126 us by 2 us steps
+    */
+
+    let mut error = u16::MAX;
+    let mut ckd = Ckd::DIV1;
+    let mut bits = 0u8;
+
+    for this_ckd in [Ckd::DIV1, Ckd::DIV2, Ckd::DIV4] {
+        let outdiv = match this_ckd {
+            Ckd::DIV1 => 1,
+            Ckd::DIV2 => 2,
+            Ckd::DIV4 => 4,
+            _ => unreachable!(),
+        };
+
+        // 127
+        // 128
+        // ..
+        // 254
+        // 256
+        // ..
+        // 504
+        // 512
+        // ..
+        // 1008
+
+        let target = value / outdiv;
+        let (these_bits, result) = if target < 128 {
+            (target as u8, target)
+        } else if target < 255 {
+            (64 + (target / 2) as u8, (target - target % 2))
+        } else if target < 508 {
+            (32 + (target / 8) as u8, (target - target % 8))
+        } else if target < 1008 {
+            (32 + (target / 16) as u8, (target - target % 16))
+        } else {
+            (u8::MAX, 1008)
+        };
+
+        let this_error = value.abs_diff(result * outdiv);
+        if error > this_error {
+            ckd = this_ckd;
+            bits = these_bits;
+            error = this_error;
+        }
+
+        match error {
+            0 => break,
+            _ => {}
+        }
     }
 
-    pub fn set_dead_time_value(&mut self, value: u8) {
-        unsafe { self.inner.set_dead_time_value(value) }
+    (ckd, bits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_dead_time_value, Ckd};
+
+    #[test]
+    fn test_compute_dead_time_value() {
+        struct test_run {
+            value: u16,
+            ckd: Ckd,
+            bits: u8,
+        }
+
+        let fn_results = [
+            test_run {
+                value: 1,
+                ckd: Ckd::DIV1,
+                bits: 1,
+            },
+            test_run {
+                value: 125,
+                ckd: Ckd::DIV1,
+                bits: 125,
+            },
+            test_run {
+                value: 245,
+                ckd: Ckd::DIV1,
+                bits: 64 + 245 / 2,
+            },
+            test_run {
+                value: 255,
+                ckd: Ckd::DIV2,
+                bits: 127,
+            },
+            test_run {
+                value: 400,
+                ckd: Ckd::DIV1,
+                bits: 32 + (400u16 / 8) as u8,
+            },
+            test_run {
+                value: 600,
+                ckd: Ckd::DIV4,
+                bits: 64 + (600u16 / 8) as u8,
+            },
+        ];
+
+        for test_run in fn_results {
+            let (ckd, bits) = compute_dead_time_value(test_run.value);
+
+            assert_eq!(ckd.0, test_run.ckd.0);
+            assert_eq!(bits, test_run.bits);
+        }
     }
 }
