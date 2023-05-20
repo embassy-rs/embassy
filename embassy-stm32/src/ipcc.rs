@@ -35,6 +35,10 @@ pub struct Ipcc<'d> {
 
 impl<'d> Ipcc<'d> {
     pub fn new(peri: impl Peripheral<P = IPCC> + 'd, _config: Config) -> Self {
+        Self::new_inner(peri)
+    }
+
+    pub(crate) fn new_inner(peri: impl Peripheral<P = IPCC> + 'd) -> Self {
         into_ref!(peri);
 
         Self { _peri: peri }
@@ -179,15 +183,4 @@ unsafe fn _configure_pwr() {
 
     // set RF wake-up clock = LSE
     rcc.csr().modify(|w| w.set_rfwkpsel(0b01));
-}
-
-// TODO: if anyone has a better idea, please let me know
-/// extension trait that constrains the [`Ipcc`] peripheral
-pub trait IpccExt<'d> {
-    fn constrain(self) -> Ipcc<'d>;
-}
-impl<'d> IpccExt<'d> for IPCC {
-    fn constrain(self) -> Ipcc<'d> {
-        Ipcc { _peri: self.into_ref() }
-    }
 }
