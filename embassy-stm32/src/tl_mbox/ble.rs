@@ -59,7 +59,7 @@ impl Ble {
 
             core::ptr::copy(buf.as_ptr(), pcmd_serial_buf, buf.len());
 
-            let mut cmd_packet = &mut *(*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
+            let cmd_packet = &mut *(*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
             cmd_packet.cmd_serial.ty = TlPacketType::BleCmd as u8;
         }
 

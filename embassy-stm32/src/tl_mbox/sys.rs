@@ -77,7 +77,7 @@ impl Sys {
 
             core::ptr::copy(buf.as_ptr(), cmd_serial_buf, buf.len());
 
-            let mut cmd_packet = &mut *(*TL_REF_TABLE.assume_init().sys_table).pcmd_buffer;
+            let cmd_packet = &mut *(*TL_REF_TABLE.assume_init().sys_table).pcmd_buffer;
             cmd_packet.cmd_serial.ty = TlPacketType::SysCmd as u8;
 
             ipcc.c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
