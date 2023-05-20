@@ -5,7 +5,7 @@ use embassy_futures::block_on;
 use super::cmd::CmdSerial;
 use super::consts::TlPacketType;
 use super::evt::EvtBox;
-use super::unsafe_linked_list::{LST_init_head, LST_is_empty, LST_remove_head};
+use super::unsafe_linked_list::LinkedListNode;
 use super::{
     channels, BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_CHANNEL,
     TL_REF_TABLE,
@@ -18,7 +18,7 @@ pub struct Ble;
 impl Ble {
     pub(crate) fn new(ipcc: &mut Ipcc) -> Self {
         unsafe {
-            LST_init_head(EVT_QUEUE.as_mut_ptr());
+            LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
             TL_BLE_TABLE = MaybeUninit::new(BleTable {
                 pcmd_buffer: BLE_CMD_BUFFER.as_mut_ptr().cast(),
@@ -38,8 +38,8 @@ impl Ble {
             let mut node_ptr = core::ptr::null_mut();
             let node_ptr_ptr: *mut _ = &mut node_ptr;
 
-            while !LST_is_empty(EVT_QUEUE.as_mut_ptr()) {
-                LST_remove_head(EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
+            while !LinkedListNode::is_empty(EVT_QUEUE.as_mut_ptr()) {
+                LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
 
                 let event = node_ptr.cast();
                 let event = EvtBox::new(event);

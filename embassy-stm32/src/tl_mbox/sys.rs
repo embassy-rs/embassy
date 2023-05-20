@@ -5,7 +5,7 @@ use embassy_futures::block_on;
 use super::cmd::{CmdPacket, CmdSerial};
 use super::consts::TlPacketType;
 use super::evt::{CcEvt, EvtBox, EvtSerial};
-use super::unsafe_linked_list::{LST_init_head, LST_is_empty, LST_remove_head};
+use super::unsafe_linked_list::LinkedListNode;
 use super::{channels, SysTable, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_CHANNEL, TL_REF_TABLE, TL_SYS_TABLE};
 use crate::ipcc::Ipcc;
 
@@ -14,7 +14,7 @@ pub struct Sys;
 impl Sys {
     pub(crate) fn new(ipcc: &mut Ipcc) -> Self {
         unsafe {
-            LST_init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
+            LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
             TL_SYS_TABLE = MaybeUninit::new(SysTable {
                 pcmd_buffer: SYS_CMD_BUF.as_mut_ptr(),
@@ -32,8 +32,8 @@ impl Sys {
             let mut node_ptr = core::ptr::null_mut();
             let node_ptr_ptr: *mut _ = &mut node_ptr;
 
-            while !LST_is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                LST_remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
+            while !LinkedListNode::is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
+                LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
 
                 let event = node_ptr.cast();
                 let event = EvtBox::new(event);

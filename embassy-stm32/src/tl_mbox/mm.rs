@@ -1,7 +1,7 @@
 use core::mem::MaybeUninit;
 
 use super::evt::EvtPacket;
-use super::unsafe_linked_list::{LST_init_head, LST_insert_tail, LST_is_empty, LST_remove_head};
+use super::unsafe_linked_list::LinkedListNode;
 use super::{
     channels, MemManagerTable, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUFF_QUEUE, LOCAL_FREE_BUF_QUEUE, POOL_SIZE,
     SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE, TL_REF_TABLE,
@@ -13,8 +13,8 @@ pub struct MemoryManager;
 impl MemoryManager {
     pub fn new() -> Self {
         unsafe {
-            LST_init_head(FREE_BUFF_QUEUE.as_mut_ptr());
-            LST_init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
+            LinkedListNode::init_head(FREE_BUFF_QUEUE.as_mut_ptr());
+            LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
 
             TL_MEM_MANAGER_TABLE = MaybeUninit::new(MemManagerTable {
                 spare_ble_buffer: BLE_SPARE_EVT_BUF.as_ptr().cast(),
@@ -40,7 +40,7 @@ impl MemoryManager {
         unsafe {
             let list_node = evt.cast();
 
-            LST_insert_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
+            LinkedListNode::remove_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
         }
 
         let channel_is_busy = ipcc.c1_is_active_flag(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
@@ -59,9 +59,9 @@ impl MemoryManager {
             let mut node_ptr = core::ptr::null_mut();
             let node_ptr_ptr: *mut _ = &mut node_ptr;
 
-            while !LST_is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                LST_remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), node_ptr_ptr);
-                LST_insert_tail(
+            while !LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), node_ptr_ptr);
+                LinkedListNode::insert_tail(
                     (*(*TL_REF_TABLE.as_ptr()).mem_manager_table).pevt_free_buffer_queue,
                     node_ptr,
                 );
