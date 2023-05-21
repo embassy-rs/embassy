@@ -27,6 +27,7 @@ async fn main(_spawner: Spawner) {
         - Once complete, in the Release_Notes.html, find the memory address that corresponds to your device for the
           stm32wb5x_BLE_Stack_full_fw.bin file. It should not be the same memory address.
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
+        - Select "Start Wireless Stack".
         - Disconnect from the device.
         - In the examples folder for stm32wb, modify the memory.x file to match your target device.
         - Run this example.
