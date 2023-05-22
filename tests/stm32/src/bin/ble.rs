@@ -7,6 +7,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use embassy_executor::Spawner;
+use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc};
 use embassy_stm32::tl_mbox::TlMbox;
 use embassy_time::{Duration, Timer};
@@ -20,9 +21,6 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mut ipcc = Ipcc::new(p.IPCC, config);
 
-    let config = Config::default();
-    let mut ipcc = Ipcc::new(p.IPCC, config);
-
     let rx_irq = interrupt::take!(IPCC_C1_RX);
     let tx_irq = interrupt::take!(IPCC_C1_TX);
 
@@ -31,7 +29,7 @@ async fn main(_spawner: Spawner) {
     loop {
         let wireless_fw_info = mbox.wireless_fw_info();
         match wireless_fw_info {
-            None => error!("not yet initialized"),
+            None => {}
             Some(fw_info) => {
                 let version_major = fw_info.version_major();
                 let version_minor = fw_info.version_minor();
@@ -49,7 +47,7 @@ async fn main(_spawner: Spawner) {
             }
         }
 
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after(Duration::from_millis(50)).await;
     }
 
     info!("Test OK");

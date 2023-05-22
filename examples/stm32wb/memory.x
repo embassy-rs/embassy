@@ -11,7 +11,7 @@ MEMORY
 }
 
 /* 
-    Memory size for STM32WB55xC with 512K FLASH
+    Memory size for STM32WB55xG with 512K FLASH
 
     MEMORY
     {
