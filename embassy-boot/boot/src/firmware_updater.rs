@@ -40,6 +40,7 @@ pub struct FirmwareUpdater {
     dfu: Partition,
 }
 
+#[cfg(target_os = "none")]
 impl Default for FirmwareUpdater {
     fn default() -> Self {
         extern "C" {

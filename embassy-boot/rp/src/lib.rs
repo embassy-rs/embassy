@@ -51,6 +51,7 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     }
 }
 
+#[cfg(target_os = "none")]
 impl Default for BootLoader<ERASE_SIZE> {
     /// Create a new bootloader instance using parameters from linker script
     fn default() -> Self {
