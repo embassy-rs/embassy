@@ -1,3 +1,5 @@
+//! Adapters between embedded-hal traits.
+
 mod blocking_async;
 mod yielding_async;
 
