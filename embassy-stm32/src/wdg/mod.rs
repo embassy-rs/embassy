@@ -13,13 +13,13 @@ pub struct IndependentWatchdog<'d, T: Instance> {
 const MAX_RL: u16 = 0xFFF;
 
 /// Calculates maximum watchdog timeout in us (RL = 0xFFF) for a given prescaler
-const fn max_timeout(prescaler: u16) -> u32 {
-    1_000_000 * MAX_RL as u32 / (LSI_FREQ.0 / prescaler as u32)
+const fn get_timeout_us(prescaler: u16, reload_value: u16) -> u32 {
+    1_000_000 * (reload_value + 1) as u32 / (LSI_FREQ.0 / prescaler as u32)
 }
 
 /// Calculates watchdog reload value for the given prescaler and desired timeout
 const fn reload_value(prescaler: u16, timeout_us: u32) -> u16 {
-    (timeout_us / prescaler as u32 * LSI_FREQ.0 / 1_000_000) as u16
+    (timeout_us / prescaler as u32 * LSI_FREQ.0 / 1_000_000) as u16 - 1
 }
 
 impl<'d, T: Instance> IndependentWatchdog<'d, T> {
@@ -34,7 +34,7 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         // This iterates from 4 (2^2) to 256 (2^8).
         let psc_power = unwrap!((2..=8).find(|psc_power| {
             let psc = 2u16.pow(*psc_power);
-            timeout_us <= max_timeout(psc)
+            timeout_us <= get_timeout_us(psc, MAX_RL)
         }));
 
         // Prescaler value
@@ -53,6 +53,14 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
             wdg.pr().write(|w| w.set_pr(Pr(pr)));
             wdg.rlr().write(|w| w.set_rl(rl));
         }
+
+        trace!(
+            "Watchdog configured with {}us timeout, desired was {}us (PR={}, RL={})",
+            get_timeout_us(psc, rl),
+            timeout_us,
+            pr,
+            rl
+        );
 
         IndependentWatchdog {
             wdg: PhantomData::default(),
@@ -87,3 +95,27 @@ foreach_peripheral!(
         impl Instance for crate::peripherals::$inst {}
     };
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn can_compute_timeout_us() {
+        assert_eq!(125, get_timeout_us(4, 0));
+        assert_eq!(512_000, get_timeout_us(4, MAX_RL));
+
+        assert_eq!(8_000, get_timeout_us(256, 0));
+        assert_eq!(32768_000, get_timeout_us(256, MAX_RL));
+
+        assert_eq!(8000_000, get_timeout_us(64, 3999));
+    }
+
+    #[test]
+    fn can_compute_reload_value() {
+        assert_eq!(0xFFF, reload_value(4, 512_000));
+        assert_eq!(0xFFF, reload_value(256, 32768_000));
+
+        assert_eq!(3999, reload_value(64, 8000_000));
+    }
+}
