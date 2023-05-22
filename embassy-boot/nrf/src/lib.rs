@@ -15,6 +15,7 @@ pub struct BootLoader<const BUFFER_SIZE: usize = PAGE_SIZE> {
     aligned_buf: AlignedBuffer<BUFFER_SIZE>,
 }
 
+#[cfg(target_os = "none")]
 impl Default for BootLoader<PAGE_SIZE> {
     /// Create a new bootloader instance using parameters from linker script
     fn default() -> Self {
