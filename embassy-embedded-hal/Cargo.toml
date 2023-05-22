@@ -14,10 +14,10 @@ target = "x86_64-unknown-linux-gnu"
 [features]
 std = []
 # Enable nightly-only features
-nightly = ["embedded-hal-async", "embedded-storage-async"]
+nightly = ["embassy-futures", "embedded-hal-async", "embedded-storage-async"]
 
 [dependencies]
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-futures = { version = "0.1.0", path = "../embassy-futures", optional = true }
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",

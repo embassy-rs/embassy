@@ -1,6 +1,5 @@
 //! Adapters between embedded-hal traits.
 
-use embassy_futures::yield_now;
 use embedded_hal_02::{blocking, serial};
 
 /// Wrapper that implements async traits using blocking implementations.
@@ -151,18 +150,11 @@ where
     const ERASE_SIZE: usize = <T as NorFlash>::ERASE_SIZE;
 
     async fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
-        self.wrapped.write(offset, data)?;
-        yield_now().await;
-        Ok(())
+        self.wrapped.write(offset, data)
     }
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        for from in (from..to).step_by(T::ERASE_SIZE) {
-            let to = core::cmp::min(from + T::ERASE_SIZE as u32, to);
-            self.wrapped.erase(from, to)?;
-            yield_now().await;
-        }
-        Ok(())
+        self.wrapped.erase(from, to)
     }
 }
 
@@ -177,72 +169,5 @@ where
 
     fn capacity(&self) -> usize {
         self.wrapped.capacity()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    extern crate std;
-
-    #[derive(Default)]
-    struct FakeFlash(Vec<(u32, u32)>);
-
-    impl embedded_storage::nor_flash::ErrorType for FakeFlash {
-        type Error = std::convert::Infallible;
-    }
-
-    impl embedded_storage::nor_flash::ReadNorFlash for FakeFlash {
-        const READ_SIZE: usize = 1;
-
-        fn read(&mut self, _offset: u32, _bytes: &mut [u8]) -> Result<(), Self::Error> {
-            unimplemented!()
-        }
-
-        fn capacity(&self) -> usize {
-            unimplemented!()
-        }
-    }
-
-    impl embedded_storage::nor_flash::NorFlash for FakeFlash {
-        const WRITE_SIZE: usize = 4;
-        const ERASE_SIZE: usize = 128;
-
-        fn write(&mut self, _offset: u32, _bytes: &[u8]) -> Result<(), Self::Error> {
-            unimplemented!()
-        }
-
-        fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-            self.0.push((from, to));
-            Ok(())
-        }
-    }
-
-    #[futures_test::test]
-    async fn can_erase() {
-        let fake = FakeFlash::default();
-        let mut yielding = BlockingAsync::new(fake);
-
-        yielding.erase(0, 256).await.unwrap();
-
-        let fake = yielding.wrapped;
-        assert_eq!(2, fake.0.len());
-        assert_eq!((0, 128), fake.0[0]);
-        assert_eq!((128, 256), fake.0[1]);
-    }
-
-    #[futures_test::test]
-    async fn can_erase_wrong_erase_size() {
-        let fake = FakeFlash::default();
-        let mut yielding = BlockingAsync::new(fake);
-
-        yielding.erase(0, 257).await.unwrap();
-
-        let fake = yielding.wrapped;
-        assert_eq!(3, fake.0.len());
-        assert_eq!((0, 128), fake.0[0]);
-        assert_eq!((128, 256), fake.0[1]);
-        assert_eq!((256, 257), fake.0[2]);
     }
 }
