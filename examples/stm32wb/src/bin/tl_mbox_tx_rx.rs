@@ -75,7 +75,7 @@ async fn main(_spawner: Spawner) {
     mbox.shci_ble_init(&mut ipcc, Default::default());
 
     info!("resetting BLE");
-    mbox.send_ble_cmd(&mut ipcc, &[0x01, 0x03, 0x0c]);
+    mbox.send_ble_cmd(&mut ipcc, &[0x01, 0x03, 0x0c, 0x00, 0x00]);
 
     let event_box = mbox.read().await;
 
