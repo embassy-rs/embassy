@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     let mbox = TlMbox::init(&mut ipcc, rx_irq, tx_irq);
 
     // initialize ble stack, does not return a response
-    // mbox.shci_ble_init(&mut ipcc, Default::default());
+    mbox.shci_ble_init(&mut ipcc, Default::default());
 
     info!("waiting for coprocessor to boot");
     let event_box = mbox.read().await;
