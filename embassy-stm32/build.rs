@@ -206,6 +206,7 @@ fn main() {
                 erase_size: #erase_size,
                 write_size: #write_size,
                 erase_value: #erase_value,
+                _ensure_internal: (),
             };
         });
 

@@ -19,6 +19,7 @@ pub struct FlashRegion {
     pub erase_size: u32,
     pub write_size: u32,
     pub erase_value: u8,
+    pub(crate) _ensure_internal: (),
 }
 
 #[derive(Debug, PartialEq)]
