@@ -35,6 +35,10 @@ pub struct Ipcc<'d> {
 
 impl<'d> Ipcc<'d> {
     pub fn new(peri: impl Peripheral<P = IPCC> + 'd, _config: Config) -> Self {
+        Self::new_inner(peri)
+    }
+
+    pub(crate) fn new_inner(peri: impl Peripheral<P = IPCC> + 'd) -> Self {
         into_ref!(peri);
 
         Self { _peri: peri }
@@ -157,6 +161,10 @@ impl<'d> Ipcc<'d> {
 
     pub fn is_rx_pending(&self, channel: IpccChannel) -> bool {
         self.c2_is_active_flag(channel) && self.c1_get_rx_channel(channel)
+    }
+
+    pub fn as_mut_ptr(&self) -> *mut Self {
+        unsafe { &mut core::ptr::read(self) as *mut _ }
     }
 }
 

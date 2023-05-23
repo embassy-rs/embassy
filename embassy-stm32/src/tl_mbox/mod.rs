@@ -1,20 +1,27 @@
 use core::mem::MaybeUninit;
 
 use bit_field::BitField;
+use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 
 use self::ble::Ble;
 use self::cmd::{AclDataPacket, CmdPacket};
-use self::evt::CsEvt;
+use self::evt::{CsEvt, EvtBox};
 use self::mm::MemoryManager;
+use self::shci::{shci_ble_init, ShciBleInitCmdParam};
 use self::sys::Sys;
 use self::unsafe_linked_list::LinkedListNode;
+use crate::_generated::interrupt::{IPCC_C1_RX, IPCC_C1_TX};
 use crate::ipcc::Ipcc;
 
 mod ble;
 mod channels;
 mod cmd;
+mod consts;
 mod evt;
 mod mm;
+mod shci;
 mod sys;
 mod unsafe_linked_list;
 
@@ -42,10 +49,10 @@ pub struct SafeBootInfoTable {
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-pub struct RssInfoTable {
+pub struct FusInfoTable {
     version: u32,
     memory_size: u32,
-    rss_info: u32,
+    fus_info: u32,
 }
 
 /// # Version
@@ -64,8 +71,8 @@ pub struct RssInfoTable {
 pub struct WirelessFwInfoTable {
     version: u32,
     memory_size: u32,
-    thread_info: u32,
-    ble_info: u32,
+    info_stack: u32,
+    reserved: u32,
 }
 
 impl WirelessFwInfoTable {
@@ -107,7 +114,7 @@ impl WirelessFwInfoTable {
 #[derive(Copy, Clone)]
 pub struct DeviceInfoTable {
     pub safe_boot_info_table: SafeBootInfoTable,
-    pub rss_info_table: RssInfoTable,
+    pub fus_info_table: FusInfoTable,
     pub wireless_fw_info_table: WirelessFwInfoTable,
 }
 
@@ -191,6 +198,9 @@ pub struct RefTable {
     mem_manager_table: *const MemManagerTable,
     traces_table: *const TracesTable,
     mac_802_15_4_table: *const Mac802_15_4Table,
+    zigbee_table: *const ZigbeeTable,
+    lld_tests_table: *const LldTestTable,
+    ble_lld_table: *const BleLldTable,
 }
 
 #[link_section = "TL_REF_TABLE"]
@@ -206,6 +216,12 @@ static mut TL_BLE_TABLE: MaybeUninit<BleTable> = MaybeUninit::uninit();
 static mut TL_THREAD_TABLE: MaybeUninit<ThreadTable> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM1"]
+static mut TL_LLD_TESTS_TABLE: MaybeUninit<LldTestTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+static mut TL_BLE_LLD_TABLE: MaybeUninit<BleLldTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
 static mut TL_SYS_TABLE: MaybeUninit<SysTable> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM1"]
@@ -217,16 +233,15 @@ static mut TL_TRACES_TABLE: MaybeUninit<TracesTable> = MaybeUninit::uninit();
 #[link_section = "MB_MEM1"]
 static mut TL_MAC_802_15_4_TABLE: MaybeUninit<Mac802_15_4Table> = MaybeUninit::uninit();
 
+#[link_section = "MB_MEM1"]
+static mut TL_ZIGBEE_TABLE: MaybeUninit<ZigbeeTable> = MaybeUninit::uninit();
+
 #[allow(dead_code)] // Not used currently but reserved
-#[link_section = "MB_MEM2"]
+#[link_section = "MB_MEM1"]
 static mut FREE_BUFF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 // not in shared RAM
 static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
-
-#[allow(dead_code)] // Not used currently but reserved
-#[link_section = "MB_MEM2"]
-static mut TRACES_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
@@ -259,6 +274,9 @@ static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 //                                            "magic" numbers from ST ---v---v
 static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();
 
+// TODO: get a better size, this is a placeholder
+pub(crate) static TL_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 5> = Channel::new();
+
 pub struct TlMbox {
     _sys: Sys,
     _ble: Ble,
@@ -267,7 +285,7 @@ pub struct TlMbox {
 
 impl TlMbox {
     /// initializes low-level transport between CPU1 and BLE stack on CPU2
-    pub fn init(ipcc: &mut Ipcc) -> TlMbox {
+    pub fn init(ipcc: &mut Ipcc, rx_irq: IPCC_C1_RX, tx_irq: IPCC_C1_TX) -> TlMbox {
         unsafe {
             TL_REF_TABLE = MaybeUninit::new(RefTable {
                 device_info_table: TL_DEVICE_INFO_TABLE.as_ptr(),
@@ -277,6 +295,9 @@ impl TlMbox {
                 mem_manager_table: TL_MEM_MANAGER_TABLE.as_ptr(),
                 traces_table: TL_TRACES_TABLE.as_ptr(),
                 mac_802_15_4_table: TL_MAC_802_15_4_TABLE.as_ptr(),
+                zigbee_table: TL_ZIGBEE_TABLE.as_ptr(),
+                lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
+                ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
 
             TL_SYS_TABLE = MaybeUninit::zeroed();
@@ -286,6 +307,9 @@ impl TlMbox {
             TL_MEM_MANAGER_TABLE = MaybeUninit::zeroed();
             TL_TRACES_TABLE = MaybeUninit::zeroed();
             TL_MAC_802_15_4_TABLE = MaybeUninit::zeroed();
+            TL_ZIGBEE_TABLE = MaybeUninit::zeroed();
+            TL_LLD_TESTS_TABLE = MaybeUninit::zeroed();
+            TL_BLE_LLD_TABLE = MaybeUninit::zeroed();
 
             EVT_POOL = MaybeUninit::zeroed();
             SYS_SPARE_EVT_BUF = MaybeUninit::zeroed();
@@ -302,6 +326,24 @@ impl TlMbox {
         let _ble = Ble::new(ipcc);
         let _mm = MemoryManager::new();
 
+        rx_irq.disable();
+        tx_irq.disable();
+
+        rx_irq.set_handler_context(ipcc.as_mut_ptr() as *mut ());
+        tx_irq.set_handler_context(ipcc.as_mut_ptr() as *mut ());
+
+        rx_irq.set_handler(|ipcc| {
+            let ipcc: &mut Ipcc = unsafe { &mut *ipcc.cast() };
+            Self::interrupt_ipcc_rx_handler(ipcc);
+        });
+        tx_irq.set_handler(|ipcc| {
+            let ipcc: &mut Ipcc = unsafe { &mut *ipcc.cast() };
+            Self::interrupt_ipcc_tx_handler(ipcc);
+        });
+
+        rx_irq.enable();
+        tx_irq.enable();
+
         TlMbox { _sys, _ble, _mm }
     }
 
@@ -313,6 +355,43 @@ impl TlMbox {
             Some(*info)
         } else {
             None
+        }
+    }
+
+    pub fn shci_ble_init(&self, ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
+        shci_ble_init(ipcc, param);
+    }
+
+    pub fn send_ble_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
+        ble::Ble::send_cmd(ipcc, buf);
+    }
+
+    // pub fn send_sys_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
+    //     sys::Sys::send_cmd(ipcc, buf);
+    // }
+
+    pub async fn read(&self) -> EvtBox {
+        TL_CHANNEL.recv().await
+    }
+
+    fn interrupt_ipcc_rx_handler(ipcc: &mut Ipcc) {
+        if ipcc.is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
+            sys::Sys::evt_handler(ipcc);
+        } else if ipcc.is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
+            ble::Ble::evt_handler(ipcc);
+        } else {
+            todo!()
+        }
+    }
+
+    fn interrupt_ipcc_tx_handler(ipcc: &mut Ipcc) {
+        if ipcc.is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
+            // TODO: handle this case
+            let _ = sys::Sys::cmd_evt_handler(ipcc);
+        } else if ipcc.is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
+            mm::MemoryManager::evt_handler(ipcc);
+        } else {
+            todo!()
         }
     }
 }

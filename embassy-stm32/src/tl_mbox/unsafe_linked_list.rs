@@ -29,95 +29,97 @@ impl Default for LinkedListNode {
     }
 }
 
-pub unsafe fn LST_init_head(mut listHead: *mut LinkedListNode) {
-    (*listHead).next = listHead;
-    (*listHead).prev = listHead;
-}
+impl LinkedListNode {
+    pub unsafe fn init_head(mut list_head: *mut LinkedListNode) {
+        (*list_head).next = list_head;
+        (*list_head).prev = list_head;
+    }
 
-pub unsafe fn LST_is_empty(mut listHead: *mut LinkedListNode) -> bool {
-    interrupt::free(|_| ((*listHead).next) == listHead)
-}
+    pub unsafe fn is_empty(mut list_head: *mut LinkedListNode) -> bool {
+        interrupt::free(|_| ((*list_head).next) == list_head)
+    }
 
-pub unsafe fn LST_insert_head(mut listHead: *mut LinkedListNode, mut node: *mut LinkedListNode) {
-    interrupt::free(|_| {
-        (*node).next = (*listHead).next;
-        (*node).prev = listHead;
-        (*listHead).next = node;
-        (*(*node).next).prev = node;
-    });
-}
+    pub unsafe fn insert_head(mut list_head: *mut LinkedListNode, mut node: *mut LinkedListNode) {
+        interrupt::free(|_| {
+            (*node).next = (*list_head).next;
+            (*node).prev = list_head;
+            (*list_head).next = node;
+            (*(*node).next).prev = node;
+        });
+    }
 
-pub unsafe fn LST_insert_tail(mut listHead: *mut LinkedListNode, mut node: *mut LinkedListNode) {
-    interrupt::free(|_| {
-        (*node).next = listHead;
-        (*node).prev = (*listHead).prev;
-        (*listHead).prev = node;
-        (*(*node).prev).next = node;
-    });
-}
+    pub unsafe fn insert_tail(mut list_head: *mut LinkedListNode, mut node: *mut LinkedListNode) {
+        interrupt::free(|_| {
+            (*node).next = list_head;
+            (*node).prev = (*list_head).prev;
+            (*list_head).prev = node;
+            (*(*node).prev).next = node;
+        });
+    }
 
-pub unsafe fn LST_remove_node(mut node: *mut LinkedListNode) {
-    interrupt::free(|_| {
-        (*(*node).prev).next = (*node).next;
-        (*(*node).next).prev = (*node).prev;
-    });
-}
+    pub unsafe fn remove_node(mut node: *mut LinkedListNode) {
+        interrupt::free(|_| {
+            (*(*node).prev).next = (*node).next;
+            (*(*node).next).prev = (*node).prev;
+        });
+    }
 
-pub unsafe fn LST_remove_head(mut listHead: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
-    interrupt::free(|_| {
-        *node = (*listHead).next;
-        LST_remove_node((*listHead).next);
-    });
-}
+    pub unsafe fn remove_head(mut list_head: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
+        interrupt::free(|_| {
+            *node = (*list_head).next;
+            Self::remove_node((*list_head).next);
+        });
+    }
 
-pub unsafe fn LST_remove_tail(mut listHead: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
-    interrupt::free(|_| {
-        *node = (*listHead).prev;
-        LST_remove_node((*listHead).prev);
-    });
-}
+    pub unsafe fn remove_tail(mut list_head: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
+        interrupt::free(|_| {
+            *node = (*list_head).prev;
+            Self::remove_node((*list_head).prev);
+        });
+    }
 
-pub unsafe fn LST_insert_node_after(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
-    interrupt::free(|_| {
-        (*node).next = (*ref_node).next;
-        (*node).prev = ref_node;
-        (*ref_node).next = node;
-        (*(*node).next).prev = node;
-    });
-}
+    pub unsafe fn insert_node_after(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
+        interrupt::free(|_| {
+            (*node).next = (*ref_node).next;
+            (*node).prev = ref_node;
+            (*ref_node).next = node;
+            (*(*node).next).prev = node;
+        });
+    }
 
-pub unsafe fn LST_insert_node_before(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
-    interrupt::free(|_| {
-        (*node).next = ref_node;
-        (*node).prev = (*ref_node).prev;
-        (*ref_node).prev = node;
-        (*(*node).prev).next = node;
-    });
-}
+    pub unsafe fn insert_node_before(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
+        interrupt::free(|_| {
+            (*node).next = ref_node;
+            (*node).prev = (*ref_node).prev;
+            (*ref_node).prev = node;
+            (*(*node).prev).next = node;
+        });
+    }
 
-pub unsafe fn LST_get_size(mut listHead: *mut LinkedListNode) -> usize {
-    interrupt::free(|_| {
-        let mut size = 0;
-        let mut temp: *mut LinkedListNode = core::ptr::null_mut::<LinkedListNode>();
+    pub unsafe fn get_size(mut list_head: *mut LinkedListNode) -> usize {
+        interrupt::free(|_| {
+            let mut size = 0;
+            let mut temp: *mut LinkedListNode = core::ptr::null_mut::<LinkedListNode>();
 
-        temp = (*listHead).next;
-        while temp != listHead {
-            size += 1;
-            temp = (*temp).next
-        }
+            temp = (*list_head).next;
+            while temp != list_head {
+                size += 1;
+                temp = (*temp).next
+            }
 
-        size
-    })
-}
+            size
+        })
+    }
 
-pub unsafe fn LST_get_next_node(mut ref_node: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
-    interrupt::free(|_| {
-        *node = (*ref_node).next;
-    });
-}
+    pub unsafe fn get_next_node(mut ref_node: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
+        interrupt::free(|_| {
+            *node = (*ref_node).next;
+        });
+    }
 
-pub unsafe fn LST_get_prev_node(mut ref_node: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
-    interrupt::free(|_| {
-        *node = (*ref_node).prev;
-    });
+    pub unsafe fn get_prev_node(mut ref_node: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
+        interrupt::free(|_| {
+            *node = (*ref_node).prev;
+        });
+    }
 }
