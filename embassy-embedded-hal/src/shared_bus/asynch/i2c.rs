@@ -84,9 +84,7 @@ where
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
     ) -> Result<(), I2cDeviceError<BUS::Error>> {
-        defmt::info!("lock");
         let mut bus = self.bus.lock().await;
-        defmt::info!("transact");
         bus.transaction(address, operations)
             .await
             .map_err(I2cDeviceError::I2c)?;
