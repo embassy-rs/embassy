@@ -17,6 +17,7 @@ impl<'d> Flash<'d> {
     }
 
     pub fn into_regions(self) -> FlashLayout<'d> {
+        family::set_default_layout();
         FlashLayout::new(self.release())
     }
 

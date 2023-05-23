@@ -79,18 +79,19 @@ mod alt_regions {
         }
     }
 
-    impl Drop for AltFlashLayout<'_> {
-        fn drop(&mut self) {
-            unsafe {
-                super::lock();
-                crate::pac::FLASH.optcr().modify(|r| r.set_db1m(false))
-            };
-        }
     }
 }
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub use alt_regions::{AltFlashLayout, ALT_FLASH_REGIONS};
+
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+pub fn set_default_layout() {
+    unsafe { crate::pac::FLASH.optcr().modify(|r| r.set_db1m(false)) };
+}
+
+#[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
+pub const fn set_default_layout() {}
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
