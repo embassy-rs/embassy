@@ -84,9 +84,13 @@ where
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
     ) -> Result<(), I2cDeviceError<BUS::Error>> {
-        let _ = address;
-        let _ = operations;
-        todo!()
+        defmt::info!("lock");
+        let mut bus = self.bus.lock().await;
+        defmt::info!("transact");
+        bus.transaction(address, operations)
+            .await
+            .map_err(I2cDeviceError::I2c)?;
+        Ok(())
     }
 }
 
@@ -150,8 +154,11 @@ where
     }
 
     async fn transaction(&mut self, address: u8, operations: &mut [i2c::Operation<'_>]) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
+        let mut bus = self.bus.lock().await;
+        bus.set_config(&self.config);
+        bus.transaction(address, operations)
+            .await
+            .map_err(I2cDeviceError::I2c)?;
+        Ok(())
     }
 }
