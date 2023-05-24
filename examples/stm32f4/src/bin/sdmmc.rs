@@ -6,12 +6,16 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::{DataBlock, Sdmmc};
 use embassy_stm32::time::mhz;
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, peripherals, sdmmc, Config};
 use {defmt_rtt as _, panic_probe as _};
 
 /// This is a safeguard to not overwrite any data on the SD card.
 /// If you don't care about SD card contents, set this to `true` to test writes.
 const ALLOW_WRITES: bool = false;
+
+bind_interrupts!(struct Irqs {
+    SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -21,11 +25,9 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let irq = interrupt::take!(SDIO);
-
     let mut sdmmc = Sdmmc::new_4bit(
         p.SDIO,
-        irq,
+        Irqs,
         p.DMA2_CH3,
         p.PC12,
         p.PD2,

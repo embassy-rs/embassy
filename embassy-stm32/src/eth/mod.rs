@@ -11,7 +11,7 @@ use core::task::Context;
 use embassy_net_driver::{Capabilities, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
 
-pub use self::_version::*;
+pub use self::_version::{InterruptHandler, *};
 
 #[allow(unused)]
 const MTU: usize = 1514;

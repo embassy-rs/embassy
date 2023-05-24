@@ -4,13 +4,14 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::{mem, ptr};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
+use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
 use embassy_time::TICK_HZ;
 use stm32_metapac::timer::regs;
 
-use crate::interrupt::{CriticalSection, InterruptExt};
+use crate::interrupt::InterruptExt;
 use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};

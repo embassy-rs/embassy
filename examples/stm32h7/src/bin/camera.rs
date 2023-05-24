@@ -8,7 +8,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
 use embassy_stm32::time::{khz, mhz};
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
 use embassy_time::{Duration, Timer};
 use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};
@@ -17,6 +17,11 @@ const WIDTH: usize = 100;
 const HEIGHT: usize = 100;
 
 static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
+
+bind_interrupts!(struct Irqs {
+    I2C1_EV => i2c::InterruptHandler<peripherals::I2C1>;
+    DCMI => dcmi::InterruptHandler<peripherals::DCMI>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -34,12 +39,11 @@ async fn main(_spawner: Spawner) {
     let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::Divided(3));
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
-    let i2c_irq = interrupt::take!(I2C1_EV);
     let cam_i2c = I2c::new(
         p.I2C1,
         p.PB8,
         p.PB9,
-        i2c_irq,
+        Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
         khz(100),
@@ -55,11 +59,9 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("manufacturer: 0x{:x}, pid: 0x{:x}", manufacturer_id, camera_id);
 
-    let dcmi_irq = interrupt::take!(DCMI);
     let config = dcmi::Config::default();
     let mut dcmi = Dcmi::new_8bit(
-        p.DCMI, p.DMA1_CH0, dcmi_irq, p.PC6, p.PC7, p.PE0, p.PE1, p.PE4, p.PD3, p.PE5, p.PE6, p.PB7, p.PA4, p.PA6,
-        config,
+        p.DCMI, p.DMA1_CH0, Irqs, p.PC6, p.PC7, p.PE0, p.PE1, p.PE4, p.PD3, p.PE5, p.PE6, p.PB7, p.PA4, p.PA6, config,
     );
 
     defmt::info!("attempting capture");

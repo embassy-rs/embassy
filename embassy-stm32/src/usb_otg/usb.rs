@@ -4,7 +4,7 @@ use core::task::Poll;
 
 use atomic_polyfill::{AtomicBool, AtomicU16, Ordering};
 use embassy_cortex_m::interrupt::InterruptExt;
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_common::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
     self, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
@@ -14,490 +14,18 @@ use futures::future::poll_fn;
 
 use super::*;
 use crate::gpio::sealed::AFType;
+use crate::interrupt;
 use crate::pac::otg::{regs, vals};
 use crate::rcc::sealed::RccPeripheral;
 use crate::time::Hertz;
 
-macro_rules! config_ulpi_pins {
-    ($($pin:ident),*) => {
-        into_ref!($($pin),*);
-        // NOTE(unsafe) Exclusive access to the registers
-        critical_section::with(|_| unsafe {
-            $(
-                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                #[cfg(gpio_v2)]
-                $pin.set_speed(crate::gpio::Speed::VeryHigh);
-            )*
-        })
-    };
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
 }
 
-// From `synopsys-usb-otg` crate:
-// This calculation doesn't correspond to one in a Reference Manual.
-// In fact, the required number of words is higher than indicated in RM.
-// The following numbers are pessimistic and were figured out empirically.
-const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
-
-/// USB PHY type
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PhyType {
-    /// Internal Full-Speed PHY
-    ///
-    /// Available on most High-Speed peripherals.
-    InternalFullSpeed,
-    /// Internal High-Speed PHY
-    ///
-    /// Available on a few STM32 chips.
-    InternalHighSpeed,
-    /// External ULPI High-Speed PHY
-    ExternalHighSpeed,
-}
-
-impl PhyType {
-    pub fn internal(&self) -> bool {
-        match self {
-            PhyType::InternalFullSpeed | PhyType::InternalHighSpeed => true,
-            PhyType::ExternalHighSpeed => false,
-        }
-    }
-
-    pub fn high_speed(&self) -> bool {
-        match self {
-            PhyType::InternalFullSpeed => false,
-            PhyType::ExternalHighSpeed | PhyType::InternalHighSpeed => true,
-        }
-    }
-
-    pub fn to_dspd(&self) -> vals::Dspd {
-        match self {
-            PhyType::InternalFullSpeed => vals::Dspd::FULL_SPEED_INTERNAL,
-            PhyType::InternalHighSpeed => vals::Dspd::HIGH_SPEED,
-            PhyType::ExternalHighSpeed => vals::Dspd::HIGH_SPEED,
-        }
-    }
-}
-
-/// Indicates that [State::ep_out_buffers] is empty.
-const EP_OUT_BUFFER_EMPTY: u16 = u16::MAX;
-
-pub struct State<const EP_COUNT: usize> {
-    /// Holds received SETUP packets. Available if [State::ep0_setup_ready] is true.
-    ep0_setup_data: UnsafeCell<[u8; 8]>,
-    ep0_setup_ready: AtomicBool,
-    ep_in_wakers: [AtomicWaker; EP_COUNT],
-    ep_out_wakers: [AtomicWaker; EP_COUNT],
-    /// RX FIFO is shared so extra buffers are needed to dequeue all data without waiting on each endpoint.
-    /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
-    ep_out_buffers: [UnsafeCell<*mut u8>; EP_COUNT],
-    ep_out_size: [AtomicU16; EP_COUNT],
-    bus_waker: AtomicWaker,
-}
-
-unsafe impl<const EP_COUNT: usize> Send for State<EP_COUNT> {}
-unsafe impl<const EP_COUNT: usize> Sync for State<EP_COUNT> {}
-
-impl<const EP_COUNT: usize> State<EP_COUNT> {
-    pub const fn new() -> Self {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
-        const NEW_BUF: UnsafeCell<*mut u8> = UnsafeCell::new(0 as _);
-        const NEW_SIZE: AtomicU16 = AtomicU16::new(EP_OUT_BUFFER_EMPTY);
-
-        Self {
-            ep0_setup_data: UnsafeCell::new([0u8; 8]),
-            ep0_setup_ready: AtomicBool::new(false),
-            ep_in_wakers: [NEW_AW; EP_COUNT],
-            ep_out_wakers: [NEW_AW; EP_COUNT],
-            ep_out_buffers: [NEW_BUF; EP_COUNT],
-            ep_out_size: [NEW_SIZE; EP_COUNT],
-            bus_waker: NEW_AW,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct EndpointData {
-    ep_type: EndpointType,
-    max_packet_size: u16,
-    fifo_size_words: u16,
-}
-
-pub struct Driver<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-    irq: PeripheralRef<'d, T::Interrupt>,
-    ep_in: [Option<EndpointData>; MAX_EP_COUNT],
-    ep_out: [Option<EndpointData>; MAX_EP_COUNT],
-    ep_out_buffer: &'d mut [u8],
-    ep_out_buffer_offset: usize,
-    phy_type: PhyType,
-}
-
-impl<'d, T: Instance> Driver<'d, T> {
-    /// Initializes USB OTG peripheral with internal Full-Speed PHY.
-    ///
-    /// # Arguments
-    ///
-    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
-    /// Must be large enough to fit all OUT endpoint max packet sizes.
-    /// Endpoint allocation will fail if it is too small.
-    pub fn new_fs(
-        _peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
-        ep_out_buffer: &'d mut [u8],
-    ) -> Self {
-        into_ref!(dp, dm, irq);
-
-        unsafe {
-            dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
-            dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
-        }
-
-        Self {
-            phantom: PhantomData,
-            irq,
-            ep_in: [None; MAX_EP_COUNT],
-            ep_out: [None; MAX_EP_COUNT],
-            ep_out_buffer,
-            ep_out_buffer_offset: 0,
-            phy_type: PhyType::InternalFullSpeed,
-        }
-    }
-
-    /// Initializes USB OTG peripheral with external High-Speed PHY.
-    ///
-    /// # Arguments
-    ///
-    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
-    /// Must be large enough to fit all OUT endpoint max packet sizes.
-    /// Endpoint allocation will fail if it is too small.
-    pub fn new_hs_ulpi(
-        _peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
-        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
-        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
-        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
-        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
-        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
-        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
-        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
-        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
-        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
-        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
-        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
-        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
-        ep_out_buffer: &'d mut [u8],
-    ) -> Self {
-        assert!(T::HIGH_SPEED == true, "Peripheral is not capable of high-speed USB");
-
-        config_ulpi_pins!(
-            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6,
-            ulpi_d7
-        );
-
-        into_ref!(irq);
-
-        Self {
-            phantom: PhantomData,
-            irq,
-            ep_in: [None; MAX_EP_COUNT],
-            ep_out: [None; MAX_EP_COUNT],
-            ep_out_buffer,
-            ep_out_buffer_offset: 0,
-            phy_type: PhyType::ExternalHighSpeed,
-        }
-    }
-
-    // Returns total amount of words (u32) allocated in dedicated FIFO
-    fn allocated_fifo_words(&self) -> u16 {
-        RX_FIFO_EXTRA_SIZE_WORDS + ep_fifo_size(&self.ep_out) + ep_fifo_size(&self.ep_in)
-    }
-
-    fn alloc_endpoint<D: Dir>(
-        &mut self,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Endpoint<'d, T, D>, EndpointAllocError> {
-        trace!(
-            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
-            ep_type,
-            max_packet_size,
-            interval_ms,
-            D::dir()
-        );
-
-        if D::dir() == Direction::Out {
-            if self.ep_out_buffer_offset + max_packet_size as usize >= self.ep_out_buffer.len() {
-                error!("Not enough endpoint out buffer capacity");
-                return Err(EndpointAllocError);
-            }
-        };
-
-        let fifo_size_words = match D::dir() {
-            Direction::Out => (max_packet_size + 3) / 4,
-            // INEPTXFD requires minimum size of 16 words
-            Direction::In => u16::max((max_packet_size + 3) / 4, 16),
-        };
-
-        if fifo_size_words + self.allocated_fifo_words() > T::FIFO_DEPTH_WORDS {
-            error!("Not enough FIFO capacity");
-            return Err(EndpointAllocError);
-        }
-
-        let eps = match D::dir() {
-            Direction::Out => &mut self.ep_out,
-            Direction::In => &mut self.ep_in,
-        };
-
-        // Find free endpoint slot
-        let slot = eps.iter_mut().enumerate().find(|(i, ep)| {
-            if *i == 0 && ep_type != EndpointType::Control {
-                // reserved for control pipe
-                false
-            } else {
-                ep.is_none()
-            }
-        });
-
-        let index = match slot {
-            Some((index, ep)) => {
-                *ep = Some(EndpointData {
-                    ep_type,
-                    max_packet_size,
-                    fifo_size_words,
-                });
-                index
-            }
-            None => {
-                error!("No free endpoints available");
-                return Err(EndpointAllocError);
-            }
-        };
-
-        trace!("  index={}", index);
-
-        if D::dir() == Direction::Out {
-            // Buffer capacity check was done above, now allocation cannot fail
-            unsafe {
-                *T::state().ep_out_buffers[index].get() =
-                    self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
-            }
-            self.ep_out_buffer_offset += max_packet_size as usize;
-        }
-
-        Ok(Endpoint {
-            _phantom: PhantomData,
-            info: EndpointInfo {
-                addr: EndpointAddress::from_parts(index, D::dir()),
-                ep_type,
-                max_packet_size,
-                interval_ms,
-            },
-        })
-    }
-}
-
-impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
-    type EndpointOut = Endpoint<'d, T, Out>;
-    type EndpointIn = Endpoint<'d, T, In>;
-    type ControlPipe = ControlPipe<'d, T>;
-    type Bus = Bus<'d, T>;
-
-    fn alloc_endpoint_in(
-        &mut self,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
-    }
-
-    fn alloc_endpoint_out(
-        &mut self,
-        ep_type: EndpointType,
-        max_packet_size: u16,
-        interval_ms: u8,
-    ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
-    }
-
-    fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
-        let ep_out = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
-            .unwrap();
-        let ep_in = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
-            .unwrap();
-        assert_eq!(ep_out.info.addr.index(), 0);
-        assert_eq!(ep_in.info.addr.index(), 0);
-
-        trace!("start");
-
-        (
-            Bus {
-                phantom: PhantomData,
-                irq: self.irq,
-                ep_in: self.ep_in,
-                ep_out: self.ep_out,
-                phy_type: self.phy_type,
-                enabled: false,
-            },
-            ControlPipe {
-                _phantom: PhantomData,
-                max_packet_size: control_max_packet_size,
-                ep_out,
-                ep_in,
-            },
-        )
-    }
-}
-
-pub struct Bus<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
-    irq: PeripheralRef<'d, T::Interrupt>,
-    ep_in: [Option<EndpointData>; MAX_EP_COUNT],
-    ep_out: [Option<EndpointData>; MAX_EP_COUNT],
-    phy_type: PhyType,
-    enabled: bool,
-}
-
-impl<'d, T: Instance> Bus<'d, T> {
-    fn restore_irqs() {
-        // SAFETY: atomic write
-        unsafe {
-            T::regs().gintmsk().write(|w| {
-                w.set_usbrst(true);
-                w.set_enumdnem(true);
-                w.set_usbsuspm(true);
-                w.set_wuim(true);
-                w.set_iepint(true);
-                w.set_oepint(true);
-                w.set_rxflvlm(true);
-            });
-        }
-    }
-}
-
-impl<'d, T: Instance> Bus<'d, T> {
-    fn init_fifo(&mut self) {
-        trace!("init_fifo");
-
-        let r = T::regs();
-
-        // Configure RX fifo size. All endpoints share the same FIFO area.
-        let rx_fifo_size_words = RX_FIFO_EXTRA_SIZE_WORDS + ep_fifo_size(&self.ep_out);
-        trace!("configuring rx fifo size={}", rx_fifo_size_words);
-
-        // SAFETY: register is exclusive to `Bus` with `&mut self`
-        unsafe { r.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words)) };
-
-        // Configure TX (USB in direction) fifo size for each endpoint
-        let mut fifo_top = rx_fifo_size_words;
-        for i in 0..T::ENDPOINT_COUNT {
-            if let Some(ep) = self.ep_in[i] {
-                trace!(
-                    "configuring tx fifo ep={}, offset={}, size={}",
-                    i,
-                    fifo_top,
-                    ep.fifo_size_words
-                );
-
-                let dieptxf = if i == 0 { r.dieptxf0() } else { r.dieptxf(i - 1) };
-
-                // SAFETY: register is exclusive to `Bus` with `&mut self`
-                unsafe {
-                    dieptxf.write(|w| {
-                        w.set_fd(ep.fifo_size_words);
-                        w.set_sa(fifo_top);
-                    });
-                }
-
-                fifo_top += ep.fifo_size_words;
-            }
-        }
-
-        assert!(
-            fifo_top <= T::FIFO_DEPTH_WORDS,
-            "FIFO allocations exceeded maximum capacity"
-        );
-    }
-
-    fn configure_endpoints(&mut self) {
-        trace!("configure_endpoints");
-
-        let r = T::regs();
-
-        // Configure IN endpoints
-        for (index, ep) in self.ep_in.iter().enumerate() {
-            if let Some(ep) = ep {
-                // SAFETY: DIEPCTL is shared with `Endpoint` so critical section is needed for RMW
-                critical_section::with(|_| unsafe {
-                    r.diepctl(index).write(|w| {
-                        if index == 0 {
-                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
-                        } else {
-                            w.set_mpsiz(ep.max_packet_size);
-                            w.set_eptyp(to_eptyp(ep.ep_type));
-                            w.set_sd0pid_sevnfrm(true);
-                        }
-                    });
-                });
-            }
-        }
-
-        // Configure OUT endpoints
-        for (index, ep) in self.ep_out.iter().enumerate() {
-            if let Some(ep) = ep {
-                // SAFETY: DOEPCTL/DOEPTSIZ is shared with `Endpoint` so critical section is needed for RMW
-                critical_section::with(|_| unsafe {
-                    r.doepctl(index).write(|w| {
-                        if index == 0 {
-                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
-                        } else {
-                            w.set_mpsiz(ep.max_packet_size);
-                            w.set_eptyp(to_eptyp(ep.ep_type));
-                            w.set_sd0pid_sevnfrm(true);
-                        }
-                    });
-
-                    r.doeptsiz(index).modify(|w| {
-                        w.set_xfrsiz(ep.max_packet_size as _);
-                        if index == 0 {
-                            w.set_rxdpid_stupcnt(1);
-                        } else {
-                            w.set_pktcnt(1);
-                        }
-                    });
-                });
-            }
-        }
-
-        // Enable IRQs for allocated endpoints
-        // SAFETY: register is exclusive to `Bus` with `&mut self`
-        unsafe {
-            r.daintmsk().modify(|w| {
-                w.set_iepm(ep_irq_mask(&self.ep_in));
-                // OUT interrupts not used, handled in RXFLVL
-                // w.set_oepm(ep_irq_mask(&self.ep_out));
-            });
-        }
-    }
-
-    fn disable(&mut self) {
-        self.irq.disable();
-        self.irq.remove_handler();
-
-        <T as RccPeripheral>::disable();
-
-        #[cfg(stm32l4)]
-        unsafe {
-            crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
-            // Cannot disable PWR, because other peripherals might be using it
-        }
-    }
-
-    fn on_interrupt(_: *mut ()) {
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
         trace!("irq");
         let r = T::regs();
         let state = T::state();
@@ -638,6 +166,478 @@ impl<'d, T: Instance> Bus<'d, T> {
         //         ep_num += 1;
         //     }
         // }
+    }
+}
+
+macro_rules! config_ulpi_pins {
+    ($($pin:ident),*) => {
+        into_ref!($($pin),*);
+        // NOTE(unsafe) Exclusive access to the registers
+        critical_section::with(|_| unsafe {
+            $(
+                $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
+                #[cfg(gpio_v2)]
+                $pin.set_speed(crate::gpio::Speed::VeryHigh);
+            )*
+        })
+    };
+}
+
+// From `synopsys-usb-otg` crate:
+// This calculation doesn't correspond to one in a Reference Manual.
+// In fact, the required number of words is higher than indicated in RM.
+// The following numbers are pessimistic and were figured out empirically.
+const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
+
+/// USB PHY type
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PhyType {
+    /// Internal Full-Speed PHY
+    ///
+    /// Available on most High-Speed peripherals.
+    InternalFullSpeed,
+    /// Internal High-Speed PHY
+    ///
+    /// Available on a few STM32 chips.
+    InternalHighSpeed,
+    /// External ULPI High-Speed PHY
+    ExternalHighSpeed,
+}
+
+impl PhyType {
+    pub fn internal(&self) -> bool {
+        match self {
+            PhyType::InternalFullSpeed | PhyType::InternalHighSpeed => true,
+            PhyType::ExternalHighSpeed => false,
+        }
+    }
+
+    pub fn high_speed(&self) -> bool {
+        match self {
+            PhyType::InternalFullSpeed => false,
+            PhyType::ExternalHighSpeed | PhyType::InternalHighSpeed => true,
+        }
+    }
+
+    pub fn to_dspd(&self) -> vals::Dspd {
+        match self {
+            PhyType::InternalFullSpeed => vals::Dspd::FULL_SPEED_INTERNAL,
+            PhyType::InternalHighSpeed => vals::Dspd::HIGH_SPEED,
+            PhyType::ExternalHighSpeed => vals::Dspd::HIGH_SPEED,
+        }
+    }
+}
+
+/// Indicates that [State::ep_out_buffers] is empty.
+const EP_OUT_BUFFER_EMPTY: u16 = u16::MAX;
+
+pub struct State<const EP_COUNT: usize> {
+    /// Holds received SETUP packets. Available if [State::ep0_setup_ready] is true.
+    ep0_setup_data: UnsafeCell<[u8; 8]>,
+    ep0_setup_ready: AtomicBool,
+    ep_in_wakers: [AtomicWaker; EP_COUNT],
+    ep_out_wakers: [AtomicWaker; EP_COUNT],
+    /// RX FIFO is shared so extra buffers are needed to dequeue all data without waiting on each endpoint.
+    /// Buffers are ready when associated [State::ep_out_size] != [EP_OUT_BUFFER_EMPTY].
+    ep_out_buffers: [UnsafeCell<*mut u8>; EP_COUNT],
+    ep_out_size: [AtomicU16; EP_COUNT],
+    bus_waker: AtomicWaker,
+}
+
+unsafe impl<const EP_COUNT: usize> Send for State<EP_COUNT> {}
+unsafe impl<const EP_COUNT: usize> Sync for State<EP_COUNT> {}
+
+impl<const EP_COUNT: usize> State<EP_COUNT> {
+    pub const fn new() -> Self {
+        const NEW_AW: AtomicWaker = AtomicWaker::new();
+        const NEW_BUF: UnsafeCell<*mut u8> = UnsafeCell::new(0 as _);
+        const NEW_SIZE: AtomicU16 = AtomicU16::new(EP_OUT_BUFFER_EMPTY);
+
+        Self {
+            ep0_setup_data: UnsafeCell::new([0u8; 8]),
+            ep0_setup_ready: AtomicBool::new(false),
+            ep_in_wakers: [NEW_AW; EP_COUNT],
+            ep_out_wakers: [NEW_AW; EP_COUNT],
+            ep_out_buffers: [NEW_BUF; EP_COUNT],
+            ep_out_size: [NEW_SIZE; EP_COUNT],
+            bus_waker: NEW_AW,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EndpointData {
+    ep_type: EndpointType,
+    max_packet_size: u16,
+    fifo_size_words: u16,
+}
+
+pub struct Driver<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
+    ep_in: [Option<EndpointData>; MAX_EP_COUNT],
+    ep_out: [Option<EndpointData>; MAX_EP_COUNT],
+    ep_out_buffer: &'d mut [u8],
+    ep_out_buffer_offset: usize,
+    phy_type: PhyType,
+}
+
+impl<'d, T: Instance> Driver<'d, T> {
+    /// Initializes USB OTG peripheral with internal Full-Speed PHY.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_fs(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
+        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+    ) -> Self {
+        into_ref!(dp, dm);
+
+        unsafe {
+            dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
+            dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
+        }
+
+        Self {
+            phantom: PhantomData,
+            ep_in: [None; MAX_EP_COUNT],
+            ep_out: [None; MAX_EP_COUNT],
+            ep_out_buffer,
+            ep_out_buffer_offset: 0,
+            phy_type: PhyType::InternalFullSpeed,
+        }
+    }
+
+    /// Initializes USB OTG peripheral with external High-Speed PHY.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store recevied packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_hs_ulpi(
+        _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
+        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
+        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
+        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
+        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
+        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
+        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
+        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
+        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
+        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
+        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
+        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+    ) -> Self {
+        assert!(T::HIGH_SPEED == true, "Peripheral is not capable of high-speed USB");
+
+        config_ulpi_pins!(
+            ulpi_clk, ulpi_dir, ulpi_nxt, ulpi_stp, ulpi_d0, ulpi_d1, ulpi_d2, ulpi_d3, ulpi_d4, ulpi_d5, ulpi_d6,
+            ulpi_d7
+        );
+
+        Self {
+            phantom: PhantomData,
+            ep_in: [None; MAX_EP_COUNT],
+            ep_out: [None; MAX_EP_COUNT],
+            ep_out_buffer,
+            ep_out_buffer_offset: 0,
+            phy_type: PhyType::ExternalHighSpeed,
+        }
+    }
+
+    // Returns total amount of words (u32) allocated in dedicated FIFO
+    fn allocated_fifo_words(&self) -> u16 {
+        RX_FIFO_EXTRA_SIZE_WORDS + ep_fifo_size(&self.ep_out) + ep_fifo_size(&self.ep_in)
+    }
+
+    fn alloc_endpoint<D: Dir>(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> Result<Endpoint<'d, T, D>, EndpointAllocError> {
+        trace!(
+            "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
+            ep_type,
+            max_packet_size,
+            interval_ms,
+            D::dir()
+        );
+
+        if D::dir() == Direction::Out {
+            if self.ep_out_buffer_offset + max_packet_size as usize >= self.ep_out_buffer.len() {
+                error!("Not enough endpoint out buffer capacity");
+                return Err(EndpointAllocError);
+            }
+        };
+
+        let fifo_size_words = match D::dir() {
+            Direction::Out => (max_packet_size + 3) / 4,
+            // INEPTXFD requires minimum size of 16 words
+            Direction::In => u16::max((max_packet_size + 3) / 4, 16),
+        };
+
+        if fifo_size_words + self.allocated_fifo_words() > T::FIFO_DEPTH_WORDS {
+            error!("Not enough FIFO capacity");
+            return Err(EndpointAllocError);
+        }
+
+        let eps = match D::dir() {
+            Direction::Out => &mut self.ep_out,
+            Direction::In => &mut self.ep_in,
+        };
+
+        // Find free endpoint slot
+        let slot = eps.iter_mut().enumerate().find(|(i, ep)| {
+            if *i == 0 && ep_type != EndpointType::Control {
+                // reserved for control pipe
+                false
+            } else {
+                ep.is_none()
+            }
+        });
+
+        let index = match slot {
+            Some((index, ep)) => {
+                *ep = Some(EndpointData {
+                    ep_type,
+                    max_packet_size,
+                    fifo_size_words,
+                });
+                index
+            }
+            None => {
+                error!("No free endpoints available");
+                return Err(EndpointAllocError);
+            }
+        };
+
+        trace!("  index={}", index);
+
+        if D::dir() == Direction::Out {
+            // Buffer capacity check was done above, now allocation cannot fail
+            unsafe {
+                *T::state().ep_out_buffers[index].get() =
+                    self.ep_out_buffer.as_mut_ptr().offset(self.ep_out_buffer_offset as _);
+            }
+            self.ep_out_buffer_offset += max_packet_size as usize;
+        }
+
+        Ok(Endpoint {
+            _phantom: PhantomData,
+            info: EndpointInfo {
+                addr: EndpointAddress::from_parts(index, D::dir()),
+                ep_type,
+                max_packet_size,
+                interval_ms,
+            },
+        })
+    }
+}
+
+impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
+    type EndpointOut = Endpoint<'d, T, Out>;
+    type EndpointIn = Endpoint<'d, T, In>;
+    type ControlPipe = ControlPipe<'d, T>;
+    type Bus = Bus<'d, T>;
+
+    fn alloc_endpoint_in(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> Result<Self::EndpointIn, EndpointAllocError> {
+        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+    }
+
+    fn alloc_endpoint_out(
+        &mut self,
+        ep_type: EndpointType,
+        max_packet_size: u16,
+        interval_ms: u8,
+    ) -> Result<Self::EndpointOut, EndpointAllocError> {
+        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+    }
+
+    fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+        let ep_out = self
+            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+            .unwrap();
+        let ep_in = self
+            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+            .unwrap();
+        assert_eq!(ep_out.info.addr.index(), 0);
+        assert_eq!(ep_in.info.addr.index(), 0);
+
+        trace!("start");
+
+        (
+            Bus {
+                phantom: PhantomData,
+                ep_in: self.ep_in,
+                ep_out: self.ep_out,
+                phy_type: self.phy_type,
+                enabled: false,
+            },
+            ControlPipe {
+                _phantom: PhantomData,
+                max_packet_size: control_max_packet_size,
+                ep_out,
+                ep_in,
+            },
+        )
+    }
+}
+
+pub struct Bus<'d, T: Instance> {
+    phantom: PhantomData<&'d mut T>,
+    ep_in: [Option<EndpointData>; MAX_EP_COUNT],
+    ep_out: [Option<EndpointData>; MAX_EP_COUNT],
+    phy_type: PhyType,
+    enabled: bool,
+}
+
+impl<'d, T: Instance> Bus<'d, T> {
+    fn restore_irqs() {
+        // SAFETY: atomic write
+        unsafe {
+            T::regs().gintmsk().write(|w| {
+                w.set_usbrst(true);
+                w.set_enumdnem(true);
+                w.set_usbsuspm(true);
+                w.set_wuim(true);
+                w.set_iepint(true);
+                w.set_oepint(true);
+                w.set_rxflvlm(true);
+            });
+        }
+    }
+}
+
+impl<'d, T: Instance> Bus<'d, T> {
+    fn init_fifo(&mut self) {
+        trace!("init_fifo");
+
+        let r = T::regs();
+
+        // Configure RX fifo size. All endpoints share the same FIFO area.
+        let rx_fifo_size_words = RX_FIFO_EXTRA_SIZE_WORDS + ep_fifo_size(&self.ep_out);
+        trace!("configuring rx fifo size={}", rx_fifo_size_words);
+
+        // SAFETY: register is exclusive to `Bus` with `&mut self`
+        unsafe { r.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words)) };
+
+        // Configure TX (USB in direction) fifo size for each endpoint
+        let mut fifo_top = rx_fifo_size_words;
+        for i in 0..T::ENDPOINT_COUNT {
+            if let Some(ep) = self.ep_in[i] {
+                trace!(
+                    "configuring tx fifo ep={}, offset={}, size={}",
+                    i,
+                    fifo_top,
+                    ep.fifo_size_words
+                );
+
+                let dieptxf = if i == 0 { r.dieptxf0() } else { r.dieptxf(i - 1) };
+
+                // SAFETY: register is exclusive to `Bus` with `&mut self`
+                unsafe {
+                    dieptxf.write(|w| {
+                        w.set_fd(ep.fifo_size_words);
+                        w.set_sa(fifo_top);
+                    });
+                }
+
+                fifo_top += ep.fifo_size_words;
+            }
+        }
+
+        assert!(
+            fifo_top <= T::FIFO_DEPTH_WORDS,
+            "FIFO allocations exceeded maximum capacity"
+        );
+    }
+
+    fn configure_endpoints(&mut self) {
+        trace!("configure_endpoints");
+
+        let r = T::regs();
+
+        // Configure IN endpoints
+        for (index, ep) in self.ep_in.iter().enumerate() {
+            if let Some(ep) = ep {
+                // SAFETY: DIEPCTL is shared with `Endpoint` so critical section is needed for RMW
+                critical_section::with(|_| unsafe {
+                    r.diepctl(index).write(|w| {
+                        if index == 0 {
+                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
+                        } else {
+                            w.set_mpsiz(ep.max_packet_size);
+                            w.set_eptyp(to_eptyp(ep.ep_type));
+                            w.set_sd0pid_sevnfrm(true);
+                        }
+                    });
+                });
+            }
+        }
+
+        // Configure OUT endpoints
+        for (index, ep) in self.ep_out.iter().enumerate() {
+            if let Some(ep) = ep {
+                // SAFETY: DOEPCTL/DOEPTSIZ is shared with `Endpoint` so critical section is needed for RMW
+                critical_section::with(|_| unsafe {
+                    r.doepctl(index).write(|w| {
+                        if index == 0 {
+                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
+                        } else {
+                            w.set_mpsiz(ep.max_packet_size);
+                            w.set_eptyp(to_eptyp(ep.ep_type));
+                            w.set_sd0pid_sevnfrm(true);
+                        }
+                    });
+
+                    r.doeptsiz(index).modify(|w| {
+                        w.set_xfrsiz(ep.max_packet_size as _);
+                        if index == 0 {
+                            w.set_rxdpid_stupcnt(1);
+                        } else {
+                            w.set_pktcnt(1);
+                        }
+                    });
+                });
+            }
+        }
+
+        // Enable IRQs for allocated endpoints
+        // SAFETY: register is exclusive to `Bus` with `&mut self`
+        unsafe {
+            r.daintmsk().modify(|w| {
+                w.set_iepm(ep_irq_mask(&self.ep_in));
+                // OUT interrupts not used, handled in RXFLVL
+                // w.set_oepm(ep_irq_mask(&self.ep_out));
+            });
+        }
+    }
+
+    fn disable(&mut self) {
+        unsafe { T::Interrupt::steal() }.disable();
+
+        <T as RccPeripheral>::disable();
+
+        #[cfg(stm32l4)]
+        unsafe {
+            crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
+            // Cannot disable PWR, because other peripherals might be using it
+        }
     }
 }
 
@@ -902,9 +902,8 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
             <T as RccPeripheral>::enable();
             <T as RccPeripheral>::reset();
 
-            self.irq.set_handler(Self::on_interrupt);
-            self.irq.unpend();
-            self.irq.enable();
+            T::Interrupt::steal().unpend();
+            T::Interrupt::steal().enable();
 
             let r = T::regs();
             let core_id = r.cid().read().0;

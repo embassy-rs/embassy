@@ -7,12 +7,16 @@ use embassy_executor::Spawner;
 use embassy_stm32::rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllSource, Sysclk, VoltageScale};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{interrupt, pac, Config};
+use embassy_stm32::{bind_interrupts, pac, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -48,8 +52,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USB_DRD_FS);
-    let driver = Driver::new(p.USB, irq, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

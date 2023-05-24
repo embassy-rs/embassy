@@ -1,4 +1,5 @@
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
@@ -8,7 +9,31 @@ use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::interrupt::{Interrupt, InterruptExt};
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let ris = crate::pac::DCMI.ris().read();
+        if ris.err_ris() {
+            trace!("DCMI IRQ: Error.");
+            crate::pac::DCMI.ier().modify(|ier| ier.set_err_ie(false));
+        }
+        if ris.ovr_ris() {
+            trace!("DCMI IRQ: Overrun.");
+            crate::pac::DCMI.ier().modify(|ier| ier.set_ovr_ie(false));
+        }
+        if ris.frame_ris() {
+            trace!("DCMI IRQ: Frame captured.");
+            crate::pac::DCMI.ier().modify(|ier| ier.set_frame_ie(false));
+        }
+        STATE.waker.wake();
+    }
+}
 
 /// The level on the VSync pin when the data is not valid on the parallel interface.
 #[derive(Clone, Copy, PartialEq)]
@@ -94,7 +119,7 @@ where
     pub fn new_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -108,17 +133,17 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, irq, config, false, 0b00)
+        Self::new_inner(peri, dma, config, false, 0b00)
     }
 
     pub fn new_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -134,17 +159,17 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, irq, config, false, 0b01)
+        Self::new_inner(peri, dma, config, false, 0b01)
     }
 
     pub fn new_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -162,17 +187,17 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, irq, config, false, 0b10)
+        Self::new_inner(peri, dma, config, false, 0b10)
     }
 
     pub fn new_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -192,17 +217,17 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, irq, config, false, 0b11)
+        Self::new_inner(peri, dma, config, false, 0b11)
     }
 
     pub fn new_es_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -214,17 +239,17 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, irq, config, true, 0b00)
+        Self::new_inner(peri, dma, config, true, 0b00)
     }
 
     pub fn new_es_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -238,17 +263,17 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, irq, config, true, 0b01)
+        Self::new_inner(peri, dma, config, true, 0b01)
     }
 
     pub fn new_es_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -264,17 +289,17 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, irq, config, true, 0b10)
+        Self::new_inner(peri, dma, config, true, 0b10)
     }
 
     pub fn new_es_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -292,17 +317,16 @@ where
         pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma, irq);
+        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, irq, config, true, 0b11)
+        Self::new_inner(peri, dma, config, true, 0b11)
     }
 
     fn new_inner(
         peri: PeripheralRef<'d, T>,
         dma: PeripheralRef<'d, Dma>,
-        irq: PeripheralRef<'d, T::Interrupt>,
         config: Config,
         use_embedded_synchronization: bool,
         edm: u8,
@@ -322,28 +346,10 @@ where
             });
         }
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         Self { inner: peri, dma }
-    }
-
-    unsafe fn on_interrupt(_: *mut ()) {
-        let ris = crate::pac::DCMI.ris().read();
-        if ris.err_ris() {
-            trace!("DCMI IRQ: Error.");
-            crate::pac::DCMI.ier().modify(|ier| ier.set_err_ie(false));
-        }
-        if ris.ovr_ris() {
-            trace!("DCMI IRQ: Overrun.");
-            crate::pac::DCMI.ier().modify(|ier| ier.set_ovr_ie(false));
-        }
-        if ris.frame_ris() {
-            trace!("DCMI IRQ: Frame captured.");
-            crate::pac::DCMI.ier().modify(|ier| ier.set_frame_ie(false));
-        }
-        STATE.waker.wake();
     }
 
     unsafe fn toggle(enable: bool) {

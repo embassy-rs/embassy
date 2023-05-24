@@ -5,7 +5,7 @@ mod tx_desc;
 
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
 
@@ -19,7 +19,30 @@ use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
 use crate::pac::{ETH, RCC};
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
+
+/// Interrupt handler.
+pub struct InterruptHandler {}
+
+impl interrupt::Handler<interrupt::ETH> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        WAKER.wake();
+
+        // TODO: Check and clear more flags
+        unsafe {
+            let dma = ETH.ethernet_dma();
+
+            dma.dmasr().modify(|w| {
+                w.set_ts(true);
+                w.set_rs(true);
+                w.set_nis(true);
+            });
+            // Delay two peripheral's clock
+            dma.dmasr().read();
+            dma.dmasr().read();
+        }
+    }
+}
 
 pub struct Ethernet<'d, T: Instance, P: PHY> {
     _peri: PeripheralRef<'d, T>,
@@ -77,7 +100,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: impl Peripheral<P = T> + 'd,
-        interrupt: impl Peripheral<P = crate::interrupt::ETH> + 'd,
+        _irq: impl interrupt::Binding<interrupt::ETH, InterruptHandler> + 'd,
         ref_clk: impl Peripheral<P = impl RefClkPin<T>> + 'd,
         mdio: impl Peripheral<P = impl MDIOPin<T>> + 'd,
         mdc: impl Peripheral<P = impl MDCPin<T>> + 'd,
@@ -91,7 +114,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         mac_addr: [u8; 6],
         phy_addr: u8,
     ) -> Self {
-        into_ref!(peri, interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+        into_ref!(peri, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         unsafe {
             // Enable the necessary Clocks
@@ -244,28 +267,10 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             P::phy_reset(&mut this);
             P::phy_init(&mut this);
 
-            interrupt.set_handler(Self::on_interrupt);
-            interrupt.enable();
+            interrupt::ETH::steal().unpend();
+            interrupt::ETH::steal().enable();
 
             this
-        }
-    }
-
-    fn on_interrupt(_cx: *mut ()) {
-        WAKER.wake();
-
-        // TODO: Check and clear more flags
-        unsafe {
-            let dma = ETH.ethernet_dma();
-
-            dma.dmasr().modify(|w| {
-                w.set_ts(true);
-                w.set_rs(true);
-                w.set_nis(true);
-            });
-            // Delay two peripheral's clock
-            dma.dmasr().read();
-            dma.dmasr().read();
         }
     }
 }

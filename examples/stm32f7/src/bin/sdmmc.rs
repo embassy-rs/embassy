@@ -6,8 +6,12 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, peripherals, sdmmc, Config};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -18,11 +22,9 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let irq = interrupt::take!(SDMMC1);
-
     let mut sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
-        irq,
+        Irqs,
         p.DMA2_CH3,
         p.PC12,
         p.PD2,

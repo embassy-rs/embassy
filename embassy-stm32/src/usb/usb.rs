@@ -14,12 +14,99 @@ use embassy_usb_driver::{
 
 use super::{DmPin, DpPin, Instance};
 use crate::gpio::sealed::AFType;
-use crate::interrupt::InterruptExt;
+use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
 use crate::rcc::sealed::RccPeripheral;
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        unsafe {
+            let regs = T::regs();
+            //let x = regs.istr().read().0;
+            //trace!("USB IRQ: {:08x}", x);
+
+            let istr = regs.istr().read();
+
+            if istr.susp() {
+                //trace!("USB IRQ: susp");
+                IRQ_SUSPEND.store(true, Ordering::Relaxed);
+                regs.cntr().modify(|w| {
+                    w.set_fsusp(true);
+                    w.set_lpmode(true);
+                });
+
+                // Write 0 to clear.
+                let mut clear = regs::Istr(!0);
+                clear.set_susp(false);
+                regs.istr().write_value(clear);
+
+                // Wake main thread.
+                BUS_WAKER.wake();
+            }
+
+            if istr.wkup() {
+                //trace!("USB IRQ: wkup");
+                IRQ_RESUME.store(true, Ordering::Relaxed);
+                regs.cntr().modify(|w| {
+                    w.set_fsusp(false);
+                    w.set_lpmode(false);
+                });
+
+                // Write 0 to clear.
+                let mut clear = regs::Istr(!0);
+                clear.set_wkup(false);
+                regs.istr().write_value(clear);
+
+                // Wake main thread.
+                BUS_WAKER.wake();
+            }
+
+            if istr.reset() {
+                //trace!("USB IRQ: reset");
+                IRQ_RESET.store(true, Ordering::Relaxed);
+
+                // Write 0 to clear.
+                let mut clear = regs::Istr(!0);
+                clear.set_reset(false);
+                regs.istr().write_value(clear);
+
+                // Wake main thread.
+                BUS_WAKER.wake();
+            }
+
+            if istr.ctr() {
+                let index = istr.ep_id() as usize;
+                let mut epr = regs.epr(index).read();
+                if epr.ctr_rx() {
+                    if index == 0 && epr.setup() {
+                        EP0_SETUP.store(true, Ordering::Relaxed);
+                    }
+                    //trace!("EP {} RX, setup={}", index, epr.setup());
+                    EP_OUT_WAKERS[index].wake();
+                }
+                if epr.ctr_tx() {
+                    //trace!("EP {} TX", index);
+                    EP_IN_WAKERS[index].wake();
+                }
+                epr.set_dtog_rx(false);
+                epr.set_dtog_tx(false);
+                epr.set_stat_rx(Stat(0));
+                epr.set_stat_tx(Stat(0));
+                epr.set_ctr_rx(!epr.ctr_rx());
+                epr.set_ctr_tx(!epr.ctr_tx());
+                regs.epr(index).write_value(epr);
+            }
+        }
+    }
+}
 
 const EP_COUNT: usize = 8;
 
@@ -168,14 +255,13 @@ pub struct Driver<'d, T: Instance> {
 impl<'d, T: Instance> Driver<'d, T> {
     pub fn new(
         _usb: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
-        into_ref!(irq, dp, dm);
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        into_ref!(dp, dm);
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         let regs = T::regs();
 
@@ -222,86 +308,6 @@ impl<'d, T: Instance> Driver<'d, T> {
                 used_out: false,
             }; EP_COUNT],
             ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
-        }
-    }
-
-    fn on_interrupt(_: *mut ()) {
-        unsafe {
-            let regs = T::regs();
-            //let x = regs.istr().read().0;
-            //trace!("USB IRQ: {:08x}", x);
-
-            let istr = regs.istr().read();
-
-            if istr.susp() {
-                //trace!("USB IRQ: susp");
-                IRQ_SUSPEND.store(true, Ordering::Relaxed);
-                regs.cntr().modify(|w| {
-                    w.set_fsusp(true);
-                    w.set_lpmode(true);
-                });
-
-                // Write 0 to clear.
-                let mut clear = regs::Istr(!0);
-                clear.set_susp(false);
-                regs.istr().write_value(clear);
-
-                // Wake main thread.
-                BUS_WAKER.wake();
-            }
-
-            if istr.wkup() {
-                //trace!("USB IRQ: wkup");
-                IRQ_RESUME.store(true, Ordering::Relaxed);
-                regs.cntr().modify(|w| {
-                    w.set_fsusp(false);
-                    w.set_lpmode(false);
-                });
-
-                // Write 0 to clear.
-                let mut clear = regs::Istr(!0);
-                clear.set_wkup(false);
-                regs.istr().write_value(clear);
-
-                // Wake main thread.
-                BUS_WAKER.wake();
-            }
-
-            if istr.reset() {
-                //trace!("USB IRQ: reset");
-                IRQ_RESET.store(true, Ordering::Relaxed);
-
-                // Write 0 to clear.
-                let mut clear = regs::Istr(!0);
-                clear.set_reset(false);
-                regs.istr().write_value(clear);
-
-                // Wake main thread.
-                BUS_WAKER.wake();
-            }
-
-            if istr.ctr() {
-                let index = istr.ep_id() as usize;
-                let mut epr = regs.epr(index).read();
-                if epr.ctr_rx() {
-                    if index == 0 && epr.setup() {
-                        EP0_SETUP.store(true, Ordering::Relaxed);
-                    }
-                    //trace!("EP {} RX, setup={}", index, epr.setup());
-                    EP_OUT_WAKERS[index].wake();
-                }
-                if epr.ctr_tx() {
-                    //trace!("EP {} TX", index);
-                    EP_IN_WAKERS[index].wake();
-                }
-                epr.set_dtog_rx(false);
-                epr.set_dtog_tx(false);
-                epr.set_stat_rx(Stat(0));
-                epr.set_stat_tx(Stat(0));
-                epr.set_ctr_rx(!epr.ctr_rx());
-                epr.set_ctr_tx(!epr.ctr_tx());
-                regs.epr(index).write_value(epr);
-            }
         }
     }
 

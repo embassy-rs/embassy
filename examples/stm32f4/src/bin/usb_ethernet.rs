@@ -9,7 +9,7 @@ use embassy_net::{Stack, StackResources};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
@@ -45,6 +45,10 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
     stack.run().await
 }
 
+bind_interrupts!(struct Irqs {
+    OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+});
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
@@ -56,9 +60,8 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(OTG_FS);
     let ep_out_buffer = &mut singleton!([0; 256])[..];
-    let driver = Driver::new_fs(p.USB_OTG_FS, irq, p.PA12, p.PA11, ep_out_buffer);
+    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, ep_out_buffer);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

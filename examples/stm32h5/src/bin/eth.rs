@@ -12,7 +12,7 @@ use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllSource, Sysclk, VoltageScale};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, eth, Config};
 use embassy_time::{Duration, Timer};
 use embedded_io::asynch::Write;
 use rand_core::RngCore;
@@ -27,6 +27,10 @@ macro_rules! singleton {
         x
     }};
 }
+
+bind_interrupts!(struct Irqs {
+    ETH => eth::InterruptHandler;
+});
 
 type Device = Ethernet<'static, ETH, GenericSMI>;
 
@@ -67,13 +71,12 @@ async fn main(spawner: Spawner) -> ! {
     rng.fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);
 
-    let eth_int = interrupt::take!(ETH);
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
     let device = Ethernet::new(
         singleton!(PacketQueue::<4, 4>::new()),
         p.ETH,
-        eth_int,
+        Irqs,
         p.PA1,
         p.PA2,
         p.PC1,
