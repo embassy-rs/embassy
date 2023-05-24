@@ -14,27 +14,27 @@ async fn main(_spawner: Spawner) {
 
     const ADDR: u32 = 0x26000;
 
-    let mut f = unsafe { Flash::new(p.FLASH, interrupt::take!(FLASH)).into_regions().bank1_region.into_blocking() };
+    let mut f = Flash::new(p.FLASH, interrupt::take!(FLASH)).into_blocking_regions().bank1_region;
 
     info!("Reading...");
     let mut buf = [0u8; 8];
-    unwrap!(f.read(ADDR, &mut buf));
+    unwrap!(f.read_blocking(ADDR, &mut buf));
     info!("Read: {=[u8]:x}", buf);
 
     info!("Erasing...");
-    unwrap!(f.erase(ADDR, ADDR + 256));
+    unwrap!(f.erase_blocking(ADDR, ADDR + 256));
 
     info!("Reading...");
     let mut buf = [0u8; 8];
-    unwrap!(f.read(ADDR, &mut buf));
+    unwrap!(f.read_blocking(ADDR, &mut buf));
     info!("Read after erase: {=[u8]:x}", buf);
 
     info!("Writing...");
-    unwrap!(f.write(ADDR, &[1, 2, 3, 4, 5, 6, 7, 8]));
+    unwrap!(f.write_blocking(ADDR, &[1, 2, 3, 4, 5, 6, 7, 8]));
 
     info!("Reading...");
     let mut buf = [0u8; 8];
-    unwrap!(f.read(ADDR, &mut buf));
+    unwrap!(f.read_blocking(ADDR, &mut buf));
     info!("Read: {=[u8]:x}", buf);
     assert_eq!(&buf[..], &[1, 2, 3, 4, 5, 6, 7, 8]);
 }
