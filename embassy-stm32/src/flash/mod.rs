@@ -83,7 +83,6 @@ pub enum Error {
     Protected,
     Unaligned,
     Parallelism,
-    TryLockError,
 }
 
 impl NorFlashError for Error {
