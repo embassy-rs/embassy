@@ -14,6 +14,9 @@ pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
 
 pub const READ_SIZE: usize = 1;
 
+pub struct Blocking;
+pub struct Async;
+
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashRegion {

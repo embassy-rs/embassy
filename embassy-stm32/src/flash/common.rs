@@ -1,14 +1,12 @@
 use atomic_polyfill::{fence, Ordering};
 use embassy_cortex_m::interrupt::InterruptExt;
-use embassy_futures::block_on;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
 use stm32_metapac::FLASH_BASE;
 
 use super::{
-    family, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
+    family, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE, READ_SIZE,
+    WRITE_SIZE,
 };
 use crate::peripherals::FLASH;
 use crate::Peripheral;
@@ -16,8 +14,6 @@ use crate::Peripheral;
 pub struct Flash<'d> {
     pub(crate) inner: PeripheralRef<'d, FLASH>,
 }
-
-pub(crate) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 impl<'d> Flash<'d> {
     pub fn new(p: impl Peripheral<P = FLASH> + 'd, irq: impl Peripheral<P = crate::interrupt::FLASH> + 'd) -> Self {
@@ -30,7 +26,7 @@ impl<'d> Flash<'d> {
         Self { inner: p }
     }
 
-    pub fn into_regions(self) -> FlashLayout<'d> {
+    pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
         family::set_default_layout();
         FlashLayout::new(self.inner)
     }
@@ -40,11 +36,19 @@ impl<'d> Flash<'d> {
     }
 
     pub fn write_blocking(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        unsafe { write_chunked_blocking(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes) }
+        unsafe {
+            write_blocking(
+                FLASH_BASE as u32,
+                FLASH_SIZE as u32,
+                offset,
+                bytes,
+                write_chunk_unlocked,
+            )
+        }
     }
 
     pub fn erase_blocking(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        unsafe { erase_sectored_blocking(FLASH_BASE as u32, from, to) }
+        unsafe { erase_blocking(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
     }
 }
 
@@ -59,7 +63,13 @@ pub(super) fn read_blocking(base: u32, size: u32, offset: u32, bytes: &mut [u8])
     Ok(())
 }
 
-pub(super) unsafe fn write_chunked_blocking(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+pub(super) unsafe fn write_blocking(
+    base: u32,
+    size: u32,
+    offset: u32,
+    bytes: &[u8],
+    write_chunk: unsafe fn(u32, &[u8]) -> Result<(), Error>,
+) -> Result<(), Error> {
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
@@ -71,26 +81,39 @@ pub(super) unsafe fn write_chunked_blocking(base: u32, size: u32, offset: u32, b
     trace!("Writing {} bytes at 0x{:x}", bytes.len(), address);
 
     for chunk in bytes.chunks(WRITE_SIZE) {
-        family::clear_all_err();
-        fence(Ordering::SeqCst);
-        family::unlock();
-        fence(Ordering::SeqCst);
-        family::enable_blocking_write();
-        fence(Ordering::SeqCst);
-
-        let _on_drop = OnDrop::new(|| {
-            family::disable_blocking_write();
-            fence(Ordering::SeqCst);
-            family::lock();
-        });
-
-        family::write_blocking(address, chunk.try_into().unwrap())?;
+        write_chunk(address, chunk)?;
         address += WRITE_SIZE as u32;
     }
     Ok(())
 }
 
-pub(super) unsafe fn erase_sectored_blocking(base: u32, from: u32, to: u32) -> Result<(), Error> {
+pub(super) unsafe fn write_chunk_unlocked(address: u32, chunk: &[u8]) -> Result<(), Error> {
+    family::clear_all_err();
+    fence(Ordering::SeqCst);
+    family::unlock();
+    fence(Ordering::SeqCst);
+    family::enable_blocking_write();
+    fence(Ordering::SeqCst);
+
+    let _on_drop = OnDrop::new(|| {
+        family::disable_blocking_write();
+        fence(Ordering::SeqCst);
+        family::lock();
+    });
+
+    family::write_blocking(address, chunk.try_into().unwrap())
+}
+
+pub(super) unsafe fn write_chunk_with_critical_section(address: u32, chunk: &[u8]) -> Result<(), Error> {
+    critical_section::with(|_| write_chunk_unlocked(address, chunk))
+}
+
+pub(super) unsafe fn erase_blocking(
+    base: u32,
+    from: u32,
+    to: u32,
+    erase_sector: unsafe fn(&FlashSector) -> Result<(), Error>,
+) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
     let regions = family::get_flash_regions();
@@ -103,21 +126,28 @@ pub(super) unsafe fn erase_sectored_blocking(base: u32, from: u32, to: u32) -> R
     while address < end_address {
         let sector = get_sector(address, regions);
         trace!("Erasing sector: {:?}", sector);
-
-        family::clear_all_err();
-        fence(Ordering::SeqCst);
-        family::unlock();
-        fence(Ordering::SeqCst);
-
-        let _on_drop = OnDrop::new(|| family::lock());
-
-        family::erase_sector_blocking(&sector)?;
+        erase_sector(&sector)?;
         address += sector.size;
     }
     Ok(())
 }
 
-pub(crate) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector {
+pub(super) unsafe fn erase_sector_unlocked(sector: &FlashSector) -> Result<(), Error> {
+    family::clear_all_err();
+    fence(Ordering::SeqCst);
+    family::unlock();
+    fence(Ordering::SeqCst);
+
+    let _on_drop = OnDrop::new(|| family::lock());
+
+    family::erase_sector_blocking(&sector)
+}
+
+pub(super) unsafe fn erase_sector_with_critical_section(sector: &FlashSector) -> Result<(), Error> {
+    critical_section::with(|_| erase_sector_unlocked(sector))
+}
+
+pub(super) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector {
     let mut current_bank = FlashBank::Bank1;
     let mut bank_offset = 0;
     for region in regions {
@@ -142,7 +172,7 @@ pub(crate) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector 
     panic!("Flash sector not found");
 }
 
-pub(crate) fn ensure_sector_aligned(
+pub(super) fn ensure_sector_aligned(
     start_address: u32,
     end_address: u32,
     regions: &[&FlashRegion],
@@ -190,120 +220,48 @@ impl embedded_storage::nor_flash::NorFlash for Flash<'_> {
     }
 }
 
-#[cfg(feature = "nightly")]
-impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_> {
-    const READ_SIZE: usize = READ_SIZE;
-
-    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(offset, bytes)
-    }
-
-    fn capacity(&self) -> usize {
-        FLASH_SIZE
-    }
-}
-
-pub struct BlockingFlashRegion<'d, const WRITE_SIZE: u32, const ERASE_SIZE: u32>(
-    &'static FlashRegion,
-    PeripheralRef<'d, FLASH>,
-);
-
-impl<const WRITE_SIZE: u32, const ERASE_SIZE: u32> BlockingFlashRegion<'_, WRITE_SIZE, ERASE_SIZE> {
-    pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        read_blocking(self.0.base, self.0.size, offset, bytes)
-    }
-
-    pub fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        let _guard = block_on(REGION_ACCESS.lock());
-        unsafe { write_chunked_blocking(self.0.base, self.0.size, offset, bytes) }
-    }
-
-    pub fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        let _guard = block_on(REGION_ACCESS.lock());
-        unsafe { erase_sectored_blocking(self.0.base, from, to) }
-    }
-}
-
-impl<const WRITE_SIZE: u32, const ERASE_SIZE: u32> embedded_storage::nor_flash::ErrorType
-    for BlockingFlashRegion<'_, WRITE_SIZE, ERASE_SIZE>
-{
-    type Error = Error;
-}
-
-impl<const WRITE_SIZE: u32, const ERASE_SIZE: u32> embedded_storage::nor_flash::ReadNorFlash
-    for BlockingFlashRegion<'_, WRITE_SIZE, ERASE_SIZE>
-{
-    const READ_SIZE: usize = READ_SIZE;
-
-    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(offset, bytes)
-    }
-
-    fn capacity(&self) -> usize {
-        self.0.size as usize
-    }
-}
-
-impl<const WRITE_SIZE: u32, const ERASE_SIZE: u32> embedded_storage::nor_flash::NorFlash
-    for BlockingFlashRegion<'_, WRITE_SIZE, ERASE_SIZE>
-{
-    const WRITE_SIZE: usize = WRITE_SIZE as usize;
-    const ERASE_SIZE: usize = ERASE_SIZE as usize;
-
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.write(offset, bytes)
-    }
-
-    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.erase(from, to)
-    }
-}
-
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
-        paste::paste! {
-            pub type [<Blocking $type_name>]<'d> = BlockingFlashRegion<'d, $write_size, $erase_size>;
-        }
-
-        impl<'d> crate::_generated::flash_regions::$type_name<'d> {
-            /// Make this flash region work in a blocking context.
-            ///
-            /// SAFETY
-            ///
-            /// This function is unsafe as incorect usage of parallel blocking operations
-            /// on multiple regions may cause a deadlock because each region requires mutual access to the flash.
-            pub unsafe fn into_blocking(self) -> BlockingFlashRegion<'d, $write_size, $erase_size> {
-                BlockingFlashRegion(self.0, self.1)
-            }
-
-            pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+        impl<'d> crate::_generated::flash_regions::$type_name<'d, Blocking> {
+            pub fn read_blocking(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 read_blocking(self.0.base, self.0.size, offset, bytes)
             }
 
-            pub fn try_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-                let _guard = REGION_ACCESS.try_lock().map_err(|_| Error::TryLockError)?;
-                unsafe { write_chunked_blocking(self.0.base, self.0.size, offset, bytes) }
+            pub fn write_blocking(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+                unsafe { write_blocking(self.0.base, self.0.size, offset, bytes, write_chunk_with_critical_section) }
             }
 
-            pub fn try_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-                let _guard = REGION_ACCESS.try_lock().map_err(|_| Error::TryLockError)?;
-                unsafe { erase_sectored_blocking(self.0.base, from, to) }
+            pub fn erase_blocking(&mut self, from: u32, to: u32) -> Result<(), Error> {
+                unsafe { erase_blocking(self.0.base, from, to, erase_sector_with_critical_section) }
             }
         }
 
-        impl embedded_storage::nor_flash::ErrorType for crate::_generated::flash_regions::$type_name<'_> {
+        impl<MODE> embedded_storage::nor_flash::ErrorType for crate::_generated::flash_regions::$type_name<'_, MODE> {
             type Error = Error;
         }
 
-        impl embedded_storage::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_> {
+        impl embedded_storage::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Blocking> {
             const READ_SIZE: usize = READ_SIZE;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                self.read(offset, bytes)
+                self.read_blocking(offset, bytes)
             }
 
             fn capacity(&self) -> usize {
                 self.0.size as usize
+            }
+        }
+
+        impl embedded_storage::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name<'_, Blocking> {
+            const WRITE_SIZE: usize = $write_size;
+            const ERASE_SIZE: usize = $erase_size;
+
+            fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+                self.write_blocking(offset, bytes)
+            }
+
+            fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+                self.erase_blocking(from, to)
             }
         }
     };
