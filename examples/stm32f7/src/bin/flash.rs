@@ -4,9 +4,8 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::flash::Flash;
+use embassy_stm32::{flash::Flash, interrupt};
 use embassy_time::{Duration, Timer};
-use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -19,7 +18,7 @@ async fn main(_spawner: Spawner) {
     // wait a bit before accessing the flash
     Timer::after(Duration::from_millis(300)).await;
 
-    let mut f = Flash::new(p.FLASH).into_regions().bank1_region3;
+    let mut f = unsafe { Flash::new(p.FLASH, interrupt::take!(FLASH)).into_regions().bank1_region3.into_blocking() };
 
     info!("Reading...");
     let mut buf = [0u8; 32];
