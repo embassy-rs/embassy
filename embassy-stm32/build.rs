@@ -213,7 +213,7 @@ fn main() {
         let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct #region_type<'d, MODE>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
+            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
         });
     }
 
@@ -238,7 +238,7 @@ fn main() {
     let regions_len = flash_memory_regions.len();
     flash_regions.extend(quote! {
         #[cfg(flash)]
-        pub struct FlashLayout<'d, MODE> {
+        pub struct FlashLayout<'d, MODE = crate::flash::Async> {
             #(#fields),*,
             _mode: core::marker::PhantomData<MODE>,
         }
