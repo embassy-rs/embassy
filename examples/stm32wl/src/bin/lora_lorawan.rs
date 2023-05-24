@@ -7,12 +7,12 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_lora::iv::Stm32wlInterfaceVariant;
+use embassy_lora::iv::{InterruptHandler, Stm32wlInterfaceVariant};
 use embassy_lora::LoraTimer;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
-use embassy_stm32::{interrupt, into_ref, pac, Peripheral};
+use embassy_stm32::{bind_interrupts, pac};
 use embassy_time::Delay;
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
@@ -23,6 +23,10 @@ use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
 
 const LORAWAN_REGION: region::Region = region::Region::EU868; // warning: set this appropriately for the region
+
+bind_interrupts!(struct Irqs{
+    SUBGHZ_RADIO => InterruptHandler;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -35,13 +39,11 @@ async fn main(_spawner: Spawner) {
 
     let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2);
 
-    let irq = interrupt::take!(SUBGHZ_RADIO);
-    into_ref!(irq);
     // Set CTRL1 and CTRL3 for high-power transmission, while CTRL2 acts as an RF switch between tx and rx
     let _ctrl1 = Output::new(p.PC4.degrade(), Level::Low, Speed::High);
     let ctrl2 = Output::new(p.PC5.degrade(), Level::High, Speed::High);
     let _ctrl3 = Output::new(p.PC3.degrade(), Level::High, Speed::High);
-    let iv = Stm32wlInterfaceVariant::new(irq, None, Some(ctrl2)).unwrap();
+    let iv = Stm32wlInterfaceVariant::new(Irqs, None, Some(ctrl2)).unwrap();
 
     let mut delay = Delay;
 
