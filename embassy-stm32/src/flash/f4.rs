@@ -54,12 +54,12 @@ mod alt_regions {
         &ALT_BANK2_REGION3,
     ];
 
-    pub struct AltBank1Region3<'d, MODE>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
-    pub struct AltBank2Region1<'d, MODE>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
-    pub struct AltBank2Region2<'d, MODE>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
-    pub struct AltBank2Region3<'d, MODE>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank1Region3<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank2Region1<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank2Region2<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
+    pub struct AltBank2Region3<'d, MODE = Async>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>, PhantomData<MODE>);
 
-    pub struct AltFlashLayout<'d, MODE> {
+    pub struct AltFlashLayout<'d, MODE = Async> {
         pub bank1_region1: Bank1Region1<'d, MODE>,
         pub bank1_region2: Bank1Region2<'d, MODE>,
         pub bank1_region3: AltBank1Region3<'d, MODE>,
