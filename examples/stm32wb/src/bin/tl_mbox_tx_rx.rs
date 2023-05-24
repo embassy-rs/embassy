@@ -4,10 +4,15 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc};
 use embassy_stm32::tl_mbox::TlMbox;
+use embassy_stm32::{bind_interrupts, tl_mbox};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs{
+    IPCC_C1_RX => tl_mbox::ReceiveInterruptHandler;
+    IPCC_C1_TX => tl_mbox::TransmitInterruptHandler;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -41,10 +46,7 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mut ipcc = Ipcc::new(p.IPCC, config);
 
-    let rx_irq = interrupt::take!(IPCC_C1_RX);
-    let tx_irq = interrupt::take!(IPCC_C1_TX);
-
-    let mbox = TlMbox::init(&mut ipcc, rx_irq, tx_irq);
+    let mbox = TlMbox::init(&mut ipcc, Irqs);
 
     // initialize ble stack, does not return a response
     mbox.shci_ble_init(&mut ipcc, Default::default());

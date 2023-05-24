@@ -6,12 +6,16 @@ use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb_otg::{Driver, Instance};
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use futures::future::join;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -24,9 +28,8 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(OTG_FS);
     let mut ep_out_buffer = [0u8; 256];
-    let driver = Driver::new_fs(p.USB_OTG_FS, irq, p.PA12, p.PA11, &mut ep_out_buffer);
+    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

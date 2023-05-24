@@ -6,18 +6,21 @@ use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::interrupt;
 use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::{bind_interrupts, peripherals, usart};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UART7 => usart::InterruptHandler<peripherals::UART7>;
+});
 
 #[embassy_executor::task]
 async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let irq = interrupt::take!(UART7);
-    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, irq, NoDma, NoDma, config);
+    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, NoDma, NoDma, config);
 
     unwrap!(usart.blocking_write(b"Hello Embassy World!\r\n"));
     info!("wrote Hello, starting echo");

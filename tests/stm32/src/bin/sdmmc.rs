@@ -7,8 +7,12 @@ use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::{DataBlock, Sdmmc};
 use embassy_stm32::time::mhz;
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, peripherals, sdmmc, Config};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -20,17 +24,8 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     #[cfg(feature = "stm32f429zi")]
-    let (mut sdmmc, mut irq, mut dma, mut clk, mut cmd, mut d0, mut d1, mut d2, mut d3) = (
-        p.SDIO,
-        interrupt::take!(SDIO),
-        p.DMA2_CH3,
-        p.PC12,
-        p.PD2,
-        p.PC8,
-        p.PC9,
-        p.PC10,
-        p.PC11,
-    );
+    let (mut sdmmc, mut dma, mut clk, mut cmd, mut d0, mut d1, mut d2, mut d3) =
+        (p.SDIO, p.DMA2_CH3, p.PC12, p.PD2, p.PC8, p.PC9, p.PC10, p.PC11);
 
     // Arbitrary block index
     let block_idx = 16;
@@ -48,7 +43,7 @@ async fn main(_spawner: Spawner) {
     info!("initializing in 4-bit mode...");
     let mut s = Sdmmc::new_4bit(
         &mut sdmmc,
-        &mut irq,
+        Irqs,
         &mut dma,
         &mut clk,
         &mut cmd,
@@ -97,7 +92,7 @@ async fn main(_spawner: Spawner) {
     info!("initializing in 1-bit mode...");
     let mut s = Sdmmc::new_1bit(
         &mut sdmmc,
-        &mut irq,
+        Irqs,
         &mut dma,
         &mut clk,
         &mut cmd,

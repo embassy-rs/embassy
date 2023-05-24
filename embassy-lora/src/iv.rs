@@ -1,7 +1,9 @@
 #[cfg(feature = "stm32wl")]
+use embassy_stm32::interrupt;
+#[cfg(feature = "stm32wl")]
 use embassy_stm32::interrupt::*;
 #[cfg(feature = "stm32wl")]
-use embassy_stm32::{pac, PeripheralRef};
+use embassy_stm32::pac;
 #[cfg(feature = "stm32wl")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "stm32wl")]
@@ -13,47 +15,51 @@ use lora_phy::mod_params::RadioError::*;
 use lora_phy::mod_params::{BoardType, RadioError};
 use lora_phy::mod_traits::InterfaceVariant;
 
+/// Interrupt handler.
 #[cfg(feature = "stm32wl")]
-static IRQ_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub struct InterruptHandler {}
 
 #[cfg(feature = "stm32wl")]
-/// Base for the InterfaceVariant implementation for an stm32wl/sx1262 combination
-pub struct Stm32wlInterfaceVariant<'a, CTRL> {
-    board_type: BoardType,
-    irq: PeripheralRef<'a, SUBGHZ_RADIO>,
-    rf_switch_rx: Option<CTRL>,
-    rf_switch_tx: Option<CTRL>,
-}
-
-#[cfg(feature = "stm32wl")]
-impl<'a, CTRL> Stm32wlInterfaceVariant<'a, CTRL>
-where
-    CTRL: OutputPin,
-{
-    /// Create an InterfaceVariant instance for an stm32wl/sx1262 combination
-    pub fn new(
-        irq: PeripheralRef<'a, SUBGHZ_RADIO>,
-        rf_switch_rx: Option<CTRL>,
-        rf_switch_tx: Option<CTRL>,
-    ) -> Result<Self, RadioError> {
-        irq.disable();
-        irq.set_handler(Self::on_interrupt);
-        Ok(Self {
-            board_type: BoardType::Stm32wlSx1262, // updated when associated with a specific LoRa board
-            irq,
-            rf_switch_rx,
-            rf_switch_tx,
-        })
-    }
-
-    fn on_interrupt(_: *mut ()) {
+impl interrupt::Handler<interrupt::SUBGHZ_RADIO> for InterruptHandler {
+    unsafe fn on_interrupt() {
         unsafe { SUBGHZ_RADIO::steal() }.disable();
         IRQ_SIGNAL.signal(());
     }
 }
 
 #[cfg(feature = "stm32wl")]
-impl<CTRL> InterfaceVariant for Stm32wlInterfaceVariant<'_, CTRL>
+static IRQ_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
+#[cfg(feature = "stm32wl")]
+/// Base for the InterfaceVariant implementation for an stm32wl/sx1262 combination
+pub struct Stm32wlInterfaceVariant<CTRL> {
+    board_type: BoardType,
+    rf_switch_rx: Option<CTRL>,
+    rf_switch_tx: Option<CTRL>,
+}
+
+#[cfg(feature = "stm32wl")]
+impl<'a, CTRL> Stm32wlInterfaceVariant<CTRL>
+where
+    CTRL: OutputPin,
+{
+    /// Create an InterfaceVariant instance for an stm32wl/sx1262 combination
+    pub fn new(
+        _irq: impl interrupt::Binding<interrupt::SUBGHZ_RADIO, InterruptHandler>,
+        rf_switch_rx: Option<CTRL>,
+        rf_switch_tx: Option<CTRL>,
+    ) -> Result<Self, RadioError> {
+        unsafe { interrupt::SUBGHZ_RADIO::steal() }.disable();
+        Ok(Self {
+            board_type: BoardType::Stm32wlSx1262, // updated when associated with a specific LoRa board
+            rf_switch_rx,
+            rf_switch_tx,
+        })
+    }
+}
+
+#[cfg(feature = "stm32wl")]
+impl<CTRL> InterfaceVariant for Stm32wlInterfaceVariant<CTRL>
 where
     CTRL: OutputPin,
 {
@@ -89,7 +95,7 @@ where
     }
 
     async fn await_irq(&mut self) -> Result<(), RadioError> {
-        self.irq.enable();
+        unsafe { interrupt::SUBGHZ_RADIO::steal() }.enable();
         IRQ_SIGNAL.wait().await;
         Ok(())
     }

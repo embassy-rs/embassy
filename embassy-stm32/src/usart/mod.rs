@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::{select, Either};
@@ -18,7 +18,71 @@ use crate::pac::usart::Lpuart as Regs;
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::time::Hertz;
-use crate::{peripherals, Peripheral};
+use crate::{interrupt, peripherals, Peripheral};
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: BasicInstance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: BasicInstance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let r = T::regs();
+        let s = T::state();
+
+        let (sr, cr1, cr3) = unsafe { (sr(r).read(), r.cr1().read(), r.cr3().read()) };
+
+        let mut wake = false;
+        let has_errors = (sr.pe() && cr1.peie()) || ((sr.fe() || sr.ne() || sr.ore()) && cr3.eie());
+        if has_errors {
+            // clear all interrupts and DMA Rx Request
+            unsafe {
+                r.cr1().modify(|w| {
+                    // disable RXNE interrupt
+                    w.set_rxneie(false);
+                    // disable parity interrupt
+                    w.set_peie(false);
+                    // disable idle line interrupt
+                    w.set_idleie(false);
+                });
+                r.cr3().modify(|w| {
+                    // disable Error Interrupt: (Frame error, Noise error, Overrun error)
+                    w.set_eie(false);
+                    // disable DMA Rx Request
+                    w.set_dmar(false);
+                });
+            }
+
+            wake = true;
+        } else {
+            if cr1.idleie() && sr.idle() {
+                // IDLE detected: no more data will come
+                unsafe {
+                    r.cr1().modify(|w| {
+                        // disable idle line detection
+                        w.set_idleie(false);
+                    });
+                }
+
+                wake = true;
+            }
+
+            if cr1.rxneie() {
+                // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
+
+                // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
+
+                wake = true;
+            }
+        }
+
+        if wake {
+            compiler_fence(Ordering::SeqCst);
+
+            s.rx_waker.wake();
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
@@ -215,7 +279,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
@@ -223,12 +287,12 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         T::enable();
         T::reset();
 
-        Self::new_inner(peri, irq, rx, rx_dma, config)
+        Self::new_inner(peri, rx, rx_dma, config)
     }
 
     pub fn new_with_rts(
         peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
@@ -246,17 +310,16 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             });
         }
 
-        Self::new_inner(peri, irq, rx, rx_dma, config)
+        Self::new_inner(peri, rx, rx_dma, config)
     }
 
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, irq, rx, rx_dma);
+        into_ref!(peri, rx, rx_dma);
 
         let r = T::regs();
 
@@ -266,9 +329,8 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
         configure(r, &config, T::frequency(), T::KIND, true, false);
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         // create state once!
         let _s = T::state();
@@ -279,63 +341,6 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: stm32_metapac::usart::regs::Sr(0),
-        }
-    }
-
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-        let s = T::state();
-
-        let (sr, cr1, cr3) = unsafe { (sr(r).read(), r.cr1().read(), r.cr3().read()) };
-
-        let mut wake = false;
-        let has_errors = (sr.pe() && cr1.peie()) || ((sr.fe() || sr.ne() || sr.ore()) && cr3.eie());
-        if has_errors {
-            // clear all interrupts and DMA Rx Request
-            unsafe {
-                r.cr1().modify(|w| {
-                    // disable RXNE interrupt
-                    w.set_rxneie(false);
-                    // disable parity interrupt
-                    w.set_peie(false);
-                    // disable idle line interrupt
-                    w.set_idleie(false);
-                });
-                r.cr3().modify(|w| {
-                    // disable Error Interrupt: (Frame error, Noise error, Overrun error)
-                    w.set_eie(false);
-                    // disable DMA Rx Request
-                    w.set_dmar(false);
-                });
-            }
-
-            wake = true;
-        } else {
-            if cr1.idleie() && sr.idle() {
-                // IDLE detected: no more data will come
-                unsafe {
-                    r.cr1().modify(|w| {
-                        // disable idle line detection
-                        w.set_idleie(false);
-                    });
-                }
-
-                wake = true;
-            }
-
-            if cr1.rxneie() {
-                // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
-
-                // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
-
-                wake = true;
-            }
-        }
-
-        if wake {
-            compiler_fence(Ordering::SeqCst);
-
-            s.rx_waker.wake();
         }
     }
 
@@ -643,7 +648,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
@@ -651,14 +656,14 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         T::enable();
         T::reset();
 
-        Self::new_inner(peri, rx, tx, irq, tx_dma, rx_dma, config)
+        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
     pub fn new_with_rtscts(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
@@ -678,7 +683,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 w.set_ctse(true);
             });
         }
-        Self::new_inner(peri, rx, tx, irq, tx_dma, rx_dma, config)
+        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
     #[cfg(not(any(usart_v1, usart_v2)))]
@@ -686,7 +691,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         de: impl Peripheral<P = impl DePin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
@@ -703,19 +708,18 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 w.set_dem(true);
             });
         }
-        Self::new_inner(peri, rx, tx, irq, tx_dma, rx_dma, config)
+        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(peri, rx, tx, irq, tx_dma, rx_dma);
+        into_ref!(peri, rx, tx, tx_dma, rx_dma);
 
         let r = T::regs();
 
@@ -726,9 +730,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         configure(r, &config, T::frequency(), T::KIND, true, true);
 
-        irq.set_handler(UartRx::<T, RxDma>::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         // create state once!
         let _s = T::state();
@@ -1068,6 +1071,9 @@ mod eio {
 
 #[cfg(feature = "nightly")]
 pub use buffered::*;
+
+#[cfg(feature = "nightly")]
+pub use crate::usart::buffered::InterruptHandler as BufferedInterruptHandler;
 #[cfg(feature = "nightly")]
 mod buffered;
 

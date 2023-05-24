@@ -9,7 +9,7 @@ use embassy_net::{Stack, StackResources};
 use embassy_stm32::rcc::*;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
@@ -30,6 +30,10 @@ macro_rules! singleton {
 }
 
 const MTU: usize = 1514;
+
+bind_interrupts!(struct Irqs {
+    USB_FS => usb::InterruptHandler<peripherals::USB>;
+});
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) -> ! {
@@ -54,8 +58,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USB_FS);
-    let driver = Driver::new(p.USB, irq, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

@@ -7,13 +7,17 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::rcc::*;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{interrupt, Config};
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_time::{Duration, Timer};
 use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USB_FS => usb::InterruptHandler<peripherals::USB>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -23,8 +27,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USB_FS);
-    let driver = Driver::new(p.USB, irq, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

@@ -2,6 +2,7 @@
 
 use core::default::Default;
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
@@ -17,7 +18,36 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
-use crate::{peripherals, Peripheral};
+use crate::{interrupt, peripherals, Peripheral};
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> InterruptHandler<T> {
+    fn data_interrupts(enable: bool) {
+        let regs = T::regs();
+        // NOTE(unsafe) Atomic write
+        unsafe {
+            regs.maskr().write(|w| {
+                w.set_dcrcfailie(enable);
+                w.set_dtimeoutie(enable);
+                w.set_dataendie(enable);
+
+                #[cfg(sdmmc_v2)]
+                w.set_dabortie(enable);
+            });
+        }
+    }
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        Self::data_interrupts(false);
+        T::state().wake();
+    }
+}
 
 /// Frequency used for SD Card initialization. Must be no higher than 400 kHz.
 const SD_INIT_FREQ: Hertz = Hertz(400_000);
@@ -223,7 +253,6 @@ impl Default for Config {
 /// Sdmmc device
 pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
     _peri: PeripheralRef<'d, T>,
-    irq: PeripheralRef<'d, T::Interrupt>,
     #[allow(unused)]
     dma: PeripheralRef<'d, Dma>,
 
@@ -247,7 +276,7 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
@@ -268,7 +297,6 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
         Self::new_inner(
             sdmmc,
-            irq,
             dma,
             clk.map_into(),
             cmd.map_into(),
@@ -282,7 +310,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
@@ -312,7 +340,6 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
         Self::new_inner(
             sdmmc,
-            irq,
             dma,
             clk.map_into(),
             cmd.map_into(),
@@ -329,7 +356,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
@@ -349,7 +376,6 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
 
         Self::new_inner(
             sdmmc,
-            irq,
             NoDma.into_ref(),
             clk.map_into(),
             cmd.map_into(),
@@ -363,7 +389,7 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
 
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
@@ -392,7 +418,6 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
 
         Self::new_inner(
             sdmmc,
-            irq,
             NoDma.into_ref(),
             clk.map_into(),
             cmd.map_into(),
@@ -408,7 +433,6 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
 impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     fn new_inner(
         sdmmc: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
         clk: PeripheralRef<'d, AnyPin>,
         cmd: PeripheralRef<'d, AnyPin>,
@@ -418,14 +442,13 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         d3: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(sdmmc, irq, dma);
+        into_ref!(sdmmc, dma);
 
         T::enable();
         T::reset();
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         let regs = T::regs();
         unsafe {
@@ -451,7 +474,6 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
         Self {
             _peri: sdmmc,
-            irq,
             dma,
 
             clk,
@@ -691,7 +713,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
         let transfer = self.prepare_datapath_read(&mut status, 64, 6);
-        Self::data_interrupts(true);
+        InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd6(set_function), true)?; // CMD6
 
         let res = poll_fn(|cx| {
@@ -767,7 +789,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
         let transfer = self.prepare_datapath_read(&mut status, 64, 6);
-        Self::data_interrupts(true);
+        InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::card_status(0), true)?;
 
         let res = poll_fn(|cx| {
@@ -849,23 +871,6 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         }
     }
 
-    /// Enables the interrupts for data transfer
-    #[inline(always)]
-    fn data_interrupts(enable: bool) {
-        let regs = T::regs();
-        // NOTE(unsafe) Atomic write
-        unsafe {
-            regs.maskr().write(|w| {
-                w.set_dcrcfailie(enable);
-                w.set_dtimeoutie(enable);
-                w.set_dataendie(enable);
-
-                #[cfg(sdmmc_v2)]
-                w.set_dabortie(enable);
-            });
-        }
-    }
-
     async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
         // Read the the 64-bit SCR register
         Self::cmd(Cmd::set_block_length(8), false)?; // CMD16
@@ -878,7 +883,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
         let transfer = self.prepare_datapath_read(&mut scr[..], 8, 3);
-        Self::data_interrupts(true);
+        InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::cmd51(), true)?;
 
         let res = poll_fn(|cx| {
@@ -996,7 +1001,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             // Wait for the abort
             while Self::data_active() {}
         }
-        Self::data_interrupts(false);
+        InterruptHandler::<T>::data_interrupts(false);
         Self::clear_interrupt_flags();
         Self::stop_datapath();
     }
@@ -1170,7 +1175,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         let on_drop = OnDrop::new(|| unsafe { Self::on_drop() });
 
         let transfer = self.prepare_datapath_read(buffer, 512, 9);
-        Self::data_interrupts(true);
+        InterruptHandler::<T>::data_interrupts(true);
         Self::cmd(Cmd::read_single_block(address), true)?;
 
         let res = poll_fn(|cx| {
@@ -1219,7 +1224,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Self::cmd(Cmd::write_single_block(address), true)?;
 
         let transfer = self.prepare_datapath_write(buffer, 512, 9);
-        Self::data_interrupts(true);
+        InterruptHandler::<T>::data_interrupts(true);
 
         #[cfg(sdmmc_v2)]
         Self::cmd(Cmd::write_single_block(address), true)?;
@@ -1279,17 +1284,11 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     pub fn clock(&self) -> Hertz {
         self.clock
     }
-
-    #[inline(always)]
-    fn on_interrupt(_: *mut ()) {
-        Self::data_interrupts(false);
-        T::state().wake();
-    }
 }
 
 impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Drop for Sdmmc<'d, T, Dma> {
     fn drop(&mut self) {
-        self.irq.disable();
+        unsafe { T::Interrupt::steal() }.disable();
         unsafe { Self::on_drop() };
 
         critical_section::with(|_| unsafe {

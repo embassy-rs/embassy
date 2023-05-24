@@ -1,7 +1,9 @@
 use core::cmp;
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
@@ -11,10 +13,30 @@ use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
-use crate::interrupt::InterruptExt;
 use crate::pac::i2c;
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let regs = T::regs();
+        let isr = regs.isr().read();
+
+        if isr.tcr() || isr.tc() {
+            T::state().waker.wake();
+        }
+        // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
+        // the interrupt
+        critical_section::with(|_| {
+            regs.cr1().modify(|w| w.set_tcie(false));
+        });
+    }
+}
 
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -56,13 +78,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = TXDMA> + 'd,
         rx_dma: impl Peripheral<P = RXDMA> + 'd,
         freq: Hertz,
         config: Config,
     ) -> Self {
-        into_ref!(peri, irq, scl, sda, tx_dma, rx_dma);
+        into_ref!(peri, scl, sda, tx_dma, rx_dma);
 
         T::enable();
         T::reset();
@@ -111,29 +133,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             });
         }
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         Self {
             _peri: peri,
             tx_dma,
             rx_dma,
         }
-    }
-
-    unsafe fn on_interrupt(_: *mut ()) {
-        let regs = T::regs();
-        let isr = regs.isr().read();
-
-        if isr.tcr() || isr.tc() {
-            T::state().waker.wake();
-        }
-        // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
-        // the interrupt
-        critical_section::with(|_| {
-            regs.cr1().modify(|w| w.set_tcie(false));
-        });
     }
 
     fn master_stop(&mut self) {

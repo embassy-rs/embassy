@@ -8,6 +8,78 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: BasicInstance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: BasicInstance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let r = T::regs();
+        let state = T::buffered_state();
+
+        // RX
+        unsafe {
+            let sr = sr(r).read();
+            clear_interrupt_flags(r, sr);
+
+            if sr.rxne() {
+                if sr.pe() {
+                    warn!("Parity error");
+                }
+                if sr.fe() {
+                    warn!("Framing error");
+                }
+                if sr.ne() {
+                    warn!("Noise error");
+                }
+                if sr.ore() {
+                    warn!("Overrun error");
+                }
+
+                let mut rx_writer = state.rx_buf.writer();
+                let buf = rx_writer.push_slice();
+                if !buf.is_empty() {
+                    // This read also clears the error and idle interrupt flags on v1.
+                    buf[0] = rdr(r).read_volatile();
+                    rx_writer.push_done(1);
+                } else {
+                    // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
+                }
+
+                if state.rx_buf.is_full() {
+                    state.rx_waker.wake();
+                }
+            }
+
+            if sr.idle() {
+                state.rx_waker.wake();
+            };
+        }
+
+        // TX
+        unsafe {
+            if sr(r).read().txe() {
+                let mut tx_reader = state.tx_buf.reader();
+                let buf = tx_reader.pop_slice();
+                if !buf.is_empty() {
+                    r.cr1().modify(|w| {
+                        w.set_txeie(true);
+                    });
+                    tdr(r).write_volatile(buf[0].into());
+                    tx_reader.pop_done(1);
+                    state.tx_waker.wake();
+                } else {
+                    // Disable interrupt until we have something to transmit again
+                    r.cr1().modify(|w| {
+                        w.set_txeie(false);
+                    });
+                }
+            }
+        }
+    }
+}
+
 pub struct State {
     rx_waker: AtomicWaker,
     rx_buf: RingBuffer,
@@ -43,7 +115,7 @@ pub struct BufferedUartRx<'d, T: BasicInstance> {
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         tx_buffer: &'d mut [u8],
@@ -53,12 +125,12 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         T::enable();
         T::reset();
 
-        Self::new_inner(peri, irq, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
 
     pub fn new_with_rtscts(
         peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
@@ -81,13 +153,13 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             });
         }
 
-        Self::new_inner(peri, irq, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
 
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de(
         peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         de: impl Peripheral<P = impl DePin<T>> + 'd,
@@ -107,19 +179,18 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             });
         }
 
-        Self::new_inner(peri, irq, rx, tx, tx_buffer, rx_buffer, config)
+        Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
 
     fn new_inner(
         _peri: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> BufferedUart<'d, T> {
-        into_ref!(_peri, rx, tx, irq);
+        into_ref!(_peri, rx, tx);
 
         let state = T::buffered_state();
         let len = tx_buffer.len();
@@ -145,9 +216,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             });
         }
 
-        irq.set_handler(on_interrupt::<T>);
-        irq.unpend();
-        irq.enable();
+        unsafe { T::Interrupt::steal() }.unpend();
+        unsafe { T::Interrupt::steal() }.enable();
 
         Self {
             rx: BufferedUartRx { phantom: PhantomData },
@@ -331,71 +401,6 @@ impl<'d, T: BasicInstance> Drop for BufferedUartTx<'d, T> {
             // We can now unregister the interrupt handler
             if state.rx_buf.len() == 0 {
                 T::Interrupt::steal().disable();
-            }
-        }
-    }
-}
-
-unsafe fn on_interrupt<T: BasicInstance>(_: *mut ()) {
-    let r = T::regs();
-    let state = T::buffered_state();
-
-    // RX
-    unsafe {
-        let sr = sr(r).read();
-        clear_interrupt_flags(r, sr);
-
-        if sr.rxne() {
-            if sr.pe() {
-                warn!("Parity error");
-            }
-            if sr.fe() {
-                warn!("Framing error");
-            }
-            if sr.ne() {
-                warn!("Noise error");
-            }
-            if sr.ore() {
-                warn!("Overrun error");
-            }
-
-            let mut rx_writer = state.rx_buf.writer();
-            let buf = rx_writer.push_slice();
-            if !buf.is_empty() {
-                // This read also clears the error and idle interrupt flags on v1.
-                buf[0] = rdr(r).read_volatile();
-                rx_writer.push_done(1);
-            } else {
-                // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
-            }
-
-            if state.rx_buf.is_full() {
-                state.rx_waker.wake();
-            }
-        }
-
-        if sr.idle() {
-            state.rx_waker.wake();
-        };
-    }
-
-    // TX
-    unsafe {
-        if sr(r).read().txe() {
-            let mut tx_reader = state.tx_buf.reader();
-            let buf = tx_reader.pop_slice();
-            if !buf.is_empty() {
-                r.cr1().modify(|w| {
-                    w.set_txeie(true);
-                });
-                tdr(r).write_volatile(buf[0].into());
-                tx_reader.pop_done(1);
-                state.tx_waker.wake();
-            } else {
-                // Disable interrupt until we have something to transmit again
-                r.cr1().modify(|w| {
-                    w.set_txeie(false);
-                });
             }
         }
     }
