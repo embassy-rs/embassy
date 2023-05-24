@@ -2,11 +2,12 @@ use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_sync::waitqueue::AtomicWaker;
-
 use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
+
+#[cfg(feature = "nightly")]
+use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 mod alt_regions {
@@ -15,10 +16,12 @@ mod alt_regions {
 
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
     use crate::flash::{
-        asynch, common, Bank1Region1, Bank1Region2, BlockingFlashRegion, Error, Flash, FlashBank, FlashRegion,
+        common, Bank1Region1, Bank1Region2, BlockingFlashRegion, Error, Flash, FlashBank, FlashRegion,
         READ_SIZE, REGION_ACCESS,
     };
     use crate::peripherals::FLASH;
+    #[cfg(feature = "nightly")]
+    use crate::flash::asynch;
 
     pub const ALT_BANK1_REGION3: FlashRegion = FlashRegion {
         size: 3 * BANK1_REGION3.erase_size,
@@ -100,13 +103,13 @@ mod alt_regions {
                     common::read_blocking(self.0.base, self.0.size, offset, bytes)
                 }
 
-                #[cfg(all(feature = "nightly"))]
+                #[cfg(feature = "nightly")]
                 pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                     let _guard = REGION_ACCESS.lock().await;
                     unsafe { asynch::write_chunked(self.0.base, self.0.size, offset, bytes).await }
                 }
 
-                #[cfg(all(feature = "nightly"))]
+                #[cfg(feature = "nightly")]
                 pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                     let _guard = REGION_ACCESS.lock().await;
                     unsafe { asynch::erase_sectored(self.0.base, from, to).await }
@@ -139,7 +142,7 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(all(feature = "nightly"))]
+            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::ReadNorFlash for $type_name<'_> {
                 const READ_SIZE: usize = READ_SIZE;
 
@@ -152,7 +155,7 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(all(feature = "nightly"))]
+            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::NorFlash for $type_name<'_> {
                 const WRITE_SIZE: usize = $region.write_size as usize;
                 const ERASE_SIZE: usize = $region.erase_size as usize;
@@ -209,6 +212,7 @@ pub(crate) unsafe fn on_interrupt(_: *mut ()) {
         w.set_eop(true);
     });
 
+    #[cfg(feature = "nightly")]
     WAKER.wake();
 }
 
@@ -277,6 +281,7 @@ unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     }
 }
 
+#[cfg(feature = "nightly")]
 pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
     let snb = ((sector.bank as u8) << 4) + sector.index_in_bank;
 
