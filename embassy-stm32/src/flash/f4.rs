@@ -2,6 +2,8 @@ use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
+use embassy_sync::waitqueue::AtomicWaker;
+
 use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
@@ -13,8 +15,8 @@ mod alt_regions {
 
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
     use crate::flash::{
-        blocking_erase_sectored, blocking_read, blocking_write_chunked, Bank1Region1, Bank1Region2, Error, Flash,
-        FlashBank, FlashRegion,
+        asynch, common, Bank1Region1, Bank1Region2, BlockingFlashRegion, Error, Flash, FlashBank, FlashRegion,
+        READ_SIZE, REGION_ACCESS,
     };
     use crate::peripherals::FLASH;
 
@@ -53,6 +55,15 @@ mod alt_regions {
     pub struct AltBank2Region2<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
     pub struct AltBank2Region3<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
 
+    pub type BlockingAltBank1Region3<'d> =
+        BlockingFlashRegion<'d, { ALT_BANK1_REGION3.write_size }, { ALT_BANK1_REGION3.erase_size }>;
+    pub type BlockingAltBank2Region1<'d> =
+        BlockingFlashRegion<'d, { ALT_BANK2_REGION1.write_size }, { ALT_BANK2_REGION1.erase_size }>;
+    pub type BlockingAltBank2Region2<'d> =
+        BlockingFlashRegion<'d, { ALT_BANK2_REGION2.write_size }, { ALT_BANK2_REGION2.erase_size }>;
+    pub type BlockingAltBank2Region3<'d> =
+        BlockingFlashRegion<'d, { ALT_BANK2_REGION3.write_size }, { ALT_BANK2_REGION3.erase_size }>;
+
     pub struct AltFlashLayout<'d> {
         pub bank1_region1: Bank1Region1<'d>,
         pub bank1_region2: Bank1Region2<'d>,
@@ -69,7 +80,7 @@ mod alt_regions {
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all blocking flash region operations are protected with a cs.
-            let p = self.release();
+            let p = self.inner;
             AltFlashLayout {
                 bank1_region1: Bank1Region1(&BANK1_REGION1, unsafe { p.clone_unchecked() }),
                 bank1_region2: Bank1Region2(&BANK1_REGION2, unsafe { p.clone_unchecked() }),
@@ -85,16 +96,30 @@ mod alt_regions {
     macro_rules! foreach_altflash_region {
         ($type_name:ident, $region:ident) => {
             impl $type_name<'_> {
-                pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                    blocking_read(self.0.base, self.0.size, offset, bytes)
+                pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+                    common::read_blocking(self.0.base, self.0.size, offset, bytes)
                 }
 
-                pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-                    unsafe { blocking_write_chunked(self.0.base, self.0.size, offset, bytes) }
+                #[cfg(all(feature = "nightly"))]
+                pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+                    let _guard = REGION_ACCESS.lock().await;
+                    unsafe { asynch::write_chunked(self.0.base, self.0.size, offset, bytes).await }
                 }
 
-                pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-                    unsafe { blocking_erase_sectored(self.0.base, from, to) }
+                #[cfg(all(feature = "nightly"))]
+                pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+                    let _guard = REGION_ACCESS.lock().await;
+                    unsafe { asynch::erase_sectored(self.0.base, from, to).await }
+                }
+
+                pub fn try_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+                    let _guard = REGION_ACCESS.try_lock().map_err(|_| Error::TryLockError)?;
+                    unsafe { common::write_chunked_blocking(self.0.base, self.0.size, offset, bytes) }
+                }
+
+                pub fn try_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+                    let _guard = REGION_ACCESS.try_lock().map_err(|_| Error::TryLockError)?;
+                    unsafe { common::erase_sectored_blocking(self.0.base, from, to) }
                 }
             }
 
@@ -103,10 +128,10 @@ mod alt_regions {
             }
 
             impl embedded_storage::nor_flash::ReadNorFlash for $type_name<'_> {
-                const READ_SIZE: usize = 1;
+                const READ_SIZE: usize = READ_SIZE;
 
                 fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                    self.blocking_read(offset, bytes)
+                    self.read(offset, bytes)
                 }
 
                 fn capacity(&self) -> usize {
@@ -114,16 +139,28 @@ mod alt_regions {
                 }
             }
 
-            impl embedded_storage::nor_flash::NorFlash for $type_name<'_> {
+            impl embedded_storage_async::nor_flash::ReadNorFlash for $type_name<'_> {
+                const READ_SIZE: usize = READ_SIZE;
+
+                async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+                    self.read(offset, bytes)
+                }
+
+                fn capacity(&self) -> usize {
+                    self.0.size as usize
+                }
+            }
+
+            impl embedded_storage_async::nor_flash::NorFlash for $type_name<'_> {
                 const WRITE_SIZE: usize = $region.write_size as usize;
                 const ERASE_SIZE: usize = $region.erase_size as usize;
 
-                fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-                    self.blocking_write(offset, bytes)
+                async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+                    self.write(offset, bytes).await
                 }
 
-                fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-                    self.blocking_erase(from, to)
+                async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+                    self.erase(from, to).await
                 }
             }
         };
@@ -137,6 +174,9 @@ mod alt_regions {
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub use alt_regions::*;
+
+#[cfg(feature = "nightly")]
+static WAKER: AtomicWaker = AtomicWaker::new();
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub fn set_default_layout() {
@@ -160,6 +200,16 @@ pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
+pub(crate) unsafe fn on_interrupt(_: *mut ()) {
+    // Clear IRQ flags
+    pac::FLASH.sr().write(|w| {
+        w.set_operr(true);
+        w.set_eop(true);
+    });
+
+    WAKER.wake();
+}
+
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
 }
@@ -169,7 +219,28 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_key(0xCDEF_89AB));
 }
 
-pub(crate) unsafe fn begin_write() {
+#[cfg(feature = "nightly")]
+pub(crate) unsafe fn enable_write() {
+    assert_eq!(0, WRITE_SIZE % 4);
+
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(true);
+        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_eopie(true);
+        w.set_errie(true);
+    });
+}
+
+#[cfg(feature = "nightly")]
+pub(crate) unsafe fn disable_write() {
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(false);
+        w.set_eopie(false);
+        w.set_errie(false);
+    });
+}
+
+pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
 
     pac::FLASH.cr().write(|w| {
@@ -178,11 +249,22 @@ pub(crate) unsafe fn begin_write() {
     });
 }
 
-pub(crate) unsafe fn end_write() {
+pub(crate) unsafe fn disable_blocking_write() {
     pac::FLASH.cr().write(|w| w.set_pg(false));
 }
 
-pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+#[cfg(feature = "nightly")]
+pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    write_start(start_address, buf);
+    wait_ready().await
+}
+
+pub(crate) unsafe fn write_blocking(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    write_start(start_address, buf);
+    wait_ready_blocking()
+}
+
+unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     let mut address = start_address;
     for val in buf.chunks(4) {
         write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
@@ -191,11 +273,32 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         // prevents parallelism errors
         fence(Ordering::SeqCst);
     }
-
-    blocking_wait_ready()
 }
 
-pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    let snb = ((sector.bank as u8) << 4) + sector.index_in_bank;
+
+    pac::FLASH.cr().modify(|w| {
+        w.set_ser(true);
+        w.set_snb(snb);
+        w.set_eopie(true);
+        w.set_errie(true);
+    });
+
+    pac::FLASH.cr().modify(|w| {
+        w.set_strt(true);
+    });
+
+    let ret: Result<(), Error> = wait_ready().await;
+    pac::FLASH.cr().modify(|w| {
+        w.set_eopie(false);
+        w.set_errie(false);
+    });
+    clear_all_err();
+    ret
+}
+
+pub(crate) unsafe fn erase_sector_blocking(sector: &FlashSector) -> Result<(), Error> {
     let snb = ((sector.bank as u8) << 4) + sector.index_in_bank;
 
     pac::FLASH.cr().modify(|w| {
@@ -207,10 +310,8 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         w.set_strt(true);
     });
 
-    let ret: Result<(), Error> = blocking_wait_ready();
-
+    let ret: Result<(), Error> = wait_ready_blocking();
     clear_all_err();
-
     ret
 }
 
@@ -220,11 +321,39 @@ pub(crate) unsafe fn clear_all_err() {
         w.set_pgperr(true);
         w.set_pgaerr(true);
         w.set_wrperr(true);
-        w.set_eop(true);
     });
 }
 
-unsafe fn blocking_wait_ready() -> Result<(), Error> {
+#[cfg(feature = "nightly")]
+pub(crate) async unsafe fn wait_ready() -> Result<(), Error> {
+    use core::task::Poll;
+
+    use futures::future::poll_fn;
+
+    poll_fn(|cx| {
+        WAKER.register(cx.waker());
+
+        let sr = pac::FLASH.sr().read();
+        if !sr.bsy() {
+            Poll::Ready(if sr.pgserr() {
+                Err(Error::Seq)
+            } else if sr.pgperr() {
+                Err(Error::Parallelism)
+            } else if sr.pgaerr() {
+                Err(Error::Unaligned)
+            } else if sr.wrperr() {
+                Err(Error::Protected)
+            } else {
+                Ok(())
+            })
+        } else {
+            return Poll::Pending;
+        }
+    })
+    .await
+}
+
+unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 

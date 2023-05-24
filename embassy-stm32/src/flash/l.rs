@@ -12,6 +12,10 @@ pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
+pub(crate) unsafe fn on_interrupt(_: *mut ()) {
+    unimplemented!();
+}
+
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -41,19 +45,19 @@ pub(crate) unsafe fn unlock() {
     }
 }
 
-pub(crate) unsafe fn begin_write() {
+pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
 
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(true));
 }
 
-pub(crate) unsafe fn end_write() {
+pub(crate) unsafe fn disable_blocking_write() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(false));
 }
 
-pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+pub(crate) unsafe fn write_blocking(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for val in buf.chunks(4) {
         write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
@@ -63,10 +67,10 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         fence(Ordering::SeqCst);
     }
 
-    blocking_wait_ready()
+    wait_ready_blocking()
 }
 
-pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn erase_sector_blocking(sector: &FlashSector) -> Result<(), Error> {
     #[cfg(any(flash_l0, flash_l1))]
     {
         pac::FLASH.pecr().modify(|w| {
@@ -96,7 +100,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         });
     }
 
-    let ret: Result<(), Error> = blocking_wait_ready();
+    let ret: Result<(), Error> = wait_ready_blocking();
 
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().modify(|w| w.set_per(false));
@@ -108,7 +112,6 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     });
 
     clear_all_err();
-
     ret
 }
 
@@ -150,7 +153,7 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-unsafe fn blocking_wait_ready() -> Result<(), Error> {
+unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 
