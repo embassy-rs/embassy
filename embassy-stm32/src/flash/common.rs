@@ -8,8 +8,8 @@ use embassy_sync::mutex::Mutex;
 use stm32_metapac::FLASH_BASE;
 
 use super::{
-    ensure_sector_aligned, family, get_sector, Error, FlashLayout, FlashRegion, FLASH_SIZE, MAX_ERASE_SIZE, READ_SIZE,
-    WRITE_SIZE,
+    family, Error, FlashLayout, FlashRegion, FLASH_SIZE, MAX_ERASE_SIZE, READ_SIZE,
+    WRITE_SIZE, FlashSector, FlashBank,
 };
 use crate::peripherals::FLASH;
 use crate::Peripheral;
@@ -117,6 +117,51 @@ pub(super) unsafe fn erase_sectored_blocking(base: u32, from: u32, to: u32) -> R
     }
     Ok(())
 }
+
+pub(crate) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector {
+    let mut current_bank = FlashBank::Bank1;
+    let mut bank_offset = 0;
+    for region in regions {
+        if region.bank != current_bank {
+            current_bank = region.bank;
+            bank_offset = 0;
+        }
+
+        if address < region.end() {
+            let index_in_region = (address - region.base) / region.erase_size;
+            return FlashSector {
+                bank: region.bank,
+                index_in_bank: bank_offset + index_in_region as u8,
+                start: region.base + index_in_region * region.erase_size,
+                size: region.erase_size,
+            };
+        }
+
+        bank_offset += region.sectors();
+    }
+
+    panic!("Flash sector not found");
+}
+
+pub(crate) fn ensure_sector_aligned(
+    start_address: u32,
+    end_address: u32,
+    regions: &[&FlashRegion],
+) -> Result<(), Error> {
+    let mut address = start_address;
+    while address < end_address {
+        let sector = get_sector(address, regions);
+        if sector.start != address {
+            return Err(Error::Unaligned);
+        }
+        address += sector.size;
+    }
+    if address != end_address {
+        return Err(Error::Unaligned);
+    }
+    Ok(())
+}
+
 
 impl embedded_storage::nor_flash::ErrorType for Flash<'_> {
     type Error = Error;
