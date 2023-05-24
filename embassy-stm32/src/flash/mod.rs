@@ -1,5 +1,7 @@
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
+#[cfg(all(feature = "nightly", flash_f4))]
+pub mod asynch;
 #[cfg(flash)]
 mod common;
 
@@ -9,6 +11,8 @@ pub use common::*;
 pub use crate::_generated::flash_regions::*;
 pub use crate::_generated::MAX_ERASE_SIZE;
 pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+
+pub const READ_SIZE: usize = 1;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -76,6 +80,7 @@ pub enum Error {
     Protected,
     Unaligned,
     Parallelism,
+    TryLockError,
 }
 
 impl NorFlashError for Error {
@@ -86,4 +91,48 @@ impl NorFlashError for Error {
             _ => NorFlashErrorKind::Other,
         }
     }
+}
+
+pub(crate) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector {
+    let mut current_bank = FlashBank::Bank1;
+    let mut bank_offset = 0;
+    for region in regions {
+        if region.bank != current_bank {
+            current_bank = region.bank;
+            bank_offset = 0;
+        }
+
+        if address < region.end() {
+            let index_in_region = (address - region.base) / region.erase_size;
+            return FlashSector {
+                bank: region.bank,
+                index_in_bank: bank_offset + index_in_region as u8,
+                start: region.base + index_in_region * region.erase_size,
+                size: region.erase_size,
+            };
+        }
+
+        bank_offset += region.sectors();
+    }
+
+    panic!("Flash sector not found");
+}
+
+pub(crate) fn ensure_sector_aligned(
+    start_address: u32,
+    end_address: u32,
+    regions: &[&FlashRegion],
+) -> Result<(), Error> {
+    let mut address = start_address;
+    while address < end_address {
+        let sector = get_sector(address, regions);
+        if sector.start != address {
+            return Err(Error::Unaligned);
+        }
+        address += sector.size;
+    }
+    if address != end_address {
+        return Err(Error::Unaligned);
+    }
+    Ok(())
 }
