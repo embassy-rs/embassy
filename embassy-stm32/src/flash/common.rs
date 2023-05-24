@@ -8,8 +8,7 @@ use embassy_sync::mutex::Mutex;
 use stm32_metapac::FLASH_BASE;
 
 use super::{
-    family, Error, FlashLayout, FlashRegion, FLASH_SIZE, MAX_ERASE_SIZE, READ_SIZE,
-    WRITE_SIZE, FlashSector, FlashBank,
+    family, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
 };
 use crate::peripherals::FLASH;
 use crate::Peripheral;
@@ -161,7 +160,6 @@ pub(crate) fn ensure_sector_aligned(
     }
     Ok(())
 }
-
 
 impl embedded_storage::nor_flash::ErrorType for Flash<'_> {
     type Error = Error;

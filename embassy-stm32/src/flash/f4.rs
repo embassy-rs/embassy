@@ -2,12 +2,12 @@ use core::convert::TryInto;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
+#[cfg(feature = "nightly")]
+use embassy_sync::waitqueue::AtomicWaker;
+
 use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
-#[cfg(feature = "nightly")]
-use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 mod alt_regions {
@@ -15,13 +15,13 @@ mod alt_regions {
     use stm32_metapac::FLASH_SIZE;
 
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
-    use crate::flash::{
-        common, Bank1Region1, Bank1Region2, BlockingFlashRegion, Error, Flash, FlashBank, FlashRegion,
-        READ_SIZE, REGION_ACCESS,
-    };
-    use crate::peripherals::FLASH;
     #[cfg(feature = "nightly")]
     use crate::flash::asynch;
+    use crate::flash::{
+        common, Bank1Region1, Bank1Region2, BlockingFlashRegion, Error, Flash, FlashBank, FlashRegion, READ_SIZE,
+        REGION_ACCESS,
+    };
+    use crate::peripherals::FLASH;
 
     pub const ALT_BANK1_REGION3: FlashRegion = FlashRegion {
         size: 3 * BANK1_REGION3.erase_size,
