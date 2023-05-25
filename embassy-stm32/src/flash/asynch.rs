@@ -10,25 +10,22 @@ use super::{
 
 pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
-impl<'d> Flash<'d> {
+impl<'d> Flash<'d, Async> {
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
-        assert!(!self.blocking_only);
         family::set_default_layout();
         FlashLayout::new(self.inner)
     }
 
     pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        assert!(!self.blocking_only);
         unsafe { write_chunked(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes).await }
     }
 
     pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        assert!(!self.blocking_only);
         unsafe { erase_sectored(FLASH_BASE as u32, from, to).await }
     }
 }
 
-impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_> {
+impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
     const READ_SIZE: usize = READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -40,7 +37,7 @@ impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_> {
     }
 }
 
-impl embedded_storage_async::nor_flash::NorFlash for Flash<'_> {
+impl embedded_storage_async::nor_flash::NorFlash for Flash<'_, Async> {
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = MAX_ERASE_SIZE;
 
@@ -114,7 +111,7 @@ pub(super) async unsafe fn erase_sectored(base: u32, from: u32, to: u32) -> Resu
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl crate::_generated::flash_regions::$type_name<'_, Async> {
-            pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+            pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 read_blocking(self.0.base, self.0.size, offset, bytes)
             }
 
@@ -133,7 +130,7 @@ foreach_flash_region! {
             const READ_SIZE: usize = READ_SIZE;
 
             async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                self.read(offset, bytes)
+                self.read(offset, bytes).await
             }
 
             fn capacity(&self) -> usize {

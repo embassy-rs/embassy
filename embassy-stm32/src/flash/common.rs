@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 use atomic_polyfill::{fence, Ordering};
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::drop::OnDrop;
@@ -5,19 +7,18 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use stm32_metapac::FLASH_BASE;
 
 use super::{
-    family, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE, READ_SIZE,
-    WRITE_SIZE,
+    family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
+    READ_SIZE, WRITE_SIZE,
 };
 use crate::peripherals::FLASH;
 use crate::{interrupt, Peripheral};
 
-pub struct Flash<'d> {
+pub struct Flash<'d, MODE = Async> {
     pub(crate) inner: PeripheralRef<'d, FLASH>,
-    #[cfg(all(feature = "nightly", flash_f4))]
-    pub(crate) blocking_only: bool,
+    _mode: PhantomData<MODE>,
 }
 
-impl<'d> Flash<'d> {
+impl<'d> Flash<'d, Async> {
     pub fn new(
         p: impl Peripheral<P = FLASH> + 'd,
         _irq: impl interrupt::Binding<crate::interrupt::FLASH, InterruptHandler> + 'd,
@@ -30,21 +31,23 @@ impl<'d> Flash<'d> {
 
         Self {
             inner: p,
-            #[cfg(all(feature = "nightly", flash_f4))]
-            blocking_only: false,
+            _mode: PhantomData,
         }
     }
+}
 
-    pub fn new_blocking_only(p: impl Peripheral<P = FLASH> + 'd) -> Self {
+impl<'d> Flash<'d, Blocking> {
+    pub fn new_blocking(p: impl Peripheral<P = FLASH> + 'd) -> Self {
         into_ref!(p);
 
         Self {
             inner: p,
-            #[cfg(all(feature = "nightly", flash_f4))]
-            blocking_only: true,
+            _mode: PhantomData,
         }
     }
+}
 
+impl<'d, MODE> Flash<'d, MODE> {
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
         family::set_default_layout();
         FlashLayout::new(self.inner)
@@ -222,11 +225,11 @@ pub(super) fn ensure_sector_aligned(
     Ok(())
 }
 
-impl embedded_storage::nor_flash::ErrorType for Flash<'_> {
+impl<MODE> embedded_storage::nor_flash::ErrorType for Flash<'_, MODE> {
     type Error = Error;
 }
 
-impl embedded_storage::nor_flash::ReadNorFlash for Flash<'_> {
+impl<MODE> embedded_storage::nor_flash::ReadNorFlash for Flash<'_, MODE> {
     const READ_SIZE: usize = READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -238,7 +241,7 @@ impl embedded_storage::nor_flash::ReadNorFlash for Flash<'_> {
     }
 }
 
-impl embedded_storage::nor_flash::NorFlash for Flash<'_> {
+impl<MODE> embedded_storage::nor_flash::NorFlash for Flash<'_, MODE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = MAX_ERASE_SIZE;
 
@@ -253,11 +256,13 @@ impl embedded_storage::nor_flash::NorFlash for Flash<'_> {
 
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
-        impl<'d> crate::_generated::flash_regions::$type_name<'d, Blocking> {
+        impl<MODE> crate::_generated::flash_regions::$type_name<'_, MODE> {
             pub fn read_blocking(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 read_blocking(self.0.base, self.0.size, offset, bytes)
             }
+        }
 
+        impl crate::_generated::flash_regions::$type_name<'_, Blocking> {
             pub fn write_blocking(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 unsafe { write_blocking(self.0.base, self.0.size, offset, bytes, write_chunk_with_critical_section) }
             }
@@ -271,7 +276,7 @@ foreach_flash_region! {
             type Error = Error;
         }
 
-        impl embedded_storage::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Blocking> {
+        impl<MODE> embedded_storage::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, MODE> {
             const READ_SIZE: usize = READ_SIZE;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {

@@ -107,10 +107,16 @@ mod alt_regions {
 
     macro_rules! foreach_altflash_region {
         ($type_name:ident, $region:ident) => {
+            impl<MODE> $type_name<'_, MODE> {
+                pub fn read_blocking(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+                    crate::flash::common::read_blocking(self.0.base, self.0.size, offset, bytes)
+                }
+            }
+
             #[cfg(feature = "nightly")]
             impl $type_name<'_, Async> {
                 pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                    crate::flash::common::read_blocking(self.0.base, self.0.size, offset, bytes)
+                    self.read_blocking(offset, bytes)
                 }
 
                 pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
@@ -124,8 +130,20 @@ mod alt_regions {
                 }
             }
 
-            impl embedded_storage::nor_flash::ErrorType for $type_name<'_, Async> {
+            impl<MODE> embedded_storage::nor_flash::ErrorType for $type_name<'_, MODE> {
                 type Error = Error;
+            }
+
+            impl<MODE> embedded_storage::nor_flash::ReadNorFlash for $type_name<'_, MODE> {
+                const READ_SIZE: usize = crate::flash::READ_SIZE;
+
+                fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+                    self.read_blocking(offset, bytes)
+                }
+
+                fn capacity(&self) -> usize {
+                    self.0.size as usize
+                }
             }
 
             #[cfg(feature = "nightly")]
