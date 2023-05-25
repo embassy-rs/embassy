@@ -755,6 +755,32 @@ mod eh02 {
         }
     }
 
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Write<u8> for UartTx<'d, T, M> {
+        type Error = Error;
+
+        fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> {
+            let r = T::regs();
+            unsafe {
+                if r.uartfr().read().txff() {
+                    return Err(nb::Error::WouldBlock);
+                }
+
+                r.uartdr().write(|w| w.set_data(word));
+            }
+            Ok(())
+        }
+
+        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+            let r = T::regs();
+            unsafe {
+                if !r.uartfr().read().txfe() {
+                    return Err(nb::Error::WouldBlock);
+                }
+            }
+            Ok(())
+        }
+    }
+
     impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, M> {
         type Error = Error;
 
@@ -772,6 +798,18 @@ mod eh02 {
 
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
+        }
+    }
+
+    impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Write<u8> for Uart<'d, T, M> {
+        type Error = Error;
+
+        fn write(&mut self, word: u8) -> Result<(), nb::Error<Self::Error>> {
+            embedded_hal_02::serial::Write::write(&mut self.tx, word)
+        }
+
+        fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
+            embedded_hal_02::serial::Write::flush(&mut self.tx)
         }
     }
 
