@@ -4,10 +4,10 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_time::{Timer, Duration};
+use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::{Flash, InterruptHandler};
 use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Speed};
-use embassy_stm32::bind_interrupts;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
