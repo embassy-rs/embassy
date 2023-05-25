@@ -443,7 +443,8 @@ pub(crate) fn assert_not_corrupted_read(end_address: u32) {
     const REVISION_3: u16 = 0x2001;
 
     #[allow(unused)]
-    let second_bank_read = get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && end_address > (FLASH_SIZE / 2) as u32;
+    let second_bank_read =
+        get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && end_address > (FLASH_SIZE / 2) as u32;
 
     #[cfg(any(
         feature = "stm32f427ai",
@@ -491,8 +492,7 @@ pub(crate) fn assert_not_corrupted_read(end_address: u32) {
         feature = "stm32f439vg",
         feature = "stm32f439zg",
     ))]
-    if second_bank_read && unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() }
-    {
+    if second_bank_read && unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() } {
         panic!("Read corruption for stm32f42xxG and stm32f43xxG in dual bank mode when PA12 is in use for chips below revision 3, see errata 2.2.11");
     }
 }
