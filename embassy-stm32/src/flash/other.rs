@@ -24,7 +24,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 pub(crate) unsafe fn disable_blocking_write() {
     unimplemented!();
 }
-pub(crate) unsafe fn write_blocking(_start_address: u32, _buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_write(_start_address: u32, _buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     unimplemented!();
 }
 pub(crate) unsafe fn erase_sector_blocking(_sector: &FlashSector) -> Result<(), Error> {
