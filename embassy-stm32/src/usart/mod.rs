@@ -878,9 +878,13 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
     assert!(found, "USART: baudrate too low");
 
     let brr = unsafe { r.brr().read().brr() as u32 };
+    #[cfg(not(usart_v1))]
+    let oversampling = if over8 { "8 bit" } else { "16 bit" };
+    #[cfg(usart_v1)]
+    let oversampling = "default";
     trace!(
-        "Using {}, desired baudrate: {}, actual baudrate: {}",
-        if over8 { "OVER8" } else { "OVER16" },
+        "Using {} oversampling, desired baudrate: {}, actual baudrate: {}",
+        oversampling,
         config.baudrate,
         pclk_freq.0 / brr
     );
