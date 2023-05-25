@@ -380,6 +380,77 @@ fn get_result(sr: Sr) -> Result<(), Error> {
     }
 }
 
+pub(crate) fn assert_not_corrupted_read() {
+    #[allow(unused)]
+    const REVISION_3: u16 = 0x2001;
+
+    #[cfg(any(
+        feature = "stm32f427ai",
+        feature = "stm32f427ii",
+        feature = "stm32f427vi",
+        feature = "stm32f427zi",
+        feature = "stm32f429ai",
+        feature = "stm32f429bi",
+        feature = "stm32f429ii",
+        feature = "stm32f429ni",
+        feature = "stm32f429vi",
+        feature = "stm32f429zi",
+        feature = "stm32f437ai",
+        feature = "stm32f437ii",
+        feature = "stm32f437vi",
+        feature = "stm32f437zi",
+        feature = "stm32f439ai",
+        feature = "stm32f439bi",
+        feature = "stm32f439ii",
+        feature = "stm32f439ni",
+        feature = "stm32f439vi",
+        feature = "stm32f439zi",
+    ))]
+    if unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && pa12_is_output_pull_low() } {
+        panic!("Read corruption for stm32f42xxI and stm32f43xxI when PA12 is in use for chips below revision 3, see errata 2.2.11");
+    }
+
+    #[cfg(any(
+        feature = "stm32f427ag",
+        feature = "stm32f427ig",
+        feature = "stm32f427vg",
+        feature = "stm32f427zg",
+        feature = "stm32f429ag",
+        feature = "stm32f429bg",
+        feature = "stm32f429ig",
+        feature = "stm32f429ng",
+        feature = "stm32f429vg",
+        feature = "stm32f429zg",
+        feature = "stm32f437ig",
+        feature = "stm32f437vg",
+        feature = "stm32f437zg",
+        feature = "stm32f439bg",
+        feature = "stm32f439ig",
+        feature = "stm32f439ng",
+        feature = "stm32f439vg",
+        feature = "stm32f439zg",
+    ))]
+    if unsafe {
+        pac::FLASH.optcr().read().db1m()
+            && pac::DBGMCU.idcode().read().rev_id() < REVISION_3
+            && pa12_is_output_pull_low()
+    } {
+        panic!("Read corruption for stm32f42xxG and stm32f43xxG in dual bank mode when PA12 is in use for chips below revision 3, see errata 2.2.11");
+    }
+}
+
+#[allow(unused)]
+fn pa12_is_output_pull_low() -> bool {
+    use pac::gpio::vals;
+    use pac::GPIOA;
+    const PIN: usize = 12;
+    unsafe {
+        GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
+            && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULLDOWN
+            && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -387,7 +458,7 @@ mod tests {
 
     #[test]
     #[cfg(stm32f429)]
-    fn can_get_sector_single_bank() {
+    fn can_get_sector() {
         const SMALL_SECTOR_SIZE: u32 = 16 * 1024;
         const MEDIUM_SECTOR_SIZE: u32 = 64 * 1024;
         const LARGE_SECTOR_SIZE: u32 = 128 * 1024;
