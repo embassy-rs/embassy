@@ -160,12 +160,8 @@ function run_elf {
 }
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
-    if [[ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN-}" ]]; then
-        echo No teleprobe token found, skipping running HIL tests
-        exit
-    fi
-
-    export TELEPROBE_TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL" | jq -r '.value')
+    echo No teleprobe token found, skipping running HIL tests
+    exit
 fi
 
 for board in $(ls out/tests); do 
