@@ -9,7 +9,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
     pub(super) fn apply_config(&mut self, rtc_config: RtcConfig) {
         // Unlock the backup domain
         unsafe {
-            #[cfg(any(rtc_v3u5, rcc_g0))]
+            #[cfg(any(rtc_v3u5, rcc_g0, rcc_g4))]
             use crate::pac::rcc::vals::Rtcsel;
             #[cfg(not(any(rtc_v3u5, rcc_g0, rcc_g4, rcc_wl5, rcc_wle)))]
             use crate::pac::rtc::vals::Rtcsel;
@@ -31,7 +31,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
             assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
             let config_rtcsel = rtc_config.clock_config as u8;
-            #[cfg(not(any(rcc_wl5, rcc_wle, rcc_g4)))]
+            #[cfg(not(any(rcc_wl5, rcc_wle)))]
             let config_rtcsel = Rtcsel(config_rtcsel);
 
             if !reg.rtcen() || reg.rtcsel() != config_rtcsel {
