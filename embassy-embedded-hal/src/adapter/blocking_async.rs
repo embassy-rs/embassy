@@ -1,5 +1,3 @@
-//! Adapters between embedded-hal traits.
-
 use embedded_hal_02::{blocking, serial};
 
 /// Wrapper that implements async traits using blocking implementations.

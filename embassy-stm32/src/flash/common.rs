@@ -17,6 +17,7 @@ impl<'d> Flash<'d> {
     }
 
     pub fn into_regions(self) -> FlashLayout<'d> {
+        family::set_default_layout();
         FlashLayout::new(self.release())
     }
 
@@ -25,11 +26,11 @@ impl<'d> Flash<'d> {
     }
 
     pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        unsafe { blocking_write(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes) }
+        unsafe { blocking_write_chunked(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes) }
     }
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        unsafe { blocking_erase(FLASH_BASE as u32, from, to) }
+        unsafe { blocking_erase_sectored(FLASH_BASE as u32, from, to) }
     }
 
     pub(crate) fn release(self) -> PeripheralRef<'d, crate::peripherals::FLASH> {
@@ -37,7 +38,7 @@ impl<'d> Flash<'d> {
     }
 }
 
-fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+pub(super) fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
@@ -48,7 +49,7 @@ fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<
     Ok(())
 }
 
-unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+pub(super) unsafe fn blocking_write_chunked(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Result<(), Error> {
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
@@ -81,7 +82,7 @@ unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Res
     Ok(())
 }
 
-unsafe fn blocking_erase(base: u32, from: u32, to: u32) -> Result<(), Error> {
+pub(super) unsafe fn blocking_erase_sectored(base: u32, from: u32, to: u32) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
     let regions = family::get_flash_regions();
@@ -154,11 +155,11 @@ impl FlashRegion {
     }
 
     pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        unsafe { blocking_write(self.base, self.size, offset, bytes) }
+        unsafe { blocking_write_chunked(self.base, self.size, offset, bytes) }
     }
 
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        unsafe { blocking_erase(self.base, from, to) }
+        unsafe { blocking_erase_sectored(self.base, from, to) }
     }
 }
 
@@ -199,11 +200,11 @@ foreach_flash_region! {
             }
 
             pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-                unsafe { blocking_write(self.0.base, self.0.size, offset, bytes) }
+                unsafe { blocking_write_chunked(self.0.base, self.0.size, offset, bytes) }
             }
 
             pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-                unsafe { blocking_erase(self.0.base, from, to) }
+                unsafe { blocking_erase_sectored(self.0.base, from, to) }
             }
         }
 

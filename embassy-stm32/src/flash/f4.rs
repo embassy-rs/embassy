@@ -11,8 +11,11 @@ mod alt_regions {
     use embassy_hal_common::PeripheralRef;
     use stm32_metapac::FLASH_SIZE;
 
-    use crate::_generated::flash_regions::{BANK1_REGION1, BANK1_REGION2, BANK1_REGION3};
-    use crate::flash::{Bank1Region1, Bank1Region2, Flash, FlashBank, FlashRegion};
+    use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
+    use crate::flash::{
+        blocking_erase_sectored, blocking_read, blocking_write_chunked, Bank1Region1, Bank1Region2, Error, Flash,
+        FlashBank, FlashRegion,
+    };
     use crate::peripherals::FLASH;
 
     pub const ALT_BANK1_REGION3: FlashRegion = FlashRegion {
@@ -45,20 +48,19 @@ mod alt_regions {
         &ALT_BANK2_REGION3,
     ];
 
-    pub type AltBank1Region1<'d> = Bank1Region1<'d>;
-    pub type AltBank1Region2<'d> = Bank1Region2<'d>;
     pub struct AltBank1Region3<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
     pub struct AltBank2Region1<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
     pub struct AltBank2Region2<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
     pub struct AltBank2Region3<'d>(pub &'static FlashRegion, PeripheralRef<'d, FLASH>);
 
     pub struct AltFlashLayout<'d> {
-        pub bank1_region1: AltBank1Region1<'d>,
-        pub bank1_region2: AltBank1Region2<'d>,
+        pub bank1_region1: Bank1Region1<'d>,
+        pub bank1_region2: Bank1Region2<'d>,
         pub bank1_region3: AltBank1Region3<'d>,
         pub bank2_region1: AltBank2Region1<'d>,
         pub bank2_region2: AltBank2Region2<'d>,
         pub bank2_region3: AltBank2Region3<'d>,
+        pub otp_region: OTPRegion<'d>,
     }
 
     impl<'d> Flash<'d> {
@@ -66,7 +68,7 @@ mod alt_regions {
             unsafe { crate::pac::FLASH.optcr().modify(|r| r.set_db1m(true)) };
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
-            // Also, all flash region operations are protected with a cs.
+            // Also, all blocking flash region operations are protected with a cs.
             let p = self.release();
             AltFlashLayout {
                 bank1_region1: Bank1Region1(&BANK1_REGION1, unsafe { p.clone_unchecked() }),
@@ -75,22 +77,74 @@ mod alt_regions {
                 bank2_region1: AltBank2Region1(&ALT_BANK2_REGION1, unsafe { p.clone_unchecked() }),
                 bank2_region2: AltBank2Region2(&ALT_BANK2_REGION2, unsafe { p.clone_unchecked() }),
                 bank2_region3: AltBank2Region3(&ALT_BANK2_REGION3, unsafe { p.clone_unchecked() }),
+                otp_region: OTPRegion(&OTP_REGION, unsafe { p.clone_unchecked() }),
             }
         }
     }
 
-    impl Drop for AltFlashLayout<'_> {
-        fn drop(&mut self) {
-            unsafe {
-                super::lock();
-                crate::pac::FLASH.optcr().modify(|r| r.set_db1m(false))
-            };
-        }
+    macro_rules! foreach_altflash_region {
+        ($type_name:ident, $region:ident) => {
+            impl $type_name<'_> {
+                pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+                    blocking_read(self.0.base, self.0.size, offset, bytes)
+                }
+
+                pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+                    unsafe { blocking_write_chunked(self.0.base, self.0.size, offset, bytes) }
+                }
+
+                pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+                    unsafe { blocking_erase_sectored(self.0.base, from, to) }
+                }
+            }
+
+            impl embedded_storage::nor_flash::ErrorType for $type_name<'_> {
+                type Error = Error;
+            }
+
+            impl embedded_storage::nor_flash::ReadNorFlash for $type_name<'_> {
+                const READ_SIZE: usize = 1;
+
+                fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+                    self.blocking_read(offset, bytes)
+                }
+
+                fn capacity(&self) -> usize {
+                    self.0.size as usize
+                }
+            }
+
+            impl embedded_storage::nor_flash::NorFlash for $type_name<'_> {
+                const WRITE_SIZE: usize = $region.write_size as usize;
+                const ERASE_SIZE: usize = $region.erase_size as usize;
+
+                fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+                    self.blocking_write(offset, bytes)
+                }
+
+                fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+                    self.blocking_erase(from, to)
+                }
+            }
+        };
     }
+
+    foreach_altflash_region!(AltBank1Region3, ALT_BANK1_REGION3);
+    foreach_altflash_region!(AltBank2Region1, ALT_BANK2_REGION1);
+    foreach_altflash_region!(AltBank2Region2, ALT_BANK2_REGION2);
+    foreach_altflash_region!(AltBank2Region3, ALT_BANK2_REGION3);
 }
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
-pub use alt_regions::{AltFlashLayout, ALT_FLASH_REGIONS};
+pub use alt_regions::*;
+
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+pub fn set_default_layout() {
+    unsafe { crate::pac::FLASH.optcr().modify(|r| r.set_db1m(false)) };
+}
+
+#[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
+pub const fn set_default_layout() {}
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {

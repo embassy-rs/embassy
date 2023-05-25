@@ -6,6 +6,8 @@ use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
+pub const fn set_default_layout() {}
+
 pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }

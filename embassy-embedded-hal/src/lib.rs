@@ -7,6 +7,8 @@
 #[cfg(feature = "nightly")]
 pub mod adapter;
 
+pub mod flash;
+
 pub mod shared_bus;
 
 /// Set the configuration of a peripheral driver.
