@@ -13,6 +13,7 @@ use crate::{interrupt, Peripheral};
 
 pub struct Flash<'d> {
     pub(crate) inner: PeripheralRef<'d, FLASH>,
+    #[cfg(all(feature = "nightly", flash_f4))]
     pub(crate) blocking_only: bool,
 }
 
@@ -29,6 +30,7 @@ impl<'d> Flash<'d> {
 
         Self {
             inner: p,
+            #[cfg(all(feature = "nightly", flash_f4))]
             blocking_only: false,
         }
     }
@@ -38,6 +40,7 @@ impl<'d> Flash<'d> {
 
         Self {
             inner: p,
+            #[cfg(all(feature = "nightly", flash_f4))]
             blocking_only: true,
         }
     }

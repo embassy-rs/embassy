@@ -20,9 +20,7 @@ mod alt_regions {
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
     #[cfg(feature = "nightly")]
     use crate::flash::asynch;
-    use crate::flash::{
-        common, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion, READ_SIZE,
-    };
+    use crate::flash::{Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion};
     use crate::peripherals::FLASH;
 
     pub const ALT_BANK1_REGION3: FlashRegion = FlashRegion {
@@ -111,7 +109,7 @@ mod alt_regions {
             #[cfg(feature = "nightly")]
             impl $type_name<'_, Async> {
                 pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                    common::read_blocking(self.0.base, self.0.size, offset, bytes)
+                    crate::flash::common::read_blocking(self.0.base, self.0.size, offset, bytes)
                 }
 
                 pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
@@ -131,7 +129,7 @@ mod alt_regions {
 
             #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::ReadNorFlash for $type_name<'_, Async> {
-                const READ_SIZE: usize = READ_SIZE;
+                const READ_SIZE: usize = crate::flash::READ_SIZE;
 
                 async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
                     self.read(offset, bytes).await
