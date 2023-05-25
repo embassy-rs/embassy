@@ -83,15 +83,6 @@ impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
     }
 }
 
-/// Interrupt handler
-pub struct InterruptHandler;
-
-impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
-    unsafe fn on_interrupt() {
-        family::on_interrupt();
-    }
-}
-
 pub(super) fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
