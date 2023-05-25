@@ -4,7 +4,7 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::{flash::Flash, interrupt};
+use embassy_stm32::flash::Flash;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
 
     // Once can also call `into_regions()` to get access to NorFlash implementations
     // for each of the unique characteristics.
-    let mut f = Flash::new(p.FLASH, interrupt::take!(FLASH));
+    let mut f = Flash::new_blocking_only(p.FLASH);
 
     // Sector 5
     test_flash(&mut f, 128 * 1024, 128 * 1024);

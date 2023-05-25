@@ -17,7 +17,7 @@ pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
-pub(crate) unsafe fn on_interrupt(_: *mut ()) {
+pub(crate) unsafe fn on_interrupt() {
     unimplemented!();
 }
 

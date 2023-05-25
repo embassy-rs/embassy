@@ -12,15 +12,18 @@ pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new
 
 impl<'d> Flash<'d> {
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
+        assert!(!self.blocking_only);
         family::set_default_layout();
         FlashLayout::new(self.inner)
     }
 
     pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+        assert!(!self.blocking_only);
         unsafe { write_chunked(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes).await }
     }
 
     pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        assert!(!self.blocking_only);
         unsafe { erase_sectored(FLASH_BASE as u32, from, to).await }
     }
 }
