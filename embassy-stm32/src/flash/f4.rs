@@ -463,7 +463,7 @@ pub(crate) fn assert_not_corrupted_read() {
         feature = "stm32f439vi",
         feature = "stm32f439zi",
     ))]
-    if unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && pa12_is_output_pull_low() } {
+    if unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() } {
         panic!("Read corruption for stm32f42xxI and stm32f43xxI when PA12 is in use for chips below revision 3, see errata 2.2.11");
     }
 
@@ -490,7 +490,7 @@ pub(crate) fn assert_not_corrupted_read() {
     if unsafe {
         pac::FLASH.optcr().read().db1m()
             && pac::DBGMCU.idcode().read().rev_id() < REVISION_3
-            && pa12_is_output_pull_low()
+            && !pa12_is_output_pull_low()
     } {
         panic!("Read corruption for stm32f42xxG and stm32f43xxG in dual bank mode when PA12 is in use for chips below revision 3, see errata 2.2.11");
     }
