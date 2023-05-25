@@ -4,9 +4,12 @@ use bit_field::BitField;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
+#[cfg(feature = "ble")]
 use self::ble::Ble;
 use self::cmd::{AclDataPacket, CmdPacket};
 use self::evt::{CsEvt, EvtBox};
+#[cfg(feature = "mac-802_15_4")]
+use self::mac_802_15_4::Mac802_15_4;
 use self::mm::MemoryManager;
 use self::shci::{shci_ble_init, ShciBleInitCmdParam};
 use self::sys::Sys;
@@ -14,7 +17,6 @@ use self::unsafe_linked_list::LinkedListNode;
 use crate::interrupt;
 use crate::ipcc::Ipcc;
 
-mod ble;
 mod channels;
 mod cmd;
 mod consts;
@@ -23,6 +25,11 @@ mod mm;
 mod shci;
 mod sys;
 mod unsafe_linked_list;
+
+#[cfg(feature = "ble")]
+mod ble;
+#[cfg(feature = "mac-802_15_4")]
+mod mac_802_15_4;
 
 pub type PacketHeader = LinkedListNode;
 
@@ -194,8 +201,8 @@ struct TracesTable {
 
 #[repr(C, packed)]
 struct Mac802_15_4Table {
-    pcmd_rsp_buffer: *const u8,
-    pnotack_buffer: *const u8,
+    pcmd_rsp_buffer: *mut u8,
+    pnotack_buffer: *mut u8,
     evt_queue: *const u8,
 }
 
@@ -215,6 +222,7 @@ pub struct RefTable {
     ble_lld_table: *const BleLldTable,
 }
 
+// -------------------- reference table --------------------
 #[link_section = "TL_REF_TABLE"]
 pub static mut TL_REF_TABLE: MaybeUninit<RefTable> = MaybeUninit::uninit();
 
@@ -248,38 +256,50 @@ static mut TL_MAC_802_15_4_TABLE: MaybeUninit<Mac802_15_4Table> = MaybeUninit::u
 #[link_section = "MB_MEM1"]
 static mut TL_ZIGBEE_TABLE: MaybeUninit<ZigbeeTable> = MaybeUninit::uninit();
 
-#[allow(dead_code)] // Not used currently but reserved
+// -------------------- tables --------------------
 #[link_section = "MB_MEM1"]
 static mut FREE_BUFF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
-
-// not in shared RAM
-static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
     MaybeUninit::uninit();
 
-#[link_section = "MB_MEM2"]
+#[link_section = "MB_MEM1"]
 static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
-#[link_section = "MB_MEM2"]
-static mut SYS_CMD_BUF: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
+// not in shared RAM
+static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
+// -------------------- app tables --------------------
 #[link_section = "MB_MEM2"]
 static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+static mut SYS_CMD_BUF: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut SYS_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
+#[cfg(feature = "mac-802_15_4")]
+#[link_section = "MB_MEM2"]
+static mut MAC_802_15_4_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
+
+#[cfg(feature = "mac-802_15_4")]
+#[link_section = "MB_MEM2"]
+static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
+    MaybeUninit::uninit();
+
+#[cfg(feature = "ble")]
 #[link_section = "MB_MEM2"]
 static mut BLE_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
-#[link_section = "MB_MEM2"]
+#[cfg(feature = "ble")]
+#[link_section = "MB_MEM1"]
 static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
@@ -289,10 +309,14 @@ static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251
 // TODO: get a better size, this is a placeholder
 pub(crate) static TL_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 5> = Channel::new();
 
-pub struct TlMbox {
-    _sys: Sys,
-    _ble: Ble,
-    _mm: MemoryManager,
+pub struct TlMbox;
+
+pub enum MailboxTarget {
+    Sys,
+    #[cfg(feature = "ble")]
+    Ble,
+    #[cfg(feature = "mac-802_15_4")]
+    Mac802_15_4,
 }
 
 impl TlMbox {
@@ -338,9 +362,14 @@ impl TlMbox {
 
         ipcc.init();
 
-        let _sys = Sys::new(ipcc);
-        let _ble = Ble::new(ipcc);
-        let _mm = MemoryManager::new();
+        Sys::init(ipcc);
+        MemoryManager::init();
+
+        #[cfg(feature = "ble")]
+        Ble::init(ipcc);
+
+        #[cfg(feature = "mac-802_15_4")]
+        Mac802_15_4::init(ipcc);
 
         //        rx_irq.disable();
         //        tx_irq.disable();
@@ -360,7 +389,7 @@ impl TlMbox {
         //        rx_irq.enable();
         //        tx_irq.enable();
 
-        TlMbox { _sys, _ble, _mm }
+        Self
     }
 
     pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
@@ -374,17 +403,30 @@ impl TlMbox {
         }
     }
 
+    #[cfg(feature = "ble")]
     pub fn shci_ble_init(&self, ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
         shci_ble_init(ipcc, param);
     }
 
-    pub fn send_ble_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
-        ble::Ble::send_cmd(ipcc, buf);
+    pub fn send_cmd(&self, ipcc: &mut Ipcc, buf: &[u8], target: MailboxTarget) {
+        match target {
+            MailboxTarget::Sys => Sys::send_cmd(ipcc, buf),
+            #[cfg(feature = "ble")]
+            MailboxTarget::Ble => Ble::send_cmd(ipcc, buf),
+            #[cfg(feature = "mac-802_15_4")]
+            MailboxTarget::Mac802_15_4 => Mac802_15_4::send_cmd(ipcc, buf),
+        }
     }
 
-    // pub fn send_sys_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
-    //     sys::Sys::send_cmd(ipcc, buf);
-    // }
+    pub fn send_ack(&self, ipcc: &mut Ipcc, target: MailboxTarget) {
+        match target {
+            #[cfg(feature = "ble")]
+            MailboxTarget::Ble => Ble::send_acl_data(ipcc),
+            #[cfg(feature = "mac-802_15_4")]
+            MailboxTarget::Mac802_15_4 => Mac802_15_4::send_ack(ipcc),
+            MailboxTarget::Sys => { /* does nothing */ }
+        }
+    }
 
     pub async fn read(&self) -> EvtBox {
         TL_CHANNEL.recv().await
@@ -392,10 +434,14 @@ impl TlMbox {
 
     #[allow(dead_code)]
     fn interrupt_ipcc_rx_handler(ipcc: &mut Ipcc) {
-        if ipcc.is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
-            sys::Sys::evt_handler(ipcc);
-        } else if ipcc.is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
-            ble::Ble::evt_handler(ipcc);
+        if ipcc.is_rx_pending(channels::Cpu2Channel::SystemEvent.into()) {
+            Sys::evt_handler(ipcc);
+        } else if cfg!(feature = "ble") && ipcc.is_rx_pending(channels::Cpu2Channel::BleEvent.into()) {
+            Ble::evt_handler(ipcc);
+        } else if cfg!(feature = "mac-802_15_4")
+            && ipcc.is_rx_pending(channels::Cpu2Channel::Mac802_15_4NotifAck.into())
+        {
+            Mac802_15_4::notif_evt_handler(ipcc);
         } else {
             todo!()
         }
@@ -403,11 +449,16 @@ impl TlMbox {
 
     #[allow(dead_code)]
     fn interrupt_ipcc_tx_handler(ipcc: &mut Ipcc) {
-        if ipcc.is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
+        if ipcc.is_tx_pending(channels::Cpu1Channel::SystemCmdRsp.into()) {
             // TODO: handle this case
-            let _ = sys::Sys::cmd_evt_handler(ipcc);
-        } else if ipcc.is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
-            mm::MemoryManager::evt_handler(ipcc);
+            let _ = Sys::cmd_evt_handler(ipcc);
+        } else if ipcc.is_tx_pending(channels::Cpu1Channel::MmReleaseBuffer.into()) {
+            MemoryManager::evt_handler(ipcc);
+        } else if cfg!(feature = "ble") && ipcc.is_tx_pending(channels::Cpu1Channel::HciAclData.into()) {
+            Ble::acl_data_evt_handler(ipcc);
+        } else if cfg!(feature = "mac-802_15_4") && ipcc.is_tx_pending(channels::Cpu1Channel::Mac802_15_4cmdRsp.into())
+        {
+            Mac802_15_4::cmd_evt_handler(ipcc)
         } else {
             todo!()
         }

@@ -16,7 +16,7 @@ use crate::tl_mbox::cmd::CmdPacket;
 pub struct Ble;
 
 impl Ble {
-    pub(crate) fn new(ipcc: &mut Ipcc) -> Self {
+    pub(crate) fn init(ipcc: &mut Ipcc) -> Self {
         unsafe {
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
@@ -28,7 +28,7 @@ impl Ble {
             });
         }
 
-        ipcc.c1_set_rx_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, true);
+        ipcc.c1_set_rx_channel(channels::Cpu2Channel::BleEvent.into(), true);
 
         Ble
     }
@@ -48,7 +48,11 @@ impl Ble {
             }
         }
 
-        ipcc.c1_clear_flag_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL);
+        ipcc.c1_clear_flag_channel(channels::Cpu2Channel::BleEvent.into());
+    }
+
+    pub(crate) fn acl_data_evt_handler(ipcc: &mut Ipcc) {
+        ipcc.c1_set_tx_channel(channels::Cpu1Channel::HciAclData.into(), false);
     }
 
     pub(crate) fn send_cmd(ipcc: &mut Ipcc, buf: &[u8]) {
@@ -63,6 +67,17 @@ impl Ble {
             cmd_packet.cmd_serial.ty = TlPacketType::BleCmd as u8;
         }
 
-        ipcc.c1_set_flag_channel(channels::cpu1::IPCC_BLE_CMD_CHANNEL);
+        ipcc.c1_set_flag_channel(channels::Cpu1Channel::BleCmd.into());
+    }
+
+    pub(crate) fn send_acl_data(ipcc: &mut Ipcc) {
+        unsafe {
+            (*(*TL_REF_TABLE.assume_init().ble_table).phci_acl_data_buffer)
+                .acl_data_serial
+                .ty = TlPacketType::AclData as u8;
+        }
+
+        ipcc.c1_set_flag_channel(channels::Cpu1Channel::HciAclData.into());
+        ipcc.c1_set_tx_channel(channels::Cpu1Channel::HciAclData.into(), true);
     }
 }

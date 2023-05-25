@@ -95,7 +95,7 @@ pub fn shci_ble_init(ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
 
         cmd_buf.cmd_serial.ty = TlPacketType::SysCmd as u8;
 
-        ipcc.c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-        ipcc.c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
+        ipcc.c1_set_flag_channel(channels::Cpu1Channel::SystemCmdRsp.into());
+        ipcc.c1_set_tx_channel(channels::Cpu1Channel::SystemCmdRsp.into(), true);
     }
 }
