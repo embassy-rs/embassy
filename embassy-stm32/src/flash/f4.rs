@@ -236,6 +236,7 @@ pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
+#[cfg(feature = "nightly")]
 pub(crate) unsafe fn on_interrupt() {
     // Clear IRQ flags
     pac::FLASH.sr().write(|w| {
@@ -243,7 +244,6 @@ pub(crate) unsafe fn on_interrupt() {
         w.set_eop(true);
     });
 
-    #[cfg(feature = "nightly")]
     WAKER.wake();
 }
 
@@ -436,6 +436,7 @@ fn restore_data_cache_state() {
             unsafe {
                 // Reset data cache before we enable it again
                 pac::FLASH.acr().modify(|w| w.set_dcrst(true));
+                pac::FLASH.acr().modify(|w| w.set_dcrst(false));
                 pac::FLASH.acr().modify(|w| w.set_dcen(true))
             };
         }
