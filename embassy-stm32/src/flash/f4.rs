@@ -108,15 +108,15 @@ mod alt_regions {
     macro_rules! foreach_altflash_region {
         ($type_name:ident, $region:ident) => {
             impl<MODE> $type_name<'_, MODE> {
-                pub fn read_blocking(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                    crate::flash::common::read_blocking(self.0.base, self.0.size, offset, bytes)
+                pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+                    crate::flash::common::blocking_read(self.0.base, self.0.size, offset, bytes)
                 }
             }
 
             #[cfg(feature = "nightly")]
             impl $type_name<'_, Async> {
                 pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                    self.read_blocking(offset, bytes)
+                    self.blocking_read(offset, bytes)
                 }
 
                 pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
@@ -138,7 +138,7 @@ mod alt_regions {
                 const READ_SIZE: usize = crate::flash::READ_SIZE;
 
                 fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                    self.read_blocking(offset, bytes)
+                    self.blocking_read(offset, bytes)
                 }
 
                 fn capacity(&self) -> usize {
@@ -299,9 +299,9 @@ pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> 
     wait_ready().await
 }
 
-pub(crate) unsafe fn write_blocking(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     write_start(start_address, buf);
-    wait_ready_blocking()
+    blocking_wait_ready()
 }
 
 unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
@@ -340,7 +340,7 @@ pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Erro
     ret
 }
 
-pub(crate) unsafe fn erase_sector_blocking(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     save_data_cache_state();
 
     pac::FLASH.cr().modify(|w| {
@@ -352,7 +352,7 @@ pub(crate) unsafe fn erase_sector_blocking(sector: &FlashSector) -> Result<(), E
         w.set_strt(true);
     });
 
-    let ret: Result<(), Error> = wait_ready_blocking();
+    let ret: Result<(), Error> = blocking_wait_ready();
     clear_all_err();
     restore_data_cache_state();
     ret
@@ -386,7 +386,7 @@ pub(crate) async unsafe fn wait_ready() -> Result<(), Error> {
     .await
 }
 
-unsafe fn wait_ready_blocking() -> Result<(), Error> {
+unsafe fn blocking_wait_ready() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 

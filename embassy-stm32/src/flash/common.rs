@@ -54,12 +54,12 @@ impl<'d, MODE> Flash<'d, MODE> {
     }
 
     pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        read_blocking(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes)
+        blocking_read(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes)
     }
 
-    pub fn write_blocking(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         unsafe {
-            write_blocking(
+            blocking_write(
                 FLASH_BASE as u32,
                 FLASH_SIZE as u32,
                 offset,
@@ -69,8 +69,8 @@ impl<'d, MODE> Flash<'d, MODE> {
         }
     }
 
-    pub fn erase_blocking(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        unsafe { erase_blocking(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
+    pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+        unsafe { blocking_erase(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
     }
 }
 
@@ -83,7 +83,7 @@ impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
     }
 }
 
-pub(super) fn read_blocking(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+pub(super) fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
@@ -97,7 +97,7 @@ pub(super) fn read_blocking(base: u32, size: u32, offset: u32, bytes: &mut [u8])
     Ok(())
 }
 
-pub(super) unsafe fn write_blocking(
+pub(super) unsafe fn blocking_write(
     base: u32,
     size: u32,
     offset: u32,
@@ -135,14 +135,14 @@ pub(super) unsafe fn write_chunk_unlocked(address: u32, chunk: &[u8]) -> Result<
         family::lock();
     });
 
-    family::write_blocking(address, chunk.try_into().unwrap())
+    family::blocking_write(address, chunk.try_into().unwrap())
 }
 
 pub(super) unsafe fn write_chunk_with_critical_section(address: u32, chunk: &[u8]) -> Result<(), Error> {
     critical_section::with(|_| write_chunk_unlocked(address, chunk))
 }
 
-pub(super) unsafe fn erase_blocking(
+pub(super) unsafe fn blocking_erase(
     base: u32,
     from: u32,
     to: u32,
@@ -174,7 +174,7 @@ pub(super) unsafe fn erase_sector_unlocked(sector: &FlashSector) -> Result<(), E
 
     let _on_drop = OnDrop::new(|| family::lock());
 
-    family::erase_sector_blocking(&sector)
+    family::blocking_erase_sector(&sector)
 }
 
 pub(super) unsafe fn erase_sector_with_critical_section(sector: &FlashSector) -> Result<(), Error> {
@@ -246,29 +246,29 @@ impl<MODE> embedded_storage::nor_flash::NorFlash for Flash<'_, MODE> {
     const ERASE_SIZE: usize = MAX_ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.write_blocking(offset, bytes)
+        self.blocking_write(offset, bytes)
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.erase_blocking(from, to)
+        self.blocking_erase(from, to)
     }
 }
 
 foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl<MODE> crate::_generated::flash_regions::$type_name<'_, MODE> {
-            pub fn read_blocking(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                read_blocking(self.0.base, self.0.size, offset, bytes)
+            pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+                blocking_read(self.0.base, self.0.size, offset, bytes)
             }
         }
 
         impl crate::_generated::flash_regions::$type_name<'_, Blocking> {
-            pub fn write_blocking(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-                unsafe { write_blocking(self.0.base, self.0.size, offset, bytes, write_chunk_with_critical_section) }
+            pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+                unsafe { blocking_write(self.0.base, self.0.size, offset, bytes, write_chunk_with_critical_section) }
             }
 
-            pub fn erase_blocking(&mut self, from: u32, to: u32) -> Result<(), Error> {
-                unsafe { erase_blocking(self.0.base, from, to, erase_sector_with_critical_section) }
+            pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+                unsafe { blocking_erase(self.0.base, from, to, erase_sector_with_critical_section) }
             }
         }
 
@@ -280,7 +280,7 @@ foreach_flash_region! {
             const READ_SIZE: usize = READ_SIZE;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                self.read_blocking(offset, bytes)
+                self.blocking_read(offset, bytes)
             }
 
             fn capacity(&self) -> usize {
@@ -293,11 +293,11 @@ foreach_flash_region! {
             const ERASE_SIZE: usize = $erase_size;
 
             fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-                self.write_blocking(offset, bytes)
+                self.blocking_write(offset, bytes)
             }
 
             fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-                self.erase_blocking(from, to)
+                self.blocking_erase(from, to)
             }
         }
     };

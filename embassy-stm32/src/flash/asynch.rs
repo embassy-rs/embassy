@@ -4,7 +4,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use super::{
-    ensure_sector_aligned, family, get_sector, read_blocking, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
+    blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
     MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
 };
 
@@ -112,7 +112,7 @@ foreach_flash_region! {
     ($type_name:ident, $write_size:literal, $erase_size:literal) => {
         impl crate::_generated::flash_regions::$type_name<'_, Async> {
             pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                read_blocking(self.0.base, self.0.size, offset, bytes)
+                blocking_read(self.0.base, self.0.size, offset, bytes)
             }
 
             pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
