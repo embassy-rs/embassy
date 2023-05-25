@@ -1,11 +1,11 @@
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-#[cfg(all(feature = "nightly", flash_f4))]
+#[cfg(flash_f4)]
 mod asynch;
 #[cfg(flash)]
 mod common;
 
-#[cfg(all(feature = "nightly", flash_f4))]
+#[cfg(flash_f4)]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;

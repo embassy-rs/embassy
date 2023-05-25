@@ -3,7 +3,6 @@ use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
 use atomic_polyfill::AtomicBool;
-#[cfg(feature = "nightly")]
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
 use pac::FLASH_SIZE;
@@ -20,7 +19,7 @@ mod alt_regions {
     use stm32_metapac::FLASH_SIZE;
 
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
-    #[cfg(feature = "nightly")]
+
     use crate::flash::asynch;
     use crate::flash::{Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion};
     use crate::peripherals::FLASH;
@@ -114,7 +113,6 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(feature = "nightly")]
             impl $type_name<'_, Async> {
                 pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                     self.blocking_read(offset, bytes)
@@ -185,7 +183,6 @@ mod alt_regions {
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub use alt_regions::*;
 
-#[cfg(feature = "nightly")]
 static WAKER: AtomicWaker = AtomicWaker::new();
 static DATA_CACHE_WAS_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -236,7 +233,6 @@ pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
-#[cfg(feature = "nightly")]
 pub(crate) unsafe fn on_interrupt() {
     // Clear IRQ flags
     pac::FLASH.sr().write(|w| {
@@ -256,7 +252,6 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
 }
 
-#[cfg(feature = "nightly")]
 pub(crate) unsafe fn enable_write() {
     assert_eq!(0, WRITE_SIZE % 4);
     save_data_cache_state();
@@ -269,7 +264,6 @@ pub(crate) unsafe fn enable_write() {
     });
 }
 
-#[cfg(feature = "nightly")]
 pub(crate) unsafe fn disable_write() {
     pac::FLASH.cr().write(|w| {
         w.set_pg(false);
@@ -294,7 +288,6 @@ pub(crate) unsafe fn disable_blocking_write() {
     restore_data_cache_state();
 }
 
-#[cfg(feature = "nightly")]
 pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     write_start(start_address, buf);
     wait_ready().await
@@ -316,7 +309,6 @@ unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     }
 }
 
-#[cfg(feature = "nightly")]
 pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
     save_data_cache_state();
 
@@ -372,7 +364,6 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-#[cfg(feature = "nightly")]
 pub(crate) async unsafe fn wait_ready() -> Result<(), Error> {
     use core::task::Poll;
 

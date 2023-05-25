@@ -9,7 +9,7 @@ use embassy_sync::mutex::Mutex;
 
 use super::{
     blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
-    MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
+    WRITE_SIZE,
 };
 use crate::peripherals::FLASH;
 use crate::{interrupt, Peripheral};
@@ -56,8 +56,9 @@ impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
     }
 }
 
+#[cfg(feature = "nightly")]
 impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
-    const READ_SIZE: usize = READ_SIZE;
+    const READ_SIZE: usize = super::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
         self.read(offset, bytes)
@@ -68,9 +69,10 @@ impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
     }
 }
 
+#[cfg(feature = "nightly")]
 impl embedded_storage_async::nor_flash::NorFlash for Flash<'_, Async> {
     const WRITE_SIZE: usize = WRITE_SIZE;
-    const ERASE_SIZE: usize = MAX_ERASE_SIZE;
+    const ERASE_SIZE: usize = super::MAX_ERASE_SIZE;
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
         self.write(offset, bytes).await
@@ -157,8 +159,9 @@ foreach_flash_region! {
             }
         }
 
+        #[cfg(feature = "nightly")]
         impl embedded_storage_async::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
-            const READ_SIZE: usize = READ_SIZE;
+            const READ_SIZE: usize = super::READ_SIZE;
 
             async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
                 self.read(offset, bytes).await
@@ -169,6 +172,7 @@ foreach_flash_region! {
             }
         }
 
+        #[cfg(feature = "nightly")]
         impl embedded_storage_async::nor_flash::NorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
             const WRITE_SIZE: usize = $write_size;
             const ERASE_SIZE: usize = $erase_size;
