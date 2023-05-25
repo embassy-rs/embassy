@@ -4,6 +4,7 @@ use core::sync::atomic::{fence, Ordering};
 
 #[cfg(feature = "nightly")]
 use embassy_sync::waitqueue::AtomicWaker;
+use pac::flash::regs::Sr;
 
 use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
@@ -347,17 +348,7 @@ pub(crate) async unsafe fn wait_ready() -> Result<(), Error> {
 
         let sr = pac::FLASH.sr().read();
         if !sr.bsy() {
-            Poll::Ready(if sr.pgserr() {
-                Err(Error::Seq)
-            } else if sr.pgperr() {
-                Err(Error::Parallelism)
-            } else if sr.pgaerr() {
-                Err(Error::Unaligned)
-            } else if sr.wrperr() {
-                Err(Error::Protected)
-            } else {
-                Ok(())
-            })
+            Poll::Ready(get_result(sr))
         } else {
             return Poll::Pending;
         }
@@ -370,24 +361,22 @@ unsafe fn wait_ready_blocking() -> Result<(), Error> {
         let sr = pac::FLASH.sr().read();
 
         if !sr.bsy() {
-            if sr.pgserr() {
-                return Err(Error::Seq);
-            }
-
-            if sr.pgperr() {
-                return Err(Error::Parallelism);
-            }
-
-            if sr.pgaerr() {
-                return Err(Error::Unaligned);
-            }
-
-            if sr.wrperr() {
-                return Err(Error::Protected);
-            }
-
-            return Ok(());
+            return get_result(sr);
         }
+    }
+}
+
+fn get_result(sr: Sr) -> Result<(), Error> {
+    if sr.pgserr() {
+        Err(Error::Seq)
+    } else if sr.pgperr() {
+        Err(Error::Parallelism)
+    } else if sr.pgaerr() {
+        Err(Error::Unaligned)
+    } else if sr.wrperr() {
+        Err(Error::Protected)
+    } else {
+        Ok(())
     }
 }
 
