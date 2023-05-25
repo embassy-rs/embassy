@@ -12,10 +12,6 @@ pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
-pub(crate) unsafe fn on_interrupt() {
-    unimplemented!();
-}
-
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().modify(|w| w.set_lock(true));

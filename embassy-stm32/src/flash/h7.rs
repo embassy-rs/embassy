@@ -17,10 +17,6 @@ pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
-pub(crate) unsafe fn on_interrupt() {
-    unimplemented!();
-}
-
 pub(crate) unsafe fn lock() {
     pac::FLASH.bank(0).cr().modify(|w| w.set_lock(true));
     if is_dual_bank() {
