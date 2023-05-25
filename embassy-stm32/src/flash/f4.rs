@@ -6,6 +6,7 @@ use atomic_polyfill::AtomicBool;
 #[cfg(feature = "nightly")]
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
+use pac::FLASH_SIZE;
 
 use super::{FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
@@ -437,9 +438,12 @@ fn restore_data_cache_state() {
     }
 }
 
-pub(crate) fn assert_not_corrupted_read() {
+pub(crate) fn assert_not_corrupted_read(end_address: u32) {
     #[allow(unused)]
     const REVISION_3: u16 = 0x2001;
+
+    #[allow(unused)]
+    let second_bank_read = get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && end_address > FLASH_SIZE / 2;
 
     #[cfg(any(
         feature = "stm32f427ai",
@@ -463,7 +467,7 @@ pub(crate) fn assert_not_corrupted_read() {
         feature = "stm32f439vi",
         feature = "stm32f439zi",
     ))]
-    if unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() } {
+    if second_bank_read && unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() } {
         panic!("Read corruption for stm32f42xxI and stm32f43xxI when PA12 is in use for chips below revision 3, see errata 2.2.11");
     }
 
@@ -487,11 +491,8 @@ pub(crate) fn assert_not_corrupted_read() {
         feature = "stm32f439vg",
         feature = "stm32f439zg",
     ))]
-    if unsafe {
-        pac::FLASH.optcr().read().db1m()
-            && pac::DBGMCU.idcode().read().rev_id() < REVISION_3
-            && !pa12_is_output_pull_low()
-    } {
+    if second_bank_read && unsafe { &&pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() }
+    {
         panic!("Read corruption for stm32f42xxG and stm32f43xxG in dual bank mode when PA12 is in use for chips below revision 3, see errata 2.2.11");
     }
 }

@@ -97,10 +97,11 @@ pub(super) fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8])
         return Err(Error::Size);
     }
 
-    #[cfg(flash_f4)]
-    family::assert_not_corrupted_read();
-
     let start_address = base + offset;
+
+    #[cfg(flash_f4)]
+    family::assert_not_corrupted_read(start_address + bytes.len());
+
     let flash_data = unsafe { core::slice::from_raw_parts(start_address as *const u8, bytes.len()) };
     bytes.copy_from_slice(flash_data);
     Ok(())
