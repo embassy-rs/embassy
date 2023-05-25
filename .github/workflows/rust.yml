@@ -36,6 +36,8 @@ jobs:
             target_ci
           key: rust3-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml') }}
       - name: build
+        env:
+          TELEPROBE_TOKEN: ${{ secrets.TELEPROBE_TOKEN }}
         run: |
           curl -L -o /usr/local/bin/cargo-batch https://github.com/embassy-rs/cargo-batch/releases/download/batch-0.3.0/cargo-batch
           chmod +x /usr/local/bin/cargo-batch
