@@ -22,19 +22,19 @@ async fn main(_spawner: Spawner) {
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.read_blocking(ADDR, &mut buf));
+    unwrap!(f.blocking_read(ADDR, &mut buf));
     info!("Read: {=[u8]:x}", buf);
 
     info!("Erasing...");
-    unwrap!(f.erase_blocking(ADDR, ADDR + 256 * 1024));
+    unwrap!(f.blocking_erase(ADDR, ADDR + 256 * 1024));
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.read_blocking(ADDR, &mut buf));
+    unwrap!(f.blocking_read(ADDR, &mut buf));
     info!("Read after erase: {=[u8]:x}", buf);
 
     info!("Writing...");
-    unwrap!(f.write_blocking(
+    unwrap!(f.blocking_write(
         ADDR,
         &[
             1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.read_blocking(ADDR, &mut buf));
+    unwrap!(f.blocking_read(ADDR, &mut buf));
     info!("Read: {=[u8]:x}", buf);
     assert_eq!(
         &buf[..],
