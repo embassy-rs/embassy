@@ -4,7 +4,7 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::{flash::Flash, interrupt};
+use embassy_stm32::flash::Flash;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
 
     const ADDR: u32 = 0x26000;
 
-    let mut f = Flash::new(p.FLASH, interrupt::take!(FLASH)).into_blocking_regions().bank1_region;
+    let mut f = Flash::new_blocking_only(p.FLASH).into_blocking_regions().bank1_region;
 
     info!("Reading...");
     let mut buf = [0u8; 8];

@@ -1,5 +1,5 @@
 use atomic_polyfill::{fence, Ordering};
-use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use stm32_metapac::FLASH_BASE;
@@ -9,21 +9,37 @@ use super::{
     WRITE_SIZE,
 };
 use crate::peripherals::FLASH;
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
 
 pub struct Flash<'d> {
     pub(crate) inner: PeripheralRef<'d, FLASH>,
+    pub(crate) blocking_only: bool,
 }
 
 impl<'d> Flash<'d> {
-    pub fn new(p: impl Peripheral<P = FLASH> + 'd, irq: impl Peripheral<P = crate::interrupt::FLASH> + 'd) -> Self {
-        into_ref!(p, irq);
+    pub fn new(
+        p: impl Peripheral<P = FLASH> + 'd,
+        _irq: impl interrupt::Binding<crate::interrupt::FLASH, InterruptHandler> + 'd,
+    ) -> Self {
+        into_ref!(p);
 
-        irq.set_handler(family::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        let flash_irq = unsafe { crate::interrupt::FLASH::steal() };
+        flash_irq.unpend();
+        flash_irq.enable();
 
-        Self { inner: p }
+        Self {
+            inner: p,
+            blocking_only: false,
+        }
+    }
+
+    pub fn new_blocking_only(p: impl Peripheral<P = FLASH> + 'd) -> Self {
+        into_ref!(p);
+
+        Self {
+            inner: p,
+            blocking_only: true,
+        }
     }
 
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
@@ -49,6 +65,15 @@ impl<'d> Flash<'d> {
 
     pub fn erase_blocking(&mut self, from: u32, to: u32) -> Result<(), Error> {
         unsafe { erase_blocking(FLASH_BASE as u32, from, to, erase_sector_unlocked) }
+    }
+}
+
+/// Interrupt handler
+pub struct InterruptHandler;
+
+impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        family::on_interrupt();
     }
 }
 

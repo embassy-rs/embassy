@@ -20,8 +20,7 @@ fn main() -> ! {
     */
 
     let mut bl: BootLoader<2048> = BootLoader::default();
-    let flash = Flash::new(p.FLASH);
-    let layout = flash.into_regions();
+    let layout = Flash::new_blocking_only(p.FLASH).into_blocking_regions();
     let mut flash = BootFlash::new(layout.bank1_region);
     let start = bl.prepare(&mut SingleFlashConfig::new(&mut flash));
     core::mem::drop(flash);
