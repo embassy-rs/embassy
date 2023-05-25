@@ -36,7 +36,7 @@ pub(crate) unsafe fn disable_blocking_write() {
     pac::FLASH.cr().write(|w| w.set_pg(false));
 }
 
-pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+pub(crate) unsafe fn write_blocking(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for chunk in buf.chunks(2) {
         write_volatile(address as *mut u16, u16::from_le_bytes(chunk.try_into().unwrap()));
@@ -46,10 +46,10 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         fence(Ordering::SeqCst);
     }
 
-    blocking_wait_ready()
+    wait_ready_blocking()
 }
 
-pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn erase_sector_blocking(sector: &FlashSector) -> Result<(), Error> {
     pac::FLASH.cr().modify(|w| {
         w.set_per(true);
     });
@@ -60,7 +60,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         w.set_strt(true);
     });
 
-    let mut ret: Result<(), Error> = blocking_wait_ready();
+    let mut ret: Result<(), Error> = wait_ready_blocking();
 
     if !pac::FLASH.sr().read().eop() {
         trace!("FLASH: EOP not set");
@@ -92,7 +92,7 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-unsafe fn blocking_wait_ready() -> Result<(), Error> {
+unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 

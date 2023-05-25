@@ -83,7 +83,16 @@ impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
     }
 }
 
-pub(super) fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+/// Interrupt handler
+pub struct InterruptHandler;
+
+impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        family::on_interrupt();
+    }
+}
+
+pub(super) fn read_blocking(base: u32, size: u32, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
@@ -246,11 +255,11 @@ impl<MODE> embedded_storage::nor_flash::NorFlash for Flash<'_, MODE> {
     const ERASE_SIZE: usize = MAX_ERASE_SIZE;
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(offset, bytes)
+        self.write_blocking(offset, bytes)
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.blocking_erase(from, to)
+        self.erase_blocking(from, to)
     }
 }
 
@@ -280,7 +289,7 @@ foreach_flash_region! {
             const READ_SIZE: usize = READ_SIZE;
 
             fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-                self.blocking_read(offset, bytes)
+                self.read_blocking(offset, bytes)
             }
 
             fn capacity(&self) -> usize {
@@ -293,11 +302,11 @@ foreach_flash_region! {
             const ERASE_SIZE: usize = $erase_size;
 
             fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-                self.blocking_write(offset, bytes)
+                self.write_blocking(offset, bytes)
             }
 
             fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-                self.blocking_erase(from, to)
+                self.erase_blocking(from, to)
             }
         }
     };
