@@ -1,12 +1,12 @@
 use core::marker::PhantomData;
 
 use embassy_hal_common::into_ref;
-use stm32_metapac::rcc::vals::{Mcopre, Mcosel};
+use stm32_metapac::rcc::vals::{Lsedrv, Mcopre, Mcosel};
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
-use crate::pac::{FLASH, RCC};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
@@ -289,6 +289,7 @@ pub struct Config {
     )>,
     #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
     pub hsi48: bool,
+    pub rtc_mux: RtcClockSource,
 }
 
 impl Default for Config {
@@ -302,8 +303,14 @@ impl Default for Config {
             pllsai1: None,
             #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
             hsi48: false,
+            rtc_mux: RtcClockSource::LSI32,
         }
     }
+}
+
+pub enum RtcClockSource {
+    LSE32,
+    LSI32,
 }
 
 pub enum McoClock {
@@ -432,15 +439,47 @@ impl<'d, T: McoInstance> Mco<'d, T> {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    match config.rtc_mux {
+        RtcClockSource::LSE32 => {
+            // 1. Unlock the backup domain
+            PWR.cr1().modify(|w| w.set_dbp(true));
+
+            // 2. Setup the LSE
+            RCC.bdcr().modify(|w| {
+                // Enable LSE
+                w.set_lseon(true);
+                // Max drive strength
+                // TODO: should probably be settable
+                w.set_lsedrv(Lsedrv::HIGH);
+            });
+
+            // Wait until LSE is running
+            while !RCC.bdcr().read().lserdy() {}
+        }
+        RtcClockSource::LSI32 => {
+            // Turn on the internal 32 kHz LSI oscillator
+            RCC.csr().modify(|w| w.set_lsion(true));
+
+            // Wait until LSI is running
+            while !RCC.csr().read().lsirdy() {}
+        }
+    }
+
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
             // Enable MSI
             RCC.cr().write(|w| {
                 let bits: Msirange = range.into();
                 w.set_msirange(bits);
-                w.set_msipllen(false);
                 w.set_msirgsel(true);
                 w.set_msion(true);
+
+                if let RtcClockSource::LSE32 = config.rtc_mux {
+                    // If LSE is enabled, enable calibration of MSI
+                    w.set_msipllen(true);
+                } else {
+                    w.set_msipllen(false);
+                }
             });
             while !RCC.cr().read().msirdy() {}
 
