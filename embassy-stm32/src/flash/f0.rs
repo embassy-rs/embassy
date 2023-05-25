@@ -49,7 +49,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     wait_ready_blocking()
 }
 
-pub(crate) unsafe fn erase_sector_blocking(sector: &FlashSector) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     pac::FLASH.cr().modify(|w| {
         w.set_per(true);
     });

@@ -320,6 +320,8 @@ unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
 pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
     save_data_cache_state();
 
+    trace!("Erasing sector number {}", sector.snb());
+
     pac::FLASH.cr().modify(|w| {
         w.set_ser(true);
         w.set_snb(sector.snb());
@@ -343,6 +345,8 @@ pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Erro
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     save_data_cache_state();
+
+    trace!("Blocking erasing sector number {}", sector.snb());
 
     pac::FLASH.cr().modify(|w| {
         w.set_ser(true);
