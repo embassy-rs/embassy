@@ -758,7 +758,7 @@ mod eh02 {
     impl<'d, T: Instance, M: Mode> embedded_hal_02::serial::Write<u8> for UartTx<'d, T, M> {
         type Error = Error;
 
-        fn write(&mut self, word: u8) -> nb::Result<(), Self::Error> {
+        fn write(&mut self, word: u8) -> Result<(), nb::Error<Self::Error>> {
             let r = T::regs();
             unsafe {
                 if r.uartfr().read().txff() {
@@ -770,7 +770,7 @@ mod eh02 {
             Ok(())
         }
 
-        fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
             let r = T::regs();
             unsafe {
                 if !r.uartfr().read().txfe() {
