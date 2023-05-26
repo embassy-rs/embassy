@@ -31,4 +31,5 @@ nb = "1.0.0"
 defmt = { version = "0.3", optional = true }
 
 [dev-dependencies]
+critical-section = { version = "1.1.1", features = ["std"] }
 futures-test = "0.3.17"

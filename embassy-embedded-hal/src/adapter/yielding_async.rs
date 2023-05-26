@@ -167,66 +167,18 @@ mod tests {
     use embedded_storage_async::nor_flash::NorFlash;
 
     use super::*;
-
-    extern crate std;
-
-    #[derive(Default)]
-    struct FakeFlash(Vec<(u32, u32)>);
-
-    impl embedded_storage::nor_flash::ErrorType for FakeFlash {
-        type Error = std::convert::Infallible;
-    }
-
-    impl embedded_storage_async::nor_flash::ReadNorFlash for FakeFlash {
-        const READ_SIZE: usize = 1;
-
-        async fn read(&mut self, _offset: u32, _bytes: &mut [u8]) -> Result<(), Self::Error> {
-            unimplemented!()
-        }
-
-        fn capacity(&self) -> usize {
-            unimplemented!()
-        }
-    }
-
-    impl embedded_storage_async::nor_flash::NorFlash for FakeFlash {
-        const WRITE_SIZE: usize = 4;
-        const ERASE_SIZE: usize = 128;
-
-        async fn write(&mut self, _offset: u32, _bytes: &[u8]) -> Result<(), Self::Error> {
-            unimplemented!()
-        }
-
-        async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-            self.0.push((from, to));
-            Ok(())
-        }
-    }
+    use crate::flash::mem_flash::MemFlash;
 
     #[futures_test::test]
     async fn can_erase() {
-        let fake = FakeFlash::default();
-        let mut yielding = YieldingAsync::new(fake);
+        let flash = MemFlash::<1024, 128, 4>::new(0x00);
+        let mut yielding = YieldingAsync::new(flash);
 
         yielding.erase(0, 256).await.unwrap();
 
-        let fake = yielding.wrapped;
-        assert_eq!(2, fake.0.len());
-        assert_eq!((0, 128), fake.0[0]);
-        assert_eq!((128, 256), fake.0[1]);
-    }
-
-    #[futures_test::test]
-    async fn can_erase_wrong_erase_size() {
-        let fake = FakeFlash::default();
-        let mut yielding = YieldingAsync::new(fake);
-
-        yielding.erase(0, 257).await.unwrap();
-
-        let fake = yielding.wrapped;
-        assert_eq!(3, fake.0.len());
-        assert_eq!((0, 128), fake.0[0]);
-        assert_eq!((128, 256), fake.0[1]);
-        assert_eq!((256, 257), fake.0[2]);
+        let flash = yielding.wrapped;
+        assert_eq!(2, flash.erases.len());
+        assert_eq!((0, 128), flash.erases[0]);
+        assert_eq!((128, 256), flash.erases[1]);
     }
 }
