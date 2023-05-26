@@ -646,6 +646,8 @@ mod _embedded_io {
 
 impl<'a, U: UarteInstance, T: TimerInstance> Drop for BufferedUarte<'a, U, T> {
     fn drop(&mut self) {
+        self._ppi_group.disable_all();
+
         let r = U::regs();
 
         self.timer.stop();

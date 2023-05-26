@@ -124,7 +124,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         this.stop();
 
         if is_counter {
-            regs.mode.write(|w| w.mode().counter());
+            regs.mode.write(|w| w.mode().low_power_counter());
         } else {
             regs.mode.write(|w| w.mode().timer());
         }
