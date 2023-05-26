@@ -30,7 +30,7 @@ impl<'d> Flash<'d, Blocking> {
 
 impl<'d, MODE> Flash<'d, MODE> {
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
-        family::set_default_layout();
+        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 

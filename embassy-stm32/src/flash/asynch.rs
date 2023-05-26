@@ -34,7 +34,7 @@ impl<'d> Flash<'d, Async> {
     }
 
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
-        family::set_default_layout();
+        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
