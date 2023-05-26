@@ -95,7 +95,7 @@ impl NorFlashError for Error {
     }
 }
 
-pub(crate) trait FlashFamily {
+pub(crate) trait FlashCtrl {
     type WRITE: UnlockedWrite;
     type ERASE: UnlockedErase;
 

@@ -13,7 +13,7 @@ use super::{
     blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
     WRITE_SIZE,
 };
-use crate::flash::{FlashFamily, UnlockedErase, UnlockedWrite};
+use crate::flash::{FlashCtrl, UnlockedErase, UnlockedWrite};
 use crate::peripherals::FLASH;
 use crate::{interrupt, Peripheral};
 

@@ -8,7 +8,7 @@ use super::{
     family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
     READ_SIZE, WRITE_SIZE,
 };
-use crate::flash::{FlashFamily, UnlockedErase, UnlockedWrite};
+use crate::flash::{FlashCtrl, UnlockedErase, UnlockedWrite};
 use crate::peripherals::FLASH;
 use crate::Peripheral;
 

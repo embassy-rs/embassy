@@ -6,9 +6,7 @@ use pac::flash::vals;
 use pac::FLASH_SIZE;
 
 use super::asynch::WAKER;
-use super::{
-    FlashBank, FlashFamily, FlashRegion, FlashSector, UnlockedErase, UnlockedWrite, FLASH_REGIONS, WRITE_SIZE,
-};
+use super::{FlashBank, FlashCtrl, FlashRegion, FlashSector, UnlockedErase, UnlockedWrite, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::{interrupt, pac};
 
@@ -22,7 +20,7 @@ mod alt_regions {
     use super::FAMILY;
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
     use crate::flash::{
-        asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashFamily, FlashRegion,
+        asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashCtrl, FlashRegion,
     };
     use crate::peripherals::FLASH;
 
@@ -212,7 +210,7 @@ impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
     }
 }
 
-impl FlashFamily for F4 {
+impl FlashCtrl for F4 {
     type WRITE = UnlockedF4;
     type ERASE = UnlockedF4;
 
