@@ -4,7 +4,7 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::flash::Flash;
+use embassy_stm32::flash::{Blocking, Flash};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     test_flash(&mut f, (2048 - 128) * 1024, 128 * 1024);
 }
 
-fn test_flash(f: &mut Flash, offset: u32, size: u32) {
+fn test_flash(f: &mut Flash<'_, Blocking>, offset: u32, size: u32) {
     info!("Testing offset: {=u32:#X}, size: {=u32:#X}", offset, size);
 
     info!("Reading...");
