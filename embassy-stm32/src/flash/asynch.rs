@@ -13,7 +13,7 @@ use super::{
     blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
     WRITE_SIZE,
 };
-use crate::flash::{FlashCtrl, UnlockedErase, UnlockedWrite};
+use crate::flash::FlashCtrl;
 use crate::peripherals::FLASH;
 use crate::{interrupt, Peripheral};
 
@@ -82,6 +82,8 @@ impl embedded_storage_async::nor_flash::NorFlash for Flash<'_, Async> {
 }
 
 pub(super) async unsafe fn write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+    use super::UnlockedWrite;
+
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
@@ -109,7 +111,7 @@ pub(super) async unsafe fn write(base: u32, size: u32, offset: u32, bytes: &[u8]
             WAKER.register(cx.waker());
 
             if !FAMILY::is_busy() {
-                Poll::Ready(FAMILY::read_result())
+                Poll::Ready(writer.read_result())
             } else {
                 return Poll::Pending;
             }
@@ -123,6 +125,8 @@ pub(super) async unsafe fn write(base: u32, size: u32, offset: u32, bytes: &[u8]
 }
 
 pub(super) async unsafe fn erase(base: u32, from: u32, to: u32) -> Result<(), Error> {
+    use super::UnlockedErase;
+
     let start_address = base + from;
     let end_address = base + to;
     let regions = family::get_flash_regions();
@@ -142,7 +146,7 @@ pub(super) async unsafe fn erase(base: u32, from: u32, to: u32) -> Result<(), Er
             WAKER.register(cx.waker());
 
             if !FAMILY::is_busy() {
-                Poll::Ready(FAMILY::read_result())
+                Poll::Ready(eraser.read_result())
             } else {
                 return Poll::Pending;
             }

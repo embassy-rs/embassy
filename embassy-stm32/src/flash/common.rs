@@ -8,7 +8,7 @@ use super::{
     family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
     READ_SIZE, WRITE_SIZE,
 };
-use crate::flash::{FlashCtrl, UnlockedErase, UnlockedWrite};
+use crate::flash::FlashCtrl;
 use crate::peripherals::FLASH;
 use crate::Peripheral;
 
@@ -65,6 +65,8 @@ pub(super) fn blocking_read(base: u32, size: u32, offset: u32, bytes: &mut [u8])
 }
 
 unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+    use super::UnlockedWrite;
+
     if offset + bytes.len() as u32 > size {
         return Err(Error::Size);
     }
@@ -91,7 +93,7 @@ unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Res
 
             writer.initiate_word_write(&sector, offset, chunk.try_into().unwrap());
             while FAMILY::is_busy() {}
-            FAMILY::read_result()?;
+            writer.read_result()?;
 
             offset += WRITE_SIZE as u32;
         }
@@ -101,6 +103,8 @@ unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Res
 }
 
 pub(super) unsafe fn blocking_erase(base: u32, from: u32, to: u32) -> Result<(), Error> {
+    use super::UnlockedErase;
+
     let start_address = base + from;
     let end_address = base + to;
     let regions = family::get_flash_regions();
@@ -120,7 +124,7 @@ pub(super) unsafe fn blocking_erase(base: u32, from: u32, to: u32) -> Result<(),
 
             eraser.initiate_sector_erase(&sector);
             while FAMILY::is_busy() {}
-            FAMILY::read_result()
+            eraser.read_result()
         })?;
 
         address += sector.size;

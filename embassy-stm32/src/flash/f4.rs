@@ -192,7 +192,7 @@ impl FlashSector {
 pub(crate) struct F4;
 pub(crate) type FAMILY = F4;
 
-pub(crate) struct UnlockedF4 {
+pub(crate) struct UnlockedFlash {
     enable_data_cache_on_drop: bool,
 }
 
@@ -211,8 +211,8 @@ impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
 }
 
 impl FlashCtrl for F4 {
-    type WRITE = UnlockedF4;
-    type ERASE = UnlockedF4;
+    type WRITE = UnlockedFlash;
+    type ERASE = UnlockedFlash;
 
     fn default_layout_configured() -> bool {
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
@@ -229,7 +229,8 @@ impl FlashCtrl for F4 {
     }
 
     unsafe fn unlocked_writer(_sector: &FlashSector) -> Self::WRITE {
-        let unlocked = UnlockedF4::new();
+        assert_eq!(4, WRITE_SIZE);
+        let unlocked = UnlockedFlash::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
                 w.set_pg(true);
@@ -242,31 +243,28 @@ impl FlashCtrl for F4 {
     }
 
     unsafe fn unlocked_blocking_writer(_sector: &FlashSector) -> Self::WRITE {
-        let unlocked = UnlockedF4::new();
-        unsafe {
-            pac::FLASH.cr().write(|w| {
-                w.set_pg(true);
-                w.set_psize(vals::Psize::PSIZE32);
-            });
-        }
+        assert_eq!(4, WRITE_SIZE);
+        let unlocked = UnlockedFlash::new();
+        pac::FLASH.cr().write(|w| {
+            w.set_pg(true);
+            w.set_psize(vals::Psize::PSIZE32);
+        });
         unlocked
     }
 
     unsafe fn unlocked_eraser() -> Self::ERASE {
-        let unlocked = UnlockedF4::new();
-        unsafe {
-            pac::FLASH.cr().write(|w| {
-                w.set_ser(true);
-                w.set_psize(vals::Psize::PSIZE32);
-                w.set_eopie(true);
-                w.set_errie(true);
-            });
-        }
+        let unlocked = UnlockedFlash::new();
+        pac::FLASH.cr().write(|w| {
+            w.set_ser(true);
+            w.set_psize(vals::Psize::PSIZE32);
+            w.set_eopie(true);
+            w.set_errie(true);
+        });
         unlocked
     }
 
     unsafe fn unlocked_blocking_eraser() -> Self::ERASE {
-        let unlocked = UnlockedF4::new();
+        let unlocked = UnlockedFlash::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
                 w.set_ser(true);
@@ -279,31 +277,9 @@ impl FlashCtrl for F4 {
     fn is_busy() -> bool {
         unsafe { pac::FLASH.sr().read().bsy() }
     }
-
-    unsafe fn read_result() -> Result<(), Error> {
-        let sr = pac::FLASH.sr().read();
-        assert!(!sr.bsy());
-        pac::FLASH.sr().write(|w| {
-            w.set_pgserr(true);
-            w.set_pgperr(true);
-            w.set_pgaerr(true);
-            w.set_wrperr(true);
-        });
-        if sr.pgserr() {
-            Err(Error::Seq)
-        } else if sr.pgperr() {
-            Err(Error::Parallelism)
-        } else if sr.pgaerr() {
-            Err(Error::Unaligned)
-        } else if sr.wrperr() {
-            Err(Error::Protected)
-        } else {
-            Ok(())
-        }
-    }
 }
 
-impl UnlockedF4 {
+impl UnlockedFlash {
     unsafe fn new() -> Self {
         // Unlock
         pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
@@ -322,7 +298,7 @@ impl UnlockedF4 {
     }
 }
 
-impl Drop for UnlockedF4 {
+impl Drop for UnlockedFlash {
     fn drop(&mut self) {
         unsafe {
             // Lock and cleanup
@@ -341,7 +317,7 @@ impl Drop for UnlockedF4 {
     }
 }
 
-impl UnlockedWrite for UnlockedF4 {
+impl UnlockedWrite for UnlockedFlash {
     fn initiate_word_write(&mut self, sector: &FlashSector, offset: u32, word: &[u8; WRITE_SIZE]) {
         let mut address = sector.start + offset;
         for val in word.chunks(4) {
@@ -352,9 +328,13 @@ impl UnlockedWrite for UnlockedF4 {
             fence(Ordering::SeqCst);
         }
     }
+
+    fn read_result(&mut self) -> Result<(), Error> {
+        unsafe { read_result() }
+    }
 }
 
-impl UnlockedErase for UnlockedF4 {
+impl UnlockedErase for UnlockedFlash {
     fn initiate_sector_erase(&mut self, sector: &FlashSector) {
         trace!("Erasing SNB {}", sector.snb());
 
@@ -363,10 +343,14 @@ impl UnlockedErase for UnlockedF4 {
             pac::FLASH.cr().modify(|w| w.set_strt(true));
         }
     }
+
+    fn read_result(&mut self) -> Result<(), Error> {
+        unsafe { read_result() }
+    }
 }
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
-pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
     if FAMILY::default_layout_configured() {
         &FLASH_REGIONS
     } else {
@@ -375,8 +359,32 @@ pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
 }
 
 #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
-pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
+}
+
+unsafe fn read_result() -> Result<(), Error> {
+    let sr = pac::FLASH.sr().read();
+    assert!(!sr.bsy());
+
+    pac::FLASH.sr().write(|w| {
+        w.set_pgserr(true);
+        w.set_pgperr(true);
+        w.set_pgaerr(true);
+        w.set_wrperr(true);
+    });
+
+    if sr.pgserr() {
+        Err(Error::Seq)
+    } else if sr.pgperr() {
+        Err(Error::Parallelism)
+    } else if sr.pgaerr() {
+        Err(Error::Unaligned)
+    } else if sr.wrperr() {
+        Err(Error::Protected)
+    } else {
+        Ok(())
+    }
 }
 
 pub(crate) fn assert_not_corrupted_read(end_address: u32) {

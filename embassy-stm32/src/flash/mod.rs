@@ -125,17 +125,19 @@ pub(crate) trait FlashCtrl {
 
     /// Determine if a flash operation is ongoing
     fn is_busy() -> bool;
-
-    /// Read flash operation completetion status
-    unsafe fn read_result() -> Result<(), Error>;
 }
 
 pub(crate) trait UnlockedWrite {
     /// Start writing of a flash word
     fn initiate_word_write(&mut self, sector: &FlashSector, offset: u32, word: &[u8; WRITE_SIZE]);
+
+    /// Read flash write operation completetion status
+    fn read_result(&mut self) -> Result<(), Error>;
 }
 
 pub(crate) trait UnlockedErase {
     /// Start erasing a sector
     fn initiate_sector_erase(&mut self, sector: &FlashSector);
+    /// Read flash erase operation completetion status
+    fn read_result(&mut self) -> Result<(), Error>;
 }
