@@ -4,7 +4,7 @@
 
 use core::cell::RefCell;
 use core::fmt::Debug;
-use core::task::{Context, Poll, Waker};
+use core::task::{Context, Poll};
 
 use heapless::Deque;
 
@@ -179,7 +179,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 // No, so we need to reregister our waker and sleep again
                 None => {
                     if let Some(cx) = cx {
-                        s.register_subscriber_waker(cx.waker());
+                        s.subscriber_wakers.register(cx.waker());
                     }
                     Poll::Pending
                 }
@@ -206,7 +206,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 // The queue is full, so we need to reregister our waker and go to sleep
                 Err(message) => {
                     if let Some(cx) = cx {
-                        s.register_publisher_waker(cx.waker());
+                        s.publisher_wakers.register(cx.waker());
                     }
                     Err(message)
                 }
@@ -333,34 +333,6 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
         };
 
         Some(WaitResult::Message(message))
-    }
-
-    fn register_subscriber_waker(&mut self, waker: &Waker) {
-        match self.subscriber_wakers.register(waker) {
-            Ok(()) => {}
-            Err(_) => {
-                // All waker slots were full. This can only happen when there was a subscriber that now has dropped.
-                // We need to throw it away. It's a bit inefficient, but we can wake everything.
-                // Any future that is still active will simply reregister.
-                // This won't happen a lot, so it's ok.
-                self.subscriber_wakers.wake();
-                self.subscriber_wakers.register(waker).unwrap();
-            }
-        }
-    }
-
-    fn register_publisher_waker(&mut self, waker: &Waker) {
-        match self.publisher_wakers.register(waker) {
-            Ok(()) => {}
-            Err(_) => {
-                // All waker slots were full. This can only happen when there was a publisher that now has dropped.
-                // We need to throw it away. It's a bit inefficient, but we can wake everything.
-                // Any future that is still active will simply reregister.
-                // This won't happen a lot, so it's ok.
-                self.publisher_wakers.wake();
-                self.publisher_wakers.register(waker).unwrap();
-            }
-        }
     }
 
     fn unregister_subscriber(&mut self, subscriber_next_message_id: u64) {
