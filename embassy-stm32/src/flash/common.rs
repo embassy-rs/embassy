@@ -1,14 +1,14 @@
 use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
-use family::get_blocking_flash;
+use family::FAMILY;
 use stm32_metapac::FLASH_BASE;
 
 use super::{
-    family, Async, Blocking, Error, FlashBank, FlashFamily, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE,
-    MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
+    family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
+    READ_SIZE, WRITE_SIZE,
 };
-use crate::flash::{UnlockedErase, UnlockedWrite};
+use crate::flash::{FlashFamily, UnlockedErase, UnlockedWrite};
 use crate::peripherals::FLASH;
 use crate::Peripheral;
 
@@ -32,7 +32,7 @@ impl<'d> Flash<'d, Blocking> {
 impl<'d, MODE> Flash<'d, MODE> {
     /// Split the flash into its the distinct regions
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
-        assert!(get_blocking_flash().default_layout_configured());
+        assert!(FAMILY.default_layout_configured());
         FlashLayout::new(self.inner)
     }
 
@@ -77,22 +77,21 @@ unsafe fn blocking_write(base: u32, size: u32, offset: u32, bytes: &[u8]) -> Res
 
     // Write within a cs to ensure that no-one else takes an unlocked_writer or unlocked_eraser
     critical_section::with(|_| {
-        let flash = get_blocking_flash();
-        let regions = flash.get_flash_regions();
+        let regions = FAMILY.get_flash_regions();
         let mut sector = get_sector(start_address, regions);
         let mut offset = start_address - sector.start;
-        let mut writer = flash.unlocked_writer(&sector);
+        let mut writer = FAMILY.unlocked_writer(&sector);
 
         for chunk in bytes.chunks(WRITE_SIZE) {
             if offset == sector.size {
                 sector = get_sector(sector.start + sector.size, regions);
-                writer = flash.unlocked_writer(&sector);
+                writer = FAMILY.unlocked_writer(&sector);
                 offset = 0;
             }
 
             writer.initiate_word_write(&sector, offset, chunk.try_into().unwrap());
-            while flash.is_busy() {}
-            flash.read_result()?;
+            while FAMILY.is_busy() {}
+            FAMILY.read_result()?;
 
             offset += WRITE_SIZE as u32;
         }
@@ -117,12 +116,11 @@ pub(super) unsafe fn blocking_erase(base: u32, from: u32, to: u32) -> Result<(),
 
         // Erase within a cs to ensure that no-one else takes an unlocked_writer or unlocked_eraser
         critical_section::with(|_| {
-            let flash = get_blocking_flash();
-            let mut eraser = flash.unlocked_eraser();
+            let mut eraser = FAMILY.unlocked_eraser();
 
             eraser.initiate_sector_erase(&sector);
-            while flash.is_busy() {}
-            flash.read_result()
+            while FAMILY.is_busy() {}
+            FAMILY.read_result()
         })?;
 
         address += sector.size;

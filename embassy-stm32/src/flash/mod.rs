@@ -95,9 +95,9 @@ impl NorFlashError for Error {
     }
 }
 
-pub(crate) trait FlashFamily<MODE> {
-    type WRITE: UnlockedWrite<MODE>;
-    type ERASE: UnlockedErase<MODE>;
+pub(crate) trait FlashFamily {
+    type WRITE: UnlockedWrite;
+    type ERASE: UnlockedErase;
 
     /// Get whether the default layout is configured for the flash
     fn default_layout_configured(&self) -> bool {
@@ -107,13 +107,21 @@ pub(crate) trait FlashFamily<MODE> {
     /// Get the flash regions
     fn get_flash_regions(&self) -> &'static [&'static FlashRegion];
 
-    /// Create a new unlocked flash writer
+    /// Create a new unlocked async flash writer
     /// When the writer is dropped it is expected that the flash locks
     unsafe fn unlocked_writer(&self, sector: &FlashSector) -> Self::WRITE;
 
-    /// Create a new unlocked flash eraser
+    /// Create a new unlocked blocking flash writer
+    /// When the writer is dropped it is expected that the flash locks
+    unsafe fn unlocked_blocking_writer(&self, sector: &FlashSector) -> Self::WRITE;
+
+    /// Create a new unlocked async flash eraser
     /// When the eraser is dropped it is expected that the flash locks
     unsafe fn unlocked_eraser(&self) -> Self::ERASE;
+
+    /// Create a new unlocked blocking flash eraser
+    /// When the eraser is dropped it is expected that the flash locks
+    unsafe fn unlocked_blocking_eraser(&self) -> Self::ERASE;
 
     /// Determine if a flash operation si ongoing
     fn is_busy(&self) -> bool;
@@ -122,12 +130,12 @@ pub(crate) trait FlashFamily<MODE> {
     unsafe fn read_result(&self) -> Result<(), Error>;
 }
 
-pub(crate) trait UnlockedWrite<MODE> {
+pub(crate) trait UnlockedWrite {
     /// Start writing of a flash word
     fn initiate_word_write(&mut self, sector: &FlashSector, offset: u32, word: &[u8; WRITE_SIZE]);
 }
 
-pub(crate) trait UnlockedErase<MODE> {
+pub(crate) trait UnlockedErase {
     /// Start erasing a sector
     fn initiate_sector_erase(&mut self, sector: &FlashSector);
 }

@@ -6,7 +6,7 @@ use embassy_hal_common::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
-use family::get_flash;
+use family::FAMILY;
 use futures::future::poll_fn;
 
 use super::{
@@ -41,7 +41,7 @@ impl<'d> Flash<'d, Async> {
     /// Split the flash into its the distinct regions
     /// When the flash is split, then it is no longer possible to do blocking operations
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
-        assert!(get_flash().default_layout_configured());
+        assert!(FAMILY.default_layout_configured());
         FlashLayout::new(self.inner)
     }
 
@@ -92,16 +92,15 @@ pub(super) async unsafe fn write(base: u32, size: u32, offset: u32, bytes: &[u8]
     let start_address = base + offset;
     trace!("Writing {} bytes at 0x{:x}", bytes.len(), start_address);
 
-    let flash = get_flash();
-    let regions = flash.get_flash_regions();
+    let regions = FAMILY.get_flash_regions();
     let mut sector = get_sector(base, regions);
     let mut offset = start_address - sector.start;
-    let mut writer = flash.unlocked_writer(&sector);
+    let mut writer = FAMILY.unlocked_writer(&sector);
 
     for chunk in bytes.chunks(WRITE_SIZE) {
         if offset == sector.size {
             sector = get_sector(sector.start + sector.size, regions);
-            writer = flash.unlocked_writer(&sector);
+            writer = FAMILY.unlocked_writer(&sector);
             offset = 0;
         }
 
@@ -109,8 +108,8 @@ pub(super) async unsafe fn write(base: u32, size: u32, offset: u32, bytes: &[u8]
         poll_fn(|cx| {
             WAKER.register(cx.waker());
 
-            if !flash.is_busy() {
-                Poll::Ready(flash.read_result())
+            if !FAMILY.is_busy() {
+                Poll::Ready(FAMILY.read_result())
             } else {
                 return Poll::Pending;
             }
@@ -132,8 +131,7 @@ pub(super) async unsafe fn erase(base: u32, from: u32, to: u32) -> Result<(), Er
 
     trace!("Erasing from 0x{:x} to 0x{:x}", start_address, end_address);
 
-    let flash = get_flash();
-    let mut eraser = flash.unlocked_eraser();
+    let mut eraser = FAMILY.unlocked_eraser();
     let mut address = start_address;
     while address < end_address {
         let sector = get_sector(address, regions);
@@ -143,8 +141,8 @@ pub(super) async unsafe fn erase(base: u32, from: u32, to: u32) -> Result<(), Er
         poll_fn(|cx| {
             WAKER.register(cx.waker());
 
-            if !flash.is_busy() {
-                Poll::Ready(flash.read_result())
+            if !FAMILY.is_busy() {
+                Poll::Ready(FAMILY.read_result())
             } else {
                 return Poll::Pending;
             }

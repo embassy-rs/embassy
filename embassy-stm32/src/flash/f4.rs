@@ -1,15 +1,13 @@
 use core::convert::TryInto;
-use core::marker::PhantomData;
 use core::ptr::write_volatile;
 use core::sync::atomic::{fence, Ordering};
 
-use pac::flash::{regs, vals};
+use pac::flash::vals;
 use pac::FLASH_SIZE;
 
 use super::asynch::WAKER;
 use super::{
-    Async, Blocking, FlashBank, FlashFamily, FlashRegion, FlashSector, UnlockedErase, UnlockedWrite, FLASH_REGIONS,
-    WRITE_SIZE,
+    FlashBank, FlashFamily, FlashRegion, FlashSector, UnlockedErase, UnlockedWrite, FLASH_REGIONS, WRITE_SIZE,
 };
 use crate::flash::Error;
 use crate::{interrupt, pac};
@@ -21,9 +19,11 @@ mod alt_regions {
     use embassy_hal_common::PeripheralRef;
     use stm32_metapac::FLASH_SIZE;
 
+    use super::FAMILY;
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
-    use crate::flash::family::default_layout_configured;
-    use crate::flash::{asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashRegion};
+    use crate::flash::{
+        asynch, Async, Bank1Region1, Bank1Region2, Blocking, Error, Flash, FlashBank, FlashFamily, FlashRegion,
+    };
     use crate::peripherals::FLASH;
 
     pub const ALT_BANK1_REGION3: FlashRegion = FlashRegion {
@@ -73,7 +73,7 @@ mod alt_regions {
 
     impl<'d> Flash<'d> {
         pub fn into_alt_regions(self) -> AltFlashLayout<'d, Async> {
-            assert!(!default_layout_configured());
+            assert!(!FAMILY.default_layout_configured());
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all async flash region operations are protected with a mutex.
@@ -90,7 +90,7 @@ mod alt_regions {
         }
 
         pub fn into_alt_blocking_regions(self) -> AltFlashLayout<'d, Blocking> {
-            assert!(!default_layout_configured());
+            assert!(!FAMILY.default_layout_configured());
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all blocking flash region operations are protected with a cs.
@@ -192,23 +192,10 @@ impl FlashSector {
 }
 
 pub(crate) struct F4;
+pub(crate) const FAMILY: F4 = F4;
 
-pub(crate) const fn get_flash() -> impl FlashFamily<Async> {
-    F4
-}
-
-pub(crate) const fn get_blocking_flash() -> impl FlashFamily<Blocking> {
-    F4
-}
-
-pub(crate) struct F4UnlockedWrite<MODE> {
+pub(crate) struct UnlockedF4 {
     enable_data_cache_on_drop: bool,
-    _mode: PhantomData<MODE>,
-}
-
-pub(crate) struct F4UnlockedErase<MODE> {
-    enable_data_cache_on_drop: bool,
-    _mode: PhantomData<MODE>,
 }
 
 pub struct InterruptHandler;
@@ -225,12 +212,18 @@ impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
     }
 }
 
-impl FlashFamily<Async> for F4 {
-    type WRITE = F4UnlockedWrite<Async>;
-    type ERASE = F4UnlockedErase<Async>;
+impl FlashFamily for F4 {
+    type WRITE = UnlockedF4;
+    type ERASE = UnlockedF4;
 
     fn default_layout_configured(&self) -> bool {
-        default_layout_configured()
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
+        unsafe {
+            !pac::FLASH.optcr().read().db1m()
+        }
+
+        #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
+        true
     }
 
     fn get_flash_regions(&self) -> &'static [&'static FlashRegion] {
@@ -238,79 +231,7 @@ impl FlashFamily<Async> for F4 {
     }
 
     unsafe fn unlocked_writer(&self, _sector: &FlashSector) -> Self::WRITE {
-        let mut writer = F4UnlockedWrite::new();
-        writer.configure_write();
-        writer
-    }
-
-    unsafe fn unlocked_eraser(&self) -> Self::ERASE {
-        let mut eraser = F4UnlockedErase::new();
-        eraser.configure_sector_erase();
-        eraser
-    }
-
-    fn is_busy(&self) -> bool {
-        is_busy()
-    }
-
-    unsafe fn read_result(&self) -> Result<(), Error> {
-        read_result()
-    }
-}
-
-impl FlashFamily<Blocking> for F4 {
-    type WRITE = F4UnlockedWrite<Blocking>;
-    type ERASE = F4UnlockedErase<Blocking>;
-
-    fn default_layout_configured(&self) -> bool {
-        default_layout_configured()
-    }
-
-    fn get_flash_regions(&self) -> &'static [&'static FlashRegion] {
-        get_flash_regions()
-    }
-
-    unsafe fn unlocked_writer(&self, _sector: &FlashSector) -> Self::WRITE {
-        let mut writer = F4UnlockedWrite::new();
-        writer.configure_blocking_write();
-        writer
-    }
-
-    unsafe fn unlocked_eraser(&self) -> Self::ERASE {
-        let mut eraser = F4UnlockedErase::new();
-        eraser.configure_blocking_sector_erase();
-        eraser
-    }
-
-    fn is_busy(&self) -> bool {
-        is_busy()
-    }
-
-    unsafe fn read_result(&self) -> Result<(), Error> {
-        read_result()
-    }
-}
-
-impl<MODE> F4UnlockedWrite<MODE> {
-    unsafe fn new() -> Self {
-        // Disable data cache during write/erase if there are two banks, see errata 2.2.12
-        let enable_data_cache_on_drop =
-            get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && pac::FLASH.acr().read().dcen();
-        if enable_data_cache_on_drop {
-            pac::FLASH.acr().modify(|w| w.set_dcen(false));
-        }
-
-        unlock();
-
-        Self {
-            enable_data_cache_on_drop,
-            _mode: PhantomData,
-        }
-    }
-}
-
-impl F4UnlockedWrite<Async> {
-    fn configure_write(&mut self) {
+        let unlocked = UnlockedF4::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
                 w.set_pg(true);
@@ -319,25 +240,95 @@ impl F4UnlockedWrite<Async> {
                 w.set_errie(true);
             });
         }
+        unlocked
     }
-}
 
-impl F4UnlockedWrite<Blocking> {
-    fn configure_blocking_write(&mut self) {
+    unsafe fn unlocked_blocking_writer(&self, _sector: &FlashSector) -> Self::WRITE {
+        let unlocked = UnlockedF4::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
                 w.set_pg(true);
                 w.set_psize(vals::Psize::PSIZE32);
             });
         }
+        unlocked
+    }
+
+    unsafe fn unlocked_eraser(&self) -> Self::ERASE {
+        let unlocked = UnlockedF4::new();
+        unsafe {
+            pac::FLASH.cr().write(|w| {
+                w.set_ser(true);
+                w.set_psize(vals::Psize::PSIZE32);
+                w.set_eopie(true);
+                w.set_errie(true);
+            });
+        }
+        unlocked
+    }
+
+    unsafe fn unlocked_blocking_eraser(&self) -> Self::ERASE {
+        let unlocked = UnlockedF4::new();
+        unsafe {
+            pac::FLASH.cr().write(|w| {
+                w.set_ser(true);
+                w.set_psize(vals::Psize::PSIZE32);
+            });
+        }
+        unlocked
+    }
+
+    fn is_busy(&self) -> bool {
+        unsafe { pac::FLASH.sr().read().bsy() }
+    }
+
+    unsafe fn read_result(&self) -> Result<(), Error> {
+        let sr = pac::FLASH.sr().read();
+        assert!(!sr.bsy());
+        pac::FLASH.sr().write(|w| {
+            w.set_pgserr(true);
+            w.set_pgperr(true);
+            w.set_pgaerr(true);
+            w.set_wrperr(true);
+        });
+        if sr.pgserr() {
+            Err(Error::Seq)
+        } else if sr.pgperr() {
+            Err(Error::Parallelism)
+        } else if sr.pgaerr() {
+            Err(Error::Unaligned)
+        } else if sr.wrperr() {
+            Err(Error::Protected)
+        } else {
+            Ok(())
+        }
     }
 }
 
-impl<MODE> Drop for F4UnlockedWrite<MODE> {
+impl UnlockedF4 {
+    unsafe fn new() -> Self {
+        // Unlock
+        pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
+        pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
+
+        // Disable data cache during write/erase if there are two banks, see errata 2.2.12
+        let enable_data_cache_on_drop =
+            get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && pac::FLASH.acr().read().dcen();
+        if enable_data_cache_on_drop {
+            pac::FLASH.acr().modify(|w| w.set_dcen(false));
+        }
+
+        Self {
+            enable_data_cache_on_drop,
+        }
+    }
+}
+
+impl Drop for UnlockedF4 {
     fn drop(&mut self) {
         unsafe {
-            pac::FLASH.cr().write_value(regs::Cr::default());
-            lock();
+            // Lock and cleanup
+            pac::FLASH.cr().write(|w| w.set_lock(true));
         };
 
         // Restore data cache if it was disabled when we started writing
@@ -352,7 +343,7 @@ impl<MODE> Drop for F4UnlockedWrite<MODE> {
     }
 }
 
-impl<MODE> UnlockedWrite<MODE> for F4UnlockedWrite<MODE> {
+impl UnlockedWrite for UnlockedF4 {
     fn initiate_word_write(&mut self, sector: &FlashSector, offset: u32, word: &[u8; WRITE_SIZE]) {
         let mut address = sector.start + offset;
         for val in word.chunks(4) {
@@ -365,49 +356,7 @@ impl<MODE> UnlockedWrite<MODE> for F4UnlockedWrite<MODE> {
     }
 }
 
-impl<MODE> F4UnlockedErase<MODE> {
-    unsafe fn new() -> Self {
-        // Disable data cache during write/erase if there are two banks, see errata 2.2.12
-        let enable_data_cache_on_drop =
-            get_flash_regions().last().unwrap().bank == FlashBank::Bank2 && pac::FLASH.acr().read().dcen();
-        if enable_data_cache_on_drop {
-            pac::FLASH.acr().modify(|w| w.set_dcen(false));
-        }
-
-        unlock();
-
-        Self {
-            enable_data_cache_on_drop,
-            _mode: PhantomData,
-        }
-    }
-}
-
-impl F4UnlockedErase<Async> {
-    fn configure_sector_erase(&mut self) {
-        unsafe {
-            pac::FLASH.cr().write(|w| {
-                w.set_ser(true);
-                w.set_psize(vals::Psize::PSIZE32);
-                w.set_eopie(true);
-                w.set_errie(true);
-            });
-        }
-    }
-}
-
-impl F4UnlockedErase<Blocking> {
-    fn configure_blocking_sector_erase(&mut self) {
-        unsafe {
-            pac::FLASH.cr().write(|w| {
-                w.set_ser(true);
-                w.set_psize(vals::Psize::PSIZE32);
-            });
-        }
-    }
-}
-
-impl<MODE> UnlockedErase<MODE> for F4UnlockedErase<MODE> {
+impl UnlockedErase for UnlockedF4 {
     fn initiate_sector_erase(&mut self, sector: &FlashSector) {
         trace!("Erasing SNB {}", sector.snb());
 
@@ -418,47 +367,9 @@ impl<MODE> UnlockedErase<MODE> for F4UnlockedErase<MODE> {
     }
 }
 
-impl<MODE> Drop for F4UnlockedErase<MODE> {
-    fn drop(&mut self) {
-        unsafe {
-            pac::FLASH.cr().write_value(regs::Cr::default());
-            lock();
-        };
-
-        // Restore data cache if it was disabled when we started writing
-        if self.enable_data_cache_on_drop {
-            unsafe {
-                // Reset data cache before we enable it again
-                pac::FLASH.acr().modify(|w| w.set_dcrst(true));
-                pac::FLASH.acr().modify(|w| w.set_dcrst(false));
-                pac::FLASH.acr().modify(|w| w.set_dcen(true))
-            };
-        }
-    }
-}
-
-unsafe fn lock() {
-    pac::FLASH.cr().modify(|w| w.set_lock(true));
-}
-
-unsafe fn unlock() {
-    pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
-    pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
-}
-
-fn default_layout_configured() -> bool {
-    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
-    unsafe {
-        !pac::FLASH.optcr().read().db1m()
-    }
-
-    #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
-    true
-}
-
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    if default_layout_configured() {
+    if FAMILY.default_layout_configured() {
         &FLASH_REGIONS
     } else {
         &ALT_FLASH_REGIONS
@@ -468,32 +379,6 @@ pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
 #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
 pub const fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
-}
-
-fn is_busy() -> bool {
-    unsafe { pac::FLASH.sr().read().bsy() }
-}
-
-unsafe fn read_result() -> Result<(), Error> {
-    let sr = pac::FLASH.sr().read();
-    assert!(!sr.bsy());
-    pac::FLASH.sr().write(|w| {
-        w.set_pgserr(true);
-        w.set_pgperr(true);
-        w.set_pgaerr(true);
-        w.set_wrperr(true);
-    });
-    if sr.pgserr() {
-        Err(Error::Seq)
-    } else if sr.pgperr() {
-        Err(Error::Parallelism)
-    } else if sr.pgaerr() {
-        Err(Error::Unaligned)
-    } else if sr.wrperr() {
-        Err(Error::Protected)
-    } else {
-        Ok(())
-    }
 }
 
 pub(crate) fn assert_not_corrupted_read(end_address: u32) {
