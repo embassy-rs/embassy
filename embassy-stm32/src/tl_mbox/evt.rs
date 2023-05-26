@@ -131,9 +131,6 @@ impl EvtBox {
 
 impl Drop for EvtBox {
     fn drop(&mut self) {
-        use crate::ipcc::Ipcc;
-
-        let mut ipcc = Ipcc::new_inner(unsafe { crate::Peripherals::steal() }.IPCC);
-        mm::MemoryManager::evt_drop(self.ptr, &mut ipcc);
+        mm::MemoryManager::evt_drop(self.ptr);
     }
 }

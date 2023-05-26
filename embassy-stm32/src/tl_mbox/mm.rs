@@ -30,27 +30,27 @@ impl MemoryManager {
         MemoryManager
     }
 
-    pub fn evt_handler(ipcc: &mut Ipcc) {
-        ipcc.c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, false);
+    pub fn evt_handler() {
+        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, false);
         Self::send_free_buf();
-        ipcc.c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
+        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
     }
 
-    pub fn evt_drop(evt: *mut EvtPacket, ipcc: &mut Ipcc) {
+    pub fn evt_drop(evt: *mut EvtPacket) {
         unsafe {
             let list_node = evt.cast();
 
             LinkedListNode::remove_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
         }
 
-        let channel_is_busy = ipcc.c1_is_active_flag(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
+        let channel_is_busy = Ipcc::c1_is_active_flag(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
 
         // postpone event buffer freeing to IPCC interrupt handler
         if channel_is_busy {
-            ipcc.c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, true);
+            Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, true);
         } else {
             Self::send_free_buf();
-            ipcc.c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
+            Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
         }
     }
 

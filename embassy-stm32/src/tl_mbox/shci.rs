@@ -76,7 +76,7 @@ pub struct ShciBleInitCmdPacket {
     param: ShciBleInitCmdParam,
 }
 
-pub fn shci_ble_init(ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
+pub fn shci_ble_init(param: ShciBleInitCmdParam) {
     let mut packet = ShciBleInitCmdPacket {
         header: ShciHeader::default(),
         param,
@@ -95,7 +95,7 @@ pub fn shci_ble_init(ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
 
         cmd_buf.cmd_serial.ty = TlPacketType::SysCmd as u8;
 
-        ipcc.c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-        ipcc.c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
+        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
+        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
     }
 }

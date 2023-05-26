@@ -1,6 +1,7 @@
 use core::mem::MaybeUninit;
 
 use bit_field::BitField;
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
@@ -12,7 +13,7 @@ use self::shci::{shci_ble_init, ShciBleInitCmdParam};
 use self::sys::Sys;
 use self::unsafe_linked_list::LinkedListNode;
 use crate::interrupt;
-use crate::ipcc::Ipcc;
+use crate::ipcc::{Config, Ipcc};
 
 mod ble;
 mod channels;
@@ -58,13 +59,30 @@ pub struct FusInfoTable {
 pub struct ReceiveInterruptHandler {}
 
 impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
-    unsafe fn on_interrupt() {}
+    unsafe fn on_interrupt() {
+        if Ipcc::is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
+            sys::Sys::evt_handler();
+        } else if Ipcc::is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
+            ble::Ble::evt_handler();
+        } else {
+            todo!()
+        }
+    }
 }
 
 pub struct TransmitInterruptHandler {}
 
 impl interrupt::Handler<interrupt::IPCC_C1_TX> for TransmitInterruptHandler {
-    unsafe fn on_interrupt() {}
+    unsafe fn on_interrupt() {
+        if Ipcc::is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
+            // TODO: handle this case
+            let _ = sys::Sys::cmd_evt_handler();
+        } else if Ipcc::is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
+            mm::MemoryManager::evt_handler();
+        } else {
+            todo!()
+        }
+    }
 }
 
 /// # Version
@@ -298,9 +316,9 @@ pub struct TlMbox {
 impl TlMbox {
     /// initializes low-level transport between CPU1 and BLE stack on CPU2
     pub fn init(
-        ipcc: &mut Ipcc,
         _irqs: impl interrupt::Binding<interrupt::IPCC_C1_RX, ReceiveInterruptHandler>
             + interrupt::Binding<interrupt::IPCC_C1_TX, TransmitInterruptHandler>,
+        config: Config,
     ) -> TlMbox {
         unsafe {
             TL_REF_TABLE = MaybeUninit::new(RefTable {
@@ -336,29 +354,18 @@ impl TlMbox {
             HCI_ACL_DATA_BUFFER = MaybeUninit::zeroed();
         }
 
-        ipcc.init();
+        Ipcc::init(config);
 
-        let _sys = Sys::new(ipcc);
-        let _ble = Ble::new(ipcc);
+        let _sys = Sys::new();
+        let _ble = Ble::new();
         let _mm = MemoryManager::new();
 
-        //        rx_irq.disable();
-        //        tx_irq.disable();
-        //
-        //        rx_irq.set_handler_context(ipcc.as_mut_ptr() as *mut ());
-        //        tx_irq.set_handler_context(ipcc.as_mut_ptr() as *mut ());
-        //
-        //        rx_irq.set_handler(|ipcc| {
-        //            let ipcc: &mut Ipcc = unsafe { &mut *ipcc.cast() };
-        //            Self::interrupt_ipcc_rx_handler(ipcc);
-        //        });
-        //        tx_irq.set_handler(|ipcc| {
-        //            let ipcc: &mut Ipcc = unsafe { &mut *ipcc.cast() };
-        //            Self::interrupt_ipcc_tx_handler(ipcc);
-        //        });
-        //
-        //        rx_irq.enable();
-        //        tx_irq.enable();
+        // enable interrupts
+        unsafe { crate::interrupt::IPCC_C1_RX::steal() }.unpend();
+        unsafe { crate::interrupt::IPCC_C1_TX::steal() }.unpend();
+
+        unsafe { crate::interrupt::IPCC_C1_RX::steal() }.enable();
+        unsafe { crate::interrupt::IPCC_C1_TX::steal() }.enable();
 
         TlMbox { _sys, _ble, _mm }
     }
@@ -374,42 +381,19 @@ impl TlMbox {
         }
     }
 
-    pub fn shci_ble_init(&self, ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
-        shci_ble_init(ipcc, param);
+    pub fn shci_ble_init(&self, param: ShciBleInitCmdParam) {
+        shci_ble_init(param);
     }
 
-    pub fn send_ble_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
-        ble::Ble::send_cmd(ipcc, buf);
+    pub fn send_ble_cmd(&self, buf: &[u8]) {
+        ble::Ble::send_cmd(buf);
     }
 
-    // pub fn send_sys_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
-    //     sys::Sys::send_cmd(ipcc, buf);
+    // pub fn send_sys_cmd(&self, buf: &[u8]) {
+    //     sys::Sys::send_cmd(buf);
     // }
 
     pub async fn read(&self) -> EvtBox {
         TL_CHANNEL.recv().await
-    }
-
-    #[allow(dead_code)]
-    fn interrupt_ipcc_rx_handler(ipcc: &mut Ipcc) {
-        if ipcc.is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
-            sys::Sys::evt_handler(ipcc);
-        } else if ipcc.is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
-            ble::Ble::evt_handler(ipcc);
-        } else {
-            todo!()
-        }
-    }
-
-    #[allow(dead_code)]
-    fn interrupt_ipcc_tx_handler(ipcc: &mut Ipcc) {
-        if ipcc.is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
-            // TODO: handle this case
-            let _ = sys::Sys::cmd_evt_handler(ipcc);
-        } else if ipcc.is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
-            mm::MemoryManager::evt_handler(ipcc);
-        } else {
-            todo!()
-        }
     }
 }
