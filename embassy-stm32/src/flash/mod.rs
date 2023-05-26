@@ -5,8 +5,6 @@ mod asynch;
 #[cfg(flash)]
 mod common;
 
-#[cfg(flash_f4)]
-pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
 
@@ -95,4 +93,41 @@ impl NorFlashError for Error {
             _ => NorFlashErrorKind::Other,
         }
     }
+}
+
+pub(crate) trait FlashFamily<MODE> {
+    type WRITE: UnlockedWrite<MODE>;
+    type ERASE: UnlockedErase<MODE>;
+
+    /// Get whether the default layout is configured for the flash
+    fn default_layout_configured(&self) -> bool {
+        true
+    }
+
+    /// Get the flash regions
+    fn get_flash_regions(&self) -> &'static [&'static FlashRegion];
+
+    /// Create a new unlocked flash writer
+    /// When the writer is dropped it is expected that the flash locks
+    unsafe fn unlocked_writer(&self, sector: &FlashSector) -> Self::WRITE;
+
+    /// Create a new unlocked flash eraser
+    /// When the eraser is dropped it is expected that the flash locks
+    unsafe fn unlocked_eraser(&self) -> Self::ERASE;
+
+    /// Determine if a flash operation si ongoing
+    fn is_busy(&self) -> bool;
+
+    /// Read flash operation completetion status
+    unsafe fn read_result(&self) -> Result<(), Error>;
+}
+
+pub(crate) trait UnlockedWrite<MODE> {
+    /// Start writing of a flash word
+    fn initiate_word_write(&mut self, sector: &FlashSector, offset: u32, word: &[u8; WRITE_SIZE]);
+}
+
+pub(crate) trait UnlockedErase<MODE> {
+    /// Start erasing a sector
+    fn initiate_sector_erase(&mut self, sector: &FlashSector);
 }
