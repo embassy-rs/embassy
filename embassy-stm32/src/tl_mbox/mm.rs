@@ -11,7 +11,7 @@ use crate::ipcc::Ipcc;
 pub struct MemoryManager;
 
 impl MemoryManager {
-    pub fn new() -> Self {
+    pub fn init() -> Self {
         unsafe {
             LinkedListNode::init_head(FREE_BUFF_QUEUE.as_mut_ptr());
             LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
