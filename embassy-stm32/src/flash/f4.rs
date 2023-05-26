@@ -71,7 +71,7 @@ mod alt_regions {
 
     impl<'d> Flash<'d> {
         pub fn into_alt_regions(self) -> AltFlashLayout<'d, Async> {
-            assert!(!FAMILY.default_layout_configured());
+            assert!(!FAMILY::default_layout_configured());
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all async flash region operations are protected with a mutex.
@@ -88,7 +88,7 @@ mod alt_regions {
         }
 
         pub fn into_alt_blocking_regions(self) -> AltFlashLayout<'d, Blocking> {
-            assert!(!FAMILY.default_layout_configured());
+            assert!(!FAMILY::default_layout_configured());
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all blocking flash region operations are protected with a cs.
@@ -190,7 +190,7 @@ impl FlashSector {
 }
 
 pub(crate) struct F4;
-pub(crate) const FAMILY: F4 = F4;
+pub(crate) type FAMILY = F4;
 
 pub(crate) struct UnlockedF4 {
     enable_data_cache_on_drop: bool,
@@ -214,7 +214,7 @@ impl FlashCtrl for F4 {
     type WRITE = UnlockedF4;
     type ERASE = UnlockedF4;
 
-    fn default_layout_configured(&self) -> bool {
+    fn default_layout_configured() -> bool {
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
         unsafe {
             !pac::FLASH.optcr().read().db1m()
@@ -224,11 +224,11 @@ impl FlashCtrl for F4 {
         true
     }
 
-    fn get_flash_regions(&self) -> &'static [&'static FlashRegion] {
+    fn get_flash_regions() -> &'static [&'static FlashRegion] {
         get_flash_regions()
     }
 
-    unsafe fn unlocked_writer(&self, _sector: &FlashSector) -> Self::WRITE {
+    unsafe fn unlocked_writer(_sector: &FlashSector) -> Self::WRITE {
         let unlocked = UnlockedF4::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
@@ -241,7 +241,7 @@ impl FlashCtrl for F4 {
         unlocked
     }
 
-    unsafe fn unlocked_blocking_writer(&self, _sector: &FlashSector) -> Self::WRITE {
+    unsafe fn unlocked_blocking_writer(_sector: &FlashSector) -> Self::WRITE {
         let unlocked = UnlockedF4::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
@@ -252,7 +252,7 @@ impl FlashCtrl for F4 {
         unlocked
     }
 
-    unsafe fn unlocked_eraser(&self) -> Self::ERASE {
+    unsafe fn unlocked_eraser() -> Self::ERASE {
         let unlocked = UnlockedF4::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
@@ -265,7 +265,7 @@ impl FlashCtrl for F4 {
         unlocked
     }
 
-    unsafe fn unlocked_blocking_eraser(&self) -> Self::ERASE {
+    unsafe fn unlocked_blocking_eraser() -> Self::ERASE {
         let unlocked = UnlockedF4::new();
         unsafe {
             pac::FLASH.cr().write(|w| {
@@ -276,11 +276,11 @@ impl FlashCtrl for F4 {
         unlocked
     }
 
-    fn is_busy(&self) -> bool {
+    fn is_busy() -> bool {
         unsafe { pac::FLASH.sr().read().bsy() }
     }
 
-    unsafe fn read_result(&self) -> Result<(), Error> {
+    unsafe fn read_result() -> Result<(), Error> {
         let sr = pac::FLASH.sr().read();
         assert!(!sr.bsy());
         pac::FLASH.sr().write(|w| {
@@ -367,7 +367,7 @@ impl UnlockedErase for UnlockedF4 {
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    if FAMILY.default_layout_configured() {
+    if FAMILY::default_layout_configured() {
         &FLASH_REGIONS
     } else {
         &ALT_FLASH_REGIONS

@@ -100,34 +100,34 @@ pub(crate) trait FlashCtrl {
     type ERASE: UnlockedErase;
 
     /// Get whether the default layout is configured for the flash
-    fn default_layout_configured(&self) -> bool {
+    fn default_layout_configured() -> bool {
         true
     }
 
     /// Get the flash regions
-    fn get_flash_regions(&self) -> &'static [&'static FlashRegion];
+    fn get_flash_regions() -> &'static [&'static FlashRegion];
 
     /// Create a new unlocked async flash writer
     /// When the writer is dropped it is expected that the flash locks
-    unsafe fn unlocked_writer(&self, sector: &FlashSector) -> Self::WRITE;
+    unsafe fn unlocked_writer(sector: &FlashSector) -> Self::WRITE;
 
     /// Create a new unlocked blocking flash writer
     /// When the writer is dropped it is expected that the flash locks
-    unsafe fn unlocked_blocking_writer(&self, sector: &FlashSector) -> Self::WRITE;
+    unsafe fn unlocked_blocking_writer(sector: &FlashSector) -> Self::WRITE;
 
     /// Create a new unlocked async flash eraser
     /// When the eraser is dropped it is expected that the flash locks
-    unsafe fn unlocked_eraser(&self) -> Self::ERASE;
+    unsafe fn unlocked_eraser() -> Self::ERASE;
 
     /// Create a new unlocked blocking flash eraser
     /// When the eraser is dropped it is expected that the flash locks
-    unsafe fn unlocked_blocking_eraser(&self) -> Self::ERASE;
+    unsafe fn unlocked_blocking_eraser() -> Self::ERASE;
 
-    /// Determine if a flash operation si ongoing
-    fn is_busy(&self) -> bool;
+    /// Determine if a flash operation is ongoing
+    fn is_busy() -> bool;
 
     /// Read flash operation completetion status
-    unsafe fn read_result(&self) -> Result<(), Error>;
+    unsafe fn read_result() -> Result<(), Error>;
 }
 
 pub(crate) trait UnlockedWrite {
