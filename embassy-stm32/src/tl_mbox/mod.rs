@@ -5,12 +5,9 @@ use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
-#[cfg(feature = "ble")]
 use self::ble::Ble;
 use self::cmd::{AclDataPacket, CmdPacket};
 use self::evt::{CsEvt, EvtBox};
-#[cfg(feature = "mac-802_15_4")]
-use self::mac_802_15_4::Mac802_15_4;
 use self::mm::MemoryManager;
 use self::shci::{shci_ble_init, ShciBleInitCmdParam};
 use self::sys::Sys;
@@ -18,6 +15,7 @@ use self::unsafe_linked_list::LinkedListNode;
 use crate::interrupt;
 use crate::ipcc::{Config, Ipcc};
 
+mod ble;
 mod channels;
 mod cmd;
 mod consts;
@@ -26,11 +24,6 @@ mod mm;
 mod shci;
 mod sys;
 mod unsafe_linked_list;
-
-#[cfg(feature = "ble")]
-mod ble;
-#[cfg(feature = "mac-802_15_4")]
-mod mac_802_15_4;
 
 pub type PacketHeader = LinkedListNode;
 
@@ -219,8 +212,8 @@ struct TracesTable {
 
 #[repr(C, packed)]
 struct Mac802_15_4Table {
-    pcmd_rsp_buffer: *mut u8,
-    pnotack_buffer: *mut u8,
+    pcmd_rsp_buffer: *const u8,
+    pnotack_buffer: *const u8,
     evt_queue: *const u8,
 }
 
@@ -240,7 +233,6 @@ pub struct RefTable {
     ble_lld_table: *const BleLldTable,
 }
 
-// -------------------- reference table --------------------
 #[link_section = "TL_REF_TABLE"]
 pub static mut TL_REF_TABLE: MaybeUninit<RefTable> = MaybeUninit::uninit();
 
@@ -274,50 +266,38 @@ static mut TL_MAC_802_15_4_TABLE: MaybeUninit<Mac802_15_4Table> = MaybeUninit::u
 #[link_section = "MB_MEM1"]
 static mut TL_ZIGBEE_TABLE: MaybeUninit<ZigbeeTable> = MaybeUninit::uninit();
 
-// -------------------- tables --------------------
+#[allow(dead_code)] // Not used currently but reserved
 #[link_section = "MB_MEM1"]
 static mut FREE_BUFF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
+
+// not in shared RAM
+static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
     MaybeUninit::uninit();
 
-#[link_section = "MB_MEM1"]
+#[link_section = "MB_MEM2"]
 static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
-// not in shared RAM
-static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
-
-// -------------------- app tables --------------------
-#[link_section = "MB_MEM2"]
-static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
-
 #[link_section = "MB_MEM2"]
 static mut SYS_CMD_BUF: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut SYS_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
-#[cfg(feature = "mac-802_15_4")]
-#[link_section = "MB_MEM2"]
-static mut MAC_802_15_4_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
-
-#[cfg(feature = "mac-802_15_4")]
-#[link_section = "MB_MEM2"]
-static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
-    MaybeUninit::uninit();
-
-#[cfg(feature = "ble")]
 #[link_section = "MB_MEM2"]
 static mut BLE_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
-#[cfg(feature = "ble")]
-#[link_section = "MB_MEM1"]
+#[link_section = "MB_MEM2"]
 static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
@@ -327,14 +307,10 @@ static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251
 // TODO: get a better size, this is a placeholder
 pub(crate) static TL_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 5> = Channel::new();
 
-pub struct TlMbox;
-
-pub enum MailboxTarget {
-    Sys,
-    #[cfg(feature = "ble")]
-    Ble,
-    #[cfg(feature = "mac-802_15_4")]
-    Mac802_15_4,
+pub struct TlMbox {
+    _sys: Sys,
+    _ble: Ble,
+    _mm: MemoryManager,
 }
 
 impl TlMbox {
@@ -380,14 +356,9 @@ impl TlMbox {
 
         Ipcc::init(config);
 
-        Sys::init();
-        MemoryManager::init();
-
-        #[cfg(feature = "ble")]
-        Ble::init();
-
-        #[cfg(feature = "mac-802_15_4")]
-        Mac802_15_4::init();
+        let _sys = Sys::new();
+        let _ble = Ble::new();
+        let _mm = MemoryManager::new();
 
         // enable interrupts
         unsafe { crate::interrupt::IPCC_C1_RX::steal() }.unpend();
@@ -396,7 +367,7 @@ impl TlMbox {
         unsafe { crate::interrupt::IPCC_C1_RX::steal() }.enable();
         unsafe { crate::interrupt::IPCC_C1_TX::steal() }.enable();
 
-        Self
+        TlMbox { _sys, _ble, _mm }
     }
 
     pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
@@ -410,30 +381,17 @@ impl TlMbox {
         }
     }
 
-    #[cfg(feature = "ble")]
     pub fn shci_ble_init(&self, param: ShciBleInitCmdParam) {
         shci_ble_init(param);
     }
 
-    pub fn send_cmd(&self, buf: &[u8], target: MailboxTarget) {
-        match target {
-            MailboxTarget::Sys => Sys::send_cmd(buf),
-            #[cfg(feature = "ble")]
-            MailboxTarget::Ble => Ble::send_cmd(buf),
-            #[cfg(feature = "mac-802_15_4")]
-            MailboxTarget::Mac802_15_4 => Mac802_15_4::send_cmd(buf),
-        }
+    pub fn send_ble_cmd(&self, buf: &[u8]) {
+        ble::Ble::send_cmd(buf);
     }
 
-    pub fn send_ack(&self, target: MailboxTarget) {
-        match target {
-            #[cfg(feature = "ble")]
-            MailboxTarget::Ble => Ble::send_acl_data(),
-            #[cfg(feature = "mac-802_15_4")]
-            MailboxTarget::Mac802_15_4 => Mac802_15_4::send_ack(),
-            MailboxTarget::Sys => { /* does nothing */ }
-        }
-    }
+    // pub fn send_sys_cmd(&self, buf: &[u8]) {
+    //     sys::Sys::send_cmd(buf);
+    // }
 
     pub async fn read(&self) -> EvtBox {
         TL_CHANNEL.recv().await

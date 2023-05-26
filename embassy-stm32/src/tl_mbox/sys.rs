@@ -70,6 +70,7 @@ impl Sys {
     #[allow(dead_code)]
     pub(crate) fn send_cmd(buf: &[u8]) {
         unsafe {
+            // TODO: check this
             let cmd_buffer = &mut *(*TL_REF_TABLE.assume_init().sys_table).pcmd_buffer;
             let cmd_serial: *mut CmdSerial = &mut cmd_buffer.cmd_serial;
             let cmd_serial_buf = cmd_serial.cast();

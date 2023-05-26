@@ -65,15 +65,4 @@ impl Ble {
 
         Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_BLE_CMD_CHANNEL);
     }
-
-    pub(crate) fn send_acl_data() {
-        unsafe {
-            (*(*TL_REF_TABLE.assume_init().ble_table).phci_acl_data_buffer)
-                .acl_data_serial
-                .ty = TlPacketType::AclData as u8;
-        }
-
-        Ipcc::c1_set_flag_channel(channels::Cpu1Channel::HciAclData.into());
-        Ipcc::c1_set_tx_channel(channels::Cpu1Channel::HciAclData.into(), true);
-    }
 }
