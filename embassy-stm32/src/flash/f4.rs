@@ -69,7 +69,7 @@ mod alt_regions {
 
     impl<'d> Flash<'d> {
         pub fn into_alt_regions(self) -> AltFlashLayout<'d, Async> {
-            super::set_alt_layout();
+            assert!(!super::is_default_layout());
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all async flash region operations are protected with a mutex.
@@ -86,7 +86,7 @@ mod alt_regions {
         }
 
         pub fn into_alt_blocking_regions(self) -> AltFlashLayout<'d, Blocking> {
-            super::set_alt_layout();
+            assert!(!super::is_default_layout());
 
             // SAFETY: We never expose the cloned peripheral references, and their instance is not public.
             // Also, all blocking flash region operations are protected with a cs.
@@ -191,38 +191,21 @@ impl FlashSector {
 }
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
-pub fn set_default_layout() {
-    unsafe {
-        pac::FLASH.optkeyr().write(|w| w.set_optkey(0x08192A3B));
-        pac::FLASH.optkeyr().write(|w| w.set_optkey(0x4C5D6E7F));
-        pac::FLASH.optcr().modify(|r| {
-            r.set_db1m(false);
-            r.set_optlock(true)
-        });
-    };
+pub(crate) fn is_default_layout() -> bool {
+    unsafe { !pac::FLASH.optcr().read().db1m() }
 }
 
 #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
-pub const fn set_default_layout() {}
-
-#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
-fn set_alt_layout() {
-    unsafe {
-        pac::FLASH.optkeyr().write(|w| w.set_optkey(0x08192A3B));
-        pac::FLASH.optkeyr().write(|w| w.set_optkey(0x4C5D6E7F));
-        pac::FLASH.optcr().modify(|r| {
-            r.set_db1m(true);
-            r.set_optlock(true)
-        });
-    };
+pub(crate) const fn is_default_layout() -> bool {
+    true
 }
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    if unsafe { pac::FLASH.optcr().read().db1m() } {
-        &ALT_FLASH_REGIONS
-    } else {
+    if is_default_layout() {
         &FLASH_REGIONS
+    } else {
+        &ALT_FLASH_REGIONS
     }
 }
 

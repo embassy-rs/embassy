@@ -7,7 +7,9 @@ use super::{FlashRegion, FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub const fn set_default_layout() {}
+pub const fn is_default_layout() -> bool {
+    true
+}
 
 const fn is_dual_bank() -> bool {
     FLASH_REGIONS.len() == 2
