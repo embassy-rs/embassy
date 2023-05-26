@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+#[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
 extern crate alloc;

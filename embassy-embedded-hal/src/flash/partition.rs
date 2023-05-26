@@ -1,7 +1,6 @@
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_storage::nor_flash::{ErrorType, NorFlashError, NorFlashErrorKind};
-#[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 
 /// A logical partition of an underlying shared flash
@@ -11,7 +10,7 @@ use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
 /// There is no guarantee that muliple partitions on the same flash
 /// operate on mutually exclusive ranges - such a separation is up to
 /// the user to guarantee.
-pub struct Partition<'a, M: RawMutex, T> {
+pub struct Partition<'a, M: RawMutex, T: NorFlash> {
     flash: &'a Mutex<M, T>,
     offset: u32,
     size: u32,
@@ -20,14 +19,20 @@ pub struct Partition<'a, M: RawMutex, T> {
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error<T> {
-    Partition,
     OutOfBounds,
     Flash(T),
 }
 
-impl<'a, M: RawMutex, T> Partition<'a, M, T> {
+impl<'a, M: RawMutex, T: NorFlash> Partition<'a, M, T> {
     /// Create a new partition
     pub const fn new(flash: &'a Mutex<M, T>, offset: u32, size: u32) -> Self {
+        if offset % T::READ_SIZE as u32 != 0 || offset % T::WRITE_SIZE as u32 != 0 || offset % T::ERASE_SIZE as u32 != 0
+        {
+            panic!("Partition offset must be a multiple of read, write and erase size");
+        }
+        if size % T::READ_SIZE as u32 != 0 || size % T::WRITE_SIZE as u32 != 0 || size % T::ERASE_SIZE as u32 != 0 {
+            panic!("Partition size must be a multiple of read, write and erase size");
+        }
         Self { flash, offset, size }
     }
 }
@@ -35,25 +40,21 @@ impl<'a, M: RawMutex, T> Partition<'a, M, T> {
 impl<T: NorFlashError> NorFlashError for Error<T> {
     fn kind(&self) -> NorFlashErrorKind {
         match self {
-            Error::Partition => NorFlashErrorKind::Other,
             Error::OutOfBounds => NorFlashErrorKind::OutOfBounds,
             Error::Flash(f) => f.kind(),
         }
     }
 }
 
-impl<M: RawMutex, T: ErrorType> ErrorType for Partition<'_, M, T> {
+impl<M: RawMutex, T: NorFlash> ErrorType for Partition<'_, M, T> {
     type Error = Error<T::Error>;
 }
 
 #[cfg(feature = "nightly")]
-impl<M: RawMutex, T: ReadNorFlash> ReadNorFlash for Partition<'_, M, T> {
+impl<M: RawMutex, T: NorFlash> ReadNorFlash for Partition<'_, M, T> {
     const READ_SIZE: usize = T::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        if self.offset % T::READ_SIZE as u32 != 0 || self.size % T::READ_SIZE as u32 != 0 {
-            return Err(Error::Partition);
-        }
         if offset + bytes.len() as u32 > self.size {
             return Err(Error::OutOfBounds);
         }
@@ -73,9 +74,6 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
     const ERASE_SIZE: usize = T::ERASE_SIZE;
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        if self.offset % T::WRITE_SIZE as u32 != 0 || self.size % T::WRITE_SIZE as u32 != 0 {
-            return Err(Error::Partition);
-        }
         if offset + bytes.len() as u32 > self.size {
             return Err(Error::OutOfBounds);
         }
@@ -85,9 +83,6 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
     }
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        if self.offset % T::ERASE_SIZE as u32 != 0 || self.size % T::ERASE_SIZE as u32 != 0 {
-            return Err(Error::Partition);
-        }
         if to > self.size {
             return Err(Error::OutOfBounds);
         }
@@ -110,10 +105,10 @@ mod tests {
     #[futures_test::test]
     async fn can_read() {
         let mut flash = MemFlash::<1024, 128, 4>::default();
-        flash.mem[12..20].fill(0xAA);
+        flash.mem[132..132 + 8].fill(0xAA);
 
         let flash = Mutex::<NoopRawMutex, _>::new(flash);
-        let mut partition = Partition::new(&flash, 8, 12);
+        let mut partition = Partition::new(&flash, 128, 256);
 
         let mut read_buf = [0; 8];
         partition.read(4, &mut read_buf).await.unwrap();
@@ -126,13 +121,13 @@ mod tests {
         let flash = MemFlash::<1024, 128, 4>::default();
 
         let flash = Mutex::<NoopRawMutex, _>::new(flash);
-        let mut partition = Partition::new(&flash, 8, 12);
+        let mut partition = Partition::new(&flash, 128, 256);
 
         let write_buf = [0xAA; 8];
         partition.write(4, &write_buf).await.unwrap();
 
         let flash = flash.try_lock().unwrap();
-        assert!(flash.mem[12..20].iter().position(|&x| x != 0xAA).is_none());
+        assert!(flash.mem[132..132 + 8].iter().position(|&x| x != 0xAA).is_none());
     }
 
     #[futures_test::test]
