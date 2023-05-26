@@ -1,5 +1,3 @@
-//! Utilities related to flash.
-
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, ReadNorFlash};
 #[cfg(feature = "nightly")]
 use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
@@ -192,18 +190,21 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+
+    use super::ConcatFlash;
+    use crate::flash::mem_flash::MemFlash;
 
     #[test]
     fn can_write_and_read_across_flashes() {
-        let first = MemFlash::<64, 16, 4>::new();
-        let second = MemFlash::<64, 64, 4>::new();
+        let first = MemFlash::<64, 16, 4>::default();
+        let second = MemFlash::<64, 64, 4>::default();
         let mut f = ConcatFlash::new(first, second);
 
         f.write(60, &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]).unwrap();
 
-        assert_eq!(&[0x11, 0x22, 0x33, 0x44], &f.0 .0[60..]);
-        assert_eq!(&[0x55, 0x66, 0x77, 0x88], &f.1 .0[0..4]);
+        assert_eq!(&[0x11, 0x22, 0x33, 0x44], &f.0.mem[60..]);
+        assert_eq!(&[0x55, 0x66, 0x77, 0x88], &f.1.mem[0..4]);
 
         let mut read_buf = [0; 8];
         f.read(60, &mut read_buf).unwrap();
@@ -213,74 +214,15 @@ mod tests {
 
     #[test]
     fn can_erase_across_flashes() {
-        let mut first = MemFlash::<128, 16, 4>::new();
-        let mut second = MemFlash::<128, 64, 4>::new();
-        first.0.fill(0x00);
-        second.0.fill(0x00);
-
+        let first = MemFlash::<128, 16, 4>::new(0x00);
+        let second = MemFlash::<128, 64, 4>::new(0x00);
         let mut f = ConcatFlash::new(first, second);
 
         f.erase(64, 192).unwrap();
 
-        assert_eq!(&[0x00; 64], &f.0 .0[0..64]);
-        assert_eq!(&[0xff; 64], &f.0 .0[64..128]);
-        assert_eq!(&[0xff; 64], &f.1 .0[0..64]);
-        assert_eq!(&[0x00; 64], &f.1 .0[64..128]);
-    }
-
-    pub struct MemFlash<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize>([u8; SIZE]);
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE> {
-        pub const fn new() -> Self {
-            Self([0xff; SIZE])
-        }
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ErrorType
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        type Error = core::convert::Infallible;
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ReadNorFlash
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        const READ_SIZE: usize = 1;
-
-        fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-            let len = bytes.len();
-            bytes.copy_from_slice(&self.0[offset as usize..offset as usize + len]);
-            Ok(())
-        }
-
-        fn capacity(&self) -> usize {
-            SIZE
-        }
-    }
-
-    impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFlash
-        for MemFlash<SIZE, ERASE_SIZE, WRITE_SIZE>
-    {
-        const WRITE_SIZE: usize = WRITE_SIZE;
-        const ERASE_SIZE: usize = ERASE_SIZE;
-
-        fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-            let from = from as usize;
-            let to = to as usize;
-            assert_eq!(0, from % ERASE_SIZE);
-            assert_eq!(0, to % ERASE_SIZE);
-            self.0[from..to].fill(0xff);
-            Ok(())
-        }
-
-        fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-            let offset = offset as usize;
-            assert_eq!(0, bytes.len() % WRITE_SIZE);
-            assert_eq!(0, offset % WRITE_SIZE);
-            assert!(offset + bytes.len() <= SIZE);
-
-            self.0[offset..offset + bytes.len()].copy_from_slice(bytes);
-            Ok(())
-        }
+        assert_eq!(&[0x00; 64], &f.0.mem[0..64]);
+        assert_eq!(&[0xff; 64], &f.0.mem[64..128]);
+        assert_eq!(&[0xff; 64], &f.1.mem[0..64]);
+        assert_eq!(&[0x00; 64], &f.1.mem[64..128]);
     }
 }
