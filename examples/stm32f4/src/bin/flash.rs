@@ -4,7 +4,7 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::flash::Flash;
+use embassy_stm32::flash::{Blocking, Flash};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
 
     // Once can also call `into_regions()` to get access to NorFlash implementations
     // for each of the unique characteristics.
-    let mut f = Flash::new(p.FLASH);
+    let mut f = Flash::new_blocking(p.FLASH);
 
     // Sector 5
     test_flash(&mut f, 128 * 1024, 128 * 1024);
@@ -26,12 +26,12 @@ async fn main(_spawner: Spawner) {
     test_flash(&mut f, (2048 - 128) * 1024, 128 * 1024);
 }
 
-fn test_flash(f: &mut Flash, offset: u32, size: u32) {
+fn test_flash(f: &mut Flash<'_, Blocking>, offset: u32, size: u32) {
     info!("Testing offset: {=u32:#X}, size: {=u32:#X}", offset, size);
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.blocking_read(offset, &mut buf));
+    unwrap!(f.read(offset, &mut buf));
     info!("Read: {=[u8]:x}", buf);
 
     info!("Erasing...");
@@ -39,7 +39,7 @@ fn test_flash(f: &mut Flash, offset: u32, size: u32) {
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.blocking_read(offset, &mut buf));
+    unwrap!(f.read(offset, &mut buf));
     info!("Read after erase: {=[u8]:x}", buf);
 
     info!("Writing...");
@@ -53,7 +53,7 @@ fn test_flash(f: &mut Flash, offset: u32, size: u32) {
 
     info!("Reading...");
     let mut buf = [0u8; 32];
-    unwrap!(f.blocking_read(offset, &mut buf));
+    unwrap!(f.read(offset, &mut buf));
     info!("Read: {=[u8]:x}", buf);
     assert_eq!(
         &buf[..],

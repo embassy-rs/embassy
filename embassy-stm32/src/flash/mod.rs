@@ -1,14 +1,23 @@
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
+#[cfg(flash_f4)]
+mod asynch;
 #[cfg(flash)]
 mod common;
 
+#[cfg(flash_f4)]
+pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
 
 pub use crate::_generated::flash_regions::*;
 pub use crate::_generated::MAX_ERASE_SIZE;
 pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+
+pub const READ_SIZE: usize = 1;
+
+pub struct Blocking;
+pub struct Async;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

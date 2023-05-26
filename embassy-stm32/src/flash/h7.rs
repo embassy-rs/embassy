@@ -33,11 +33,11 @@ pub(crate) unsafe fn unlock() {
     }
 }
 
-pub(crate) unsafe fn begin_write() {
+pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
 }
 
-pub(crate) unsafe fn end_write() {}
+pub(crate) unsafe fn disable_blocking_write() {}
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     // We cannot have the write setup sequence in begin_write as it depends on the address
@@ -92,11 +92,8 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     });
 
     let ret: Result<(), Error> = blocking_wait_ready(bank);
-
     bank.cr().modify(|w| w.set_ser(false));
-
     bank_clear_all_err(bank);
-
     ret
 }
 

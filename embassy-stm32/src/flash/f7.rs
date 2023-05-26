@@ -21,7 +21,7 @@ pub(crate) unsafe fn unlock() {
     pac::FLASH.keyr().write(|w| w.set_key(0xCDEF_89AB));
 }
 
-pub(crate) unsafe fn begin_write() {
+pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
 
     pac::FLASH.cr().write(|w| {
@@ -30,7 +30,7 @@ pub(crate) unsafe fn begin_write() {
     });
 }
 
-pub(crate) unsafe fn end_write() {
+pub(crate) unsafe fn disable_blocking_write() {
     pac::FLASH.cr().write(|w| w.set_pg(false));
 }
 
@@ -58,11 +58,8 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     });
 
     let ret: Result<(), Error> = blocking_wait_ready();
-
     pac::FLASH.cr().modify(|w| w.set_ser(false));
-
     clear_all_err();
-
     ret
 }
 

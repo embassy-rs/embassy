@@ -41,14 +41,14 @@ pub(crate) unsafe fn unlock() {
     }
 }
 
-pub(crate) unsafe fn begin_write() {
+pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
 
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(true));
 }
 
-pub(crate) unsafe fn end_write() {
+pub(crate) unsafe fn disable_blocking_write() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(false));
 }
@@ -63,7 +63,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         fence(Ordering::SeqCst);
     }
 
-    blocking_wait_ready()
+    wait_ready_blocking()
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
@@ -96,7 +96,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         });
     }
 
-    let ret: Result<(), Error> = blocking_wait_ready();
+    let ret: Result<(), Error> = wait_ready_blocking();
 
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().modify(|w| w.set_per(false));
@@ -108,7 +108,6 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     });
 
     clear_all_err();
-
     ret
 }
 
@@ -150,7 +149,7 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-unsafe fn blocking_wait_ready() -> Result<(), Error> {
+unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 

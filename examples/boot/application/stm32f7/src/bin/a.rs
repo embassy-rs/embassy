@@ -16,7 +16,7 @@ static APP_B: &[u8] = include_bytes!("../../b.bin");
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let mut flash = Flash::new(p.FLASH);
+    let mut flash = Flash::new_blocking(p.FLASH);
 
     let button = Input::new(p.PC13, Pull::Down);
     let mut button = ExtiInput::new(button, p.EXTI13);

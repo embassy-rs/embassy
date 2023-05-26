@@ -26,7 +26,7 @@ async fn main(_s: Spawner) {
     let mut watchdog = Watchdog::new(p.WATCHDOG);
     watchdog.start(Duration::from_secs(8));
 
-    let mut flash: Flash<_, FLASH_SIZE> = Flash::new(p.FLASH);
+    let mut flash: Flash<_, FLASH_SIZE> = Flash::new_blocking(p.FLASH);
 
     let mut updater = FirmwareUpdater::default();
 
