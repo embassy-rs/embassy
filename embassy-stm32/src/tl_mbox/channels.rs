@@ -50,7 +50,7 @@
 //!
 
 pub mod cpu1 {
-    use crate::ipcc::IpccChannel;
+    use crate::tl_mbox::ipcc::IpccChannel;
 
     // Not used currently but reserved
     pub const IPCC_BLE_CMD_CHANNEL: IpccChannel = IpccChannel::Channel1;
@@ -75,7 +75,7 @@ pub mod cpu1 {
 }
 
 pub mod cpu2 {
-    use crate::ipcc::IpccChannel;
+    use crate::tl_mbox::ipcc::IpccChannel;
 
     pub const IPCC_BLE_EVENT_CHANNEL: IpccChannel = IpccChannel::Channel1;
     pub const IPCC_SYSTEM_EVENT_CHANNEL: IpccChannel = IpccChannel::Channel2;

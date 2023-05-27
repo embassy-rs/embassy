@@ -3,7 +3,7 @@
 use super::cmd::CmdPacket;
 use super::consts::TlPacketType;
 use super::{channels, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE, TL_SYS_TABLE};
-use crate::ipcc::Ipcc;
+use crate::tl_mbox::ipcc::Ipcc;
 
 const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;
 pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;

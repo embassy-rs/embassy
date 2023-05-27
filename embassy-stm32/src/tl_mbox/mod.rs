@@ -1,7 +1,9 @@
 use core::mem::MaybeUninit;
 
+use atomic_polyfill::{compiler_fence, Ordering};
 use bit_field::BitField;
 use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
@@ -13,13 +15,16 @@ use self::shci::{shci_ble_init, ShciBleInitCmdParam};
 use self::sys::Sys;
 use self::unsafe_linked_list::LinkedListNode;
 use crate::interrupt;
-use crate::ipcc::{Config, Ipcc};
+use crate::peripherals::IPCC;
+pub use crate::tl_mbox::ipcc::Config;
+use crate::tl_mbox::ipcc::Ipcc;
 
 mod ble;
 mod channels;
 mod cmd;
 mod consts;
 mod evt;
+mod ipcc;
 mod mm;
 mod shci;
 mod sys;
@@ -60,6 +65,8 @@ pub struct ReceiveInterruptHandler {}
 
 impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
     unsafe fn on_interrupt() {
+        // info!("ipcc rx interrupt");
+
         if Ipcc::is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
             sys::Sys::evt_handler();
         } else if Ipcc::is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
@@ -74,6 +81,8 @@ pub struct TransmitInterruptHandler {}
 
 impl interrupt::Handler<interrupt::IPCC_C1_TX> for TransmitInterruptHandler {
     unsafe fn on_interrupt() {
+        // info!("ipcc tx interrupt");
+
         if Ipcc::is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
             // TODO: handle this case
             let _ = sys::Sys::cmd_evt_handler();
@@ -307,21 +316,24 @@ static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251
 // TODO: get a better size, this is a placeholder
 pub(crate) static TL_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 5> = Channel::new();
 
-pub struct TlMbox {
-    _sys: Sys,
-    _ble: Ble,
-    _mm: MemoryManager,
+pub struct TlMbox<'d> {
+    _ipcc: PeripheralRef<'d, IPCC>,
 }
 
-impl TlMbox {
+impl<'d> TlMbox<'d> {
     /// initializes low-level transport between CPU1 and BLE stack on CPU2
-    pub fn init(
+    pub fn new(
+        ipcc: impl Peripheral<P = IPCC> + 'd,
         _irqs: impl interrupt::Binding<interrupt::IPCC_C1_RX, ReceiveInterruptHandler>
             + interrupt::Binding<interrupt::IPCC_C1_TX, TransmitInterruptHandler>,
         config: Config,
-    ) -> TlMbox {
+    ) -> Self {
+        into_ref!(ipcc);
+
         unsafe {
-            TL_REF_TABLE = MaybeUninit::new(RefTable {
+            compiler_fence(Ordering::AcqRel);
+
+            TL_REF_TABLE.as_mut_ptr().write_volatile(RefTable {
                 device_info_table: TL_DEVICE_INFO_TABLE.as_ptr(),
                 ble_table: TL_BLE_TABLE.as_ptr(),
                 thread_table: TL_THREAD_TABLE.as_ptr(),
@@ -333,6 +345,10 @@ impl TlMbox {
                 lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
                 ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
+
+            // info!("TL_REF_TABLE addr: {:x}", TL_REF_TABLE.as_ptr() as usize);
+
+            compiler_fence(Ordering::AcqRel);
 
             TL_SYS_TABLE = MaybeUninit::zeroed();
             TL_DEVICE_INFO_TABLE = MaybeUninit::zeroed();
@@ -352,13 +368,15 @@ impl TlMbox {
             CS_BUFFER = MaybeUninit::zeroed();
             BLE_CMD_BUFFER = MaybeUninit::zeroed();
             HCI_ACL_DATA_BUFFER = MaybeUninit::zeroed();
+
+            compiler_fence(Ordering::AcqRel);
         }
 
-        Ipcc::init(config);
+        Ipcc::enable(config);
 
-        let _sys = Sys::new();
-        let _ble = Ble::new();
-        let _mm = MemoryManager::new();
+        Sys::enable();
+        Ble::enable();
+        MemoryManager::enable();
 
         // enable interrupts
         unsafe { crate::interrupt::IPCC_C1_RX::steal() }.unpend();
@@ -367,7 +385,7 @@ impl TlMbox {
         unsafe { crate::interrupt::IPCC_C1_RX::steal() }.enable();
         unsafe { crate::interrupt::IPCC_C1_TX::steal() }.enable();
 
-        TlMbox { _sys, _ble, _mm }
+        Self { _ipcc: ipcc }
     }
 
     pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {

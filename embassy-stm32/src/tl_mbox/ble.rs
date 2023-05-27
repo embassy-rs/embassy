@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 use embassy_futures::block_on;
 
 use super::cmd::CmdSerial;
@@ -10,17 +8,17 @@ use super::{
     channels, BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_CHANNEL,
     TL_REF_TABLE,
 };
-use crate::ipcc::Ipcc;
 use crate::tl_mbox::cmd::CmdPacket;
+use crate::tl_mbox::ipcc::Ipcc;
 
 pub struct Ble;
 
 impl Ble {
-    pub(crate) fn new() -> Self {
+    pub fn enable() {
         unsafe {
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
-            TL_BLE_TABLE = MaybeUninit::new(BleTable {
+            TL_BLE_TABLE.as_mut_ptr().write_volatile(BleTable {
                 pcmd_buffer: BLE_CMD_BUFFER.as_mut_ptr().cast(),
                 pcs_buffer: CS_BUFFER.as_mut_ptr().cast(),
                 pevt_queue: EVT_QUEUE.as_ptr().cast(),
@@ -29,11 +27,9 @@ impl Ble {
         }
 
         Ipcc::c1_set_rx_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, true);
-
-        Ble
     }
 
-    pub(crate) fn evt_handler() {
+    pub fn evt_handler() {
         unsafe {
             let mut node_ptr = core::ptr::null_mut();
             let node_ptr_ptr: *mut _ = &mut node_ptr;
@@ -51,7 +47,7 @@ impl Ble {
         Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL);
     }
 
-    pub(crate) fn send_cmd(buf: &[u8]) {
+    pub fn send_cmd(buf: &[u8]) {
         unsafe {
             let pcmd_buffer: *mut CmdPacket = (*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
             let pcmd_serial: *mut CmdSerial = &mut (*pcmd_buffer).cmd_serial;
