@@ -1,3 +1,5 @@
+use core::cell::RefCell;
+
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
@@ -12,14 +14,14 @@ use super::Error;
 /// operate on mutually exclusive ranges - such a separation is up to
 /// the user to guarantee.
 pub struct BlockingPartition<'a, M: RawMutex, T: NorFlash> {
-    flash: &'a Mutex<M, T>,
+    flash: &'a Mutex<M, RefCell<T>>,
     offset: u32,
     size: u32,
 }
 
 impl<'a, M: RawMutex, T: NorFlash> BlockingPartition<'a, M, T> {
     /// Create a new partition
-    pub const fn new(flash: &'a Mutex<M, T>, offset: u32, size: u32) -> Self {
+    pub const fn new(flash: &'a Mutex<M, RefCell<T>>, offset: u32, size: u32) -> Self {
         if offset % T::READ_SIZE as u32 != 0 || offset % T::WRITE_SIZE as u32 != 0 || offset % T::ERASE_SIZE as u32 != 0
         {
             panic!("Partition offset must be a multiple of read, write and erase size");
@@ -43,8 +45,12 @@ impl<M: RawMutex, T: NorFlash> ReadNorFlash for BlockingPartition<'_, M, T> {
             return Err(Error::OutOfBounds);
         }
 
-        self.flash
-            .lock(|flash| flash.read(self.offset + offset, bytes).map_err(Error::Flash))
+        self.flash.lock(|flash| {
+            flash
+                .borrow_mut()
+                .read(self.offset + offset, bytes)
+                .map_err(Error::Flash)
+        })
     }
 
     fn capacity(&self) -> usize {
@@ -61,8 +67,12 @@ impl<M: RawMutex, T: NorFlash> NorFlash for BlockingPartition<'_, M, T> {
             return Err(Error::OutOfBounds);
         }
 
-        self.flash
-            .lock(|flash| flash.write(self.offset + offset, bytes).map_err(Error::Flash))
+        self.flash.lock(|flash| {
+            flash
+                .borrow_mut()
+                .write(self.offset + offset, bytes)
+                .map_err(Error::Flash)
+        })
     }
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
@@ -70,8 +80,12 @@ impl<M: RawMutex, T: NorFlash> NorFlash for BlockingPartition<'_, M, T> {
             return Err(Error::OutOfBounds);
         }
 
-        self.flash
-            .lock(|flash| flash.erase(self.offset + from, self.offset + to).map_err(Error::Flash))
+        self.flash.lock(|flash| {
+            flash
+                .borrow_mut()
+                .erase(self.offset + from, self.offset + to)
+                .map_err(Error::Flash)
+        })
     }
 }
 
@@ -87,7 +101,7 @@ mod tests {
         let mut flash = MemFlash::<1024, 128, 4>::default();
         flash.mem[132..132 + 8].fill(0xAA);
 
-        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(flash));
         let mut partition = BlockingPartition::new(&flash, 128, 256);
 
         let mut read_buf = [0; 8];
@@ -100,13 +114,13 @@ mod tests {
     fn can_write() {
         let flash = MemFlash::<1024, 128, 4>::default();
 
-        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(flash));
         let mut partition = BlockingPartition::new(&flash, 128, 256);
 
         let write_buf = [0xAA; 8];
         partition.write(4, &write_buf).unwrap();
 
-        let flash = flash.into_inner();
+        let flash = flash.into_inner().take();
         assert!(flash.mem[132..132 + 8].iter().position(|&x| x != 0xAA).is_none());
     }
 
@@ -114,12 +128,12 @@ mod tests {
     fn can_erase() {
         let flash = MemFlash::<1024, 128, 4>::new(0x00);
 
-        let flash = Mutex::<NoopRawMutex, _>::new(flash);
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(flash));
         let mut partition = BlockingPartition::new(&flash, 128, 256);
 
         partition.erase(0, 128).unwrap();
 
-        let flash = flash.into_inner();
+        let flash = flash.into_inner().take();
         assert!(flash.mem[128..256].iter().position(|&x| x != 0xFF).is_none());
     }
 }
