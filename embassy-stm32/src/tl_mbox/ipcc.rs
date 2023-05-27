@@ -1,4 +1,4 @@
-use crate::ipcc::sealed::Instance;
+use self::sealed::Instance;
 use crate::peripherals::IPCC;
 use crate::rcc::sealed::RccPeripheral;
 
@@ -20,17 +20,17 @@ pub enum IpccChannel {
     Channel6 = 5,
 }
 
-pub(crate) mod sealed {
+pub mod sealed {
     pub trait Instance: crate::rcc::RccPeripheral {
         fn regs() -> crate::pac::ipcc::Ipcc;
         fn set_cpu2(enabled: bool);
     }
 }
 
-pub(crate) struct Ipcc;
+pub struct Ipcc;
 
 impl Ipcc {
-    pub(crate) fn init(_config: Config) {
+    pub fn enable(_config: Config) {
         IPCC::enable();
         IPCC::reset();
         IPCC::set_cpu2(true);
@@ -47,14 +47,14 @@ impl Ipcc {
         }
     }
 
-    pub(crate) fn c1_set_rx_channel(channel: IpccChannel, enabled: bool) {
+    pub fn c1_set_rx_channel(channel: IpccChannel, enabled: bool) {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
         unsafe { regs.cpu(0).mr().modify(|w| w.set_chom(channel as usize, !enabled)) }
     }
 
-    pub(crate) fn c1_get_rx_channel(channel: IpccChannel) -> bool {
+    pub fn c1_get_rx_channel(channel: IpccChannel) -> bool {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
@@ -62,7 +62,7 @@ impl Ipcc {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn c2_set_rx_channel(channel: IpccChannel, enabled: bool) {
+    pub fn c2_set_rx_channel(channel: IpccChannel, enabled: bool) {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
@@ -70,21 +70,21 @@ impl Ipcc {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn c2_get_rx_channel(channel: IpccChannel) -> bool {
+    pub fn c2_get_rx_channel(channel: IpccChannel) -> bool {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
         unsafe { !regs.cpu(1).mr().read().chom(channel as usize) }
     }
 
-    pub(crate) fn c1_set_tx_channel(channel: IpccChannel, enabled: bool) {
+    pub fn c1_set_tx_channel(channel: IpccChannel, enabled: bool) {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
         unsafe { regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, !enabled)) }
     }
 
-    pub(crate) fn c1_get_tx_channel(channel: IpccChannel) -> bool {
+    pub fn c1_get_tx_channel(channel: IpccChannel) -> bool {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
@@ -92,7 +92,7 @@ impl Ipcc {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn c2_set_tx_channel(channel: IpccChannel, enabled: bool) {
+    pub fn c2_set_tx_channel(channel: IpccChannel, enabled: bool) {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
@@ -100,7 +100,7 @@ impl Ipcc {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn c2_get_tx_channel(channel: IpccChannel) -> bool {
+    pub fn c2_get_tx_channel(channel: IpccChannel) -> bool {
         let regs = IPCC::regs();
 
         // If bit is set to 1 then interrupt is disabled
@@ -108,7 +108,7 @@ impl Ipcc {
     }
 
     /// clears IPCC receive channel status for CPU1
-    pub(crate) fn c1_clear_flag_channel(channel: IpccChannel) {
+    pub fn c1_clear_flag_channel(channel: IpccChannel) {
         let regs = IPCC::regs();
 
         unsafe { regs.cpu(0).scr().write(|w| w.set_chc(channel as usize, true)) }
@@ -116,42 +116,42 @@ impl Ipcc {
 
     #[allow(dead_code)]
     /// clears IPCC receive channel status for CPU2
-    pub(crate) fn c2_clear_flag_channel(channel: IpccChannel) {
+    pub fn c2_clear_flag_channel(channel: IpccChannel) {
         let regs = IPCC::regs();
 
         unsafe { regs.cpu(1).scr().write(|w| w.set_chc(channel as usize, true)) }
     }
 
-    pub(crate) fn c1_set_flag_channel(channel: IpccChannel) {
+    pub fn c1_set_flag_channel(channel: IpccChannel) {
         let regs = IPCC::regs();
 
         unsafe { regs.cpu(0).scr().write(|w| w.set_chs(channel as usize, true)) }
     }
 
     #[allow(dead_code)]
-    pub(crate) fn c2_set_flag_channel(channel: IpccChannel) {
+    pub fn c2_set_flag_channel(channel: IpccChannel) {
         let regs = IPCC::regs();
 
         unsafe { regs.cpu(1).scr().write(|w| w.set_chs(channel as usize, true)) }
     }
 
-    pub(crate) fn c1_is_active_flag(channel: IpccChannel) -> bool {
+    pub fn c1_is_active_flag(channel: IpccChannel) -> bool {
         let regs = IPCC::regs();
 
         unsafe { regs.cpu(0).sr().read().chf(channel as usize) }
     }
 
-    pub(crate) fn c2_is_active_flag(channel: IpccChannel) -> bool {
+    pub fn c2_is_active_flag(channel: IpccChannel) -> bool {
         let regs = IPCC::regs();
 
         unsafe { regs.cpu(1).sr().read().chf(channel as usize) }
     }
 
-    pub(crate) fn is_tx_pending(channel: IpccChannel) -> bool {
+    pub fn is_tx_pending(channel: IpccChannel) -> bool {
         !Self::c1_is_active_flag(channel) && Self::c1_get_tx_channel(channel)
     }
 
-    pub(crate) fn is_rx_pending(channel: IpccChannel) -> bool {
+    pub fn is_rx_pending(channel: IpccChannel) -> bool {
         Self::c2_is_active_flag(channel) && Self::c1_get_rx_channel(channel)
     }
 }
