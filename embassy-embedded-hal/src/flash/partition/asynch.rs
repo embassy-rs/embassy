@@ -1,7 +1,9 @@
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_storage::nor_flash::{ErrorType, NorFlashError, NorFlashErrorKind};
+use embedded_storage::nor_flash::ErrorType;
 use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
+
+use super::Error;
 
 /// A logical partition of an underlying shared flash
 ///
@@ -14,13 +16,6 @@ pub struct Partition<'a, M: RawMutex, T: NorFlash> {
     flash: &'a Mutex<M, T>,
     offset: u32,
     size: u32,
-}
-
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error<T> {
-    OutOfBounds,
-    Flash(T),
 }
 
 impl<'a, M: RawMutex, T: NorFlash> Partition<'a, M, T> {
@@ -37,20 +32,10 @@ impl<'a, M: RawMutex, T: NorFlash> Partition<'a, M, T> {
     }
 }
 
-impl<T: NorFlashError> NorFlashError for Error<T> {
-    fn kind(&self) -> NorFlashErrorKind {
-        match self {
-            Error::OutOfBounds => NorFlashErrorKind::OutOfBounds,
-            Error::Flash(f) => f.kind(),
-        }
-    }
-}
-
 impl<M: RawMutex, T: NorFlash> ErrorType for Partition<'_, M, T> {
     type Error = Error<T::Error>;
 }
 
-#[cfg(feature = "nightly")]
 impl<M: RawMutex, T: NorFlash> ReadNorFlash for Partition<'_, M, T> {
     const READ_SIZE: usize = T::READ_SIZE;
 
@@ -68,7 +53,6 @@ impl<M: RawMutex, T: NorFlash> ReadNorFlash for Partition<'_, M, T> {
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
     const WRITE_SIZE: usize = T::WRITE_SIZE;
     const ERASE_SIZE: usize = T::ERASE_SIZE;
