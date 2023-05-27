@@ -4,8 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::ipcc::Config;
-use embassy_stm32::tl_mbox::TlMbox;
+use embassy_stm32::tl_mbox::{Config, TlMbox};
 use embassy_stm32::{bind_interrupts, tl_mbox};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -40,11 +39,11 @@ async fn main(_spawner: Spawner) {
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
     */
 
-    let _p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(Irqs, config);
+    let mbox = TlMbox::new(p.IPCC, Irqs, config);
 
     info!("waiting for coprocessor to boot");
     let event_box = mbox.read().await;
@@ -94,5 +93,6 @@ async fn main(_spawner: Spawner) {
         payload[3..]
     );
 
-    loop {}
+    info!("Test OK");
+    cortex_m::asm::bkpt();
 }

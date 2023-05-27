@@ -3,8 +3,10 @@ build-std = ["core"]
 build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "teleprobe client run --target bluepill-stm32f103c8 --elf"
+#runner = "teleprobe client run --target bluepill-stm32f103c8 --elf"
 #runner = "teleprobe local run --chip STM32F103C8 --elf"
+#runner = "teleprobe local run --chip STM32WB55RG --elf"
+runner = "probe-run --chip STM32WB55RG"
 
 rustflags = [
   # Code-size optimizations.
@@ -14,7 +16,7 @@ rustflags = [
 ]
 
 [build]
-target = "thumbv7m-none-eabi"
+target = "thumbv7em-none-eabi"
 
 [env]
 DEFMT_LOG = "trace"

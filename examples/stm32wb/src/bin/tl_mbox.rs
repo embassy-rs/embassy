@@ -4,8 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::ipcc::Config;
-use embassy_stm32::tl_mbox::TlMbox;
+use embassy_stm32::tl_mbox::{Config, TlMbox};
 use embassy_stm32::{bind_interrupts, tl_mbox};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -41,16 +40,16 @@ async fn main(_spawner: Spawner) {
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
     */
 
-    let _p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(Irqs, config);
+    let mbox = TlMbox::new(p.IPCC, Irqs, config);
 
     loop {
         let wireless_fw_info = mbox.wireless_fw_info();
         match wireless_fw_info {
-            None => error!("not yet initialized"),
+            None => info!("not yet initialized"),
             Some(fw_info) => {
                 let version_major = fw_info.version_major();
                 let version_minor = fw_info.version_minor();
@@ -68,6 +67,9 @@ async fn main(_spawner: Spawner) {
             }
         }
 
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after(Duration::from_millis(50)).await;
     }
+
+    info!("Test OK");
+    cortex_m::asm::bkpt();
 }

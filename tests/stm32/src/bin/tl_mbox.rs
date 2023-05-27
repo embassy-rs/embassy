@@ -7,8 +7,7 @@
 #[path = "../example_common.rs"]
 mod example_common;
 use embassy_executor::Spawner;
-use embassy_stm32::ipcc::Config;
-use embassy_stm32::tl_mbox::TlMbox;
+use embassy_stm32::tl_mbox::{Config, TlMbox};
 use embassy_stm32::{bind_interrupts, tl_mbox};
 use embassy_time::{Duration, Timer};
 use example_common::*;
@@ -20,11 +19,11 @@ bind_interrupts!(struct Irqs{
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let _p = embassy_stm32::init(config());
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(Irqs, config);
+    let mbox = TlMbox::new(p.IPCC, Irqs, config);
 
     loop {
         let wireless_fw_info = mbox.wireless_fw_info();
