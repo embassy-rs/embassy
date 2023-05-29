@@ -13,6 +13,12 @@ use futures::future::{select, Either};
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
 #[cfg(not(any(usart_v1, usart_v2)))]
+#[allow(unused_imports)]
+use crate::pac::usart::regs::Isr as Sr;
+#[cfg(any(usart_v1, usart_v2))]
+#[allow(unused_imports)]
+use crate::pac::usart::regs::Sr;
+#[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
 use crate::pac::usart::Usart as Regs;
@@ -32,7 +38,6 @@ impl<T: BasicInstance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> 
 
         let (sr, cr1, cr3) = unsafe { (sr(r).read(), r.cr1().read(), r.cr3().read()) };
 
-        let mut wake = false;
         let has_errors = (sr.pe() && cr1.peie()) || ((sr.fe() || sr.ne() || sr.ore()) && cr3.eie());
         if has_errors {
             // clear all interrupts and DMA Rx Request
@@ -52,35 +57,24 @@ impl<T: BasicInstance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> 
                     w.set_dmar(false);
                 });
             }
+        } else if cr1.idleie() && sr.idle() {
+            // IDLE detected: no more data will come
+            unsafe {
+                r.cr1().modify(|w| {
+                    // disable idle line detection
+                    w.set_idleie(false);
+                });
+            }
+        } else if cr1.rxneie() {
+            // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
 
-            wake = true;
+            // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
         } else {
-            if cr1.idleie() && sr.idle() {
-                // IDLE detected: no more data will come
-                unsafe {
-                    r.cr1().modify(|w| {
-                        // disable idle line detection
-                        w.set_idleie(false);
-                    });
-                }
-
-                wake = true;
-            }
-
-            if cr1.rxneie() {
-                // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
-
-                // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
-
-                wake = true;
-            }
+            return;
         }
 
-        if wake {
-            compiler_fence(Ordering::SeqCst);
-
-            s.rx_waker.wake();
-        }
+        compiler_fence(Ordering::SeqCst);
+        s.rx_waker.wake();
     }
 }
 
@@ -1109,9 +1103,9 @@ pub use crate::usart::buffered::InterruptHandler as BufferedInterruptHandler;
 mod buffered;
 
 #[cfg(not(gpdma))]
-mod rx_ringbuffered;
+mod ringbuffered;
 #[cfg(not(gpdma))]
-pub use rx_ringbuffered::RingBufferedUartRx;
+pub use ringbuffered::RingBufferedUartRx;
 
 use self::sealed::Kind;
 
