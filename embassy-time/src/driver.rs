@@ -49,7 +49,7 @@
 //!     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
 //!         todo!()
 //!     }
-//!     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
+//!     fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
 //!         todo!()
 //!     }
 //! }

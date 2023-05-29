@@ -458,8 +458,6 @@ mod tests {
 
     #[test]
     fn push_slices() {
-        init();
-
         let mut b = [0; 4];
         let rb = RingBuffer::new();
         unsafe {
