@@ -1,6 +1,6 @@
 //! HCI commands for system channel
 
-use super::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
+use super::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 
 #[allow(dead_code)]
 pub const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;

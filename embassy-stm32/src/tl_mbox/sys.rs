@@ -1,8 +1,9 @@
 use super::cmd::CommandPacket;
 use super::consts::TlPacketType;
 use super::evt::{CommandChannelEvent, EventBox};
+use super::tables::{SysTable, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_REF_TABLE, TL_SYS_TABLE};
 use super::unsafe_linked_list::LinkedListNode;
-use super::{channels, Ipcc, SysTable, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_REF_TABLE, TL_SYS_TABLE};
+use super::{channels, Ipcc};
 
 pub struct SysSubsystem;
 

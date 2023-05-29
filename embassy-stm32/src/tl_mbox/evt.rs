@@ -1,9 +1,9 @@
 use core::mem::MaybeUninit;
 
 use super::cmd::{AclDataPacket, AclDataSerial, CommandSerial};
-use super::consts::TlPacketType;
+use super::consts::{TlPacketType, TL_EVT_HEADER_SIZE};
 use super::mm::MemoryManager;
-use super::{CommandPacket, LinkedListNode, PacketHeader, TL_EVT_HEADER_SIZE};
+use super::{CommandPacket, LinkedListNode, PacketHeader};
 
 /// the payload of [`Event`] for a command status event
 #[derive(Copy, Clone)]

@@ -71,11 +71,12 @@ async fn main(_spawner: Spawner) {
     // initialize ble stack, does not return a response
     let _ = mbox.shci_ble_init(Default::default()).await;
 
+
     info!("resetting BLE");
     let _ = mbox.ble_subsystem.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).await;
 
     info!("waiting for BLE...");
-    let event_box = mbox.sys_subsystem.read().await.unwrap();
+    let event_box = mbox.ble_subsystem.read().await.unwrap();
 
     info!("BLE ready");
     cortex_m::asm::bkpt();

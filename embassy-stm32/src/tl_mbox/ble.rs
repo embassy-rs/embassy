@@ -1,10 +1,9 @@
+use super::channels;
 use super::cmd::CommandPacket;
 use super::consts::TlPacketType;
 use super::evt::EventBox;
+use super::tables::{BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_REF_TABLE};
 use super::unsafe_linked_list::LinkedListNode;
-use super::{
-    channels, BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_REF_TABLE,
-};
 use crate::tl_mbox::ipcc::Ipcc;
 
 pub struct BleSubsystem;

@@ -1,3 +1,6 @@
+use super::evt::CommandStatusEvent;
+use super::PacketHeader;
+
 #[derive(PartialEq)]
 #[repr(C)]
 pub enum TlPacketType {
@@ -51,3 +54,21 @@ impl TryFrom<u8> for TlPacketType {
         }
     }
 }
+
+pub const TL_PACKET_HEADER_SIZE: usize = core::mem::size_of::<PacketHeader>();
+pub const TL_EVT_HEADER_SIZE: usize = 3;
+pub const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CommandStatusEvent>();
+
+pub const CFG_TL_BLE_EVT_QUEUE_LENGTH: usize = 5;
+pub const CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE: usize = 255;
+pub const TL_BLE_EVENT_FRAME_SIZE: usize = TL_EVT_HEADER_SIZE + CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE;
+
+pub const POOL_SIZE: usize = CFG_TL_BLE_EVT_QUEUE_LENGTH * 4 * divc(TL_PACKET_HEADER_SIZE + TL_BLE_EVENT_FRAME_SIZE, 4);
+
+pub const fn divc(x: usize, y: usize) -> usize {
+    (x + y - 1) / y
+}
+
+pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
+#[allow(dead_code)]
+pub const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;

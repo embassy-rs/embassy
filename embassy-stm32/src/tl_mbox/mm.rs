@@ -1,12 +1,14 @@
 use embassy_futures::poll_once;
 
+use super::channels;
+use super::consts::POOL_SIZE;
 use super::evt::EventPacket;
 use super::ipcc::Ipcc;
-use super::unsafe_linked_list::LinkedListNode;
-use super::{
-    channels, MemManagerTable, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUFF_QUEUE, LOCAL_FREE_BUF_QUEUE, POOL_SIZE,
-    SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE, TL_REF_TABLE,
+use super::tables::{
+    MemManagerTable, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUFF_QUEUE, LOCAL_FREE_BUF_QUEUE, SYS_SPARE_EVT_BUF,
+    TL_MEM_MANAGER_TABLE, TL_REF_TABLE,
 };
+use super::unsafe_linked_list::LinkedListNode;
 
 pub struct MemoryManager;
 
