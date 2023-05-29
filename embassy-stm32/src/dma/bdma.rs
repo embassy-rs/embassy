@@ -111,24 +111,18 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::bdma::Dma, channel_num: usize, index
         panic!("DMA: error on BDMA@{:08x} channel {}", dma.0 as u32, channel_num);
     }
 
-    let mut wake = false;
-
     if isr.htif(channel_num) && cr.read().htie() {
         // Acknowledge half transfer complete interrupt
         dma.ifcr().write(|w| w.set_htif(channel_num, true));
-        wake = true;
-    }
-
-    if isr.tcif(channel_num) && cr.read().tcie() {
+    } else if isr.tcif(channel_num) && cr.read().tcie() {
         // Acknowledge transfer complete interrupt
         dma.ifcr().write(|w| w.set_tcif(channel_num, true));
         STATE.complete_count[index].fetch_add(1, Ordering::Release);
-        wake = true;
+    } else {
+        return;
     }
 
-    if wake {
-        STATE.ch_wakers[index].wake();
-    }
+    STATE.ch_wakers[index].wake();
 }
 
 #[cfg(any(bdma_v2, dmamux))]
@@ -371,7 +365,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
 struct DmaCtrlImpl<'a, C: Channel>(PeripheralRef<'a, C>);
 
 impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
-    fn ndtr(&self) -> usize {
+    fn get_remaining_transfers(&self) -> usize {
         let ch = self.0.regs().ch(self.0.num());
         unsafe { ch.ndtr().read() }.ndt() as usize
     }
@@ -457,21 +451,17 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
     }
 
     /// Read bytes from the ring buffer
+    /// Return a tuple of the length read and the length remaining in the buffer
+    /// If not all of the bytes were read, then there will be some bytes in the buffer remaining
+    /// The length remaining is the capacity, ring_buf.len(), less the bytes remaining after the read
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, buf: &mut [W]) -> Result<usize, OverrunError> {
+    pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
         self.ringbuf.read(DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.ringbuf.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.ringbuf.len()
-    }
-
-    pub fn capacity(&self) -> usize {
-        self.ringbuf.dma_buf.len()
+    /// The capacity of the ringbuffer
+    pub fn cap(&self) -> usize {
+        self.ringbuf.cap()
     }
 
     pub fn set_waker(&mut self, waker: &Waker) {
@@ -505,12 +495,6 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
         unsafe { ch.cr().read() }.en()
-    }
-
-    /// Synchronize the position of the ring buffer to the actual DMA controller position
-    pub fn reload_position(&mut self) {
-        let ch = self.channel.regs().ch(self.channel.num());
-        self.ringbuf.ndtr = unsafe { ch.ndtr().read() }.ndt() as usize;
     }
 }
 

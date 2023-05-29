@@ -25,14 +25,13 @@ use super::word::Word;
 /// +-----------------------------------------+     +-----------------------------------------+
 ///  ^          ^               ^                    ^            ^           ^
 ///  |          |               |                    |            |           |
-///  +- first --+               |                    +- end ------+           |
+///  +- start --+               |                    +- end ------+           |
 ///  |                          |                    |                        |
-///  +- end --------------------+                    +- first ----------------+
+///  +- end --------------------+                    +- start ----------------+
 /// ```
 pub struct DmaRingBuffer<'a, W: Word> {
     pub(crate) dma_buf: &'a mut [W],
-    first: usize,
-    pub ndtr: usize,
+    start: usize,
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,7 +40,7 @@ pub struct OverrunError;
 pub trait DmaCtrl {
     /// Get the NDTR register value, i.e. the space left in the underlying
     /// buffer until the dma writer wraps.
-    fn ndtr(&self) -> usize;
+    fn get_remaining_transfers(&self) -> usize;
 
     /// Get the transfer completed counter.
     /// This counter is incremented by the dma controller when NDTR is reloaded,
@@ -54,151 +53,131 @@ pub trait DmaCtrl {
 
 impl<'a, W: Word> DmaRingBuffer<'a, W> {
     pub fn new(dma_buf: &'a mut [W]) -> Self {
-        let ndtr = dma_buf.len();
-        Self {
-            dma_buf,
-            first: 0,
-            ndtr,
-        }
+        Self { dma_buf, start: 0 }
     }
 
     /// Reset the ring buffer to its initial state
     pub fn clear(&mut self, mut dma: impl DmaCtrl) {
-        self.first = 0;
-        self.ndtr = self.dma_buf.len();
+        self.start = 0;
         dma.reset_complete_count();
     }
 
-    /// The buffer end position
-    fn end(&self) -> usize {
-        self.dma_buf.len() - self.ndtr
+    /// The capacity of the ringbuffer
+    pub const fn cap(&self) -> usize {
+        self.dma_buf.len()
     }
 
-    /// Returns whether the buffer is empty
-    pub fn is_empty(&self) -> bool {
-        self.first == self.end()
-    }
-
-    /// The current number of bytes in the buffer
-    /// This may change at any time if dma is currently active
-    pub fn len(&self) -> usize {
-        // Read out a stable end (the dma periheral can change it at anytime)
-        let end = self.end();
-        if self.first <= end {
-            // No wrap
-            end - self.first
-        } else {
-            self.dma_buf.len() - self.first + end
-        }
+    /// The current position of the ringbuffer
+    fn pos(&self, remaining_transfers: usize) -> usize {
+        self.cap() - remaining_transfers
     }
 
     /// Read bytes from the ring buffer
+    /// Return a tuple of the length read and the length remaining in the buffer
+    /// If not all of the bytes were read, then there will be some bytes in the buffer remaining
+    /// The length remaining is the capacity, ring_buf.len(), less the bytes remaining after the read
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, mut dma: impl DmaCtrl, buf: &mut [W]) -> Result<usize, OverrunError> {
-        let end = self.end();
+    pub fn read(&mut self, mut dma: impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
+        /*
+            This algorithm is optimistic: we assume we haven't overrun more than a full buffer and then check
+            after we've done our work to see we have. This is because on stm32, an interrupt is not guaranteed
+            to fire in the same clock cycle that a register is read, so checking get_complete_count early does
+            not yield relevant information.
 
-        compiler_fence(Ordering::SeqCst);
+            Therefore, the only variable we really need to know is ndtr. If the dma has overrun by more than a full
+            buffer, we will do a bit more work than we have to, but algorithms should not be optimized for error
+            conditions.
 
-        if self.first == end {
-            // The buffer is currently empty
-
-            if dma.get_complete_count() > 0 {
-                // The DMA has written such that the ring buffer wraps at least once
-                self.ndtr = dma.ndtr();
-                if self.end() > self.first || dma.get_complete_count() > 1 {
-                    return Err(OverrunError);
-                }
-            }
-
-            Ok(0)
-        } else if self.first < end {
+            After we've done our work, we confirm that we haven't overrun more than a full buffer, and also that
+            the dma has not overrun within the data we could have copied. We check the data we could have copied
+            rather than the data we actually copied because it costs nothing and confirms an error condition
+            earlier.
+        */
+        let end = self.pos(dma.get_remaining_transfers());
+        if self.start == end && dma.get_complete_count() == 0 {
+            // No bytes are available in the buffer
+            Ok((0, self.cap()))
+        } else if self.start < end {
             // The available, unread portion in the ring buffer DOES NOT wrap
-
-            if dma.get_complete_count() > 1 {
-                return Err(OverrunError);
-            }
-
             // Copy out the bytes from the dma buffer
-            let len = self.copy_to(buf, self.first..end);
+            let len = self.copy_to(buf, self.start..end);
 
             compiler_fence(Ordering::SeqCst);
 
-            match dma.get_complete_count() {
-                0 => {
-                    // The DMA writer has not wrapped before nor after the copy
-                }
-                1 => {
-                    // The DMA writer has written such that the ring buffer now wraps
-                    self.ndtr = dma.ndtr();
-                    if self.end() > self.first || dma.get_complete_count() > 1 {
-                        // The bytes that we have copied out have overflowed
-                        // as the writer has now both wrapped and is currently writing
-                        // within the region that we have just copied out
-                        return Err(OverrunError);
-                    }
-                }
-                _ => {
-                    return Err(OverrunError);
-                }
-            }
+            /*
+                first, check if the dma has wrapped at all if it's after end
+                or more than once if it's before start
 
-            self.first = (self.first + len) % self.dma_buf.len();
-            Ok(len)
+                this is in a critical section to try to reduce mushy behavior.
+                it's not ideal but it's the best we can do
+
+                then, get the current position of of the dma write and check
+                if it's inside data we could have copied
+            */
+            let (pos, complete_count) =
+                critical_section::with(|_| (self.pos(dma.get_remaining_transfers()), dma.get_complete_count()));
+            if (pos >= self.start && pos < end) || (complete_count > 0 && pos >= end) || complete_count > 1 {
+                Err(OverrunError)
+            } else {
+                self.start = (self.start + len) % self.cap();
+
+                Ok((len, self.cap() - self.start))
+            }
+        } else if self.start + buf.len() < self.cap() {
+            // The available, unread portion in the ring buffer DOES wrap
+            // The DMA writer has wrapped since we last read and is currently
+            // writing (or the next byte added will be) in the beginning of the ring buffer.
+
+            // The provided read buffer is not large enough to include all bytes from the tail of the dma buffer.
+
+            // Copy out from the dma buffer
+            let len = self.copy_to(buf, self.start..self.cap());
+
+            compiler_fence(Ordering::SeqCst);
+
+            /*
+                first, check if the dma has wrapped around more than once
+
+                then, get the current position of of the dma write and check
+                if it's inside data we could have copied
+            */
+            let pos = self.pos(dma.get_remaining_transfers());
+            if pos > self.start || pos < end || dma.get_complete_count() > 1 {
+                Err(OverrunError)
+            } else {
+                self.start = (self.start + len) % self.cap();
+
+                Ok((len, self.start + end))
+            }
         } else {
             // The available, unread portion in the ring buffer DOES wrap
             // The DMA writer has wrapped since we last read and is currently
             // writing (or the next byte added will be) in the beginning of the ring buffer.
 
-            let complete_count = dma.get_complete_count();
-            if complete_count > 1 {
-                return Err(OverrunError);
-            }
+            // The provided read buffer is large enough to include all bytes from the tail of the dma buffer,
+            // so the next read will not have any unread tail bytes in the ring buffer.
 
-            // If the unread portion wraps then the writer must also have wrapped
-            assert!(complete_count == 1);
+            // Copy out from the dma buffer
+            let tail = self.copy_to(buf, self.start..self.cap());
+            let head = self.copy_to(&mut buf[tail..], 0..end);
 
-            if self.first + buf.len() < self.dma_buf.len() {
-                // The provided read buffer is not large enough to include all bytes from the tail of the dma buffer.
+            compiler_fence(Ordering::SeqCst);
 
-                // Copy out from the dma buffer
-                let len = self.copy_to(buf, self.first..self.dma_buf.len());
+            /*
+                first, check if the dma has wrapped around more than once
 
-                compiler_fence(Ordering::SeqCst);
-
-                // We have now copied out the data from dma_buf
-                // Make sure that the just read part was not overwritten during the copy
-                self.ndtr = dma.ndtr();
-                if self.end() > self.first || dma.get_complete_count() > 1 {
-                    // The writer has entered the data that we have just read since we read out `end` in the beginning and until now.
-                    return Err(OverrunError);
-                }
-
-                self.first = (self.first + len) % self.dma_buf.len();
-                Ok(len)
+                then, get the current position of of the dma write and check
+                if it's inside data we could have copied
+            */
+            let pos = self.pos(dma.get_remaining_transfers());
+            if pos > self.start || pos < end || dma.reset_complete_count() > 1 {
+                Err(OverrunError)
             } else {
-                // The provided read buffer is large enough to include all bytes from the tail of the dma buffer,
-                // so the next read will not have any unread tail bytes in the ring buffer.
-
-                // Copy out from the dma buffer
-                let tail = self.copy_to(buf, self.first..self.dma_buf.len());
-                let head = self.copy_to(&mut buf[tail..], 0..end);
-
-                compiler_fence(Ordering::SeqCst);
-
-                // We have now copied out the data from dma_buf
-                // Reset complete counter and make sure that the just read part was not overwritten during the copy
-                self.ndtr = dma.ndtr();
-                let complete_count = dma.reset_complete_count();
-                if self.end() > self.first || complete_count > 1 {
-                    return Err(OverrunError);
-                }
-
-                self.first = head;
-                Ok(tail + head)
+                self.start = head;
+                Ok((tail + head, self.cap() - self.start))
             }
         }
     }
-
     /// Copy from the dma buffer at `data_range` into `buf`
     fn copy_to(&mut self, buf: &mut [W], data_range: Range<usize>) -> usize {
         // Limit the number of bytes that can be copied
@@ -218,203 +197,289 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
         length
     }
 }
-
 #[cfg(test)]
 mod tests {
     use core::array;
-    use core::cell::RefCell;
+    use std::{cell, vec};
 
     use super::*;
 
-    struct TestCtrl {
-        next_ndtr: RefCell<Option<usize>>,
-        complete_count: usize,
+    #[allow(dead_code)]
+    #[derive(PartialEq, Debug)]
+    enum TestCircularTransferRequest {
+        GetCompleteCount(usize),
+        ResetCompleteCount(usize),
+        PositionRequest(usize),
     }
 
-    impl TestCtrl {
-        pub const fn new() -> Self {
-            Self {
-                next_ndtr: RefCell::new(None),
-                complete_count: 0,
+    struct TestCircularTransfer {
+        len: usize,
+        requests: cell::RefCell<vec::Vec<TestCircularTransferRequest>>,
+    }
+
+    impl DmaCtrl for &mut TestCircularTransfer {
+        fn get_remaining_transfers(&self) -> usize {
+            match self.requests.borrow_mut().pop().unwrap() {
+                TestCircularTransferRequest::PositionRequest(pos) => {
+                    let len = self.len;
+
+                    assert!(len >= pos);
+
+                    len - pos
+                }
+                _ => unreachable!(),
             }
         }
 
-        pub fn set_next_ndtr(&mut self, ndtr: usize) {
-            self.next_ndtr.borrow_mut().replace(ndtr);
-        }
-    }
-
-    impl DmaCtrl for &mut TestCtrl {
-        fn ndtr(&self) -> usize {
-            self.next_ndtr.borrow_mut().unwrap()
-        }
-
         fn get_complete_count(&self) -> usize {
-            self.complete_count
+            match self.requests.borrow_mut().pop().unwrap() {
+                TestCircularTransferRequest::GetCompleteCount(complete_count) => complete_count,
+                _ => unreachable!(),
+            }
         }
 
         fn reset_complete_count(&mut self) -> usize {
-            let old = self.complete_count;
-            self.complete_count = 0;
-            old
+            match self.requests.get_mut().pop().unwrap() {
+                TestCircularTransferRequest::ResetCompleteCount(complete_count) => complete_count,
+                _ => unreachable!(),
+            }
+        }
+    }
+
+    impl TestCircularTransfer {
+        pub fn new(len: usize) -> Self {
+            Self {
+                requests: cell::RefCell::new(vec![]),
+                len: len,
+            }
+        }
+
+        pub fn setup(&self, mut requests: vec::Vec<TestCircularTransferRequest>) {
+            requests.reverse();
+            self.requests.replace(requests);
         }
     }
 
     #[test]
-    fn empty() {
+    fn empty_and_read_not_started() {
         let mut dma_buf = [0u8; 16];
         let ringbuf = DmaRingBuffer::new(&mut dma_buf);
 
-        assert!(ringbuf.is_empty());
-        assert_eq!(0, ringbuf.len());
+        assert_eq!(0, ringbuf.start);
     }
 
     #[test]
     fn can_read() {
+        let mut dma = TestCircularTransfer::new(16);
+
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ctrl = TestCtrl::new();
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
-        ringbuf.ndtr = 6;
 
-        assert!(!ringbuf.is_empty());
-        assert_eq!(10, ringbuf.len());
+        assert_eq!(0, ringbuf.start);
+        assert_eq!(16, ringbuf.cap());
 
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(8),
+            TestCircularTransferRequest::PositionRequest(10),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
         let mut buf = [0; 2];
-        assert_eq!(2, ringbuf.read(&mut ctrl, &mut buf).unwrap());
+        assert_eq!(2, ringbuf.read(&mut dma, &mut buf).unwrap().0);
         assert_eq!([0, 1], buf);
-        assert_eq!(8, ringbuf.len());
+        assert_eq!(2, ringbuf.start);
 
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(10),
+            TestCircularTransferRequest::PositionRequest(12),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
         let mut buf = [0; 2];
-        assert_eq!(2, ringbuf.read(&mut ctrl, &mut buf).unwrap());
+        assert_eq!(2, ringbuf.read(&mut dma, &mut buf).unwrap().0);
         assert_eq!([2, 3], buf);
-        assert_eq!(6, ringbuf.len());
+        assert_eq!(4, ringbuf.start);
 
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(12),
+            TestCircularTransferRequest::PositionRequest(14),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
         let mut buf = [0; 8];
-        assert_eq!(6, ringbuf.read(&mut ctrl, &mut buf).unwrap());
+        assert_eq!(8, ringbuf.read(&mut dma, &mut buf).unwrap().0);
         assert_eq!([4, 5, 6, 7, 8, 9], buf[..6]);
-        assert_eq!(0, ringbuf.len());
-
-        let mut buf = [0; 2];
-        assert_eq!(0, ringbuf.read(&mut ctrl, &mut buf).unwrap());
+        assert_eq!(12, ringbuf.start);
     }
 
     #[test]
     fn can_read_with_wrap() {
+        let mut dma = TestCircularTransfer::new(16);
+
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ctrl = TestCtrl::new();
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
-        ringbuf.first = 12;
-        ringbuf.ndtr = 10;
 
-        // The dma controller has written 4 + 6 bytes and has reloaded NDTR
-        ctrl.complete_count = 1;
-        ctrl.set_next_ndtr(10);
+        assert_eq!(0, ringbuf.start);
+        assert_eq!(16, ringbuf.cap());
 
-        assert!(!ringbuf.is_empty());
-        assert_eq!(6 + 4, ringbuf.len());
+        /*
+            Read to close to the end of the buffer
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(14),
+            TestCircularTransferRequest::PositionRequest(16),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
+        let mut buf = [0; 14];
+        assert_eq!(14, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(14, ringbuf.start);
 
-        let mut buf = [0; 2];
-        assert_eq!(2, ringbuf.read(&mut ctrl, &mut buf).unwrap());
-        assert_eq!([12, 13], buf);
-        assert_eq!(6 + 2, ringbuf.len());
-
-        let mut buf = [0; 4];
-        assert_eq!(4, ringbuf.read(&mut ctrl, &mut buf).unwrap());
-        assert_eq!([14, 15, 0, 1], buf);
-        assert_eq!(4, ringbuf.len());
+        /*
+            Now, read around the buffer
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(6),
+            TestCircularTransferRequest::PositionRequest(8),
+            TestCircularTransferRequest::ResetCompleteCount(1),
+        ]);
+        let mut buf = [0; 6];
+        assert_eq!(6, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(4, ringbuf.start);
     }
 
     #[test]
     fn can_read_when_dma_writer_is_wrapped_and_read_does_not_wrap() {
+        let mut dma = TestCircularTransfer::new(16);
+
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ctrl = TestCtrl::new();
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
-        ringbuf.first = 2;
-        ringbuf.ndtr = 6;
 
-        // The dma controller has written 6 + 2 bytes and has reloaded NDTR
-        ctrl.complete_count = 1;
-        ctrl.set_next_ndtr(14);
+        assert_eq!(0, ringbuf.start);
+        assert_eq!(16, ringbuf.cap());
 
+        /*
+            Read to close to the end of the buffer
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(14),
+            TestCircularTransferRequest::PositionRequest(16),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
+        let mut buf = [0; 14];
+        assert_eq!(14, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(14, ringbuf.start);
+
+        /*
+            Now, read to the end of the buffer
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(6),
+            TestCircularTransferRequest::PositionRequest(8),
+            TestCircularTransferRequest::ResetCompleteCount(1),
+        ]);
         let mut buf = [0; 2];
-        assert_eq!(2, ringbuf.read(&mut ctrl, &mut buf).unwrap());
-        assert_eq!([2, 3], buf);
-
-        assert_eq!(1, ctrl.complete_count); // The interrupt flag IS NOT cleared
+        assert_eq!(2, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(0, ringbuf.start);
     }
 
     #[test]
-    fn can_read_when_dma_writer_is_wrapped_and_read_wraps() {
+    fn can_read_when_dma_writer_wraps_once_with_same_ndtr() {
+        let mut dma = TestCircularTransfer::new(16);
+
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ctrl = TestCtrl::new();
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
-        ringbuf.first = 12;
-        ringbuf.ndtr = 10;
 
-        // The dma controller has written 6 + 2 bytes and has reloaded NDTR
-        ctrl.complete_count = 1;
-        ctrl.set_next_ndtr(14);
+        assert_eq!(0, ringbuf.start);
+        assert_eq!(16, ringbuf.cap());
 
-        let mut buf = [0; 10];
-        assert_eq!(10, ringbuf.read(&mut ctrl, &mut buf).unwrap());
-        assert_eq!([12, 13, 14, 15, 0, 1, 2, 3, 4, 5], buf);
+        /*
+            Read to about the middle of the buffer
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(6),
+            TestCircularTransferRequest::PositionRequest(6),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
+        let mut buf = [0; 6];
+        assert_eq!(6, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(6, ringbuf.start);
 
-        assert_eq!(0, ctrl.complete_count); // The interrupt flag IS cleared
-    }
-
-    #[test]
-    fn cannot_read_when_dma_writer_wraps_with_same_ndtr() {
-        let mut dma_buf = [0u8; 16];
-        let mut ctrl = TestCtrl::new();
-        let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
-        ringbuf.first = 6;
-        ringbuf.ndtr = 10;
-        ctrl.set_next_ndtr(9);
-
-        assert!(ringbuf.is_empty()); // The ring buffer thinks that it is empty
-
-        // The dma controller has written exactly 16 bytes
-        ctrl.complete_count = 1;
-
-        let mut buf = [0; 2];
-        assert_eq!(Err(OverrunError), ringbuf.read(&mut ctrl, &mut buf));
-
-        assert_eq!(1, ctrl.complete_count); // The complete counter is not reset
+        /*
+            Now, wrap the DMA controller around
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(6),
+            TestCircularTransferRequest::GetCompleteCount(1),
+            TestCircularTransferRequest::PositionRequest(6),
+            TestCircularTransferRequest::GetCompleteCount(1),
+        ]);
+        let mut buf = [0; 6];
+        assert_eq!(6, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(12, ringbuf.start);
     }
 
     #[test]
     fn cannot_read_when_dma_writer_overwrites_during_not_wrapping_read() {
+        let mut dma = TestCircularTransfer::new(16);
+
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ctrl = TestCtrl::new();
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
-        ringbuf.first = 2;
-        ringbuf.ndtr = 6;
 
-        // The dma controller has written 6 + 3 bytes and has reloaded NDTR
-        ctrl.complete_count = 1;
-        ctrl.set_next_ndtr(13);
+        assert_eq!(0, ringbuf.start);
+        assert_eq!(16, ringbuf.cap());
 
-        let mut buf = [0; 2];
-        assert_eq!(Err(OverrunError), ringbuf.read(&mut ctrl, &mut buf));
+        /*
+            Read a few bytes
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(2),
+            TestCircularTransferRequest::PositionRequest(2),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
+        let mut buf = [0; 6];
+        assert_eq!(2, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(2, ringbuf.start);
 
-        assert_eq!(1, ctrl.complete_count); // The complete counter is not reset
+        /*
+            Now, overtake the reader
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(4),
+            TestCircularTransferRequest::PositionRequest(6),
+            TestCircularTransferRequest::GetCompleteCount(1),
+        ]);
+        let mut buf = [0; 6];
+        assert_eq!(OverrunError, ringbuf.read(&mut dma, &mut buf).unwrap_err());
     }
 
     #[test]
     fn cannot_read_when_dma_writer_overwrites_during_wrapping_read() {
+        let mut dma = TestCircularTransfer::new(16);
+
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ctrl = TestCtrl::new();
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
-        ringbuf.first = 12;
-        ringbuf.ndtr = 10;
 
-        // The dma controller has written 6 + 13 bytes and has reloaded NDTR
-        ctrl.complete_count = 1;
-        ctrl.set_next_ndtr(3);
+        assert_eq!(0, ringbuf.start);
+        assert_eq!(16, ringbuf.cap());
 
-        let mut buf = [0; 2];
-        assert_eq!(Err(OverrunError), ringbuf.read(&mut ctrl, &mut buf));
+        /*
+            Read to close to the end of the buffer
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(14),
+            TestCircularTransferRequest::PositionRequest(16),
+            TestCircularTransferRequest::GetCompleteCount(0),
+        ]);
+        let mut buf = [0; 14];
+        assert_eq!(14, ringbuf.read(&mut dma, &mut buf).unwrap().0);
+        assert_eq!(14, ringbuf.start);
 
-        assert_eq!(1, ctrl.complete_count); // The complete counter is not reset
+        /*
+            Now, overtake the reader
+        */
+        dma.setup(vec![
+            TestCircularTransferRequest::PositionRequest(8),
+            TestCircularTransferRequest::PositionRequest(10),
+            TestCircularTransferRequest::ResetCompleteCount(2),
+        ]);
+        let mut buf = [0; 6];
+        assert_eq!(OverrunError, ringbuf.read(&mut dma, &mut buf).unwrap_err());
     }
 }

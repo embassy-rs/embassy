@@ -2,13 +2,12 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::PeripheralRef;
 use futures::future::{select, Either};
 
 use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
-use crate::dma::ringbuffer::OverrunError;
 use crate::dma::RingBuffer;
+use crate::usart::{Regs, Sr};
 
 pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     _peri: PeripheralRef<'d, T>,
@@ -24,7 +23,9 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
 
         let request = self.rx_dma.request();
         let opts = Default::default();
+
         let ring_buf = unsafe { RingBuffer::new_read(self.rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+
         RingBufferedUartRx {
             _peri: self._peri,
             ring_buf,
@@ -42,11 +43,18 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         Ok(())
     }
 
+    fn stop(&mut self, err: Error) -> Result<usize, Error> {
+        self.teardown_uart();
+
+        Err(err)
+    }
+
     /// Start uart background receive
     fn setup_uart(&mut self) {
         // fence before starting DMA.
         compiler_fence(Ordering::SeqCst);
 
+        // start the dma controller
         self.ring_buf.start();
 
         let r = T::regs();
@@ -58,8 +66,8 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
                 w.set_rxneie(false);
                 // enable parity interrupt if not ParityNone
                 w.set_peie(w.pce());
-                // disable idle line interrupt
-                w.set_idleie(false);
+                // enable idle line interrupt
+                w.set_idleie(true);
             });
             r.cr3().modify(|w| {
                 // enable Error Interrupt: (Frame error, Noise error, Overrun error)
@@ -72,6 +80,8 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
     /// Stop uart background receive
     fn teardown_uart(&mut self) {
+        self.ring_buf.request_stop();
+
         let r = T::regs();
         // clear all interrupts and DMA Rx Request
         // SAFETY: only clears Rx related flags
@@ -93,9 +103,6 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         }
 
         compiler_fence(Ordering::SeqCst);
-
-        self.ring_buf.request_stop();
-        while self.ring_buf.is_running() {}
     }
 
     /// Read bytes that are readily available in the ring buffer.
@@ -111,96 +118,49 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
         // Start background receive if it was not already started
         // SAFETY: read only
-        let is_started = unsafe { r.cr3().read().dmar() };
-        if !is_started {
-            self.start()?;
-        }
+        match unsafe { r.cr3().read().dmar() } {
+            false => self.start()?,
+            _ => {}
+        };
 
-        // SAFETY: read only and we only use Rx related flags
-        let s = unsafe { sr(r).read() };
-        let has_errors = s.pe() || s.fe() || s.ne() || s.ore();
-        if has_errors {
-            self.teardown_uart();
-
-            if s.pe() {
-                return Err(Error::Parity);
-            } else if s.fe() {
-                return Err(Error::Framing);
-            } else if s.ne() {
-                return Err(Error::Noise);
-            } else {
-                return Err(Error::Overrun);
-            }
-        }
-
-        self.ring_buf.reload_position();
-        match self.ring_buf.read(buf) {
-            Ok(len) if len == 0 => {}
-            Ok(len) => {
-                assert!(len > 0);
-                return Ok(len);
-            }
-            Err(OverrunError) => {
-                // Stop any transfer from now on
-                // The user must re-start to receive any more data
-                self.teardown_uart();
-                return Err(Error::Overrun);
-            }
-        }
+        check_for_errors(clear_idle_flag(T::regs()))?;
 
         loop {
-            self.wait_for_data_or_idle().await?;
+            match self.ring_buf.read(buf) {
+                Ok((0, _)) => {}
+                Ok((len, _)) => {
+                    return Ok(len);
+                }
+                Err(_) => {
+                    return self.stop(Error::Overrun);
+                }
+            }
 
-            self.ring_buf.reload_position();
-            if !self.ring_buf.is_empty() {
-                break;
+            match self.wait_for_data_or_idle().await {
+                Ok(_) => {}
+                Err(err) => {
+                    return self.stop(err);
+                }
             }
         }
-
-        let len = self.ring_buf.read(buf).map_err(|_err| Error::Overrun)?;
-        assert!(len > 0);
-
-        Ok(len)
     }
 
     /// Wait for uart idle or dma half-full or full
     async fn wait_for_data_or_idle(&mut self) -> Result<(), Error> {
-        let r = T::regs();
-
-        // make sure USART state is restored to neutral state
-        let _on_drop = OnDrop::new(move || {
-            // SAFETY: only clears Rx related flags
-            unsafe {
-                r.cr1().modify(|w| {
-                    // disable idle line interrupt
-                    w.set_idleie(false);
-                });
-            }
-        });
-
-        // SAFETY: only sets Rx related flags
-        unsafe {
-            r.cr1().modify(|w| {
-                // enable idle line interrupt
-                w.set_idleie(true);
-            });
-        }
-
         compiler_fence(Ordering::SeqCst);
 
+        let mut dma_init = false;
         // Future which completes when there is dma is half full or full
         let dma = poll_fn(|cx| {
             self.ring_buf.set_waker(cx.waker());
 
-            compiler_fence(Ordering::SeqCst);
+            let status = match dma_init {
+                false => Poll::Pending,
+                true => Poll::Ready(()),
+            };
 
-            self.ring_buf.reload_position();
-            if !self.ring_buf.is_empty() {
-                // Some data is now available
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            dma_init = true;
+            status
         });
 
         // Future which completes when idle line is detected
@@ -210,28 +170,11 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
             compiler_fence(Ordering::SeqCst);
 
-            // SAFETY: read only and we only use Rx related flags
-            let sr = unsafe { sr(r).read() };
+            // Critical section is needed so that IDLE isn't set after
+            // our read but before we clear it.
+            let sr = critical_section::with(|_| clear_idle_flag(T::regs()));
 
-            // SAFETY: only clears Rx related flags
-            unsafe {
-                // This read also clears the error and idle interrupt flags on v1.
-                rdr(r).read_volatile();
-                clear_interrupt_flags(r, sr);
-            }
-
-            let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
-            if has_errors {
-                if sr.pe() {
-                    return Poll::Ready(Err(Error::Parity));
-                } else if sr.fe() {
-                    return Poll::Ready(Err(Error::Framing));
-                } else if sr.ne() {
-                    return Poll::Ready(Err(Error::Noise));
-                } else {
-                    return Poll::Ready(Err(Error::Overrun));
-                }
-            }
+            check_for_errors(sr)?;
 
             if sr.idle() {
                 // Idle line is detected
@@ -243,11 +186,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
         match select(dma, uart).await {
             Either::Left(((), _)) => Ok(()),
-            Either::Right((Ok(()), _)) => Ok(()),
-            Either::Right((Err(e), _)) => {
-                self.teardown_uart();
-                Err(e)
-            }
+            Either::Right((result, _)) => result,
         }
     }
 }
@@ -255,6 +194,37 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 impl<T: BasicInstance, RxDma: super::RxDma<T>> Drop for RingBufferedUartRx<'_, T, RxDma> {
     fn drop(&mut self) {
         self.teardown_uart();
+    }
+}
+/// Return an error result if the Sr register has errors
+fn check_for_errors(s: Sr) -> Result<(), Error> {
+    if s.pe() {
+        Err(Error::Parity)
+    } else if s.fe() {
+        Err(Error::Framing)
+    } else if s.ne() {
+        Err(Error::Noise)
+    } else if s.ore() {
+        Err(Error::Overrun)
+    } else {
+        Ok(())
+    }
+}
+
+/// Clear IDLE and return the Sr register
+fn clear_idle_flag(r: Regs) -> Sr {
+    unsafe {
+        // SAFETY: read only and we only use Rx related flags
+
+        let sr = sr(r).read();
+
+        // This read also clears the error and idle interrupt flags on v1.
+        rdr(r).read_volatile();
+        clear_interrupt_flags(r, sr);
+
+        r.cr1().modify(|w| w.set_idleie(true));
+
+        sr
     }
 }
 
