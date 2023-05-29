@@ -163,7 +163,7 @@ pub(super) fn get_sector(address: u32, regions: &[&FlashRegion]) -> FlashSector 
             bank_offset = 0;
         }
 
-        if address < region.end() {
+        if address >= region.base && address < region.end() {
             let index_in_region = (address - region.base) / region.erase_size;
             return FlashSector {
                 bank: region.bank,
