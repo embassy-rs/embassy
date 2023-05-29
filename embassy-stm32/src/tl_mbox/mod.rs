@@ -1,6 +1,9 @@
 use core::mem::MaybeUninit;
 
+use atomic_polyfill::{compiler_fence, Ordering};
 use bit_field::BitField;
+use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
@@ -12,13 +15,16 @@ use self::shci::{shci_ble_init, ShciBleInitCmdParam};
 use self::sys::Sys;
 use self::unsafe_linked_list::LinkedListNode;
 use crate::interrupt;
-use crate::ipcc::Ipcc;
+use crate::peripherals::IPCC;
+pub use crate::tl_mbox::ipcc::Config;
+use crate::tl_mbox::ipcc::Ipcc;
 
 mod ble;
 mod channels;
 mod cmd;
 mod consts;
 mod evt;
+mod ipcc;
 mod mm;
 mod shci;
 mod sys;
@@ -58,13 +64,34 @@ pub struct FusInfoTable {
 pub struct ReceiveInterruptHandler {}
 
 impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
-    unsafe fn on_interrupt() {}
+    unsafe fn on_interrupt() {
+        // info!("ipcc rx interrupt");
+
+        if Ipcc::is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
+            sys::Sys::evt_handler();
+        } else if Ipcc::is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
+            ble::Ble::evt_handler();
+        } else {
+            todo!()
+        }
+    }
 }
 
 pub struct TransmitInterruptHandler {}
 
 impl interrupt::Handler<interrupt::IPCC_C1_TX> for TransmitInterruptHandler {
-    unsafe fn on_interrupt() {}
+    unsafe fn on_interrupt() {
+        // info!("ipcc tx interrupt");
+
+        if Ipcc::is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
+            // TODO: handle this case
+            let _ = sys::Sys::cmd_evt_handler();
+        } else if Ipcc::is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
+            mm::MemoryManager::evt_handler();
+        } else {
+            todo!()
+        }
+    }
 }
 
 /// # Version
@@ -289,21 +316,24 @@ static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251
 // TODO: get a better size, this is a placeholder
 pub(crate) static TL_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 5> = Channel::new();
 
-pub struct TlMbox {
-    _sys: Sys,
-    _ble: Ble,
-    _mm: MemoryManager,
+pub struct TlMbox<'d> {
+    _ipcc: PeripheralRef<'d, IPCC>,
 }
 
-impl TlMbox {
+impl<'d> TlMbox<'d> {
     /// initializes low-level transport between CPU1 and BLE stack on CPU2
-    pub fn init(
-        ipcc: &mut Ipcc,
+    pub fn new(
+        ipcc: impl Peripheral<P = IPCC> + 'd,
         _irqs: impl interrupt::Binding<interrupt::IPCC_C1_RX, ReceiveInterruptHandler>
             + interrupt::Binding<interrupt::IPCC_C1_TX, TransmitInterruptHandler>,
-    ) -> TlMbox {
+        config: Config,
+    ) -> Self {
+        into_ref!(ipcc);
+
         unsafe {
-            TL_REF_TABLE = MaybeUninit::new(RefTable {
+            compiler_fence(Ordering::AcqRel);
+
+            TL_REF_TABLE.as_mut_ptr().write_volatile(RefTable {
                 device_info_table: TL_DEVICE_INFO_TABLE.as_ptr(),
                 ble_table: TL_BLE_TABLE.as_ptr(),
                 thread_table: TL_THREAD_TABLE.as_ptr(),
@@ -315,6 +345,10 @@ impl TlMbox {
                 lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
                 ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
+
+            // info!("TL_REF_TABLE addr: {:x}", TL_REF_TABLE.as_ptr() as usize);
+
+            compiler_fence(Ordering::AcqRel);
 
             TL_SYS_TABLE = MaybeUninit::zeroed();
             TL_DEVICE_INFO_TABLE = MaybeUninit::zeroed();
@@ -334,33 +368,24 @@ impl TlMbox {
             CS_BUFFER = MaybeUninit::zeroed();
             BLE_CMD_BUFFER = MaybeUninit::zeroed();
             HCI_ACL_DATA_BUFFER = MaybeUninit::zeroed();
+
+            compiler_fence(Ordering::AcqRel);
         }
 
-        ipcc.init();
+        Ipcc::enable(config);
 
-        let _sys = Sys::new(ipcc);
-        let _ble = Ble::new(ipcc);
-        let _mm = MemoryManager::new();
+        Sys::enable();
+        Ble::enable();
+        MemoryManager::enable();
 
-        //        rx_irq.disable();
-        //        tx_irq.disable();
-        //
-        //        rx_irq.set_handler_context(ipcc.as_mut_ptr() as *mut ());
-        //        tx_irq.set_handler_context(ipcc.as_mut_ptr() as *mut ());
-        //
-        //        rx_irq.set_handler(|ipcc| {
-        //            let ipcc: &mut Ipcc = unsafe { &mut *ipcc.cast() };
-        //            Self::interrupt_ipcc_rx_handler(ipcc);
-        //        });
-        //        tx_irq.set_handler(|ipcc| {
-        //            let ipcc: &mut Ipcc = unsafe { &mut *ipcc.cast() };
-        //            Self::interrupt_ipcc_tx_handler(ipcc);
-        //        });
-        //
-        //        rx_irq.enable();
-        //        tx_irq.enable();
+        // enable interrupts
+        unsafe { crate::interrupt::IPCC_C1_RX::steal() }.unpend();
+        unsafe { crate::interrupt::IPCC_C1_TX::steal() }.unpend();
 
-        TlMbox { _sys, _ble, _mm }
+        unsafe { crate::interrupt::IPCC_C1_RX::steal() }.enable();
+        unsafe { crate::interrupt::IPCC_C1_TX::steal() }.enable();
+
+        Self { _ipcc: ipcc }
     }
 
     pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
@@ -374,42 +399,19 @@ impl TlMbox {
         }
     }
 
-    pub fn shci_ble_init(&self, ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
-        shci_ble_init(ipcc, param);
+    pub fn shci_ble_init(&self, param: ShciBleInitCmdParam) {
+        shci_ble_init(param);
     }
 
-    pub fn send_ble_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
-        ble::Ble::send_cmd(ipcc, buf);
+    pub fn send_ble_cmd(&self, buf: &[u8]) {
+        ble::Ble::send_cmd(buf);
     }
 
-    // pub fn send_sys_cmd(&self, ipcc: &mut Ipcc, buf: &[u8]) {
-    //     sys::Sys::send_cmd(ipcc, buf);
+    // pub fn send_sys_cmd(&self, buf: &[u8]) {
+    //     sys::Sys::send_cmd(buf);
     // }
 
     pub async fn read(&self) -> EvtBox {
         TL_CHANNEL.recv().await
-    }
-
-    #[allow(dead_code)]
-    fn interrupt_ipcc_rx_handler(ipcc: &mut Ipcc) {
-        if ipcc.is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
-            sys::Sys::evt_handler(ipcc);
-        } else if ipcc.is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
-            ble::Ble::evt_handler(ipcc);
-        } else {
-            todo!()
-        }
-    }
-
-    #[allow(dead_code)]
-    fn interrupt_ipcc_tx_handler(ipcc: &mut Ipcc) {
-        if ipcc.is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
-            // TODO: handle this case
-            let _ = sys::Sys::cmd_evt_handler(ipcc);
-        } else if ipcc.is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
-            mm::MemoryManager::evt_handler(ipcc);
-        } else {
-            todo!()
-        }
     }
 }
