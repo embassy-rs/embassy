@@ -1,6 +1,6 @@
 //! USB HID (Human Interface Device) class implementation.
 
-use core::mem::MaybeUninit;
+use core::mem::{self, MaybeUninit};
 use core::ops::Range;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -369,8 +369,30 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     }
 }
 
+/// HID protocol
+#[repr(u8)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Protocol {
+    /// Boot protocol, custom reports are ignored
+    Boot = 0,
+    /// Custom reports
+    Report = 1,
+}
+
 /// Handler for HID-related control requests.
 pub trait RequestHandler {
+    /// Gets the current HID protocol
+    fn get_protocol(&self) -> Option<Protocol> {
+        None
+    }
+
+    /// Set the current HID protocol
+    fn set_protocol(&self, protocol: Protocol) -> OutResponse {
+        let _ = protocol;
+        OutResponse::Rejected
+    }
+
     /// Reads the value of report `id` into `buf` returning the size.
     ///
     /// Returns `None` if `id` is invalid or no data is available.
@@ -478,7 +500,15 @@ impl<'d> Handler for Control<'d> {
                 _ => Some(OutResponse::Rejected),
             },
             HID_REQ_SET_PROTOCOL => {
-                if req.value == 1 {
+                if let Some(handler) = self.request_handler {
+                    let protocol = if req.value <= 1 {
+                        unsafe { mem::transmute(req.value as u8) }
+                    } else {
+                        Protocol::Report
+                    };
+
+                    Some(handler.set_protocol(protocol))
+                } else if req.value == 1 {
                     Some(OutResponse::Accepted)
                 } else {
                     warn!("HID Boot Protocol is unsupported.");
@@ -535,8 +565,14 @@ impl<'d> Handler for Control<'d> {
                         }
                     }
                     HID_REQ_GET_PROTOCOL => {
-                        // UNSUPPORTED: Boot Protocol
-                        buf[0] = 1;
+                        if let Some(handler) = self.request_handler {
+                            let protocol = handler.get_protocol().unwrap_or(Protocol::Report);
+                            buf[0] = protocol as u8;
+                        } else {
+                            // UNSUPPORTED: Boot Protocol
+                            buf[0] = 1;
+                        }
+
                         Some(InResponse::Accepted(&buf[0..1]))
                     }
                     _ => Some(InResponse::Rejected),
