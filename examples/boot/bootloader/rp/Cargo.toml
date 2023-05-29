@@ -9,8 +9,8 @@ license = "MIT OR Apache-2.0"
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.4", optional = true }
 
-embassy-rp = { path = "../../../../embassy-rp", default-features = false, features = ["nightly"] }
-embassy-boot-rp = { path = "../../../../embassy-boot/rp", default-features = false }
+embassy-rp = { path = "../../../../embassy-rp", features = ["nightly"] }
+embassy-boot-rp = { path = "../../../../embassy-boot/rp" }
 embassy-time = { path = "../../../../embassy-time", features = ["nightly"] }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }

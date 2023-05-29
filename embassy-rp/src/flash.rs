@@ -575,6 +575,7 @@ mod ram_helpers {
     #[inline(never)]
     #[link_section = ".data.ram_func"]
     unsafe fn read_flash_inner(cmd: FlashCommand, ptrs: *const FlashFunctionPointers) {
+        #[cfg(target_arch = "arm")]
         core::arch::asm!(
             "mov r10, r0", // cmd
             "mov r5, r1", // ptrs

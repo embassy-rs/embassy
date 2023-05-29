@@ -61,16 +61,17 @@ macro_rules! intrinsics_aliases {
 /// Like the compiler-builtins macro, it accepts a series of functions that
 /// looks like normal Rust code:
 ///
-///     intrinsics! {
-///         extern "C" fn foo(a: i32) -> u32 {
-///             // ...
-///         }
-///
-///         #[nonstandard_attribute]
-///         extern "C" fn bar(a: i32) -> u32 {
-///             // ...
-///         }
+/// ```rust,ignore
+/// intrinsics! {
+///     extern "C" fn foo(a: i32) -> u32 {
+///         // ...
 ///     }
+///     #[nonstandard_attribute]
+///     extern "C" fn bar(a: i32) -> u32 {
+///         // ...
+///     }
+/// }
+/// ```
 ///
 /// Each function can also be decorated with nonstandard attributes to control
 /// additional behaviour:

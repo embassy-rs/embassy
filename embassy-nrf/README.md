@@ -13,7 +13,7 @@ with peripherals. It takes care of sending/receiving data over a variety of bus 
 However, EasyDMA requires the buffers used to transmit and receive data to reside in RAM. Unfortunately, Rust
 slices will not always do so. The following example using the SPI peripheral shows a common situation where this might happen:
 
-```no_run
+```rust,ignore
 // As we pass a slice to the function whose contents will not ever change,
 // the compiler writes it into the flash and thus the pointer to it will
 // reference static memory. Since EasyDMA requires slices to reside in RAM,
