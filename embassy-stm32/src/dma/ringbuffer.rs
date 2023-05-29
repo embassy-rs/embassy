@@ -276,7 +276,7 @@ mod tests {
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
-        assert_eq!(16, ringbuf.len());
+        assert_eq!(16, ringbuf.cap());
 
         dma.setup(vec![
             TestCircularTransferRequest::PositionRequest(8),
@@ -317,7 +317,7 @@ mod tests {
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
-        assert_eq!(16, ringbuf.len());
+        assert_eq!(16, ringbuf.cap());
 
         /*
             Read to close to the end of the buffer
@@ -352,7 +352,7 @@ mod tests {
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
-        assert_eq!(16, ringbuf.len());
+        assert_eq!(16, ringbuf.cap());
 
         /*
             Read to close to the end of the buffer
@@ -387,7 +387,7 @@ mod tests {
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
-        assert_eq!(16, ringbuf.len());
+        assert_eq!(16, ringbuf.cap());
 
         /*
             Read to about the middle of the buffer
@@ -423,7 +423,7 @@ mod tests {
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
-        assert_eq!(16, ringbuf.len());
+        assert_eq!(16, ringbuf.cap());
 
         /*
             Read a few bytes
@@ -457,7 +457,7 @@ mod tests {
         let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
-        assert_eq!(16, ringbuf.len());
+        assert_eq!(16, ringbuf.cap());
 
         /*
             Read to close to the end of the buffer
