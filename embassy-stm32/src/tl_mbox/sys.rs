@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 use embassy_futures::block_on;
 
 use super::cmd::{CmdPacket, CmdSerial};
@@ -7,27 +5,25 @@ use super::consts::TlPacketType;
 use super::evt::{CcEvt, EvtBox, EvtSerial};
 use super::unsafe_linked_list::LinkedListNode;
 use super::{channels, SysTable, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_CHANNEL, TL_REF_TABLE, TL_SYS_TABLE};
-use crate::ipcc::Ipcc;
+use crate::tl_mbox::ipcc::Ipcc;
 
 pub struct Sys;
 
 impl Sys {
-    pub(crate) fn new(ipcc: &mut Ipcc) -> Self {
+    pub fn enable() {
         unsafe {
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
-            TL_SYS_TABLE = MaybeUninit::new(SysTable {
+            TL_SYS_TABLE.as_mut_ptr().write_volatile(SysTable {
                 pcmd_buffer: SYS_CMD_BUF.as_mut_ptr(),
                 sys_queue: SYSTEM_EVT_QUEUE.as_ptr(),
             });
         }
 
-        ipcc.c1_set_rx_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, true);
-
-        Sys
+        Ipcc::c1_set_rx_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, true);
     }
 
-    pub(crate) fn evt_handler(ipcc: &mut Ipcc) {
+    pub fn evt_handler() {
         unsafe {
             let mut node_ptr = core::ptr::null_mut();
             let node_ptr_ptr: *mut _ = &mut node_ptr;
@@ -43,11 +39,11 @@ impl Sys {
             }
         }
 
-        ipcc.c1_clear_flag_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL);
+        Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL);
     }
 
-    pub(crate) fn cmd_evt_handler(ipcc: &mut Ipcc) -> CcEvt {
-        ipcc.c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, false);
+    pub fn cmd_evt_handler() -> CcEvt {
+        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, false);
 
         // ST's command response data structure is really convoluted.
         //
@@ -68,11 +64,11 @@ impl Sys {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn send_cmd(ipcc: &mut Ipcc, buf: &[u8]) {
+    pub fn send_cmd(buf: &[u8]) {
         unsafe {
             // TODO: check this
             let cmd_buffer = &mut *(*TL_REF_TABLE.assume_init().sys_table).pcmd_buffer;
-            let cmd_serial: *mut CmdSerial = &mut (*cmd_buffer).cmd_serial;
+            let cmd_serial: *mut CmdSerial = &mut cmd_buffer.cmd_serial;
             let cmd_serial_buf = cmd_serial.cast();
 
             core::ptr::copy(buf.as_ptr(), cmd_serial_buf, buf.len());
@@ -80,8 +76,8 @@ impl Sys {
             let cmd_packet = &mut *(*TL_REF_TABLE.assume_init().sys_table).pcmd_buffer;
             cmd_packet.cmd_serial.ty = TlPacketType::SysCmd as u8;
 
-            ipcc.c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-            ipcc.c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
+            Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
+            Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
         }
     }
 }

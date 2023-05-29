@@ -109,7 +109,6 @@ impl Future for Timer {
 /// # #![feature(type_alias_impl_trait)]
 /// #
 /// use embassy_time::{Duration, Ticker};
-/// use futures::StreamExt;
 /// # fn foo(){}
 ///
 /// #[embassy_executor::task]

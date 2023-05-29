@@ -2,11 +2,8 @@
 
 set -euo pipefail
 
-export CARGO_TARGET_DIR=$PWD/target_ci_stable
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace
-
-sed -i 's/channel.*/channel = "stable"/g' rust-toolchain.toml
 
 cargo batch  \
     --- build --release --manifest-path embassy-boot/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \

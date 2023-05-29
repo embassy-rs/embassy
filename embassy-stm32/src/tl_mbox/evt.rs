@@ -3,7 +3,7 @@ use core::mem::MaybeUninit;
 use super::cmd::{AclDataPacket, AclDataSerial};
 use super::consts::TlPacketType;
 use super::{PacketHeader, TL_EVT_HEADER_SIZE};
-use crate::tl_mbox::mm;
+use crate::tl_mbox::mm::MemoryManager;
 
 /// the payload of [`Evt`] for a command status event
 #[derive(Copy, Clone)]
@@ -131,9 +131,6 @@ impl EvtBox {
 
 impl Drop for EvtBox {
     fn drop(&mut self) {
-        use crate::ipcc::Ipcc;
-
-        let mut ipcc = Ipcc::new_inner(unsafe { crate::Peripherals::steal() }.IPCC);
-        mm::MemoryManager::evt_drop(self.ptr, &mut ipcc);
+        MemoryManager::evt_drop(self.ptr);
     }
 }

@@ -67,7 +67,7 @@ fn compare_n(n: usize) -> u32 {
     1 << (n + 16)
 }
 
-#[cfg(tests)]
+#[cfg(test)]
 mod test {
     use super::*;
 

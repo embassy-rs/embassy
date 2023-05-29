@@ -3,7 +3,7 @@
 use super::cmd::CmdPacket;
 use super::consts::TlPacketType;
 use super::{channels, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE, TL_SYS_TABLE};
-use crate::ipcc::Ipcc;
+use crate::tl_mbox::ipcc::Ipcc;
 
 const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;
 pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
@@ -76,7 +76,7 @@ pub struct ShciBleInitCmdPacket {
     param: ShciBleInitCmdParam,
 }
 
-pub fn shci_ble_init(ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
+pub fn shci_ble_init(param: ShciBleInitCmdParam) {
     let mut packet = ShciBleInitCmdPacket {
         header: ShciHeader::default(),
         param,
@@ -95,7 +95,7 @@ pub fn shci_ble_init(ipcc: &mut Ipcc, param: ShciBleInitCmdParam) {
 
         cmd_buf.cmd_serial.ty = TlPacketType::SysCmd as u8;
 
-        ipcc.c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-        ipcc.c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
+        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
+        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
     }
 }

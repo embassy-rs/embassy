@@ -2,7 +2,7 @@ name: Docs
 
 on:
   push:
-    branches: [master]
+    branches: [main]
 
 env:
   BUILDER_THREADS: '1'

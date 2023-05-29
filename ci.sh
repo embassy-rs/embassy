@@ -2,7 +2,6 @@
 
 set -euo pipefail
 
-export CARGO_TARGET_DIR=$PWD/target_ci
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace
 
