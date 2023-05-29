@@ -26,6 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+    println!("cargo:rustc-link-arg-bins=-Tteleprobe.x");
 
     Ok(())
 }

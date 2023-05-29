@@ -1,13 +1,13 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#[path = "../common.rs"]
+mod common;
 
-#[path = "../example_common.rs"]
-mod example_common;
+use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
-use example_common::*;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
