@@ -1,15 +1,15 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#[path = "../common.rs"]
+mod common;
 
-#[path = "../example_common.rs"]
-mod example_common;
+use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
-use example_common::*;
 
 #[cfg(any(
     feature = "stm32f103c8",

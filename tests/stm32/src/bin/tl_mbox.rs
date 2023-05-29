@@ -1,16 +1,16 @@
+// required-features: ble
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#[path = "../common.rs"]
+mod common;
 
-// required-features: ble
-
-#[path = "../example_common.rs"]
-mod example_common;
+use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::tl_mbox::{Config, TlMbox};
 use embassy_stm32::{bind_interrupts, tl_mbox};
 use embassy_time::{Duration, Timer};
-use example_common::*;
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => tl_mbox::ReceiveInterruptHandler;

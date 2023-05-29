@@ -3,7 +3,7 @@ build-std = ["core"]
 build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "teleprobe client run --target bluepill-stm32f103c8 --elf"
+runner = "teleprobe client run"
 #runner = "teleprobe local run --chip STM32F103C8 --elf"
 
 rustflags = [
