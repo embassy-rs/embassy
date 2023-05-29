@@ -154,10 +154,19 @@ impl<'d, T: Instance> Qdec<'d, T> {
     /// # Example
     ///
     /// ```no_run
-    /// let irq = interrupt::take!(QDEC);
+    /// use embassy_nrf::qdec::{self, Qdec};
+    /// use embassy_nrf::{bind_interrupts, peripherals};
+    ///
+    /// bind_interrupts!(struct Irqs {
+    ///     QDEC => qdec::InterruptHandler<peripherals::QDEC>;
+    /// });
+    ///
+    /// # async {
+    /// # let p: embassy_nrf::Peripherals = todo!();
     /// let config = qdec::Config::default();
-    /// let mut q = Qdec::new(p.QDEC, p.P0_31, p.P0_30, config);
+    /// let mut q = Qdec::new(p.QDEC, Irqs, p.P0_31, p.P0_30, config);
     /// let delta = q.read().await;
+    /// # };
     /// ```
     pub async fn read(&mut self) -> i16 {
         let t = T::regs();
