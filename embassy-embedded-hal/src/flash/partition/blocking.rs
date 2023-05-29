@@ -13,7 +13,7 @@ use super::Error;
 /// There is no guarantee that muliple partitions on the same flash
 /// operate on mutually exclusive ranges - such a separation is up to
 /// the user to guarantee.
-pub struct BlockingPartition<'a, M: RawMutex, T: NorFlash> {
+pub struct BlockingPartition<'a, M: RawMutex, T> {
     flash: &'a Mutex<M, RefCell<T>>,
     offset: u32,
     size: u32,
@@ -24,20 +24,33 @@ impl<'a, M: RawMutex, T: NorFlash> BlockingPartition<'a, M, T> {
     pub const fn new(flash: &'a Mutex<M, RefCell<T>>, offset: u32, size: u32) -> Self {
         if offset % T::READ_SIZE as u32 != 0 || offset % T::WRITE_SIZE as u32 != 0 || offset % T::ERASE_SIZE as u32 != 0
         {
-            panic!("Partition offset must be a multiple of read, write and erase size");
+            panic!("Partition offset must be a multiple of the read, write and erase size");
         }
         if size % T::READ_SIZE as u32 != 0 || size % T::WRITE_SIZE as u32 != 0 || size % T::ERASE_SIZE as u32 != 0 {
-            panic!("Partition size must be a multiple of read, write and erase size");
+            panic!("Partition size must be a multiple of the read, write and erase size");
         }
         Self { flash, offset, size }
     }
 }
 
-impl<M: RawMutex, T: NorFlash> ErrorType for BlockingPartition<'_, M, T> {
+impl<'a, M: RawMutex, T: ReadNorFlash> BlockingPartition<'a, M, T> {
+    /// Create a new read-only partition
+    pub const fn new_readonly(flash: &'a Mutex<M, RefCell<T>>, offset: u32, size: u32) -> Self {
+        if offset % T::READ_SIZE as u32 != 0 {
+            panic!("Partition offset must be a multiple of the read size");
+        }
+        if size % T::READ_SIZE as u32 != 0 {
+            panic!("Partition size must be a multiple of the read size");
+        }
+        Self { flash, offset, size }
+    }
+}
+
+impl<M: RawMutex, T: ErrorType> ErrorType for BlockingPartition<'_, M, T> {
     type Error = Error<T::Error>;
 }
 
-impl<M: RawMutex, T: NorFlash> ReadNorFlash for BlockingPartition<'_, M, T> {
+impl<M: RawMutex, T: ReadNorFlash> ReadNorFlash for BlockingPartition<'_, M, T> {
     const READ_SIZE: usize = T::READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
