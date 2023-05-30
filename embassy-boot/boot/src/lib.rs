@@ -7,10 +7,16 @@ mod fmt;
 mod boot_loader;
 mod digest_adapters;
 mod firmware_updater;
+#[cfg(test)]
 mod mem_flash;
 mod partition;
+#[cfg(test)]
+mod test_flash;
 
 pub use partition::Partition;
+// The expected value of the flash after an erase
+// TODO: Use the value provided by NorFlash when available
+pub(crate) const STATE_ERASE_VALUE: u8 = 0xFF;
 pub use boot_loader::{BootError, BootLoader, BootLoaderConfig};
 #[cfg(feature = "nightly")]
 pub use firmware_updater::FirmwareUpdater;
