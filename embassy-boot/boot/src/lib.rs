@@ -11,8 +11,10 @@ mod mem_flash;
 mod partition;
 
 pub use boot_loader::{BootError, BootFlash, BootLoader, FlashConfig, MultiFlashConfig, SingleFlashConfig};
-pub use firmware_updater::{FirmwareUpdater, FirmwareUpdaterError};
 pub use partition::Partition;
+#[cfg(feature = "nightly")]
+pub use firmware_updater::FirmwareUpdater;
+pub use firmware_updater::{BlockingFirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError};
 
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
