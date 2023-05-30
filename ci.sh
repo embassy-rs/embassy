@@ -5,6 +5,10 @@ set -euo pipefail
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace
 
+# needed by wifi examples
+export WIFI_NETWORK=x
+export WIFI_PASSWORD=x
+
 TARGET=$(rustc -vV | sed -n 's|host: ||p')
 
 BUILD_EXTRA=""
@@ -82,6 +86,13 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32f100c4,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32h503rb,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features nightly,stm32h562ag,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features ''\
+    --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'log' \
+    --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'defmt' \
+    --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'log,firmware-logs' \
+    --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'defmt,firmware-logs' \
+    --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features '' \
+    --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features 'overclock' \
     --- build --release --manifest-path embassy-boot/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840,nightly \
     --- build --release --manifest-path embassy-boot/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns,nightly \
     --- build --release --manifest-path embassy-boot/rp/Cargo.toml --target thumbv6m-none-eabi --features nightly \

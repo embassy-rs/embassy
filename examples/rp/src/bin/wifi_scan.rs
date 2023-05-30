@@ -26,11 +26,7 @@ macro_rules! singleton {
 
 #[embassy_executor::task]
 async fn wifi_task(
-    runner: cyw43::Runner<
-        'static,
-        Output<'static, PIN_23>,
-        PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>,
-    >,
+    runner: cyw43::Runner<'static, Output<'static, PIN_23>, PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>>,
 ) -> ! {
     runner.run().await
 }
@@ -59,15 +55,7 @@ async fn main(spawner: Spawner) {
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
     let mut pio = Pio::new(p.PIO0);
-    let spi = PioSpi::new(
-        &mut pio.common,
-        pio.sm0,
-        pio.irq0,
-        cs,
-        p.PIN_24,
-        p.PIN_29,
-        p.DMA_CH0,
-    );
+    let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
     let state = singleton!(cyw43::State::new());
     let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
