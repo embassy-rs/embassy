@@ -10,8 +10,8 @@ mod firmware_updater;
 mod mem_flash;
 mod partition;
 
-pub use boot_loader::{BootError, BootFlash, BootLoader, FlashConfig, MultiFlashConfig, SingleFlashConfig};
 pub use partition::Partition;
+pub use boot_loader::{BootError, BootLoader, BootLoaderConfig};
 #[cfg(feature = "nightly")]
 pub use firmware_updater::FirmwareUpdater;
 pub use firmware_updater::{BlockingFirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError};

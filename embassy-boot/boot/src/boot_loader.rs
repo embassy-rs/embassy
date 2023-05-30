@@ -1,8 +1,11 @@
-use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
+use core::cell::RefCell;
 
-use crate::{State, BOOT_MAGIC, SWAP_MAGIC};
+use embassy_embedded_hal::flash::partition::BlockingPartition;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-const STATE_ERASE_VALUE: u8 = 0xFF;
+use crate::{State, BOOT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -32,14 +35,69 @@ where
     }
 }
 
+/// Bootloader flash configuration holding the three flashes used by the bootloader
+///
+/// If only a single flash is actually used, then that flash should be partitioned into three partitions before use.
+/// The easiest way to do this is to use [`BootLoaderConfig::from_linkerfile_blocking`] which will partition
+/// the provided flash according to symbols defined in the linkerfile.
+pub struct BootLoaderConfig<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
+    /// Flash type used for the active partition - the partition which will be booted from.
+    pub active: ACTIVE,
+    /// Flash type used for the dfu partition - the partition which will be swapped in when requested.
+    pub dfu: DFU,
+    /// Flash type used for the state partition.
+    pub state: STATE,
+}
+
+impl<'a, FLASH: NorFlash>
+    BootLoaderConfig<
+        BlockingPartition<'a, NoopRawMutex, FLASH>,
+        BlockingPartition<'a, NoopRawMutex, FLASH>,
+        BlockingPartition<'a, NoopRawMutex, FLASH>,
+    >
+{
+    /// Create a bootloader config from the flash and address symbols defined in the linkerfile
+    // #[cfg(target_os = "none")]
+    pub fn from_linkerfile_blocking(flash: &'a Mutex<NoopRawMutex, RefCell<FLASH>>) -> Self {
+        extern "C" {
+            static __bootloader_state_start: u32;
+            static __bootloader_state_end: u32;
+            static __bootloader_active_start: u32;
+            static __bootloader_active_end: u32;
+            static __bootloader_dfu_start: u32;
+            static __bootloader_dfu_end: u32;
+        }
+
+        let active = unsafe {
+            let start = &__bootloader_active_start as *const u32 as u32;
+            let end = &__bootloader_active_end as *const u32 as u32;
+            trace!("ACTIVE: 0x{:x} - 0x{:x}", start, end);
+
+            BlockingPartition::new(flash, start, end - start)
+        };
+        let dfu = unsafe {
+            let start = &__bootloader_dfu_start as *const u32 as u32;
+            let end = &__bootloader_dfu_end as *const u32 as u32;
+            trace!("DFU: 0x{:x} - 0x{:x}", start, end);
+
+            BlockingPartition::new(flash, start, end - start)
+        };
+        let state = unsafe {
+            let start = &__bootloader_state_start as *const u32 as u32;
+            let end = &__bootloader_state_end as *const u32 as u32;
+            trace!("STATE: 0x{:x} - 0x{:x}", start, end);
+
+            BlockingPartition::new(flash, start, end - start)
+        };
+
+        Self { active, dfu, state }
+    }
+}
+
 /// BootLoader works with any flash implementing embedded_storage.
 pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
-    /// Flash type used for the active partition - the partition which will be booted from.
     active: ACTIVE,
-    /// Flash type used for the dfu partition - he partition which will be swapped in when requested.
     dfu: DFU,
-    /// Flash type used for the state partition.
-    ///
     /// The state partition has the following format:
     /// All ranges are in multiples of WRITE_SIZE bytes.
     /// | Range    | Description                                                                      |
@@ -61,8 +119,12 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     ///
     /// - All partitions must be aligned with the PAGE_SIZE const generic parameter.
     /// - The dfu partition must be at least PAGE_SIZE bigger than the active partition.
-    pub fn new(active: ACTIVE, dfu: DFU, state: STATE) -> Self {
-        Self { active, dfu, state }
+    pub fn new(config: BootLoaderConfig<ACTIVE, DFU, STATE>) -> Self {
+        Self {
+            active: config.active,
+            dfu: config.dfu,
+            state: config.state,
+        }
     }
 
     /// Perform necessary boot preparations like swapping images.
@@ -338,62 +400,6 @@ fn assert_partitions<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
     assert_eq!(dfu.capacity() as u32 % page_size, 0);
     assert!(dfu.capacity() as u32 - active.capacity() as u32 >= page_size);
     assert!(2 + 2 * (active.capacity() as u32 / page_size) <= state.capacity() as u32 / STATE::WRITE_SIZE as u32);
-}
-
-/// A flash wrapper implementing the Flash and embedded_storage traits.
-pub struct BootFlash<F>
-where
-    F: NorFlash,
-{
-    flash: F,
-}
-
-impl<F> BootFlash<F>
-where
-    F: NorFlash,
-{
-    /// Create a new instance of a bootable flash
-    pub fn new(flash: F) -> Self {
-        Self { flash }
-    }
-}
-
-impl<F> ErrorType for BootFlash<F>
-where
-    F: NorFlash,
-{
-    type Error = F::Error;
-}
-
-impl<F> NorFlash for BootFlash<F>
-where
-    F: NorFlash,
-{
-    const WRITE_SIZE: usize = F::WRITE_SIZE;
-    const ERASE_SIZE: usize = F::ERASE_SIZE;
-
-    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        F::erase(&mut self.flash, from, to)
-    }
-
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        F::write(&mut self.flash, offset, bytes)
-    }
-}
-
-impl<F> ReadNorFlash for BootFlash<F>
-where
-    F: NorFlash,
-{
-    const READ_SIZE: usize = F::READ_SIZE;
-
-    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        F::read(&mut self.flash, offset, bytes)
-    }
-
-    fn capacity(&self) -> usize {
-        F::capacity(&self.flash)
-    }
 }
 
 #[cfg(test)]
