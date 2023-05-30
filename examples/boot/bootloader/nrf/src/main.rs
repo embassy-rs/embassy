@@ -1,12 +1,15 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
+
 use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_nrf::*;
 use embassy_nrf::nvmc::Nvmc;
 use embassy_nrf::wdt;
+use embassy_sync::blocking_mutex::Mutex;
 
 #[entry]
 fn main() -> ! {
@@ -20,19 +23,21 @@ fn main() -> ! {
         }
     */
 
-    let mut bl = BootLoader::default();
-
     let mut wdt_config = wdt::Config::default();
     wdt_config.timeout_ticks = 32768 * 5; // timeout seconds
     wdt_config.run_during_sleep = true;
     wdt_config.run_during_debug_halt = false;
 
-    let start = bl.prepare(&mut SingleFlashConfig::new(&mut BootFlash::new(WatchdogFlash::start(
-        Nvmc::new(p.NVMC),
-        p.WDT,
-        wdt_config,
-    ))));
-    unsafe { bl.load(start) }
+    let flash = WatchdogFlash::start(Nvmc::new(p.NVMC), p.WDT, wdt_config);
+    let flash = Mutex::new(RefCell::new(flash));
+
+    let config = BootLoaderConfig::from_linkerfile_blocking(&flash);
+    let active_offset = config.active.offset();
+    let mut bl: BootLoader<_, _, _> = BootLoader::new(config);
+
+    bl.prepare();
+
+    unsafe { bl.load(active_offset) }
 }
 
 #[no_mangle]

@@ -9,6 +9,9 @@ use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::watchdog::Watchdog;
 use embassy_time::{Duration, Timer};
+use embassy_sync::blocking_mutex::Mutex;
+use core::cell::RefCell;
+use embedded_storage::nor_flash::NorFlash;
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
 #[cfg(feature = "panic-reset")]
@@ -26,9 +29,11 @@ async fn main(_s: Spawner) {
     let mut watchdog = Watchdog::new(p.WATCHDOG);
     watchdog.start(Duration::from_secs(8));
 
-    let mut flash: Flash<_, FLASH_SIZE> = Flash::new_blocking(p.FLASH);
+    let flash: Flash<_, FLASH_SIZE> = Flash::new(p.FLASH);
+    let flash = Mutex::new(RefCell::new(flash));
 
-    let mut updater = FirmwareUpdater::default();
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
+    let mut updater = BlockingFirmwareUpdater::new(config);
 
     Timer::after(Duration::from_secs(5)).await;
     watchdog.feed();
@@ -36,8 +41,8 @@ async fn main(_s: Spawner) {
     let mut offset = 0;
     let mut buf: AlignedBuffer<4096> = AlignedBuffer([0; 4096]);
     defmt::info!("preparing update");
-    let mut writer = updater
-        .prepare_update_blocking(&mut flash)
+    let writer = updater
+        .prepare_update()
         .map_err(|e| defmt::warn!("E: {:?}", defmt::Debug2Format(&e)))
         .unwrap();
     defmt::info!("writer created, starting write");
@@ -45,13 +50,13 @@ async fn main(_s: Spawner) {
         buf.0[..chunk.len()].copy_from_slice(chunk);
         defmt::info!("writing block at offset {}", offset);
         writer
-            .write_block_blocking(offset, &buf.0[..], &mut flash, 256)
+            .write(offset, &buf.0[..])
             .unwrap();
-        offset += chunk.len();
+        offset += chunk.len() as u32;
     }
     watchdog.feed();
     defmt::info!("firmware written, marking update");
-    updater.mark_updated_blocking(&mut flash, &mut buf.0[..1]).unwrap();
+    updater.mark_updated(&mut buf.0[..1]).unwrap();
     Timer::after(Duration::from_secs(2)).await;
     led.set_low();
     defmt::info!("update marked, resetting");

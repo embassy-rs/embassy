@@ -38,7 +38,9 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>
     /// # Safety
     ///
     /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
-    pub unsafe fn load(&mut self, start: u32) -> ! {
+    pub unsafe fn load(self, start: u32) -> ! {
+        core::mem::drop(self.boot);
+
         trace!("Loading app at 0x{:x}", start);
         #[allow(unused_mut)]
         let mut p = cortex_m::Peripherals::steal();
