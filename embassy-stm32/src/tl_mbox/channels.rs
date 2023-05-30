@@ -53,6 +53,7 @@ pub mod cpu1 {
     use crate::tl_mbox::ipcc::IpccChannel;
 
     // Not used currently but reserved
+    #[allow(dead_code)]
     pub const IPCC_BLE_CMD_CHANNEL: IpccChannel = IpccChannel::Channel1;
     // Not used currently but reserved
     #[allow(dead_code)]
@@ -79,6 +80,7 @@ pub mod cpu1 {
 pub mod cpu2 {
     use crate::tl_mbox::ipcc::IpccChannel;
 
+    #[allow(dead_code)]
     pub const IPCC_BLE_EVENT_CHANNEL: IpccChannel = IpccChannel::Channel1;
     #[allow(dead_code)]
     pub const IPCC_SYSTEM_EVENT_CHANNEL: IpccChannel = IpccChannel::Channel2;

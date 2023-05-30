@@ -111,6 +111,10 @@ unstable-pac = []
 # Implement embedded-hal-async traits if `nightly` is set as well.
 unstable-traits = ["embedded-hal-1", "dep:embedded-hal-nb"]
 
+# features specific only to stm32wb
+ble = []
+mac = []
+
 # Chip-selection features
 stm32c011d6 = [ "stm32-metapac/stm32c011d6" ]
 stm32c011f4 = [ "stm32-metapac/stm32c011f4" ]

@@ -1,15 +1,19 @@
 use core::mem::MaybeUninit;
+#[allow(unused_imports)]
 use core::{mem, slice};
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 
+#[cfg(feature = "ble")]
 use self::ble::BleSubsystem;
-use self::cmd::CommandPacket;
+use self::cmd::{CommandPacket, CommandSerial};
 pub use self::ipcc::{ReceiveInterruptHandler, TransmitInterruptHandler};
+#[cfg(feature = "mac")]
 use self::mac::MacSubsystem;
 use self::mm::MemoryManager;
-use self::shci::{ShciBleInitCmdParam, ShciBleInitCommandPacket, ShciHeader, SCHI_OPCODE_BLE_INIT};
+#[allow(unused_imports)]
+use self::shci::{ShciBleInitCmdParam, ShciOpcode};
 use self::sys::SysSubsystem;
 use self::tables::WirelessFwInfoTable;
 use self::thread::ThreadSubsystem;
@@ -19,17 +23,23 @@ use crate::peripherals::IPCC;
 pub use crate::tl_mbox::ipcc::Config;
 use crate::tl_mbox::ipcc::Ipcc;
 use crate::tl_mbox::tables::{
-    RefTable, BLE_CMD_BUFFER, BLE_SPARE_EVT_BUF, CS_BUFFER, EVT_POOL, HCI_ACL_DATA_BUFFER, SYS_SPARE_EVT_BUF,
-    TL_BLE_LLD_TABLE, TL_BLE_TABLE, TL_DEVICE_INFO_TABLE, TL_LLD_TESTS_TABLE, TL_MAC_802_15_4_TABLE,
-    TL_MEM_MANAGER_TABLE, TL_REF_TABLE, TL_SYS_TABLE, TL_THREAD_TABLE, TL_TRACES_TABLE, TL_ZIGBEE_TABLE,
+    RefTable, BLE_SPARE_EVT_BUF, EVT_POOL, SYS_SPARE_EVT_BUF, TL_BLE_LLD_TABLE, TL_BLE_TABLE, TL_DEVICE_INFO_TABLE,
+    TL_LLD_TESTS_TABLE, TL_MAC_802_15_4_TABLE, TL_MEM_MANAGER_TABLE, TL_REF_TABLE, TL_SYS_TABLE, TL_THREAD_TABLE,
+    TL_TRACES_TABLE, TL_ZIGBEE_TABLE,
 };
+#[cfg(feature = "ble")]
+use crate::tl_mbox::tables::{BLE_CMD_BUFFER, CS_BUFFER, HCI_ACL_DATA_BUFFER};
+#[cfg(feature = "mac")]
+use crate::tl_mbox::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 
+#[cfg(feature = "ble")]
 mod ble;
 mod channels;
 mod cmd;
 mod consts;
 mod evt;
 mod ipcc;
+#[cfg(feature = "mac")]
 mod mac;
 mod mm;
 mod shci;
@@ -42,9 +52,11 @@ pub type PacketHeader = LinkedListNode;
 
 pub struct TlMbox<'d> {
     _ipcc: PeripheralRef<'d, IPCC>,
+    #[cfg(feature = "ble")]
     pub ble_subsystem: BleSubsystem,
     pub sys_subsystem: SysSubsystem,
     pub thread_subsystem: ThreadSubsystem,
+    #[cfg(feature = "mac")]
     pub mac_subsystem: MacSubsystem,
     // LldTests,
     // Mac802_15_4,
@@ -97,9 +109,18 @@ impl<'d> TlMbox<'d> {
             SYS_SPARE_EVT_BUF = MaybeUninit::zeroed();
             BLE_SPARE_EVT_BUF = MaybeUninit::zeroed();
 
-            CS_BUFFER = MaybeUninit::zeroed();
-            BLE_CMD_BUFFER = MaybeUninit::zeroed();
-            HCI_ACL_DATA_BUFFER = MaybeUninit::zeroed();
+            #[cfg(feature = "ble")]
+            {
+                BLE_CMD_BUFFER = MaybeUninit::zeroed();
+                HCI_ACL_DATA_BUFFER = MaybeUninit::zeroed();
+                CS_BUFFER = MaybeUninit::zeroed();
+            }
+
+            #[cfg(feature = "mac")]
+            {
+                MAC_802_15_4_CMD_BUFFER = MaybeUninit::zeroed();
+                MAC_802_15_4_NOTIF_RSP_EVT_BUFFER = MaybeUninit::zeroed();
+            }
 
             compiler_fence(Ordering::AcqRel);
         }
@@ -111,9 +132,11 @@ impl<'d> TlMbox<'d> {
 
         Self {
             _ipcc: ipcc,
+            #[cfg(feature = "ble")]
             ble_subsystem: BleSubsystem::new(),
             sys_subsystem: SysSubsystem::new(),
             thread_subsystem: ThreadSubsystem::new(),
+            #[cfg(feature = "mac")]
             mac_subsystem: MacSubsystem::new(),
         }
     }
@@ -129,23 +152,57 @@ impl<'d> TlMbox<'d> {
         }
     }
 
-    pub async fn shci_ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<usize, ()> {
-        let mut packet = ShciBleInitCommandPacket {
-            header: ShciHeader::default(),
-            param,
-        };
-
-        let packet_ptr: *mut ShciBleInitCommandPacket = &mut packet;
+    #[cfg(feature = "mac")]
+    pub async fn mac_802_15_4_init(&mut self) -> Result<usize, ()> {
+        let mut cmd_serial = CommandSerial::default();
+        cmd_serial.cmd.cmd_code = ShciOpcode::Mac802_15_4DeInit as u16;
+        cmd_serial.cmd.payload_len = 0;
 
         let buf = unsafe {
-            let cmd_ptr: *mut CommandPacket = packet_ptr.cast();
-
-            (*cmd_ptr).cmd_serial.cmd.cmd_code = SCHI_OPCODE_BLE_INIT;
-            (*cmd_ptr).cmd_serial.cmd.payload_len = mem::size_of::<ShciBleInitCmdParam>() as u8;
-
-            slice::from_raw_parts(cmd_ptr as *const u8, mem::size_of::<ShciBleInitCommandPacket>())
+            core::slice::from_raw_parts(
+                (&cmd_serial as *const _) as *const u8,
+                core::mem::size_of::<CommandSerial>(),
+            )
         };
 
         self.sys_subsystem.write(buf).await
     }
+
+    #[cfg(feature = "ble")]
+    pub async fn ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<usize, ()> {
+        let payload_len = mem::size_of::<ShciBleInitCmdParam>();
+
+        let mut cmd_serial = CommandSerial::default();
+        cmd_serial.cmd.cmd_code = ShciOpcode::BleInit as u16;
+        cmd_serial.cmd.payload_len = payload_len as u8;
+
+        let payload = unsafe { slice::from_raw_parts((&param as *const _) as *const u8, payload_len) };
+
+        cmd_serial.cmd.payload[..payload.len()].copy_from_slice(payload);
+
+        let buf =
+            unsafe { slice::from_raw_parts((&cmd_serial as *const _) as *const u8, mem::size_of::<CommandSerial>()) };
+
+        self.sys_subsystem.write(buf).await
+    }
+
+    //    pub async fn shci_ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<usize, ()> {
+    //        let mut packet = ShciBleInitCommandPacket {
+    //            header: ShciHeader::default(),
+    //            param,
+    //        };
+    //
+    //        let packet_ptr: *mut ShciBleInitCommandPacket = &mut packet;
+    //
+    //        let buf = unsafe {
+    //            let cmd_ptr: *mut CommandPacket = packet_ptr.cast();
+    //
+    //            (*cmd_ptr).cmd_serial.cmd.cmd_code = SCHI_OPCODE_BLE_INIT;
+    //            (*cmd_ptr).cmd_serial.cmd.payload_len = mem::size_of::<ShciBleInitCmdParam>() as u8;
+    //
+    //            slice::from_raw_parts(cmd_ptr as *const u8, mem::size_of::<ShciBleInitCommandPacket>())
+    //        };
+    //
+    //        self.sys_subsystem.write(buf).await
+    //    }
 }

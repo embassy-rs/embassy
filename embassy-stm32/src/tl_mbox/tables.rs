@@ -147,7 +147,7 @@ pub struct TracesTable {
 
 #[repr(C, packed)]
 pub struct Mac802_15_4Table {
-    pub pcmd_rsp_buffer: *mut u8,
+    pub pcmd_rsp_buffer: *mut CommandPacket,
     pub pnotack_buffer: *mut u8,
     pub evt_queue: *mut u8,
 }
@@ -209,10 +209,12 @@ pub static mut FREE_BUFF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::unini
 #[link_section = "MB_MEM1"]
 pub static mut _TRACES_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
+#[allow(dead_code)]
 #[link_section = "MB_MEM2"]
 pub static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
     MaybeUninit::uninit();
 
+#[allow(dead_code)]
 #[link_section = "MB_MEM2"]
 pub static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
@@ -220,6 +222,14 @@ pub static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 pub static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 // --------------------- app tables ---------------------
+#[cfg(feature = "mac")]
+#[link_section = "MB_MEM2"]
+pub static mut MAC_802_15_4_CMD_BUFFER: MaybeUninit<CommandPacket> = MaybeUninit::uninit();
+
+#[cfg(feature = "mac")]
+#[link_section = "MB_MEM2"]
+pub static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<CommandPacket> = MaybeUninit::uninit();
+
 #[link_section = "MB_MEM2"]
 pub static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
 
@@ -230,6 +240,7 @@ pub static mut SYS_CMD_BUF: MaybeUninit<CommandPacket> = MaybeUninit::uninit();
 pub static mut SYS_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
+#[allow(dead_code)]
 #[link_section = "MB_MEM1"]
 pub static mut BLE_CMD_BUFFER: MaybeUninit<CommandPacket> = MaybeUninit::uninit();
 
@@ -240,6 +251,7 @@ pub static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::
 pub static mut BLE_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
     MaybeUninit::uninit();
 
+#[allow(dead_code)]
 #[link_section = "MB_MEM2"]
 //                                            "magic" numbers from ST -------v---v
 pub static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();

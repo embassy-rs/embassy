@@ -19,3 +19,11 @@ embedded-hal = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
+
+[[bin]] 
+name = "tl_mbox_ble"
+required-features = ["embassy-stm32/ble"]
+
+[[bin]] 
+name = "tl_mbox_mac"
+required-features = ["embassy-stm32/mac"]
