@@ -287,7 +287,10 @@ mod tests {
 
         // On with the test
         let flash = flash.into_async();
-        let mut updater = FirmwareUpdater::new(flash.dfu(), flash.state());
+        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
 
         let mut aligned = [0; 4];
 
