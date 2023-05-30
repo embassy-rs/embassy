@@ -173,7 +173,9 @@ pub struct UsbBufferReport {
     /// Number of config descriptor bytes used
     pub config_descriptor_used: usize,
     /// Number of bos descriptor bytes used
-    pub bos_descriptor_used: usize,
+    ///
+    /// Will be `None` if "bos_descriptor_buf" was not supplied to builder
+    pub bos_descriptor_used: Option<usize>,
     /// Number of msos descriptor bytes used
     ///
     /// Will be `None` if the "msos-descriptor" feature is not active.
@@ -196,7 +198,7 @@ struct Inner<'d, D: Driver<'d>> {
     config: Config<'d>,
     device_descriptor: &'d [u8],
     config_descriptor: &'d [u8],
-    bos_descriptor: &'d [u8],
+    bos_descriptor: Option<&'d [u8]>,
 
     device_state: UsbDeviceState,
     suspended: bool,
@@ -224,7 +226,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
-        bos_descriptor: &'d [u8],
+        bos_descriptor: Option<&'d [u8]>,
         interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
         #[cfg(feature = "msos-descriptor")] msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
@@ -269,7 +271,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         UsbBufferReport {
             device_descriptor_used: self.inner.device_descriptor.len(),
             config_descriptor_used: self.inner.config_descriptor.len(),
-            bos_descriptor_used: self.inner.bos_descriptor.len(),
+            bos_descriptor_used: self.inner.bos_descriptor.map(|descriptor| descriptor.len()),
             msos_descriptor_used: mdu,
             control_buffer_size: self.control_buf.len(),
         }
@@ -726,7 +728,10 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
         let (dtype, index) = req.descriptor_type_index();
 
         match dtype {
-            descriptor_type::BOS => InResponse::Accepted(self.bos_descriptor),
+            descriptor_type::BOS => match self.bos_descriptor {
+                Some(descriptor) => InResponse::Accepted(descriptor),
+                None => InResponse::Rejected,
+            },
             descriptor_type::DEVICE => InResponse::Accepted(self.device_descriptor),
             descriptor_type::CONFIGURATION => InResponse::Accepted(self.config_descriptor),
             descriptor_type::STRING => {

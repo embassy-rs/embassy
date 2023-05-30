@@ -131,7 +131,7 @@ pub struct Builder<'d, D: Driver<'d>> {
 
     device_descriptor: DescriptorWriter<'d>,
     config_descriptor: DescriptorWriter<'d>,
-    bos_descriptor: BosWriter<'d>,
+    bos_descriptor: Option<BosWriter<'d>>,
 
     #[cfg(feature = "msos-descriptor")]
     msos_descriptor: MsOsDescriptorWriter<'d>,
@@ -148,7 +148,7 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         config: Config<'d>,
         device_descriptor_buf: &'d mut [u8],
         config_descriptor_buf: &'d mut [u8],
-        bos_descriptor_buf: &'d mut [u8],
+        bos_descriptor_buf: Option<&'d mut [u8]>,
         #[cfg(feature = "msos-descriptor")] msos_descriptor_buf: &'d mut [u8],
         control_buf: &'d mut [u8],
     ) -> Self {
@@ -170,11 +170,13 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
 
         let mut device_descriptor = DescriptorWriter::new(device_descriptor_buf);
         let mut config_descriptor = DescriptorWriter::new(config_descriptor_buf);
-        let mut bos_descriptor = BosWriter::new(DescriptorWriter::new(bos_descriptor_buf));
+        let mut bos_descriptor = bos_descriptor_buf.map(|buf| BosWriter::new(DescriptorWriter::new(buf)));
 
         device_descriptor.device(&config);
         config_descriptor.configuration(&config);
-        bos_descriptor.bos();
+        if let Some(descriptor) = bos_descriptor.as_mut() {
+            descriptor.bos();
+        }
 
         Builder {
             driver,
@@ -199,12 +201,16 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         let msos_descriptor = self.msos_descriptor.build(&mut self.bos_descriptor);
 
         self.config_descriptor.end_configuration();
-        self.bos_descriptor.end_bos();
+        if let Some(descriptor) = self.bos_descriptor.as_mut() {
+            descriptor.end_bos();
+        }
 
         // Log the number of allocator bytes actually used in descriptor buffers
         info!("USB: device_descriptor used: {}", self.device_descriptor.position());
         info!("USB: config_descriptor used: {}", self.config_descriptor.position());
-        info!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
+        if let Some(descriptor) = self.bos_descriptor.as_ref() {
+            info!("USB: bos_descriptor used: {}", descriptor.writer.position());
+        }
         #[cfg(feature = "msos-descriptor")]
         info!("USB: msos_descriptor used: {}", msos_descriptor.len());
         info!("USB: control_buf size: {}", self.control_buf.len());
@@ -215,7 +221,8 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             self.handlers,
             self.device_descriptor.into_buf(),
             self.config_descriptor.into_buf(),
-            self.bos_descriptor.writer.into_buf(),
+            self.bos_descriptor
+                .map(|descriptor| descriptor.writer.into_buf() as &[u8]),
             self.interfaces,
             self.control_buf,
             #[cfg(feature = "msos-descriptor")]
