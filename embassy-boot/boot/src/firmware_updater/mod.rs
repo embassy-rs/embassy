@@ -2,9 +2,22 @@
 mod asynch;
 mod blocking;
 
+#[cfg(feature = "nightly")]
+pub use asynch::FirmwareUpdater;
+pub use blocking::BlockingFirmwareUpdater;
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-use crate::Partition;
+/// Firmware updater flash configuration holding the two flashes used by the updater
+///
+/// If only a single flash is actually used, then that flash should be partitioned into two partitions before use.
+/// The easiest way to do this is to use [`FirmwareUpdaterConfig::from_linkerfile`] or [`FirmwareUpdaterConfig::from_linkerfile_blocking`] which will partition
+/// the provided flash according to symbols defined in the linkerfile.
+pub struct FirmwareUpdaterConfig<DFU, STATE> {
+    /// The dfu flash partition
+    pub dfu: DFU,
+    /// The state flash partition
+    pub state: STATE,
+}
 
 /// Errors returned by FirmwareUpdater
 #[derive(Debug)]
@@ -31,41 +44,5 @@ where
 {
     fn from(error: E) -> Self {
         FirmwareUpdaterError::Flash(error.kind())
-    }
-}
-
-/// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
-/// 'mess up' the internal bootloader state
-pub struct FirmwareUpdater {
-    state: Partition,
-    dfu: Partition,
-}
-
-#[cfg(target_os = "none")]
-impl Default for FirmwareUpdater {
-    fn default() -> Self {
-        extern "C" {
-            static __bootloader_state_start: u32;
-            static __bootloader_state_end: u32;
-            static __bootloader_dfu_start: u32;
-            static __bootloader_dfu_end: u32;
-        }
-
-        let dfu = unsafe {
-            Partition::new(
-                &__bootloader_dfu_start as *const u32 as u32,
-                &__bootloader_dfu_end as *const u32 as u32,
-            )
-        };
-        let state = unsafe {
-            Partition::new(
-                &__bootloader_state_start as *const u32 as u32,
-                &__bootloader_state_end as *const u32 as u32,
-            )
-        };
-
-        trace!("DFU: 0x{:x} - 0x{:x}", dfu.from, dfu.to);
-        trace!("STATE: 0x{:x} - 0x{:x}", state.from, state.to);
-        FirmwareUpdater::new(dfu, state)
     }
 }

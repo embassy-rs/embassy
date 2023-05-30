@@ -4,7 +4,7 @@
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
-use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater};
+use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
@@ -18,7 +18,7 @@ static APP_B: &[u8] = include_bytes!("../../b.bin");
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     let flash = Flash::new_blocking(p.FLASH);
-    let mut flash = BlockingAsync::new(flash);
+    let flash = Mutex::new(BlockingAsync::new(flash));
 
     let button = Input::new(p.PC13, Pull::Up);
     let mut button = ExtiInput::new(button, p.EXTI13);
@@ -26,13 +26,14 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PB14, Level::Low, Speed::Low);
     led.set_high();
 
-    let mut updater = FirmwareUpdater::default();
+    let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
+    let mut updater = FirmwareUpdater::new(config);
     button.wait_for_falling_edge().await;
     let mut offset = 0;
     for chunk in APP_B.chunks(2048) {
         let mut buf: [u8; 2048] = [0; 2048];
         buf[..chunk.len()].copy_from_slice(chunk);
-        updater.write_firmware(offset, &buf, &mut flash, 2048).await.unwrap();
+        updater.write_firmware(offset, &buf).await.unwrap();
         offset += chunk.len();
     }
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
