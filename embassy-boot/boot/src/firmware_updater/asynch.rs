@@ -1,5 +1,7 @@
 use digest::Digest;
+#[cfg(target_os = "none")]
 use embassy_embedded_hal::flash::partition::Partition;
+#[cfg(target_os = "none")]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage_async::nor_flash::NorFlash;
 
@@ -13,14 +15,12 @@ pub struct FirmwareUpdater<DFU: NorFlash, STATE: NorFlash> {
     state: STATE,
 }
 
+#[cfg(target_os = "none")]
 impl<'a, FLASH: NorFlash>
     FirmwareUpdaterConfig<Partition<'a, NoopRawMutex, FLASH>, Partition<'a, NoopRawMutex, FLASH>>
 {
     /// Create a firmware updater config from the flash and address symbols defined in the linkerfile
-    #[cfg(target_os = "none")]
-    pub fn from_linkerfile(flash: &'a Mutex<NoopRawMutex, FLASH>) -> Self {
-        use embassy_sync::mutex::Mutex;
-
+    pub fn from_linkerfile(flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, FLASH>) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
