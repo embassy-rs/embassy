@@ -40,7 +40,7 @@ where
 /// If only a single flash is actually used, then that flash should be partitioned into three partitions before use.
 /// The easiest way to do this is to use [`BootLoaderConfig::from_linkerfile_blocking`] which will partition
 /// the provided flash according to symbols defined in the linkerfile.
-pub struct BootLoaderConfig<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
+pub struct BootLoaderConfig<ACTIVE, DFU, STATE> {
     /// Flash type used for the active partition - the partition which will be booted from.
     pub active: ACTIVE,
     /// Flash type used for the dfu partition - the partition which will be swapped in when requested.

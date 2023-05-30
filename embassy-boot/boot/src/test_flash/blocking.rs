@@ -5,6 +5,8 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::NorFlash;
 
+use crate::BootLoaderConfig;
+
 pub struct BlockingTestFlash<ACTIVE, DFU, STATE>
 where
     ACTIVE: NorFlash,
@@ -22,11 +24,11 @@ where
     DFU: NorFlash,
     STATE: NorFlash,
 {
-    pub fn new(active: ACTIVE, dfu: DFU, state: STATE) -> Self {
+    pub fn new(config: BootLoaderConfig<ACTIVE, DFU, STATE>) -> Self {
         Self {
-            active: Mutex::new(RefCell::new(active)),
-            dfu: Mutex::new(RefCell::new(dfu)),
-            state: Mutex::new(RefCell::new(state)),
+            active: Mutex::new(RefCell::new(config.active)),
+            dfu: Mutex::new(RefCell::new(config.dfu)),
+            state: Mutex::new(RefCell::new(config.state)),
         }
     }
 
@@ -49,6 +51,7 @@ where
     }
 }
 
+#[cfg(feature = "nightly")]
 impl<ACTIVE, DFU, STATE> BlockingTestFlash<ACTIVE, DFU, STATE>
 where
     ACTIVE: NorFlash + embedded_storage_async::nor_flash::NorFlash,
@@ -56,10 +59,11 @@ where
     STATE: NorFlash + embedded_storage_async::nor_flash::NorFlash,
 {
     pub fn into_async(self) -> super::AsyncTestFlash<ACTIVE, DFU, STATE> {
-        super::AsyncTestFlash::new(
-            self.active.into_inner().into_inner(),
-            self.dfu.into_inner().into_inner(),
-            self.state.into_inner().into_inner(),
-        )
+        let config = BootLoaderConfig {
+            active: self.active.into_inner().into_inner(),
+            dfu: self.dfu.into_inner().into_inner(),
+            state: self.state.into_inner().into_inner(),
+        };
+        super::AsyncTestFlash::new(config)
     }
 }

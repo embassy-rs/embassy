@@ -51,10 +51,18 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
 
 #[cfg(test)]
 mod tests {
+    use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+    #[cfg(feature = "nightly")]
+    use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
     use futures::executor::block_on;
 
     use super::*;
+    use crate::boot_loader::BootLoaderConfig;
+    use crate::firmware_updater::FirmwareUpdaterConfig;
     use crate::mem_flash::MemFlash;
+    #[cfg(feature = "nightly")]
+    use crate::test_flash::AsyncTestFlash;
+    use crate::test_flash::BlockingTestFlash;
 
     /*
     #[test]
@@ -73,147 +81,173 @@ mod tests {
 
     #[test]
     fn test_boot_state() {
-        const STATE: Partition = Partition::new(0, 4096);
-        const ACTIVE: Partition = Partition::new(4096, 61440);
-        const DFU: Partition = Partition::new(61440, 122880);
+        let flash = BlockingTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<57344, 4096, 4>::default(),
+            dfu: MemFlash::<61440, 4096, 4>::default(),
+            state: MemFlash::<4096, 4096, 4>::default(),
+        });
 
-        let mut flash = MemFlash::<131072, 4096, 4>::default();
-        flash.mem[0..4].copy_from_slice(&[BOOT_MAGIC; 4]);
-        let mut flash = SingleFlashConfig::new(&mut flash);
+        flash.state().write(0, &[BOOT_MAGIC; 4]).unwrap();
 
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
 
         let mut page = [0; 4096];
-        assert_eq!(State::Boot, bootloader.prepare_boot(&mut flash, &mut page).unwrap());
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut page).unwrap());
     }
 
     #[test]
     #[cfg(all(feature = "nightly", not(feature = "_verify")))]
     fn test_swap_state() {
-        const STATE: Partition = Partition::new(0, 4096);
-        const ACTIVE: Partition = Partition::new(4096, 61440);
-        const DFU: Partition = Partition::new(61440, 122880);
-        let mut flash = MemFlash::<131072, 4096, 4>::random();
+        const FIRMWARE_SIZE: usize = 57344;
+        let flash = AsyncTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<FIRMWARE_SIZE, 4096, 4>::default(),
+            dfu: MemFlash::<61440, 4096, 4>::default(),
+            state: MemFlash::<4096, 4096, 4>::default(),
+        });
 
-        let original = [rand::random::<u8>(); ACTIVE.size() as usize];
-        let update = [rand::random::<u8>(); ACTIVE.size() as usize];
+        const ORIGINAL: [u8; FIRMWARE_SIZE] = [0x55; FIRMWARE_SIZE];
+        const UPDATE: [u8; FIRMWARE_SIZE] = [0xAA; FIRMWARE_SIZE];
         let mut aligned = [0; 4];
 
-        flash.program(ACTIVE.from, &original).unwrap();
+        block_on(flash.active().erase(0, ORIGINAL.len() as u32)).unwrap();
+        block_on(flash.active().write(0, &ORIGINAL)).unwrap();
 
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
-        let mut updater = FirmwareUpdater::new(DFU, STATE);
-        block_on(updater.write_firmware(0, &update, &mut flash)).unwrap();
-        block_on(updater.mark_updated(&mut flash, &mut aligned)).unwrap();
+        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
+        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.mark_updated(&mut aligned)).unwrap();
+
+        let flash = flash.into_blocking();
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
 
         let mut page = [0; 1024];
-        assert_eq!(
-            State::Swap,
-            bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
-                .unwrap()
-        );
+        assert_eq!(State::Swap, bootloader.prepare_boot(&mut page).unwrap());
 
-        flash.assert_eq(ACTIVE.from, &update);
+        let mut read_buf = [0; FIRMWARE_SIZE];
+        flash.active().read(0, &mut read_buf).unwrap();
+        assert_eq!(UPDATE, read_buf);
         // First DFU page is untouched
-        flash.assert_eq(DFU.from + 4096, &original);
+        flash.dfu().read(4096, &mut read_buf).unwrap();
+        assert_eq!(ORIGINAL, read_buf);
 
         // Running again should cause a revert
-        assert_eq!(
-            State::Swap,
-            bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
-                .unwrap()
-        );
+        assert_eq!(State::Swap, bootloader.prepare_boot(&mut page).unwrap());
 
-        flash.assert_eq(ACTIVE.from, &original);
-        // Last page is untouched
-        flash.assert_eq(DFU.from, &update);
+        let mut read_buf = [0; FIRMWARE_SIZE];
+        flash.active().read(0, &mut read_buf).unwrap();
+        assert_eq!(ORIGINAL, read_buf);
+        // Last DFU page is untouched
+        flash.dfu().read(0, &mut read_buf).unwrap();
+        assert_eq!(UPDATE, read_buf);
 
         // Mark as booted
-        block_on(updater.mark_booted(&mut flash, &mut aligned)).unwrap();
-        assert_eq!(
-            State::Boot,
-            bootloader
-                .prepare_boot(&mut SingleFlashConfig::new(&mut flash), &mut page)
-                .unwrap()
-        );
+        let flash = flash.into_async();
+        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
+        block_on(updater.mark_booted(&mut aligned)).unwrap();
+
+        let flash = flash.into_blocking();
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
+        assert_eq!(State::Boot, bootloader.prepare_boot(&mut page).unwrap());
     }
 
     #[test]
     #[cfg(all(feature = "nightly", not(feature = "_verify")))]
-    fn test_separate_flash_active_page_biggest() {
-        const STATE: Partition = Partition::new(2048, 4096);
-        const ACTIVE: Partition = Partition::new(4096, 16384);
-        const DFU: Partition = Partition::new(0, 16384);
+    fn test_swap_state_active_page_biggest() {
+        const FIRMWARE_SIZE: usize = 12288;
+        let flash = AsyncTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<12288, 4096, 8>::random(),
+            dfu: MemFlash::<16384, 2048, 8>::random(),
+            state: MemFlash::<2048, 128, 4>::random(),
+        });
 
-        let mut active = MemFlash::<16384, 4096, 8>::random();
-        let mut dfu = MemFlash::<16384, 2048, 8>::random();
-        let mut state = MemFlash::<4096, 128, 4>::random();
+        const ORIGINAL: [u8; FIRMWARE_SIZE] = [0x55; FIRMWARE_SIZE];
+        const UPDATE: [u8; FIRMWARE_SIZE] = [0xAA; FIRMWARE_SIZE];
         let mut aligned = [0; 4];
 
-        let original = [rand::random::<u8>(); ACTIVE.size() as usize];
-        let update = [rand::random::<u8>(); ACTIVE.size() as usize];
+        block_on(flash.active().erase(0, ORIGINAL.len() as u32)).unwrap();
+        block_on(flash.active().write(0, &ORIGINAL)).unwrap();
 
-        active.program(ACTIVE.from, &original).unwrap();
+        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
+        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.mark_updated(&mut aligned)).unwrap();
 
-        let mut updater = FirmwareUpdater::new(DFU, STATE);
+        let flash = flash.into_blocking();
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
 
-        block_on(updater.write_firmware(0, &update, &mut dfu)).unwrap();
-        block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
-
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
         let mut page = [0; 4096];
+        assert_eq!(State::Swap, bootloader.prepare_boot(&mut page).unwrap());
 
-        assert_eq!(
-            State::Swap,
-            bootloader
-                .prepare_boot(&mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu), &mut page)
-                .unwrap()
-        );
-
-        active.assert_eq(ACTIVE.from, &update);
+        let mut read_buf = [0; FIRMWARE_SIZE];
+        flash.active().read(0, &mut read_buf).unwrap();
+        assert_eq!(UPDATE, read_buf);
         // First DFU page is untouched
-        dfu.assert_eq(DFU.from + 4096, &original);
+        flash.dfu().read(4096, &mut read_buf).unwrap();
+        assert_eq!(ORIGINAL, read_buf);
     }
 
     #[test]
     #[cfg(all(feature = "nightly", not(feature = "_verify")))]
-    fn test_separate_flash_dfu_page_biggest() {
-        const STATE: Partition = Partition::new(2048, 4096);
-        const ACTIVE: Partition = Partition::new(4096, 16384);
-        const DFU: Partition = Partition::new(0, 16384);
+    fn test_swap_state_dfu_page_biggest() {
+        const FIRMWARE_SIZE: usize = 12288;
+        let flash = AsyncTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<FIRMWARE_SIZE, 2048, 4>::random(),
+            dfu: MemFlash::<16384, 4096, 8>::random(),
+            state: MemFlash::<2048, 128, 4>::random(),
+        });
 
+        const ORIGINAL: [u8; FIRMWARE_SIZE] = [0x55; FIRMWARE_SIZE];
+        const UPDATE: [u8; FIRMWARE_SIZE] = [0xAA; FIRMWARE_SIZE];
         let mut aligned = [0; 4];
-        let mut active = MemFlash::<16384, 2048, 4>::random();
-        let mut dfu = MemFlash::<16384, 4096, 8>::random();
-        let mut state = MemFlash::<4096, 128, 4>::random();
 
-        let original = [rand::random::<u8>(); ACTIVE.size() as usize];
-        let update = [rand::random::<u8>(); ACTIVE.size() as usize];
+        block_on(flash.active().erase(0, ORIGINAL.len() as u32)).unwrap();
+        block_on(flash.active().write(0, &ORIGINAL)).unwrap();
 
-        active.program(ACTIVE.from, &original).unwrap();
+        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
+        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.mark_updated(&mut aligned)).unwrap();
 
-        let mut updater = FirmwareUpdater::new(DFU, STATE);
-
-        block_on(updater.write_firmware(0, &update, &mut dfu)).unwrap();
-        block_on(updater.mark_updated(&mut state, &mut aligned)).unwrap();
-
-        let mut bootloader: BootLoader = BootLoader::new(ACTIVE, DFU, STATE);
+        let flash = flash.into_blocking();
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
         let mut page = [0; 4096];
-        assert_eq!(
-            State::Swap,
-            bootloader
-                .prepare_boot(
-                    &mut MultiFlashConfig::new(&mut active, &mut state, &mut dfu,),
-                    &mut page
-                )
-                .unwrap()
-        );
+        assert_eq!(State::Swap, bootloader.prepare_boot(&mut page).unwrap());
 
-        active.assert_eq(ACTIVE.from, &update);
+        let mut read_buf = [0; FIRMWARE_SIZE];
+        flash.active().read(0, &mut read_buf).unwrap();
+        assert_eq!(UPDATE, read_buf);
         // First DFU page is untouched
-        dfu.assert_eq(DFU.from + 4096, &original);
+        flash.dfu().read(4096, &mut read_buf).unwrap();
+        assert_eq!(ORIGINAL, read_buf);
     }
 
     #[test]
@@ -239,25 +273,25 @@ mod tests {
         let public_key: PublicKey = keypair.public;
 
         // Setup flash
-
-        const STATE: Partition = Partition::new(0, 4096);
-        const DFU: Partition = Partition::new(4096, 8192);
-        let mut flash = MemFlash::<8192, 4096, 4>::default();
+        let flash = BlockingTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<0, 0, 0>::default(),
+            dfu: MemFlash::<4096, 4096, 4>::default(),
+            state: MemFlash::<4096, 4096, 4>::default(),
+        });
 
         let firmware_len = firmware.len();
 
         let mut write_buf = [0; 4096];
         write_buf[0..firmware_len].copy_from_slice(firmware);
-        DFU.write_blocking(&mut flash, 0, &write_buf).unwrap();
+        flash.dfu().write(0, &write_buf).unwrap();
 
         // On with the test
-
-        let mut updater = FirmwareUpdater::new(DFU, STATE);
+        let flash = flash.into_async();
+        let mut updater = FirmwareUpdater::new(flash.dfu(), flash.state());
 
         let mut aligned = [0; 4];
 
         assert!(block_on(updater.verify_and_mark_updated(
-            &mut flash,
             &public_key.to_bytes(),
             &signature.to_bytes(),
             firmware_len as u32,
