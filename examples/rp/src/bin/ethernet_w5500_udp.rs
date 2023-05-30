@@ -1,3 +1,7 @@
+//! This example implements a UDP server listening on port 1234 and echoing back the data.
+//!
+//! Example written for the [`WIZnet W5500-EVB-Pico`](https://www.wiznet.io/product-item/w5500-evb-pico/) board.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -5,14 +9,14 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
-use embassy_net::{Stack, StackResources};
+use embassy_net::udp::UdpSocket;
+use embassy_net::{PacketMetadata, Stack, StackResources};
 use embassy_net_w5500::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::peripherals::{PIN_17, PIN_20, PIN_21, SPI0};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embedded_hal_async::spi::ExclusiveDevice;
-use embedded_io::asynch::Write;
 use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -47,7 +51,6 @@ async fn net_task(stack: &'static Stack<Device<'static>>) -> ! {
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut rng = RoscRng;
-    let mut led = Output::new(p.PIN_25, Level::Low);
 
     let mut spi_cfg = SpiConfig::default();
     spi_cfg.frequency = 50_000_000;
@@ -88,40 +91,28 @@ async fn main(spawner: Spawner) {
     let local_addr = cfg.address.address();
     info!("IP address: {:?}", local_addr);
 
+    // Then we can use it!
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
+    let mut rx_meta = [PacketMetadata::EMPTY; 16];
+    let mut tx_meta = [PacketMetadata::EMPTY; 16];
     let mut buf = [0; 4096];
     loop {
-        let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
-
-        led.set_low();
-        info!("Listening on TCP:1234...");
-        if let Err(e) = socket.accept(1234).await {
-            warn!("accept error: {:?}", e);
-            continue;
-        }
-        info!("Received connection from {:?}", socket.remote_endpoint());
-        led.set_high();
+        let mut socket = UdpSocket::new(
+            stack,
+            &mut rx_meta,
+            &mut rx_buffer,
+            &mut tx_meta,
+            &mut tx_buffer,
+        );
+        socket.bind(1234).unwrap();
 
         loop {
-            let n = match socket.read(&mut buf).await {
-                Ok(0) => {
-                    warn!("read EOF");
-                    break;
-                }
-                Ok(n) => n,
-                Err(e) => {
-                    warn!("{:?}", e);
-                    break;
-                }
-            };
-            info!("rxd {}", core::str::from_utf8(&buf[..n]).unwrap());
-
-            if let Err(e) = socket.write_all(&buf[..n]).await {
-                warn!("write error: {:?}", e);
-                break;
+            let (n, ep) = socket.recv_from(&mut buf).await.unwrap();
+            if let Ok(s) = core::str::from_utf8(&buf[..n]) {
+                info!("rxd from {}: {}", ep, s);
             }
+            socket.send_to(&buf[..n], ep).await.unwrap();
         }
     }
 }
