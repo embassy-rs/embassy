@@ -31,6 +31,16 @@ impl<'a, M: RawMutex, T: NorFlash> BlockingPartition<'a, M, T> {
         }
         Self { flash, offset, size }
     }
+
+    /// Get the partition offset within the flash
+    pub const fn offset(&self) -> u32 {
+        self.offset
+    }
+
+    /// Get the partition size
+    pub const fn size(&self) -> u32 {
+        self.size
+    }
 }
 
 impl<M: RawMutex, T: NorFlash> ErrorType for BlockingPartition<'_, M, T> {
