@@ -1,17 +1,73 @@
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use futures::FutureExt;
 
 use crate::gpio::sealed::AFType;
 use crate::interrupt::InterruptExt;
 use crate::pac::can::vals::{Lec, RirIde};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
-use crate::{peripherals, Peripheral};
+use crate::{interrupt, peripherals, Peripheral};
+
+/// Interrupt handler.
+pub struct TxInterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::TXInterrupt> for TxInterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        T::regs().tsr().write(|v| {
+            v.set_rqcp(0, true);
+            v.set_rqcp(1, true);
+            v.set_rqcp(2, true);
+        });
+
+        T::state().tx_waker.wake();
+    }
+}
+
+pub struct Rx0InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::RX0Interrupt> for Rx0InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        Can::<T>::receive_fifo(RxFifo::Fifo0);
+    }
+}
+
+pub struct Rx1InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::RX1Interrupt> for Rx1InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        Can::<T>::receive_fifo(RxFifo::Fifo1);
+    }
+}
+
+pub struct SceInterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let msr = T::regs().msr();
+        let msr_val = msr.read();
+
+        if msr_val.erri() {
+            msr.modify(|v| v.set_erri(true));
+            T::state().err_waker.wake();
+        }
+    }
+}
 
 pub struct Can<'d, T: Instance> {
     can: bxcan::Can<BxcanInstance<'d, T>>,
@@ -64,12 +120,13 @@ impl<'d, T: Instance> Can<'d, T> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        tx_irq: impl Peripheral<P = T::TXInterrupt> + 'd,
-        rx0_irq: impl Peripheral<P = T::RX0Interrupt> + 'd,
-        rx1_irq: impl Peripheral<P = T::RX1Interrupt> + 'd,
-        sce_irq: impl Peripheral<P = T::SCEInterrupt> + 'd,
+        _irqs: impl interrupt::Binding<T::TXInterrupt, TxInterruptHandler<T>>
+            + interrupt::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
+            + interrupt::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
+            + interrupt::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
+            + 'd,
     ) -> Self {
-        into_ref!(peri, rx, tx, tx_irq, rx0_irq, rx1_irq, sce_irq);
+        into_ref!(peri, rx, tx);
 
         unsafe {
             rx.set_as_af(rx.af_num(), AFType::Input);
@@ -79,21 +136,19 @@ impl<'d, T: Instance> Can<'d, T> {
         T::enable();
         T::reset();
 
-        tx_irq.unpend();
-        tx_irq.set_handler(Self::tx_interrupt);
-        tx_irq.enable();
+        unsafe {
+            T::TXInterrupt::steal().unpend();
+            T::TXInterrupt::steal().enable();
 
-        rx0_irq.unpend();
-        rx0_irq.set_handler(Self::rx0_interrupt);
-        rx0_irq.enable();
+            T::RX0Interrupt::steal().unpend();
+            T::RX0Interrupt::steal().enable();
 
-        rx1_irq.unpend();
-        rx1_irq.set_handler(Self::rx1_interrupt);
-        rx1_irq.enable();
+            T::RX1Interrupt::steal().unpend();
+            T::RX1Interrupt::steal().enable();
 
-        sce_irq.unpend();
-        sce_irq.set_handler(Self::sce_interrupt);
-        sce_irq.enable();
+            T::SCEInterrupt::steal().unpend();
+            T::SCEInterrupt::steal().enable();
+        }
 
         let can = bxcan::Can::builder(BxcanInstance(peri)).leave_disabled();
         Self { can }
@@ -133,12 +188,11 @@ impl<'d, T: Instance> Can<'d, T> {
 
     pub async fn receive_frame_or_error(&mut self) -> FrameOrError {
         poll_fn(|cx| {
-            if let Some(frame) = T::state().rx_queue.dequeue() {
+            if let Poll::Ready(frame) = T::state().rx_queue.recv().poll_unpin(cx) {
                 return Poll::Ready(FrameOrError::Frame(frame));
             } else if let Some(err) = self.curr_error() {
                 return Poll::Ready(FrameOrError::Error(err));
             }
-            T::state().rx_waker.register(cx.waker());
             T::state().err_waker.register(cx.waker());
             Poll::Pending
         })
@@ -159,69 +213,42 @@ impl<'d, T: Instance> Can<'d, T> {
         None
     }
 
-    unsafe fn sce_interrupt(_: *mut ()) {
-        let msr = T::regs().msr();
-        let msr_val = msr.read();
-
-        if msr_val.erri() {
-            msr.modify(|v| v.set_erri(true));
-            T::state().err_waker.wake();
-            return;
-        }
-    }
-
-    unsafe fn tx_interrupt(_: *mut ()) {
-        T::regs().tsr().write(|v| {
-            v.set_rqcp(0, true);
-            v.set_rqcp(1, true);
-            v.set_rqcp(2, true);
-        });
-        T::state().tx_waker.wake();
-    }
-
-    unsafe fn rx0_interrupt(_: *mut ()) {
-        Self::receive_fifo(RxFifo::Fifo0);
-    }
-
-    unsafe fn rx1_interrupt(_: *mut ()) {
-        Self::receive_fifo(RxFifo::Fifi1);
-    }
-
     unsafe fn receive_fifo(fifo: RxFifo) {
         let state = T::state();
         let regs = T::regs();
         let fifo_idx = match fifo {
             RxFifo::Fifo0 => 0usize,
-            RxFifo::Fifi1 => 1usize,
+            RxFifo::Fifo1 => 1usize,
         };
         let rfr = regs.rfr(fifo_idx);
         let fifo = regs.rx(fifo_idx);
 
-        // If there are no pending messages, there is nothing to do
-        if rfr.read().fmp() == 0 {
-            return;
+        loop {
+            // If there are no pending messages, there is nothing to do
+            if rfr.read().fmp() == 0 {
+                return;
+            }
+
+            let rir = fifo.rir().read();
+            let id = if rir.ide() == RirIde::STANDARD {
+                Id::from(StandardId::new_unchecked(rir.stid()))
+            } else {
+                Id::from(ExtendedId::new_unchecked(rir.exid()))
+            };
+            let data_len = fifo.rdtr().read().dlc() as usize;
+            let mut data: [u8; 8] = [0; 8];
+            data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
+            data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
+
+            let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
+
+            rfr.modify(|v| v.set_rfom(true));
+
+            /*
+                NOTE: consensus was reached that if rx_queue is full, packets should be dropped
+            */
+            let _ = state.rx_queue.try_send(frame);
         }
-
-        let rir = fifo.rir().read();
-        let id = if rir.ide() == RirIde::STANDARD {
-            Id::from(StandardId::new_unchecked(rir.stid()))
-        } else {
-            Id::from(ExtendedId::new_unchecked(rir.exid()))
-        };
-        let data_len = fifo.rdtr().read().dlc() as usize;
-        let mut data: [u8; 8] = [0; 8];
-        data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
-        data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
-
-        let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
-
-        rfr.modify(|v| v.set_rfom(true));
-
-        match state.rx_queue.enqueue(frame) {
-            Ok(_) => {}
-            Err(_) => defmt::error!("RX queue overflow"),
-        }
-        state.rx_waker.wake();
     }
 
     pub fn calc_bxcan_timings(periph_clock: Hertz, can_bitrate: u32) -> Option<u32> {
@@ -318,7 +345,7 @@ impl<'d, T: Instance> Can<'d, T> {
 
 enum RxFifo {
     Fifo0,
-    Fifi1,
+    Fifo1,
 }
 
 impl<'d, T: Instance> Drop for Can<'d, T> {
@@ -345,23 +372,22 @@ impl<'d, T: Instance> DerefMut for Can<'d, T> {
 }
 
 pub(crate) mod sealed {
+    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+    use embassy_sync::channel::Channel;
     use embassy_sync::waitqueue::AtomicWaker;
-    use heapless::mpmc::Q8;
 
     pub struct State {
         pub tx_waker: AtomicWaker,
-        pub rx_waker: AtomicWaker,
         pub err_waker: AtomicWaker,
-        pub rx_queue: Q8<bxcan::Frame>,
+        pub rx_queue: Channel<CriticalSectionRawMutex, bxcan::Frame, 32>,
     }
 
     impl State {
         pub const fn new() -> Self {
             Self {
                 tx_waker: AtomicWaker::new(),
-                rx_waker: AtomicWaker::new(),
                 err_waker: AtomicWaker::new(),
-                rx_queue: Q8::new(),
+                rx_queue: Channel::new(),
             }
         }
     }
