@@ -33,9 +33,7 @@ async fn main(_spawner: Spawner) {
     let mut buf = AlignedBuffer([0; 4096]);
     for chunk in APP_B.chunks(4096) {
         buf.as_mut()[..chunk.len()].copy_from_slice(chunk);
-        writer
-            .write(offset, buf.as_ref())
-            .unwrap();
+        writer.write(offset, buf.as_ref()).unwrap();
         offset += chunk.len();
     }
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);

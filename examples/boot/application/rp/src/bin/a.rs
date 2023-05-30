@@ -2,15 +2,16 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+use core::cell::RefCell;
+
 use defmt_rtt as _;
 use embassy_boot_rp::*;
 use embassy_executor::Spawner;
 use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::watchdog::Watchdog;
-use embassy_time::{Duration, Timer};
 use embassy_sync::blocking_mutex::Mutex;
-use core::cell::RefCell;
+use embassy_time::{Duration, Timer};
 use embedded_storage::nor_flash::NorFlash;
 #[cfg(feature = "panic-probe")]
 use panic_probe as _;
@@ -49,9 +50,7 @@ async fn main(_s: Spawner) {
     for chunk in APP_B.chunks(4096) {
         buf.0[..chunk.len()].copy_from_slice(chunk);
         defmt::info!("writing block at offset {}", offset);
-        writer
-            .write(offset, &buf.0[..])
-            .unwrap();
+        writer.write(offset, &buf.0[..]).unwrap();
         offset += chunk.len() as u32;
     }
     watchdog.feed();

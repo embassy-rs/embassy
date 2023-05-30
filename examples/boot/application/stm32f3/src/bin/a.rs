@@ -5,12 +5,12 @@
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater, FirmwareUpdaterConfig};
-use embassy_sync::mutex::Mutex;
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
