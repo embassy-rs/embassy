@@ -9,7 +9,7 @@ edition = "2021"
 overclock = []
 
 [dependencies]
-cyw43 = { path = "../" }
+cyw43 = { path = "../cyw43" }
 embassy-rp = { version = "0.1.0",  features = ["unstable-traits", "nightly", "unstable-pac", "time-driver"] }
 pio-proc = "0.2"
 pio = "0.2.1"
