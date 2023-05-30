@@ -1,0 +1,67 @@
+[package]
+name = "cyw43-example-rpi-pico-w"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
+cyw43-pio = { path = "../../cyw43-pio", features = ["defmt", "overclock"] }
+embassy-executor = { version = "0.2.0",  features = ["defmt", "integrated-timers", "executor-thread", "arch-cortex-m"] }
+embassy-time = { version = "0.1.0",  features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.1.0",  features = ["defmt", "unstable-traits", "nightly", "unstable-pac", "time-driver"] }
+embassy-net = { version = "0.1.0", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "unstable-traits", "nightly"] }
+atomic-polyfill = "0.1.5"
+static_cell = "1.0"
+
+defmt = "0.3.4"
+defmt-rtt = "0.3"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
+
+embedded-io = { version = "0.4.0", features = ["async", "defmt"] }
+heapless = "0.7.15"
+
+
+[patch.crates-io]
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-net-driver = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "82f7e104d90a6628d1873017ea5ef6a7afb3b3f7" }
+
+[profile.dev]
+debug = 2
+debug-assertions = true
+opt-level = 1
+overflow-checks = true
+
+[profile.release]
+codegen-units = 1
+debug = 1
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
+
+# do not optimize proc-macro crates = faster builds from scratch
+[profile.dev.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
+
+[profile.release.build-override]
+codegen-units = 8
+debug = false
+debug-assertions = false
+opt-level = 0
+overflow-checks = false
