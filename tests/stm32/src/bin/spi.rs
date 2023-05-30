@@ -1,15 +1,15 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#[path = "../common.rs"]
+mod common;
 
-#[path = "../example_common.rs"]
-mod example_common;
+use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
-use example_common::*;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

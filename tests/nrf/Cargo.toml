@@ -5,6 +5,8 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+teleprobe-meta = "1"
+
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt", "nightly"] }
 embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "nightly", "integrated-timers"] }

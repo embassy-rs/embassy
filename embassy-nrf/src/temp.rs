@@ -56,8 +56,19 @@ impl<'d> Temp<'d> {
     /// # Example
     ///
     /// ```no_run
-    /// let mut t = Temp::new(p.TEMP, interrupt::take!(TEMP));
+    /// use embassy_nrf::{bind_interrupts, temp};
+    /// use embassy_nrf::temp::Temp;
+    /// use embassy_time::{Duration, Timer};
+    ///
+    /// bind_interrupts!(struct Irqs {
+    ///     TEMP => temp::InterruptHandler;
+    /// });
+    ///
+    /// # async {
+    /// # let p: embassy_nrf::Peripherals = todo!();
+    /// let mut t = Temp::new(p.TEMP, Irqs);
     /// let v: u16 = t.read().await.to_num::<u16>();
+    /// # };
     /// ```
     pub async fn read(&mut self) -> I30F2 {
         // In case the future is dropped, stop the task and reset events.

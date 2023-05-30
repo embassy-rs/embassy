@@ -1,6 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 #runner = "teleprobe local run --chip nRF52840_xxAA --elf"
-runner = "teleprobe client run --target nrf52840-dk --elf"
+runner = "teleprobe client run"
 
 [build]
 target = "thumbv7em-none-eabi"

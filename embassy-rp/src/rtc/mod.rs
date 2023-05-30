@@ -121,7 +121,7 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
     /// # #[cfg(not(feature = "chrono"))]
     /// # fn main() {
     /// # use embassy_rp::rtc::{RealTimeClock, DateTimeFilter};
-    /// # let mut real_time_clock: RealTimeClock = unsafe { core::mem::zeroed() };
+    /// # let mut real_time_clock: RealTimeClock<embassy_rp::peripherals::RTC> = unsafe { core::mem::zeroed() };
     /// let now = real_time_clock.now().unwrap();
     /// real_time_clock.schedule_alarm(
     ///     DateTimeFilter::default()
