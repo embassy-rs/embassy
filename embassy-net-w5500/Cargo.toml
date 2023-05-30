@@ -10,17 +10,7 @@ edition = "2021"
 [dependencies]
 embedded-hal = { version = "1.0.0-alpha.10" }
 embedded-hal-async = { version = "=0.2.0-alpha.1" }
-embassy-net-driver-channel = { version = "0.1.0" }
+embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel"}
 embassy-time = { version = "0.1.0" }
 embassy-futures = { version = "0.1.0" }
 defmt = { version = "0.3", optional = true }
-
-[patch.crates-io]
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }
-embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }
-embassy-net-driver = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }
-embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "e179e7cf85810f0aa7ef8027d8d48f6d21f64dac" }

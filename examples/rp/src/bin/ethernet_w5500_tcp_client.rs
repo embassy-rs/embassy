@@ -7,6 +7,7 @@
 #![feature(type_alias_impl_trait)]
 
 use core::str::FromStr;
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
@@ -65,14 +66,8 @@ async fn main(spawner: Spawner) {
 
     let mac_addr = [0x02, 0x00, 0x00, 0x00, 0x00, 0x00];
     let state = singleton!(State::<8, 8>::new());
-    let (device, runner) = embassy_net_w5500::new(
-        mac_addr,
-        state,
-        ExclusiveDevice::new(spi, cs),
-        w5500_int,
-        w5500_reset,
-    )
-    .await;
+    let (device, runner) =
+        embassy_net_w5500::new(mac_addr, state, ExclusiveDevice::new(spi, cs), w5500_int, w5500_reset).await;
     unwrap!(spawner.spawn(ethernet_task(runner)));
 
     // Generate random seed
@@ -98,7 +93,7 @@ async fn main(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     loop {
         let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
+        socket.set_timeout(Some(Duration::from_secs(10)));
 
         led.set_low();
         info!("Connecting...");

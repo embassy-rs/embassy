@@ -4,7 +4,6 @@ mod device;
 mod socket;
 mod spi;
 
-use crate::device::W5500;
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
@@ -12,6 +11,8 @@ use embassy_time::{Duration, Timer};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
+
+use crate::device::W5500;
 const MTU: usize = 1514;
 
 /// Type alias for the embassy-net driver for W5500
@@ -77,14 +78,7 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
 }
 
 /// Obtain a driver for using the W5500 with [`embassy-net`](crates.io/crates/embassy-net).
-pub async fn new<
-    'a,
-    const N_RX: usize,
-    const N_TX: usize,
-    SPI: SpiDevice,
-    INT: Wait,
-    RST: OutputPin,
->(
+pub async fn new<'a, const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
     mac_addr: [u8; 6],
     state: &'a mut State<N_RX, N_TX>,
     spi_dev: SPI,

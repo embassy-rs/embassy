@@ -15,6 +15,7 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::peripherals::{PIN_17, PIN_20, PIN_21, SPI0};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
+use embassy_time::Duration;
 use embedded_hal_async::spi::ExclusiveDevice;
 use embedded_io::asynch::Write;
 use rand::RngCore;
@@ -62,14 +63,8 @@ async fn main(spawner: Spawner) {
 
     let mac_addr = [0x02, 0x00, 0x00, 0x00, 0x00, 0x00];
     let state = singleton!(State::<8, 8>::new());
-    let (device, runner) = embassy_net_w5500::new(
-        mac_addr,
-        state,
-        ExclusiveDevice::new(spi, cs),
-        w5500_int,
-        w5500_reset,
-    )
-    .await;
+    let (device, runner) =
+        embassy_net_w5500::new(mac_addr, state, ExclusiveDevice::new(spi, cs), w5500_int, w5500_reset).await;
     unwrap!(spawner.spawn(ethernet_task(runner)));
 
     // Generate random seed
@@ -103,18 +98,14 @@ async fn listen_task(stack: &'static Stack<Device<'static>>, id: u8, port: u16) 
     let mut buf = [0; 4096];
     loop {
         let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(embassy_net::SmolDuration::from_secs(10)));
+        socket.set_timeout(Some(Duration::from_secs(10)));
 
         info!("SOCKET {}: Listening on TCP:{}...", id, port);
         if let Err(e) = socket.accept(port).await {
             warn!("accept error: {:?}", e);
             continue;
         }
-        info!(
-            "SOCKET {}: Received connection from {:?}",
-            id,
-            socket.remote_endpoint()
-        );
+        info!("SOCKET {}: Received connection from {:?}", id, socket.remote_endpoint());
 
         loop {
             let n = match socket.read(&mut buf).await {
@@ -128,11 +119,7 @@ async fn listen_task(stack: &'static Stack<Device<'static>>, id: u8, port: u16) 
                     break;
                 }
             };
-            info!(
-                "SOCKET {}: rxd {}",
-                id,
-                core::str::from_utf8(&buf[..n]).unwrap()
-            );
+            info!("SOCKET {}: rxd {}", id, core::str::from_utf8(&buf[..n]).unwrap());
 
             if let Err(e) = socket.write_all(&buf[..n]).await {
                 warn!("write error: {:?}", e);
