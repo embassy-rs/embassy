@@ -31,4 +31,4 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
 embedded-hal = "0.2.6"
-static_cell = "1.0"
+static_cell = "1.1"

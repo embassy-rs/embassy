@@ -16,4 +16,4 @@ embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["de
 embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "memory-x", "stm32f091rc", "time-driver-any", "exti", "unstable-pac"] }
-static_cell = "1.0"
+static_cell = { version = "1.1", features = ["nightly"]}

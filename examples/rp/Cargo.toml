@@ -45,7 +45,7 @@ embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10" }
 embedded-hal-async = "0.2.0-alpha.1"
 embedded-io = { version = "0.4.0", features = ["async", "defmt"] }
 embedded-storage = { version = "0.3" }
-static_cell = "1.0.0"
+static_cell = { version = "1.1", features = ["nightly"]}
 log = "0.4"
 pio-proc = "0.2"
 pio = "0.2.1"

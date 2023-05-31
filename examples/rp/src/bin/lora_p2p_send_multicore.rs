@@ -7,7 +7,6 @@
 
 use defmt::*;
 use embassy_executor::Executor;
-use embassy_executor::_export::StaticCell;
 use embassy_lora::iv::GenericSx126xInterfaceVariant;
 use embassy_rp::gpio::{AnyPin, Input, Level, Output, Pin, Pull};
 use embassy_rp::multicore::{spawn_core1, Stack};
@@ -19,6 +18,7 @@ use embassy_time::{Delay, Duration, Timer};
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
 use lora_phy::LoRa;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 static mut CORE1_STACK: Stack<4096> = Stack::new();
