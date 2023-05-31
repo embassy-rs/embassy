@@ -39,6 +39,7 @@ pub struct Rx0InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::Handler<T::RX0Interrupt> for Rx0InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        // info!("rx0 irq");
         Can::<T>::receive_fifo(RxFifo::Fifo0);
     }
 }
@@ -49,6 +50,7 @@ pub struct Rx1InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::Handler<T::RX1Interrupt> for Rx1InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        // info!("rx1 irq");
         Can::<T>::receive_fifo(RxFifo::Fifo1);
     }
 }
@@ -59,6 +61,7 @@ pub struct SceInterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
     unsafe fn on_interrupt() {
+        // info!("sce irq");
         let msr = T::regs().msr();
         let msr_val = msr.read();
 
@@ -87,36 +90,10 @@ pub enum BusError {
     BusWarning,
 }
 
-pub enum FrameOrError {
-    Frame(Frame),
-    Error(BusError),
-}
-
 impl<'d, T: Instance> Can<'d, T> {
-    /// Creates a new Bxcan instance, blocking for 11 recessive bits to sync with the CAN bus.
-    pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-    ) -> Self {
-        into_ref!(peri, rx, tx);
-
-        unsafe {
-            rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-        }
-
-        T::enable();
-        T::reset();
-
-        Self {
-            can: bxcan::Can::builder(BxcanInstance(peri)).enable(),
-        }
-    }
-
     /// Creates a new Bxcan instance, keeping the peripheral in sleep mode.
     /// You must call [Can::enable_non_blocking] to use the peripheral.
-    pub fn new_disabled(
+    pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
@@ -135,6 +112,25 @@ impl<'d, T: Instance> Can<'d, T> {
 
         T::enable();
         T::reset();
+
+        unsafe {
+            use crate::pac::can::vals::{Errie, Fmpie, Tmeie};
+
+            T::regs().ier().write(|w| {
+                // TODO: fix metapac
+
+                w.set_errie(Errie(1));
+                w.set_fmpie(0, Fmpie(1));
+                w.set_fmpie(1, Fmpie(1));
+                w.set_tmeie(Tmeie(1));
+            });
+
+            T::regs().mcr().write(|w| {
+                // Enable timestamps on rx messages
+
+                w.set_ttcm(true);
+            })
+        }
 
         unsafe {
             T::TXInterrupt::steal().unpend();
@@ -159,12 +155,8 @@ impl<'d, T: Instance> Can<'d, T> {
         self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
     }
 
-    pub async fn transmit(&mut self, frame: &Frame) {
-        let tx_status = self.queue_transmit(frame).await;
-        self.wait_transission(tx_status.mailbox()).await;
-    }
-
-    async fn queue_transmit(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+    /// Queues the message to be sent but exerts backpressure
+    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
             if let Ok(status) = self.can.transmit(frame) {
                 return Poll::Ready(status);
@@ -175,7 +167,7 @@ impl<'d, T: Instance> Can<'d, T> {
         .await
     }
 
-    async fn wait_transission(&self, mb: bxcan::Mailbox) {
+    pub async fn flush(&self, mb: bxcan::Mailbox) {
         poll_fn(|cx| unsafe {
             if T::regs().tsr().read().tme(mb.index()) {
                 return Poll::Ready(());
@@ -186,12 +178,13 @@ impl<'d, T: Instance> Can<'d, T> {
         .await;
     }
 
-    pub async fn receive_frame_or_error(&mut self) -> FrameOrError {
+    /// Returns a tuple of the time the message was received and the message frame
+    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
         poll_fn(|cx| {
-            if let Poll::Ready(frame) = T::state().rx_queue.recv().poll_unpin(cx) {
-                return Poll::Ready(FrameOrError::Frame(frame));
+            if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
+                return Poll::Ready(Ok((time, frame)));
             } else if let Some(err) = self.curr_error() {
-                return Poll::Ready(FrameOrError::Error(err));
+                return Poll::Ready(Err(err));
             }
             T::state().err_waker.register(cx.waker());
             Poll::Pending
@@ -240,6 +233,7 @@ impl<'d, T: Instance> Can<'d, T> {
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
+            let time = fifo.rdtr().read().time();
             let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
 
             rfr.modify(|v| v.set_rfom(true));
@@ -247,11 +241,11 @@ impl<'d, T: Instance> Can<'d, T> {
             /*
                 NOTE: consensus was reached that if rx_queue is full, packets should be dropped
             */
-            let _ = state.rx_queue.try_send(frame);
+            let _ = state.rx_queue.try_send((time, frame));
         }
     }
 
-    pub fn calc_bxcan_timings(periph_clock: Hertz, can_bitrate: u32) -> Option<u32> {
+    pub const fn calc_bxcan_timings(periph_clock: Hertz, can_bitrate: u32) -> Option<u32> {
         const BS1_MAX: u8 = 16;
         const BS2_MAX: u8 = 8;
         const MAX_SAMPLE_POINT_PERMILL: u16 = 900;
@@ -316,7 +310,7 @@ impl<'d, T: Instance> Can<'d, T> {
         //   - With rounding to zero
         let mut bs1 = ((7 * bs1_bs2_sum - 1) + 4) / 8; // Trying rounding to nearest first
         let mut bs2 = bs1_bs2_sum - bs1;
-        assert!(bs1_bs2_sum > bs1);
+        core::assert!(bs1_bs2_sum > bs1);
 
         let sample_point_permill = 1000 * ((1 + bs1) / (1 + bs1 + bs2)) as u16;
         if sample_point_permill > MAX_SAMPLE_POINT_PERMILL {
@@ -379,7 +373,7 @@ pub(crate) mod sealed {
     pub struct State {
         pub tx_waker: AtomicWaker,
         pub err_waker: AtomicWaker,
-        pub rx_queue: Channel<CriticalSectionRawMutex, bxcan::Frame, 32>,
+        pub rx_queue: Channel<CriticalSectionRawMutex, (u16, bxcan::Frame), 32>,
     }
 
     impl State {
