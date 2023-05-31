@@ -7,27 +7,28 @@ export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
 export BUILDER_THREADS=6
+export BUILDER_COMPRESS=true
 
-docserver-builder ./embassy-boot/boot crates/embassy-boot/git.zup
-docserver-builder ./embassy-boot/nrf crates/embassy-boot-nrf/git.zup
-docserver-builder ./embassy-boot/rp crates/embassy-boot-rp/git.zup
-docserver-builder ./embassy-boot/stm32 crates/embassy-boot-stm32/git.zup
-docserver-builder ./embassy-cortex-m crates/embassy-cortex-m/git.zup
-docserver-builder ./embassy-embedded-hal crates/embassy-embedded-hal/git.zup
-docserver-builder ./embassy-executor crates/embassy-executor/git.zup
-docserver-builder ./embassy-futures crates/embassy-futures/git.zup
-docserver-builder ./embassy-lora crates/embassy-lora/git.zup
-docserver-builder ./embassy-net crates/embassy-net/git.zup
-docserver-builder ./embassy-net-driver crates/embassy-net-driver/git.zup
-docserver-builder ./embassy-net-driver-channel crates/embassy-net-driver-channel/git.zup
-docserver-builder ./embassy-nrf crates/embassy-nrf/git.zup
-docserver-builder ./embassy-rp crates/embassy-rp/git.zup
-docserver-builder ./embassy-sync crates/embassy-sync/git.zup
-docserver-builder ./embassy-time crates/embassy-time/git.zup
-docserver-builder ./embassy-usb crates/embassy-usb/git.zup
-docserver-builder ./embassy-usb-driver crates/embassy-usb-driver/git.zup
-docserver-builder ./embassy-usb-logger crates/embassy-usb-logger/git.zup
-#docserver-builder ./embassy-stm32 crates/embassy-stm32/git.zup
+docserver-builder -i ./embassy-stm32 -o crates/embassy-stm32/git.zup
+docserver-builder -i ./embassy-boot/boot -o crates/embassy-boot/git.zup
+docserver-builder -i ./embassy-boot/nrf -o crates/embassy-boot-nrf/git.zup
+docserver-builder -i ./embassy-boot/rp -o crates/embassy-boot-rp/git.zup
+docserver-builder -i ./embassy-boot/stm32 -o crates/embassy-boot-stm32/git.zup
+docserver-builder -i ./embassy-cortex-m -o crates/embassy-cortex-m/git.zup
+docserver-builder -i ./embassy-embedded-hal -o crates/embassy-embedded-hal/git.zup
+docserver-builder -i ./embassy-executor -o crates/embassy-executor/git.zup
+docserver-builder -i ./embassy-futures -o crates/embassy-futures/git.zup
+docserver-builder -i ./embassy-lora -o crates/embassy-lora/git.zup
+docserver-builder -i ./embassy-net -o crates/embassy-net/git.zup
+docserver-builder -i ./embassy-net-driver -o crates/embassy-net-driver/git.zup
+docserver-builder -i ./embassy-net-driver-channel -o crates/embassy-net-driver-channel/git.zup
+docserver-builder -i ./embassy-nrf -o crates/embassy-nrf/git.zup
+docserver-builder -i ./embassy-rp -o crates/embassy-rp/git.zup
+docserver-builder -i ./embassy-sync -o crates/embassy-sync/git.zup
+docserver-builder -i ./embassy-time -o crates/embassy-time/git.zup
+docserver-builder -i ./embassy-usb -o crates/embassy-usb/git.zup
+docserver-builder -i ./embassy-usb-driver -o crates/embassy-usb-driver/git.zup
+docserver-builder -i ./embassy-usb-logger -o crates/embassy-usb-logger/git.zup
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
