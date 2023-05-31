@@ -13,8 +13,6 @@ flavors = [
     { name = "thumbv7m-none-eabi",        target = "thumbv7m-none-eabi",         features = [] },
     { name = "thumbv7em-none-eabi",       target = "thumbv7em-none-eabi",        features = [] },
     { name = "thumbv7em-none-eabihf",     target = "thumbv7em-none-eabihf",      features = [] },
-    { name = "thumbv8m.base-none-eabi",   target = "thumbv8m.base-none-eabi",    features = [] },
-    { name = "thumbv8m.main-none-eabi",   target = "thumbv8m.main-none-eabi",    features = [] },
     { name = "thumbv8m.main-none-eabihf", target = "thumbv8m.main-none-eabihf",  features = [] },
 ]
 
