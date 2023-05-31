@@ -34,6 +34,52 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
         }
     }
 
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), MemFlashError> {
+        let len = bytes.len();
+        bytes.copy_from_slice(&self.mem[offset as usize..offset as usize + len]);
+        Ok(())
+    }
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), MemFlashError> {
+        let offset = offset as usize;
+        assert!(bytes.len() % WRITE_SIZE == 0);
+        assert!(offset % WRITE_SIZE == 0);
+        assert!(offset + bytes.len() <= SIZE);
+
+        if let Some(pending_successes) = self.pending_write_successes {
+            if pending_successes > 0 {
+                self.pending_write_successes = Some(pending_successes - 1);
+            } else {
+                return Err(MemFlashError);
+            }
+        }
+
+        for ((offset, mem_byte), new_byte) in self
+            .mem
+            .iter_mut()
+            .enumerate()
+            .skip(offset)
+            .take(bytes.len())
+            .zip(bytes)
+        {
+            assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
+            *mem_byte = *new_byte;
+        }
+
+        Ok(())
+    }
+
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), MemFlashError> {
+        let from = from as usize;
+        let to = to as usize;
+        assert!(from % ERASE_SIZE == 0);
+        assert!(to % ERASE_SIZE == 0, "To: {}, erase size: {}", to, ERASE_SIZE);
+        for i in from..to {
+            self.mem[i] = 0xFF;
+        }
+        Ok(())
+    }
+
     pub fn program(&mut self, offset: u32, bytes: &[u8]) -> Result<(), MemFlashError> {
         let offset = offset as usize;
         assert!(bytes.len() % WRITE_SIZE == 0);
@@ -43,12 +89,6 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> MemFla
         self.mem[offset..offset + bytes.len()].copy_from_slice(bytes);
 
         Ok(())
-    }
-
-    pub fn assert_eq(&self, offset: u32, expectation: &[u8]) {
-        for i in 0..expectation.len() {
-            assert_eq!(self.mem[offset as usize + i], expectation[i], "Index {}", i);
-        }
     }
 }
 
@@ -78,9 +118,7 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> ReadNo
     const READ_SIZE: usize = 1;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        let len = bytes.len();
-        bytes.copy_from_slice(&self.mem[offset as usize..offset as usize + len]);
-        Ok(())
+        self.read(offset, bytes)
     }
 
     fn capacity(&self) -> usize {
@@ -94,44 +132,12 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> NorFla
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = ERASE_SIZE;
 
-    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        let from = from as usize;
-        let to = to as usize;
-        assert!(from % ERASE_SIZE == 0);
-        assert!(to % ERASE_SIZE == 0, "To: {}, erase size: {}", to, ERASE_SIZE);
-        for i in from..to {
-            self.mem[i] = 0xFF;
-        }
-        Ok(())
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write(offset, bytes)
     }
 
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        let offset = offset as usize;
-        assert!(bytes.len() % WRITE_SIZE == 0);
-        assert!(offset % WRITE_SIZE == 0);
-        assert!(offset + bytes.len() <= SIZE);
-
-        if let Some(pending_successes) = self.pending_write_successes {
-            if pending_successes > 0 {
-                self.pending_write_successes = Some(pending_successes - 1);
-            } else {
-                return Err(MemFlashError);
-            }
-        }
-
-        for ((offset, mem_byte), new_byte) in self
-            .mem
-            .iter_mut()
-            .enumerate()
-            .skip(offset)
-            .take(bytes.len())
-            .zip(bytes)
-        {
-            assert_eq!(0xFF, *mem_byte, "Offset {} is not erased", offset);
-            *mem_byte = *new_byte;
-        }
-
-        Ok(())
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.erase(from, to)
     }
 }
 
@@ -142,11 +148,11 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncR
     const READ_SIZE: usize = 1;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        <Self as ReadNorFlash>::read(self, offset, bytes)
+        self.read(offset, bytes)
     }
 
     fn capacity(&self) -> usize {
-        <Self as ReadNorFlash>::capacity(self)
+        SIZE
     }
 }
 
@@ -157,11 +163,11 @@ impl<const SIZE: usize, const ERASE_SIZE: usize, const WRITE_SIZE: usize> AsyncN
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = ERASE_SIZE;
 
-    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        <Self as NorFlash>::erase(self, from, to)
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write(offset, bytes)
     }
 
-    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        <Self as NorFlash>::write(self, offset, bytes)
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.erase(from, to)
     }
 }

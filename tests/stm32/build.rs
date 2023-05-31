@@ -9,18 +9,24 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rustc-link-arg-bins=--nmagic");
 
     // too little RAM to run from RAM.
-    if cfg!(any(feature = "stm32f103c8", feature = "stm32c031c6")) {
+    if cfg!(any(
+        feature = "stm32f103c8",
+        feature = "stm32c031c6",
+        feature = "stm32wb55rg"
+    )) {
         println!("cargo:rustc-link-arg-bins=-Tlink.x");
         println!("cargo:rerun-if-changed=link.x");
-    } else if cfg!(feature = "stm32wb55rg") {
-        println!("cargo:rustc-link-arg-bins=-Tlink.x");
-        fs::write(out.join("memory.x"), include_bytes!("memory_ble.x")).unwrap();
     } else {
         println!("cargo:rustc-link-arg-bins=-Tlink_ram.x");
         println!("cargo:rerun-if-changed=link_ram.x");
     }
 
+    if cfg!(feature = "stm32wb55rg") {
+        println!("cargo:rustc-link-arg-bins=-Ttl_mbox.x");
+    }
+
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
+    println!("cargo:rustc-link-arg-bins=-Tteleprobe.x");
 
     Ok(())
 }

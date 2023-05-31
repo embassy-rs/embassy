@@ -1,0 +1,28 @@
+[package]
+name = "cyw43"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+defmt = ["dep:defmt"]
+log = ["dep:log"]
+
+# Fetch console logs from the WiFi firmware and forward them to `log` or `defmt`.
+firmware-logs = []
+
+[dependencies]
+embassy-time = { version = "0.1.0", path = "../embassy-time"}
+embassy-sync = { version = "0.2.0", path = "../embassy-sync"}
+embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
+embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel"}
+atomic-polyfill = "0.1.5"
+
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.17", optional = true }
+
+cortex-m = "0.7.6"
+cortex-m-rt = "0.7.0"
+futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
+
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.10" }
+num_enum = { version = "0.5.7", default-features = false }

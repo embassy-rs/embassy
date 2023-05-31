@@ -13,6 +13,8 @@ flavors = [
 ]
 
 [features]
+default = [ "rp-pac/rt" ]
+
 defmt = ["dep:defmt", "embassy-usb-driver?/defmt", "embassy-hal-common/defmt"]
 
 # critical section that is safe for multicore use
@@ -70,7 +72,7 @@ embedded-storage = { version = "0.3" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { version = "4", features = ["rt"] }
+rp-pac = { version = "4" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
@@ -81,3 +83,7 @@ paste = "1.0"
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
+
+[dev-dependencies]
+embassy-executor = { version = "0.2.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+static_cell = "1.0"

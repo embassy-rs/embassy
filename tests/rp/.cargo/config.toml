@@ -5,8 +5,8 @@
 #build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-#runner = "teleprobe client run --target rpi-pico --elf"
-runner = "teleprobe local run --chip RP2040 --elf"
+runner = "teleprobe client run"
+#runner = "teleprobe local run --chip RP2040 --elf"
 
 rustflags = [
   # Code-size optimizations.

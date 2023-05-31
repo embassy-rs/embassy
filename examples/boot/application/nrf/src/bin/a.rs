@@ -3,12 +3,13 @@
 #![macro_use]
 #![feature(type_alias_impl_trait)]
 
-use embassy_boot_nrf::FirmwareUpdater;
+use embassy_boot_nrf::{FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::nvmc::Nvmc;
 use embassy_nrf::wdt::{self, Watchdog};
+use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
 static APP_B: &[u8] = include_bytes!("../../b.bin");
@@ -45,9 +46,10 @@ async fn main(_spawner: Spawner) {
     };
 
     let nvmc = Nvmc::new(p.NVMC);
-    let mut nvmc = BlockingAsync::new(nvmc);
+    let nvmc = Mutex::new(BlockingAsync::new(nvmc));
 
-    let mut updater = FirmwareUpdater::default();
+    let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc);
+    let mut updater = FirmwareUpdater::new(config);
     loop {
         led.set_low();
         button.wait_for_any_edge().await;
@@ -56,11 +58,11 @@ async fn main(_spawner: Spawner) {
             for chunk in APP_B.chunks(4096) {
                 let mut buf: [u8; 4096] = [0; 4096];
                 buf[..chunk.len()].copy_from_slice(chunk);
-                updater.write_firmware(offset, &buf, &mut nvmc, 4096).await.unwrap();
+                updater.write_firmware(offset, &buf).await.unwrap();
                 offset += chunk.len();
             }
             let mut magic = [0; 4];
-            updater.mark_updated(&mut nvmc, &mut magic).await.unwrap();
+            updater.mark_updated(&mut magic).await.unwrap();
             led.set_high();
             cortex_m::peripheral::SCB::sys_reset();
         }

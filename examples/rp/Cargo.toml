@@ -12,13 +12,16 @@ embassy-executor = { version = "0.2.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["nightly", "unstable-traits", "defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "unstable-traits", "nightly", "unstable-pac", "time-driver", "critical-section-impl"] }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net-w5500 = { version = "0.1.0", path = "../../embassy-net-w5500", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-usb-logger = { version = "0.1.0", path = "../../embassy-usb-logger" }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"] }
 lora-phy = { version = "1" }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"] }
 lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"] }
+cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
+cyw43-pio = { path = "../../cyw43-pio", features = ["defmt", "overclock"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -36,6 +39,7 @@ st7789 = "0.6.1"
 display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 smart-leds = "0.3.0"
+heapless = "0.7.15"
 
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10" }
 embedded-hal-async = "0.2.0-alpha.1"
@@ -45,6 +49,7 @@ static_cell = "1.0.0"
 log = "0.4"
 pio-proc = "0.2"
 pio = "0.2.1"
+rand = { version = "0.8.5", default-features = false }
 
 [profile.release]
 debug = true

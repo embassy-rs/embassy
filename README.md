@@ -99,13 +99,6 @@ Examples are found in the `examples/` folder seperated by the chip manufacturer 
 
 ### Running examples
 
-- Setup git submodules (needed for STM32 examples)
-
-```bash
-git submodule init
-git submodule update
-```
-
 - Install `probe-rs-cli` with defmt support.
 
 ```bash
@@ -123,7 +116,7 @@ cd examples/nrf52840
 For example:
 
 ```bash
-cargo run --bin blinky
+cargo run --release --bin blinky
 ```
 
 ## Developing Embassy with Rust Analyzer based editors

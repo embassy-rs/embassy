@@ -4,8 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::ipcc::{Config, Ipcc};
-use embassy_stm32::tl_mbox::TlMbox;
+use embassy_stm32::tl_mbox::{Config, TlMbox};
 use embassy_stm32::{bind_interrupts, tl_mbox};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -44,12 +43,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut ipcc = Ipcc::new(p.IPCC, config);
-
-    let mbox = TlMbox::init(&mut ipcc, Irqs);
-
-    // initialize ble stack, does not return a response
-    mbox.shci_ble_init(&mut ipcc, Default::default());
+    let mbox = TlMbox::new(p.IPCC, Irqs, config);
 
     info!("waiting for coprocessor to boot");
     let event_box = mbox.read().await;
@@ -74,10 +68,11 @@ async fn main(_spawner: Spawner) {
         );
     }
 
-    mbox.shci_ble_init(&mut ipcc, Default::default());
+    // initialize ble stack, does not return a response
+    mbox.shci_ble_init(Default::default());
 
     info!("resetting BLE");
-    mbox.send_ble_cmd(&mut ipcc, &[0x01, 0x03, 0x0c, 0x00, 0x00]);
+    mbox.send_ble_cmd(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
 
     let event_box = mbox.read().await;
 
@@ -92,8 +87,12 @@ async fn main(_spawner: Spawner) {
 
     info!(
         "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
-        kind, code, payload_len, payload
+        kind,
+        code,
+        payload_len,
+        payload[3..]
     );
 
-    loop {}
+    info!("Test OK");
+    cortex_m::asm::bkpt();
 }

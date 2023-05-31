@@ -1,11 +1,14 @@
 #![no_std]
 #![no_main]
 
+use core::cell::RefCell;
+
 use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
-use embassy_stm32::flash::Flash;
+use embassy_stm32::flash::{Flash, BANK1_REGION};
+use embassy_sync::blocking_mutex::Mutex;
 
 #[entry]
 fn main() -> ! {
@@ -19,12 +22,16 @@ fn main() -> ! {
         }
     */
 
-    let mut bl: BootLoader<2048> = BootLoader::default();
     let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
-    let mut flash = BootFlash::new(layout.bank1_region);
-    let start = bl.prepare(&mut SingleFlashConfig::new(&mut flash));
-    core::mem::drop(flash);
-    unsafe { bl.load(start) }
+    let flash = Mutex::new(RefCell::new(layout.bank1_region));
+
+    let config = BootLoaderConfig::from_linkerfile_blocking(&flash);
+    let active_offset = config.active.offset();
+    let mut bl: BootLoader<_, _, _, 2048> = BootLoader::new(config);
+
+    bl.prepare();
+
+    unsafe { bl.load(BANK1_REGION.base + active_offset) }
 }
 
 #[no_mangle]

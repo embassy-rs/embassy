@@ -209,39 +209,39 @@ mod tests {
 
     #[test]
     fn test_compute_dead_time_value() {
-        struct test_run {
+        struct TestRun {
             value: u16,
             ckd: Ckd,
             bits: u8,
         }
 
         let fn_results = [
-            test_run {
+            TestRun {
                 value: 1,
                 ckd: Ckd::DIV1,
                 bits: 1,
             },
-            test_run {
+            TestRun {
                 value: 125,
                 ckd: Ckd::DIV1,
                 bits: 125,
             },
-            test_run {
+            TestRun {
                 value: 245,
                 ckd: Ckd::DIV1,
                 bits: 64 + 245 / 2,
             },
-            test_run {
+            TestRun {
                 value: 255,
                 ckd: Ckd::DIV2,
                 bits: 127,
             },
-            test_run {
+            TestRun {
                 value: 400,
                 ckd: Ckd::DIV1,
                 bits: 32 + (400u16 / 8) as u8,
             },
-            test_run {
+            TestRun {
                 value: 600,
                 ckd: Ckd::DIV4,
                 bits: 64 + (600u16 / 8) as u8,

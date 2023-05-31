@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#[path = "../common.rs"]
+mod common;
 
 use defmt::{assert, *};
 use embassy_executor::Spawner;

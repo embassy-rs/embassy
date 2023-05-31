@@ -2,13 +2,12 @@
 //!
 //! # Example (nrf52)
 //!
-//! ```rust
+//! ```rust,ignore
 //! use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
 //! use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
 //!
 //! static SPI_BUS: StaticCell<NoopMutex<RefCell<Spim<SPI3>>>> = StaticCell::new();
-//! let irq = interrupt::take!(SPIM3);
-//! let spi = Spim::new_txonly(p.SPI3, irq, p.P0_15, p.P0_18, Config::default());
+//! let spi = Spim::new_txonly(p.SPI3, Irqs, p.P0_15, p.P0_18, Config::default());
 //! let spi_bus = NoopMutex::new(RefCell::new(spi));
 //! let spi_bus = SPI_BUS.init(spi_bus);
 //!
