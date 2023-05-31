@@ -13,16 +13,8 @@ use embassy_net::Stack;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
 use embassy_rp::pio::Pio;
-use static_cell::StaticCell;
+use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
-
-macro_rules! singleton {
-    ($val:expr) => {{
-        type T = impl Sized;
-        static STATIC_CELL: StaticCell<T> = StaticCell::new();
-        STATIC_CELL.init_with(move || $val)
-    }};
-}
 
 #[embassy_executor::task]
 async fn wifi_task(
@@ -57,7 +49,7 @@ async fn main(spawner: Spawner) {
     let mut pio = Pio::new(p.PIO0);
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
-    let state = singleton!(cyw43::State::new());
+    let state = make_static!(cyw43::State::new());
     let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
     unwrap!(spawner.spawn(wifi_task(runner)));
 

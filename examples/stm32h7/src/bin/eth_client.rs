@@ -16,18 +16,8 @@ use embassy_time::{Duration, Timer};
 use embedded_io::asynch::Write;
 use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};
 use rand_core::RngCore;
-use static_cell::StaticCell;
+use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
-
-macro_rules! singleton {
-    ($val:expr) => {{
-        type T = impl Sized;
-        static STATIC_CELL: StaticCell<T> = StaticCell::new();
-        let (x,) = STATIC_CELL.init(($val,));
-        x
-    }};
-}
-
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
 });
@@ -57,7 +47,7 @@ async fn main(spawner: Spawner) -> ! {
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
     let device = Ethernet::new(
-        singleton!(PacketQueue::<16, 16>::new()),
+        make_static!(PacketQueue::<16, 16>::new()),
         p.ETH,
         Irqs,
         p.PA1,
@@ -82,7 +72,12 @@ async fn main(spawner: Spawner) -> ! {
     //});
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<2>::new()), seed));
+    let stack = &*make_static!(Stack::new(
+        device,
+        config,
+        make_static!(StackResources::<2>::new()),
+        seed
+    ));
 
     // Launch network task
     unwrap!(spawner.spawn(net_task(&stack)));

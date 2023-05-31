@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-net/nightly", "embassy-nrf/unstable-traits", "embassy-time/nightly", "embassy-time/unstable-traits",
+nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-net/nightly", "embassy-nrf/unstable-traits", "embassy-time/nightly", "embassy-time/unstable-traits", "static_cell/nightly",
            "embassy-usb", "embedded-io/async", "embassy-net", "embassy-lora", "lora-phy", "lorawan-device", "lorawan"]
 
 [dependencies]
@@ -26,7 +26,7 @@ lorawan = { version = "0.7.3", default-features = false, features = ["default-cr
 defmt = "0.3"
 defmt-rtt = "0.4"
 
-static_cell = "1.0"
+static_cell = "1.1"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
