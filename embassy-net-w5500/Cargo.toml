@@ -14,3 +14,8 @@ embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-
 embassy-time = { version = "0.1.0" }
 embassy-futures = { version = "0.1.0" }
 defmt = { version = "0.3", optional = true }
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-w5500-v$VERSION/embassy-net-w5500/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-w5500/src/"
+target = "thumbv7em-none-eabi"

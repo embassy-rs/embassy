@@ -29,6 +29,9 @@ docserver-builder -i ./embassy-time -o crates/embassy-time/git.zup
 docserver-builder -i ./embassy-usb -o crates/embassy-usb/git.zup
 docserver-builder -i ./embassy-usb-driver -o crates/embassy-usb-driver/git.zup
 docserver-builder -i ./embassy-usb-logger -o crates/embassy-usb-logger/git.zup
+docserver-builder -i ./cyw43 -o crates/cyw43/git.zup
+docserver-builder -i ./cyw43-pio -o crates/cyw43-pio/git.zup
+docserver-builder -i ./embassy-net-w5500 -o crates/embassy-net-w5500/git.zup
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})

@@ -15,3 +15,8 @@ pio-proc = "0.2"
 pio = "0.2.1"
 fixed = "1.23.1"
 defmt = { version = "0.3", optional = true }
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-pio-v$VERSION/cyw43-pio/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/cyw43-pio/src/"
+target = "thumbv6m-none-eabi"
