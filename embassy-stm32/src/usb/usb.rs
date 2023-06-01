@@ -14,7 +14,7 @@ use embassy_usb_driver::{
 
 use super::{DmPin, DpPin, Instance};
 use crate::gpio::sealed::AFType;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::Interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
@@ -260,8 +260,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
         into_ref!(dp, dm);
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let regs = T::regs();
 

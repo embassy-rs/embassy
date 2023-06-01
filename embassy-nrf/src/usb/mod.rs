@@ -18,7 +18,7 @@ use embassy_usb_driver::{Direction, EndpointAddress, EndpointError, EndpointInfo
 use pac::usbd::RegisterBlock;
 
 use self::vbus_detect::VbusDetect;
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt};
 use crate::util::slice_in_ram;
 use crate::{pac, Peripheral};
 
@@ -103,8 +103,8 @@ impl<'d, T: Instance, V: VbusDetect> Driver<'d, T, V> {
     ) -> Self {
         into_ref!(usb);
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self {
             _p: usb,

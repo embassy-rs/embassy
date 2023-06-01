@@ -3,7 +3,7 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -137,10 +137,9 @@ pub enum InterruptTrigger {
 }
 
 pub(crate) unsafe fn init() {
-    let irq = interrupt::IO_IRQ_BANK0::steal();
-    irq.disable();
-    irq.set_priority(interrupt::Priority::P3);
-    irq.enable();
+    interrupt::IO_IRQ_BANK0::disable();
+    interrupt::IO_IRQ_BANK0::set_priority(interrupt::Priority::P3);
+    interrupt::IO_IRQ_BANK0::enable();
 }
 
 #[interrupt]

@@ -27,7 +27,7 @@ pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Pari
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt};
 use crate::ppi::{AnyConfigurableChannel, ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::util::slice_in_ram_or;
@@ -168,8 +168,8 @@ impl<'d, T: Instance> Uarte<'d, T> {
         }
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
             (false, false) => false,
@@ -358,8 +358,8 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         let hardware_flow_control = cts.is_some();
         configure(r, config, hardware_flow_control);
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -551,8 +551,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         r.psel.txd.write(|w| w.connect().disconnected());
         r.psel.cts.write(|w| w.connect().disconnected());
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let hardware_flow_control = rts.is_some();
         configure(r, config, hardware_flow_control);

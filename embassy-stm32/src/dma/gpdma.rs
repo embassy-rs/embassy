@@ -12,7 +12,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::GPDMA_CHANNEL_COUNT;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
 
@@ -56,9 +56,8 @@ static STATE: State = State::new();
 pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
-            let irq = crate::interrupt::$irq::steal();
-            irq.set_priority(irq_priority);
-            irq.enable();
+            crate::interrupt::$irq::set_priority(irq_priority);
+            crate::interrupt::$irq::enable();
         };
     }
     crate::_generated::init_gpdma();

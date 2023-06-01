@@ -3,7 +3,7 @@ use core::slice;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU8, Ordering};
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_hal_common::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Timer};
@@ -80,8 +80,8 @@ pub(crate) fn init_buffers<'d, T: Instance + 'd>(
             w.set_txim(true);
         });
 
-        T::Interrupt::steal().unpend();
-        T::Interrupt::steal().enable();
+        T::Interrupt::unpend();
+        T::Interrupt::enable();
     };
 }
 
@@ -362,7 +362,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
             // FIFO and the number of bytes drops below a threshold. When the
             // FIFO was empty we have to manually pend the interrupt to shovel
             // TX data from the buffer into the FIFO.
-            unsafe { T::Interrupt::steal() }.pend();
+            T::Interrupt::pend();
             Poll::Ready(Ok(n))
         })
     }
@@ -398,7 +398,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
                 // FIFO and the number of bytes drops below a threshold. When the
                 // FIFO was empty we have to manually pend the interrupt to shovel
                 // TX data from the buffer into the FIFO.
-                unsafe { T::Interrupt::steal() }.pend();
+                T::Interrupt::pend();
                 return Ok(n);
             }
         }
@@ -460,7 +460,7 @@ impl<'d, T: Instance> Drop for BufferedUartRx<'d, T> {
             // TX is inactive if the the buffer is not available.
             // We can now unregister the interrupt handler
             if state.tx_buf.len() == 0 {
-                T::Interrupt::steal().disable();
+                T::Interrupt::disable();
             }
         }
     }
@@ -475,7 +475,7 @@ impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
             // RX is inactive if the the buffer is not available.
             // We can now unregister the interrupt handler
             if state.rx_buf.len() == 0 {
-                T::Interrupt::steal().disable();
+                T::Interrupt::disable();
             }
         }
     }

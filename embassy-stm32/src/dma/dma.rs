@@ -13,7 +13,7 @@ use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::DMA_CHANNEL_COUNT;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::Interrupt;
 use crate::pac::dma::{regs, vals};
 use crate::{interrupt, pac};
 
@@ -149,9 +149,8 @@ static STATE: State = State::new();
 pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
-            let irq = interrupt::$irq::steal();
-            irq.set_priority(irq_priority);
-            irq.enable();
+            interrupt::$irq::set_priority(irq_priority);
+            interrupt::$irq::enable();
         };
     }
     crate::_generated::init_dma();

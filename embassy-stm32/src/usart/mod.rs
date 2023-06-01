@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::{select, Either};
@@ -331,8 +331,8 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
         configure(r, &config, T::frequency(), T::KIND, true, false);
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         // create state once!
         let _s = T::state();
@@ -732,8 +732,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         configure(r, &config, T::frequency(), T::KIND, true, true);
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         // create state once!
         let _s = T::state();

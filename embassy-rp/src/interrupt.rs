@@ -1,7 +1,7 @@
 //! Interrupt definitions and macros to bind them.
 pub use cortex_m::interrupt::{CriticalSection, Mutex};
 use embassy_cortex_m::interrupt::_export::declare;
-pub use embassy_cortex_m::interrupt::{Binding, Handler, Interrupt, InterruptExt, Priority};
+pub use embassy_cortex_m::interrupt::{Binding, Handler, Interrupt, Priority};
 
 use crate::pac::Interrupt as InterruptEnum;
 declare!(TIMER_IRQ_0);

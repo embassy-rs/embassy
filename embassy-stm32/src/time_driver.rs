@@ -11,7 +11,7 @@ use embassy_time::driver::{AlarmHandle, Driver};
 use embassy_time::TICK_HZ;
 use stm32_metapac::timer::regs;
 
-use crate::interrupt::InterruptExt;
+use crate::interrupt::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
@@ -177,9 +177,8 @@ impl RtcDriver {
                 w.set_ccie(0, true);
             });
 
-            let irq: <T as BasicInstance>::Interrupt = core::mem::transmute(());
-            irq.unpend();
-            irq.enable();
+            <T as BasicInstance>::Interrupt::unpend();
+            <T as BasicInstance>::Interrupt::enable();
 
             r.cr1().modify(|w| w.set_cen(true));
         })

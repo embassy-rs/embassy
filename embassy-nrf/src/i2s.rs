@@ -9,7 +9,6 @@ use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::InterruptExt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
@@ -564,8 +563,8 @@ impl<'d, T: Instance> I2S<'d, T> {
     }
 
     fn setup_interrupt(&self) {
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let device = Device::<T>::new();
         device.disable_tx_ptr_interrupt();

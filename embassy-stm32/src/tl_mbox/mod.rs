@@ -2,7 +2,7 @@ use core::mem::MaybeUninit;
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use bit_field::BitField;
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -379,11 +379,11 @@ impl<'d> TlMbox<'d> {
         MemoryManager::enable();
 
         // enable interrupts
-        unsafe { crate::interrupt::IPCC_C1_RX::steal() }.unpend();
-        unsafe { crate::interrupt::IPCC_C1_TX::steal() }.unpend();
+        crate::interrupt::IPCC_C1_RX::unpend();
+        crate::interrupt::IPCC_C1_TX::unpend();
 
-        unsafe { crate::interrupt::IPCC_C1_RX::steal() }.enable();
-        unsafe { crate::interrupt::IPCC_C1_TX::steal() }.enable();
+        unsafe { crate::interrupt::IPCC_C1_RX::enable() };
+        unsafe { crate::interrupt::IPCC_C1_TX::enable() };
 
         Self { _ipcc: ipcc }
     }

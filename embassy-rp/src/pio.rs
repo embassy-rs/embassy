@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::extra::U8;
@@ -110,17 +110,15 @@ unsafe fn PIO1_IRQ_0() {
 }
 
 pub(crate) unsafe fn init() {
-    let irq = interrupt::PIO0_IRQ_0::steal();
-    irq.disable();
-    irq.set_priority(interrupt::Priority::P3);
+    interrupt::PIO0_IRQ_0::disable();
+    interrupt::PIO0_IRQ_0::set_priority(interrupt::Priority::P3);
     pac::PIO0.irqs(0).inte().write(|m| m.0 = 0);
-    irq.enable();
+    interrupt::PIO0_IRQ_0::enable();
 
-    let irq = interrupt::PIO1_IRQ_0::steal();
-    irq.disable();
-    irq.set_priority(interrupt::Priority::P3);
+    interrupt::PIO1_IRQ_0::disable();
+    interrupt::PIO1_IRQ_0::set_priority(interrupt::Priority::P3);
     pac::PIO1.irqs(0).inte().write(|m| m.0 = 0);
-    irq.enable();
+    interrupt::PIO1_IRQ_0::enable();
 }
 
 /// Future that waits for TX-FIFO to become writable

@@ -14,7 +14,7 @@ use futures::future::poll_fn;
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin;
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::interrupt::{self, InterruptExt};
+use crate::interrupt::{self};
 use crate::Peripheral;
 
 /// Interrupt handler.
@@ -94,8 +94,8 @@ impl<'d, T: Instance> Pdm<'d, T> {
         r.gainr.write(|w| w.gainr().default_gain());
 
         // IRQ
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         r.enable.write(|w| w.enable().set_bit());
 

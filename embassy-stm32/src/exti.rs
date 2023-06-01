@@ -354,13 +354,13 @@ impl_exti!(EXTI15, 15);
 
 macro_rules! enable_irq {
     ($e:ident) => {
-        crate::interrupt::$e::steal().enable();
+        crate::interrupt::$e::enable();
     };
 }
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    use crate::interrupt::{Interrupt, InterruptExt};
+    use crate::interrupt::Interrupt;
 
     foreach_exti_irq!(enable_irq);
 

@@ -2,7 +2,7 @@ mod descriptors;
 
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
@@ -238,8 +238,8 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             P::phy_reset(&mut this);
             P::phy_init(&mut this);
 
-            interrupt::ETH::steal().unpend();
-            interrupt::ETH::steal().enable();
+            interrupt::ETH::unpend();
+            interrupt::ETH::enable();
 
             this
         }

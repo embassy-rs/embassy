@@ -6,12 +6,11 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::interrupt::InterruptExt;
+use crate::interrupt::Interrupt;
 use crate::{interrupt, Peripheral};
 
 /// Quadrature decoder driver.
@@ -134,8 +133,8 @@ impl<'d, T: Instance> Qdec<'d, T> {
             SamplePeriod::_131ms => w.sampleper()._131ms(),
         });
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         // Enable peripheral
         r.enable.write(|w| w.enable().set_bit());

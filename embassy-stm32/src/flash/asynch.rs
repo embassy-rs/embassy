@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use atomic_polyfill::{fence, Ordering};
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -23,9 +23,8 @@ impl<'d> Flash<'d, Async> {
     ) -> Self {
         into_ref!(p);
 
-        let flash_irq = unsafe { crate::interrupt::FLASH::steal() };
-        flash_irq.unpend();
-        flash_irq.enable();
+        crate::interrupt::FLASH::unpend();
+        unsafe { crate::interrupt::FLASH::enable() };
 
         Self {
             inner: p,

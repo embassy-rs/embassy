@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicBool, AtomicU16, Ordering};
-use embassy_cortex_m::interrupt::InterruptExt;
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
@@ -629,7 +629,7 @@ impl<'d, T: Instance> Bus<'d, T> {
     }
 
     fn disable(&mut self) {
-        unsafe { T::Interrupt::steal() }.disable();
+        T::Interrupt::disable();
 
         <T as RccPeripheral>::disable();
 
@@ -902,8 +902,8 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
             <T as RccPeripheral>::enable();
             <T as RccPeripheral>::reset();
 
-            T::Interrupt::steal().unpend();
-            T::Interrupt::steal().enable();
+            T::Interrupt::unpend();
+            T::Interrupt::enable();
 
             let r = T::regs();
             let core_id = r.cid().read().0;
