@@ -24,7 +24,7 @@ pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Pari
 
 use crate::gpio::sealed::Pin;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::{self, InterruptExt};
+use crate::interrupt::{self};
 use crate::ppi::{
     self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
 };
@@ -362,8 +362,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.disable();
         ppi_group.add_channel(&ppi_ch2);
 
-        unsafe { U::Interrupt::steal() }.pend();
-        unsafe { U::Interrupt::steal() }.enable();
+        U::Interrupt::pend();
+        unsafe { U::Interrupt::enable() };
 
         Self {
             _peri: peri,
@@ -375,7 +375,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     fn pend_irq() {
-        unsafe { <U::Interrupt as Interrupt>::steal() }.pend()
+        U::Interrupt::pend()
     }
 
     /// Adjust the baud rate to the provided value.

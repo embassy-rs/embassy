@@ -3,13 +3,12 @@
 use core::future::poll_fn;
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I30F2;
 
-use crate::interrupt::InterruptExt;
+use crate::interrupt::Interrupt;
 use crate::peripherals::TEMP;
 use crate::{interrupt, pac, Peripheral};
 
@@ -42,8 +41,8 @@ impl<'d> Temp<'d> {
         into_ref!(_peri);
 
         // Enable interrupt that signals temperature values
-        unsafe { interrupt::TEMP::steal() }.unpend();
-        unsafe { interrupt::TEMP::steal() }.enable();
+        interrupt::TEMP::unpend();
+        unsafe { interrupt::TEMP::enable() };
 
         Self { _peri }
     }

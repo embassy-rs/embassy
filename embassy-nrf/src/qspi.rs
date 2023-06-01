@@ -12,7 +12,7 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{self, Pin as GpioPin};
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt};
 pub use crate::pac::qspi::ifconfig0::{
     ADDRMODE_A as AddressMode, PPSIZE_A as WritePageSize, READOC_A as ReadOpcode, WRITEOC_A as WriteOpcode,
 };
@@ -207,8 +207,8 @@ impl<'d, T: Instance> Qspi<'d, T> {
             w
         });
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         // Enable it
         r.enable.write(|w| w.enable().enabled());

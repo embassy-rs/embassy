@@ -8,7 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::Interrupt;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -346,8 +346,8 @@ where
             });
         }
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self { inner: peri, dma }
     }

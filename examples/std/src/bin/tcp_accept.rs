@@ -108,7 +108,7 @@ async fn main_task(spawner: Spawner) {
         info!("Closing the connection");
         socket.abort();
         info!("Flushing the RST out...");
-        socket.flush().await;
+        _ = socket.flush().await;
         info!("Finished with the socket");
     }
 }

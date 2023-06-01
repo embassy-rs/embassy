@@ -8,12 +8,11 @@ use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::interrupt::InterruptExt;
+use crate::interrupt::Interrupt;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -99,8 +98,8 @@ impl<'d, T: Instance> Rng<'d, T> {
         this.stop();
         this.disable_irq();
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         this
     }

@@ -2,7 +2,7 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
@@ -82,14 +82,12 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
         let i2c = Self::new_inner(peri, scl.map_into(), sda.map_into(), config);
 
-        unsafe {
-            let i2c = T::regs();
+        let r = T::regs();
 
-            // mask everything initially
-            i2c.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
-            T::Interrupt::steal().unpend();
-            T::Interrupt::steal().enable();
-        }
+        // mask everything initially
+        unsafe { r.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0)) }
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         i2c
     }

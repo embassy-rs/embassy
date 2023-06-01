@@ -216,8 +216,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
             });
         }
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self {
             rx: BufferedUartRx { phantom: PhantomData },
@@ -245,7 +245,7 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
                 rx_reader.pop_done(len);
 
                 if do_pend {
-                    unsafe { T::Interrupt::steal().pend() };
+                    T::Interrupt::pend();
                 }
 
                 return Poll::Ready(Ok(len));
@@ -271,7 +271,7 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
                 rx_reader.pop_done(len);
 
                 if do_pend {
-                    unsafe { T::Interrupt::steal().pend() };
+                    T::Interrupt::pend();
                 }
 
                 return Ok(len);
@@ -301,7 +301,7 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
         let full = state.rx_buf.is_full();
         rx_reader.pop_done(amt);
         if full {
-            unsafe { T::Interrupt::steal().pend() };
+            T::Interrupt::pend();
         }
     }
 }
@@ -324,7 +324,7 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
             tx_writer.push_done(n);
 
             if empty {
-                unsafe { T::Interrupt::steal() }.pend();
+                T::Interrupt::pend();
             }
 
             Poll::Ready(Ok(n))
@@ -358,7 +358,7 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
                 tx_writer.push_done(n);
 
                 if empty {
-                    unsafe { T::Interrupt::steal() }.pend();
+                    T::Interrupt::pend();
                 }
 
                 return Ok(n);
@@ -385,7 +385,7 @@ impl<'d, T: BasicInstance> Drop for BufferedUartRx<'d, T> {
             // TX is inactive if the the buffer is not available.
             // We can now unregister the interrupt handler
             if state.tx_buf.len() == 0 {
-                T::Interrupt::steal().disable();
+                T::Interrupt::disable();
             }
         }
     }
@@ -400,7 +400,7 @@ impl<'d, T: BasicInstance> Drop for BufferedUartTx<'d, T> {
             // RX is inactive if the the buffer is not available.
             // We can now unregister the interrupt handler
             if state.rx_buf.len() == 0 {
-                T::Interrupt::steal().disable();
+                T::Interrupt::disable();
             }
         }
     }

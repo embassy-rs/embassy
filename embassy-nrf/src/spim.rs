@@ -15,7 +15,7 @@ pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt};
 use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{pac, Peripheral};
 
@@ -207,8 +207,8 @@ impl<'d, T: Instance> Spim<'d, T> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self { _p: spim }
     }

@@ -8,7 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embedded_hal_02::adc::{Channel, OneShot};
 
 use crate::gpio::Pin;
-use crate::interrupt::{self, InterruptExt, ADC_IRQ_FIFO};
+use crate::interrupt::{self, ADC_IRQ_FIFO};
 use crate::peripherals::ADC;
 use crate::{pac, peripherals, Peripheral};
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -63,8 +63,8 @@ impl<'d> Adc<'d> {
 
         // Setup IRQ
         unsafe {
-            ADC_IRQ_FIFO::steal().unpend();
-            ADC_IRQ_FIFO::steal().enable();
+            ADC_IRQ_FIFO::unpend();
+            ADC_IRQ_FIFO::enable();
         };
 
         Self { phantom: PhantomData }

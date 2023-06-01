@@ -11,7 +11,7 @@ use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::Interrupt;
 use crate::{pac, peripherals, Peripheral, RegExt};
 
 pub(crate) mod sealed {
@@ -106,10 +106,8 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
-        unsafe {
-            T::Interrupt::steal().unpend();
-            T::Interrupt::steal().enable();
-        }
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let regs = T::regs();
         unsafe {

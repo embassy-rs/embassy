@@ -1,10 +1,8 @@
 //! Interrupt handling for cortex-m devices.
-use core::{mem, ptr};
+use core::mem;
+use core::sync::atomic::{compiler_fence, Ordering};
 
-use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
 use cortex_m::peripheral::NVIC;
-use embassy_hal_common::Peripheral;
-pub use embassy_macros::cortex_m_interrupt_take as take;
 
 /// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
 #[doc(hidden)]
@@ -43,22 +41,6 @@ pub trait Handler<I: Interrupt> {
 /// This allows drivers to check bindings at compile-time.
 pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
 
-/// Implementation detail, do not use outside embassy crates.
-#[doc(hidden)]
-pub struct DynHandler {
-    pub func: AtomicPtr<()>,
-    pub ctx: AtomicPtr<()>,
-}
-
-impl DynHandler {
-    pub const fn new() -> Self {
-        Self {
-            func: AtomicPtr::new(ptr::null_mut()),
-            ctx: AtomicPtr::new(ptr::null_mut()),
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 pub(crate) struct NrWrap(pub(crate) u16);
 unsafe impl cortex_m::interrupt::InterruptNumber for NrWrap {
@@ -69,144 +51,68 @@ unsafe impl cortex_m::interrupt::InterruptNumber for NrWrap {
 
 /// Represents an interrupt type that can be configured by embassy to handle
 /// interrupts.
-pub unsafe trait Interrupt: Peripheral<P = Self> {
+pub unsafe trait Interrupt {
     /// Return the NVIC interrupt number for this interrupt.
-    fn number(&self) -> u16;
-    /// Steal an instance of this interrupt
-    ///
-    /// # Safety
-    ///
-    /// This may panic if the interrupt has already been stolen and configured.
-    unsafe fn steal() -> Self;
+    fn number() -> u16;
 
-    /// Implementation detail, do not use outside embassy crates.
-    #[doc(hidden)]
-    unsafe fn __handler(&self) -> &'static DynHandler;
-}
-
-/// Represents additional behavior for all interrupts.
-pub trait InterruptExt: Interrupt {
-    /// Configure the interrupt handler for this interrupt.
-    ///
-    /// # Safety
-    ///
-    /// It is the responsibility of the caller to ensure the handler
-    /// points to a valid handler as long as interrupts are enabled.
-    fn set_handler(&self, func: unsafe fn(*mut ()));
-
-    /// Remove the interrupt handler for this interrupt.
-    fn remove_handler(&self);
-
-    /// Set point to a context that is passed to the interrupt handler when
-    /// an interrupt is pending.
-    ///
-    /// # Safety
-    ///
-    /// It is the responsibility of the caller to ensure the context
-    /// points to a valid handler as long as interrupts are enabled.
-    fn set_handler_context(&self, ctx: *mut ());
-
-    /// Enable the interrupt. Once enabled, the interrupt handler may
-    /// be called "any time".
-    fn enable(&self);
+    /// Enable the interrupt.
+    #[inline]
+    unsafe fn enable() {
+        compiler_fence(Ordering::SeqCst);
+        NVIC::unmask(NrWrap(Self::number()))
+    }
 
     /// Disable the interrupt.
-    fn disable(&self);
+    #[inline]
+    fn disable() {
+        NVIC::mask(NrWrap(Self::number()));
+        compiler_fence(Ordering::SeqCst);
+    }
 
     /// Check if interrupt is being handled.
+    #[inline]
     #[cfg(not(armv6m))]
-    fn is_active(&self) -> bool;
+    fn is_active() -> bool {
+        NVIC::is_active(NrWrap(Self::number()))
+    }
 
     /// Check if interrupt is enabled.
-    fn is_enabled(&self) -> bool;
+    #[inline]
+    fn is_enabled() -> bool {
+        NVIC::is_enabled(NrWrap(Self::number()))
+    }
 
     /// Check if interrupt is pending.
-    fn is_pending(&self) -> bool;
+    #[inline]
+    fn is_pending() -> bool {
+        NVIC::is_pending(NrWrap(Self::number()))
+    }
 
     /// Set interrupt pending.
-    fn pend(&self);
+    #[inline]
+    fn pend() {
+        NVIC::pend(NrWrap(Self::number()))
+    }
 
     /// Unset interrupt pending.
-    fn unpend(&self);
+    #[inline]
+    fn unpend() {
+        NVIC::unpend(NrWrap(Self::number()))
+    }
 
     /// Get the priority of the interrupt.
-    fn get_priority(&self) -> Priority;
+    #[inline]
+    fn get_priority() -> Priority {
+        Priority::from(NVIC::get_priority(NrWrap(Self::number())))
+    }
 
     /// Set the interrupt priority.
-    fn set_priority(&self, prio: Priority);
-}
-
-impl<T: Interrupt + ?Sized> InterruptExt for T {
-    fn set_handler(&self, func: unsafe fn(*mut ())) {
-        compiler_fence(Ordering::SeqCst);
-        let handler = unsafe { self.__handler() };
-        handler.func.store(func as *mut (), Ordering::Relaxed);
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    fn remove_handler(&self) {
-        compiler_fence(Ordering::SeqCst);
-        let handler = unsafe { self.__handler() };
-        handler.func.store(ptr::null_mut(), Ordering::Relaxed);
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    fn set_handler_context(&self, ctx: *mut ()) {
-        let handler = unsafe { self.__handler() };
-        handler.ctx.store(ctx, Ordering::Relaxed);
-    }
-
     #[inline]
-    fn enable(&self) {
-        compiler_fence(Ordering::SeqCst);
-        unsafe {
-            NVIC::unmask(NrWrap(self.number()));
-        }
-    }
-
-    #[inline]
-    fn disable(&self) {
-        NVIC::mask(NrWrap(self.number()));
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    #[inline]
-    #[cfg(not(armv6m))]
-    fn is_active(&self) -> bool {
-        NVIC::is_active(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn is_enabled(&self) -> bool {
-        NVIC::is_enabled(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn is_pending(&self) -> bool {
-        NVIC::is_pending(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn pend(&self) {
-        NVIC::pend(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn unpend(&self) {
-        NVIC::unpend(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn get_priority(&self) -> Priority {
-        Priority::from(NVIC::get_priority(NrWrap(self.number())))
-    }
-
-    #[inline]
-    fn set_priority(&self, prio: Priority) {
-        unsafe {
+    fn set_priority(prio: Priority) {
+        critical_section::with(|_| unsafe {
             let mut nvic: cortex_m::peripheral::NVIC = mem::transmute(());
-            nvic.set_priority(NrWrap(self.number()), prio.into())
-        }
+            nvic.set_priority(NrWrap(Self::number()), prio.into())
+        })
     }
 }
 

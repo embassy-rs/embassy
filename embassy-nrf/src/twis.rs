@@ -15,7 +15,7 @@ use embassy_time::{Duration, Instant};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt};
 use crate::util::slice_in_ram_or;
 use crate::{gpio, pac, Peripheral};
 
@@ -204,8 +204,8 @@ impl<'d, T: Instance> Twis<'d, T> {
         // Generate suspend on read event
         r.shorts.write(|w| w.read_suspend().enabled());
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self { _p: twis }
     }

@@ -6,7 +6,7 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -189,8 +189,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
-        unsafe { interrupt::SAADC::steal() }.unpend();
-        unsafe { interrupt::SAADC::steal() }.enable();
+        interrupt::SAADC::unpend();
+        unsafe { interrupt::SAADC::enable() };
 
         Self { _p: saadc }
     }

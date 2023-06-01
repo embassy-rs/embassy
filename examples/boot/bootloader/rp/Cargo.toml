@@ -30,3 +30,4 @@ debug = ["defmt-rtt", "defmt"]
 
 [profile.release]
 debug = true
+opt-level = 's'

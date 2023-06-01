@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt, InterruptExt};
+use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_futures::select::{select, Either};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -245,12 +245,10 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
     fn new_inner(has_irq: bool, rx_dma: Option<PeripheralRef<'d, AnyChannel>>) -> Self {
         debug_assert_eq!(has_irq, rx_dma.is_some());
         if has_irq {
-            unsafe {
-                // disable all error interrupts initially
-                T::regs().uartimsc().write(|w| w.0 = 0);
-                T::Interrupt::steal().unpend();
-                T::Interrupt::steal().enable();
-            }
+            // disable all error interrupts initially
+            unsafe { T::regs().uartimsc().write(|w| w.0 = 0) }
+            T::Interrupt::unpend();
+            unsafe { T::Interrupt::enable() };
         }
         Self {
             rx_dma,
@@ -295,7 +293,7 @@ impl<'d, T: Instance, M: Mode> Drop for UartRx<'d, T, M> {
     fn drop(&mut self) {
         if let Some(_) = self.rx_dma {
             unsafe {
-                T::Interrupt::steal().disable();
+                T::Interrupt::disable();
                 // clear dma flags. irq handlers use these to disambiguate among themselves.
                 T::regs().uartdmacr().write_clear(|reg| {
                     reg.set_rxdmae(true);

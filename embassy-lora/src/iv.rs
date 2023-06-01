@@ -22,7 +22,7 @@ pub struct InterruptHandler {}
 #[cfg(feature = "stm32wl")]
 impl interrupt::Handler<interrupt::SUBGHZ_RADIO> for InterruptHandler {
     unsafe fn on_interrupt() {
-        unsafe { SUBGHZ_RADIO::steal() }.disable();
+        interrupt::SUBGHZ_RADIO::disable();
         IRQ_SIGNAL.signal(());
     }
 }
@@ -49,7 +49,7 @@ where
         rf_switch_rx: Option<CTRL>,
         rf_switch_tx: Option<CTRL>,
     ) -> Result<Self, RadioError> {
-        unsafe { interrupt::SUBGHZ_RADIO::steal() }.disable();
+        interrupt::SUBGHZ_RADIO::disable();
         Ok(Self {
             board_type: BoardType::Stm32wlSx1262, // updated when associated with a specific LoRa board
             rf_switch_rx,
@@ -95,7 +95,7 @@ where
     }
 
     async fn await_irq(&mut self) -> Result<(), RadioError> {
-        unsafe { interrupt::SUBGHZ_RADIO::steal() }.enable();
+        unsafe { interrupt::SUBGHZ_RADIO::enable() };
         IRQ_SIGNAL.wait().await;
         Ok(())
     }

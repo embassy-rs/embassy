@@ -7,7 +7,7 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::BUS_WAKER;
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt};
 use crate::pac;
 
 /// Trait for detecting USB VBUS power.
@@ -80,8 +80,8 @@ impl HardwareVbusDetect {
     pub fn new(_irq: impl interrupt::Binding<UsbRegIrq, InterruptHandler> + 'static) -> Self {
         let regs = unsafe { &*UsbRegPeri::ptr() };
 
-        unsafe { UsbRegIrq::steal() }.unpend();
-        unsafe { UsbRegIrq::steal() }.enable();
+        UsbRegIrq::unpend();
+        unsafe { UsbRegIrq::enable() };
 
         regs.intenset
             .write(|w| w.usbdetected().set().usbremoved().set().usbpwrrdy().set());

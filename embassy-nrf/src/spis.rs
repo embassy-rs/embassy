@@ -13,7 +13,7 @@ pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MO
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin};
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::{self, Interrupt};
 use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{pac, Peripheral};
 
@@ -214,8 +214,8 @@ impl<'d, T: Instance> Spis<'d, T> {
         // Disable all events interrupts.
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self { _p: spis }
     }

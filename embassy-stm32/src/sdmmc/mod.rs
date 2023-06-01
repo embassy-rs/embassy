@@ -14,7 +14,7 @@ use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID,
 use crate::dma::NoDma;
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, Pull, Speed};
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -447,8 +447,8 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         T::enable();
         T::reset();
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let regs = T::regs();
         unsafe {
@@ -1288,7 +1288,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
 impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Drop for Sdmmc<'d, T, Dma> {
     fn drop(&mut self) {
-        unsafe { T::Interrupt::steal() }.disable();
+        T::Interrupt::disable();
         unsafe { Self::on_drop() };
 
         critical_section::with(|_| unsafe {
