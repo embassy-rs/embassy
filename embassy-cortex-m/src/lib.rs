@@ -7,4 +7,3 @@ pub(crate) mod fmt;
 
 pub use embassy_executor as executor;
 pub mod interrupt;
-pub mod peripheral;
