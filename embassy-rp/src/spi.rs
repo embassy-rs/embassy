@@ -360,17 +360,21 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
                 reg.set_txdmae(true);
             })
         };
-        let tx_ch = self.tx_dma.as_mut().unwrap();
-        let tx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            crate::dma::write_repeated(tx_ch, self.inner.regs().dr().ptr() as *mut u8, buffer.len(), T::TX_DREQ)
-        };
+
+        // Start RX first. Transfer starts when TX starts, if RX
+        // is not started yet we might lose bytes.
         let rx_ch = self.rx_dma.as_mut().unwrap();
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
             crate::dma::read(rx_ch, self.inner.regs().dr().ptr() as *const _, buffer, T::RX_DREQ)
+        };
+
+        let tx_ch = self.tx_dma.as_mut().unwrap();
+        let tx_transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::write_repeated(tx_ch, self.inner.regs().dr().ptr() as *mut u8, buffer.len(), T::TX_DREQ)
         };
         join(tx_transfer, rx_transfer).await;
         Ok(())
@@ -395,6 +399,15 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             })
         };
 
+        // Start RX first. Transfer starts when TX starts, if RX
+        // is not started yet we might lose bytes.
+        let rx_ch = self.rx_dma.as_mut().unwrap();
+        let rx_transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::read(rx_ch, self.inner.regs().dr().ptr() as *const _, rx_ptr, T::RX_DREQ)
+        };
+
         let mut tx_ch = self.tx_dma.as_mut().unwrap();
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
@@ -410,13 +423,6 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
                     crate::dma::write_repeated(tx_ch, p.dr().ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
                 }
             }
-        };
-
-        let rx_ch = self.rx_dma.as_mut().unwrap();
-        let rx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().ptr() as *const _, rx_ptr, T::RX_DREQ)
         };
         join(tx_transfer, rx_transfer).await;
 
