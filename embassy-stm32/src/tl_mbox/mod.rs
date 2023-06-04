@@ -74,9 +74,9 @@ impl<'d> TlMbox<'d> {
     ) -> Self {
         into_ref!(ipcc);
 
-        unsafe {
-            compiler_fence(Ordering::AcqRel);
+        compiler_fence(Ordering::SeqCst);
 
+        unsafe {
             TL_REF_TABLE.as_mut_ptr().write_volatile(RefTable {
                 device_info_table: TL_DEVICE_INFO_TABLE.as_ptr(),
                 ble_table: TL_BLE_TABLE.as_ptr(),
@@ -90,9 +90,9 @@ impl<'d> TlMbox<'d> {
                 ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
 
-            // info!("TL_REF_TABLE addr: {:x}", TL_REF_TABLE.as_ptr() as usize);
+            compiler_fence(Ordering::SeqCst);
 
-            compiler_fence(Ordering::AcqRel);
+            // info!("TL_REF_TABLE addr: {:x}", TL_REF_TABLE.as_ptr() as usize);
 
             TL_SYS_TABLE = MaybeUninit::zeroed();
             TL_DEVICE_INFO_TABLE = MaybeUninit::zeroed();
@@ -121,23 +121,32 @@ impl<'d> TlMbox<'d> {
                 MAC_802_15_4_CMD_BUFFER = MaybeUninit::zeroed();
                 MAC_802_15_4_NOTIF_RSP_EVT_BUFFER = MaybeUninit::zeroed();
             }
-
-            compiler_fence(Ordering::AcqRel);
         }
 
-        Ipcc::enable(config);
+        compiler_fence(Ordering::SeqCst);
+
+        #[cfg(feature = "ble")]
+        let ble_subsystem = BleSubsystem::new();
+        let sys_subsystem = SysSubsystem::new();
+        let thread_subsystem = ThreadSubsystem::new();
+        #[cfg(feature = "mac")]
+        let mac_subsystem = MacSubsystem::new();
 
         // MemoryManager is special
         MemoryManager::enable();
 
+        compiler_fence(Ordering::SeqCst);
+
+        Ipcc::enable(config);
+
         Self {
             _ipcc: ipcc,
             #[cfg(feature = "ble")]
-            ble_subsystem: BleSubsystem::new(),
-            sys_subsystem: SysSubsystem::new(),
-            thread_subsystem: ThreadSubsystem::new(),
+            ble_subsystem: ble_subsystem,
+            sys_subsystem: sys_subsystem,
+            thread_subsystem: thread_subsystem,
             #[cfg(feature = "mac")]
-            mac_subsystem: MacSubsystem::new(),
+            mac_subsystem: mac_subsystem,
         }
     }
 
