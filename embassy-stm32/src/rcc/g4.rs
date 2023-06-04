@@ -1,4 +1,4 @@
-use stm32_metapac::rcc::vals::{Hpre, Ppre, Sw};
+use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
 
 use crate::pac::{PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -15,6 +15,7 @@ pub const LSI_FREQ: Hertz = Hertz(32_000);
 pub enum ClockSrc {
     HSE(Hertz),
     HSI16,
+    PLL(PllSrc, PllM, PllN, PllClkDiv),
 }
 
 /// AHB prescaler
@@ -39,6 +40,128 @@ pub enum APBPrescaler {
     Div4,
     Div8,
     Div16,
+}
+
+/// PLL clock input source
+#[derive(Clone, Copy, Debug)]
+pub enum PllSrc {
+    HSI16,
+    HSE(Hertz),
+}
+
+impl Into<Pllsrc> for PllSrc {
+    fn into(self) -> Pllsrc {
+        match self {
+            PllSrc::HSE(..) => Pllsrc::HSE,
+            PllSrc::HSI16 => Pllsrc::HSI16,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum PllClkDiv {
+    Div2,
+    Div4,
+    Div6,
+    Div8,
+}
+
+impl PllClkDiv {
+    pub fn to_div(self) -> u32 {
+        let val: u8 = self.into();
+        (val as u32 + 1) * 2
+    }
+}
+
+impl From<PllClkDiv> for u8 {
+    fn from(val: PllClkDiv) -> u8 {
+        match val {
+            PllClkDiv::Div2 => 0b00,
+            PllClkDiv::Div4 => 0b01,
+            PllClkDiv::Div6 => 0b10,
+            PllClkDiv::Div8 => 0b11,
+        }
+    }
+}
+
+seq_macro::seq!(N in 8..=127 {
+    #[derive(Clone, Copy)]
+    pub enum PllN {
+        #(
+            Mul~N,
+        )*
+    }
+
+    impl From<PllN> for u8 {
+        fn from(val: PllN) -> u8 {
+            match val {
+                #(
+                    PllN::Mul~N => N,
+                )*
+            }
+        }
+    }
+
+    impl PllN {
+        pub fn to_mul(self) -> u32 {
+            match self {
+                #(
+                    PllN::Mul~N => N,
+                )*
+            }
+        }
+    }
+});
+
+// Pre-division
+#[derive(Copy, Clone)]
+pub enum PllM {
+    Div1,
+    Div2,
+    Div3,
+    Div4,
+    Div5,
+    Div6,
+    Div7,
+    Div8,
+    Div9,
+    Div10,
+    Div11,
+    Div12,
+    Div13,
+    Div14,
+    Div15,
+    Div16,
+}
+
+impl PllM {
+    pub fn to_div(self) -> u32 {
+        let val: u8 = self.into();
+        val as u32 + 1
+    }
+}
+
+impl From<PllM> for u8 {
+    fn from(val: PllM) -> u8 {
+        match val {
+            PllM::Div1 => 0b0000,
+            PllM::Div2 => 0b0001,
+            PllM::Div3 => 0b0010,
+            PllM::Div4 => 0b0011,
+            PllM::Div5 => 0b0100,
+            PllM::Div6 => 0b0101,
+            PllM::Div7 => 0b0110,
+            PllM::Div8 => 0b0111,
+            PllM::Div9 => 0b1000,
+            PllM::Div10 => 0b1001,
+            PllM::Div11 => 0b1010,
+            PllM::Div12 => 0b1011,
+            PllM::Div13 => 0b1100,
+            PllM::Div14 => 0b1101,
+            PllM::Div15 => 0b1110,
+            PllM::Div16 => 0b1111,
+        }
+    }
 }
 
 impl AHBPrescaler {
@@ -134,6 +257,44 @@ pub(crate) unsafe fn init(config: Config) {
             while !RCC.cr().read().hserdy() {}
 
             (freq.0, Sw::HSE)
+        }
+        ClockSrc::PLL(src, prediv, mul, div) => {
+            let src_freq = match src {
+                PllSrc::HSI16 => {
+                    // Enable HSI16
+                    RCC.cr().write(|w| w.set_hsion(true));
+                    while !RCC.cr().read().hsirdy() {}
+
+                    HSI_FREQ.0
+                }
+                PllSrc::HSE(freq) => {
+                    // Enable HSE
+                    RCC.cr().write(|w| w.set_hseon(true));
+                    while !RCC.cr().read().hserdy() {}
+
+                    freq.0
+                }
+            };
+
+            // Disable PLL
+            RCC.cr().modify(|w| w.set_pllon(false));
+            while RCC.cr().read().pllrdy() {}
+
+            let freq = src_freq / prediv.to_div() * mul.to_mul() / div.to_div();
+            assert!(freq <= 170_000_000);
+
+            RCC.pllcfgr().write(move |w| {
+                w.set_plln(mul.into());
+                w.set_pllm(prediv.into());
+                w.set_pllr(div.into());
+                w.set_pllsrc(src.into());
+            });
+
+            RCC.cr().modify(|w| w.set_pllon(true));
+            while !RCC.cr().read().pllrdy() {}
+            RCC.pllcfgr().modify(|w| w.set_pllren(true));
+
+            (freq, Sw::PLLRCLK)
         }
     };
 
