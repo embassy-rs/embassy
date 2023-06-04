@@ -261,14 +261,14 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::PLL(src, prediv, mul, div) => {
             let src_freq = match src {
                 PllSrc::HSI16 => {
-                    // Enable HSI16
+                    // Enable HSI16 as clock source for PLL
                     RCC.cr().write(|w| w.set_hsion(true));
                     while !RCC.cr().read().hsirdy() {}
 
                     HSI_FREQ.0
                 }
                 PllSrc::HSE(freq) => {
-                    // Enable HSE
+                    // Enable HSE as clock source for PLL
                     RCC.cr().write(|w| w.set_hseon(true));
                     while !RCC.cr().read().hserdy() {}
 
@@ -276,7 +276,7 @@ pub(crate) unsafe fn init(config: Config) {
                 }
             };
 
-            // Disable PLL
+            // Make sure PLL is disabled while we configure it
             RCC.cr().modify(|w| w.set_pllon(false));
             while RCC.cr().read().pllrdy() {}
 
@@ -290,6 +290,7 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_pllsrc(src.into());
             });
 
+            // Enable PLL
             RCC.cr().modify(|w| w.set_pllon(true));
             while !RCC.cr().read().pllrdy() {}
             RCC.pllcfgr().modify(|w| w.set_pllren(true));
