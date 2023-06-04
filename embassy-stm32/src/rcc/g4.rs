@@ -286,9 +286,8 @@ pub(crate) unsafe fn init(config: Config) {
             assert!(freq <= 170_000_000);
 
             if freq >= 150_000_000 {
-                // Enable Core Boost mode ([RM0440] p234)
-                PWR.cr5()
-                    .modify(|w: &mut stm32_metapac::pwr::regs::Cr5| w.set_r1mode(false));
+                // Enable Core Boost mode on freq >= 150Mhz ([RM0440] p234)
+                PWR.cr5().modify(|w| w.set_r1mode(false));
                 // Set flash wait state in boost mode based on frequency ([RM0440] p191)
                 if freq <= 36_000_000 {
                     FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
@@ -302,8 +301,7 @@ pub(crate) unsafe fn init(config: Config) {
                     FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
                 }
             } else {
-                PWR.cr5()
-                    .modify(|w: &mut stm32_metapac::pwr::regs::Cr5| w.set_r1mode(true));
+                PWR.cr5().modify(|w| w.set_r1mode(true));
                 // Set flash wait state in normal mode based on frequency ([RM0440] p191)
                 if freq <= 30_000_000 {
                     FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
