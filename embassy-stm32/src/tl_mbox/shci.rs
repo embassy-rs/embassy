@@ -1,11 +1,9 @@
 //! HCI commands for system channel
 
-use super::cmd::CmdPacket;
-use super::consts::TlPacketType;
-use super::{channels, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE, TL_SYS_TABLE};
-use crate::tl_mbox::ipcc::Ipcc;
+use super::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 
-const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;
+#[allow(dead_code)]
+pub const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;
 pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
 #[allow(dead_code)]
 const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;
@@ -71,31 +69,7 @@ pub struct ShciHeader {
 
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
-pub struct ShciBleInitCmdPacket {
-    header: ShciHeader,
-    param: ShciBleInitCmdParam,
-}
-
-pub fn shci_ble_init(param: ShciBleInitCmdParam) {
-    let mut packet = ShciBleInitCmdPacket {
-        header: ShciHeader::default(),
-        param,
-    };
-
-    let packet_ptr: *mut ShciBleInitCmdPacket = &mut packet;
-
-    unsafe {
-        let cmd_ptr: *mut CmdPacket = packet_ptr.cast();
-
-        (*cmd_ptr).cmd_serial.cmd.cmd_code = SCHI_OPCODE_BLE_INIT;
-        (*cmd_ptr).cmd_serial.cmd.payload_len = core::mem::size_of::<ShciBleInitCmdParam>() as u8;
-
-        let cmd_buf = &mut *(*TL_SYS_TABLE.as_mut_ptr()).pcmd_buffer;
-        core::ptr::write(cmd_buf, *cmd_ptr);
-
-        cmd_buf.cmd_serial.ty = TlPacketType::SysCmd as u8;
-
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
-    }
+pub struct ShciBleInitCommandPacket {
+    pub header: ShciHeader,
+    pub param: ShciBleInitCmdParam,
 }

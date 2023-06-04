@@ -1,18 +1,19 @@
 use core::mem::MaybeUninit;
+use core::{mem, slice};
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use bit_field::BitField;
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
 
-use self::ble::Ble;
-use self::cmd::{AclDataPacket, CmdPacket};
-use self::evt::{CsEvt, EvtBox};
+use self::ble::BleSubsystem;
+use self::cmd::{AclDataPacket, CommandPacket};
+use self::evt::CommandStatusEvent;
+pub use self::ipcc::{ReceiveInterruptHandler, TransmitInterruptHandler};
+use self::mac::MacSubsystem;
 use self::mm::MemoryManager;
-use self::shci::{shci_ble_init, ShciBleInitCmdParam};
-use self::sys::Sys;
+use self::shci::{ShciBleInitCmdParam, ShciBleInitCommandPacket, ShciHeader, SCHI_OPCODE_BLE_INIT};
+use self::sys::SysSubsystem;
+use self::thread::ThreadSubsystem;
 use self::unsafe_linked_list::LinkedListNode;
 use crate::interrupt;
 use crate::peripherals::IPCC;
@@ -25,16 +26,18 @@ mod cmd;
 mod consts;
 mod evt;
 mod ipcc;
+mod mac;
 mod mm;
 mod shci;
 mod sys;
+mod thread;
 mod unsafe_linked_list;
 
 pub type PacketHeader = LinkedListNode;
 
 const TL_PACKET_HEADER_SIZE: usize = core::mem::size_of::<PacketHeader>();
 const TL_EVT_HEADER_SIZE: usize = 3;
-const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CsEvt>();
+const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CommandStatusEvent>();
 
 const CFG_TL_BLE_EVT_QUEUE_LENGTH: usize = 5;
 const CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE: usize = 255;
@@ -58,40 +61,6 @@ pub struct FusInfoTable {
     version: u32,
     memory_size: u32,
     fus_info: u32,
-}
-
-/// Interrupt handler.
-pub struct ReceiveInterruptHandler {}
-
-impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
-    unsafe fn on_interrupt() {
-        // info!("ipcc rx interrupt");
-
-        if Ipcc::is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
-            sys::Sys::evt_handler();
-        } else if Ipcc::is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
-            ble::Ble::evt_handler();
-        } else {
-            todo!()
-        }
-    }
-}
-
-pub struct TransmitInterruptHandler {}
-
-impl interrupt::Handler<interrupt::IPCC_C1_TX> for TransmitInterruptHandler {
-    unsafe fn on_interrupt() {
-        // info!("ipcc tx interrupt");
-
-        if Ipcc::is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
-            // TODO: handle this case
-            let _ = sys::Sys::cmd_evt_handler();
-        } else if Ipcc::is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
-            mm::MemoryManager::evt_handler();
-        } else {
-            todo!()
-        }
-    }
 }
 
 /// # Version
@@ -159,7 +128,7 @@ pub struct DeviceInfoTable {
 
 #[repr(C, packed)]
 struct BleTable {
-    pcmd_buffer: *mut CmdPacket,
+    pcmd_buffer: *mut CommandPacket,
     pcs_buffer: *const u8,
     pevt_queue: *const u8,
     phci_acl_data_buffer: *mut AclDataPacket,
@@ -174,7 +143,7 @@ struct ThreadTable {
 
 #[repr(C, packed)]
 struct SysTable {
-    pcmd_buffer: *mut CmdPacket,
+    pcmd_buffer: *mut CommandPacket,
     sys_queue: *const LinkedListNode,
 }
 
@@ -293,7 +262,7 @@ static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
-static mut SYS_CMD_BUF: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
+static mut SYS_CMD_BUF: MaybeUninit<CommandPacket> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
@@ -307,17 +276,22 @@ static mut BLE_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HE
     MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
-static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
+static mut BLE_CMD_BUFFER: MaybeUninit<CommandPacket> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 //                                            "magic" numbers from ST ---v---v
 static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();
 
-// TODO: get a better size, this is a placeholder
-pub(crate) static TL_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 5> = Channel::new();
-
 pub struct TlMbox<'d> {
     _ipcc: PeripheralRef<'d, IPCC>,
+    pub ble_subsystem: BleSubsystem,
+    pub sys_subsystem: SysSubsystem,
+    pub thread_subsystem: ThreadSubsystem,
+    pub mac_subsystem: MacSubsystem,
+    // LldTests,
+    // Mac802_15_4,
+    // Zigbee,
+    // Traces,
 }
 
 impl<'d> TlMbox<'d> {
@@ -374,18 +348,16 @@ impl<'d> TlMbox<'d> {
 
         Ipcc::enable(config);
 
-        Sys::enable();
-        Ble::enable();
+        // MemoryManager is special
         MemoryManager::enable();
 
-        // enable interrupts
-        crate::interrupt::IPCC_C1_RX::unpend();
-        crate::interrupt::IPCC_C1_TX::unpend();
-
-        unsafe { crate::interrupt::IPCC_C1_RX::enable() };
-        unsafe { crate::interrupt::IPCC_C1_TX::enable() };
-
-        Self { _ipcc: ipcc }
+        Self {
+            _ipcc: ipcc,
+            ble_subsystem: BleSubsystem::new(),
+            sys_subsystem: SysSubsystem::new(),
+            thread_subsystem: ThreadSubsystem::new(),
+            mac_subsystem: MacSubsystem::new(),
+        }
     }
 
     pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
@@ -399,19 +371,23 @@ impl<'d> TlMbox<'d> {
         }
     }
 
-    pub fn shci_ble_init(&self, param: ShciBleInitCmdParam) {
-        shci_ble_init(param);
-    }
+    pub async fn shci_ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<usize, ()> {
+        let mut packet = ShciBleInitCommandPacket {
+            header: ShciHeader::default(),
+            param,
+        };
 
-    pub fn send_ble_cmd(&self, buf: &[u8]) {
-        ble::Ble::send_cmd(buf);
-    }
+        let packet_ptr: *mut ShciBleInitCommandPacket = &mut packet;
 
-    // pub fn send_sys_cmd(&self, buf: &[u8]) {
-    //     sys::Sys::send_cmd(buf);
-    // }
+        let buf = unsafe {
+            let cmd_ptr: *mut CommandPacket = packet_ptr.cast();
 
-    pub async fn read(&self) -> EvtBox {
-        TL_CHANNEL.recv().await
+            (*cmd_ptr).cmd_serial.cmd.cmd_code = SCHI_OPCODE_BLE_INIT;
+            (*cmd_ptr).cmd_serial.cmd.payload_len = mem::size_of::<ShciBleInitCmdParam>() as u8;
+
+            slice::from_raw_parts(cmd_ptr as *const u8, mem::size_of::<ShciBleInitCommandPacket>())
+        };
+
+        self.sys_subsystem.write(buf).await
     }
 }

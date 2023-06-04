@@ -43,21 +43,21 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::new(p.IPCC, Irqs, config);
+    let mut mbox = TlMbox::new(p.IPCC, Irqs, config);
 
     info!("waiting for coprocessor to boot");
-    let event_box = mbox.read().await;
+    let event_box = mbox.sys_subsystem.read().await.unwrap();
 
     let mut payload = [0u8; 6];
     event_box.copy_into_slice(&mut payload).unwrap();
 
-    let event_packet = event_box.evt();
-    let kind = event_packet.evt_serial.kind;
+    let event_packet = event_box.event_packet();
+    let kind = event_packet.event_serial.kind;
 
     // means recieved SYS event, which indicates in this case that the coprocessor is ready
     if kind == 0x12 {
-        let code = event_packet.evt_serial.evt.evt_code;
-        let payload_len = event_packet.evt_serial.evt.payload_len;
+        let code = event_packet.event_serial.event.event_code;
+        let payload_len = event_packet.event_serial.event.payload_len;
 
         info!(
             "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
@@ -69,21 +69,25 @@ async fn main(_spawner: Spawner) {
     }
 
     // initialize ble stack, does not return a response
-    mbox.shci_ble_init(Default::default());
+    let _ = mbox.shci_ble_init(Default::default()).await;
 
     info!("resetting BLE");
-    mbox.send_ble_cmd(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
+    let _ = mbox.ble_subsystem.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).await;
 
-    let event_box = mbox.read().await;
+    info!("waiting for BLE...");
+    let event_box = mbox.sys_subsystem.read().await.unwrap();
+
+    info!("BLE ready");
+    cortex_m::asm::bkpt();
 
     let mut payload = [0u8; 7];
     event_box.copy_into_slice(&mut payload).unwrap();
 
-    let event_packet = event_box.evt();
-    let kind = event_packet.evt_serial.kind;
+    let event_packet = event_box.event_packet();
+    let kind = event_packet.event_serial.kind;
 
-    let code = event_packet.evt_serial.evt.evt_code;
-    let payload_len = event_packet.evt_serial.evt.payload_len;
+    let code = event_packet.event_serial.event.event_code;
+    let payload_len = event_packet.event_serial.event.payload_len;
 
     info!(
         "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",

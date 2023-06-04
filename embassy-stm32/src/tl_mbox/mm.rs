@@ -1,10 +1,12 @@
-use super::evt::EvtPacket;
+use embassy_futures::poll_once;
+
+use super::evt::EventPacket;
+use super::ipcc::Ipcc;
 use super::unsafe_linked_list::LinkedListNode;
 use super::{
     channels, MemManagerTable, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUFF_QUEUE, LOCAL_FREE_BUF_QUEUE, POOL_SIZE,
     SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE, TL_REF_TABLE,
 };
-use crate::tl_mbox::ipcc::Ipcc;
 
 pub struct MemoryManager;
 
@@ -26,42 +28,32 @@ impl MemoryManager {
         }
     }
 
-    pub fn evt_handler() {
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, false);
-        Self::send_free_buf();
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
-    }
-
-    pub fn evt_drop(evt: *mut EvtPacket) {
+    pub fn drop_packet(evt_packet: *mut EventPacket) {
         unsafe {
-            let list_node = evt.cast();
+            let list_node = evt_packet.cast();
 
             LinkedListNode::remove_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
         }
 
-        let channel_is_busy = Ipcc::c1_is_active_flag(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
-
-        // postpone event buffer freeing to IPCC interrupt handler
-        if channel_is_busy {
-            Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, true);
-        } else {
-            Self::send_free_buf();
-            Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
-        }
+        Self::run_queue()
     }
 
-    fn send_free_buf() {
-        unsafe {
+    pub fn run_queue() {
+        if unsafe { LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) } {
+            // Needed because Ipcc::send is expected to send data; therefore will trigger the interrupt
+
+            return;
+        }
+
+        let _ = poll_once(Ipcc::send(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, || unsafe {
             let mut node_ptr = core::ptr::null_mut();
-            let node_ptr_ptr: *mut _ = &mut node_ptr;
+            let pevt_free_buffer_queue =
+                (*TL_REF_TABLE.as_ptr().read_volatile().mem_manager_table).pevt_free_buffer_queue;
 
             while !LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), node_ptr_ptr);
-                LinkedListNode::insert_tail(
-                    (*(*TL_REF_TABLE.as_ptr()).mem_manager_table).pevt_free_buffer_queue,
-                    node_ptr,
-                );
+                LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), &mut node_ptr as *mut _);
+                LinkedListNode::insert_tail(pevt_free_buffer_queue, node_ptr as *mut _);
             }
-        }
+        }));
     }
 }

@@ -1,20 +1,17 @@
-use embassy_futures::block_on;
-
-use super::cmd::CmdSerial;
+use super::cmd::CommandPacket;
 use super::consts::TlPacketType;
-use super::evt::EvtBox;
+use super::evt::EventBox;
 use super::unsafe_linked_list::LinkedListNode;
 use super::{
-    channels, BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_CHANNEL,
-    TL_REF_TABLE,
+    channels, BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_REF_TABLE,
 };
-use crate::tl_mbox::cmd::CmdPacket;
 use crate::tl_mbox::ipcc::Ipcc;
 
-pub struct Ble;
+pub struct BleSubsystem;
 
-impl Ble {
-    pub fn enable() {
+impl BleSubsystem {
+    /// TL_BLE_Init
+    pub fn new() -> Self {
         unsafe {
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
@@ -26,39 +23,28 @@ impl Ble {
             });
         }
 
-        Ipcc::c1_set_rx_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, true);
+        Self {}
     }
 
-    pub fn evt_handler() {
-        unsafe {
-            let mut node_ptr = core::ptr::null_mut();
-            let node_ptr_ptr: *mut _ = &mut node_ptr;
-
-            while !LinkedListNode::is_empty(EVT_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
-
-                let event = node_ptr.cast();
-                let event = EvtBox::new(event);
-
-                block_on(TL_CHANNEL.send(event));
-            }
-        }
-
-        Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL);
+    pub async fn read(&mut self) -> Result<EventBox, ()> {
+        Ipcc::receive(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, || unsafe {
+            EventBox::from_node((*TL_REF_TABLE.as_ptr().read_volatile().ble_table).pevt_queue as *mut _)
+        })
+        .await
     }
 
-    pub fn send_cmd(buf: &[u8]) {
-        unsafe {
-            let pcmd_buffer: *mut CmdPacket = (*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
-            let pcmd_serial: *mut CmdSerial = &mut (*pcmd_buffer).cmd_serial;
-            let pcmd_serial_buf: *mut u8 = pcmd_serial.cast();
+    /// TL_BLE_SendCmd
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, ()> {
+        Ipcc::send(channels::cpu1::IPCC_BLE_CMD_CHANNEL, || unsafe {
+            // ((TL_CommandPacket_t*)(TL_RefTable.p_ble_table->pcmd_buffer))->cmdserial.type = TL_BLECMD_PKT_TYPE;
+            CommandPacket::copy_into_packet_from_slice(
+                (*TL_REF_TABLE.as_ptr().read_volatile().ble_table).pcmd_buffer,
+                buf,
+                TlPacketType::BleCmd,
+            );
+        })
+        .await;
 
-            core::ptr::copy(buf.as_ptr(), pcmd_serial_buf, buf.len());
-
-            let cmd_packet = &mut *(*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
-            cmd_packet.cmd_serial.ty = TlPacketType::BleCmd as u8;
-        }
-
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_BLE_CMD_CHANNEL);
+        Ok(buf.len())
     }
 }
