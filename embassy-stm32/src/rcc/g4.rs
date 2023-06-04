@@ -1,4 +1,6 @@
+use stm32_metapac::flash::vals::Latency;
 use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
+use stm32_metapac::FLASH;
 
 use crate::pac::{PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -282,6 +284,39 @@ pub(crate) unsafe fn init(config: Config) {
 
             let freq = src_freq / prediv.to_div() * mul.to_mul() / div.to_div();
             assert!(freq <= 170_000_000);
+
+            if freq >= 150_000_000 {
+                // Enable Core Boost mode ([RM0440] p234)
+                PWR.cr5()
+                    .modify(|w: &mut stm32_metapac::pwr::regs::Cr5| w.set_r1mode(false));
+                // Set flash wait state in boost mode based on frequency ([RM0440] p191)
+                if freq <= 36_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
+                } else if freq <= 68_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS1));
+                } else if freq <= 102_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS2));
+                } else if freq <= 136_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS3));
+                } else {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
+                }
+            } else {
+                PWR.cr5()
+                    .modify(|w: &mut stm32_metapac::pwr::regs::Cr5| w.set_r1mode(true));
+                // Set flash wait state in normal mode based on frequency ([RM0440] p191)
+                if freq <= 30_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
+                } else if freq <= 60_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS1));
+                } else if freq <= 80_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS2));
+                } else if freq <= 120_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS3));
+                } else {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
+                }
+            }
 
             RCC.pllcfgr().write(move |w| {
                 w.set_plln(mul.into());
