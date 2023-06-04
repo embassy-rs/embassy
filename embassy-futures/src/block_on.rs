@@ -31,3 +31,15 @@ pub fn block_on<F: Future>(mut fut: F) -> F::Output {
         }
     }
 }
+
+/// Poll a future once.
+pub fn poll_once<F: Future>(mut fut: F) -> Poll<F::Output> {
+    // safety: we don't move the future after this line.
+    let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
+
+    let raw_waker = RawWaker::new(ptr::null(), &VTABLE);
+    let waker = unsafe { Waker::from_raw(raw_waker) };
+    let mut cx = Context::from_waker(&waker);
+
+    fut.as_mut().poll(&mut cx)
+}
