@@ -71,7 +71,6 @@ async fn main(_spawner: Spawner) {
     // initialize ble stack, does not return a response
     let _ = mbox.shci_ble_init(Default::default()).await;
 
-
     info!("resetting BLE");
     let _ = mbox.ble_subsystem.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).await;
 
