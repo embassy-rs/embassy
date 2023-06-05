@@ -9,7 +9,7 @@ use embedded_storage::nor_flash::{
 use crate::pac;
 use crate::peripherals::FLASH;
 
-pub const FLASH_BASE: usize = 0x10000000;
+pub const FLASH_BASE: *const u32 = 0x10000000 as _;
 
 // **NOTE**:
 //
@@ -63,8 +63,8 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         trace!(
             "Reading from 0x{:x} to 0x{:x}",
-            FLASH_BASE + offset as usize,
-            FLASH_BASE + offset as usize + bytes.len()
+            FLASH_BASE as u32 + offset,
+            FLASH_BASE as u32 + offset + bytes.len() as u32
         );
         check_read(self, offset, bytes.len())?;
 
@@ -242,6 +242,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_S
 mod ram_helpers {
     use core::marker::PhantomData;
 
+    use super::*;
     use crate::rom_data;
 
     #[repr(C)]
@@ -321,7 +322,7 @@ mod ram_helpers {
     pub unsafe fn flash_range_erase(addr: u32, len: u32, use_boot2: bool) {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, super::FLASH_BASE as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(true, false, &boot2)
         } else {
             flash_function_pointers(true, false)
@@ -351,7 +352,7 @@ mod ram_helpers {
     pub unsafe fn flash_range_erase_and_program(addr: u32, data: &[u8], use_boot2: bool) {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, super::FLASH_BASE as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(true, true, &boot2)
         } else {
             flash_function_pointers(true, true)
@@ -386,7 +387,7 @@ mod ram_helpers {
     pub unsafe fn flash_range_program(addr: u32, data: &[u8], use_boot2: bool) {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, super::FLASH_BASE as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(false, true, &boot2)
         } else {
             flash_function_pointers(false, true)
@@ -511,7 +512,7 @@ mod ram_helpers {
     pub unsafe fn flash_unique_id(out: &mut [u8], use_boot2: bool) {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, 0x10000000 as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(false, false, &boot2)
         } else {
             flash_function_pointers(false, false)
@@ -539,7 +540,7 @@ mod ram_helpers {
     pub unsafe fn flash_jedec_id(use_boot2: bool) -> u32 {
         let mut boot2 = [0u32; 256 / 4];
         let ptrs = if use_boot2 {
-            rom_data::memcpy44(&mut boot2 as *mut _, 0x10000000 as *const _, 256);
+            rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(false, false, &boot2)
         } else {
             flash_function_pointers(false, false)
