@@ -444,14 +444,12 @@ impl<D: Driver + 'static> Inner<D> {
             debug!("   DNS server {}:    {}", i, s);
         }
 
+        self.static_v4 = Some(config);
+
         #[cfg(feature = "dns")]
         {
-            let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket);
-            let servers: Vec<IpAddress, 3> = config.dns_servers.iter().map(|c| IpAddress::Ipv4(*c)).collect();
-            socket.update_servers(&servers[..]);
+            self.update_dns_servers(s)
         }
-
-        self.static_v4 = Some(config)
     }
 
     /// Replaces the current IPv6 static configuration with a newly supplied config.
@@ -485,14 +483,47 @@ impl<D: Driver + 'static> Inner<D> {
             debug!("   DNS server {}:    {}", i, s);
         }
 
+        self.static_v6 = Some(config);
+
         #[cfg(feature = "dns")]
         {
-            let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket);
-            let servers: Vec<IpAddress, 3> = config.dns_servers.iter().map(|c| IpAddress::Ipv6(*c)).collect();
-            socket.update_servers(&servers[..]);
+            self.update_dns_servers(s)
+        }
+    }
+
+    #[cfg(feature = "dns")]
+    fn update_dns_servers(&mut self, s: &mut SocketStack) {
+        let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket);
+
+        let servers_v4;
+        #[cfg(feature = "proto-ipv4")]
+        {
+            servers_v4 = self
+                .static_v4
+                .iter()
+                .flat_map(|cfg| cfg.dns_servers.iter().map(|c| IpAddress::Ipv4(*c)));
+        };
+        #[cfg(not(feature = "proto-ipv4"))]
+        {
+            servers_v4 = core::iter::empty();
         }
 
-        self.static_v6 = Some(config)
+        let servers_v6;
+        #[cfg(feature = "proto-ipv6")]
+        {
+            servers_v6 = self
+                .static_v6
+                .iter()
+                .flat_map(|cfg| cfg.dns_servers.iter().map(|c| IpAddress::Ipv6(*c)));
+        }
+        #[cfg(not(feature = "proto-ipv6"))]
+        {
+            servers_v6 = core::iter::empty();
+        }
+
+        // Prefer the v6 DNS servers over the v4 servers
+        let servers: Vec<IpAddress, 6> = servers_v6.chain(servers_v4).collect();
+        socket.update_servers(&servers[..]);
     }
 
     #[cfg(feature = "dhcpv4")]
