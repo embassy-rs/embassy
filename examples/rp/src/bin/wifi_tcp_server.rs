@@ -62,7 +62,7 @@ async fn main(spawner: Spawner) {
         .await;
 
     let config = Config::Dhcp(Default::default());
-    //let config = embassy_net::Config::Static(embassy_net::Config {
+    //let config = embassy_net::Config::StaticV4(embassy_net::Config {
     //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
     //    dns_servers: Vec::new(),
     //    gateway: Some(Ipv4Address::new(192, 168, 69, 1)),

@@ -68,7 +68,7 @@ impl<const SOCK: usize> StackResources<SOCK> {
 
 /// Static IP address configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StaticConfig {
+pub struct StaticConfigV4 {
     /// IP address and subnet mask.
     pub address: Ipv4Cidr,
     /// Default gateway.
@@ -114,7 +114,7 @@ impl Default for DhcpConfig {
 /// Network stack configuration.
 pub enum Config {
     /// Use a static IP address configuration.
-    Static(StaticConfig),
+    Static(StaticConfigV4),
     /// Use DHCP to obtain an IP address configuration.
     #[cfg(feature = "dhcpv4")]
     Dhcp(DhcpConfig),
@@ -131,7 +131,7 @@ pub struct Stack<D: Driver> {
 struct Inner<D: Driver> {
     device: D,
     link_up: bool,
-    config: Option<StaticConfig>,
+    config: Option<StaticConfigV4>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
     #[cfg(feature = "dns")]
@@ -243,7 +243,7 @@ impl<D: Driver + 'static> Stack<D> {
     }
 
     /// Get the current IP configuration.
-    pub fn config(&self) -> Option<StaticConfig> {
+    pub fn config(&self) -> Option<StaticConfigV4> {
         self.with(|_s, i| i.config.clone())
     }
 
@@ -374,7 +374,7 @@ impl SocketStack {
 }
 
 impl<D: Driver + 'static> Inner<D> {
-    fn apply_config(&mut self, s: &mut SocketStack, config: StaticConfig) {
+    fn apply_config(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
 
@@ -470,7 +470,7 @@ impl<D: Driver + 'static> Inner<D> {
                     None => {}
                     Some(dhcpv4::Event::Deconfigured) => self.unapply_config(s),
                     Some(dhcpv4::Event::Configured(config)) => {
-                        let config = StaticConfig {
+                        let config = StaticConfigV4 {
                             address: config.address,
                             gateway: config.router,
                             dns_servers: config.dns_servers,

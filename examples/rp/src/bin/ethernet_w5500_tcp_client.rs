@@ -108,7 +108,7 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net::StaticConfig {
+async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config() {
             return config.clone();

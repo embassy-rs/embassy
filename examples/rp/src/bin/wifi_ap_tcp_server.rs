@@ -62,7 +62,7 @@ async fn main(spawner: Spawner) {
         .await;
 
     // Use a link-local address for communication without DHCP server
-    let config = Config::Static(embassy_net::StaticConfig {
+    let config = Config::StaticV4(embassy_net::StaticConfigV4 {
         address: embassy_net::Ipv4Cidr::new(embassy_net::Ipv4Address::new(169, 254, 1, 1), 16),
         dns_servers: heapless::Vec::new(),
         gateway: None,
