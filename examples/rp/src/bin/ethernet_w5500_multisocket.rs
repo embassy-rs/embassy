@@ -122,7 +122,7 @@ async fn listen_task(stack: &'static Stack<Device<'static>>, id: u8, port: u16) 
 
 async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net::StaticConfigV4 {
     loop {
-        if let Some(config) = stack.config() {
+        if let Some(config) = stack.config_v4() {
             return config.clone();
         }
         yield_now().await;

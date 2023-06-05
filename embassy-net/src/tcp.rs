@@ -472,7 +472,10 @@ pub mod client {
             Self: 'a,
         {
             let addr: crate::IpAddress = match remote.ip() {
+                #[cfg(feature = "proto-ipv4")]
                 IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
+                #[cfg(not(feature = "proto-ipv4"))]
+                IpAddr::V4(_) => panic!("ipv4 support not enabled"),
                 #[cfg(feature = "proto-ipv6")]
                 IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
                 #[cfg(not(feature = "proto-ipv6"))]

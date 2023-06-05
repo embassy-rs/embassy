@@ -34,7 +34,9 @@ use smoltcp::socket::dhcpv4::{self, RetryConfig};
 pub use smoltcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
-pub use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr};
+pub use smoltcp::wire::{IpAddress, IpCidr};
+#[cfg(feature = "proto-ipv4")]
+pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
 pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
 
@@ -67,6 +69,7 @@ impl<const SOCK: usize> StackResources<SOCK> {
 }
 
 /// Static IP address configuration.
+#[cfg(feature = "proto-ipv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StaticConfigV4 {
     /// IP address and subnet mask.
@@ -114,7 +117,8 @@ impl Default for DhcpConfig {
 /// Network stack configuration.
 pub enum Config {
     /// Use a static IP address configuration.
-    Static(StaticConfigV4),
+    #[cfg(feature = "proto-ipv4")]
+    StaticV4(StaticConfigV4),
     /// Use DHCP to obtain an IP address configuration.
     #[cfg(feature = "dhcpv4")]
     Dhcp(DhcpConfig),
@@ -131,7 +135,8 @@ pub struct Stack<D: Driver> {
 struct Inner<D: Driver> {
     device: D,
     link_up: bool,
-    config: Option<StaticConfigV4>,
+    #[cfg(feature = "proto-ipv4")]
+    static_v4: Option<StaticConfigV4>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
     #[cfg(feature = "dns")]
@@ -187,7 +192,8 @@ impl<D: Driver + 'static> Stack<D> {
         let mut inner = Inner {
             device,
             link_up: false,
-            config: None,
+            #[cfg(feature = "proto-ipv4")]
+            static_v4: None,
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
             #[cfg(feature = "dns")]
@@ -200,7 +206,8 @@ impl<D: Driver + 'static> Stack<D> {
         };
 
         match config {
-            Config::Static(config) => {
+            #[cfg(feature = "proto-ipv4")]
+            Config::StaticV4(config) => {
                 inner.apply_config(&mut socket, config);
             }
             #[cfg(feature = "dhcpv4")]
@@ -239,12 +246,21 @@ impl<D: Driver + 'static> Stack<D> {
     /// Get whether the network stack has a valid IP configuration.
     /// This is true if the network stack has a static IP configuration or if DHCP has completed
     pub fn is_config_up(&self) -> bool {
-        self.with(|_s, i| i.config.is_some())
+        #[cfg(feature = "proto-ipv4")]
+        {
+            return self.config_v4().is_some();
+        }
+
+        #[cfg(not(any(feature = "proto-ipv4")))]
+        {
+            false
+        }
     }
 
     /// Get the current IP configuration.
-    pub fn config(&self) -> Option<StaticConfigV4> {
-        self.with(|_s, i| i.config.clone())
+    #[cfg(feature = "proto-ipv4")]
+    pub fn config_v4(&self) -> Option<StaticConfigV4> {
+        self.with(|_s, i| i.static_v4.clone())
     }
 
     /// Run the network stack.
@@ -264,6 +280,7 @@ impl<D: Driver + 'static> Stack<D> {
     pub async fn dns_query(&self, name: &str, qtype: dns::DnsQueryType) -> Result<Vec<IpAddress, 1>, dns::Error> {
         // For A and AAAA queries we try detect whether `name` is just an IP address
         match qtype {
+            #[cfg(feature = "proto-ipv4")]
             dns::DnsQueryType::A => {
                 if let Ok(ip) = name.parse().map(IpAddress::Ipv4) {
                     return Ok([ip].into_iter().collect());
@@ -374,6 +391,7 @@ impl SocketStack {
 }
 
 impl<D: Driver + 'static> Inner<D> {
+    #[cfg(feature = "proto-ipv4")]
     fn apply_config(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
@@ -410,7 +428,7 @@ impl<D: Driver + 'static> Inner<D> {
             socket.update_servers(&servers[..]);
         }
 
-        self.config = Some(config)
+        self.static_v4 = Some(config)
     }
 
     #[cfg(feature = "dhcpv4")]
@@ -430,9 +448,15 @@ impl<D: Driver + 'static> Inner<D> {
         s.iface.update_ip_addrs(|ip_addrs| ip_addrs.clear());
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
-            s.iface.routes_mut().remove_default_ipv4_route();
+            #[cfg(feature = "proto-ipv4")]
+            {
+                s.iface.routes_mut().remove_default_ipv4_route();
+            }
         }
-        self.config = None
+        #[cfg(feature = "proto-ipv4")]
+        {
+            self.static_v4 = None
+        }
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
