@@ -10,7 +10,10 @@ use crate::pac;
 use crate::peripherals::FLASH;
 
 pub const FLASH_BASE: *const u32 = 0x10000000 as _;
-pub const USE_BOOT2: bool = true;
+
+// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
+// TODO: when run-from-ram is set, completely skip the "pause cores and jumpp to RAM" dance.
+pub const USE_BOOT2: bool = !cfg!(feature = "run-from-ram");
 
 // **NOTE**:
 //
