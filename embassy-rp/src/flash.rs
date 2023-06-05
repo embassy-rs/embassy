@@ -587,7 +587,6 @@ mod ram_helpers {
             "ldr r4, [r5, #4]",
             "blx r4", // flash_exit_xip()
 
-            "mov r7, r10", // cmd
 
             "movs r4, #0x18",
             "lsls r4, r4, #24", // 0x18000000, SSI, RP2040 datasheet 4.10.13
@@ -604,8 +603,9 @@ mod ram_helpers {
             "str r1, [r4, #0]",
 
             // Write ctrlr1 with len-1
-            "ldr r0, [r7, #8]", // dummy_len
-            "ldr r1, [r7, #16]", // data_len
+            "mov r3, r10", // cmd
+            "ldr r0, [r3, #8]", // dummy_len
+            "ldr r1, [r3, #16]", // data_len
             "add r0, r1",
             "subs r0, #1",
             "str r0, [r4, #0x04]", // CTRLR1
@@ -617,8 +617,8 @@ mod ram_helpers {
             // Write cmd/addr phase to DR
             "mov r2, r4",
             "adds r2, 0x60", // &DR
-            "ldr r0, [r7, #0]", // cmd_addr
-            "ldr r1, [r7, #4]", // cmd_addr_len
+            "ldr r0, [r3, #0]", // cmd_addr
+            "ldr r1, [r3, #4]", // cmd_addr_len
             "10:",
             "ldrb r3, [r0]",
             "strb r3, [r2]", // DR
@@ -627,7 +627,8 @@ mod ram_helpers {
             "bne 10b",
 
             // Skip any dummy cycles
-            "ldr r1, [r7, #8]", // dummy_len
+            "mov r3, r10", // cmd
+            "ldr r1, [r3, #8]", // dummy_len
             "cmp r1, #0",
             "beq 9f",
             "4:",
@@ -644,8 +645,9 @@ mod ram_helpers {
 
             // Read RX fifo
             "9:",
-            "ldr r0, [r7, #12]", // data
-            "ldr r1, [r7, #16]", // data_len
+            "mov r2, r10", // cmd
+            "ldr r0, [r2, #12]", // data
+            "ldr r1, [r2, #16]", // data_len
 
             "2:",
             "ldr r3, [r4, #0x28]", // SR
@@ -679,13 +681,12 @@ mod ram_helpers {
             out("r2") _,
             out("r3") _,
             out("r4") _,
+            out("r5") _,
             // Registers r8-r10 are used to store values
             // from r0-r2 in registers not clobbered by
             // function calls.
             // The values can't be passed in using r8-r10 directly
             // due to https://github.com/rust-lang/rust/issues/99071
-            out("r8") _,
-            out("r9") _,
             out("r10") _,
             clobber_abi("C"),
         );
