@@ -80,6 +80,18 @@ pub struct StaticConfigV4 {
     pub dns_servers: Vec<Ipv4Address, 3>,
 }
 
+/// Static IPv6 address configuration
+#[cfg(feature = "proto-ipv6")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StaticConfigV6 {
+    /// IP address and subnet mask.
+    pub address: Ipv6Cidr,
+    /// Default gateway.
+    pub gateway: Option<Ipv6Address>,
+    /// DNS servers.
+    pub dns_servers: Vec<Ipv6Address, 3>,
+}
+
 /// DHCP configuration.
 #[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,9 +128,12 @@ impl Default for DhcpConfig {
 
 /// Network stack configuration.
 pub enum Config {
-    /// Use a static IP address configuration.
+    /// Use a static IPv4 address configuration.
     #[cfg(feature = "proto-ipv4")]
     StaticV4(StaticConfigV4),
+    /// Use a static IPv6 address configuration.
+    #[cfg(feature = "proto-ipv6")]
+    StaticV6(StaticConfigV6),
     /// Use DHCP to obtain an IP address configuration.
     #[cfg(feature = "dhcpv4")]
     Dhcp(DhcpConfig),
@@ -137,6 +152,8 @@ struct Inner<D: Driver> {
     link_up: bool,
     #[cfg(feature = "proto-ipv4")]
     static_v4: Option<StaticConfigV4>,
+    #[cfg(feature = "proto-ipv6")]
+    static_v6: Option<StaticConfigV6>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
     #[cfg(feature = "dns")]
@@ -194,6 +211,8 @@ impl<D: Driver + 'static> Stack<D> {
             link_up: false,
             #[cfg(feature = "proto-ipv4")]
             static_v4: None,
+            #[cfg(feature = "proto-ipv6")]
+            static_v6: None,
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
             #[cfg(feature = "dns")]
@@ -208,7 +227,11 @@ impl<D: Driver + 'static> Stack<D> {
         match config {
             #[cfg(feature = "proto-ipv4")]
             Config::StaticV4(config) => {
-                inner.apply_config(&mut socket, config);
+                inner.apply_config_v4(&mut socket, config);
+            }
+            #[cfg(feature = "proto-ipv6")]
+            Config::StaticV6(config) => {
+                inner.apply_config_v6(&mut socket, config);
             }
             #[cfg(feature = "dhcpv4")]
             Config::Dhcp(config) => {
@@ -392,7 +415,7 @@ impl SocketStack {
 
 impl<D: Driver + 'static> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
-    fn apply_config(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
+    fn apply_config_v4(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
 
@@ -429,6 +452,47 @@ impl<D: Driver + 'static> Inner<D> {
         }
 
         self.static_v4 = Some(config)
+    }
+
+    /// Replaces the current IPv6 static configuration with a newly supplied config.
+    #[cfg(feature = "proto-ipv6")]
+    fn apply_config_v6(&mut self, s: &mut SocketStack, config: StaticConfigV6) {
+        #[cfg(feature = "medium-ethernet")]
+        let medium = self.device.capabilities().medium;
+
+        debug!("Acquired IPv6 configuration:");
+
+        debug!("   IP address:      {}", config.address);
+        s.iface.update_ip_addrs(|addrs| {
+            if addrs.is_empty() {
+                addrs.push(IpCidr::Ipv6(config.address)).unwrap();
+            } else {
+                addrs[0] = IpCidr::Ipv6(config.address);
+            }
+        });
+
+        #[cfg(feature = "medium-ethernet")]
+        if Medium::Ethernet == medium {
+            if let Some(gateway) = config.gateway {
+                debug!("   Default gateway: {}", gateway);
+                s.iface.routes_mut().add_default_ipv6_route(gateway).unwrap();
+            } else {
+                debug!("   Default gateway: None");
+                s.iface.routes_mut().remove_default_ipv6_route();
+            }
+        }
+        for (i, s) in config.dns_servers.iter().enumerate() {
+            debug!("   DNS server {}:    {}", i, s);
+        }
+
+        #[cfg(feature = "dns")]
+        {
+            let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket);
+            let servers: Vec<IpAddress, 3> = config.dns_servers.iter().map(|c| IpAddress::Ipv6(*c)).collect();
+            socket.update_servers(&servers[..]);
+        }
+
+        self.static_v6 = Some(config)
     }
 
     #[cfg(feature = "dhcpv4")]
@@ -499,7 +563,7 @@ impl<D: Driver + 'static> Inner<D> {
                             gateway: config.router,
                             dns_servers: config.dns_servers,
                         };
-                        self.apply_config(s, config)
+                        self.apply_config_v4(s, config)
                     }
                 }
             } else if old_link_up {
