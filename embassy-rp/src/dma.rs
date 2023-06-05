@@ -75,16 +75,17 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     )
 }
 
+static DUMMY: u32 = 0;
+
 pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     to: *mut W,
     len: usize,
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let dummy: u32 = 0;
     copy_inner(
         ch,
-        &dummy as *const u32,
+        &DUMMY as *const u32,
         to as *mut u32,
         len,
         W::size(),
