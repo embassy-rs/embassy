@@ -10,6 +10,7 @@ use crate::pac;
 use crate::peripherals::FLASH;
 
 pub const FLASH_BASE: *const u32 = 0x10000000 as _;
+pub const USE_BOOT2: bool = true;
 
 // **NOTE**:
 //
@@ -89,7 +90,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
 
         let len = to - from;
 
-        unsafe { self.in_ram(|| ram_helpers::flash_range_erase(from, len, true))? };
+        unsafe { self.in_ram(|| ram_helpers::flash_range_erase(from, len))? };
 
         Ok(())
     }
@@ -114,7 +115,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
 
             let unaligned_offset = offset as usize - start;
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true))? }
+            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
         }
 
         let remaining_len = bytes.len() - start_padding;
@@ -132,12 +133,12 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
             if bytes.as_ptr() as usize >= 0x2000_0000 {
                 let aligned_data = &bytes[start_padding..end_padding];
 
-                unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data, true))? }
+                unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data))? }
             } else {
                 for chunk in bytes[start_padding..end_padding].chunks_exact(PAGE_SIZE) {
                     let mut ram_buf = [0xFF_u8; PAGE_SIZE];
                     ram_buf.copy_from_slice(chunk);
-                    unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf, true))? }
+                    unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf))? }
                     aligned_offset += PAGE_SIZE;
                 }
             }
@@ -152,7 +153,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
 
             let unaligned_offset = end_offset - (PAGE_SIZE - rem_offset);
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf, true))? }
+            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
         }
 
         Ok(())
@@ -190,7 +191,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
 
     /// Read SPI flash unique ID
     pub fn unique_id(&mut self, uid: &mut [u8]) -> Result<(), Error> {
-        unsafe { self.in_ram(|| ram_helpers::flash_unique_id(uid, true))? };
+        unsafe { self.in_ram(|| ram_helpers::flash_unique_id(uid))? };
         Ok(())
     }
 
@@ -199,7 +200,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
         let mut jedec = None;
         unsafe {
             self.in_ram(|| {
-                jedec.replace(ram_helpers::flash_jedec_id(true));
+                jedec.replace(ram_helpers::flash_jedec_id());
             })?;
         };
         Ok(jedec.unwrap())
@@ -307,7 +308,7 @@ mod ram_helpers {
     ///
     /// `addr` and `len` must be multiples of 4096
     ///
-    /// If `use_boot2` is `true`, a copy of the 2nd stage boot loader
+    /// If `USE_BOOT2` is `true`, a copy of the 2nd stage boot loader
     /// is used to re-initialize the XIP engine after flashing.
     ///
     /// # Safety
@@ -319,9 +320,9 @@ mod ram_helpers {
     ///   - DMA must not access flash memory
     ///
     /// `addr` and `len` parameters must be valid and are not checked.
-    pub unsafe fn flash_range_erase(addr: u32, len: u32, use_boot2: bool) {
+    pub unsafe fn flash_range_erase(addr: u32, len: u32) {
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if use_boot2 {
+        let ptrs = if USE_BOOT2 {
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(true, false, &boot2)
         } else {
@@ -337,7 +338,7 @@ mod ram_helpers {
     ///
     /// `addr` and `data.len()` must be multiples of 4096
     ///
-    /// If `use_boot2` is `true`, a copy of the 2nd stage boot loader
+    /// If `USE_BOOT2` is `true`, a copy of the 2nd stage boot loader
     /// is used to re-initialize the XIP engine after flashing.
     ///
     /// # Safety
@@ -349,9 +350,9 @@ mod ram_helpers {
     ///   - DMA must not access flash memory
     ///
     /// `addr` and `len` parameters must be valid and are not checked.
-    pub unsafe fn flash_range_erase_and_program(addr: u32, data: &[u8], use_boot2: bool) {
+    pub unsafe fn flash_range_erase_and_program(addr: u32, data: &[u8]) {
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if use_boot2 {
+        let ptrs = if USE_BOOT2 {
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(true, true, &boot2)
         } else {
@@ -372,7 +373,7 @@ mod ram_helpers {
     ///
     /// `addr` and `data.len()` must be multiples of 256
     ///
-    /// If `use_boot2` is `true`, a copy of the 2nd stage boot loader
+    /// If `USE_BOOT2` is `true`, a copy of the 2nd stage boot loader
     /// is used to re-initialize the XIP engine after flashing.
     ///
     /// # Safety
@@ -384,9 +385,9 @@ mod ram_helpers {
     ///   - DMA must not access flash memory
     ///
     /// `addr` and `len` parameters must be valid and are not checked.
-    pub unsafe fn flash_range_program(addr: u32, data: &[u8], use_boot2: bool) {
+    pub unsafe fn flash_range_program(addr: u32, data: &[u8]) {
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if use_boot2 {
+        let ptrs = if USE_BOOT2 {
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(false, true, &boot2)
         } else {
@@ -509,9 +510,9 @@ mod ram_helpers {
     ///   - DMA must not access flash memory
     ///
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
-    pub unsafe fn flash_unique_id(out: &mut [u8], use_boot2: bool) {
+    pub unsafe fn flash_unique_id(out: &mut [u8]) {
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if use_boot2 {
+        let ptrs = if USE_BOOT2 {
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(false, false, &boot2)
         } else {
@@ -537,9 +538,9 @@ mod ram_helpers {
     ///   - DMA must not access flash memory
     ///
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
-    pub unsafe fn flash_jedec_id(use_boot2: bool) -> u32 {
+    pub unsafe fn flash_jedec_id() -> u32 {
         let mut boot2 = [0u32; 256 / 4];
-        let ptrs = if use_boot2 {
+        let ptrs = if USE_BOOT2 {
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             flash_function_pointers_with_boot2(false, false, &boot2)
         } else {
