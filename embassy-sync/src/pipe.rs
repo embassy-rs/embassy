@@ -294,6 +294,16 @@ where
         WriteFuture { pipe: self, buf }
     }
 
+    /// Write all bytes to the pipe.
+    ///
+    /// This method writes all bytes from `buf` into the pipe
+    pub async fn write_all(&self, mut buf: &[u8]) {
+        while !buf.is_empty() {
+            let n = self.write(buf).await;
+            buf = &buf[n..];
+        }
+    }
+
     /// Attempt to immediately write some bytes to the pipe.
     ///
     /// This method will either write a nonzero amount of bytes to the pipe immediately,
