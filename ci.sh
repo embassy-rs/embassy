@@ -3,7 +3,7 @@
 set -euo pipefail
 
 export RUSTFLAGS=-Dwarnings
-export DEFMT_LOG=trace
+export DEFMT_LOG=trace,cyw43=info,cyw43_pio=info,smoltcp=info
 
 # needed by wifi examples
 export WIFI_NETWORK=x
