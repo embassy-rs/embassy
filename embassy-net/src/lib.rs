@@ -269,21 +269,40 @@ impl<D: Driver + 'static> Stack<D> {
     /// Get whether the network stack has a valid IP configuration.
     /// This is true if the network stack has a static IP configuration or if DHCP has completed
     pub fn is_config_up(&self) -> bool {
+        let v4_up;
+        let v6_up;
+
         #[cfg(feature = "proto-ipv4")]
         {
-            return self.config_v4().is_some();
+            v4_up = self.config_v4().is_some();
+        }
+        #[cfg(not(feature = "proto-ipv4"))]
+        {
+            v4_up = false;
         }
 
-        #[cfg(not(any(feature = "proto-ipv4")))]
+        #[cfg(feature = "proto-ipv6")]
         {
-            false
+            v6_up = self.config_v6().is_some();
         }
+        #[cfg(not(feature = "proto-ipv6"))]
+        {
+            v6_up = false;
+        }
+
+        v4_up || v6_up
     }
 
-    /// Get the current IP configuration.
+    /// Get the current IPv4 configuration.
     #[cfg(feature = "proto-ipv4")]
     pub fn config_v4(&self) -> Option<StaticConfigV4> {
         self.with(|_s, i| i.static_v4.clone())
+    }
+
+    /// Get the current IPv6 configuration.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn config_v6(&self) -> Option<StaticConfigV6> {
+        self.with(|_s, i| i.static_v6.clone())
     }
 
     /// Run the network stack.
