@@ -34,6 +34,10 @@ cargo batch  \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet,unstable-traits \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet,nightly \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet,unstable-traits,nightly \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet,unstable-traits \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet,nightly \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet,unstable-traits,nightly \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52805,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52810,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52811,gpiote,time-driver-rtc1 \
