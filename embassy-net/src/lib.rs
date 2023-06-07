@@ -128,13 +128,16 @@ impl Default for DhcpConfig {
 
 /// Network stack configuration.
 pub struct Config {
+    /// IPv4 configuration
     #[cfg(feature = "proto-ipv4")]
     pub ipv4: ConfigV4,
+    /// IPv6 configuration
     #[cfg(feature = "proto-ipv6")]
     pub ipv6: ConfigV6,
 }
 
 impl Config {
+    /// IPv4 configuration with static addressing.
     #[cfg(feature = "proto-ipv4")]
     pub fn ipv4_static(config: StaticConfigV4) -> Self {
         Self {
@@ -144,6 +147,7 @@ impl Config {
         }
     }
 
+    /// IPv6 configuration with static addressing.
     #[cfg(feature = "proto-ipv6")]
     pub fn ipv6_static(config: StaticConfigV6) -> Self {
         Self {
@@ -153,6 +157,12 @@ impl Config {
         }
     }
 
+    /// IPv6 configuration with dynamic addressing.
+    ///
+    /// # Example
+    /// ```rust
+    /// let _cfg = Config::dhcpv4(Default::default());
+    /// ```
     #[cfg(feature = "dhcpv4")]
     pub fn dhcpv4(config: DhcpConfig) -> Self {
         Self {
