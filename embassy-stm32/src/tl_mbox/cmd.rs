@@ -33,18 +33,6 @@ pub struct CommandPacket {
     pub cmd_serial: CommandSerial,
 }
 
-impl CommandPacket {
-    /// Copies the provided buffer into a [`CommandPacket`]
-    pub unsafe fn copy_into_packet_from_slice(pcmd_packet: *mut CommandPacket, buf: &[u8], packet_type: TlPacketType) {
-        (*pcmd_packet).cmd_serial.typ = packet_type as u8;
-
-        let pcmd_serial: *mut CommandSerial = &mut (*pcmd_packet).cmd_serial;
-        let pcmd_serial_buf: *mut u8 = pcmd_serial.cast();
-
-        core::ptr::copy(buf.as_ptr(), pcmd_serial_buf, buf.len());
-    }
-}
-
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 pub struct AclDataSerial {

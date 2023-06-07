@@ -7,6 +7,7 @@ use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 
 #[cfg(feature = "ble")]
 use self::ble::BleSubsystem;
+#[allow(unused_imports)]
 use self::cmd::{CommandPacket, CommandSerial};
 pub use self::ipcc::{ReceiveInterruptHandler, TransmitInterruptHandler};
 #[cfg(feature = "mac")]
@@ -33,17 +34,17 @@ use crate::tl_mbox::tables::{BLE_CMD_BUFFER, CS_BUFFER, HCI_ACL_DATA_BUFFER};
 use crate::tl_mbox::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 
 #[cfg(feature = "ble")]
-mod ble;
+pub mod ble;
 mod channels;
-mod cmd;
-mod consts;
+pub mod cmd;
+pub mod consts;
 mod evt;
 mod ipcc;
 #[cfg(feature = "mac")]
 mod mac;
 mod mm;
-mod shci;
-mod sys;
+pub mod shci;
+pub mod sys;
 mod tables;
 mod thread;
 mod unsafe_linked_list;
@@ -74,8 +75,6 @@ impl<'d> TlMbox<'d> {
     ) -> Self {
         into_ref!(ipcc);
 
-        compiler_fence(Ordering::SeqCst);
-
         unsafe {
             TL_REF_TABLE.as_mut_ptr().write_volatile(RefTable {
                 device_info_table: TL_DEVICE_INFO_TABLE.as_ptr(),
@@ -89,8 +88,6 @@ impl<'d> TlMbox<'d> {
                 lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
                 ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
-
-            compiler_fence(Ordering::SeqCst);
 
             // info!("TL_REF_TABLE addr: {:x}", TL_REF_TABLE.as_ptr() as usize);
 
@@ -125,15 +122,15 @@ impl<'d> TlMbox<'d> {
 
         compiler_fence(Ordering::SeqCst);
 
+        // MemoryManager is special
+        MemoryManager::enable();
+
         #[cfg(feature = "ble")]
         let ble_subsystem = BleSubsystem::new();
         let sys_subsystem = SysSubsystem::new();
         let thread_subsystem = ThreadSubsystem::new();
         #[cfg(feature = "mac")]
         let mac_subsystem = MacSubsystem::new();
-
-        // MemoryManager is special
-        MemoryManager::enable();
 
         compiler_fence(Ordering::SeqCst);
 
@@ -161,39 +158,38 @@ impl<'d> TlMbox<'d> {
         }
     }
 
-    #[cfg(feature = "mac")]
-    pub async fn mac_802_15_4_init(&mut self) -> Result<usize, ()> {
-        let mut cmd_serial = CommandSerial::default();
-        cmd_serial.cmd.cmd_code = ShciOpcode::Mac802_15_4DeInit as u16;
-        cmd_serial.cmd.payload_len = 0;
-
-        let buf = unsafe {
-            core::slice::from_raw_parts(
-                (&cmd_serial as *const _) as *const u8,
-                core::mem::size_of::<CommandSerial>(),
-            )
-        };
-
-        self.sys_subsystem.write(buf).await
-    }
-
-    #[cfg(feature = "ble")]
-    pub async fn ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<usize, ()> {
-        let payload_len = mem::size_of::<ShciBleInitCmdParam>();
-
-        let mut cmd_serial = CommandSerial::default();
-        cmd_serial.cmd.cmd_code = ShciOpcode::BleInit as u16;
-        cmd_serial.cmd.payload_len = payload_len as u8;
-
-        let payload = unsafe { slice::from_raw_parts((&param as *const _) as *const u8, payload_len) };
-
-        cmd_serial.cmd.payload[..payload.len()].copy_from_slice(payload);
-
-        let buf =
-            unsafe { slice::from_raw_parts((&cmd_serial as *const _) as *const u8, mem::size_of::<CommandSerial>()) };
-
-        self.sys_subsystem.write(buf).await
-    }
+    //    #[cfg(feature = "mac")]
+    //    pub async fn mac_802_15_4_init(&mut self) -> Result<usize, ()> {
+    //        let mut cmd_serial = CommandSerial::default();
+    //        cmd_serial.cmd.cmd_code = ShciOpcode::Mac802_15_4DeInit as u16;
+    //        cmd_serial.cmd.payload_len = 0;
+    //
+    //        let buf = unsafe {
+    //            core::slice::from_raw_parts(
+    //                (&cmd_serial as *const _) as *const u8,
+    //                core::mem::size_of::<CommandSerial>(),
+    //            )
+    //        };
+    //
+    //        self.sys_subsystem.write(buf).await
+    //    }
+    //    #[cfg(feature = "ble")]
+    //    pub async fn ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<usize, ()> {
+    //        let payload_len = mem::size_of::<ShciBleInitCmdParam>();
+    //
+    //        let mut cmd_serial = CommandSerial::default();
+    //        cmd_serial.cmd.cmd_code = ShciOpcode::BleInit as u16;
+    //        cmd_serial.cmd.payload_len = payload_len as u8;
+    //
+    //        let payload = unsafe { slice::from_raw_parts((&param as *const _) as *const u8, payload_len) };
+    //
+    //        cmd_serial.cmd.payload[..payload.len()].copy_from_slice(payload);
+    //
+    //        let buf =
+    //            unsafe { slice::from_raw_parts((&cmd_serial as *const _) as *const u8, mem::size_of::<CommandSerial>()) };
+    //
+    //        self.sys_subsystem.write(buf).await
+    //    }
 
     //    pub async fn shci_ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<usize, ()> {
     //        let mut packet = ShciBleInitCommandPacket {

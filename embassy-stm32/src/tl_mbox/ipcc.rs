@@ -3,6 +3,7 @@ use core::task::Poll;
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_cortex_m::interrupt::Interrupt;
+use embassy_time::{Duration, Timer};
 
 use self::sealed::Instance;
 use super::mm::MemoryManager;
@@ -31,7 +32,7 @@ impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
         regs.cpu(0).mr().modify(|w| {
             for channel in channels {
                 if sr.chf(channel as usize) {
-                    info!("ipcc: rx occupied interrupt ch: {}", channel as usize + 1);
+                    // info!("ipcc: rx occupied interrupt ch: {}", channel as usize + 1);
 
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
                     w.set_chom(channel as usize, true);
@@ -64,7 +65,7 @@ impl interrupt::Handler<interrupt::IPCC_C1_TX> for TransmitInterruptHandler {
         regs.cpu(0).mr().modify(|w| {
             for channel in channels {
                 if !sr.chf(channel as usize) {
-                    info!("ipcc: tx free interrupt ch: {}", channel as usize + 1);
+                    // info!("ipcc: tx free interrupt ch: {}", channel as usize + 1);
 
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
                     w.set_chfm(channel as usize, true);
@@ -131,12 +132,10 @@ impl Ipcc {
     pub async fn send(channel: IpccChannel, f: impl FnOnce()) {
         let regs = IPCC::regs();
 
-        info!("ipcc: wait for tx free");
-
         Self::flush(channel).await;
+        compiler_fence(Ordering::SeqCst);
 
-        info!("ipcc: write data");
-
+        info!("ipcc: ch {}:  write data", channel as u8);
         f();
 
         compiler_fence(Ordering::SeqCst);
@@ -146,6 +145,11 @@ impl Ipcc {
     /// Wait for the tx channel to become clear
     pub async fn flush(channel: IpccChannel) {
         let regs = IPCC::regs();
+
+        // This is a race, but is nice for debugging
+        if unsafe { regs.cpu(0).sr().read() }.chf(channel as usize) {
+            info!("ipcc: ch {}:  wait for tx free", channel as u8);
+        }
 
         poll_fn(|cx| {
             IPCC::state().tx_waker_for(channel).register(cx.waker());
@@ -171,7 +175,10 @@ impl Ipcc {
         let regs = IPCC::regs();
 
         loop {
-            info!("ipcc: wait for rx occupied");
+            // This is a race, but is nice for debugging
+            if !unsafe { regs.cpu(1).sr().read() }.chf(channel as usize) {
+                info!("ipcc: ch {}:  wait for rx occupied", channel as u8);
+            }
 
             poll_fn(|cx| {
                 IPCC::state().rx_waker_for(channel).register(cx.waker());
@@ -191,14 +198,15 @@ impl Ipcc {
             })
             .await;
 
-            info!("ipcc: read data");
+            info!("ipcc: ch {}:  read data", channel as u8);
+            compiler_fence(Ordering::SeqCst);
 
             match f() {
                 Some(ret) => return ret,
                 None => {}
             }
 
-            info!("ipcc: fetch more data");
+            info!("ipcc: ch {}: clear rx", channel as u8);
             compiler_fence(Ordering::SeqCst);
             // If the channel is clear and the read function returns none, fetch more data
             unsafe { regs.cpu(0).scr().write(|w| w.set_chc(channel as usize, true)) }

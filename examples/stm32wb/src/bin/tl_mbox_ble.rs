@@ -2,10 +2,15 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+use core::ptr;
+
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::tl_mbox::cmd::CommandSerial;
+use embassy_stm32::tl_mbox::consts::TlPacketType;
 use embassy_stm32::tl_mbox::{Config, TlMbox};
 use embassy_stm32::{bind_interrupts, tl_mbox};
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -13,8 +18,68 @@ bind_interrupts!(struct Irqs{
     IPCC_C1_TX => tl_mbox::TransmitInterruptHandler;
 });
 
+#[embassy_executor::task]
+async fn read_sys() {
+    let mut sys_subsystem = tl_mbox::sys::SysSubsystem::new();
+
+    let mut payload = [0u8; 6];
+
+    loop {
+        sys_subsystem
+            .read(|event_packet| {
+                let _ = event_packet.copy_into_slice(&mut payload);
+
+                let kind = unsafe { (&event_packet.event_serial.kind as *const u8).read_volatile() };
+
+                // means recieved SYS event, which indicates in this case that the coprocessor is ready
+                let code = unsafe { (&event_packet.event_serial.event.event_code as *const u8).read_volatile() };
+                let payload_len =
+                    unsafe { (&event_packet.event_serial.event.payload_len as *const u8).read_volatile() };
+
+                info!(
+                    "sys event ==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+                    kind,
+                    code,
+                    payload_len,
+                    payload[3..]
+                );
+            })
+            .await;
+    }
+}
+
+#[embassy_executor::task]
+async fn read_ble() {
+    let mut ble_subsystem = tl_mbox::ble::BleSubsystem::new();
+
+    let mut payload = [0u8; 6];
+
+    loop {
+        ble_subsystem
+            .read(|event_packet| {
+                let _ = event_packet.copy_into_slice(&mut payload);
+
+                let kind = unsafe { (&event_packet.event_serial.kind as *const u8).read_volatile() };
+
+                // means recieved SYS event, which indicates in this case that the coprocessor is ready
+                let code = unsafe { (&event_packet.event_serial.event.event_code as *const u8).read_volatile() };
+                let payload_len =
+                    unsafe { (&event_packet.event_serial.event.payload_len as *const u8).read_volatile() };
+
+                info!(
+                    "ble event ==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+                    kind,
+                    code,
+                    payload_len,
+                    payload[3..]
+                );
+            })
+            .await;
+    }
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     /*
         How to make this work:
 
@@ -46,57 +111,103 @@ async fn main(_spawner: Spawner) {
     let mut mbox = TlMbox::new(p.IPCC, Irqs, config);
 
     info!("waiting for coprocessor to boot");
-    let event_box = mbox.sys_subsystem.read().await.unwrap();
 
-    let mut payload = [0u8; 6];
-    event_box.copy_into_slice(&mut payload).unwrap();
+    spawner.spawn(read_sys()).unwrap();
 
-    let event_packet = event_box.event_packet();
-    let kind = event_packet.event_serial.kind;
+    Timer::after(Duration::from_millis(100)).await;
 
-    // means recieved SYS event, which indicates in this case that the coprocessor is ready
-    if kind == 0x12 {
-        let code = event_packet.event_serial.event.event_code;
-        let payload_len = event_packet.event_serial.event.payload_len;
+    spawner.spawn(read_ble()).unwrap();
 
-        info!(
-            "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
-            kind,
-            code,
-            payload_len,
-            payload[3..]
-        );
-    }
+    Timer::after(Duration::from_millis(100)).await;
 
-    // initialize ble stack, does not return a response
-    let _ = mbox.ble_init(Default::default()).await;
+    let command_status = mbox.sys_subsystem.schi_c2_ble_init(Default::default()).await;
 
-    info!("resetting BLE");
-    let _ = mbox.ble_subsystem.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).await;
+    info!("command status: {}", command_status);
 
-    info!("waiting for BLE...");
-    let event_box = mbox.ble_subsystem.read().await.unwrap();
+    Timer::after(Duration::from_millis(100)).await;
 
-    info!("BLE ready");
-    cortex_m::asm::bkpt();
+    mbox.ble_subsystem
+        .write_and_get_response(
+            |command_packet| {
+                let payload: [u8; 5] = [0x01, 0x03, 0x0c, 0x00, 0x00];
 
-    let mut payload = [0u8; 7];
-    event_box.copy_into_slice(&mut payload).unwrap();
+                let mut cmd_serial = CommandSerial::default();
+                // cmd_serial.cmd.cmd_code = ShciOpcode::BleInit as u16;
+                cmd_serial.cmd.payload_len = 5;
+                cmd_serial.typ = TlPacketType::BleCmd as u8;
 
-    let event_packet = event_box.event_packet();
-    let kind = event_packet.event_serial.kind;
+                unsafe {
+                    ptr::write(&cmd_serial.cmd.payload as *const _ as *mut _, payload);
+                    ptr::write_volatile(&mut command_packet.read_volatile().cmd_serial, cmd_serial);
+                }
+            },
+            |_| {},
+        )
+        .await;
 
-    let code = event_packet.event_serial.event.event_code;
-    let payload_len = event_packet.event_serial.event.payload_len;
-
-    info!(
-        "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
-        kind,
-        code,
-        payload_len,
-        payload[3..]
-    );
+    Timer::after(Duration::from_secs(5)).await;
 
     info!("Test OK");
     cortex_m::asm::bkpt();
+
+    //    let p = embassy_stm32::init(Default::default());
+    //    info!("Hello World!");
+    //
+    //    let config = Config::default();
+    //    let mut mbox = TlMbox::new(p.IPCC, Irqs, config);
+    //
+    //    info!("waiting for coprocessor to boot");
+    //    let event_box = mbox.sys_subsystem.read().await.unwrap();
+    //
+    //    let mut payload = [0u8; 6];
+    //    event_box.copy_into_slice(&mut payload).unwrap();
+    //
+    //    let event_packet = event_box.event_packet();
+    //    let kind = event_packet.event_serial.kind;
+    //
+    //    // means recieved SYS event, which indicates in this case that the coprocessor is ready
+    //    if kind == 0x12 {
+    //        let code = event_packet.event_serial.event.event_code;
+    //        let payload_len = event_packet.event_serial.event.payload_len;
+    //
+    //        info!(
+    //            "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+    //            kind,
+    //            code,
+    //            payload_len,
+    //            payload[3..]
+    //        );
+    //    }
+    //
+    //    // initialize ble stack, does not return a response
+    //    let _ = mbox.ble_init(Default::default()).await;
+    //
+    //    info!("resetting BLE");
+    //    let _ = mbox.ble_subsystem.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).await;
+    //
+    //    info!("waiting for BLE...");
+    //    let event_box = mbox.ble_subsystem.read().await.unwrap();
+    //
+    //    info!("BLE ready");
+    //    cortex_m::asm::bkpt();
+    //
+    //    let mut payload = [0u8; 7];
+    //    event_box.copy_into_slice(&mut payload).unwrap();
+    //
+    //    let event_packet = event_box.event_packet();
+    //    let kind = event_packet.event_serial.kind;
+    //
+    //    let code = event_packet.event_serial.event.event_code;
+    //    let payload_len = event_packet.event_serial.event.payload_len;
+    //
+    //    info!(
+    //        "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+    //        kind,
+    //        code,
+    //        payload_len,
+    //        payload[3..]
+    //    );
+    //
+    //    info!("Test OK");
+    //    cortex_m::asm::bkpt();
 }

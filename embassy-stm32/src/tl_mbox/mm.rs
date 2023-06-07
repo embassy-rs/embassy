@@ -34,7 +34,7 @@ impl MemoryManager {
         unsafe {
             let list_node = evt_packet.cast();
 
-            LinkedListNode::remove_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
+            LinkedListNode::insert_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
         }
 
         Self::run_queue()
@@ -46,6 +46,8 @@ impl MemoryManager {
 
             return;
         }
+
+        // return;
 
         let _ = poll_once(Ipcc::send(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, || unsafe {
             let mut node_ptr = core::ptr::null_mut();

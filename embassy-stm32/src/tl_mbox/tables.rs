@@ -228,7 +228,8 @@ pub static mut MAC_802_15_4_CMD_BUFFER: MaybeUninit<CommandPacket> = MaybeUninit
 
 #[cfg(feature = "mac")]
 #[link_section = "MB_MEM2"]
-pub static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<CommandPacket> = MaybeUninit::uninit();
+pub static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
+    MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 pub static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();

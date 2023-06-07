@@ -1,5 +1,7 @@
 //! HCI commands for system channel
 
+use core::convert::TryFrom;
+
 use super::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE};
 
 #[allow(dead_code)]
@@ -11,6 +13,43 @@ const SHCI_OGF: u16 = 0x3F;
 
 const fn opcode(ogf: u16, ocf: u16) -> isize {
     ((ogf << 10) + ocf) as isize
+}
+
+#[allow(dead_code)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SchiCommandStatus {
+    ShciSuccess = 0x00,
+    ShciUnknownCmd = 0x01,
+    ShciMemoryCapacityExceededErrCode = 0x07,
+    ShciErrUnsupportedFeature = 0x11,
+    ShciErrInvalidHciCmdParams = 0x12,
+    ShciErrInvalidParams = 0x42,   /* only used for release < v1.13.0 */
+    ShciErrInvalidParamsV2 = 0x92, /* available for release >= v1.13.0 */
+    ShciFusCmdNotSupported = 0xFF,
+}
+
+impl TryFrom<u8> for SchiCommandStatus {
+    type Error = ();
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            x if x == SchiCommandStatus::ShciSuccess as u8 => Ok(SchiCommandStatus::ShciSuccess),
+            x if x == SchiCommandStatus::ShciUnknownCmd as u8 => Ok(SchiCommandStatus::ShciUnknownCmd),
+            x if x == SchiCommandStatus::ShciMemoryCapacityExceededErrCode as u8 => {
+                Ok(SchiCommandStatus::ShciMemoryCapacityExceededErrCode)
+            }
+            x if x == SchiCommandStatus::ShciErrUnsupportedFeature as u8 => {
+                Ok(SchiCommandStatus::ShciErrUnsupportedFeature)
+            }
+            x if x == SchiCommandStatus::ShciErrInvalidHciCmdParams as u8 => {
+                Ok(SchiCommandStatus::ShciErrInvalidHciCmdParams)
+            }
+            x if x == SchiCommandStatus::ShciErrInvalidParams as u8 => Ok(SchiCommandStatus::ShciErrInvalidParams), /* only used for release < v1.13.0 */
+            x if x == SchiCommandStatus::ShciErrInvalidParamsV2 as u8 => Ok(SchiCommandStatus::ShciErrInvalidParamsV2), /* available for release >= v1.13.0 */
+            x if x == SchiCommandStatus::ShciFusCmdNotSupported as u8 => Ok(SchiCommandStatus::ShciFusCmdNotSupported),
+            _ => Err(()),
+        }
+    }
 }
 
 #[allow(dead_code)]

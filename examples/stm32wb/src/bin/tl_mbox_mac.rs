@@ -46,66 +46,77 @@ async fn main(_spawner: Spawner) {
     let mut mbox = TlMbox::new(p.IPCC, Irqs, config);
 
     info!("waiting for coprocessor to boot");
-    let event_box = mbox.sys_subsystem.read().await.unwrap();
 
     let mut payload = [0u8; 6];
-    event_box.copy_into_slice(&mut payload).unwrap();
+    mbox.sys_subsystem
+        .read(|event_packet| {
+            let _ = event_packet.copy_into_slice(&mut payload);
 
-    let event_packet = event_box.event_packet();
-    let kind = event_packet.event_serial.kind;
+            let kind = unsafe { (&event_packet.event_serial.kind as *const u8).read_volatile() };
 
-    // means recieved SYS event, which indicates in this case that the coprocessor is ready
-    if kind == 0x12 {
-        let code = event_packet.event_serial.event.event_code;
-        let payload_len = event_packet.event_serial.event.payload_len;
+            // means recieved SYS event, which indicates in this case that the coprocessor is ready
+            if kind == 0x12 {
+                let code = unsafe { (&event_packet.event_serial.event.event_code as *const u8).read_volatile() };
+                let payload_len =
+                    unsafe { (&event_packet.event_serial.event.payload_len as *const u8).read_volatile() };
 
-        info!(
-            "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
-            kind,
-            code,
-            payload_len,
-            payload[3..]
-        );
-    }
+                info!(
+                    "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+                    kind,
+                    code,
+                    payload_len,
+                    payload[3..]
+                );
+            }
+        })
+        .await;
 
-    // initialize ble stack, does not return a response
-    let _ = mbox.mac_802_15_4_init().await;
+    let command_status = mbox.sys_subsystem.schi_c2_mac_802_15_4_init().await;
 
-    info!("waiting for sys...");
-    let event = mbox.sys_subsystem.read().await.unwrap();
+    info!("command status: {}", command_status);
 
-    let size = event.size().unwrap();
-    let event_packet = event.event_packet();
-    let buf = unsafe { core::slice::from_raw_parts((&event_packet as *const _) as *const u8, size) };
-
-    info!("{:#04x}", buf);
-    info!("{}", buf);
-
-    info!("resetting BLE");
-    let _ = mbox.mac_subsystem.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).await;
-
-    info!("waiting for BLE...");
-    let event_box = mbox.mac_subsystem.read().await.unwrap();
-
-    info!("BLE ready");
+    info!("Test OK");
     cortex_m::asm::bkpt();
 
-    let mut payload = [0u8; 7];
-    event_box.copy_into_slice(&mut payload).unwrap();
-
-    let event_packet = event_box.event_packet();
-    let kind = event_packet.event_serial.kind;
-
-    let code = event_packet.event_serial.event.event_code;
-    let payload_len = event_packet.event_serial.event.payload_len;
-
-    info!(
-        "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
-        kind,
-        code,
-        payload_len,
-        payload[3..]
-    );
+    //
+    //    // initialize ble stack, does not return a response
+    //    let _ = mbox.mac_802_15_4_init().await;
+    //
+    //    info!("waiting for sys...");
+    //    let event = mbox.sys_subsystem.read_command().await.unwrap();
+    //
+    //    let size = event.size().unwrap();
+    //    // let size = 10;
+    //    let event_packet = event.event_packet();
+    //    let buf = unsafe { core::slice::from_raw_parts((&event_packet as *const _) as *const u8, size) };
+    //
+    //    info!("{:#04x}", buf);
+    //
+    //    info!("resetting BLE");
+    //    let _ = mbox.mac_subsystem.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).await;
+    //
+    //    info!("waiting for BLE...");
+    //    let event_box = mbox.mac_subsystem.read_event().await.unwrap();
+    //
+    //    info!("BLE ready");
+    //    cortex_m::asm::bkpt();
+    //
+    //    let mut payload = [0u8; 7];
+    //    event_box.copy_into_slice(&mut payload).unwrap();
+    //
+    //    let event_packet = event_box.event_packet();
+    //    let kind = event_packet.event_serial.kind;
+    //
+    //    let code = event_packet.event_serial.event.event_code;
+    //    let payload_len = event_packet.event_serial.event.payload_len;
+    //
+    //    info!(
+    //        "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
+    //        kind,
+    //        code,
+    //        payload_len,
+    //        payload[3..]
+    //    );
 
     info!("Test OK");
     cortex_m::asm::bkpt();
