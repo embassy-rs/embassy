@@ -67,7 +67,7 @@ async fn main(spawner: Spawner) {
     // Init network stack
     let stack = &*make_static!(Stack::new(
         device,
-        embassy_net::Config::Dhcp(Default::default()),
+        embassy_net::Config::dhcpv4(Default::default()),
         make_static!(StackResources::<2>::new()),
         seed
     ));

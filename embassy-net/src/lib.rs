@@ -127,16 +127,61 @@ impl Default for DhcpConfig {
 }
 
 /// Network stack configuration.
-pub enum Config {
-    /// Use a static IPv4 address configuration.
+pub struct Config {
     #[cfg(feature = "proto-ipv4")]
-    StaticV4(StaticConfigV4),
-    /// Use a static IPv6 address configuration.
+    pub ipv4: ConfigV4,
     #[cfg(feature = "proto-ipv6")]
-    StaticV6(StaticConfigV6),
+    pub ipv6: ConfigV6,
+}
+
+impl Config {
+    #[cfg(feature = "proto-ipv4")]
+    pub fn ipv4_static(config: StaticConfigV4) -> Self {
+        Self {
+            ipv4: ConfigV4::Static(config),
+            #[cfg(feature = "proto-ipv6")]
+            ipv6: ConfigV6::None,
+        }
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    pub fn ipv6_static(config: StaticConfigV6) -> Self {
+        Self {
+            #[cfg(feature = "proto-ipv4")]
+            ipv4: ConfigV4::None,
+            ipv6: ConfigV6::Static(config),
+        }
+    }
+
+    #[cfg(feature = "dhcpv4")]
+    pub fn dhcpv4(config: DhcpConfig) -> Self {
+        Self {
+            ipv4: ConfigV4::Dhcp(config),
+            #[cfg(feature = "proto-ipv6")]
+            ipv6: ConfigV6::None,
+        }
+    }
+}
+
+/// Network stack IPv4 configuration.
+#[cfg(feature = "proto-ipv4")]
+pub enum ConfigV4 {
+    /// Use a static IPv4 address configuration.
+    Static(StaticConfigV4),
     /// Use DHCP to obtain an IP address configuration.
     #[cfg(feature = "dhcpv4")]
     Dhcp(DhcpConfig),
+    /// Do not configure IPv6.
+    None,
+}
+
+/// Network stack IPv6 configuration.
+#[cfg(feature = "proto-ipv6")]
+pub enum ConfigV6 {
+    /// Use a static IPv6 address configuration.
+    Static(StaticConfigV6),
+    /// Do not configure IPv6.
+    None,
 }
 
 /// A network stack.
@@ -224,22 +269,26 @@ impl<D: Driver + 'static> Stack<D> {
             dns_waker: WakerRegistration::new(),
         };
 
-        match config {
-            #[cfg(feature = "proto-ipv4")]
-            Config::StaticV4(config) => {
+        #[cfg(feature = "proto-ipv4")]
+        match config.ipv4 {
+            ConfigV4::Static(config) => {
                 inner.apply_config_v4(&mut socket, config);
             }
-            #[cfg(feature = "proto-ipv6")]
-            Config::StaticV6(config) => {
-                inner.apply_config_v6(&mut socket, config);
-            }
             #[cfg(feature = "dhcpv4")]
-            Config::Dhcp(config) => {
+            ConfigV4::Dhcp(config) => {
                 let mut dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
                 inner.apply_dhcp_config(&mut dhcp_socket, config);
                 let handle = socket.sockets.add(dhcp_socket);
                 inner.dhcp_socket = Some(handle);
             }
+            ConfigV4::None => {}
+        }
+        #[cfg(feature = "proto-ipv6")]
+        match config.ipv6 {
+            ConfigV6::Static(config) => {
+                inner.apply_config_v6(&mut socket, config);
+            }
+            ConfigV6::None => {}
         }
 
         Self {

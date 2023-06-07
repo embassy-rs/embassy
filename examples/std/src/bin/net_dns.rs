@@ -40,14 +40,14 @@ async fn main_task(spawner: Spawner) {
 
     // Choose between dhcp or static ip
     let config = if opts.static_ip {
-        Config::StaticV4(embassy_net::StaticConfigV4 {
+        Config::ipv4_static(embassy_net::StaticConfigV4 {
             address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 1), 24),
             dns_servers: Vec::from_slice(&[Ipv4Address::new(8, 8, 4, 4).into(), Ipv4Address::new(8, 8, 8, 8).into()])
                 .unwrap(),
             gateway: Some(Ipv4Address::new(192, 168, 69, 100)),
         })
     } else {
-        Config::Dhcp(Default::default())
+        Config::dhcpv4(Default::default())
     };
 
     // Generate random seed
