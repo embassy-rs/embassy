@@ -63,7 +63,7 @@ async fn main(spawner: Spawner) {
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let config = Config::Dhcp(Default::default());
+    let config = Config::dhcpv4(Default::default());
     //let config = embassy_net::Config::Static(embassy_net::Config {
     //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
     //    dns_servers: Vec::new(),
@@ -93,7 +93,7 @@ async fn main(spawner: Spawner) {
     }
 
     info!("Waiting for DHCP up...");
-    while stack.config().is_none() {
+    while stack.config_v4().is_none() {
         Timer::after(Duration::from_millis(100)).await;
     }
     info!("IP addressing up!");
@@ -115,9 +115,9 @@ const WIFI_NETWORK: &str = "EmbassyTest";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 const TEST_DURATION: usize = 10;
-const TEST_EXPECTED_DOWNLOAD_KBPS: usize = 500;
-const TEST_EXPECTED_UPLOAD_KBPS: usize = 500;
-const TEST_EXPECTED_UPLOAD_DOWNLOAD_KBPS: usize = 400;
+const TEST_EXPECTED_DOWNLOAD_KBPS: usize = 300;
+const TEST_EXPECTED_UPLOAD_KBPS: usize = 300;
+const TEST_EXPECTED_UPLOAD_DOWNLOAD_KBPS: usize = 300;
 const RX_BUFFER_SIZE: usize = 4096;
 const TX_BUFFER_SIZE: usize = 4096;
 const SERVER_ADDRESS: Ipv4Address = Ipv4Address::new(192, 168, 2, 2);

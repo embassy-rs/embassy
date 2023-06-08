@@ -26,7 +26,8 @@ unstable-traits = []
 udp = ["smoltcp/socket-udp"]
 tcp = ["smoltcp/socket-tcp"]
 dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
-dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
+dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
+proto-ipv4 = ["smoltcp/proto-ipv4"]
 proto-ipv6 = ["smoltcp/proto-ipv6"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
@@ -38,7 +39,6 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 smoltcp = { version = "0.9.0", default-features = false, features = [
-  "proto-ipv4",
   "socket",
   "async",
 ]}
