@@ -1,45 +1,27 @@
 use embassy_futures::block_on;
 
 use super::cmd::{CmdPacket, CmdSerial};
-use super::consts::TlPacketType;
 use super::evt::{CcEvt, EvtBox, EvtSerial};
+use super::ipcc::Ipcc;
 use super::unsafe_linked_list::LinkedListNode;
-use super::{channels, SysTable, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_CHANNEL, TL_REF_TABLE, TL_SYS_TABLE};
-use crate::tl_mbox::ipcc::Ipcc;
+use super::{channels, SysTable, HEAPLESS_EVT_QUEUE, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
 
 pub struct Sys;
 
 impl Sys {
-    pub fn enable() {
+    pub fn new() -> Self {
         unsafe {
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
             TL_SYS_TABLE.as_mut_ptr().write_volatile(SysTable {
                 pcmd_buffer: SYS_CMD_BUF.as_mut_ptr(),
                 sys_queue: SYSTEM_EVT_QUEUE.as_ptr(),
-            });
+            })
         }
 
         Ipcc::c1_set_rx_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, true);
-    }
 
-    pub fn evt_handler() {
-        unsafe {
-            let mut node_ptr = core::ptr::null_mut();
-            let node_ptr_ptr: *mut _ = &mut node_ptr;
-
-            while !LinkedListNode::is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
-
-                let event = node_ptr.cast();
-                let event = EvtBox::new(event);
-
-                // TODO: not really happy about this
-                block_on(TL_CHANNEL.send(event));
-            }
-        }
-
-        Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL);
+        Sys
     }
 
     pub fn cmd_evt_handler() -> CcEvt {
@@ -55,29 +37,40 @@ impl Sys {
         // 4. CcEvt type is the actual SHCI response
         // 5. profit
         unsafe {
-            let cmd: *const CmdPacket = (*TL_SYS_TABLE.as_ptr()).pcmd_buffer;
-            let cmd_serial: *const CmdSerial = &(*cmd).cmd_serial;
+            let pcmd: *const CmdPacket = (*TL_SYS_TABLE.as_ptr()).pcmd_buffer;
+
+            let a = unsafe {
+                core::slice::from_raw_parts(&pcmd as *const _ as *const u8, core::mem::size_of::<CmdPacket>())
+            };
+            debug!("shci response {:#04x}", a);
+
+            let cmd_serial: *const CmdSerial = &(*pcmd).cmdserial;
             let evt_serial: *const EvtSerial = cmd_serial.cast();
-            let cc = (*evt_serial).evt.payload.as_ptr().cast();
+            let cc: *const CcEvt = (*evt_serial).evt.payload.as_ptr().cast();
             *cc
         }
     }
 
-    #[allow(dead_code)]
-    pub fn send_cmd(buf: &[u8]) {
+    pub fn evt_handler() {
         unsafe {
-            // TODO: check this
-            let cmd_buffer = &mut *(*TL_REF_TABLE.assume_init().sys_table).pcmd_buffer;
-            let cmd_serial: *mut CmdSerial = &mut cmd_buffer.cmd_serial;
-            let cmd_serial_buf = cmd_serial.cast();
+            let mut node_ptr = core::ptr::null_mut();
+            let node_ptr_ptr: *mut _ = &mut node_ptr;
 
-            core::ptr::copy(buf.as_ptr(), cmd_serial_buf, buf.len());
+            while !LinkedListNode::is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
+                LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
 
-            let cmd_packet = &mut *(*TL_REF_TABLE.assume_init().sys_table).pcmd_buffer;
-            cmd_packet.cmd_serial.ty = TlPacketType::SysCmd as u8;
+                let event = node_ptr.cast();
+                let event = EvtBox::new(event);
 
-            Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-            Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
+                block_on(HEAPLESS_EVT_QUEUE.send(event));
+            }
         }
+
+        Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL);
     }
+}
+
+pub fn send_cmd() {
+    Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
+    Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
 }

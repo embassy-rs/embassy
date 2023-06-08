@@ -4,7 +4,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::tl_mbox::{Config, TlMbox};
+use embassy_stm32::tl_mbox::hci::RadioCoprocessor;
+use embassy_stm32::tl_mbox::ipcc::Config;
+use embassy_stm32::tl_mbox::TlMbox;
 use embassy_stm32::{bind_interrupts, tl_mbox};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -45,53 +47,14 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mbox = TlMbox::new(p.IPCC, Irqs, config);
 
-    info!("waiting for coprocessor to boot");
-    let event_box = mbox.read().await;
+    let mut rc = RadioCoprocessor::new(mbox, Default::default());
+    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).unwrap();
 
-    let mut payload = [0u8; 6];
-    event_box.copy_into_slice(&mut payload).unwrap();
+    let response = rc.read().await;
+    info!("coprocessor ready {}", response);
 
-    let event_packet = event_box.evt();
-    let kind = event_packet.evt_serial.kind;
-
-    // means recieved SYS event, which indicates in this case that the coprocessor is ready
-    if kind == 0x12 {
-        let code = event_packet.evt_serial.evt.evt_code;
-        let payload_len = event_packet.evt_serial.evt.payload_len;
-
-        info!(
-            "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
-            kind,
-            code,
-            payload_len,
-            payload[3..]
-        );
-    }
-
-    // initialize ble stack, does not return a response
-    mbox.shci_ble_init(Default::default());
-
-    info!("resetting BLE");
-    mbox.send_ble_cmd(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
-
-    let event_box = mbox.read().await;
-
-    let mut payload = [0u8; 7];
-    event_box.copy_into_slice(&mut payload).unwrap();
-
-    let event_packet = event_box.evt();
-    let kind = event_packet.evt_serial.kind;
-
-    let code = event_packet.evt_serial.evt.evt_code;
-    let payload_len = event_packet.evt_serial.evt.payload_len;
-
-    info!(
-        "==> kind: {:#04x}, code: {:#04x}, payload_length: {}, payload: {:#04x}",
-        kind,
-        code,
-        payload_len,
-        payload[3..]
-    );
+    let response = rc.read().await;
+    info!("coprocessor ready {}", response);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
