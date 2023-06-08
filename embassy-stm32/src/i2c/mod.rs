@@ -1,6 +1,6 @@
 #![macro_use]
 
-use crate::interrupt::Interrupt;
+use crate::interrupt;
 
 #[cfg_attr(i2c_v1, path = "v1.rs")]
 #[cfg_attr(i2c_v2, path = "v2.rs")]
@@ -35,7 +35,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Instance: sealed::Instance + 'static {
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 pin_trait!(SclPin, Instance);
@@ -57,7 +57,7 @@ foreach_interrupt!(
         }
 
         impl Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 );

@@ -1,0 +1,21 @@
+[package]
+edition = "2021"
+name = "embassy-nrf52840-rtic-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+rtic = { version = "2", features = ["thumbv7-backend"] }
+
+embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
+embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["nightly", "unstable-traits", "defmt", "defmt-timestamp-uptime", "generic-queue"] }
+embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["nightly", "unstable-traits", "defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
+
+defmt = "0.3"
+defmt-rtt = "0.4"
+
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+futures = { version = "0.3.17", default-features = false, features = ["async-await"] }

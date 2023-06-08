@@ -278,9 +278,17 @@ impl<'a> TcpSocket<'a> {
         self.io.with(|s, _| s.may_send())
     }
 
-    /// Get whether the socket is ready to receive data, i.e. whether there is some pending data in the receive buffer.
+    /// return whether the recieve half of the full-duplex connection is open.
+    /// This function returns true if it’s possible to receive data from the remote endpoint.
+    /// It will return true while there is data in the receive buffer, and if there isn’t,
+    /// as long as the remote endpoint has not closed the connection.
     pub fn may_recv(&self) -> bool {
         self.io.with(|s, _| s.may_recv())
+    }
+
+    /// Get whether the socket is ready to receive data, i.e. whether there is some pending data in the receive buffer.
+    pub fn can_recv(&self) -> bool {
+        self.io.with(|s, _| s.can_recv())
     }
 }
 

@@ -14,7 +14,7 @@ use embassy_usb_driver::{
 
 use super::{DmPin, DpPin, Instance};
 use crate::gpio::sealed::AFType;
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
@@ -26,7 +26,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         unsafe {
             let regs = T::regs();
@@ -255,7 +255,7 @@ pub struct Driver<'d, T: Instance> {
 impl<'d, T: Instance> Driver<'d, T> {
     pub fn new(
         _usb: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {

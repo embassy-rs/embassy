@@ -2,14 +2,14 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
 
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
-use crate::{pac, peripherals, Peripheral};
+use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 /// I2C error abort reason
 #[derive(Debug)]
@@ -312,7 +312,7 @@ pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     // Mask interrupts and wake any task waiting for this interrupt
     unsafe fn on_interrupt() {
         let i2c = T::regs();
@@ -760,14 +760,15 @@ fn i2c_reserved_addr(addr: u16) -> bool {
 }
 
 mod sealed {
-    use embassy_cortex_m::interrupt::Interrupt;
     use embassy_sync::waitqueue::AtomicWaker;
+
+    use crate::interrupt;
 
     pub trait Instance {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
 
-        type Interrupt: Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> crate::pac::i2c::I2c;
         fn reset() -> crate::pac::resets::regs::Peripherals;
@@ -803,7 +804,7 @@ macro_rules! impl_instance {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
 
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             #[inline]
             fn regs() -> pac::i2c::I2c {

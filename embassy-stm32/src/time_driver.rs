@@ -11,7 +11,7 @@ use embassy_time::driver::{AlarmHandle, Driver};
 use embassy_time::TICK_HZ;
 use stm32_metapac::timer::regs;
 
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
@@ -40,6 +40,7 @@ type T = peripherals::TIM15;
 foreach_interrupt! {
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim2)]
+        #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
@@ -47,6 +48,7 @@ foreach_interrupt! {
     };
     (TIM3, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim3)]
+        #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
@@ -54,6 +56,7 @@ foreach_interrupt! {
     };
     (TIM4, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim4)]
+        #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
@@ -61,6 +64,7 @@ foreach_interrupt! {
     };
     (TIM5, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim5)]
+        #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
@@ -68,6 +72,7 @@ foreach_interrupt! {
     };
     (TIM12, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim12)]
+        #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
@@ -75,6 +80,7 @@ foreach_interrupt! {
     };
     (TIM15, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim15)]
+        #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()

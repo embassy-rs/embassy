@@ -149,6 +149,7 @@ foreach_peripheral!(
     };
 );
 
+#[cfg(feature = "rt")]
 macro_rules! irq {
     ($irq:ident) => {
         mod rng_irq {
@@ -166,6 +167,7 @@ macro_rules! irq {
     };
 }
 
+#[cfg(feature = "rt")]
 foreach_interrupt!(
     (RNG) => {
         irq!(RNG);

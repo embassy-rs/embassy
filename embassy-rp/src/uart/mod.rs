@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_futures::select::{select, Either};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -14,8 +13,9 @@ use crate::clocks::clk_peri_freq;
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
+use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 #[cfg(feature = "nightly")]
 mod buffered;
@@ -332,7 +332,7 @@ pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let uart = T::regs();
         if !uart.uartdmacr().read().rxdmae() {
@@ -930,7 +930,7 @@ mod sealed {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
 
-        type Interrupt: crate::interrupt::Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> pac::uart::Uart;
 
@@ -968,7 +968,7 @@ macro_rules! impl_instance {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
 
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> pac::uart::Uart {
                 pac::$inst

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 export RUSTFLAGS=-Dwarnings
-export DEFMT_LOG=trace
+export DEFMT_LOG=trace,cyw43=info,cyw43_pio=info,smoltcp=info
 
 # needed by wifi examples
 export WIFI_NETWORK=x
@@ -112,6 +112,7 @@ cargo batch  \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-irq/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-async/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840 \
+    --- build --release --manifest-path examples/nrf52840-rtic/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840-rtic \
     --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf5340 \
     --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/rp \
     --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32f0 \

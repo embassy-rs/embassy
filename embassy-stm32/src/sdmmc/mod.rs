@@ -14,7 +14,7 @@ use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID,
 use crate::dma::NoDma;
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, Pull, Speed};
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -42,7 +42,7 @@ impl<T: Instance> InterruptHandler<T> {
     }
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         Self::data_interrupts(false);
         T::state().wake();
@@ -276,7 +276,7 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
@@ -310,7 +310,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
@@ -356,7 +356,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
@@ -389,7 +389,7 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
 
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: impl Peripheral<P = impl CkPin<T>> + 'd,
         cmd: impl Peripheral<P = impl CmdPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
@@ -1401,7 +1401,7 @@ pub(crate) mod sealed {
     use super::*;
 
     pub trait Instance {
-        type Interrupt: Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> RegBlock;
         fn state() -> &'static AtomicWaker;
@@ -1490,7 +1490,7 @@ cfg_if::cfg_if! {
 foreach_peripheral!(
     (sdmmc, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::$inst;
+            type Interrupt = crate::interrupt::typelevel::$inst;
 
             fn regs() -> RegBlock {
                 crate::pac::$inst
