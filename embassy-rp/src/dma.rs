@@ -12,6 +12,7 @@ use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals;
 use crate::{interrupt, pac, peripherals};
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn DMA_IRQ_0() {
     let ints0 = pac::DMA.ints0().read().ints0();

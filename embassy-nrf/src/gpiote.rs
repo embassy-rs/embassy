@@ -91,18 +91,21 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
 }
 
 #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+#[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE0() {
     unsafe { handle_gpiote_interrupt() };
 }
 
 #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+#[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE1() {
     unsafe { handle_gpiote_interrupt() };
 }
 
 #[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+#[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE() {
     unsafe { handle_gpiote_interrupt() };

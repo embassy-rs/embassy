@@ -43,6 +43,7 @@ pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use rp_pac as pac;
 
+#[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
 
 embassy_cortex_m::interrupt_mod!(

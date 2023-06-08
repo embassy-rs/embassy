@@ -295,6 +295,7 @@ fn main() {
         let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
 
         g.extend(quote! {
+            #[cfg(feature = "rt")]
             #[crate::interrupt]
             unsafe fn #irq () {
                 #(

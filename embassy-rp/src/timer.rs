@@ -151,21 +151,25 @@ pub unsafe fn init() {
     interrupt::TIMER_IRQ_3.enable();
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn TIMER_IRQ_0() {
     DRIVER.check_alarm(0)
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn TIMER_IRQ_1() {
     DRIVER.check_alarm(1)
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn TIMER_IRQ_2() {
     DRIVER.check_alarm(2)
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn TIMER_IRQ_3() {
     DRIVER.check_alarm(3)

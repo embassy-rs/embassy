@@ -85,6 +85,7 @@ const RXNEMPTY_MASK: u32 = 1 << 0;
 const TXNFULL_MASK: u32 = 1 << 4;
 const SMIRQ_MASK: u32 = 1 << 8;
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn PIO0_IRQ_0() {
     use crate::pac;
@@ -97,6 +98,7 @@ unsafe fn PIO0_IRQ_0() {
     pac::PIO0.irqs(0).inte().write_clear(|m| m.0 = ints);
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn PIO1_IRQ_0() {
     use crate::pac;

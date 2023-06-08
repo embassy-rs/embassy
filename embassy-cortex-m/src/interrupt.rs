@@ -9,12 +9,13 @@ use cortex_m::peripheral::NVIC;
 #[macro_export]
 macro_rules! interrupt_mod {
     ($($irqs:ident),* $(,)?) => {
+        #[cfg(feature = "rt")]
         pub use cortex_m_rt::interrupt;
 
         /// Interrupt definitions.
         pub mod interrupt {
             pub use embassy_cortex_m::interrupt::{InterruptExt, Priority};
-            pub use crate::pac::interrupt::*;
+            pub use crate::pac::Interrupt::*;
             pub use crate::pac::Interrupt;
 
             /// Type-level interrupt infrastructure.

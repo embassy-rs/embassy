@@ -295,6 +295,7 @@ impl Driver for RtcDriver {
     }
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 fn RTC1() {
     DRIVER.on_interrupt()

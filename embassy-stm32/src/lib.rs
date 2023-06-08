@@ -111,6 +111,7 @@ pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
 
+#[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
 
 #[non_exhaustive]

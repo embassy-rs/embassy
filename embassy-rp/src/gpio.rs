@@ -142,6 +142,7 @@ pub(crate) unsafe fn init() {
     interrupt::IO_IRQ_BANK0.enable();
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn IO_IRQ_BANK0() {
     let cpu = SIO.cpuid().read() as usize;

@@ -106,6 +106,7 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 #[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_PROC1() {
@@ -297,6 +298,7 @@ fn fifo_read() -> u32 {
 
 // Pop a value from inter-core FIFO, `wfe` until available
 #[inline(always)]
+#[allow(unused)]
 fn fifo_read_wfe() -> u32 {
     unsafe {
         let sio = pac::SIO;

@@ -291,6 +291,7 @@ macro_rules! foreach_exti_irq {
 
 macro_rules! impl_irq {
     ($e:ident) => {
+        #[cfg(feature = "rt")]
         #[interrupt]
         unsafe fn $e() {
             on_irq()
