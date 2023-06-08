@@ -12,7 +12,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::GPDMA_CHANNEL_COUNT;
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
 
