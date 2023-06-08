@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicBool, AtomicU16, Ordering};
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
@@ -15,6 +14,7 @@ use futures::future::poll_fn;
 use super::*;
 use crate::gpio::sealed::AFType;
 use crate::interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::otg::{regs, vals};
 use crate::rcc::sealed::RccPeripheral;
 use crate::time::Hertz;
@@ -24,7 +24,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         trace!("irq");
         let r = T::regs();
@@ -291,7 +291,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Endpoint allocation will fail if it is too small.
     pub fn new_fs(
         _peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
@@ -322,7 +322,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs_ulpi(
         _peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
         ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
         ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,

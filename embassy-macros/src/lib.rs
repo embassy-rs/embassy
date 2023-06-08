@@ -156,16 +156,3 @@ pub fn main_wasm(args: TokenStream, item: TokenStream) -> TokenStream {
     let f = syn::parse_macro_input!(item as syn::ItemFn);
     main::run(args, f, main::wasm()).unwrap_or_else(|x| x).into()
 }
-
-#[proc_macro_attribute]
-pub fn cortex_m_interrupt(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
-    let f = syn::parse_macro_input!(item as syn::ItemFn);
-    cortex_m_interrupt::run(args, f).unwrap_or_else(|x| x).into()
-}
-
-#[proc_macro]
-pub fn cortex_m_interrupt_declare(item: TokenStream) -> TokenStream {
-    let name = syn::parse_macro_input!(item as syn::Ident);
-    cortex_m_interrupt_declare::run(name).unwrap_or_else(|x| x).into()
-}

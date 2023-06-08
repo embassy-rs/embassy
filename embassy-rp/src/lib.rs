@@ -16,7 +16,6 @@ pub mod flash;
 mod float;
 pub mod gpio;
 pub mod i2c;
-pub mod interrupt;
 pub mod multicore;
 pub mod pwm;
 mod reset;
@@ -38,12 +37,76 @@ pub mod relocate;
 
 // Reexports
 pub use embassy_cortex_m::executor;
-pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
 pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use rp_pac as pac;
+
+#[cfg(feature = "rt")]
+pub use crate::pac::NVIC_PRIO_BITS;
+
+embassy_cortex_m::interrupt_mod!(
+    TIMER_IRQ_0,
+    TIMER_IRQ_1,
+    TIMER_IRQ_2,
+    TIMER_IRQ_3,
+    PWM_IRQ_WRAP,
+    USBCTRL_IRQ,
+    XIP_IRQ,
+    PIO0_IRQ_0,
+    PIO0_IRQ_1,
+    PIO1_IRQ_0,
+    PIO1_IRQ_1,
+    DMA_IRQ_0,
+    DMA_IRQ_1,
+    IO_IRQ_BANK0,
+    IO_IRQ_QSPI,
+    SIO_IRQ_PROC0,
+    SIO_IRQ_PROC1,
+    CLOCKS_IRQ,
+    SPI0_IRQ,
+    SPI1_IRQ,
+    UART0_IRQ,
+    UART1_IRQ,
+    ADC_IRQ_FIFO,
+    I2C0_IRQ,
+    I2C1_IRQ,
+    RTC_IRQ,
+    SWI_IRQ_0,
+    SWI_IRQ_1,
+    SWI_IRQ_2,
+    SWI_IRQ_3,
+    SWI_IRQ_4,
+    SWI_IRQ_5,
+);
+
+/// Macro to bind interrupts to handlers.
+///
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+// developer note: this macro can't be in `embassy-cortex-m` due to the use of `$crate`.
+#[macro_export]
+macro_rules! bind_interrupts {
+    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+        $vis struct $name;
+
+        $(
+            #[allow(non_snake_case)]
+            #[no_mangle]
+            unsafe extern "C" fn $irq() {
+                $(
+                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                )*
+            }
+
+            $(
+                unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+            )*
+        )*
+    };
+}
 
 embassy_hal_common::peripherals! {
     PIN_0,

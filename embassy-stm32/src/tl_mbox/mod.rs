@@ -2,7 +2,6 @@ use core::mem::MaybeUninit;
 
 use atomic_polyfill::{compiler_fence, Ordering};
 use bit_field::BitField;
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -15,6 +14,7 @@ use self::shci::{shci_ble_init, ShciBleInitCmdParam};
 use self::sys::Sys;
 use self::unsafe_linked_list::LinkedListNode;
 use crate::interrupt;
+use crate::interrupt::InterruptExt;
 use crate::peripherals::IPCC;
 pub use crate::tl_mbox::ipcc::Config;
 use crate::tl_mbox::ipcc::Ipcc;
@@ -63,7 +63,7 @@ pub struct FusInfoTable {
 /// Interrupt handler.
 pub struct ReceiveInterruptHandler {}
 
-impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for ReceiveInterruptHandler {
     unsafe fn on_interrupt() {
         // info!("ipcc rx interrupt");
 
@@ -79,7 +79,7 @@ impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
 
 pub struct TransmitInterruptHandler {}
 
-impl interrupt::Handler<interrupt::IPCC_C1_TX> for TransmitInterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for TransmitInterruptHandler {
     unsafe fn on_interrupt() {
         // info!("ipcc tx interrupt");
 
@@ -324,8 +324,8 @@ impl<'d> TlMbox<'d> {
     /// initializes low-level transport between CPU1 and BLE stack on CPU2
     pub fn new(
         ipcc: impl Peripheral<P = IPCC> + 'd,
-        _irqs: impl interrupt::Binding<interrupt::IPCC_C1_RX, ReceiveInterruptHandler>
-            + interrupt::Binding<interrupt::IPCC_C1_TX, TransmitInterruptHandler>,
+        _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
+            + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
         config: Config,
     ) -> Self {
         into_ref!(ipcc);
@@ -379,11 +379,11 @@ impl<'d> TlMbox<'d> {
         MemoryManager::enable();
 
         // enable interrupts
-        crate::interrupt::IPCC_C1_RX::unpend();
-        crate::interrupt::IPCC_C1_TX::unpend();
+        crate::interrupt::IPCC_C1_RX.unpend();
+        crate::interrupt::IPCC_C1_TX.unpend();
 
-        unsafe { crate::interrupt::IPCC_C1_RX::enable() };
-        unsafe { crate::interrupt::IPCC_C1_TX::enable() };
+        unsafe { crate::interrupt::IPCC_C1_RX.enable() };
+        unsafe { crate::interrupt::IPCC_C1_TX.enable() };
 
         Self { _ipcc: ipcc }
     }

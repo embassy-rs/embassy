@@ -2,20 +2,20 @@ mod descriptors;
 
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Speed};
+use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler {}
 
-impl interrupt::Handler<interrupt::ETH> for InterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandler {
     unsafe fn on_interrupt() {
         WAKER.wake();
 
@@ -64,7 +64,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<interrupt::ETH, InterruptHandler> + 'd,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
         ref_clk: impl Peripheral<P = impl RefClkPin<T>> + 'd,
         mdio: impl Peripheral<P = impl MDIOPin<T>> + 'd,
         mdc: impl Peripheral<P = impl MDCPin<T>> + 'd,
@@ -238,8 +238,8 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             P::phy_reset(&mut this);
             P::phy_init(&mut this);
 
-            interrupt::ETH::unpend();
-            interrupt::ETH::enable();
+            interrupt::ETH.unpend();
+            interrupt::ETH.enable();
 
             this
         }

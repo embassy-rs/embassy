@@ -8,7 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -16,7 +16,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let ris = crate::pac::DCMI.ris().read();
         if ris.err_ris() {
@@ -119,7 +119,7 @@ where
     pub fn new_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -143,7 +143,7 @@ where
     pub fn new_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -169,7 +169,7 @@ where
     pub fn new_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -197,7 +197,7 @@ where
     pub fn new_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -227,7 +227,7 @@ where
     pub fn new_es_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -249,7 +249,7 @@ where
     pub fn new_es_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -273,7 +273,7 @@ where
     pub fn new_es_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -299,7 +299,7 @@ where
     pub fn new_es_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -570,7 +570,7 @@ mod sealed {
 }
 
 pub trait Instance: sealed::Instance + 'static {
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 pin_trait!(D0Pin, Instance);
@@ -602,7 +602,7 @@ macro_rules! impl_peripheral {
         }
 
         impl Instance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

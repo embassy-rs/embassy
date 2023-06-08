@@ -3,14 +3,14 @@ use core::slice;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU8, Ordering};
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_hal_common::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Timer};
 
 use super::*;
 use crate::clocks::clk_peri_freq;
-use crate::RegExt;
+use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::{interrupt, RegExt};
 
 pub struct State {
     tx_waker: AtomicWaker,
@@ -485,7 +485,7 @@ pub struct BufferedInterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for BufferedInterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for BufferedInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
         if r.uartdmacr().read().rxdmae() {

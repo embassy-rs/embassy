@@ -1,6 +1,6 @@
 use stm32_metapac::timer::vals;
 
-use crate::interrupt::Interrupt;
+use crate::interrupt;
 use crate::rcc::sealed::RccPeripheral as __RccPeri;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -13,7 +13,7 @@ pub mod low_level {
 pub(crate) mod sealed {
     use super::*;
     pub trait Basic16bitInstance: RccPeripheral {
-        type Interrupt: Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> crate::pac::timer::TimBasic;
 
@@ -57,7 +57,7 @@ pub trait Basic16bitInstance: sealed::Basic16bitInstance + 'static {}
 macro_rules! impl_basic_16bit_timer {
     ($inst:ident, $irq:ident) => {
         impl sealed::Basic16bitInstance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> crate::pac::timer::TimBasic {
                 crate::pac::timer::TimBasic(crate::pac::$inst.0)

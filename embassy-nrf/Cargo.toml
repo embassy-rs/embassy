@@ -16,7 +16,8 @@ flavors = [
 ]
 
 [features]
-default = [
+default = ["rt"]
+rt = [
     "nrf52805-pac?/rt",
     "nrf52810-pac?/rt",
     "nrf52811-pac?/rt",

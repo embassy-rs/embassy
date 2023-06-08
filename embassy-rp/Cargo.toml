@@ -13,7 +13,8 @@ flavors = [
 ]
 
 [features]
-default = [ "rp-pac/rt" ]
+default = [ "rt" ]
+rt = [ "rp-pac/rt" ]
 
 defmt = ["dep:defmt", "embassy-usb-driver?/defmt", "embassy-hal-common/defmt"]
 

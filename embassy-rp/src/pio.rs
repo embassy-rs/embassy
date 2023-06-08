@@ -5,7 +5,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::extra::U8;
@@ -17,6 +16,7 @@ use pio::{SideSet, Wrap};
 use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SlewRate};
+use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals::TreqSel;
 use crate::relocate::RelocatedProgram;
 use crate::{interrupt, pac, peripherals, pio_instr_util, RegExt};
@@ -85,6 +85,7 @@ const RXNEMPTY_MASK: u32 = 1 << 0;
 const TXNFULL_MASK: u32 = 1 << 4;
 const SMIRQ_MASK: u32 = 1 << 8;
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn PIO0_IRQ_0() {
     use crate::pac;
@@ -97,6 +98,7 @@ unsafe fn PIO0_IRQ_0() {
     pac::PIO0.irqs(0).inte().write_clear(|m| m.0 = ints);
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn PIO1_IRQ_0() {
     use crate::pac;
@@ -110,15 +112,15 @@ unsafe fn PIO1_IRQ_0() {
 }
 
 pub(crate) unsafe fn init() {
-    interrupt::PIO0_IRQ_0::disable();
-    interrupt::PIO0_IRQ_0::set_priority(interrupt::Priority::P3);
+    interrupt::PIO0_IRQ_0.disable();
+    interrupt::PIO0_IRQ_0.set_priority(interrupt::Priority::P3);
     pac::PIO0.irqs(0).inte().write(|m| m.0 = 0);
-    interrupt::PIO0_IRQ_0::enable();
+    interrupt::PIO0_IRQ_0.enable();
 
-    interrupt::PIO1_IRQ_0::disable();
-    interrupt::PIO1_IRQ_0::set_priority(interrupt::Priority::P3);
+    interrupt::PIO1_IRQ_0.disable();
+    interrupt::PIO1_IRQ_0.set_priority(interrupt::Priority::P3);
     pac::PIO1.irqs(0).inte().write(|m| m.0 = 0);
-    interrupt::PIO1_IRQ_0::enable();
+    interrupt::PIO1_IRQ_0.enable();
 }
 
 /// Future that waits for TX-FIFO to become writable

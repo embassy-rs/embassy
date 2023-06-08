@@ -291,6 +291,7 @@ macro_rules! foreach_exti_irq {
 
 macro_rules! impl_irq {
     ($e:ident) => {
+        #[cfg(feature = "rt")]
         #[interrupt]
         unsafe fn $e() {
             on_irq()
@@ -354,13 +355,13 @@ impl_exti!(EXTI15, 15);
 
 macro_rules! enable_irq {
     ($e:ident) => {
-        crate::interrupt::$e::enable();
+        crate::interrupt::typelevel::$e::enable();
     };
 }
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    use crate::interrupt::Interrupt;
+    use crate::interrupt::typelevel::Interrupt;
 
     foreach_exti_irq!(enable_irq);
 
