@@ -56,8 +56,8 @@ static STATE: State = State::new();
 pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
-            crate::interrupt::$irq::set_priority(irq_priority);
-            crate::interrupt::$irq::enable();
+            crate::interrupt::typelevel::$irq::set_priority(irq_priority);
+            crate::interrupt::typelevel::$irq::enable();
         };
     }
     crate::_generated::init_gpdma();

@@ -340,29 +340,25 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(CLOCK_POWER);
-    declare!(RADIO);
-    declare!(RNG);
-    declare!(GPIOTE);
-    declare!(WDT);
-    declare!(TIMER0);
-    declare!(ECB);
-    declare!(AAR_CCM);
-    declare!(TEMP);
-    declare!(RTC0);
-    declare!(IPC);
-    declare!(SERIAL0);
-    declare!(EGU0);
-    declare!(RTC1);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(SWI0);
-    declare!(SWI1);
-    declare!(SWI2);
-    declare!(SWI3);
-}
+embassy_cortex_m::interrupt_mod!(
+    CLOCK_POWER,
+    RADIO,
+    RNG,
+    GPIOTE,
+    WDT,
+    TIMER0,
+    ECB,
+    AAR_CCM,
+    TEMP,
+    RTC0,
+    IPC,
+    SERIAL0,
+    EGU0,
+    RTC1,
+    TIMER1,
+    TIMER2,
+    SWI0,
+    SWI1,
+    SWI2,
+    SWI3,
+);

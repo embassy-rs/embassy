@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
 
-use crate::interrupt::Interrupt;
+use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
 struct AlarmState {
@@ -145,10 +145,10 @@ pub unsafe fn init() {
         w.set_alarm(2, true);
         w.set_alarm(3, true);
     });
-    interrupt::TIMER_IRQ_0::enable();
-    interrupt::TIMER_IRQ_1::enable();
-    interrupt::TIMER_IRQ_2::enable();
-    interrupt::TIMER_IRQ_3::enable();
+    interrupt::TIMER_IRQ_0.enable();
+    interrupt::TIMER_IRQ_1.enable();
+    interrupt::TIMER_IRQ_2.enable();
+    interrupt::TIMER_IRQ_3.enable();
 }
 
 #[interrupt]

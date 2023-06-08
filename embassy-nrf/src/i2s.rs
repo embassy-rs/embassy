@@ -13,10 +13,10 @@ use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::interrupt::{self, Interrupt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2s::RegisterBlock;
 use crate::util::{slice_in_ram_or, slice_ptr_parts};
-use crate::{Peripheral, EASY_DMA_SIZE};
+use crate::{interrupt, Peripheral, EASY_DMA_SIZE};
 
 /// Type alias for `MultiBuffering` with 2 buffers.
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
@@ -367,7 +367,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let device = Device::<T>::new();
         let s = T::state();
@@ -408,7 +408,7 @@ impl<'d, T: Instance> I2S<'d, T> {
     /// Create a new I2S in master mode
     pub fn new_master(
         i2s: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mck: impl Peripheral<P = impl GpioPin> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         lrck: impl Peripheral<P = impl GpioPin> + 'd,
@@ -431,7 +431,7 @@ impl<'d, T: Instance> I2S<'d, T> {
     /// Create a new I2S in slave mode
     pub fn new_slave(
         i2s: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         lrck: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
@@ -1173,7 +1173,7 @@ pub(crate) mod sealed {
 /// I2S peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_i2s {
@@ -1188,7 +1188,7 @@ macro_rules! impl_i2s {
             }
         }
         impl crate::i2s::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

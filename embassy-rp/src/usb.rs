@@ -4,15 +4,14 @@ use core::slice;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::{self, Binding};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
-use crate::interrupt::Interrupt;
-use crate::{pac, peripherals, Peripheral, RegExt};
+use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 pub(crate) mod sealed {
     pub trait Instance {
@@ -22,7 +21,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Instance: sealed::Instance + 'static {
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 impl crate::usb::sealed::Instance for peripherals::USB {
@@ -35,7 +34,7 @@ impl crate::usb::sealed::Instance for peripherals::USB {
 }
 
 impl crate::usb::Instance for peripherals::USB {
-    type Interrupt = crate::interrupt::USBCTRL_IRQ;
+    type Interrupt = crate::interrupt::typelevel::USBCTRL_IRQ;
 }
 
 const EP_COUNT: usize = 16;
@@ -249,7 +248,7 @@ pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
         //let x = regs.istr().read().0;

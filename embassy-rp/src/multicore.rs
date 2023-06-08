@@ -50,7 +50,7 @@
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
-use crate::interrupt::Interrupt;
+use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
 use crate::{gpio, interrupt, pac};
 
@@ -156,7 +156,7 @@ where
 
         IS_CORE1_INIT.store(true, Ordering::Release);
         // Enable fifo interrupt on CORE1 for `pause` functionality.
-        unsafe { interrupt::SIO_IRQ_PROC1::enable() };
+        unsafe { interrupt::SIO_IRQ_PROC1.enable() };
 
         entry()
     }

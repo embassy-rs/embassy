@@ -5,7 +5,6 @@ mod tx_desc;
 
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
 
@@ -14,6 +13,7 @@ pub(crate) use self::tx_desc::{TDes, TDesRing};
 use super::*;
 use crate::gpio::sealed::{AFType, Pin as __GpioPin};
 use crate::gpio::AnyPin;
+use crate::interrupt::InterruptExt;
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
@@ -24,7 +24,7 @@ use crate::{interrupt, Peripheral};
 /// Interrupt handler.
 pub struct InterruptHandler {}
 
-impl interrupt::Handler<interrupt::ETH> for InterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandler {
     unsafe fn on_interrupt() {
         WAKER.wake();
 
@@ -100,7 +100,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<interrupt::ETH, InterruptHandler> + 'd,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
         ref_clk: impl Peripheral<P = impl RefClkPin<T>> + 'd,
         mdio: impl Peripheral<P = impl MDIOPin<T>> + 'd,
         mdc: impl Peripheral<P = impl MDCPin<T>> + 'd,
@@ -267,8 +267,8 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             P::phy_reset(&mut this);
             P::phy_init(&mut this);
 
-            interrupt::ETH::unpend();
-            interrupt::ETH::enable();
+            interrupt::ETH.unpend();
+            interrupt::ETH.enable();
 
             this
         }

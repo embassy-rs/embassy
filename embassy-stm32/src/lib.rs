@@ -72,46 +72,39 @@ pub(crate) mod _generated {
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
 
-pub mod interrupt {
-    //! Interrupt definitions and macros to bind them.
-    pub use cortex_m::interrupt::{CriticalSection, Mutex};
-    pub use embassy_cortex_m::interrupt::{Binding, Handler, Interrupt, Priority};
+pub use crate::_generated::interrupt;
 
-    pub use crate::_generated::interrupt::*;
+/// Macro to bind interrupts to handlers.
+///
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+// developer note: this macro can't be in `embassy-cortex-m` due to the use of `$crate`.
+#[macro_export]
+macro_rules! bind_interrupts {
+    ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+        $vis struct $name;
 
-    /// Macro to bind interrupts to handlers.
-    ///
-    /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
-    /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
-    /// prove at compile-time that the right interrupts have been bound.
-    // developer note: this macro can't be in `embassy-cortex-m` due to the use of `$crate`.
-    #[macro_export]
-    macro_rules! bind_interrupts {
-        ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
-            $vis struct $name;
+        $(
+            #[allow(non_snake_case)]
+            #[no_mangle]
+            unsafe extern "C" fn $irq() {
+                $(
+                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                )*
+            }
 
             $(
-                #[allow(non_snake_case)]
-                #[no_mangle]
-                unsafe extern "C" fn $irq() {
-                    $(
-                        <$handler as $crate::interrupt::Handler<$crate::interrupt::$irq>>::on_interrupt();
-                    )*
-                }
-
-                $(
-                    unsafe impl $crate::interrupt::Binding<$crate::interrupt::$irq, $handler> for $name {}
-                )*
+                unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
             )*
-        };
-    }
+        )*
+    };
 }
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
 pub use embassy_cortex_m::executor;
 use embassy_cortex_m::interrupt::Priority;
-pub use embassy_cortex_m::interrupt::_export::interrupt;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;

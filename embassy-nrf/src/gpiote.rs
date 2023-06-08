@@ -9,7 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
-use crate::interrupt::Interrupt;
+use crate::interrupt::InterruptExt;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
 
@@ -75,15 +75,15 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
 
     // Enable interrupts
     #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
-    type Irq = interrupt::GPIOTE0;
+    let irq = interrupt::GPIOTE0;
     #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
-    type Irq = interrupt::GPIOTE1;
+    let irq = interrupt::GPIOTE1;
     #[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
-    type Irq = interrupt::GPIOTE;
+    let irq = interrupt::GPIOTE;
 
-    Irq::unpend();
-    Irq::set_priority(irq_prio);
-    unsafe { Irq::enable() };
+    irq.unpend();
+    irq.set_priority(irq_prio);
+    unsafe { irq.enable() };
 
     let g = regs();
     g.events_port.write(|w| w);

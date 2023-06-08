@@ -160,13 +160,11 @@ fn main() {
     }
 
     g.extend(quote! {
-        pub mod interrupt {
-            use crate::pac::Interrupt as InterruptEnum;
-            use embassy_cortex_m::interrupt::_export::declare;
+        embassy_cortex_m::interrupt_mod!(
             #(
-                declare!(#irqs);
+                #irqs,
             )*
-        }
+        );
     });
 
     // ========

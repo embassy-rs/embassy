@@ -6,7 +6,6 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::poll_fn;
@@ -14,15 +13,15 @@ use futures::future::poll_fn;
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin;
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::interrupt::{self};
-use crate::Peripheral;
+use crate::interrupt::typelevel::Interrupt;
+use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::regs().intenclr.write(|w| w.end().clear());
         T::state().waker.wake();
@@ -53,7 +52,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
     /// Create PDM driver
     pub fn new(
         pdm: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: impl Peripheral<P = impl GpioPin> + 'd,
         din: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
@@ -274,7 +273,7 @@ pub(crate) mod sealed {
 /// PDM peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_pdm {
@@ -289,7 +288,7 @@ macro_rules! impl_pdm {
             }
         }
         impl crate::pdm::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

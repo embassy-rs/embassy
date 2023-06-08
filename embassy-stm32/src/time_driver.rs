@@ -11,7 +11,7 @@ use embassy_time::driver::{AlarmHandle, Driver};
 use embassy_time::TICK_HZ;
 use stm32_metapac::timer::regs;
 
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
