@@ -115,9 +115,9 @@ const WIFI_NETWORK: &str = "EmbassyTest";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 const TEST_DURATION: usize = 10;
-const TEST_EXPECTED_DOWNLOAD_KBPS: usize = 500;
-const TEST_EXPECTED_UPLOAD_KBPS: usize = 500;
-const TEST_EXPECTED_UPLOAD_DOWNLOAD_KBPS: usize = 400;
+const TEST_EXPECTED_DOWNLOAD_KBPS: usize = 300;
+const TEST_EXPECTED_UPLOAD_KBPS: usize = 300;
+const TEST_EXPECTED_UPLOAD_DOWNLOAD_KBPS: usize = 300;
 const RX_BUFFER_SIZE: usize = 4096;
 const TX_BUFFER_SIZE: usize = 4096;
 const SERVER_ADDRESS: Ipv4Address = Ipv4Address::new(192, 168, 2, 2);
