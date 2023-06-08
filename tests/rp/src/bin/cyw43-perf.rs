@@ -63,7 +63,7 @@ async fn main(spawner: Spawner) {
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let config = Config::Dhcp(Default::default());
+    let config = Config::dhcpv4(Default::default());
     //let config = embassy_net::Config::Static(embassy_net::Config {
     //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
     //    dns_servers: Vec::new(),
@@ -93,7 +93,7 @@ async fn main(spawner: Spawner) {
     }
 
     info!("Waiting for DHCP up...");
-    while stack.config().is_none() {
+    while stack.config_v4().is_none() {
         Timer::after(Duration::from_millis(100)).await;
     }
     info!("IP addressing up!");
