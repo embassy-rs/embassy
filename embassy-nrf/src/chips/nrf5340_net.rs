@@ -5,6 +5,8 @@ pub mod pac {
     // The nRF5340 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
+    pub use nrf5340_net_pac::NVIC_PRIO_BITS;
+
     #[doc(no_inline)]
     pub use nrf5340_net_pac::{
         interrupt,

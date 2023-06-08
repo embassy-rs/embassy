@@ -93,8 +93,6 @@ pub mod wdt;
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 mod chip;
 
-pub use crate::chip::interrupt;
-
 /// Macro to bind interrupts to handlers.
 ///
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
@@ -131,6 +129,9 @@ pub(crate) use chip::pac;
 pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
 pub use embassy_cortex_m::executor;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+
+pub use crate::chip::interrupt;
+pub use crate::pac::NVIC_PRIO_BITS;
 
 pub mod config {
     //! Configuration options used when initializing the HAL.
