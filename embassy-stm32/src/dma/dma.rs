@@ -5,7 +5,6 @@ use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use atomic_polyfill::AtomicUsize;
-use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -14,6 +13,7 @@ use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::DMA_CHANNEL_COUNT;
 use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::Priority;
 use crate::pac::dma::{regs, vals};
 use crate::{interrupt, pac};
 

@@ -208,7 +208,7 @@ impl_ppi_channel!(PPI_CH31, 31 => static);
 impl_saadc_input!(P0_04, ANALOG_INPUT2);
 impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
-embassy_cortex_m::interrupt_mod!(
+embassy_hal_common::interrupt_mod!(
     POWER_CLOCK,
     RADIO,
     UARTE0_UART0,

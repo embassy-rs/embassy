@@ -368,7 +368,7 @@ impl_saadc_input!(P0_18, ANALOG_INPUT5);
 impl_saadc_input!(P0_19, ANALOG_INPUT6);
 impl_saadc_input!(P0_20, ANALOG_INPUT7);
 
-embassy_cortex_m::interrupt_mod!(
+embassy_hal_common::interrupt_mod!(
     SPU,
     CLOCK_POWER,
     UARTE0_SPIM0_SPIS0_TWIM0_TWIS0,
