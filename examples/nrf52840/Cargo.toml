@@ -22,6 +22,7 @@ embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["ti
 lora-phy = { version = "1", optional = true }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
 lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"], optional = true }
+embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -35,3 +36,4 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
+embedded-hal-async = "0.2.0-alpha.1"

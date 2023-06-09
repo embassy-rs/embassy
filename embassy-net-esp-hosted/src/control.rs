@@ -1,0 +1,141 @@
+use ch::driver::LinkState;
+use defmt::Debug2Format;
+use embassy_net_driver_channel as ch;
+use heapless::String;
+
+use crate::ioctl::IoctlState;
+use crate::proto::{self, CtrlMsg};
+
+#[derive(Debug)]
+pub struct Error {
+    pub status: u32,
+}
+
+pub struct Control<'a> {
+    state_ch: ch::StateRunner<'a>,
+    ioctl_state: &'a IoctlState,
+}
+
+enum WifiMode {
+    None = 0,
+    Sta = 1,
+    Ap = 2,
+    ApSta = 3,
+}
+
+impl<'a> Control<'a> {
+    pub(crate) fn new(state_ch: ch::StateRunner<'a>, ioctl_state: &'a IoctlState) -> Self {
+        Self { state_ch, ioctl_state }
+    }
+
+    pub async fn init(&mut self) {
+        debug!("set wifi mode");
+        self.set_wifi_mode(WifiMode::Sta as _).await;
+        let mac_addr = self.get_mac_addr().await;
+        debug!("mac addr: {:02x}", mac_addr);
+        self.state_ch.set_ethernet_address(mac_addr);
+    }
+
+    pub async fn join(&mut self, ssid: &str, password: &str) {
+        let req = proto::CtrlMsg {
+            msg_id: proto::CtrlMsgId::ReqConnectAp as _,
+            msg_type: proto::CtrlMsgType::Req as _,
+            payload: Some(proto::CtrlMsgPayload::ReqConnectAp(proto::CtrlMsgReqConnectAp {
+                ssid: String::from(ssid),
+                pwd: String::from(password),
+                bssid: String::new(),
+                listen_interval: 3,
+                is_wpa3_supported: false,
+            })),
+        };
+        let resp = self.ioctl(req).await;
+        let proto::CtrlMsgPayload::RespConnectAp(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
+        debug!("======= {:?}", Debug2Format(&resp));
+        assert_eq!(resp.resp, 0);
+        self.state_ch.set_link_state(LinkState::Up);
+    }
+
+    async fn get_mac_addr(&mut self) -> [u8; 6] {
+        let req = proto::CtrlMsg {
+            msg_id: proto::CtrlMsgId::ReqGetMacAddress as _,
+            msg_type: proto::CtrlMsgType::Req as _,
+            payload: Some(proto::CtrlMsgPayload::ReqGetMacAddress(
+                proto::CtrlMsgReqGetMacAddress {
+                    mode: WifiMode::Sta as _,
+                },
+            )),
+        };
+        let resp = self.ioctl(req).await;
+        let proto::CtrlMsgPayload::RespGetMacAddress(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
+        assert_eq!(resp.resp, 0);
+
+        // WHY IS THIS A STRING? WHYYYY
+        fn nibble_from_hex(b: u8) -> u8 {
+            match b {
+                b'0'..=b'9' => b - b'0',
+                b'a'..=b'f' => b + 0xa - b'a',
+                b'A'..=b'F' => b + 0xa - b'A',
+                _ => panic!("invalid hex digit {}", b),
+            }
+        }
+
+        let mac = resp.mac.as_bytes();
+        let mut res = [0; 6];
+        assert_eq!(mac.len(), 17);
+        for (i, b) in res.iter_mut().enumerate() {
+            *b = (nibble_from_hex(mac[i * 3]) << 4) | nibble_from_hex(mac[i * 3 + 1])
+        }
+        res
+    }
+
+    async fn get_wifi_mode(&mut self) -> u32 {
+        let req = proto::CtrlMsg {
+            msg_id: proto::CtrlMsgId::ReqGetWifiMode as _,
+            msg_type: proto::CtrlMsgType::Req as _,
+            payload: Some(proto::CtrlMsgPayload::ReqGetWifiMode(proto::CtrlMsgReqGetMode {})),
+        };
+        let resp = self.ioctl(req).await;
+        let proto::CtrlMsgPayload::RespGetWifiMode(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
+        assert_eq!(resp.resp, 0);
+        resp.mode
+    }
+
+    async fn set_wifi_mode(&mut self, mode: u32) {
+        let req = proto::CtrlMsg {
+            msg_id: proto::CtrlMsgId::ReqSetWifiMode as _,
+            msg_type: proto::CtrlMsgType::Req as _,
+            payload: Some(proto::CtrlMsgPayload::ReqSetWifiMode(proto::CtrlMsgReqSetMode { mode })),
+        };
+        let resp = self.ioctl(req).await;
+        let proto::CtrlMsgPayload::RespSetWifiMode(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
+        assert_eq!(resp.resp, 0);
+    }
+
+    async fn ioctl(&mut self, req: CtrlMsg) -> CtrlMsg {
+        let mut buf = [0u8; 128];
+
+        let req_len = noproto::write(&req, &mut buf).unwrap();
+
+        struct CancelOnDrop<'a>(&'a IoctlState);
+
+        impl CancelOnDrop<'_> {
+            fn defuse(self) {
+                core::mem::forget(self);
+            }
+        }
+
+        impl Drop for CancelOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.cancel_ioctl();
+            }
+        }
+
+        let ioctl = CancelOnDrop(self.ioctl_state);
+
+        let resp_len = ioctl.0.do_ioctl(&mut buf, req_len).await;
+
+        ioctl.defuse();
+
+        noproto::read(&buf[..resp_len]).unwrap()
+    }
+}
