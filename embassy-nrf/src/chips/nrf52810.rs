@@ -234,7 +234,7 @@ impl_saadc_input!(P0_29, ANALOG_INPUT5);
 impl_saadc_input!(P0_30, ANALOG_INPUT6);
 impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
-embassy_cortex_m::interrupt_mod!(
+embassy_hal_common::interrupt_mod!(
     POWER_CLOCK,
     RADIO,
     UARTE0_UART0,

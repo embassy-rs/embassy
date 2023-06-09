@@ -160,7 +160,7 @@ fn main() {
     }
 
     g.extend(quote! {
-        embassy_cortex_m::interrupt_mod!(
+        embassy_hal_common::interrupt_mod!(
             #(
                 #irqs,
             )*

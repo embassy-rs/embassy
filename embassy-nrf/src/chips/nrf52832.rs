@@ -263,7 +263,7 @@ impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
 impl_i2s!(I2S, I2S, I2S);
 
-embassy_cortex_m::interrupt_mod!(
+embassy_hal_common::interrupt_mod!(
     POWER_CLOCK,
     RADIO,
     UARTE0_UART0,

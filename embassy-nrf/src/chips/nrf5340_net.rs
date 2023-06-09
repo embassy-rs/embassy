@@ -342,7 +342,7 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-embassy_cortex_m::interrupt_mod!(
+embassy_hal_common::interrupt_mod!(
     CLOCK_POWER,
     RADIO,
     RNG,

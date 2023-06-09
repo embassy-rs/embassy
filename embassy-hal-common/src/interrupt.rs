@@ -14,7 +14,7 @@ macro_rules! interrupt_mod {
 
         /// Interrupt definitions.
         pub mod interrupt {
-            pub use embassy_cortex_m::interrupt::{InterruptExt, Priority};
+            pub use $crate::interrupt::{InterruptExt, Priority};
             pub use crate::pac::Interrupt::*;
             pub use crate::pac::Interrupt;
 
