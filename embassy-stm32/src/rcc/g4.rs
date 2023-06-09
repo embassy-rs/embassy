@@ -17,7 +17,7 @@ pub const LSI_FREQ: Hertz = Hertz(32_000);
 pub enum ClockSrc {
     HSE(Hertz),
     HSI16,
-    PLL(PllSrc, PllM, PllN, PllClkDiv),
+    PLLCLK(PllSrc, PllM, PllN, PllR),
 }
 
 /// AHB prescaler
@@ -61,27 +61,27 @@ impl Into<Pllsrc> for PllSrc {
 }
 
 #[derive(Clone, Copy)]
-pub enum PllClkDiv {
+pub enum PllR {
     Div2,
     Div4,
     Div6,
     Div8,
 }
 
-impl PllClkDiv {
+impl PllR {
     pub fn to_div(self) -> u32 {
         let val: u8 = self.into();
         (val as u32 + 1) * 2
     }
 }
 
-impl From<PllClkDiv> for u8 {
-    fn from(val: PllClkDiv) -> u8 {
+impl From<PllR> for u8 {
+    fn from(val: PllR) -> u8 {
         match val {
-            PllClkDiv::Div2 => 0b00,
-            PllClkDiv::Div4 => 0b01,
-            PllClkDiv::Div6 => 0b10,
-            PllClkDiv::Div8 => 0b11,
+            PllR::Div2 => 0b00,
+            PllR::Div4 => 0b01,
+            PllR::Div6 => 0b10,
+            PllR::Div8 => 0b11,
         }
     }
 }
@@ -260,7 +260,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             (freq.0, Sw::HSE)
         }
-        ClockSrc::PLL(src, prediv, mul, div) => {
+        ClockSrc::PLLCLK(src, prediv, mul, div) => {
             let src_freq = match src {
                 PllSrc::HSI16 => {
                     // Enable HSI16 as clock source for PLL
