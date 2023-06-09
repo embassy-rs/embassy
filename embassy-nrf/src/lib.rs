@@ -127,7 +127,6 @@ pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
 pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
-pub use embassy_cortex_m::executor;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 
 pub use crate::chip::interrupt;

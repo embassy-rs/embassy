@@ -32,7 +32,6 @@ flavors = [
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
-embassy-executor = { version = "0.2.0", path = "../embassy-executor" }
 embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-4"]}
@@ -82,7 +81,7 @@ stm32-metapac = { version = "9", default-features = false, features = ["metadata
 default = ["rt"]
 rt = ["stm32-metapac/rt"]
 
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-executor/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt"]
 memory-x = ["stm32-metapac/memory-x"]
 exti = []
 
@@ -101,7 +100,7 @@ time-driver-tim12 = ["_time-driver"]
 time-driver-tim15 = ["_time-driver"]
 
 # Enable nightly-only features
-nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
+nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.

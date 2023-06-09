@@ -48,7 +48,7 @@ boot2-w25x10cl = []
 run-from-ram = []
 
 # Enable nightly-only features
-nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
+nightly = ["embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
@@ -56,7 +56,6 @@ unstable-traits = ["embedded-hal-1", "embedded-hal-nb"]
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
-embassy-executor = { version = "0.2.0", path = "../embassy-executor" }
 embassy-time = { version = "0.1.0", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-2"]}
@@ -91,5 +90,5 @@ pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 
 [dev-dependencies]
-embassy-executor = { version = "0.2.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+embassy-executor = { version = "0.2.0", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
 static_cell = "1.1"

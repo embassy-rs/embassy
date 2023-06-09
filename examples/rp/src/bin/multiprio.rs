@@ -62,7 +62,7 @@ use core::mem;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
-use embassy_rp::executor::{Executor, InterruptExecutor};
+use embassy_executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt;
 use embassy_rp::pac::Interrupt;
 use embassy_time::{Duration, Instant, Timer, TICK_HZ};

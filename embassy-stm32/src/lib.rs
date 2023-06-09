@@ -103,7 +103,6 @@ macro_rules! bind_interrupts {
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
-pub use embassy_cortex_m::executor;
 use embassy_cortex_m::interrupt::Priority;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]

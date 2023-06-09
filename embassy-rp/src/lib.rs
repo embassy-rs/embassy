@@ -36,7 +36,6 @@ pub mod pio_instr_util;
 pub mod relocate;
 
 // Reexports
-pub use embassy_cortex_m::executor;
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
 pub use rp_pac as pac;
