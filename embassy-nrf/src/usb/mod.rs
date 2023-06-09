@@ -18,9 +18,9 @@ use embassy_usb_driver::{Direction, EndpointAddress, EndpointError, EndpointInfo
 use pac::usbd::RegisterBlock;
 
 use self::vbus_detect::VbusDetect;
-use crate::interrupt::{self, Interrupt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::util::slice_in_ram;
-use crate::{pac, Peripheral};
+use crate::{interrupt, pac, Peripheral};
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
@@ -34,7 +34,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
 
@@ -98,7 +98,7 @@ impl<'d, T: Instance, V: VbusDetect> Driver<'d, T, V> {
     /// Create a new USB driver.
     pub fn new(
         usb: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         vbus_detect: V,
     ) -> Self {
         into_ref!(usb);
@@ -804,7 +804,7 @@ pub(crate) mod sealed {
 /// USB peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_usb {
@@ -815,7 +815,7 @@ macro_rules! impl_usb {
             }
         }
         impl crate::usb::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

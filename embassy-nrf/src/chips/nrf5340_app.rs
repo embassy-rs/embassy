@@ -5,6 +5,8 @@ pub mod pac {
     // The nRF5340 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
+    pub use nrf5340_app_pac::NVIC_PRIO_BITS;
+    
     #[doc(no_inline)]
     pub use nrf5340_app_pac::{
         interrupt,
@@ -504,50 +506,46 @@ impl_saadc_input!(P0_18, ANALOG_INPUT5);
 impl_saadc_input!(P0_19, ANALOG_INPUT6);
 impl_saadc_input!(P0_20, ANALOG_INPUT7);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(FPU);
-    declare!(CACHE);
-    declare!(SPU);
-    declare!(CLOCK_POWER);
-    declare!(SERIAL0);
-    declare!(SERIAL1);
-    declare!(SPIM4);
-    declare!(SERIAL2);
-    declare!(SERIAL3);
-    declare!(GPIOTE0);
-    declare!(SAADC);
-    declare!(TIMER0);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(RTC0);
-    declare!(RTC1);
-    declare!(WDT0);
-    declare!(WDT1);
-    declare!(COMP_LPCOMP);
-    declare!(EGU0);
-    declare!(EGU1);
-    declare!(EGU2);
-    declare!(EGU3);
-    declare!(EGU4);
-    declare!(EGU5);
-    declare!(PWM0);
-    declare!(PWM1);
-    declare!(PWM2);
-    declare!(PWM3);
-    declare!(PDM0);
-    declare!(I2S0);
-    declare!(IPC);
-    declare!(QSPI);
-    declare!(NFCT);
-    declare!(GPIOTE1);
-    declare!(QDEC0);
-    declare!(QDEC1);
-    declare!(USBD);
-    declare!(USBREGULATOR);
-    declare!(KMU);
-    declare!(CRYPTOCELL);
-}
+embassy_cortex_m::interrupt_mod!(
+    FPU,
+    CACHE,
+    SPU,
+    CLOCK_POWER,
+    SERIAL0,
+    SERIAL1,
+    SPIM4,
+    SERIAL2,
+    SERIAL3,
+    GPIOTE0,
+    SAADC,
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    RTC0,
+    RTC1,
+    WDT0,
+    WDT1,
+    COMP_LPCOMP,
+    EGU0,
+    EGU1,
+    EGU2,
+    EGU3,
+    EGU4,
+    EGU5,
+    PWM0,
+    PWM1,
+    PWM2,
+    PWM3,
+    PDM0,
+    I2S0,
+    IPC,
+    QSPI,
+    NFCT,
+    GPIOTE1,
+    QDEC0,
+    QDEC1,
+    USBD,
+    USBREGULATOR,
+    KMU,
+    CRYPTOCELL,
+);

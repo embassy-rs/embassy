@@ -3,10 +3,10 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::interrupt::InterruptExt;
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
@@ -31,9 +31,9 @@ impl From<bool> for Level {
     }
 }
 
-impl Into<bool> for Level {
-    fn into(self) -> bool {
-        match self {
+impl From<Level> for bool {
+    fn from(level: Level) -> bool {
+        match level {
             Level::Low => false,
             Level::High => true,
         }
@@ -137,11 +137,12 @@ pub enum InterruptTrigger {
 }
 
 pub(crate) unsafe fn init() {
-    interrupt::IO_IRQ_BANK0::disable();
-    interrupt::IO_IRQ_BANK0::set_priority(interrupt::Priority::P3);
-    interrupt::IO_IRQ_BANK0::enable();
+    interrupt::IO_IRQ_BANK0.disable();
+    interrupt::IO_IRQ_BANK0.set_priority(interrupt::Priority::P3);
+    interrupt::IO_IRQ_BANK0.enable();
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn IO_IRQ_BANK0() {
     let cpu = SIO.cpuid().read() as usize;
