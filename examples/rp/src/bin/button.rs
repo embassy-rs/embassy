@@ -9,8 +9,11 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-    let button = Input::new(p.PIN_28, Pull::Up);
     let mut led = Output::new(p.PIN_25, Level::Low);
+
+    // Use PIN_28, Pin34 on J0 for RP Pico, as a input.
+    // You need to ad your own button.
+    let button = Input::new(p.PIN_28, Pull::Up);
 
     loop {
         if button.is_high() {
