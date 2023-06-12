@@ -2,18 +2,20 @@
 
 use core::mem::MaybeUninit;
 
-use super::evt::EvtPacket;
-use super::ipcc::Ipcc;
-use super::unsafe_linked_list::LinkedListNode;
-use super::{
-    channels, MemManagerTable, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUF_QUEUE, LOCAL_FREE_BUF_QUEUE, POOL_SIZE,
-    SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE, TL_REF_TABLE,
+use embassy_stm32::ipcc::Ipcc;
+
+use crate::evt::EvtPacket;
+use crate::tables::MemManagerTable;
+use crate::unsafe_linked_list::LinkedListNode;
+use crate::{
+    channels, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUF_QUEUE, LOCAL_FREE_BUF_QUEUE, POOL_SIZE, SYS_SPARE_EVT_BUF,
+    TL_MEM_MANAGER_TABLE, TL_REF_TABLE,
 };
 
 pub(super) struct MemoryManager;
 
 impl MemoryManager {
-    pub fn new() -> Self {
+    pub fn enable() {
         unsafe {
             LinkedListNode::init_head(FREE_BUF_QUEUE.as_mut_ptr());
             LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
@@ -28,8 +30,6 @@ impl MemoryManager {
                 tracespoolsize: 0,
             });
         }
-
-        MemoryManager
     }
 
     pub fn evt_drop(evt: *mut EvtPacket) {

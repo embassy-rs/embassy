@@ -75,7 +75,7 @@ pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE
 const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;
 
 pub fn shci_ble_init(param: ShciBleInitCmdParam) {
-    debug!("shci init");
+    debug!("sending SHCI");
 
     let mut packet = ShciBleInitCmdPacket {
         header: ShciHeader::default(),
@@ -95,6 +95,6 @@ pub fn shci_ble_init(param: ShciBleInitCmdParam) {
 
         p_cmd_buffer.cmdserial.ty = TlPacketType::SysCmd as u8;
 
-        sys::send_cmd();
+        sys::Sys::send_cmd();
     }
 }

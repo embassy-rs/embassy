@@ -2,13 +2,13 @@ use core::mem::MaybeUninit;
 
 use super::cmd::{AclDataPacket, AclDataSerial};
 use super::consts::TlPacketType;
-use super::mm::MemoryManager;
 use super::{PacketHeader, TL_EVT_HEADER_SIZE};
+use crate::mm;
 
 /**
  * The payload of `Evt` for a command status event
  */
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct CsEvt {
     pub status: u8,
@@ -19,7 +19,7 @@ pub struct CsEvt {
 /**
  * The payload of `Evt` for a command complete event
  */
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Copy, Clone, Default)]
 #[repr(C, packed)]
 pub struct CcEvt {
     pub num_cmd: u8,
@@ -41,14 +41,14 @@ impl CcEvt {
     }
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Copy, Clone, Default)]
 #[repr(C, packed)]
 pub struct AsynchEvt {
     sub_evt_code: u16,
     payload: [u8; 1],
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Copy, Clone, Default)]
 #[repr(C, packed)]
 pub struct Evt {
     pub evt_code: u8,
@@ -56,7 +56,7 @@ pub struct Evt {
     pub payload: [u8; 1],
 }
 
-#[derive(Debug, Copy, Clone, Default)]
+#[derive(Copy, Clone, Default)]
 #[repr(C, packed)]
 pub struct EvtSerial {
     pub kind: u8,
@@ -171,6 +171,6 @@ impl EvtBox {
 
 impl Drop for EvtBox {
     fn drop(&mut self) {
-        MemoryManager::evt_drop(self.ptr);
+        mm::MemoryManager::evt_drop(self.ptr);
     }
 }

@@ -1,5 +1,5 @@
-use crate::tl_mbox::evt::{EvtPacket, EvtSerial};
-use crate::tl_mbox::{PacketHeader, TL_EVT_HEADER_SIZE};
+use crate::evt::{EvtPacket, EvtSerial};
+use crate::{PacketHeader, TL_EVT_HEADER_SIZE};
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]

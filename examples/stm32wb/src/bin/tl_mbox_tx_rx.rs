@@ -4,15 +4,15 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::tl_mbox::hci::RadioCoprocessor;
-use embassy_stm32::tl_mbox::ipcc::Config;
-use embassy_stm32::tl_mbox::TlMbox;
-use embassy_stm32::{bind_interrupts, tl_mbox};
+use embassy_stm32::bind_interrupts;
+use embassy_stm32::ipcc::Config;
+use embassy_stm32_wpan::rc::RadioCoprocessor;
+use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
-    IPCC_C1_RX => tl_mbox::ReceiveInterruptHandler;
-    IPCC_C1_TX => tl_mbox::TransmitInterruptHandler;
+    IPCC_C1_RX => embassy_stm32_wpan::ReceiveInterruptHandler;
+    IPCC_C1_TX => embassy_stm32_wpan::TransmitInterruptHandler;
 });
 
 #[embassy_executor::main]
@@ -45,16 +45,16 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::new(p.IPCC, Irqs, config);
+    let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    let mut rc = RadioCoprocessor::new(mbox, Default::default());
-    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]).unwrap();
-
-    let response = rc.read().await;
-    info!("coprocessor ready {}", response);
+    let mut rc = RadioCoprocessor::new(mbox);
 
     let response = rc.read().await;
     info!("coprocessor ready {}", response);
+
+    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
+    let response = rc.read().await;
+    info!("ble reset rsp {}", response);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
