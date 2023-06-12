@@ -205,50 +205,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
     ) -> (UarteTx<'d, T>, UarteRxWithIdle<'d, T, U>) {
-        let timer = Timer::new(timer);
-
-        into_ref!(ppi_ch1, ppi_ch2);
-
-        let r = T::regs();
-
-        // BAUDRATE register values are `baudrate * 2^32 / 16000000`
-        // source: https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values
-        //
-        // We want to stop RX if line is idle for 2 bytes worth of time
-        // That is 20 bits (each byte is 1 start bit + 8 data bits + 1 stop bit)
-        // This gives us the amount of 16M ticks for 20 bits.
-        let baudrate = r.baudrate.read().baudrate().variant().unwrap();
-        let timeout = 0x8000_0000 / (baudrate as u32 / 40);
-
-        timer.set_frequency(Frequency::F16MHz);
-        timer.cc(0).write(timeout);
-        timer.cc(0).short_compare_clear();
-        timer.cc(0).short_compare_stop();
-
-        let mut ppi_ch1 = Ppi::new_one_to_two(
-            ppi_ch1.map_into(),
-            Event::from_reg(&r.events_rxdrdy),
-            timer.task_clear(),
-            timer.task_start(),
-        );
-        ppi_ch1.enable();
-
-        let mut ppi_ch2 = Ppi::new_one_to_one(
-            ppi_ch2.map_into(),
-            timer.cc(0).event_compare(),
-            Task::from_reg(&r.tasks_stoprx),
-        );
-        ppi_ch2.enable();
-
-        (
-            self.tx,
-            UarteRxWithIdle {
-                rx: self.rx,
-                timer,
-                ppi_ch1: ppi_ch1,
-                _ppi_ch2: ppi_ch2,
-            },
-        )
+        (self.tx, self.rx.with_idle(timer, ppi_ch1, ppi_ch2))
     }
 
     /// Return the endtx event for use with PPI
@@ -561,6 +518,56 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
 
         Self { _p: uarte }
+    }
+
+    /// Upgrade to an instance that supports idle line detection.
+    pub fn with_idle<U: TimerInstance>(
+        self,
+        timer: impl Peripheral<P = U> + 'd,
+        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel + 'd> + 'd,
+    ) -> UarteRxWithIdle<'d, T, U> {
+        let timer = Timer::new(timer);
+
+        into_ref!(ppi_ch1, ppi_ch2);
+
+        let r = T::regs();
+
+        // BAUDRATE register values are `baudrate * 2^32 / 16000000`
+        // source: https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values
+        //
+        // We want to stop RX if line is idle for 2 bytes worth of time
+        // That is 20 bits (each byte is 1 start bit + 8 data bits + 1 stop bit)
+        // This gives us the amount of 16M ticks for 20 bits.
+        let baudrate = r.baudrate.read().baudrate().variant().unwrap();
+        let timeout = 0x8000_0000 / (baudrate as u32 / 40);
+
+        timer.set_frequency(Frequency::F16MHz);
+        timer.cc(0).write(timeout);
+        timer.cc(0).short_compare_clear();
+        timer.cc(0).short_compare_stop();
+
+        let mut ppi_ch1 = Ppi::new_one_to_two(
+            ppi_ch1.map_into(),
+            Event::from_reg(&r.events_rxdrdy),
+            timer.task_clear(),
+            timer.task_start(),
+        );
+        ppi_ch1.enable();
+
+        let mut ppi_ch2 = Ppi::new_one_to_one(
+            ppi_ch2.map_into(),
+            timer.cc(0).event_compare(),
+            Task::from_reg(&r.tasks_stoprx),
+        );
+        ppi_ch2.enable();
+
+        UarteRxWithIdle {
+            rx: self,
+            timer,
+            ppi_ch1: ppi_ch1,
+            _ppi_ch2: ppi_ch2,
+        }
     }
 
     /// Read bytes until the buffer is filled.
