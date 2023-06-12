@@ -6,10 +6,10 @@ pub mod fmt;
 use core::mem::MaybeUninit;
 
 use cmd::CmdPacket;
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_futures::block_on;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
+use embassy_stm32::interrupt::typelevel::Interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc};
 use embassy_stm32::peripherals::IPCC;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -37,7 +37,7 @@ pub mod unsafe_linked_list;
 /// Interrupt handler.
 pub struct ReceiveInterruptHandler {}
 
-impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for ReceiveInterruptHandler {
     unsafe fn on_interrupt() {
         if Ipcc::is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
             debug!("RX SYS evt");
@@ -53,7 +53,7 @@ impl interrupt::Handler<interrupt::IPCC_C1_RX> for ReceiveInterruptHandler {
 
 pub struct TransmitInterruptHandler {}
 
-impl interrupt::Handler<interrupt::IPCC_C1_TX> for TransmitInterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for TransmitInterruptHandler {
     unsafe fn on_interrupt() {
         if Ipcc::is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
             debug!("TX SYS cmd rsp");
@@ -182,8 +182,8 @@ pub struct TlMbox<'d> {
 impl<'d> TlMbox<'d> {
     pub fn init(
         ipcc: impl Peripheral<P = IPCC> + 'd,
-        _irqs: impl interrupt::Binding<interrupt::IPCC_C1_RX, ReceiveInterruptHandler>
-            + interrupt::Binding<interrupt::IPCC_C1_TX, TransmitInterruptHandler>,
+        _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
+            + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
         config: Config,
     ) -> Self {
         into_ref!(ipcc);
@@ -223,11 +223,11 @@ impl<'d> TlMbox<'d> {
         mm::MemoryManager::enable();
 
         // enable interrupts
-        interrupt::IPCC_C1_RX::unpend();
-        interrupt::IPCC_C1_TX::unpend();
+        interrupt::typelevel::IPCC_C1_RX::unpend();
+        interrupt::typelevel::IPCC_C1_TX::unpend();
 
-        unsafe { interrupt::IPCC_C1_RX::enable() };
-        unsafe { interrupt::IPCC_C1_TX::enable() };
+        unsafe { interrupt::typelevel::IPCC_C1_RX::enable() };
+        unsafe { interrupt::typelevel::IPCC_C1_TX::enable() };
 
         STATE.reset();
 
