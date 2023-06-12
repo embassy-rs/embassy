@@ -5,14 +5,14 @@ use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::GPDMA_CHANNEL_COUNT;
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::Priority;
 use crate::pac;
 use crate::pac::gpdma::vals;
 
@@ -56,8 +56,8 @@ static STATE: State = State::new();
 pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
-            crate::interrupt::$irq::set_priority(irq_priority);
-            crate::interrupt::$irq::enable();
+            crate::interrupt::typelevel::$irq::set_priority(irq_priority);
+            crate::interrupt::typelevel::$irq::enable();
         };
     }
     crate::_generated::init_gpdma();

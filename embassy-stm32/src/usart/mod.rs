@@ -5,13 +5,13 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::{select, Either};
 
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
+use crate::interrupt::typelevel::Interrupt;
 #[cfg(not(any(usart_v1, usart_v2)))]
 #[allow(unused_imports)]
 use crate::pac::usart::regs::Isr as Sr;
@@ -31,7 +31,7 @@ pub struct InterruptHandler<T: BasicInstance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: BasicInstance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
@@ -281,7 +281,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
@@ -294,7 +294,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
     pub fn new_with_rts(
         peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
@@ -650,7 +650,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
@@ -665,7 +665,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
@@ -693,7 +693,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         de: impl Peripheral<P = impl DePin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
@@ -1179,7 +1179,7 @@ pub(crate) mod sealed {
 
     pub trait BasicInstance: crate::rcc::RccPeripheral {
         const KIND: Kind;
-        type Interrupt: crate::interrupt::Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> Regs;
         fn state() -> &'static State;
@@ -1211,7 +1211,7 @@ macro_rules! impl_usart {
     ($inst:ident, $irq:ident, $kind:expr) => {
         impl sealed::BasicInstance for crate::peripherals::$inst {
             const KIND: Kind = $kind;
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> Regs {
                 Regs(crate::pac::$inst.0)

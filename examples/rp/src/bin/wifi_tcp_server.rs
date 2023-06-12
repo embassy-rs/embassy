@@ -61,8 +61,8 @@ async fn main(spawner: Spawner) {
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let config = Config::Dhcp(Default::default());
-    //let config = embassy_net::Config::Static(embassy_net::Config {
+    let config = Config::dhcpv4(Default::default());
+    //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
     //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
     //    dns_servers: Vec::new(),
     //    gateway: Some(Ipv4Address::new(192, 168, 69, 1)),

@@ -8,7 +8,7 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I30F2;
 
-use crate::interrupt::Interrupt;
+use crate::interrupt::InterruptExt;
 use crate::peripherals::TEMP;
 use crate::{interrupt, pac, Peripheral};
 
@@ -17,7 +17,7 @@ pub struct InterruptHandler {
     _private: (),
 }
 
-impl interrupt::Handler<interrupt::TEMP> for InterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::TEMP> for InterruptHandler {
     unsafe fn on_interrupt() {
         let r = unsafe { &*pac::TEMP::PTR };
         r.intenclr.write(|w| w.datardy().clear());
@@ -36,13 +36,13 @@ impl<'d> Temp<'d> {
     /// Create a new temperature sensor driver.
     pub fn new(
         _peri: impl Peripheral<P = TEMP> + 'd,
-        _irq: impl interrupt::Binding<interrupt::TEMP, InterruptHandler> + 'd,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::TEMP, InterruptHandler> + 'd,
     ) -> Self {
         into_ref!(_peri);
 
         // Enable interrupt that signals temperature values
-        interrupt::TEMP::unpend();
-        unsafe { interrupt::TEMP::enable() };
+        interrupt::TEMP.unpend();
+        unsafe { interrupt::TEMP.enable() };
 
         Self { _peri }
     }

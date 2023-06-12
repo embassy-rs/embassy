@@ -5,6 +5,8 @@ pub mod pac {
     // The nRF9160 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
+    pub use nrf9160_pac::NVIC_PRIO_BITS;
+
     #[doc(no_inline)]
     pub use nrf9160_pac::{
         interrupt,
@@ -366,40 +368,36 @@ impl_saadc_input!(P0_18, ANALOG_INPUT5);
 impl_saadc_input!(P0_19, ANALOG_INPUT6);
 impl_saadc_input!(P0_20, ANALOG_INPUT7);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(SPU);
-    declare!(CLOCK_POWER);
-    declare!(UARTE0_SPIM0_SPIS0_TWIM0_TWIS0);
-    declare!(UARTE1_SPIM1_SPIS1_TWIM1_TWIS1);
-    declare!(UARTE2_SPIM2_SPIS2_TWIM2_TWIS2);
-    declare!(UARTE3_SPIM3_SPIS3_TWIM3_TWIS3);
-    declare!(GPIOTE0);
-    declare!(SAADC);
-    declare!(TIMER0);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(RTC0);
-    declare!(RTC1);
-    declare!(WDT);
-    declare!(EGU0);
-    declare!(EGU1);
-    declare!(EGU2);
-    declare!(EGU3);
-    declare!(EGU4);
-    declare!(EGU5);
-    declare!(PWM0);
-    declare!(PWM1);
-    declare!(PWM2);
-    declare!(PDM);
-    declare!(PWM3);
-    declare!(I2S);
-    declare!(IPC);
-    declare!(FPU);
-    declare!(GPIOTE1);
-    declare!(KMU);
-    declare!(CRYPTOCELL);
-}
+embassy_hal_common::interrupt_mod!(
+    SPU,
+    CLOCK_POWER,
+    UARTE0_SPIM0_SPIS0_TWIM0_TWIS0,
+    UARTE1_SPIM1_SPIS1_TWIM1_TWIS1,
+    UARTE2_SPIM2_SPIS2_TWIM2_TWIS2,
+    UARTE3_SPIM3_SPIS3_TWIM3_TWIS3,
+    GPIOTE0,
+    SAADC,
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    RTC0,
+    RTC1,
+    WDT,
+    EGU0,
+    EGU1,
+    EGU2,
+    EGU3,
+    EGU4,
+    EGU5,
+    PWM0,
+    PWM1,
+    PWM2,
+    PDM,
+    PWM3,
+    I2S,
+    IPC,
+    FPU,
+    GPIOTE1,
+    KMU,
+    CRYPTOCELL,
+);

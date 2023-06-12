@@ -236,36 +236,32 @@ impl_saadc_input!(P0_29, ANALOG_INPUT5);
 impl_saadc_input!(P0_30, ANALOG_INPUT6);
 impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(POWER_CLOCK);
-    declare!(RADIO);
-    declare!(UARTE0_UART0);
-    declare!(TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0);
-    declare!(SPIM1_SPIS1_SPI1);
-    declare!(GPIOTE);
-    declare!(SAADC);
-    declare!(TIMER0);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(RTC0);
-    declare!(TEMP);
-    declare!(RNG);
-    declare!(ECB);
-    declare!(CCM_AAR);
-    declare!(WDT);
-    declare!(RTC1);
-    declare!(QDEC);
-    declare!(COMP);
-    declare!(SWI0_EGU0);
-    declare!(SWI1_EGU1);
-    declare!(SWI2);
-    declare!(SWI3);
-    declare!(SWI4);
-    declare!(SWI5);
-    declare!(PWM0);
-    declare!(PDM);
-}
+embassy_hal_common::interrupt_mod!(
+    POWER_CLOCK,
+    RADIO,
+    UARTE0_UART0,
+    TWIM0_TWIS0_TWI0_SPIM0_SPIS0_SPI0,
+    SPIM1_SPIS1_SPI1,
+    GPIOTE,
+    SAADC,
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    RTC0,
+    TEMP,
+    RNG,
+    ECB,
+    CCM_AAR,
+    WDT,
+    RTC1,
+    QDEC,
+    COMP,
+    SWI0_EGU0,
+    SWI1_EGU1,
+    SWI2,
+    SWI3,
+    SWI4,
+    SWI5,
+    PWM0,
+    PDM,
+);
