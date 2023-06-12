@@ -4,14 +4,15 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::vals::DataSize;
 
+use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals;
 use crate::{interrupt, pac, peripherals};
 
+#[cfg(feature = "rt")]
 #[interrupt]
 unsafe fn DMA_IRQ_0() {
     let ints0 = pac::DMA.ints0().read().ints0();
@@ -29,12 +30,12 @@ unsafe fn DMA_IRQ_0() {
 }
 
 pub(crate) unsafe fn init() {
-    interrupt::DMA_IRQ_0::disable();
-    interrupt::DMA_IRQ_0::set_priority(interrupt::Priority::P3);
+    interrupt::DMA_IRQ_0.disable();
+    interrupt::DMA_IRQ_0.set_priority(interrupt::Priority::P3);
 
     pac::DMA.inte0().write(|w| w.set_inte0(0xFFFF));
 
-    interrupt::DMA_IRQ_0::enable();
+    interrupt::DMA_IRQ_0.enable();
 }
 
 pub unsafe fn read<'a, C: Channel, W: Word>(

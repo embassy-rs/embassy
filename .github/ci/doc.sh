@@ -14,7 +14,6 @@ docserver-builder -i ./embassy-boot/boot -o crates/embassy-boot/git.zup
 docserver-builder -i ./embassy-boot/nrf -o crates/embassy-boot-nrf/git.zup
 docserver-builder -i ./embassy-boot/rp -o crates/embassy-boot-rp/git.zup
 docserver-builder -i ./embassy-boot/stm32 -o crates/embassy-boot-stm32/git.zup
-docserver-builder -i ./embassy-cortex-m -o crates/embassy-cortex-m/git.zup
 docserver-builder -i ./embassy-embedded-hal -o crates/embassy-embedded-hal/git.zup
 docserver-builder -i ./embassy-executor -o crates/embassy-executor/git.zup
 docserver-builder -i ./embassy-futures -o crates/embassy-futures/git.zup

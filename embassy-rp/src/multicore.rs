@@ -50,7 +50,7 @@
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
-use crate::interrupt::Interrupt;
+use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
 use crate::{gpio, interrupt, pac};
 
@@ -106,6 +106,7 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 #[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_PROC1() {
@@ -156,7 +157,7 @@ where
 
         IS_CORE1_INIT.store(true, Ordering::Release);
         // Enable fifo interrupt on CORE1 for `pause` functionality.
-        unsafe { interrupt::SIO_IRQ_PROC1::enable() };
+        unsafe { interrupt::SIO_IRQ_PROC1.enable() };
 
         entry()
     }
@@ -297,6 +298,7 @@ fn fifo_read() -> u32 {
 
 // Pop a value from inter-core FIFO, `wfe` until available
 #[inline(always)]
+#[allow(unused)]
 fn fifo_read_wfe() -> u32 {
     unsafe {
         let sio = pac::SIO;

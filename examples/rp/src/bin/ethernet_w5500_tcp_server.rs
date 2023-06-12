@@ -65,7 +65,7 @@ async fn main(spawner: Spawner) {
     // Init network stack
     let stack = &*make_static!(Stack::new(
         device,
-        embassy_net::Config::Dhcp(Default::default()),
+        embassy_net::Config::dhcpv4(Default::default()),
         make_static!(StackResources::<2>::new()),
         seed
     ));
@@ -116,9 +116,9 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net::StaticConfig {
+async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net::StaticConfigV4 {
     loop {
-        if let Some(config) = stack.config() {
+        if let Some(config) = stack.config_v4() {
             return config.clone();
         }
         yield_now().await;

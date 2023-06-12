@@ -1,4 +1,4 @@
-use crate::interrupt::Interrupt;
+use crate::interrupt;
 use crate::rcc::RccPeripheral;
 
 #[cfg(feature = "nightly")]
@@ -13,7 +13,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral + 'static {
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 // Internal PHY pins
@@ -29,7 +29,7 @@ foreach_interrupt!(
         }
 
         impl Instance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 );

@@ -16,7 +16,8 @@ flavors = [
 ]
 
 [features]
-default = [
+default = ["rt"]
+rt = [
     "nrf52805-pac?/rt",
     "nrf52810-pac?/rt",
     "nrf52811-pac?/rt",
@@ -31,7 +32,7 @@ default = [
 
 time = ["dep:embassy-time"]
 
-defmt = ["dep:defmt", "embassy-executor/defmt", "embassy-sync/defmt", "embassy-usb-driver?/defmt", "embedded-io?/defmt", "embassy-embedded-hal/defmt"]
+defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-usb-driver?/defmt", "embedded-io?/defmt", "embassy-embedded-hal/defmt"]
 
 # Enable nightly-only features
 nightly = ["embedded-hal-1", "embedded-hal-async", "dep:embassy-usb-driver", "embedded-storage-async", "dep:embedded-io", "embassy-embedded-hal/nightly"]
@@ -90,11 +91,9 @@ _dppi = []
 _gpio-p1 = []
 
 [dependencies]
-embassy-executor = { version = "0.2.0", path = "../embassy-executor", optional = true }
 embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
-embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-3"]}
-embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
+embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional=true }
 

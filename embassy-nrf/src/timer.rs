@@ -8,7 +8,6 @@
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use crate::interrupt::Interrupt;
 use crate::ppi::{Event, Task};
 use crate::{pac, Peripheral};
 
@@ -29,7 +28,7 @@ pub(crate) mod sealed {
 /// Basic Timer instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 /// Extended timer instance.
@@ -44,7 +43,7 @@ macro_rules! impl_timer {
             }
         }
         impl crate::timer::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
     ($type:ident, $pac_type:ident, $irq:ident) => {

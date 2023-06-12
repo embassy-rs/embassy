@@ -57,14 +57,11 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use core::mem;
-
-use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_stm32::interrupt;
-use embassy_stm32::pac::Interrupt;
+use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_time::{Duration, Instant, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -130,16 +127,15 @@ fn main() -> ! {
     info!("Hello World!");
 
     let _p = embassy_stm32::init(Default::default());
-    let mut nvic: NVIC = unsafe { mem::transmute(()) };
 
     // High-priority executor: UART4, priority level 6
-    unsafe { nvic.set_priority(Interrupt::UART4, 6 << 4) };
-    let spawner = EXECUTOR_HIGH.start(Interrupt::UART4);
+    interrupt::UART4.set_priority(Priority::P6);
+    let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     unwrap!(spawner.spawn(run_high()));
 
     // Medium-priority executor: UART5, priority level 7
-    unsafe { nvic.set_priority(Interrupt::UART5, 7 << 4) };
-    let spawner = EXECUTOR_MED.start(Interrupt::UART5);
+    interrupt::UART5.set_priority(Priority::P7);
+    let spawner = EXECUTOR_MED.start(interrupt::UART5);
     unwrap!(spawner.spawn(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV

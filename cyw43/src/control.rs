@@ -381,10 +381,7 @@ impl<'a> Control<'a> {
         }
 
         let ioctl = CancelOnDrop(self.ioctl_state);
-
-        ioctl.0.do_ioctl(kind, cmd, iface, buf).await;
-        let resp_len = ioctl.0.wait_complete().await;
-
+        let resp_len = ioctl.0.do_ioctl(kind, cmd, iface, buf).await;
         ioctl.defuse();
 
         resp_len

@@ -1,4 +1,6 @@
-use stm32_metapac::rcc::vals::{Hpre, Ppre, Sw};
+use stm32_metapac::flash::vals::Latency;
+use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
+use stm32_metapac::FLASH;
 
 use crate::pac::{PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -15,6 +17,7 @@ pub const LSI_FREQ: Hertz = Hertz(32_000);
 pub enum ClockSrc {
     HSE(Hertz),
     HSI16,
+    PLLCLK(PllSrc, PllM, PllN, PllR),
 }
 
 /// AHB prescaler
@@ -39,6 +42,128 @@ pub enum APBPrescaler {
     Div4,
     Div8,
     Div16,
+}
+
+/// PLL clock input source
+#[derive(Clone, Copy, Debug)]
+pub enum PllSrc {
+    HSI16,
+    HSE(Hertz),
+}
+
+impl Into<Pllsrc> for PllSrc {
+    fn into(self) -> Pllsrc {
+        match self {
+            PllSrc::HSE(..) => Pllsrc::HSE,
+            PllSrc::HSI16 => Pllsrc::HSI16,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum PllR {
+    Div2,
+    Div4,
+    Div6,
+    Div8,
+}
+
+impl PllR {
+    pub fn to_div(self) -> u32 {
+        let val: u8 = self.into();
+        (val as u32 + 1) * 2
+    }
+}
+
+impl From<PllR> for u8 {
+    fn from(val: PllR) -> u8 {
+        match val {
+            PllR::Div2 => 0b00,
+            PllR::Div4 => 0b01,
+            PllR::Div6 => 0b10,
+            PllR::Div8 => 0b11,
+        }
+    }
+}
+
+seq_macro::seq!(N in 8..=127 {
+    #[derive(Clone, Copy)]
+    pub enum PllN {
+        #(
+            Mul~N,
+        )*
+    }
+
+    impl From<PllN> for u8 {
+        fn from(val: PllN) -> u8 {
+            match val {
+                #(
+                    PllN::Mul~N => N,
+                )*
+            }
+        }
+    }
+
+    impl PllN {
+        pub fn to_mul(self) -> u32 {
+            match self {
+                #(
+                    PllN::Mul~N => N,
+                )*
+            }
+        }
+    }
+});
+
+// Pre-division
+#[derive(Copy, Clone)]
+pub enum PllM {
+    Div1,
+    Div2,
+    Div3,
+    Div4,
+    Div5,
+    Div6,
+    Div7,
+    Div8,
+    Div9,
+    Div10,
+    Div11,
+    Div12,
+    Div13,
+    Div14,
+    Div15,
+    Div16,
+}
+
+impl PllM {
+    pub fn to_div(self) -> u32 {
+        let val: u8 = self.into();
+        val as u32 + 1
+    }
+}
+
+impl From<PllM> for u8 {
+    fn from(val: PllM) -> u8 {
+        match val {
+            PllM::Div1 => 0b0000,
+            PllM::Div2 => 0b0001,
+            PllM::Div3 => 0b0010,
+            PllM::Div4 => 0b0011,
+            PllM::Div5 => 0b0100,
+            PllM::Div6 => 0b0101,
+            PllM::Div7 => 0b0110,
+            PllM::Div8 => 0b0111,
+            PllM::Div9 => 0b1000,
+            PllM::Div10 => 0b1001,
+            PllM::Div11 => 0b1010,
+            PllM::Div12 => 0b1011,
+            PllM::Div13 => 0b1100,
+            PllM::Div14 => 0b1101,
+            PllM::Div15 => 0b1110,
+            PllM::Div16 => 0b1111,
+        }
+    }
 }
 
 impl AHBPrescaler {
@@ -134,6 +259,76 @@ pub(crate) unsafe fn init(config: Config) {
             while !RCC.cr().read().hserdy() {}
 
             (freq.0, Sw::HSE)
+        }
+        ClockSrc::PLLCLK(src, prediv, mul, div) => {
+            let src_freq = match src {
+                PllSrc::HSI16 => {
+                    // Enable HSI16 as clock source for PLL
+                    RCC.cr().write(|w| w.set_hsion(true));
+                    while !RCC.cr().read().hsirdy() {}
+
+                    HSI_FREQ.0
+                }
+                PllSrc::HSE(freq) => {
+                    // Enable HSE as clock source for PLL
+                    RCC.cr().write(|w| w.set_hseon(true));
+                    while !RCC.cr().read().hserdy() {}
+
+                    freq.0
+                }
+            };
+
+            // Make sure PLL is disabled while we configure it
+            RCC.cr().modify(|w| w.set_pllon(false));
+            while RCC.cr().read().pllrdy() {}
+
+            let freq = src_freq / prediv.to_div() * mul.to_mul() / div.to_div();
+            assert!(freq <= 170_000_000);
+
+            if freq >= 150_000_000 {
+                // Enable Core Boost mode on freq >= 150Mhz ([RM0440] p234)
+                PWR.cr5().modify(|w| w.set_r1mode(false));
+                // Set flash wait state in boost mode based on frequency ([RM0440] p191)
+                if freq <= 36_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
+                } else if freq <= 68_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS1));
+                } else if freq <= 102_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS2));
+                } else if freq <= 136_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS3));
+                } else {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
+                }
+            } else {
+                PWR.cr5().modify(|w| w.set_r1mode(true));
+                // Set flash wait state in normal mode based on frequency ([RM0440] p191)
+                if freq <= 30_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
+                } else if freq <= 60_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS1));
+                } else if freq <= 80_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS2));
+                } else if freq <= 120_000_000 {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS3));
+                } else {
+                    FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
+                }
+            }
+
+            RCC.pllcfgr().write(move |w| {
+                w.set_plln(mul.into());
+                w.set_pllm(prediv.into());
+                w.set_pllr(div.into());
+                w.set_pllsrc(src.into());
+            });
+
+            // Enable PLL
+            RCC.cr().modify(|w| w.set_pllon(true));
+            while !RCC.cr().read().pllrdy() {}
+            RCC.pllcfgr().modify(|w| w.set_pllren(true));
+
+            (freq, Sw::PLLRCLK)
         }
     };
 
