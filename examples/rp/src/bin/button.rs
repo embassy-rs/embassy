@@ -12,7 +12,7 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PIN_25, Level::Low);
 
     // Use PIN_28, Pin34 on J0 for RP Pico, as a input.
-    // You need to ad your own button.
+    // You need to add your own button.
     let button = Input::new(p.PIN_28, Pull::Up);
 
     loop {
