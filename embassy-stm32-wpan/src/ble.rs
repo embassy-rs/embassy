@@ -63,7 +63,7 @@ impl Ble {
 
             core::ptr::copy(buf.as_ptr(), pcmd_serial_buf, buf.len());
 
-            let mut cmd_packet = &mut *(*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
+            let cmd_packet = &mut *(*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
             cmd_packet.cmdserial.ty = TlPacketType::BleCmd as u8;
         }
 
@@ -72,7 +72,7 @@ impl Ble {
 
     #[allow(dead_code)] // Not used currently but reserved
     pub(super) fn ble_send_acl_data() {
-        let mut cmd_packet = unsafe { &mut *(*TL_REF_TABLE.assume_init().ble_table).phci_acl_data_buffer };
+        let cmd_packet = unsafe { &mut *(*TL_REF_TABLE.assume_init().ble_table).phci_acl_data_buffer };
 
         cmd_packet.acl_data_serial.ty = TlPacketType::AclData as u8;
 

@@ -90,7 +90,7 @@ pub fn shci_ble_init(param: ShciBleInitCmdParam) {
         (*cmd_ptr).cmdserial.cmd.cmd_code = SCHI_OPCODE_BLE_INIT;
         (*cmd_ptr).cmdserial.cmd.payload_len = core::mem::size_of::<ShciBleInitCmdParam>() as u8;
 
-        let mut p_cmd_buffer = &mut *(*TL_SYS_TABLE.as_mut_ptr()).pcmd_buffer;
+        let p_cmd_buffer = &mut *(*TL_SYS_TABLE.as_mut_ptr()).pcmd_buffer;
         core::ptr::write(p_cmd_buffer, *cmd_ptr);
 
         p_cmd_buffer.cmdserial.ty = TlPacketType::SysCmd as u8;
