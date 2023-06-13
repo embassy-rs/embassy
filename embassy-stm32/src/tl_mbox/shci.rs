@@ -1,6 +1,7 @@
 //! HCI commands for system channel
 
 use core::convert::TryFrom;
+use core::{mem, slice};
 
 use super::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE};
 
@@ -98,13 +99,61 @@ pub enum ShciOpcode {
     Mac802_15_4DeInit = opcode(SHCI_OGF, 0x78),
 }
 
+pub const SHCI_C2_CONFIG_EVTMASK1_BIT0_ERROR_NOTIF_ENABLE: u8 = 1 << 0;
+pub const SHCI_C2_CONFIG_EVTMASK1_BIT1_BLE_NVM_RAM_UPDATE_ENABLE: u8 = 1 << 1;
+pub const SHCI_C2_CONFIG_EVTMASK1_BIT2_THREAD_NVM_RAM_UPDATE_ENABLE: u8 = 1 << 2;
+pub const SHCI_C2_CONFIG_EVTMASK1_BIT3_NVM_START_WRITE_ENABLE: u8 = 1 << 3;
+pub const SHCI_C2_CONFIG_EVTMASK1_BIT4_NVM_END_WRITE_ENABLE: u8 = 1 << 4;
+pub const SHCI_C2_CONFIG_EVTMASK1_BIT5_NVM_START_ERASE_ENABLE: u8 = 1 << 5;
+pub const SHCI_C2_CONFIG_EVTMASK1_BIT6_NVM_END_ERASE_ENABLE: u8 = 1 << 6;
+
+#[derive(Clone, Copy)]
+#[repr(C, packed)]
+pub struct ShciConfigParam {
+    pub payload_cmd_size: u8,
+    pub config: u8,
+    pub event_mask: u8,
+    pub spare: u8,
+    pub ble_nvm_ram_address: u32,
+    pub thread_nvm_ram_address: u32,
+    pub revision_id: u16,
+    pub device_id: u16,
+}
+
+impl ShciConfigParam {
+    pub fn payload<'a>(&self) -> &'a [u8] {
+        unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
+    }
+}
+
+impl Default for ShciConfigParam {
+    fn default() -> Self {
+        Self {
+            payload_cmd_size: (mem::size_of::<Self>() - 1) as u8,
+            config: 0,
+            event_mask: SHCI_C2_CONFIG_EVTMASK1_BIT0_ERROR_NOTIF_ENABLE
+                + SHCI_C2_CONFIG_EVTMASK1_BIT1_BLE_NVM_RAM_UPDATE_ENABLE
+                + SHCI_C2_CONFIG_EVTMASK1_BIT2_THREAD_NVM_RAM_UPDATE_ENABLE
+                + SHCI_C2_CONFIG_EVTMASK1_BIT3_NVM_START_WRITE_ENABLE
+                + SHCI_C2_CONFIG_EVTMASK1_BIT4_NVM_END_WRITE_ENABLE
+                + SHCI_C2_CONFIG_EVTMASK1_BIT5_NVM_START_ERASE_ENABLE
+                + SHCI_C2_CONFIG_EVTMASK1_BIT6_NVM_END_ERASE_ENABLE,
+            spare: 0,
+            ble_nvm_ram_address: 0,
+            thread_nvm_ram_address: 0,
+            revision_id: 0,
+            device_id: 0,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct ShciBleInitCmdParam {
     /// NOT USED - shall be set to 0
-    pub ble_buffer_address: u16,
+    pub p_ble_buffer_address: u32,
     /// NOT USED - shall be set to 0
-    pub ble_buffer_size: u16,
+    pub ble_buffer_size: u32,
     /// Maximum number of attribute records related to all the required characteristics (excluding the services)
     /// that can be stored in the GATT database, for the specific BLE user application.
     /// For each characteristic, the number of attribute records goes from two to five depending on the characteristic properties:
@@ -180,15 +229,15 @@ pub struct ShciBleInitCmdParam {
     ///    - 0 ppm to 20 ppm: 7
     pub master_sca: u8,
     /// Some information for Low speed clock mapped in bits field
-    /// - bit 0:   
-    ///     - 1: Calibration for the RF system wakeup clock source   
+    /// - bit 0:
+    ///     - 1: Calibration for the RF system wakeup clock source
     ///     - 0: No calibration for the RF system wakeup clock source
-    /// - bit 1:   
-    ///     - 1: STM32W5M Module device                              
+    /// - bit 1:
+    ///     - 1: STM32W5M Module device
     ///     - 0: Other devices as STM32WBxx SOC, STM32WB1M module
-    /// - bit 2:   
-    ///     - 1: HSE/1024 Clock config                               
-    ///     - 0: LSE Clock config   
+    /// - bit 2:
+    ///     - 1: HSE/1024 Clock config
+    ///     - 0: LSE Clock config
     pub ls_source: u8,
     /// This parameter determines the maximum duration of a slave connection event. When this duration is reached the slave closes
     /// the current connections event (whatever is the CE_length parameter specified by the master in HCI_CREATE_CONNECTION HCI command),
@@ -205,101 +254,128 @@ pub struct ShciBleInitCmdParam {
     ///    - 0: Enable
     ///    - 1: Disable
     pub viterbi_enable: u8,
-    /// - bit 0:   
-    ///     - 1: LL only                          
+    /// - bit 0:
+    ///     - 1: LL only
     ///     - 0: LL + host
-    /// - bit 1:   
-    ///     - 1: no service change desc.          
+    /// - bit 1:
+    ///     - 1: no service change desc.
     ///     - 0: with service change desc.
-    /// - bit 2:   
-    ///     - 1: device name Read-Only            
+    /// - bit 2:
+    ///     - 1: device name Read-Only
     ///     - 0: device name R/W
-    /// - bit 3:   
-    ///     - 1: extended advertizing supported   
+    /// - bit 3:
+    ///     - 1: extended advertizing supported
     ///     - 0: extended advertizing not supported
-    /// - bit 4:   
-    ///     - 1: CS Algo #2 supported             
+    /// - bit 4:
+    ///     - 1: CS Algo #2 supported
     ///     - 0: CS Algo #2 not supported
-    /// - bit 5:   
-    ///     - 1: Reduced GATT database in NVM     
+    /// - bit 5:
+    ///     - 1: Reduced GATT database in NVM
     ///     - 0: Full GATT database in NVM
-    /// - bit 6:   
-    ///     - 1: GATT caching is used             
+    /// - bit 6:
+    ///     - 1: GATT caching is used
     ///     - 0: GATT caching is not used
-    /// - bit 7:   
-    ///     - 1: LE Power Class 1                 
+    /// - bit 7:
+    ///     - 1: LE Power Class 1
     ///     - 0: LE Power Classe 2-3
     /// - other bits: complete with Options_extension flag
     pub options: u8,
     /// Reserved for future use - shall be set to 0
     pub hw_version: u8,
-    /// Maximum number of connection-oriented channels in initiator mode.
-    /// Range: 0 .. 64
+
+    /**
+     * Maximum number of connection-oriented channels in initiator mode.
+     * Range: 0 .. 64
+     */
     pub max_coc_initiator_nbr: u8,
-    /// Minimum transmit power in dBm supported by the Controller.
-    /// Range: -127 .. 20
-    pub min_tx_power: u8,
-    /// Maximum transmit power in dBm supported by the Controller.
-    /// Range: -127 .. 20
-    pub max_tx_power: u8,
-    /// RX model configuration
-    /// - bit 0:   
-    ///     - 1: agc_rssi model improved vs RF blockers    
-    ///     - 0: Legacy agc_rssi model
-    /// - other bits: reserved ( shall be set to 0)
+
+    /**
+     * Minimum transmit power in dBm supported by the Controller.
+     * Range: -127 .. 20
+     */
+    pub min_tx_power: i8,
+
+    /**
+     * Maximum transmit power in dBm supported by the Controller.
+     * Range: -127 .. 20
+     */
+    pub max_tx_power: i8,
+
+    /**
+     * RX model configuration
+     * - bit 0:   1: agc_rssi model improved vs RF blockers    0: Legacy agc_rssi model
+     * - other bits: reserved ( shall be set to 0)
+     */
     pub rx_model_config: u8,
-    /// Range: 1 .. 8 with limitation:
-    /// This parameter is linked to max_adv_data_len such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
-    /// on Max Extended advertising configuration supported.
-    /// This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
+
+    /* Maximum number of advertising sets.
+     * Range: 1 .. 8 with limitation:
+     * This parameter is linked to max_adv_data_len such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
+     * on Max Extended advertising configuration supported.
+     * This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
+     */
     pub max_adv_set_nbr: u8,
-    /// Range: 31 .. 1650 with limitation:
-    /// This parameter is linked to max_adv_set_nbr such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
-    /// on Max Extended advertising configuration supported.
-    /// This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
+
+    /* Maximum advertising data length (in bytes)
+     * Range: 31 .. 1650 with limitation:
+     * This parameter is linked to max_adv_set_nbr such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
+     * on Max Extended advertising configuration supported.
+     * This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
+     */
     pub max_adv_data_len: u16,
-    /// RF TX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
-    /// Range: -1280 .. 1280
-    pub tx_path_compens: u16,
-    /// RF RX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
-    /// Range: -1280 .. 1280
-    pub rx_path_compens: u16,
-    /// BLE core specification version (8-bit unsigned integer).
-    /// values as: 11(5.2), 12(5.3)
-    pub ble_core_version: u16,
-    /// Options flags extension
-    /// - bit 0:   
-    ///     - 1: appearance Writable              
-    ///     - 0: appearance Read-Only
-    /// - bit 1:   
-    ///     - 1: Enhanced ATT supported           
-    ///     - 0: Enhanced ATT not supported
-    /// - other bits: reserved ( shall be set to 0)
+
+    /* RF TX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
+     * Range: -1280 .. 1280
+     */
+    pub tx_path_compens: i16,
+
+    /* RF RX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
+     * Range: -1280 .. 1280
+     */
+    pub rx_path_compens: i16,
+
+    /* BLE core specification version (8-bit unsigned integer).
+     * values as: 11(5.2), 12(5.3)
+     */
+    pub ble_core_version: u8,
+
+    /**
+     * Options flags extension
+     * - bit 0:   1: appearance Writable              0: appearance Read-Only
+     * - bit 1:   1: Enhanced ATT supported           0: Enhanced ATT not supported
+     * - other bits: reserved ( shall be set to 0)
+     */
     pub options_extension: u8,
+}
+
+impl ShciBleInitCmdParam {
+    pub fn payload<'a>(&self) -> &'a [u8] {
+        unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
+    }
 }
 
 impl Default for ShciBleInitCmdParam {
     fn default() -> Self {
         Self {
-            ble_buffer_address: 0,
+            p_ble_buffer_address: 0,
             ble_buffer_size: 0,
             num_attr_record: 68,
             num_attr_serv: 8,
             attr_value_arr_size: 1344,
-            num_of_links: 8,
+            num_of_links: 2,
             extended_packet_length_enable: 1,
-            prepare_write_list_size: 18,
-            block_count: 81,
+            prepare_write_list_size: 0x3A,
+            block_count: 0x79,
             att_mtu: 156,
             slave_sca: 500,
             master_sca: 0,
-            ls_source: 0,
-            max_conn_event_length: 0xffffff,
+            ls_source: 1,
+            max_conn_event_length: 0xFFFFFFFF,
             hs_startup_time: 0x148,
             viterbi_enable: 1,
             options: 0,
             hw_version: 0,
-            max_coc_initiator_nbr: 32,
+            max_coc_initiator_nbr: 0,
             min_tx_power: 0,
             max_tx_power: 0,
             rx_model_config: 0,

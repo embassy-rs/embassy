@@ -6,10 +6,11 @@ use core::ptr;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::tl_mbox::cmd::CommandSerial;
+use embassy_stm32::tl_mbox::cmd::{CommandPacket, CommandSerial};
 use embassy_stm32::tl_mbox::consts::TlPacketType;
-use embassy_stm32::tl_mbox::{Config, TlMbox};
-use embassy_stm32::{bind_interrupts, tl_mbox};
+use embassy_stm32::tl_mbox::shci::{ShciConfigParam, ShciOpcode};
+use embassy_stm32::tl_mbox::{Config, PacketHeader, TlMbox};
+use embassy_stm32::{bind_interrupts, pac, tl_mbox};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -45,6 +46,8 @@ async fn read_sys() {
                 );
             })
             .await;
+
+        break;
     }
 }
 
@@ -110,42 +113,89 @@ async fn main(spawner: Spawner) {
     let config = Config::default();
     let mut mbox = TlMbox::new(p.IPCC, Irqs, config);
 
+    unsafe {
+        pac::EXTI.cpu(1).imr(1).modify(|w| {
+            w.set_line(4, true);
+            w.set_line(6, true);
+        });
+    }
+
     info!("waiting for coprocessor to boot");
 
     spawner.spawn(read_sys()).unwrap();
 
-    Timer::after(Duration::from_millis(100)).await;
+    Timer::after(Duration::from_millis(500)).await;
 
     spawner.spawn(read_ble()).unwrap();
 
-    Timer::after(Duration::from_millis(100)).await;
+    Timer::after(Duration::from_millis(500)).await;
 
-    let command_status = mbox.sys_subsystem.schi_c2_ble_init(Default::default()).await;
+    //    let mut config_param: ShciConfigParam = Default::default();
+    //
+    //    config_param.device_id = 495 as u16;
+    //    config_param.revision_id = 2003 as u16;
+    //
+    //    let command_status = mbox.sys_subsystem.shci_c2_config(Default::default()).await;
+    //
+    //    info!("command status: {}", command_status);
+    //
+    //    let command_status = mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    //
+    //    info!("command status: {}", command_status);
 
-    info!("command status: {}", command_status);
+    //    let command_status = mbox
+    //        .sys_subsystem
+    //        .write_and_get_response(
+    //            TlPacketType::SysCmd,
+    //            0xFC68,
+    //            &[
+    //                0x4C, 0x9C, 0x00, 0x08, 0x88, 0x00, 0x00, 0x20, 0x8C, 0x00, 0x00, 0x20, 0x26, 0x04, 0x04,
+    //            ],
+    //        )
+    //        .await
+    //        .payload[0];
+    //
+    //    info!("command status: {:x}", command_status);
+
+    Timer::after(Duration::from_secs(3)).await;
+
+    let command_status = mbox
+        .sys_subsystem
+        .write_and_get_response(
+            TlPacketType::SysCmd,
+            0xFC75,
+            &[
+                0x0F, 0x00, 0x7F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x20, 0x95, 0x04,
+            ],
+        )
+        .await
+        .payload[0];
+
+    info!("command status: {:x}", command_status);
+
+    let command_status = mbox
+        .sys_subsystem
+        .write_and_get_response(
+            TlPacketType::SysCmd,
+            0xFC66,
+            &[
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x44, 0x00, 0x08, 0x00, 0x40, 0x05, 0x02, 0x01, 0x12,
+                0x27, 0x9C, 0x00, 0xF4, 0x01, 0x00, 0x04, 0xFF, 0xFF, 0xFF, 0xFF, 0x48, 0x01, 0x01, 0x00, 0x00, 0x20,
+                0x00, 0x00, 0x00, 0x03, 0x72, 0x06, 0x00, 0x00, 0x00, 0x00, 0x0C, 0x00,
+            ],
+        )
+        .await
+        .payload[0];
+
+    info!("command status: {:x}", command_status);
 
     Timer::after(Duration::from_millis(100)).await;
 
     mbox.ble_subsystem
-        .write_and_get_response(
-            |command_packet| {
-                let payload: [u8; 5] = [0x01, 0x03, 0x0c, 0x00, 0x00];
-
-                let mut cmd_serial = CommandSerial::default();
-                // cmd_serial.cmd.cmd_code = ShciOpcode::BleInit as u16;
-                cmd_serial.cmd.payload_len = 5;
-                cmd_serial.typ = TlPacketType::BleCmd as u8;
-
-                unsafe {
-                    ptr::write(&cmd_serial.cmd.payload as *const _ as *mut _, payload);
-                    ptr::write_volatile(&mut command_packet.read_volatile().cmd_serial, cmd_serial);
-                }
-            },
-            |_| {},
-        )
+        .write_and_get_response(TlPacketType::BleCmd, 0xc03, &[])
         .await;
 
-    Timer::after(Duration::from_secs(5)).await;
+    Timer::after(Duration::from_secs(3)).await;
 
     info!("Test OK");
     cortex_m::asm::bkpt();

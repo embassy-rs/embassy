@@ -1,10 +1,11 @@
-use core::mem;
+use core::{mem, ptr};
 
 use atomic_polyfill::{compiler_fence, Ordering};
 
-use super::cmd::CommandPacket;
+use super::cmd::{Command, CommandPacket, CommandSerial};
 use super::consts::TlPacketType;
 use super::evt::EventPacket;
+use super::shci::ShciOpcode;
 use super::tables::{BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_REF_TABLE};
 use super::unsafe_linked_list::LinkedListNode;
 use super::{channels, mm};
@@ -25,6 +26,9 @@ impl BleSubsystem {
                 phci_acl_data_buffer: HCI_ACL_DATA_BUFFER.as_mut_ptr().cast(),
             });
         }
+
+        let p_cmd_serial = unsafe { &mut BLE_CMD_BUFFER.assume_init_mut().cmd_serial as *mut _ };
+        info!("ble cmd addr: {:x}", p_cmd_serial as u32);
 
         Self {}
     }
@@ -57,27 +61,40 @@ impl BleSubsystem {
     }
 
     /// `HW_IPCC_BLE_CmdEvtNot`
-    pub async fn write_and_get_response<R>(
-        &mut self,
-        f: impl FnOnce(*mut CommandPacket),
-        r: impl FnOnce(&EventPacket) -> R,
-    ) -> R {
-        self.write(f).await;
+    pub async fn write_and_get_response(&mut self, typ: TlPacketType, opcode: u16, payload: &[u8]) -> EventPacket {
+        self.write(typ, opcode, payload).await;
         Ipcc::flush(channels::cpu1::IPCC_BLE_CMD_CHANNEL).await;
 
         let event_packet = unsafe { BLE_CMD_BUFFER.as_ptr() as *const EventPacket };
-        let event_packet = unsafe { mem::transmute(event_packet) };
 
-        r(event_packet)
+        unsafe { ptr::read_volatile(event_packet) }
     }
 
     /// `TL_BLE_SendCmd`
-    pub async fn write(&mut self, f: impl FnOnce(*mut CommandPacket)) {
+    pub async fn write(&mut self, typ: TlPacketType, opcode: u16, payload: &[u8]) {
         Ipcc::send(channels::cpu1::IPCC_BLE_CMD_CHANNEL, || unsafe {
-            f(BLE_CMD_BUFFER.as_mut_ptr());
+            let p_cmd_serial = &mut BLE_CMD_BUFFER.assume_init_mut().cmd_serial as *mut _;
+
+            // TODO: Optimize this so that only the required payload is written
+            let mut command_serial = CommandSerial {
+                typ: typ as u8,
+                command: Command {
+                    command_code: opcode as u16,
+                    payload_len: payload.len() as u8,
+                    payload: [0; 255],
+                },
+            };
+
+            command_serial.command.payload[..payload.len()].copy_from_slice(payload);
+
+            info!("ble cmd addr: {:x}", p_cmd_serial as u32);
+            info!("ble cmd: {:x} payload: {:x}", opcode, payload);
+
+            ptr::write_volatile(p_cmd_serial, command_serial);
         })
         .await;
     }
+
     //    pub async fn read(&mut self) -> Result<EventBox, ()> {
     //        Ipcc::receive(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, || unsafe {
     //            EventBox::from_node((*TL_REF_TABLE.as_ptr().read_volatile().ble_table).pevt_queue as *mut _)

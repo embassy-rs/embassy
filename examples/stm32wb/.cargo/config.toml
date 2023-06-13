@@ -2,6 +2,7 @@
 # replace STM32WB55CCUx with your chip as listed in `probe-rs-cli chip list`
 # runner = "probe-rs-cli run --chip STM32WB55CCUx --speed 1000 --connect-under-reset"
 runner = "probe-run --chip STM32WB55RG"
+# runner = "teleprobe client run --target nucleo-stm32wb55rg --elf "
 
 [build]
 target = "thumbv7em-none-eabihf"

@@ -11,6 +11,8 @@
     unused_mut
 )]
 
+use core::ptr;
+
 use cortex_m::interrupt;
 
 #[derive(Copy, Clone)]
@@ -30,56 +32,98 @@ impl Default for LinkedListNode {
 }
 
 impl LinkedListNode {
-    pub unsafe fn init_head(mut list_head: *mut LinkedListNode) {
-        (*list_head).next = list_head;
-        (*list_head).prev = list_head;
+    pub unsafe fn init_head(mut p_list_head: *mut LinkedListNode) {
+        ptr::write_volatile(
+            p_list_head,
+            LinkedListNode {
+                next: p_list_head,
+                prev: p_list_head,
+            },
+        );
     }
 
-    pub unsafe fn is_empty(mut list_head: *mut LinkedListNode) -> bool {
-        interrupt::free(|_| ((*list_head).next) == list_head)
+    pub unsafe fn is_empty(mut p_list_head: *mut LinkedListNode) -> bool {
+        interrupt::free(|_| ptr::read_volatile(p_list_head).next == p_list_head)
     }
 
-    pub unsafe fn insert_head(mut list_head: *mut LinkedListNode, mut node: *mut LinkedListNode) {
+    /// Insert `node` after `list_head` and before the next node
+    pub unsafe fn insert_head(mut p_list_head: *mut LinkedListNode, mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
-            (*node).next = (*list_head).next;
-            (*node).prev = list_head;
-            (*list_head).next = node;
-            (*(*node).next).prev = node;
+            let mut list_head = ptr::read_volatile(p_list_head);
+            let mut node_next = ptr::read_volatile(list_head.next);
+            let node = LinkedListNode {
+                next: list_head.next,
+                prev: p_list_head,
+            };
+
+            list_head.next = p_node;
+            node_next.prev = p_node;
+
+            // All nodes must be written because they will all be seen by another core
+            ptr::write_volatile(p_node, node);
+            ptr::write_volatile(node.next, node_next);
+            ptr::write_volatile(p_list_head, list_head);
         });
     }
 
-    pub unsafe fn insert_tail(mut list_head: *mut LinkedListNode, mut node: *mut LinkedListNode) {
+    /// Insert `node` before `list_tail` and after the second-to-last node
+    pub unsafe fn insert_tail(mut p_list_tail: *mut LinkedListNode, mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
-            (*node).next = list_head;
-            (*node).prev = (*list_head).prev;
-            (*list_head).prev = node;
-            (*(*node).prev).next = node;
+            let mut list_tail = ptr::read_volatile(p_list_tail);
+            let mut node_prev = ptr::read_volatile(list_tail.prev);
+            let node = LinkedListNode {
+                next: p_list_tail,
+                prev: list_tail.prev,
+            };
+
+            list_tail.prev = p_node;
+            node_prev.next = p_node;
+
+            // All nodes must be written because they will all be seen by another core
+            ptr::write_volatile(p_node, node);
+            ptr::write_volatile(node.prev, node_prev);
+            ptr::write_volatile(p_list_tail, list_tail);
         });
     }
 
     /// Remove `node` from the linked list
-    pub unsafe fn remove_node(mut node: *mut LinkedListNode) {
+    pub unsafe fn remove_node(mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
-            (*(*node).prev).next = (*node).next;
-            (*(*node).next).prev = (*node).prev;
+            let node = ptr::read_volatile(p_node);
+            let mut node_prev = ptr::read_volatile(node.prev);
+            let mut node_next = ptr::read_volatile(node.next);
+
+            node_prev.next = node.next;
+            node_next.prev = node.prev;
+
+            ptr::write_volatile(node.prev, node_prev);
+            ptr::write_volatile(node.next, node_next);
         });
     }
 
     /// Remove `list_head` into `node`
-    pub unsafe fn remove_head(mut list_head: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
+    pub unsafe fn remove_head(mut p_list_head: *mut LinkedListNode, mut p_node: *mut *mut LinkedListNode) {
         interrupt::free(|_| {
-            *node = (*list_head).next;
-            Self::remove_node((*list_head).next);
+            let list_head = ptr::read_volatile(p_list_head);
+
+            // Allowed because a removed node is not seen by another core
+            *p_node = list_head.next;
+            Self::remove_node(list_head.next);
         });
     }
 
     /// Remove `list_tail` into `node`
-    pub unsafe fn remove_tail(mut list_tail: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
+    pub unsafe fn remove_tail(mut p_list_tail: *mut LinkedListNode, mut p_node: *mut *mut LinkedListNode) {
         interrupt::free(|_| {
-            *node = (*list_tail).prev;
-            Self::remove_node((*list_tail).prev);
+            let list_tail = ptr::read_volatile(p_list_tail);
+
+            // Allowed because a removed node is not seen by another core
+            *p_node = list_tail.prev;
+            Self::remove_node(list_tail.prev);
         });
     }
+
+    // TODO: convert these other functions to volatile semantics
 
     pub unsafe fn insert_node_after(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
         interrupt::free(|_| {

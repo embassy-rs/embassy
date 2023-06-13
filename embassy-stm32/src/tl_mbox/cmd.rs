@@ -1,18 +1,17 @@
-use super::consts::TlPacketType;
 use super::PacketHeader;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
-pub struct Cmd {
-    pub cmd_code: u16,
+pub struct Command {
+    pub command_code: u16,
     pub payload_len: u8,
     pub payload: [u8; 255],
 }
 
-impl Default for Cmd {
+impl Default for Command {
     fn default() -> Self {
         Self {
-            cmd_code: 0,
+            command_code: 0,
             payload_len: 0,
             payload: [0u8; 255],
         }
@@ -23,7 +22,7 @@ impl Default for Cmd {
 #[derive(Copy, Clone, Default)]
 pub struct CommandSerial {
     pub typ: u8,
-    pub cmd: Cmd,
+    pub command: Command,
 }
 
 #[repr(C, packed)]

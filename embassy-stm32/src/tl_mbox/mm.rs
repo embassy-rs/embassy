@@ -47,8 +47,6 @@ impl MemoryManager {
             return;
         }
 
-        // return;
-
         let _ = poll_once(Ipcc::send(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, || unsafe {
             let mut node_ptr = core::ptr::null_mut();
             let pevt_free_buffer_queue =

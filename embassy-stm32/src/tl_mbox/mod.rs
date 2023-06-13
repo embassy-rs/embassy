@@ -45,7 +45,7 @@ mod mac;
 mod mm;
 pub mod shci;
 pub mod sys;
-mod tables;
+pub mod tables;
 mod thread;
 mod unsafe_linked_list;
 
@@ -91,26 +91,59 @@ impl<'d> TlMbox<'d> {
 
             // info!("TL_REF_TABLE addr: {:x}", TL_REF_TABLE.as_ptr() as usize);
 
-            TL_SYS_TABLE = MaybeUninit::zeroed();
-            TL_DEVICE_INFO_TABLE = MaybeUninit::zeroed();
-            TL_BLE_TABLE = MaybeUninit::zeroed();
-            TL_THREAD_TABLE = MaybeUninit::zeroed();
-            TL_MEM_MANAGER_TABLE = MaybeUninit::zeroed();
-            TL_TRACES_TABLE = MaybeUninit::zeroed();
-            TL_MAC_802_15_4_TABLE = MaybeUninit::zeroed();
-            TL_ZIGBEE_TABLE = MaybeUninit::zeroed();
-            TL_LLD_TESTS_TABLE = MaybeUninit::zeroed();
-            TL_BLE_LLD_TABLE = MaybeUninit::zeroed();
+            TL_SYS_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_DEVICE_INFO_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_BLE_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_THREAD_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_MEM_MANAGER_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
 
-            EVT_POOL = MaybeUninit::zeroed();
-            SYS_SPARE_EVT_BUF = MaybeUninit::zeroed();
-            BLE_SPARE_EVT_BUF = MaybeUninit::zeroed();
+            TL_TRACES_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_MAC_802_15_4_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_ZIGBEE_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_LLD_TESTS_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_BLE_LLD_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+
+            EVT_POOL
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            SYS_SPARE_EVT_BUF
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            BLE_SPARE_EVT_BUF
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
 
             #[cfg(feature = "ble")]
             {
-                BLE_CMD_BUFFER = MaybeUninit::zeroed();
-                HCI_ACL_DATA_BUFFER = MaybeUninit::zeroed();
-                CS_BUFFER = MaybeUninit::zeroed();
+                BLE_CMD_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                HCI_ACL_DATA_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                CS_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
             }
 
             #[cfg(feature = "mac")]

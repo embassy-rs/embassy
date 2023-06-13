@@ -135,10 +135,11 @@ impl Ipcc {
         Self::flush(channel).await;
         compiler_fence(Ordering::SeqCst);
 
-        info!("ipcc: ch {}:  write data", channel as u8);
         f();
 
         compiler_fence(Ordering::SeqCst);
+
+        info!("ipcc: ch {}: send data", channel as u8);
         unsafe { regs.cpu(0).scr().write(|w| w.set_chs(channel as usize, true)) }
     }
 
