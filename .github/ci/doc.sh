@@ -9,6 +9,12 @@ export CARGO_TARGET_DIR=/ci/cache/target
 export BUILDER_THREADS=6
 export BUILDER_COMPRESS=true
 
+# force rustup to download the toolchain before starting building.
+# Otherwise, the docs builder is running multiple instances of cargo rustdoc concurrently.
+# They all see the toolchain is not installed and try to install it in parallel
+# which makes rustup very sad
+rustc --version > /dev/null
+
 docserver-builder -i ./embassy-stm32 -o crates/embassy-stm32/git.zup
 docserver-builder -i ./embassy-boot/boot -o crates/embassy-boot/git.zup
 docserver-builder -i ./embassy-boot/nrf -o crates/embassy-boot-nrf/git.zup
