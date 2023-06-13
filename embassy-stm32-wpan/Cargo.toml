@@ -1,0 +1,39 @@
+[package]
+name = "embassy-stm32-wpan"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
+embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
+embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
+embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common" }
+embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
+
+defmt = { version = "0.3", optional = true }
+cortex-m = "0.7.6"
+heapless = "0.7.16"
+
+bit_field = "0.10.2"
+
+[features]
+defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt"]
+
+stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]
+stm32wb15cc = [ "embassy-stm32/stm32wb15cc" ]
+stm32wb30ce = [ "embassy-stm32/stm32wb30ce" ]
+stm32wb35cc = [ "embassy-stm32/stm32wb35cc" ]
+stm32wb35ce = [ "embassy-stm32/stm32wb35ce" ]
+stm32wb50cg = [ "embassy-stm32/stm32wb50cg" ]
+stm32wb55cc = [ "embassy-stm32/stm32wb55cc" ]
+stm32wb55ce = [ "embassy-stm32/stm32wb55ce" ]
+stm32wb55cg = [ "embassy-stm32/stm32wb55cg" ]
+stm32wb55rc = [ "embassy-stm32/stm32wb55rc" ]
+stm32wb55re = [ "embassy-stm32/stm32wb55re" ]
+stm32wb55rg = [ "embassy-stm32/stm32wb55rg" ]
+stm32wb55vc = [ "embassy-stm32/stm32wb55vc" ]
+stm32wb55ve = [ "embassy-stm32/stm32wb55ve" ]
+stm32wb55vg = [ "embassy-stm32/stm32wb55vg" ]
+stm32wb55vy = [ "embassy-stm32/stm32wb55vy" ]

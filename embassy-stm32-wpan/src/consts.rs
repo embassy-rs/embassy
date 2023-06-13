@@ -1,4 +1,6 @@
-#[derive(PartialEq)]
+use core::convert::TryFrom;
+
+#[derive(Debug)]
 #[repr(C)]
 pub enum TlPacketType {
     BleCmd = 0x01,
