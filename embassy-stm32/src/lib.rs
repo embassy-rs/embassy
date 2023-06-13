@@ -41,6 +41,8 @@ pub mod crc;
 pub mod flash;
 #[cfg(all(spi_v1, rcc_f4))]
 pub mod i2s;
+#[cfg(stm32wb)]
+pub mod ipcc;
 pub mod pwm;
 #[cfg(quadspi)]
 pub mod qspi;
@@ -52,8 +54,6 @@ pub mod rtc;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
-#[cfg(stm32wb)]
-pub mod tl_mbox;
 #[cfg(usart)]
 pub mod usart;
 #[cfg(usb)]

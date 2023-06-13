@@ -57,6 +57,7 @@ impl LinkedListNode {
         });
     }
 
+    /// Remove `node` from the linked list
     pub unsafe fn remove_node(mut node: *mut LinkedListNode) {
         interrupt::free(|_| {
             (*(*node).prev).next = (*node).next;
@@ -64,6 +65,7 @@ impl LinkedListNode {
         });
     }
 
+    /// Remove `list_head` into `node`
     pub unsafe fn remove_head(mut list_head: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
         interrupt::free(|_| {
             *node = (*list_head).next;
@@ -71,10 +73,11 @@ impl LinkedListNode {
         });
     }
 
-    pub unsafe fn remove_tail(mut list_head: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
+    /// Remove `list_tail` into `node`
+    pub unsafe fn remove_tail(mut list_tail: *mut LinkedListNode, mut node: *mut *mut LinkedListNode) {
         interrupt::free(|_| {
-            *node = (*list_head).prev;
-            Self::remove_node((*list_head).prev);
+            *node = (*list_tail).prev;
+            Self::remove_node((*list_tail).prev);
         });
     }
 
