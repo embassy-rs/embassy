@@ -39,8 +39,6 @@ impl Ble {
                 let event = EvtBox::new(event);
 
                 EVT_CHANNEL.try_send(event).unwrap();
-
-                break;
             }
         }
 
