@@ -12,13 +12,13 @@ stm32g071rb = ["embassy-stm32/stm32g071rb", "not-gpdma"]     # Nucleo
 stm32c031c6 = ["embassy-stm32/stm32c031c6", "not-gpdma"]     # Nucleo
 stm32g491re = ["embassy-stm32/stm32g491re", "not-gpdma"]     # Nucleo
 stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-gpdma"] # Nucleo
-stm32wb55rg = ["embassy-stm32/stm32wb55rg", "not-gpdma", "ble", "dep:embassy-stm32-wpan"]     # Nucleo
+stm32wb55rg = ["embassy-stm32/stm32wb55rg", "not-gpdma" ]     # Nucleo
 stm32h563zi = ["embassy-stm32/stm32h563zi"]     # Nucleo
 stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
 
 sdmmc = []
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
-ble = []
+ble = ["dep:embassy-stm32-wpan"]
 not-gpdma = []
 
 [dependencies]

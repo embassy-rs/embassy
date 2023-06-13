@@ -50,6 +50,15 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_millis(50)).await;
     }
 
+    //    let mut rc = RadioCoprocessor::new(mbox);
+    //
+    //    let response = rc.read().await;
+    //    info!("coprocessor ready {}", response);
+    //
+    //    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
+    //    let response = rc.read().await;
+    //    info!("ble reset rsp {}", response);
+
     info!("Test OK");
     cortex_m::asm::bkpt();
 }
