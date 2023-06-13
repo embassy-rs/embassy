@@ -87,24 +87,16 @@ impl LinkedListNode {
     }
 
     /// Remove `node` from the linked list
-    //    pub unsafe fn remove_node(mut node: *mut LinkedListNode) {
-    //        interrupt::free(|_| {
-    //            (*(*node).prev).next = (*node).next;
-    //            (*(*node).next).prev = (*node).prev;
-    //        });
-    //    }
-
-    /// Remove `node` from the linked list
     pub unsafe fn remove_node(mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
+            // Writes must occur sequentially, because if prev node, and next node are the same, both must be updated
             let node = ptr::read_volatile(p_node);
             let mut node_prev = ptr::read_volatile(node.prev);
-            let mut node_next = ptr::read_volatile(node.next);
-
             node_prev.next = node.next;
-            node_next.prev = node.prev;
-
             ptr::write_volatile(node.prev, node_prev);
+
+            let mut node_next = ptr::read_volatile(node.next);
+            node_next.prev = node.prev;
             ptr::write_volatile(node.next, node_next);
         });
     }
@@ -116,7 +108,7 @@ impl LinkedListNode {
 
             // Allowed because a removed node is not seen by another core
             *p_node = list_head.next;
-            Self::remove_node(list_head.next);
+            Self::remove_node(*p_node);
         });
     }
 
@@ -127,7 +119,7 @@ impl LinkedListNode {
 
             // Allowed because a removed node is not seen by another core
             *p_node = list_tail.prev;
-            Self::remove_node(list_tail.prev);
+            Self::remove_node(*p_node);
         });
     }
 
@@ -177,5 +169,26 @@ impl LinkedListNode {
         interrupt::free(|_| {
             *node = (*ref_node).prev;
         });
+    }
+}
+
+#[allow(dead_code)]
+unsafe fn debug_linked_list(mut p_node: *mut LinkedListNode) {
+    info!("iterating list from node: {:x}", p_node);
+    let mut p_current_node = p_node;
+    let mut i = 0;
+    loop {
+        let current_node = ptr::read_volatile(p_current_node);
+        info!(
+            "node (prev, current, next): {:x}, {:x}, {:x}",
+            current_node.prev, p_current_node, current_node.next
+        );
+
+        i += 1;
+        if i > 10 || current_node.next == p_node {
+            break;
+        }
+
+        p_current_node = current_node.next;
     }
 }

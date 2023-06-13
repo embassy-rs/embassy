@@ -49,14 +49,12 @@ impl Sys {
             let node_ptr_ptr: *mut _ = &mut node_ptr;
 
             while !LinkedListNode::is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                LinkedListNode::get_next_node(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
+                LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
 
                 let event = node_ptr.cast();
                 let event = EvtBox::new(event);
 
                 EVT_CHANNEL.try_send(event).unwrap();
-
-                break;
             }
         }
 
