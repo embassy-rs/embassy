@@ -20,7 +20,7 @@ impl MemoryManager {
             LinkedListNode::init_head(FREE_BUF_QUEUE.as_mut_ptr());
             LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
 
-            TL_MEM_MANAGER_TABLE = MaybeUninit::new(MemManagerTable {
+            TL_MEM_MANAGER_TABLE.as_mut_ptr().write_volatile(MemManagerTable {
                 spare_ble_buffer: BLE_SPARE_EVT_BUF.as_ptr().cast(),
                 spare_sys_buffer: SYS_SPARE_EVT_BUF.as_ptr().cast(),
                 blepool: EVT_POOL.as_ptr().cast(),

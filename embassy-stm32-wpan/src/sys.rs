@@ -15,7 +15,7 @@ impl Sys {
         unsafe {
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
-            TL_SYS_TABLE = MaybeUninit::new(SysTable {
+            TL_SYS_TABLE.as_mut_ptr().write_volatile(SysTable {
                 pcmd_buffer: SYS_CMD_BUF.as_mut_ptr(),
                 sys_queue: SYSTEM_EVT_QUEUE.as_ptr(),
             })
@@ -51,12 +51,14 @@ impl Sys {
             let node_ptr_ptr: *mut _ = &mut node_ptr;
 
             while !LinkedListNode::is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
+                LinkedListNode::get_next_node(SYSTEM_EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
 
                 let event = node_ptr.cast();
                 let event = EvtBox::new(event);
 
                 EVT_CHANNEL.try_send(event).unwrap();
+
+                break;
             }
         }
 

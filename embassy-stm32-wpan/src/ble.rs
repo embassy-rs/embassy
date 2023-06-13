@@ -18,7 +18,7 @@ impl Ble {
         unsafe {
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
-            TL_BLE_TABLE = MaybeUninit::new(BleTable {
+            TL_BLE_TABLE.as_mut_ptr().write_volatile(BleTable {
                 pcmd_buffer: BLE_CMD_BUFFER.as_mut_ptr().cast(),
                 pcs_buffer: CS_BUFFER.as_ptr().cast(),
                 pevt_queue: EVT_QUEUE.as_ptr().cast(),
@@ -41,6 +41,8 @@ impl Ble {
                 let event = EvtBox::new(event);
 
                 EVT_CHANNEL.try_send(event).unwrap();
+
+                break;
             }
         }
 
