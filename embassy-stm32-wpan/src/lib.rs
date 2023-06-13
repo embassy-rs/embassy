@@ -225,15 +225,15 @@ impl<'d> TlMbox<'d> {
             TL_MAC_802_15_4_TABLE
                 .as_mut_ptr()
                 .write_volatile(MaybeUninit::zeroed().assume_init());
-//            TL_ZIGBEE_TABLE
-//                .as_mut_ptr()
-//                .write_volatile(MaybeUninit::zeroed().assume_init());
-//            TL_LLD_TESTS_TABLE
-//                .as_mut_ptr()
-//                .write_volatile(MaybeUninit::zeroed().assume_init());
-//            TL_BLE_LLD_TABLE
-//                .as_mut_ptr()
-//                .write_volatile(MaybeUninit::zeroed().assume_init());
+            //            TL_ZIGBEE_TABLE
+            //                .as_mut_ptr()
+            //                .write_volatile(MaybeUninit::zeroed().assume_init());
+            //            TL_LLD_TESTS_TABLE
+            //                .as_mut_ptr()
+            //                .write_volatile(MaybeUninit::zeroed().assume_init());
+            //            TL_BLE_LLD_TABLE
+            //                .as_mut_ptr()
+            //                .write_volatile(MaybeUninit::zeroed().assume_init());
 
             EVT_POOL
                 .as_mut_ptr()
