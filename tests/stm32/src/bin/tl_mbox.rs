@@ -10,8 +10,8 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::Config;
-use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::rc::RadioCoprocessor;
+use embassy_stm32_wpan::TlMbox;
 use embassy_time::{Duration, Timer};
 
 bind_interrupts!(struct Irqs{
