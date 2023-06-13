@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 use embassy_stm32::ipcc::Ipcc;
 
 use crate::cmd::{CmdPacket, CmdSerial};
