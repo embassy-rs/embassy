@@ -10,6 +10,7 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::Config;
+use embassy_stm32_wpan::rc::RadioCoprocessor;
 use embassy_stm32_wpan::TlMbox;
 use embassy_time::{Duration, Timer};
 
@@ -50,14 +51,14 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_millis(50)).await;
     }
 
-    //    let mut rc = RadioCoprocessor::new(mbox);
-    //
-    //    let response = rc.read().await;
-    //    info!("coprocessor ready {}", response);
-    //
-    //    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
-    //    let response = rc.read().await;
-    //    info!("ble reset rsp {}", response);
+    let mut rc = RadioCoprocessor::new(mbox);
+
+    let response = rc.read().await;
+    info!("coprocessor ready {}", response);
+
+    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
+    let response = rc.read().await;
+    info!("ble reset rsp {}", response);
 
     info!("Test OK");
     cortex_m::asm::bkpt();

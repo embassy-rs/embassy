@@ -1,7 +1,5 @@
 //! Memory manager routines
 
-use core::mem::MaybeUninit;
-
 use embassy_stm32::ipcc::Ipcc;
 
 use crate::evt::EvtPacket;
@@ -20,7 +18,7 @@ impl MemoryManager {
             LinkedListNode::init_head(FREE_BUF_QUEUE.as_mut_ptr());
             LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
 
-            TL_MEM_MANAGER_TABLE = MaybeUninit::new(MemManagerTable {
+            TL_MEM_MANAGER_TABLE.as_mut_ptr().write_volatile(MemManagerTable {
                 spare_ble_buffer: BLE_SPARE_EVT_BUF.as_ptr().cast(),
                 spare_sys_buffer: SYS_SPARE_EVT_BUF.as_ptr().cast(),
                 blepool: EVT_POOL.as_ptr().cast(),
@@ -53,11 +51,9 @@ impl MemoryManager {
     /// gives free event buffers back to CPU2 from local buffer queue
     pub fn send_free_buf() {
         unsafe {
-            let mut node_ptr = core::ptr::null_mut();
-            let node_ptr_ptr: *mut _ = &mut node_ptr;
-
             while !LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), node_ptr_ptr);
+                let node_ptr = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
+
                 LinkedListNode::insert_tail(
                     (*(*TL_REF_TABLE.as_ptr()).mem_manager_table).pevt_free_buffer_queue,
                     node_ptr,

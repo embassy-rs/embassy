@@ -4,6 +4,7 @@
 pub mod fmt;
 
 use core::mem::MaybeUninit;
+use core::sync::atomic::{compiler_fence, Ordering};
 
 use cmd::CmdPacket;
 use embassy_futures::block_on;
@@ -189,32 +190,75 @@ impl<'d> TlMbox<'d> {
         into_ref!(ipcc);
 
         unsafe {
-            TL_REF_TABLE = MaybeUninit::new(RefTable {
-                device_info_table: TL_DEVICE_INFO_TABLE.as_mut_ptr(),
+            TL_REF_TABLE.as_mut_ptr().write_volatile(RefTable {
+                device_info_table: TL_DEVICE_INFO_TABLE.as_ptr(),
                 ble_table: TL_BLE_TABLE.as_ptr(),
                 thread_table: TL_THREAD_TABLE.as_ptr(),
                 sys_table: TL_SYS_TABLE.as_ptr(),
                 mem_manager_table: TL_MEM_MANAGER_TABLE.as_ptr(),
                 traces_table: TL_TRACES_TABLE.as_ptr(),
                 mac_802_15_4_table: TL_MAC_802_15_4_TABLE.as_ptr(),
+                // zigbee_table: TL_ZIGBEE_TABLE.as_ptr(),
+                // lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
+                // ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
 
-            TL_SYS_TABLE = MaybeUninit::zeroed();
-            TL_DEVICE_INFO_TABLE = MaybeUninit::zeroed();
-            TL_BLE_TABLE = MaybeUninit::zeroed();
-            TL_THREAD_TABLE = MaybeUninit::zeroed();
-            TL_MEM_MANAGER_TABLE = MaybeUninit::zeroed();
-            TL_TRACES_TABLE = MaybeUninit::zeroed();
-            TL_MAC_802_15_4_TABLE = MaybeUninit::zeroed();
+            TL_SYS_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_DEVICE_INFO_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_BLE_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_THREAD_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_MEM_MANAGER_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
 
-            EVT_POOL = MaybeUninit::zeroed();
-            SYS_SPARE_EVT_BUF = MaybeUninit::zeroed();
-            BLE_SPARE_EVT_BUF = MaybeUninit::zeroed();
+            TL_TRACES_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_MAC_802_15_4_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            //            TL_ZIGBEE_TABLE
+            //                .as_mut_ptr()
+            //                .write_volatile(MaybeUninit::zeroed().assume_init());
+            //            TL_LLD_TESTS_TABLE
+            //                .as_mut_ptr()
+            //                .write_volatile(MaybeUninit::zeroed().assume_init());
+            //            TL_BLE_LLD_TABLE
+            //                .as_mut_ptr()
+            //                .write_volatile(MaybeUninit::zeroed().assume_init());
 
-            CS_BUFFER = MaybeUninit::zeroed();
-            BLE_CMD_BUFFER = MaybeUninit::zeroed();
-            HCI_ACL_DATA_BUFFER = MaybeUninit::zeroed();
+            EVT_POOL
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            SYS_SPARE_EVT_BUF
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            BLE_SPARE_EVT_BUF
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+
+            {
+                BLE_CMD_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                HCI_ACL_DATA_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                CS_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+            }
         }
+
+        compiler_fence(Ordering::SeqCst);
 
         Ipcc::enable(config);
 

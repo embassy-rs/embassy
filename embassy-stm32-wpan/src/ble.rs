@@ -1,5 +1,3 @@
-use core::mem::MaybeUninit;
-
 use embassy_stm32::ipcc::Ipcc;
 
 use crate::cmd::{CmdPacket, CmdSerial};
@@ -18,7 +16,7 @@ impl Ble {
         unsafe {
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
-            TL_BLE_TABLE = MaybeUninit::new(BleTable {
+            TL_BLE_TABLE.as_mut_ptr().write_volatile(BleTable {
                 pcmd_buffer: BLE_CMD_BUFFER.as_mut_ptr().cast(),
                 pcs_buffer: CS_BUFFER.as_ptr().cast(),
                 pevt_queue: EVT_QUEUE.as_ptr().cast(),
@@ -31,11 +29,8 @@ impl Ble {
 
     pub(super) fn evt_handler() {
         unsafe {
-            let mut node_ptr = core::ptr::null_mut();
-            let node_ptr_ptr: *mut _ = &mut node_ptr;
-
             while !LinkedListNode::is_empty(EVT_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
+                let node_ptr = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr());
 
                 let event = node_ptr.cast();
                 let event = EvtBox::new(event);
