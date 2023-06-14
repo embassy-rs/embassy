@@ -203,22 +203,22 @@ impl LinkedListNode {
         todo!("this function has not been converted to volatile semantics");
     }
 
-    pub unsafe fn get_next_node(mut p_ref_node: *mut LinkedListNode, mut p_node: *mut *mut LinkedListNode) {
+    pub unsafe fn get_next_node(mut p_ref_node: *mut LinkedListNode) -> *mut LinkedListNode {
         interrupt::free(|_| {
             let ref_node = ptr::read_volatile(p_ref_node);
 
             // Allowed because a removed node is not seen by another core
-            *p_node = ref_node.next;
-        });
+            ref_node.next
+        })
     }
 
-    pub unsafe fn get_prev_node(mut p_ref_node: *mut LinkedListNode, mut p_node: *mut *mut LinkedListNode) {
+    pub unsafe fn get_prev_node(mut p_ref_node: *mut LinkedListNode) -> *mut LinkedListNode {
         interrupt::free(|_| {
             let ref_node = ptr::read_volatile(p_ref_node);
 
             // Allowed because a removed node is not seen by another core
-            *p_node = ref_node.prev;
-        });
+            ref_node.prev
+        })
     }
 }
 
