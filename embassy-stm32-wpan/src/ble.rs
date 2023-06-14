@@ -29,11 +29,8 @@ impl Ble {
 
     pub(super) fn evt_handler() {
         unsafe {
-            let mut node_ptr = core::ptr::null_mut();
-            let node_ptr_ptr: *mut _ = &mut node_ptr;
-
             while !LinkedListNode::is_empty(EVT_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr(), node_ptr_ptr);
+                let node_ptr = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr());
 
                 let event = node_ptr.cast();
                 let event = EvtBox::new(event);

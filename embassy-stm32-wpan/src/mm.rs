@@ -51,11 +51,9 @@ impl MemoryManager {
     /// gives free event buffers back to CPU2 from local buffer queue
     pub fn send_free_buf() {
         unsafe {
-            let mut node_ptr = core::ptr::null_mut();
-            let node_ptr_ptr: *mut _ = &mut node_ptr;
-
             while !LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), node_ptr_ptr);
+                let node_ptr = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
+
                 LinkedListNode::insert_tail(
                     (*(*TL_REF_TABLE.as_ptr()).mem_manager_table).pevt_free_buffer_queue,
                     node_ptr,
