@@ -10,6 +10,7 @@ embassy-executor = { version = "0.2.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "time-driver-any", "stm32g491re", "memory-x", "unstable-pac", "exti"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
