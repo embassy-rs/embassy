@@ -48,7 +48,8 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
                 if !buf.is_empty() {
                     buf[0] = dr.unwrap();
                     rx_writer.push_done(1);
-                } else {
+                }
+                else {
                     // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
                 }
 
