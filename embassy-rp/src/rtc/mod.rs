@@ -26,7 +26,7 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
         into_ref!(inner);
 
         // Set the RTC divider
-        unsafe { inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1)) };
+        inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1));
 
         let mut result = Self { inner };
         result.set_leap_year_check(true); // should be on by default, make sure this is the case.
@@ -38,17 +38,14 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
     ///
     /// Leap year checking is enabled by default.
     pub fn set_leap_year_check(&mut self, leap_year_check_enabled: bool) {
-        unsafe {
-            self.inner
-                .regs()
-                .ctrl()
-                .modify(|w| w.set_force_notleapyear(!leap_year_check_enabled))
-        };
+        self.inner.regs().ctrl().modify(|w| {
+            w.set_force_notleapyear(!leap_year_check_enabled);
+        });
     }
 
     /// Checks to see if this RealTimeClock is running
     pub fn is_running(&self) -> bool {
-        unsafe { self.inner.regs().ctrl().read().rtc_active() }
+        self.inner.regs().ctrl().read().rtc_active()
     }
 
     /// Set the datetime to a new value.
@@ -60,25 +57,23 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
         self::datetime::validate_datetime(&t).map_err(RtcError::InvalidDateTime)?;
 
         // disable RTC while we configure it
-        unsafe {
-            self.inner.regs().ctrl().modify(|w| w.set_rtc_enable(false));
-            while self.inner.regs().ctrl().read().rtc_active() {
-                core::hint::spin_loop();
-            }
+        self.inner.regs().ctrl().modify(|w| w.set_rtc_enable(false));
+        while self.inner.regs().ctrl().read().rtc_active() {
+            core::hint::spin_loop();
+        }
 
-            self.inner.regs().setup_0().write(|w| {
-                self::datetime::write_setup_0(&t, w);
-            });
-            self.inner.regs().setup_1().write(|w| {
-                self::datetime::write_setup_1(&t, w);
-            });
+        self.inner.regs().setup_0().write(|w| {
+            self::datetime::write_setup_0(&t, w);
+        });
+        self.inner.regs().setup_1().write(|w| {
+            self::datetime::write_setup_1(&t, w);
+        });
 
-            // Load the new datetime and re-enable RTC
-            self.inner.regs().ctrl().write(|w| w.set_load(true));
-            self.inner.regs().ctrl().write(|w| w.set_rtc_enable(true));
-            while !self.inner.regs().ctrl().read().rtc_active() {
-                core::hint::spin_loop();
-            }
+        // Load the new datetime and re-enable RTC
+        self.inner.regs().ctrl().write(|w| w.set_load(true));
+        self.inner.regs().ctrl().write(|w| w.set_rtc_enable(true));
+        while !self.inner.regs().ctrl().read().rtc_active() {
+            core::hint::spin_loop();
         }
         Ok(())
     }
@@ -93,8 +88,8 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
             return Err(RtcError::NotRunning);
         }
 
-        let rtc_0 = unsafe { self.inner.regs().rtc_0().read() };
-        let rtc_1 = unsafe { self.inner.regs().rtc_1().read() };
+        let rtc_0 = self.inner.regs().rtc_0().read();
+        let rtc_1 = self.inner.regs().rtc_1().read();
 
         self::datetime::datetime_from_registers(rtc_0, rtc_1).map_err(RtcError::InvalidDateTime)
     }
@@ -103,12 +98,10 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
     ///
     /// [`schedule_alarm`]: #method.schedule_alarm
     pub fn disable_alarm(&mut self) {
-        unsafe {
-            self.inner.regs().irq_setup_0().modify(|s| s.set_match_ena(false));
+        self.inner.regs().irq_setup_0().modify(|s| s.set_match_ena(false));
 
-            while self.inner.regs().irq_setup_0().read().match_active() {
-                core::hint::spin_loop();
-            }
+        while self.inner.regs().irq_setup_0().read().match_active() {
+            core::hint::spin_loop();
         }
     }
 
@@ -132,21 +125,19 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
     pub fn schedule_alarm(&mut self, filter: DateTimeFilter) {
         self.disable_alarm();
 
-        unsafe {
-            self.inner.regs().irq_setup_0().write(|w| {
-                filter.write_setup_0(w);
-            });
-            self.inner.regs().irq_setup_1().write(|w| {
-                filter.write_setup_1(w);
-            });
+        self.inner.regs().irq_setup_0().write(|w| {
+            filter.write_setup_0(w);
+        });
+        self.inner.regs().irq_setup_1().write(|w| {
+            filter.write_setup_1(w);
+        });
 
-            self.inner.regs().inte().modify(|w| w.set_rtc(true));
+        self.inner.regs().inte().modify(|w| w.set_rtc(true));
 
-            // Set the enable bit and check if it is set
-            self.inner.regs().irq_setup_0().modify(|w| w.set_match_ena(true));
-            while !self.inner.regs().irq_setup_0().read().match_active() {
-                core::hint::spin_loop();
-            }
+        // Set the enable bit and check if it is set
+        self.inner.regs().irq_setup_0().modify(|w| w.set_match_ena(true));
+        while !self.inner.regs().irq_setup_0().read().match_active() {
+            core::hint::spin_loop();
         }
     }
 

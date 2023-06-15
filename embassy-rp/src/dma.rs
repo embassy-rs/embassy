@@ -14,7 +14,7 @@ use crate::{interrupt, pac, peripherals};
 
 #[cfg(feature = "rt")]
 #[interrupt]
-unsafe fn DMA_IRQ_0() {
+fn DMA_IRQ_0() {
     let ints0 = pac::DMA.ints0().read().ints0();
     for channel in 0..CHANNEL_COUNT {
         let ctrl_trig = pac::DMA.ch(channel).ctrl_trig().read();
@@ -128,28 +128,26 @@ fn copy_inner<'a, C: Channel>(
 ) -> Transfer<'a, C> {
     into_ref!(ch);
 
-    unsafe {
-        let p = ch.regs();
+    let p = ch.regs();
 
-        p.read_addr().write_value(from as u32);
-        p.write_addr().write_value(to as u32);
-        p.trans_count().write_value(len as u32);
+    p.read_addr().write_value(from as u32);
+    p.write_addr().write_value(to as u32);
+    p.trans_count().write_value(len as u32);
 
-        compiler_fence(Ordering::SeqCst);
+    compiler_fence(Ordering::SeqCst);
 
-        p.ctrl_trig().write(|w| {
-            // TODO: Add all DREQ options to pac vals::TreqSel, and use
-            // `set_treq:sel`
-            w.0 = ((dreq as u32) & 0x3f) << 15usize;
-            w.set_data_size(data_size);
-            w.set_incr_read(incr_read);
-            w.set_incr_write(incr_write);
-            w.set_chain_to(ch.number());
-            w.set_en(true);
-        });
+    p.ctrl_trig().write(|w| {
+        // TODO: Add all DREQ options to pac vals::TreqSel, and use
+        // `set_treq:sel`
+        w.0 = ((dreq as u32) & 0x3f) << 15usize;
+        w.set_data_size(data_size);
+        w.set_incr_read(incr_read);
+        w.set_incr_write(incr_write);
+        w.set_chain_to(ch.number());
+        w.set_en(true);
+    });
 
-        compiler_fence(Ordering::SeqCst);
-    }
+    compiler_fence(Ordering::SeqCst);
     Transfer::new(ch)
 }
 
@@ -169,12 +167,10 @@ impl<'a, C: Channel> Transfer<'a, C> {
 impl<'a, C: Channel> Drop for Transfer<'a, C> {
     fn drop(&mut self) {
         let p = self.channel.regs();
-        unsafe {
-            pac::DMA
-                .chan_abort()
-                .modify(|m| m.set_chan_abort(1 << self.channel.number()));
-            while p.ctrl_trig().read().busy() {}
-        }
+        pac::DMA
+            .chan_abort()
+            .modify(|m| m.set_chan_abort(1 << self.channel.number()));
+        while p.ctrl_trig().read().busy() {}
     }
 }
 
@@ -186,7 +182,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
         // calls to wake will deregister the waker.
         CHANNEL_WAKERS[self.channel.number() as usize].register(cx.waker());
 
-        if unsafe { self.channel.regs().ctrl_trig().read().busy() } {
+        if self.channel.regs().ctrl_trig().read().busy() {
             Poll::Pending
         } else {
             Poll::Ready(())

@@ -144,7 +144,7 @@ pub(crate) unsafe fn init() {
 
 #[cfg(feature = "rt")]
 #[interrupt]
-unsafe fn IO_IRQ_BANK0() {
+fn IO_IRQ_BANK0() {
     let cpu = SIO.cpuid().read() as usize;
     // There are two sets of interrupt registers, one for cpu0 and one for cpu1
     // and here we are selecting the set that belongs to the currently executing
@@ -185,46 +185,44 @@ struct InputFuture<'a, T: Pin> {
 impl<'d, T: Pin> InputFuture<'d, T> {
     pub fn new(pin: impl Peripheral<P = T> + 'd, level: InterruptTrigger) -> Self {
         into_ref!(pin);
-        unsafe {
-            let pin_group = (pin.pin() % 8) as usize;
-            // first, clear the INTR register bits. without this INTR will still
-            // contain reports of previous edges, causing the IRQ to fire early
-            // on stale state. clearing these means that we can only detect edges
-            // that occur *after* the clear happened, but since both this and the
-            // alternative are fundamentally racy it's probably fine.
-            // (the alternative being checking the current level and waiting for
-            // its inverse, but that requires reading the current level and thus
-            // missing anything that happened before the level was read.)
-            pac::IO_BANK0.intr(pin.pin() as usize / 8).write(|w| {
-                w.set_edge_high(pin_group, true);
-                w.set_edge_low(pin_group, true);
-            });
+        let pin_group = (pin.pin() % 8) as usize;
+        // first, clear the INTR register bits. without this INTR will still
+        // contain reports of previous edges, causing the IRQ to fire early
+        // on stale state. clearing these means that we can only detect edges
+        // that occur *after* the clear happened, but since both this and the
+        // alternative are fundamentally racy it's probably fine.
+        // (the alternative being checking the current level and waiting for
+        // its inverse, but that requires reading the current level and thus
+        // missing anything that happened before the level was read.)
+        pac::IO_BANK0.intr(pin.pin() as usize / 8).write(|w| {
+            w.set_edge_high(pin_group, true);
+            w.set_edge_low(pin_group, true);
+        });
 
-            // Each INTR register is divided into 8 groups, one group for each
-            // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
-            // and EGDE_HIGH.
-            pin.int_proc()
-                .inte((pin.pin() / 8) as usize)
-                .write_set(|w| match level {
-                    InterruptTrigger::LevelHigh => {
-                        trace!("InputFuture::new enable LevelHigh for pin {}", pin.pin());
-                        w.set_level_high(pin_group, true);
-                    }
-                    InterruptTrigger::LevelLow => {
-                        w.set_level_low(pin_group, true);
-                    }
-                    InterruptTrigger::EdgeHigh => {
-                        w.set_edge_high(pin_group, true);
-                    }
-                    InterruptTrigger::EdgeLow => {
-                        w.set_edge_low(pin_group, true);
-                    }
-                    InterruptTrigger::AnyEdge => {
-                        w.set_edge_high(pin_group, true);
-                        w.set_edge_low(pin_group, true);
-                    }
-                });
-        }
+        // Each INTR register is divided into 8 groups, one group for each
+        // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
+        // and EGDE_HIGH.
+        pin.int_proc()
+            .inte((pin.pin() / 8) as usize)
+            .write_set(|w| match level {
+                InterruptTrigger::LevelHigh => {
+                    trace!("InputFuture::new enable LevelHigh for pin {}", pin.pin());
+                    w.set_level_high(pin_group, true);
+                }
+                InterruptTrigger::LevelLow => {
+                    w.set_level_low(pin_group, true);
+                }
+                InterruptTrigger::EdgeHigh => {
+                    w.set_edge_high(pin_group, true);
+                }
+                InterruptTrigger::EdgeLow => {
+                    w.set_edge_low(pin_group, true);
+                }
+                InterruptTrigger::AnyEdge => {
+                    w.set_edge_high(pin_group, true);
+                    w.set_edge_low(pin_group, true);
+                }
+            });
 
         Self { pin, level }
     }
@@ -242,7 +240,7 @@ impl<'d, T: Pin> Future for InputFuture<'d, T> {
         // then we want to access the interrupt enable register for our
         // pin (there are 4 of these PROC0_INTE0, PROC0_INTE1, PROC0_INTE2, and
         // PROC0_INTE3 per cpu).
-        let inte: pac::io::regs::Int = unsafe { self.pin.int_proc().inte((self.pin.pin() / 8) as usize).read() };
+        let inte: pac::io::regs::Int = self.pin.int_proc().inte((self.pin.pin() / 8) as usize).read();
         // The register is divided into groups of four, one group for
         // each pin. Each group consists of four trigger levels LEVEL_LOW,
         // LEVEL_HIGH, EDGE_LOW, and EDGE_HIGH for each pin.
@@ -449,15 +447,13 @@ impl<'d, T: Pin> Flex<'d, T> {
     pub fn new(pin: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(pin);
 
-        unsafe {
-            pin.pad_ctrl().write(|w| {
-                w.set_ie(true);
-            });
+        pin.pad_ctrl().write(|w| {
+            w.set_ie(true);
+        });
 
-            pin.io().ctrl().write(|w| {
-                w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0.0);
-            });
-        }
+        pin.io().ctrl().write(|w| {
+            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0.0);
+        });
 
         Self { pin }
     }
@@ -470,43 +466,37 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// Set the pin's pull.
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
-        unsafe {
-            self.pin.pad_ctrl().modify(|w| {
-                w.set_ie(true);
-                let (pu, pd) = match pull {
-                    Pull::Up => (true, false),
-                    Pull::Down => (false, true),
-                    Pull::None => (false, false),
-                };
-                w.set_pue(pu);
-                w.set_pde(pd);
-            });
-        }
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_ie(true);
+            let (pu, pd) = match pull {
+                Pull::Up => (true, false),
+                Pull::Down => (false, true),
+                Pull::None => (false, false),
+            };
+            w.set_pue(pu);
+            w.set_pde(pd);
+        });
     }
 
     /// Set the pin's drive strength.
     #[inline]
     pub fn set_drive_strength(&mut self, strength: Drive) {
-        unsafe {
-            self.pin.pad_ctrl().modify(|w| {
-                w.set_drive(match strength {
-                    Drive::_2mA => pac::pads::vals::Drive::_2MA,
-                    Drive::_4mA => pac::pads::vals::Drive::_4MA,
-                    Drive::_8mA => pac::pads::vals::Drive::_8MA,
-                    Drive::_12mA => pac::pads::vals::Drive::_12MA,
-                });
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_drive(match strength {
+                Drive::_2mA => pac::pads::vals::Drive::_2MA,
+                Drive::_4mA => pac::pads::vals::Drive::_4MA,
+                Drive::_8mA => pac::pads::vals::Drive::_8MA,
+                Drive::_12mA => pac::pads::vals::Drive::_12MA,
             });
-        }
+        });
     }
 
     // Set the pin's slew rate.
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
-        unsafe {
-            self.pin.pad_ctrl().modify(|w| {
-                w.set_slewfast(slew_rate == SlewRate::Fast);
-            });
-        }
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_slewfast(slew_rate == SlewRate::Fast);
+        });
     }
 
     /// Put the pin into input mode.
@@ -514,7 +504,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// The pull setting is left unchanged.
     #[inline]
     pub fn set_as_input(&mut self) {
-        unsafe { self.pin.sio_oe().value_clr().write_value(self.bit()) }
+        self.pin.sio_oe().value_clr().write_value(self.bit())
     }
 
     /// Put the pin into output mode.
@@ -523,17 +513,17 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_output(&mut self) {
-        unsafe { self.pin.sio_oe().value_set().write_value(self.bit()) }
+        self.pin.sio_oe().value_set().write_value(self.bit())
     }
 
     #[inline]
     fn is_set_as_output(&self) -> bool {
-        unsafe { (self.pin.sio_oe().value().read() & self.bit()) != 0 }
+        (self.pin.sio_oe().value().read() & self.bit()) != 0
     }
 
     #[inline]
     pub fn toggle_set_as_output(&mut self) {
-        unsafe { self.pin.sio_oe().value_xor().write_value(self.bit()) }
+        self.pin.sio_oe().value_xor().write_value(self.bit())
     }
 
     #[inline]
@@ -543,7 +533,7 @@ impl<'d, T: Pin> Flex<'d, T> {
 
     #[inline]
     pub fn is_low(&self) -> bool {
-        unsafe { self.pin.sio_in().read() & self.bit() == 0 }
+        self.pin.sio_in().read() & self.bit() == 0
     }
 
     /// Returns current pin level
@@ -555,13 +545,13 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// Set the output as high.
     #[inline]
     pub fn set_high(&mut self) {
-        unsafe { self.pin.sio_out().value_set().write_value(self.bit()) }
+        self.pin.sio_out().value_set().write_value(self.bit())
     }
 
     /// Set the output as low.
     #[inline]
     pub fn set_low(&mut self) {
-        unsafe { self.pin.sio_out().value_clr().write_value(self.bit()) }
+        self.pin.sio_out().value_clr().write_value(self.bit())
     }
 
     /// Set the output level.
@@ -576,7 +566,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        unsafe { (self.pin.sio_out().value().read() & self.bit()) == 0 }
+        (self.pin.sio_out().value().read() & self.bit()) == 0
     }
 
     /// Is the output level low?
@@ -594,7 +584,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// Toggle pin output
     #[inline]
     pub fn toggle(&mut self) {
-        unsafe { self.pin.sio_out().value_xor().write_value(self.bit()) }
+        self.pin.sio_out().value_xor().write_value(self.bit())
     }
 
     #[inline]
@@ -626,12 +616,10 @@ impl<'d, T: Pin> Flex<'d, T> {
 impl<'d, T: Pin> Drop for Flex<'d, T> {
     #[inline]
     fn drop(&mut self) {
-        unsafe {
-            self.pin.pad_ctrl().write(|_| {});
-            self.pin.io().ctrl().write(|w| {
-                w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0);
-            });
-        }
+        self.pin.pad_ctrl().write(|_| {});
+        self.pin.io().ctrl().write(|w| {
+            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0);
+        });
     }
 }
 
@@ -688,7 +676,7 @@ pub(crate) mod sealed {
                 Bank::Bank0 => crate::pac::IO_BANK0,
                 Bank::Qspi => crate::pac::IO_QSPI,
             };
-            let proc = unsafe { SIO.cpuid().read() };
+            let proc = SIO.cpuid().read();
             io_block.int_proc(proc as _)
         }
     }

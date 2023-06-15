@@ -39,7 +39,7 @@ impl crate::usb::Instance for peripherals::USB {
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
-const EP_MEMORY: *mut u8 = pac::USBCTRL_DPRAM.0;
+const EP_MEMORY: *mut u8 = pac::USBCTRL_DPRAM.as_ptr() as *mut u8;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
@@ -111,7 +111,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         let regs = T::regs();
         unsafe {
             // zero fill regs
-            let p = regs.0 as *mut u32;
+            let p = regs.as_ptr() as *mut u32;
             for i in 0..0x9c / 4 {
                 p.add(i).write_volatile(0)
             }
@@ -121,19 +121,19 @@ impl<'d, T: Instance> Driver<'d, T> {
             for i in 0..0x100 / 4 {
                 p.add(i).write_volatile(0)
             }
-
-            regs.usb_muxing().write(|w| {
-                w.set_to_phy(true);
-                w.set_softcon(true);
-            });
-            regs.usb_pwr().write(|w| {
-                w.set_vbus_detect(true);
-                w.set_vbus_detect_override_en(true);
-            });
-            regs.main_ctrl().write(|w| {
-                w.set_controller_en(true);
-            });
         }
+
+        regs.usb_muxing().write(|w| {
+            w.set_to_phy(true);
+            w.set_softcon(true);
+        });
+        regs.usb_pwr().write(|w| {
+            w.set_vbus_detect(true);
+            w.set_vbus_detect_override_en(true);
+        });
+        regs.main_ctrl().write(|w| {
+            w.set_controller_en(true);
+        });
 
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
@@ -213,22 +213,18 @@ impl<'d, T: Instance> Driver<'d, T> {
         };
 
         match D::dir() {
-            Direction::Out => unsafe {
-                T::dpram().ep_out_control(index - 1).write(|w| {
-                    w.set_enable(false);
-                    w.set_buffer_address(addr);
-                    w.set_interrupt_per_buff(true);
-                    w.set_endpoint_type(ep_type_reg);
-                })
-            },
-            Direction::In => unsafe {
-                T::dpram().ep_in_control(index - 1).write(|w| {
-                    w.set_enable(false);
-                    w.set_buffer_address(addr);
-                    w.set_interrupt_per_buff(true);
-                    w.set_endpoint_type(ep_type_reg);
-                })
-            },
+            Direction::Out => T::dpram().ep_out_control(index - 1).write(|w| {
+                w.set_enable(false);
+                w.set_buffer_address(addr);
+                w.set_interrupt_per_buff(true);
+                w.set_endpoint_type(ep_type_reg);
+            }),
+            Direction::In => T::dpram().ep_in_control(index - 1).write(|w| {
+                w.set_enable(false);
+                w.set_buffer_address(addr);
+                w.set_interrupt_per_buff(true);
+                w.set_endpoint_type(ep_type_reg);
+            }),
         }
 
         Ok(Endpoint {
@@ -315,22 +311,21 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         let regs = T::regs();
-        unsafe {
-            regs.inte().write(|w| {
-                w.set_bus_reset(true);
-                w.set_buff_status(true);
-                w.set_dev_resume_from_host(true);
-                w.set_dev_suspend(true);
-                w.set_setup_req(true);
-            });
-            regs.int_ep_ctrl().write(|w| {
-                w.set_int_ep_active(0xFFFE); // all EPs
-            });
-            regs.sie_ctrl().write(|w| {
-                w.set_ep0_int_1buf(true);
-                w.set_pullup_en(true);
-            })
-        }
+        regs.inte().write(|w| {
+            w.set_bus_reset(true);
+            w.set_buff_status(true);
+            w.set_dev_resume_from_host(true);
+            w.set_dev_suspend(true);
+            w.set_setup_req(true);
+        });
+        regs.int_ep_ctrl().write(|w| {
+            w.set_int_ep_active(0xFFFE); // all EPs
+        });
+        regs.sie_ctrl().write(|w| {
+            w.set_ep0_int_1buf(true);
+            w.set_pullup_en(true);
+        });
+
         trace!("enabled");
 
         (
@@ -355,7 +350,7 @@ pub struct Bus<'d, T: Instance> {
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn poll(&mut self) -> Event {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
 
             if !self.inited {
@@ -425,14 +420,14 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
         let n = ep_addr.index();
         match ep_addr.direction() {
-            Direction::In => unsafe {
+            Direction::In => {
                 T::dpram().ep_in_control(n - 1).modify(|w| w.set_enable(enabled));
                 T::dpram().ep_in_buffer_control(ep_addr.index()).write(|w| {
                     w.set_pid(0, true); // first packet is DATA0, but PID is flipped before
                 });
                 EP_IN_WAKERS[n].wake();
-            },
-            Direction::Out => unsafe {
+            }
+            Direction::Out => {
                 T::dpram().ep_out_control(n - 1).modify(|w| w.set_enable(enabled));
 
                 T::dpram().ep_out_buffer_control(ep_addr.index()).write(|w| {
@@ -446,7 +441,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     w.set_available(0, true);
                 });
                 EP_OUT_WAKERS[n].wake();
-            },
+            }
         }
     }
 
@@ -504,7 +499,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         let index = self.info.addr.index();
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
-            let val = unsafe { T::dpram().ep_in_control(self.info.addr.index() - 1).read() };
+            let val = T::dpram().ep_in_control(self.info.addr.index() - 1).read();
             if val.enable() {
                 Poll::Ready(())
             } else {
@@ -526,7 +521,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         let index = self.info.addr.index();
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
-            let val = unsafe { T::dpram().ep_out_control(self.info.addr.index() - 1).read() };
+            let val = T::dpram().ep_out_control(self.info.addr.index() - 1).read();
             if val.enable() {
                 Poll::Ready(())
             } else {
@@ -542,7 +537,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("READ WAITING, buf.len() = {}", buf.len());
         let index = self.info.addr.index();
-        let val = poll_fn(|cx| unsafe {
+        let val = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_out_buffer_control(index).read();
             if val.available(0) {
@@ -561,19 +556,17 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
         trace!("READ OK, rx_len = {}", rx_len);
 
-        unsafe {
-            let pid = !val.pid(0);
-            T::dpram().ep_out_buffer_control(index).write(|w| {
-                w.set_pid(0, pid);
-                w.set_length(0, self.info.max_packet_size);
-            });
-            cortex_m::asm::delay(12);
-            T::dpram().ep_out_buffer_control(index).write(|w| {
-                w.set_pid(0, pid);
-                w.set_length(0, self.info.max_packet_size);
-                w.set_available(0, true);
-            });
-        }
+        let pid = !val.pid(0);
+        T::dpram().ep_out_buffer_control(index).write(|w| {
+            w.set_pid(0, pid);
+            w.set_length(0, self.info.max_packet_size);
+        });
+        cortex_m::asm::delay(12);
+        T::dpram().ep_out_buffer_control(index).write(|w| {
+            w.set_pid(0, pid);
+            w.set_length(0, self.info.max_packet_size);
+            w.set_available(0, true);
+        });
 
         Ok(rx_len)
     }
@@ -588,7 +581,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         trace!("WRITE WAITING");
 
         let index = self.info.addr.index();
-        let val = poll_fn(|cx| unsafe {
+        let val = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_in_buffer_control(index).read();
             if val.available(0) {
@@ -601,21 +594,19 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 
         self.buf.write(buf);
 
-        unsafe {
-            let pid = !val.pid(0);
-            T::dpram().ep_in_buffer_control(index).write(|w| {
-                w.set_pid(0, pid);
-                w.set_length(0, buf.len() as _);
-                w.set_full(0, true);
-            });
-            cortex_m::asm::delay(12);
-            T::dpram().ep_in_buffer_control(index).write(|w| {
-                w.set_pid(0, pid);
-                w.set_length(0, buf.len() as _);
-                w.set_full(0, true);
-                w.set_available(0, true);
-            });
-        }
+        let pid = !val.pid(0);
+        T::dpram().ep_in_buffer_control(index).write(|w| {
+            w.set_pid(0, pid);
+            w.set_length(0, buf.len() as _);
+            w.set_full(0, true);
+        });
+        cortex_m::asm::delay(12);
+        T::dpram().ep_in_buffer_control(index).write(|w| {
+            w.set_pid(0, pid);
+            w.set_length(0, buf.len() as _);
+            w.set_full(0, true);
+            w.set_available(0, true);
+        });
 
         trace!("WRITE OK");
 
@@ -637,9 +628,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         loop {
             trace!("SETUP read waiting");
             let regs = T::regs();
-            unsafe { regs.inte().write_set(|w| w.set_setup_req(true)) };
+            regs.inte().write_set(|w| w.set_setup_req(true));
 
-            poll_fn(|cx| unsafe {
+            poll_fn(|cx| {
                 EP_OUT_WAKERS[0].register(cx.waker());
                 let regs = T::regs();
                 if regs.sie_status().read().setup_rec() {
@@ -654,13 +645,11 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             EndpointBuffer::<T>::new(0, 8).read(&mut buf);
 
             let regs = T::regs();
-            unsafe {
-                regs.sie_status().write(|w| w.set_setup_rec(true));
+            regs.sie_status().write(|w| w.set_setup_rec(true));
 
-                // set PID to 0, so (after toggling) first DATA is PID 1
-                T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
-                T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
-            }
+            // set PID to 0, so (after toggling) first DATA is PID 1
+            T::dpram().ep_in_buffer_control(0).write(|w| w.set_pid(0, false));
+            T::dpram().ep_out_buffer_control(0).write(|w| w.set_pid(0, false));
 
             trace!("SETUP read ok");
             return buf;
@@ -668,23 +657,21 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
-        unsafe {
-            let bufcontrol = T::dpram().ep_out_buffer_control(0);
-            let pid = !bufcontrol.read().pid(0);
-            bufcontrol.write(|w| {
-                w.set_length(0, self.max_packet_size);
-                w.set_pid(0, pid);
-            });
-            cortex_m::asm::delay(12);
-            bufcontrol.write(|w| {
-                w.set_length(0, self.max_packet_size);
-                w.set_pid(0, pid);
-                w.set_available(0, true);
-            });
-        }
+        let bufcontrol = T::dpram().ep_out_buffer_control(0);
+        let pid = !bufcontrol.read().pid(0);
+        bufcontrol.write(|w| {
+            w.set_length(0, self.max_packet_size);
+            w.set_pid(0, pid);
+        });
+        cortex_m::asm::delay(12);
+        bufcontrol.write(|w| {
+            w.set_length(0, self.max_packet_size);
+            w.set_pid(0, pid);
+            w.set_available(0, true);
+        });
 
         trace!("control: data_out len={} first={} last={}", buf.len(), first, last);
-        let val = poll_fn(|cx| unsafe {
+        let val = poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
             let val = T::dpram().ep_out_buffer_control(0).read();
             if val.available(0) {
@@ -714,24 +701,22 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
         EndpointBuffer::<T>::new(0x100, 64).write(data);
 
-        unsafe {
-            let bufcontrol = T::dpram().ep_in_buffer_control(0);
-            let pid = !bufcontrol.read().pid(0);
-            bufcontrol.write(|w| {
-                w.set_length(0, data.len() as _);
-                w.set_pid(0, pid);
-                w.set_full(0, true);
-            });
-            cortex_m::asm::delay(12);
-            bufcontrol.write(|w| {
-                w.set_length(0, data.len() as _);
-                w.set_pid(0, pid);
-                w.set_full(0, true);
-                w.set_available(0, true);
-            });
-        }
+        let bufcontrol = T::dpram().ep_in_buffer_control(0);
+        let pid = !bufcontrol.read().pid(0);
+        bufcontrol.write(|w| {
+            w.set_length(0, data.len() as _);
+            w.set_pid(0, pid);
+            w.set_full(0, true);
+        });
+        cortex_m::asm::delay(12);
+        bufcontrol.write(|w| {
+            w.set_length(0, data.len() as _);
+            w.set_pid(0, pid);
+            w.set_full(0, true);
+            w.set_available(0, true);
+        });
 
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             EP_IN_WAKERS[0].register(cx.waker());
             let bufcontrol = T::dpram().ep_in_buffer_control(0);
             if bufcontrol.read().available(0) {
@@ -745,19 +730,17 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         if last {
             // prepare status phase right away.
-            unsafe {
-                let bufcontrol = T::dpram().ep_out_buffer_control(0);
-                bufcontrol.write(|w| {
-                    w.set_length(0, 0);
-                    w.set_pid(0, true);
-                });
-                cortex_m::asm::delay(12);
-                bufcontrol.write(|w| {
-                    w.set_length(0, 0);
-                    w.set_pid(0, true);
-                    w.set_available(0, true);
-                });
-            }
+            let bufcontrol = T::dpram().ep_out_buffer_control(0);
+            bufcontrol.write(|w| {
+                w.set_length(0, 0);
+                w.set_pid(0, true);
+            });
+            cortex_m::asm::delay(12);
+            bufcontrol.write(|w| {
+                w.set_length(0, 0);
+                w.set_pid(0, true);
+                w.set_available(0, true);
+            });
         }
 
         Ok(())
@@ -767,26 +750,24 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         trace!("control: accept");
 
         let bufcontrol = T::dpram().ep_in_buffer_control(0);
-        unsafe {
-            bufcontrol.write(|w| {
-                w.set_length(0, 0);
-                w.set_pid(0, true);
-                w.set_full(0, true);
-            });
-            cortex_m::asm::delay(12);
-            bufcontrol.write(|w| {
-                w.set_length(0, 0);
-                w.set_pid(0, true);
-                w.set_full(0, true);
-                w.set_available(0, true);
-            });
-        }
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+            w.set_full(0, true);
+        });
+        cortex_m::asm::delay(12);
+        bufcontrol.write(|w| {
+            w.set_length(0, 0);
+            w.set_pid(0, true);
+            w.set_full(0, true);
+            w.set_available(0, true);
+        });
 
         // wait for completion before returning, needed so
         // set_address() doesn't happen early.
         poll_fn(|cx| {
             EP_IN_WAKERS[0].register(cx.waker());
-            if unsafe { bufcontrol.read().available(0) } {
+            if bufcontrol.read().available(0) {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -799,14 +780,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         trace!("control: reject");
 
         let regs = T::regs();
-        unsafe {
-            regs.ep_stall_arm().write_set(|w| {
-                w.set_ep0_in(true);
-                w.set_ep0_out(true);
-            });
-            T::dpram().ep_out_buffer_control(0).write(|w| w.set_stall(true));
-            T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
-        }
+        regs.ep_stall_arm().write_set(|w| {
+            w.set_ep0_in(true);
+            w.set_ep0_out(true);
+        });
+        T::dpram().ep_out_buffer_control(0).write(|w| w.set_stall(true));
+        T::dpram().ep_in_buffer_control(0).write(|w| w.set_stall(true));
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
@@ -814,6 +793,6 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         let regs = T::regs();
         trace!("setting addr: {}", addr);
-        unsafe { regs.addr_endp().write(|w| w.set_address(addr)) }
+        regs.addr_endp().write(|w| w.set_address(addr))
     }
 }
