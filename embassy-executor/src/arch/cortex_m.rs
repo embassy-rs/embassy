@@ -205,5 +205,20 @@ mod interrupt {
 
             executor.spawner().make_send()
         }
+
+        /// Get a SendSpawner for this executor
+        ///
+        /// This returns a [`SendSpawner`] you can use to spawn tasks on this
+        /// executor.
+        ///
+        /// This MUST only be called on an executor that has already been spawned.
+        /// The function will panic otherwise.
+        pub fn spawner(&'static self) -> crate::SendSpawner {
+            if !self.started.load(Ordering::Acquire) {
+                panic!("InterruptExecutor::spawner() called on uninitialized executor.");
+            }
+            let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
+            executor.spawner().make_send()
+        }
     }
 }
