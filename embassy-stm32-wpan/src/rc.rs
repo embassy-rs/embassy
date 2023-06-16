@@ -20,7 +20,7 @@ impl<'d> RadioCoprocessor<'d> {
         let cmd = TlPacketType::try_from(cmd_code).unwrap();
 
         match &cmd {
-            TlPacketType::BleCmd => Ble::ble_send_cmd(buf),
+            TlPacketType::BleCmd => Ble::send_cmd(buf),
             _ => todo!(),
         }
     }
@@ -33,11 +33,6 @@ impl<'d> RadioCoprocessor<'d> {
                 let event = evt.evt();
 
                 evt.write(&mut self.rx_buf).unwrap();
-
-                if event.kind() == 18 {
-                    shci::shci_ble_init(Default::default());
-                    self.rx_buf[0] = 0x04;
-                }
             }
 
             if self.mbox.pop_last_cc_evt().is_some() {

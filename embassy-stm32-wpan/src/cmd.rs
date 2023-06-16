@@ -28,6 +28,14 @@ pub struct CmdSerial {
 
 #[derive(Copy, Clone, Default)]
 #[repr(C, packed)]
+pub struct CmdSerialStub {
+    pub ty: u8,
+    pub cmd_code: u16,
+    pub payload_len: u8,
+}
+
+#[derive(Copy, Clone, Default)]
+#[repr(C, packed)]
 pub struct CmdPacket {
     pub header: PacketHeader,
     pub cmdserial: CmdSerial,

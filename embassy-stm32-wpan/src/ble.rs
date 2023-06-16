@@ -48,11 +48,11 @@ impl Ble {
         // TODO: ACL data ack to the user
     }
 
-    pub fn ble_send_cmd(buf: &[u8]) {
+    pub fn send_cmd(buf: &[u8]) {
         debug!("writing ble cmd");
 
         unsafe {
-            let pcmd_buffer: *mut CmdPacket = (*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
+            let pcmd_buffer: *mut CmdPacket = BLE_CMD_BUFFER.as_mut_ptr();
             let pcmd_serial: *mut CmdSerial = &mut (*pcmd_buffer).cmdserial;
             let pcmd_serial_buf: *mut u8 = pcmd_serial.cast();
 

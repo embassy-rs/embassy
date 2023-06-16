@@ -11,6 +11,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::Config;
 use embassy_stm32_wpan::rc::RadioCoprocessor;
+use embassy_stm32_wpan::sys::Sys;
 use embassy_stm32_wpan::TlMbox;
 use embassy_time::{Duration, Timer};
 
@@ -55,6 +56,8 @@ async fn main(_spawner: Spawner) {
 
     let response = rc.read().await;
     info!("coprocessor ready {}", response);
+
+    Sys::shci_ble_init(Default::default());
 
     rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
     let response = rc.read().await;

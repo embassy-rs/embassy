@@ -1,7 +1,12 @@
+use core::ptr;
+use core::sync::atomic::{compiler_fence, Ordering};
+
 use embassy_stm32::ipcc::Ipcc;
 
-use crate::cmd::{CmdPacket, CmdSerial};
+use crate::cmd::{CmdPacket, CmdSerial, CmdSerialStub};
+use crate::consts::TlPacketType;
 use crate::evt::{CcEvt, EvtBox, EvtSerial};
+use crate::shci::{ShciBleInitCmdParam, SCHI_OPCODE_BLE_INIT};
 use crate::tables::SysTable;
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, EVT_CHANNEL, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
@@ -58,7 +63,31 @@ impl Sys {
         Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL);
     }
 
-    pub fn send_cmd() {
+    pub fn shci_ble_init(param: ShciBleInitCmdParam) {
+        debug!("sending SHCI");
+
+        Self::send_cmd(SCHI_OPCODE_BLE_INIT, param.payload());
+    }
+
+    pub fn send_cmd(opcode: u16, payload: &[u8]) {
+        unsafe {
+            let p_cmd_serial = &mut (*SYS_CMD_BUF.as_mut_ptr()).cmdserial as *mut _ as *mut CmdSerialStub;
+            let p_payload = &mut (*SYS_CMD_BUF.as_mut_ptr()).cmdserial.cmd.payload as *mut _;
+
+            ptr::write_volatile(
+                p_cmd_serial,
+                CmdSerialStub {
+                    ty: TlPacketType::SysCmd as u8,
+                    cmd_code: opcode,
+                    payload_len: payload.len() as u8,
+                },
+            );
+
+            ptr::copy_nonoverlapping(payload as *const _ as *const u8, p_payload, payload.len());
+        }
+
+        compiler_fence(Ordering::SeqCst);
+
         Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
         Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
     }
