@@ -226,7 +226,10 @@ impl<'d, T: Instance> Can<'d, T> {
             let id = if rir.ide() == RirIde::STANDARD {
                 Id::from(StandardId::new_unchecked(rir.stid()))
             } else {
-                Id::from(ExtendedId::new_unchecked(rir.exid()))
+                let stid = (rir.stid() & 0x7FF) as u32;
+                let exid = rir.exid() & 0x3FFFF;
+                let id = (stid << 18) | (exid as u32);
+                Id::from(ExtendedId::new_unchecked(id))
             };
             let data_len = fifo.rdtr().read().dlc() as usize;
             let mut data: [u8; 8] = [0; 8];
