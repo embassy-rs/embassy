@@ -103,14 +103,11 @@ where
     /// Try to claim the spinlock. Will return `Some(Self)` if the lock is obtained, and `None` if the lock is
     /// already in use somewhere else.
     pub fn try_claim() -> Option<Self> {
-        // Safety: We're only reading from this register
-        unsafe {
-            let lock = pac::SIO.spinlock(N).read();
-            if lock > 0 {
-                Some(Self(core::marker::PhantomData))
-            } else {
-                None
-            }
+        let lock = pac::SIO.spinlock(N).read();
+        if lock > 0 {
+            Some(Self(core::marker::PhantomData))
+        } else {
+            None
         }
     }
 
@@ -120,10 +117,8 @@ where
     ///
     /// Only call this function if you hold the spin-lock.
     pub unsafe fn release() {
-        unsafe {
-            // Write (any value): release the lock
-            pac::SIO.spinlock(N).write_value(1);
-        }
+        // Write (any value): release the lock
+        pac::SIO.spinlock(N).write_value(1);
     }
 }
 

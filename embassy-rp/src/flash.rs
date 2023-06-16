@@ -167,7 +167,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     /// - DMA must not access flash memory
     unsafe fn in_ram(&mut self, operation: impl FnOnce()) -> Result<(), Error> {
         // Make sure we're running on CORE0
-        let core_id: u32 = unsafe { pac::SIO.cpuid().read() };
+        let core_id: u32 = pac::SIO.cpuid().read();
         if core_id != 0 {
             return Err(Error::InvalidCore);
         }

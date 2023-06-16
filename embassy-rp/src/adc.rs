@@ -50,16 +50,14 @@ impl<'d> Adc<'d> {
         _irq: impl Binding<interrupt::typelevel::ADC_IRQ_FIFO, InterruptHandler>,
         _config: Config,
     ) -> Self {
-        unsafe {
-            let reset = Self::reset();
-            crate::reset::reset(reset);
-            crate::reset::unreset_wait(reset);
-            let r = Self::regs();
-            // Enable ADC
-            r.cs().write(|w| w.set_en(true));
-            // Wait for ADC ready
-            while !r.cs().read().ready() {}
-        }
+        let reset = Self::reset();
+        crate::reset::reset(reset);
+        crate::reset::unreset_wait(reset);
+        let r = Self::regs();
+        // Enable ADC
+        r.cs().write(|w| w.set_en(true));
+        // Wait for ADC ready
+        while !r.cs().read().ready() {}
 
         // Setup IRQ
         interrupt::ADC_IRQ_FIFO.unpend();
@@ -70,80 +68,70 @@ impl<'d> Adc<'d> {
 
     async fn wait_for_ready() {
         let r = Self::regs();
-        unsafe {
-            r.inte().write(|w| w.set_fifo(true));
-            compiler_fence(Ordering::SeqCst);
-            poll_fn(|cx| {
-                WAKER.register(cx.waker());
-                if r.cs().read().ready() {
-                    return Poll::Ready(());
-                }
-                Poll::Pending
-            })
-            .await;
-        }
+        r.inte().write(|w| w.set_fifo(true));
+        compiler_fence(Ordering::SeqCst);
+        poll_fn(|cx| {
+            WAKER.register(cx.waker());
+            if r.cs().read().ready() {
+                return Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
     }
 
     pub async fn read<PIN: Channel<Adc<'d>, ID = u8> + Pin>(&mut self, pin: &mut PIN) -> u16 {
         let r = Self::regs();
-        unsafe {
-            // disable pull-down and pull-up resistors
-            // pull-down resistors are enabled by default
-            pin.pad_ctrl().modify(|w| {
-                w.set_ie(true);
-                let (pu, pd) = (false, false);
-                w.set_pue(pu);
-                w.set_pde(pd);
-            });
-            r.cs().modify(|w| {
-                w.set_ainsel(PIN::channel());
-                w.set_start_once(true)
-            });
-            Self::wait_for_ready().await;
-            r.result().read().result().into()
-        }
+        // disable pull-down and pull-up resistors
+        // pull-down resistors are enabled by default
+        pin.pad_ctrl().modify(|w| {
+            w.set_ie(true);
+            let (pu, pd) = (false, false);
+            w.set_pue(pu);
+            w.set_pde(pd);
+        });
+        r.cs().modify(|w| {
+            w.set_ainsel(PIN::channel());
+            w.set_start_once(true)
+        });
+        Self::wait_for_ready().await;
+        r.result().read().result().into()
     }
 
     pub async fn read_temperature(&mut self) -> u16 {
         let r = Self::regs();
-        unsafe {
-            r.cs().modify(|w| w.set_ts_en(true));
-            if !r.cs().read().ready() {
-                Self::wait_for_ready().await;
-            }
-            r.cs().modify(|w| {
-                w.set_ainsel(4);
-                w.set_start_once(true)
-            });
+        r.cs().modify(|w| w.set_ts_en(true));
+        if !r.cs().read().ready() {
             Self::wait_for_ready().await;
-            r.result().read().result().into()
         }
+        r.cs().modify(|w| {
+            w.set_ainsel(4);
+            w.set_start_once(true)
+        });
+        Self::wait_for_ready().await;
+        r.result().read().result().into()
     }
 
     pub fn blocking_read<PIN: Channel<Adc<'d>, ID = u8>>(&mut self, _pin: &mut PIN) -> u16 {
         let r = Self::regs();
-        unsafe {
-            r.cs().modify(|w| {
-                w.set_ainsel(PIN::channel());
-                w.set_start_once(true)
-            });
-            while !r.cs().read().ready() {}
-            r.result().read().result().into()
-        }
+        r.cs().modify(|w| {
+            w.set_ainsel(PIN::channel());
+            w.set_start_once(true)
+        });
+        while !r.cs().read().ready() {}
+        r.result().read().result().into()
     }
 
     pub fn blocking_read_temperature(&mut self) -> u16 {
         let r = Self::regs();
-        unsafe {
-            r.cs().modify(|w| w.set_ts_en(true));
-            while !r.cs().read().ready() {}
-            r.cs().modify(|w| {
-                w.set_ainsel(4);
-                w.set_start_once(true)
-            });
-            while !r.cs().read().ready() {}
-            r.result().read().result().into()
-        }
+        r.cs().modify(|w| w.set_ts_en(true));
+        while !r.cs().read().ready() {}
+        r.cs().modify(|w| {
+            w.set_ainsel(4);
+            w.set_start_once(true)
+        });
+        while !r.cs().read().ready() {}
+        r.result().read().result().into()
     }
 }
 

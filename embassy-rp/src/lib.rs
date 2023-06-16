@@ -261,33 +261,39 @@ pub fn init(config: config::Config) -> Peripherals {
 
 /// Extension trait for PAC regs, adding atomic xor/bitset/bitclear writes.
 trait RegExt<T: Copy> {
-    unsafe fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
-    unsafe fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
-    unsafe fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
 }
 
 impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T, A> {
-    unsafe fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+    fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         let mut val = Default::default();
         let res = f(&mut val);
-        let ptr = (self.ptr() as *mut u8).add(0x1000) as *mut T;
-        ptr.write_volatile(val);
+        unsafe {
+            let ptr = (self.as_ptr() as *mut u8).add(0x1000) as *mut T;
+            ptr.write_volatile(val);
+        }
         res
     }
 
-    unsafe fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+    fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         let mut val = Default::default();
         let res = f(&mut val);
-        let ptr = (self.ptr() as *mut u8).add(0x2000) as *mut T;
-        ptr.write_volatile(val);
+        unsafe {
+            let ptr = (self.as_ptr() as *mut u8).add(0x2000) as *mut T;
+            ptr.write_volatile(val);
+        }
         res
     }
 
-    unsafe fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+    fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         let mut val = Default::default();
         let res = f(&mut val);
-        let ptr = (self.ptr() as *mut u8).add(0x3000) as *mut T;
-        ptr.write_volatile(val);
+        unsafe {
+            let ptr = (self.as_ptr() as *mut u8).add(0x3000) as *mut T;
+            ptr.write_volatile(val);
+        }
         res
     }
 }
