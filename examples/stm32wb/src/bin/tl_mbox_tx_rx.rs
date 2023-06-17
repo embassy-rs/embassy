@@ -5,14 +5,13 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::ipcc::Config;
-use embassy_stm32_wpan::rc::RadioCoprocessor;
+use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
-    IPCC_C1_RX => embassy_stm32_wpan::ReceiveInterruptHandler;
-    IPCC_C1_TX => embassy_stm32_wpan::TransmitInterruptHandler;
+    IPCC_C1_RX => ReceiveInterruptHandler;
+    IPCC_C1_TX => TransmitInterruptHandler;
 });
 
 #[embassy_executor::main]
@@ -47,14 +46,18 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    let mut rc = RadioCoprocessor::new(mbox);
+    let sys_event = mbox.sys_subsystem.read().await;
+    info!("sys event: {}", sys_event.payload());
 
-    let response = rc.read().await;
-    info!("coprocessor ready {}", response);
+    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
 
-    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
-    let response = rc.read().await;
-    info!("ble reset rsp {}", response);
+    info!("starting ble...");
+    mbox.ble_subsystem.write(0x0c, &[]).await;
+
+    info!("waiting for ble...");
+    let ble_event = mbox.ble_subsystem.read().await;
+
+    info!("ble event: {}", ble_event.payload());
 
     info!("Test OK");
     cortex_m::asm::bkpt();
