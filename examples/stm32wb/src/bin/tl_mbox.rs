@@ -5,8 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::ipcc::Config;
-use embassy_stm32::ipcc::{ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32_wpan::TlMbox;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
