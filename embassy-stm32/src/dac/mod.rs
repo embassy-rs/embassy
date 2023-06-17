@@ -2,6 +2,7 @@
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 
+use crate::dma::{slice_ptr_parts, word, Transfer};
 use crate::pac::dac;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -97,39 +98,58 @@ pub enum Value {
     Bit12(u16, Alignment),
 }
 
-pub struct Dac<'d, T: Instance> {
+pub struct Dac<'d, T: Instance, Tx> {
     channels: u8,
+    txdma: PeripheralRef<'d, Tx>,
     _peri: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> Dac<'d, T> {
-    pub fn new_1ch(peri: impl Peripheral<P = T> + 'd, _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd) -> Self {
+impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
+    pub fn new_1ch(
+        peri: impl Peripheral<P = T> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
+    ) -> Self {
         into_ref!(peri);
-        Self::new_inner(peri, 1)
+        Self::new_inner(peri, 1, txdma)
     }
 
     pub fn new_2ch(
         peri: impl Peripheral<P = T> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
         _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
         _ch2: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
     ) -> Self {
         into_ref!(peri);
-        Self::new_inner(peri, 2)
+        Self::new_inner(peri, 2, txdma)
     }
 
-    fn new_inner(peri: PeripheralRef<'d, T>, channels: u8) -> Self {
+    fn new_inner(peri: PeripheralRef<'d, T>, channels: u8, txdma: impl Peripheral<P = Tx> + 'd) -> Self {
+        into_ref!(txdma);
         T::enable();
         T::reset();
 
         unsafe {
+            T::regs().mcr().modify(|reg| {
+                for ch in 0..channels {
+                    reg.set_mode(ch as usize, 0);
+                    reg.set_mode(ch as usize, 0);
+                }
+            });
+
             T::regs().cr().modify(|reg| {
                 for ch in 0..channels {
                     reg.set_en(ch as usize, true);
+                    reg.set_ten(ch as usize, true);
                 }
             });
         }
 
-        Self { channels, _peri: peri }
+        Self {
+            channels,
+            txdma,
+            _peri: peri,
+        }
     }
 
     /// Check the channel is configured
@@ -215,6 +235,47 @@ impl<'d, T: Instance> Dac<'d, T> {
         }
         Ok(())
     }
+
+    /// TODO: Allow an array of Value instead of only u16, right-aligned
+    pub async fn write(&mut self, data: &[u16]) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        // TODO: Make this a parameter or get it from the struct or so...
+        const CHANNEL: usize = 0;
+
+        //debug!("Starting DAC");
+        unsafe {
+            T::regs().cr().modify(|w| {
+                w.set_en(CHANNEL, true);
+                w.set_dmaen(CHANNEL, true);
+            });
+        }
+
+        let tx_request = self.txdma.request();
+
+        // Use the 12 bit right-aligned register for now. TODO: distinguish values
+        let tx_dst = T::regs().dhr12r(CHANNEL).ptr() as *mut u16;
+
+        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
+
+        //debug!("Awaiting tx_f");
+
+        tx_f.await;
+
+        // finish dma
+        unsafe {
+            // TODO: Do we need to check any status registers here?
+
+            T::regs().cr().modify(|w| {
+                // Disable the dac peripheral
+                //w.set_en(CHANNEL, false);
+                // Disable the DMA. TODO: Is this necessary?
+                //w.set_dmaen(CHANNEL, false);
+            });
+        }
+        Ok(())
+    }
 }
 
 pub(crate) mod sealed {
@@ -224,6 +285,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+dma_trait!(Dma, Instance);
 
 pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
