@@ -127,10 +127,14 @@ static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 //                                 fuck these "magic" numbers from ST ---v---v
 static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();
 
+// TODO: remove these items
+
+#[allow(dead_code)]
 /// current event that is produced during IPCC IRQ handler execution
 /// on SYS channel
 static EVT_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 32> = Channel::new();
 
+#[allow(dead_code)]
 /// last received Command Complete event
 static LAST_CC_EVT: Signal<CriticalSectionRawMutex, CcEvt> = Signal::new();
 

@@ -1,16 +1,11 @@
-use core::mem::MaybeUninit;
-use core::ptr;
-
 use embassy_stm32::ipcc::Ipcc;
 
-use crate::cmd::{Cmd, CmdPacket, CmdSerial};
+use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
-use crate::evt::{EvtBox, EvtPacket};
+use crate::evt::EvtBox;
 use crate::tables::BleTable;
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{
-    channels, BLE_CMD_BUFFER, CS_BUFFER, EVT_CHANNEL, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE, TL_REF_TABLE,
-};
+use crate::{channels, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE};
 
 pub struct Ble;
 

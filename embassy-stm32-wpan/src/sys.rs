@@ -1,13 +1,10 @@
-use core::mem::MaybeUninit;
-use core::{mem, ptr};
-
-use crate::cmd::{CmdPacket, CmdSerialStub};
+use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
-use crate::evt::{CcEvt, EvtBox, EvtPacket, EvtSerial};
-use crate::shci::{ShciBleInitCmdPacket, ShciBleInitCmdParam, ShciHeader, SCHI_OPCODE_BLE_INIT};
+use crate::evt::EvtBox;
+use crate::shci::{ShciBleInitCmdParam, SCHI_OPCODE_BLE_INIT};
 use crate::tables::SysTable;
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, mm, Ipcc, EVT_CHANNEL, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
+use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
 
 pub struct Sys;
 
