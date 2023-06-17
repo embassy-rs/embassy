@@ -42,5 +42,16 @@ impl Ble {
         .await;
     }
 
-    // TODO: acl commands
+    /// `TL_BLE_SendAclData`
+    pub async fn acl_write(handle: u16, payload: &[u8]) {
+        Ipcc::send(channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL, || unsafe {
+            CmdPacket::write_into(
+                HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _,
+                TlPacketType::AclData,
+                handle,
+                payload,
+            );
+        })
+        .await;
+    }
 }
