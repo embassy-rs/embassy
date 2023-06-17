@@ -31,36 +31,36 @@ impl MemoryManager {
     }
 
     pub fn evt_drop(evt: *mut EvtPacket) {
-        unsafe {
-            let list_node = evt.cast();
-
-            LinkedListNode::insert_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
-
-            let channel_is_busy = Ipcc::c1_is_active_flag(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
-
-            // postpone event buffer freeing to IPCC interrupt handler
-            if channel_is_busy {
-                Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, true);
-            } else {
-                Self::send_free_buf();
-                Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
-            }
-        }
+        //        unsafe {
+        //            let list_node = evt.cast();
+        //
+        //            LinkedListNode::insert_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
+        //
+        //            let channel_is_busy = Ipcc::c1_is_active_flag(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
+        //
+        //            // postpone event buffer freeing to IPCC interrupt handler
+        //            if channel_is_busy {
+        //                Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, true);
+        //            } else {
+        //                Self::send_free_buf();
+        //                Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
+        //            }
+        //        }
     }
 
     /// gives free event buffers back to CPU2 from local buffer queue
     pub fn send_free_buf() {
-        unsafe {
-            while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
-            }
-        }
+        //        unsafe {
+        //            while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+        //                LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
+        //            }
+        //        }
     }
 
     /// free buffer channel interrupt handler
     pub fn free_buf_handler() {
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, false);
-        Self::send_free_buf();
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
+        //        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, false);
+        //        Self::send_free_buf();
+        //        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
     }
 }
