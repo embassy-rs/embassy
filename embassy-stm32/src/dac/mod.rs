@@ -2,7 +2,7 @@
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use crate::dma::{slice_ptr_parts, word, Transfer};
+use crate::dma::Transfer;
 use crate::pac::dac;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -269,9 +269,9 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
 
             T::regs().cr().modify(|w| {
                 // Disable the dac peripheral
-                //w.set_en(CHANNEL, false);
+                w.set_en(CHANNEL, false);
                 // Disable the DMA. TODO: Is this necessary?
-                //w.set_dmaen(CHANNEL, false);
+                w.set_dmaen(CHANNEL, false);
             });
         }
         Ok(())
