@@ -111,6 +111,7 @@ impl Ipcc {
     pub fn c1_clear_flag_channel(channel: IpccChannel) {
         let regs = IPCC::regs();
 
+        trace!("ipcc: ch {}: clear rx", channel as u8);
         unsafe { regs.cpu(0).scr().write(|w| w.set_chc(channel as usize, true)) }
     }
 
