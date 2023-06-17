@@ -16,11 +16,6 @@ pub struct Sys;
 impl Sys {
     pub fn enable() {
         unsafe {
-            // Ensure reproducible behavior
-            SYS_CMD_BUF
-                .as_mut_ptr()
-                .write_volatile(MaybeUninit::zeroed().assume_init());
-
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
             TL_SYS_TABLE.as_mut_ptr().write_volatile(SysTable {

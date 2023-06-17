@@ -16,11 +16,6 @@ pub struct Ble;
 impl Ble {
     pub(super) fn enable() {
         unsafe {
-            // Ensure reproducible behavior
-            BLE_CMD_BUFFER
-                .as_mut_ptr()
-                .write_volatile(MaybeUninit::zeroed().assume_init());
-
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
             TL_BLE_TABLE.as_mut_ptr().write_volatile(BleTable {
