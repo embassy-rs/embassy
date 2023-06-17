@@ -6,6 +6,8 @@
 #[path = "../common.rs"]
 mod common;
 
+use core::mem;
+
 use common::*;
 use embassy_executor::Spawner;
 use embassy_futures::poll_once;
@@ -36,12 +38,13 @@ async fn main(spawner: Spawner) {
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    let mut rx_buf = [0u8; 500];
     let ready_event = Sys::read().await;
     let _ = poll_once(Sys::read()); // clear rx not
-    ready_event.write(&mut rx_buf).unwrap();
 
-    info!("coprocessor ready {}", rx_buf);
+    info!("coprocessor ready {}", ready_event.payload());
+
+    // test memory manager
+    mem::drop(ready_event);
 
     loop {
         let wireless_fw_info = mbox.wireless_fw_info();
@@ -74,11 +77,10 @@ async fn main(spawner: Spawner) {
 
     info!("waiting for ble...");
     let ble_event = Ble::read().await;
-    ble_event.write(&mut rx_buf).unwrap();
 
-    info!("ble event: {}", rx_buf);
+    info!("ble event: {}", ble_event.payload());
 
-    // Timer::after(Duration::from_secs(3)).await;
+    Timer::after(Duration::from_millis(150)).await;
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

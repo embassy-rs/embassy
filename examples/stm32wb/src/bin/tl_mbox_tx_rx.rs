@@ -48,7 +48,6 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let _ = TlMbox::init(p.IPCC, Irqs, config);
 
-    let mut rx_buf = [0u8; 500];
     Sys::shci_c2_ble_init(Default::default()).await;
 
     info!("starting ble...");
@@ -56,9 +55,8 @@ async fn main(_spawner: Spawner) {
 
     info!("waiting for ble...");
     let ble_event = Ble::read().await;
-    ble_event.write(&mut rx_buf).unwrap();
 
-    info!("ble event: {}", rx_buf);
+    info!("ble event: {}", ble_event.payload());
 
     info!("Test OK");
     cortex_m::asm::bkpt();
