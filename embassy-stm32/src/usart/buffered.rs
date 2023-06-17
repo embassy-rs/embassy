@@ -21,8 +21,10 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
         // RX
         unsafe {
             let sr = sr(r).read();
-            // Reading DR clears the rxne, error and idle interrupt flags on v1.
-            let dr = if sr.ore() || sr.idle() || sr.rxne() {
+            // On v1 & v2, reading DR clears the rxne, error and idle interrupt
+            // flags. Keep this close to the SR read to reduce the chance of a
+            // flag being set in-between.
+            let dr = if sr.rxne() || cfg!(any(usart_v1, usart_v2)) && (sr.ore() || sr.idle()) {
                 Some(rdr(r).read_volatile())
             } else {
                 None
