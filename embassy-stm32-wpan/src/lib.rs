@@ -6,6 +6,7 @@ pub mod fmt;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
 
+use ble::Ble;
 use cmd::CmdPacket;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
@@ -16,9 +17,10 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 use evt::{CcEvt, EvtBox};
+use mm::MemoryManager;
+use sys::Sys;
 use tables::{
     BleTable, DeviceInfoTable, Mac802_15_4Table, MemManagerTable, RefTable, SysTable, ThreadTable, TracesTable,
-    WirelessFwInfoTable,
 };
 use unsafe_linked_list::LinkedListNode;
 
@@ -142,6 +144,10 @@ static STATE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 pub struct TlMbox<'d> {
     _ipcc: PeripheralRef<'d, IPCC>,
+
+    pub sys_subsystem: Sys,
+    pub mm_subsystem: MemoryManager,
+    pub ble_subsystem: Ble,
 }
 
 impl<'d> TlMbox<'d> {
@@ -226,9 +232,9 @@ impl<'d> TlMbox<'d> {
 
         Ipcc::enable(config);
 
-        sys::Sys::enable();
-        ble::Ble::enable();
-        mm::MemoryManager::enable();
+        let sys = sys::Sys::new();
+        let ble = ble::Ble::new();
+        let mm = mm::MemoryManager::new();
 
         // enable interrupts
         interrupt::typelevel::IPCC_C1_RX::unpend();
@@ -239,18 +245,11 @@ impl<'d> TlMbox<'d> {
 
         STATE.reset();
 
-        Self { _ipcc: ipcc }
-    }
-
-    /// Returns CPU2 wireless firmware information (if present).
-    pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
-        let info = unsafe { &(*(*TL_REF_TABLE.as_ptr()).device_info_table).wireless_fw_info_table };
-
-        // Zero version indicates that CPU2 wasn't active and didn't fill the information table
-        if info.version != 0 {
-            Some(*info)
-        } else {
-            None
+        Self {
+            _ipcc: ipcc,
+            sys_subsystem: sys,
+            ble_subsystem: ble,
+            mm_subsystem: mm,
         }
     }
 }

@@ -1,16 +1,20 @@
+use core::marker::PhantomData;
+
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::EvtBox;
 use crate::shci::{ShciBleInitCmdParam, SCHI_OPCODE_BLE_INIT};
-use crate::tables::SysTable;
+use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
+use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
-pub struct Sys;
+pub struct Sys {
+    phantom: PhantomData<Sys>,
+}
 
 impl Sys {
     /// TL_Sys_Init
-    pub fn enable() {
+    pub(crate) fn new() -> Self {
         unsafe {
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
@@ -19,30 +23,33 @@ impl Sys {
                 sys_queue: SYSTEM_EVT_QUEUE.as_ptr(),
             });
         }
+
+        Self { phantom: PhantomData }
     }
 
-    //    pub async fn shci_c2_ble_init(&mut self, param: ShciBleInitCmdParam) -> SchiCommandStatus {
-    //        let command_event = self
-    //            .write_and_get_response(TlPacketType::SysCmd, ShciOpcode::BleInit as u16, param.payload())
-    //            .await;
-    //
-    //        let payload = command_event.payload[0];
-    //        // info!("payload: {:x}", payload);
-    //
-    //        payload.try_into().unwrap()
-    //    }
+    /// Returns CPU2 wireless firmware information (if present).
+    pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
+        let info = unsafe { TL_DEVICE_INFO_TABLE.as_mut_ptr().read_volatile().wireless_fw_info_table };
 
-    pub fn write(opcode: u16, payload: &[u8]) {
+        // Zero version indicates that CPU2 wasn't active and didn't fill the information table
+        if info.version != 0 {
+            Some(info)
+        } else {
+            None
+        }
+    }
+
+    pub fn write(&self, opcode: u16, payload: &[u8]) {
         unsafe {
             CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode, payload);
         }
     }
 
-    pub async fn shci_c2_ble_init(param: ShciBleInitCmdParam) {
+    pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) {
         debug!("sending SHCI");
 
         Ipcc::send(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, || {
-            Self::write(SCHI_OPCODE_BLE_INIT, param.payload());
+            self.write(SCHI_OPCODE_BLE_INIT, param.payload());
         })
         .await;
 
@@ -50,7 +57,7 @@ impl Sys {
     }
 
     /// `HW_IPCC_SYS_EvtNot`
-    pub async fn read() -> EvtBox {
+    pub async fn read(&self) -> EvtBox {
         Ipcc::receive(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, || unsafe {
             if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
                 Some(EvtBox::new(node_ptr.cast()))

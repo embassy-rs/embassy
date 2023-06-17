@@ -1,6 +1,7 @@
 //! Memory manager routines
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::task::Poll;
 
 use cortex_m::interrupt;
@@ -17,10 +18,12 @@ use crate::{
 
 static MM_WAKER: AtomicWaker = AtomicWaker::new();
 
-pub struct MemoryManager;
+pub struct MemoryManager {
+    phantom: PhantomData<MemoryManager>,
+}
 
 impl MemoryManager {
-    pub fn enable() {
+    pub(crate) fn new() -> Self {
         unsafe {
             LinkedListNode::init_head(FREE_BUF_QUEUE.as_mut_ptr());
             LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
@@ -35,10 +38,12 @@ impl MemoryManager {
                 tracespoolsize: 0,
             });
         }
+
+        Self { phantom: PhantomData }
     }
 
     /// SAFETY: passing a pointer to something other than an event packet is UB
-    pub unsafe fn drop_event_packet(evt: *mut EvtPacket) {
+    pub(crate) unsafe fn drop_event_packet(evt: *mut EvtPacket) {
         interrupt::free(|_| unsafe {
             LinkedListNode::insert_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
         });
@@ -46,7 +51,7 @@ impl MemoryManager {
         MM_WAKER.wake();
     }
 
-    pub async fn run_queue() {
+    pub async fn run_queue(&self) {
         loop {
             poll_fn(|cx| unsafe {
                 MM_WAKER.register(cx.waker());

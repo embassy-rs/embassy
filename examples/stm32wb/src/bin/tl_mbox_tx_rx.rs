@@ -6,8 +6,6 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::ble::Ble;
-use embassy_stm32_wpan::sys::Sys;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -46,15 +44,18 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let _ = TlMbox::init(p.IPCC, Irqs, config);
+    let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    Sys::shci_c2_ble_init(Default::default()).await;
+    let sys_event = mbox.sys_subsystem.read().await;
+    info!("sys event: {}", sys_event.payload());
+
+    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
 
     info!("starting ble...");
-    Ble::write(0x0c, &[]).await;
+    mbox.ble_subsystem.write(0x0c, &[]).await;
 
     info!("waiting for ble...");
-    let ble_event = Ble::read().await;
+    let ble_event = mbox.ble_subsystem.read().await;
 
     info!("ble event: {}", ble_event.payload());
 

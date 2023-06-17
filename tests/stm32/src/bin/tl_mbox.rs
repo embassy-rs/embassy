@@ -13,8 +13,6 @@ use embassy_executor::Spawner;
 use embassy_futures::poll_once;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::ble::Ble;
-use embassy_stm32_wpan::sys::Sys;
 use embassy_stm32_wpan::{mm, TlMbox};
 use embassy_time::{Duration, Timer};
 
@@ -24,8 +22,8 @@ bind_interrupts!(struct Irqs{
 });
 
 #[embassy_executor::task]
-async fn run_mm_queue() {
-    mm::MemoryManager::run_queue().await;
+async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+    memory_manager.run_queue().await;
 }
 
 #[embassy_executor::main]
@@ -33,50 +31,41 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config());
     info!("Hello World!");
 
-    spawner.spawn(run_mm_queue()).unwrap();
-
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    let ready_event = Sys::read().await;
-    let _ = poll_once(Sys::read()); // clear rx not
+    spawner.spawn(run_mm_queue(mbox.mm_subsystem)).unwrap();
+
+    let ready_event = mbox.sys_subsystem.read().await;
+    let _ = poll_once(mbox.sys_subsystem.read()); // clear rx not
 
     info!("coprocessor ready {}", ready_event.payload());
 
     // test memory manager
     mem::drop(ready_event);
 
-    loop {
-        let wireless_fw_info = mbox.wireless_fw_info();
-        match wireless_fw_info {
-            None => {}
-            Some(fw_info) => {
-                let version_major = fw_info.version_major();
-                let version_minor = fw_info.version_minor();
-                let subversion = fw_info.subversion();
+    let fw_info = mbox.sys_subsystem.wireless_fw_info().unwrap();
+    let version_major = fw_info.version_major();
+    let version_minor = fw_info.version_minor();
+    let subversion = fw_info.subversion();
 
-                let sram2a_size = fw_info.sram2a_size();
-                let sram2b_size = fw_info.sram2b_size();
+    let sram2a_size = fw_info.sram2a_size();
+    let sram2b_size = fw_info.sram2b_size();
 
-                info!(
-                    "version {}.{}.{} - SRAM2a {} - SRAM2b {}",
-                    version_major, version_minor, subversion, sram2a_size, sram2b_size
-                );
+    info!(
+        "version {}.{}.{} - SRAM2a {} - SRAM2b {}",
+        version_major, version_minor, subversion, sram2a_size, sram2b_size
+    );
 
-                break;
-            }
-        }
+    Timer::after(Duration::from_millis(50)).await;
 
-        Timer::after(Duration::from_millis(50)).await;
-    }
-
-    Sys::shci_c2_ble_init(Default::default()).await;
+    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
 
     info!("starting ble...");
-    Ble::write(0x0c, &[]).await;
+    mbox.ble_subsystem.write(0x0c, &[]).await;
 
     info!("waiting for ble...");
-    let ble_event = Ble::read().await;
+    let ble_event = mbox.ble_subsystem.read().await;
 
     info!("ble event: {}", ble_event.payload());
 
