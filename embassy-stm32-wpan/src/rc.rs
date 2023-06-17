@@ -1,6 +1,6 @@
 use crate::ble::Ble;
 use crate::consts::TlPacketType;
-use crate::{shci, TlMbox, STATE};
+use crate::{TlMbox, STATE};
 
 pub struct RadioCoprocessor<'d> {
     mbox: TlMbox<'d>,
@@ -15,12 +15,12 @@ impl<'d> RadioCoprocessor<'d> {
         }
     }
 
-    pub fn write(&self, buf: &[u8]) {
+    pub fn write(&self, opcode: u16, buf: &[u8]) {
         let cmd_code = buf[0];
         let cmd = TlPacketType::try_from(cmd_code).unwrap();
 
         match &cmd {
-            TlPacketType::BleCmd => Ble::send_cmd(buf),
+            TlPacketType::BleCmd => Ble::send_cmd(opcode, buf),
             _ => todo!(),
         }
     }
@@ -30,8 +30,6 @@ impl<'d> RadioCoprocessor<'d> {
             STATE.wait().await;
 
             while let Some(evt) = self.mbox.dequeue_event() {
-                let event = evt.evt();
-
                 evt.write(&mut self.rx_buf).unwrap();
             }
 

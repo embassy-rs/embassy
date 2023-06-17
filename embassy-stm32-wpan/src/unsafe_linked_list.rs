@@ -139,28 +139,36 @@ impl LinkedListNode {
     }
 
     /// Remove `list_head` and return a pointer to the `node`.
-    pub unsafe fn remove_head(mut p_list_head: *mut LinkedListNode) -> *mut LinkedListNode {
+    pub unsafe fn remove_head(mut p_list_head: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
         interrupt::free(|_| {
             let list_head = ptr::read_volatile(p_list_head);
 
-            // Allowed because a removed node is not seen by another core
-            let p_node = list_head.next;
-            Self::remove_node(p_node);
+            if list_head.next == p_list_head {
+                None
+            } else {
+                // Allowed because a removed node is not seen by another core
+                let p_node = list_head.next;
+                Self::remove_node(p_node);
 
-            p_node
+                Some(p_node)
+            }
         })
     }
 
     /// Remove `list_tail` and return a pointer to the `node`.
-    pub unsafe fn remove_tail(mut p_list_tail: *mut LinkedListNode) -> *mut LinkedListNode {
+    pub unsafe fn remove_tail(mut p_list_tail: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
         interrupt::free(|_| {
             let list_tail = ptr::read_volatile(p_list_tail);
 
-            // Allowed because a removed node is not seen by another core
-            let p_node = list_tail.prev;
-            Self::remove_node(p_node);
+            if list_tail.prev == p_list_tail {
+                None
+            } else {
+                // Allowed because a removed node is not seen by another core
+                let p_node = list_tail.prev;
+                Self::remove_node(p_node);
 
-            p_node
+                Some(p_node)
+            }
         })
     }
 

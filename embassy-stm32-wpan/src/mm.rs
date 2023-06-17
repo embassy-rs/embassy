@@ -7,7 +7,7 @@ use crate::tables::MemManagerTable;
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{
     channels, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUF_QUEUE, LOCAL_FREE_BUF_QUEUE, POOL_SIZE, SYS_SPARE_EVT_BUF,
-    TL_MEM_MANAGER_TABLE, TL_REF_TABLE,
+    TL_MEM_MANAGER_TABLE,
 };
 
 pub(super) struct MemoryManager;
@@ -51,13 +51,8 @@ impl MemoryManager {
     /// gives free event buffers back to CPU2 from local buffer queue
     pub fn send_free_buf() {
         unsafe {
-            while !LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                let node_ptr = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
-
-                LinkedListNode::insert_tail(
-                    (*(*TL_REF_TABLE.as_ptr()).mem_manager_table).pevt_free_buffer_queue,
-                    node_ptr,
-                );
+            while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
             }
         }
     }

@@ -10,6 +10,7 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::Config;
+use embassy_stm32_wpan::ble::Ble;
 use embassy_stm32_wpan::rc::RadioCoprocessor;
 use embassy_stm32_wpan::sys::Sys;
 use embassy_stm32_wpan::TlMbox;
@@ -59,7 +60,9 @@ async fn main(_spawner: Spawner) {
 
     Sys::shci_ble_init(Default::default());
 
-    rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
+    // rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
+    Ble::send_cmd(0x0c, &[]);
+
     let response = rc.read().await;
     info!("ble reset rsp {}", response);
 

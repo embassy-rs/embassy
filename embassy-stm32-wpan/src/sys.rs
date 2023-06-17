@@ -1,9 +1,9 @@
-use core::ptr;
+use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
 
 use embassy_stm32::ipcc::Ipcc;
 
-use crate::cmd::{CmdPacket, CmdSerial, CmdSerialStub};
+use crate::cmd::{CmdPacket, CmdSerial};
 use crate::consts::TlPacketType;
 use crate::evt::{CcEvt, EvtBox, EvtSerial};
 use crate::shci::{ShciBleInitCmdParam, SCHI_OPCODE_BLE_INIT};
@@ -16,6 +16,11 @@ pub struct Sys;
 impl Sys {
     pub fn enable() {
         unsafe {
+            // Ensure reproducible behavior
+            SYS_CMD_BUF
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
             TL_SYS_TABLE.as_mut_ptr().write_volatile(SysTable {
@@ -50,11 +55,8 @@ impl Sys {
 
     pub fn evt_handler() {
         unsafe {
-            while !LinkedListNode::is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                let node_ptr = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
-
-                let event = node_ptr.cast();
-                let event = EvtBox::new(event);
+            while let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
+                let event = EvtBox::new(node_ptr.cast());
 
                 EVT_CHANNEL.try_send(event).unwrap();
             }
@@ -71,19 +73,7 @@ impl Sys {
 
     pub fn send_cmd(opcode: u16, payload: &[u8]) {
         unsafe {
-            let p_cmd_serial = &mut (*SYS_CMD_BUF.as_mut_ptr()).cmdserial as *mut _ as *mut CmdSerialStub;
-            let p_payload = &mut (*SYS_CMD_BUF.as_mut_ptr()).cmdserial.cmd.payload as *mut _;
-
-            ptr::write_volatile(
-                p_cmd_serial,
-                CmdSerialStub {
-                    ty: TlPacketType::SysCmd as u8,
-                    cmd_code: opcode,
-                    payload_len: payload.len() as u8,
-                },
-            );
-
-            ptr::copy_nonoverlapping(payload as *const _ as *const u8, p_payload, payload.len());
+            CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode, payload);
         }
 
         compiler_fence(Ordering::SeqCst);

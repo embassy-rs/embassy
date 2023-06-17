@@ -1,3 +1,6 @@
+use core::ptr;
+
+use crate::consts::TlPacketType;
 use crate::evt::{EvtPacket, EvtSerial};
 use crate::{PacketHeader, TL_EVT_HEADER_SIZE};
 
@@ -42,6 +45,22 @@ pub struct CmdPacket {
 }
 
 impl CmdPacket {
+    pub unsafe fn write_into(cmd_buf: *mut CmdPacket, packet_type: TlPacketType, cmd_code: u16, payload: &[u8]) {
+        let p_cmd_serial = &mut (*cmd_buf).cmdserial as *mut _ as *mut CmdSerialStub;
+        let p_payload = &mut (*cmd_buf).cmdserial.cmd.payload as *mut _;
+
+        ptr::write_volatile(
+            p_cmd_serial,
+            CmdSerialStub {
+                ty: packet_type as u8,
+                cmd_code: cmd_code,
+                payload_len: payload.len() as u8,
+            },
+        );
+
+        ptr::copy_nonoverlapping(payload as *const _ as *const u8, p_payload, payload.len());
+    }
+
     /// Writes an underlying CmdPacket into the provided buffer.
     /// Returns a number of bytes that were written.
     /// Returns an error if event kind is unknown or if provided buffer size is not enough.

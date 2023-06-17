@@ -1,6 +1,8 @@
+use core::mem::MaybeUninit;
+
 use embassy_stm32::ipcc::Ipcc;
 
-use crate::cmd::{CmdPacket, CmdSerial};
+use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::EvtBox;
 use crate::tables::BleTable;
@@ -14,6 +16,11 @@ pub struct Ble;
 impl Ble {
     pub(super) fn enable() {
         unsafe {
+            // Ensure reproducible behavior
+            BLE_CMD_BUFFER
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+
             LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
 
             TL_BLE_TABLE.as_mut_ptr().write_volatile(BleTable {
@@ -29,11 +36,8 @@ impl Ble {
 
     pub(super) fn evt_handler() {
         unsafe {
-            while !LinkedListNode::is_empty(EVT_QUEUE.as_mut_ptr()) {
-                let node_ptr = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr());
-
-                let event = node_ptr.cast();
-                let event = EvtBox::new(event);
+            while let Some(node_ptr) = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr()) {
+                let event = EvtBox::new(node_ptr.cast());
 
                 EVT_CHANNEL.try_send(event).unwrap();
             }
@@ -48,18 +52,11 @@ impl Ble {
         // TODO: ACL data ack to the user
     }
 
-    pub fn send_cmd(buf: &[u8]) {
+    pub fn send_cmd(opcode: u16, payload: &[u8]) {
         debug!("writing ble cmd");
 
         unsafe {
-            let pcmd_buffer: *mut CmdPacket = BLE_CMD_BUFFER.as_mut_ptr();
-            let pcmd_serial: *mut CmdSerial = &mut (*pcmd_buffer).cmdserial;
-            let pcmd_serial_buf: *mut u8 = pcmd_serial.cast();
-
-            core::ptr::copy(buf.as_ptr(), pcmd_serial_buf, buf.len());
-
-            let cmd_packet = &mut *(*TL_REF_TABLE.assume_init().ble_table).pcmd_buffer;
-            cmd_packet.cmdserial.ty = TlPacketType::BleCmd as u8;
+            CmdPacket::write_into(BLE_CMD_BUFFER.as_mut_ptr(), TlPacketType::BleCmd, opcode, payload);
         }
 
         Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_BLE_CMD_CHANNEL);

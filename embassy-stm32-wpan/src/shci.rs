@@ -1,8 +1,6 @@
 use core::{mem, slice};
 
-use super::cmd::CmdPacket;
-use super::consts::TlPacketType;
-use super::{sys, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE, TL_SYS_TABLE};
+use super::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 
 pub const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;
 
