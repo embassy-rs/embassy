@@ -117,7 +117,10 @@ impl LinkedListNode {
     /// Remove `node` from the linked list
     pub unsafe fn remove_node(mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
+            trace!("remove node: {:x}", p_node);
             let node = ptr::read_volatile(p_node);
+            trace!("remove node: prev/next {:x}/{:x}", node.prev, node.next);
+
             if node.next != node.prev {
                 let mut node_next = ptr::read_volatile(node.next);
                 let mut node_prev = ptr::read_volatile(node.prev);
