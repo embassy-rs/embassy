@@ -1,10 +1,11 @@
 use core::mem::MaybeUninit;
+use core::ptr;
 
 use embassy_stm32::ipcc::Ipcc;
 
-use crate::cmd::CmdPacket;
+use crate::cmd::{Cmd, CmdPacket, CmdSerial};
 use crate::consts::TlPacketType;
-use crate::evt::EvtBox;
+use crate::evt::{EvtBox, EvtPacket};
 use crate::tables::BleTable;
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{
@@ -25,45 +26,26 @@ impl Ble {
                 phci_acl_data_buffer: HCI_ACL_DATA_BUFFER.as_mut_ptr().cast(),
             });
         }
-
-        Ipcc::c1_set_rx_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, true);
     }
-
-    pub(super) fn evt_handler() {
-        unsafe {
-            while let Some(node_ptr) = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr()) {
-                let event = EvtBox::new(node_ptr.cast());
-
-                EVT_CHANNEL.try_send(event).unwrap();
+    /// `HW_IPCC_BLE_EvtNot`
+    pub async fn read() -> EvtBox {
+        Ipcc::receive(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, || unsafe {
+            if let Some(node_ptr) = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr()) {
+                Some(EvtBox::new(node_ptr.cast()))
+            } else {
+                None
             }
-        }
-
-        Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_BLE_EVENT_CHANNEL);
+        })
+        .await
     }
 
-    pub(super) fn acl_data_handler() {
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL, false);
-
-        // TODO: ACL data ack to the user
-    }
-
-    pub fn send_cmd(opcode: u16, payload: &[u8]) {
-        debug!("writing ble cmd");
-
-        unsafe {
+    /// `TL_BLE_SendCmd`
+    pub async fn write(opcode: u16, payload: &[u8]) {
+        Ipcc::send(channels::cpu1::IPCC_BLE_CMD_CHANNEL, || unsafe {
             CmdPacket::write_into(BLE_CMD_BUFFER.as_mut_ptr(), TlPacketType::BleCmd, opcode, payload);
-        }
-
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_BLE_CMD_CHANNEL);
+        })
+        .await;
     }
 
-    #[allow(dead_code)] // Not used currently but reserved
-    pub(super) fn ble_send_acl_data() {
-        let cmd_packet = unsafe { &mut *(*TL_REF_TABLE.assume_init().ble_table).phci_acl_data_buffer };
-
-        cmd_packet.acl_data_serial.ty = TlPacketType::AclData as u8;
-
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL);
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL, true);
-    }
+    // TODO: acl commands
 }

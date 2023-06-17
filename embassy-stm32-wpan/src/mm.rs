@@ -1,6 +1,11 @@
 //! Memory manager routines
 
+use core::future::poll_fn;
+use core::task::Poll;
+
+use cortex_m::interrupt;
 use embassy_stm32::ipcc::Ipcc;
+use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::evt::EvtPacket;
 use crate::tables::MemManagerTable;
@@ -10,7 +15,9 @@ use crate::{
     TL_MEM_MANAGER_TABLE,
 };
 
-pub(super) struct MemoryManager;
+static MM_WAKER: AtomicWaker = AtomicWaker::new();
+
+pub struct MemoryManager;
 
 impl MemoryManager {
     pub fn enable() {
@@ -30,37 +37,36 @@ impl MemoryManager {
         }
     }
 
-    pub fn evt_drop(evt: *mut EvtPacket) {
-        //        unsafe {
-        //            let list_node = evt.cast();
-        //
-        //            LinkedListNode::insert_tail(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), list_node);
-        //
-        //            let channel_is_busy = Ipcc::c1_is_active_flag(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
-        //
-        //            // postpone event buffer freeing to IPCC interrupt handler
-        //            if channel_is_busy {
-        //                Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, true);
-        //            } else {
-        //                Self::send_free_buf();
-        //                Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
-        //            }
-        //        }
+    /// SAFETY: passing a pointer to something other than an event packet is UB
+    pub unsafe fn drop_event_packet(evt: *mut EvtPacket) {
+        interrupt::free(|_| unsafe {
+            LinkedListNode::insert_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
+        });
+
+        MM_WAKER.wake();
     }
 
-    /// gives free event buffers back to CPU2 from local buffer queue
-    pub fn send_free_buf() {
-        //        unsafe {
-        //            while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-        //                LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
-        //            }
-        //        }
-    }
+    pub async fn run_queue() {
+        loop {
+            poll_fn(|cx| unsafe {
+                MM_WAKER.register(cx.waker());
+                if LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(())
+                }
+            })
+            .await;
 
-    /// free buffer channel interrupt handler
-    pub fn free_buf_handler() {
-        //        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, false);
-        //        Self::send_free_buf();
-        //        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL);
+            Ipcc::send(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, || {
+                interrupt::free(|_| unsafe {
+                    // CS required while moving nodes
+                    while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                        LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
+                    }
+                })
+            })
+            .await;
+        }
     }
 }

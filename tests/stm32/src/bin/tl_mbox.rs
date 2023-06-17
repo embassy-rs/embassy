@@ -8,26 +8,40 @@ mod common;
 
 use common::*;
 use embassy_executor::Spawner;
+use embassy_futures::poll_once;
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::ipcc::Config;
+use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32_wpan::ble::Ble;
-use embassy_stm32_wpan::rc::RadioCoprocessor;
 use embassy_stm32_wpan::sys::Sys;
-use embassy_stm32_wpan::TlMbox;
+use embassy_stm32_wpan::{mm, TlMbox};
 use embassy_time::{Duration, Timer};
 
 bind_interrupts!(struct Irqs{
-    IPCC_C1_RX => embassy_stm32_wpan::ReceiveInterruptHandler;
-    IPCC_C1_TX => embassy_stm32_wpan::TransmitInterruptHandler;
+    IPCC_C1_RX => ReceiveInterruptHandler;
+    IPCC_C1_TX => TransmitInterruptHandler;
 });
 
+#[embassy_executor::task]
+async fn run_mm_queue() {
+    mm::MemoryManager::run_queue().await;
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config());
     info!("Hello World!");
 
+    spawner.spawn(run_mm_queue()).unwrap();
+
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);
+
+    let mut rx_buf = [0u8; 500];
+    let ready_event = Sys::read().await;
+    let _ = poll_once(Sys::read()); // clear rx not
+    ready_event.write(&mut rx_buf).unwrap();
+
+    info!("coprocessor ready {}", rx_buf);
 
     loop {
         let wireless_fw_info = mbox.wireless_fw_info();
@@ -53,19 +67,18 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_millis(50)).await;
     }
 
-    let mut rc = RadioCoprocessor::new(mbox);
+    Sys::shci_c2_ble_init(Default::default()).await;
 
-    let response = rc.read().await;
-    info!("coprocessor ready {}", response);
+    info!("starting ble...");
+    Ble::write(0x0c, &[]).await;
 
-    Sys::shci_ble_init(Default::default());
+    info!("waiting for ble...");
+    let ble_event = Ble::read().await;
+    ble_event.write(&mut rx_buf).unwrap();
 
-    // rc.write(&[0x01, 0x03, 0x0c, 0x00, 0x00]);
-    Ble::send_cmd(0x0c, &[]);
+    info!("ble event: {}", rx_buf);
 
-    let response = rc.read().await;
-    info!("ble reset rsp {}", response);
-
+    // Timer::after(Duration::from_secs(3)).await;
     info!("Test OK");
     cortex_m::asm::bkpt();
 }

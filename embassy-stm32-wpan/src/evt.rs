@@ -171,6 +171,8 @@ impl EvtBox {
 
 impl Drop for EvtBox {
     fn drop(&mut self) {
-        mm::MemoryManager::evt_drop(self.ptr);
+        trace!("evt box drop packet");
+
+        unsafe { mm::MemoryManager::drop_event_packet(self.ptr) };
     }
 }

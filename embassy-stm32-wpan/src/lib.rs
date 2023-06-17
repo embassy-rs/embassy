@@ -7,11 +7,10 @@ use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
 
 use cmd::CmdPacket;
-use embassy_futures::block_on;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
 use embassy_stm32::interrupt::typelevel::Interrupt;
-use embassy_stm32::ipcc::{Config, Ipcc};
+use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -29,49 +28,10 @@ pub mod cmd;
 pub mod consts;
 pub mod evt;
 pub mod mm;
-pub mod rc;
 pub mod shci;
 pub mod sys;
 pub mod tables;
 pub mod unsafe_linked_list;
-
-/// Interrupt handler.
-pub struct ReceiveInterruptHandler {}
-
-impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for ReceiveInterruptHandler {
-    unsafe fn on_interrupt() {
-        if Ipcc::is_rx_pending(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL) {
-            debug!("RX SYS evt");
-            sys::Sys::evt_handler();
-        } else if Ipcc::is_rx_pending(channels::cpu2::IPCC_BLE_EVENT_CHANNEL) {
-            debug!("RX BLE evt");
-            ble::Ble::evt_handler();
-        }
-
-        STATE.signal(());
-    }
-}
-
-pub struct TransmitInterruptHandler {}
-
-impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for TransmitInterruptHandler {
-    unsafe fn on_interrupt() {
-        if Ipcc::is_tx_pending(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL) {
-            debug!("TX SYS cmd rsp");
-            let cc = sys::Sys::cmd_evt_handler();
-
-            LAST_CC_EVT.signal(cc);
-        } else if Ipcc::is_tx_pending(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL) {
-            debug!("TX MM release");
-            mm::MemoryManager::free_buf_handler();
-        } else if Ipcc::is_tx_pending(channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL) {
-            debug!("TX HCI acl");
-            ble::Ble::acl_data_handler();
-        }
-
-        STATE.signal(());
-    }
-}
 
 #[link_section = "TL_REF_TABLE"]
 pub static mut TL_REF_TABLE: MaybeUninit<RefTable> = MaybeUninit::uninit();
@@ -285,24 +245,6 @@ impl<'d> TlMbox<'d> {
         // Zero version indicates that CPU2 wasn't active and didn't fill the information table
         if info.version != 0 {
             Some(*info)
-        } else {
-            None
-        }
-    }
-
-    /// picks single [`EvtBox`] from internal event queue.
-    ///
-    /// Internal event queu is populated in IPCC_RX_IRQ handler
-    pub fn dequeue_event(&mut self) -> Option<EvtBox> {
-        EVT_CHANNEL.try_recv().ok()
-    }
-
-    /// retrieves last Command Complete event and removes it from mailbox
-    pub fn pop_last_cc_evt(&mut self) -> Option<CcEvt> {
-        if LAST_CC_EVT.signaled() {
-            let cc = block_on(LAST_CC_EVT.wait());
-            LAST_CC_EVT.reset();
-            Some(cc)
         } else {
             None
         }

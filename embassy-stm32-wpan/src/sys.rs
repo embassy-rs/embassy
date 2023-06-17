@@ -1,19 +1,18 @@
 use core::mem::MaybeUninit;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::{mem, ptr};
 
-use embassy_stm32::ipcc::Ipcc;
-
-use crate::cmd::{CmdPacket, CmdSerial};
+use crate::cmd::{CmdPacket, CmdSerialStub};
 use crate::consts::TlPacketType;
-use crate::evt::{CcEvt, EvtBox, EvtSerial};
-use crate::shci::{ShciBleInitCmdParam, SCHI_OPCODE_BLE_INIT};
+use crate::evt::{CcEvt, EvtBox, EvtPacket, EvtSerial};
+use crate::shci::{ShciBleInitCmdPacket, ShciBleInitCmdParam, ShciHeader, SCHI_OPCODE_BLE_INIT};
 use crate::tables::SysTable;
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, EVT_CHANNEL, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
+use crate::{channels, mm, Ipcc, EVT_CHANNEL, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
 
 pub struct Sys;
 
 impl Sys {
+    /// TL_Sys_Init
     pub fn enable() {
         unsafe {
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
@@ -21,59 +20,47 @@ impl Sys {
             TL_SYS_TABLE.as_mut_ptr().write_volatile(SysTable {
                 pcmd_buffer: SYS_CMD_BUF.as_mut_ptr(),
                 sys_queue: SYSTEM_EVT_QUEUE.as_ptr(),
-            })
-        }
-
-        Ipcc::c1_set_rx_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, true);
-    }
-
-    pub fn cmd_evt_handler() -> CcEvt {
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, false);
-
-        // ST's command response data structure is really convoluted.
-        //
-        // for command response events on SYS channel, the header is missing
-        // and one should:
-        // 1. interpret the content of CMD_BUFFER as CmdPacket
-        // 2. Access CmdPacket's cmdserial field and interpret its content as EvtSerial
-        // 3. Access EvtSerial's evt field (as Evt) and interpret its payload as CcEvt
-        // 4. CcEvt type is the actual SHCI response
-        // 5. profit
-        unsafe {
-            let pcmd: *const CmdPacket = (*TL_SYS_TABLE.as_ptr()).pcmd_buffer;
-            let cmd_serial: *const CmdSerial = &(*pcmd).cmdserial;
-            let evt_serial: *const EvtSerial = cmd_serial.cast();
-            let cc: *const CcEvt = (*evt_serial).evt.payload.as_ptr().cast();
-            *cc
+            });
         }
     }
 
-    pub fn evt_handler() {
-        unsafe {
-            while let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                let event = EvtBox::new(node_ptr.cast());
+    //    pub async fn shci_c2_ble_init(&mut self, param: ShciBleInitCmdParam) -> SchiCommandStatus {
+    //        let command_event = self
+    //            .write_and_get_response(TlPacketType::SysCmd, ShciOpcode::BleInit as u16, param.payload())
+    //            .await;
+    //
+    //        let payload = command_event.payload[0];
+    //        // info!("payload: {:x}", payload);
+    //
+    //        payload.try_into().unwrap()
+    //    }
 
-                EVT_CHANNEL.try_send(event).unwrap();
-            }
-        }
-
-        Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL);
-    }
-
-    pub fn shci_ble_init(param: ShciBleInitCmdParam) {
-        debug!("sending SHCI");
-
-        Self::send_cmd(SCHI_OPCODE_BLE_INIT, param.payload());
-    }
-
-    pub fn send_cmd(opcode: u16, payload: &[u8]) {
+    pub fn write(opcode: u16, payload: &[u8]) {
         unsafe {
             CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode, payload);
         }
+    }
 
-        compiler_fence(Ordering::SeqCst);
+    pub async fn shci_c2_ble_init(param: ShciBleInitCmdParam) {
+        debug!("sending SHCI");
 
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
+        Ipcc::send(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, || {
+            Self::write(SCHI_OPCODE_BLE_INIT, param.payload());
+        })
+        .await;
+
+        Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
+    }
+
+    /// `HW_IPCC_SYS_EvtNot`
+    pub async fn read() -> EvtBox {
+        Ipcc::receive(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, || unsafe {
+            if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
+                Some(EvtBox::new(node_ptr.cast()))
+            } else {
+                None
+            }
+        })
+        .await
     }
 }
