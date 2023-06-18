@@ -1,6 +1,7 @@
 #![macro_use]
 
 use core::future::Future;
+use core::option;
 use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -21,11 +22,17 @@ use crate::pac::bdma::{regs, vals};
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub struct TransferOptions {}
+pub struct TransferOptions {
+    pub circular: bool,
+    pub halt_transfer_ir: bool,
+}
 
 impl Default for TransferOptions {
     fn default() -> Self {
-        Self {}
+        Self {
+            circular: false,
+            halt_transfer_ir: false,
+        }
     }
 }
 
@@ -253,7 +260,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         mem_len: usize,
         incr_mem: bool,
         data_size: WordSize,
-        _options: TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         let ch = channel.regs().ch(channel.num());
 
@@ -284,6 +291,14 @@ impl<'a, C: Channel> Transfer<'a, C> {
             w.set_dir(dir.into());
             w.set_teie(true);
             w.set_tcie(true);
+            w.set_htie(options.halt_transfer_ir);
+            if options.circular {
+                w.set_circ(vals::Circ::ENABLED);
+                debug!("Setting circular mode");
+            } else {
+                w.set_circ(vals::Circ::DISABLED);
+            }
+            w.set_pl(vals::Pl::VERYHIGH);
             w.set_en(true);
         });
 
@@ -314,8 +329,9 @@ impl<'a, C: Channel> Transfer<'a, C> {
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
         let en = unsafe { ch.cr().read() }.en();
+        let circular = unsafe { ch.cr().read() }.circ() == vals::Circ::ENABLED;
         let tcif = STATE.complete_count[self.channel.index()].load(Ordering::Acquire) != 0;
-        en && !tcif
+        en && (circular || !tcif)
     }
 
     /// Gets the total remaining transfers for the channel
@@ -482,6 +498,8 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         let ch = self.channel.regs().ch(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        // If the channel is enabled and transfer is not completed, we need to perform
+        // two separate write access to the CR register to disable the channel.
         unsafe {
             ch.cr().write(|w| {
                 w.set_teie(true);

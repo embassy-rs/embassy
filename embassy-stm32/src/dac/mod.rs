@@ -2,7 +2,7 @@
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use crate::dma::Transfer;
+use crate::dma::{Transfer, TransferOptions};
 use crate::pac::dac;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -237,7 +237,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
     }
 
     /// TODO: Allow an array of Value instead of only u16, right-aligned
-    pub async fn write(&mut self, data: &[u16]) -> Result<(), Error>
+    pub async fn write(&mut self, data: &[u16], circular: bool) -> Result<(), Error>
     where
         Tx: Dma<T>,
     {
@@ -257,7 +257,18 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         // Use the 12 bit right-aligned register for now. TODO: distinguish values
         let tx_dst = T::regs().dhr12r(CHANNEL).ptr() as *mut u16;
 
-        let tx_f = unsafe { Transfer::new_write(&mut self.txdma, tx_request, data, tx_dst, Default::default()) };
+        let tx_f = unsafe {
+            Transfer::new_write(
+                &mut self.txdma,
+                tx_request,
+                data,
+                tx_dst,
+                TransferOptions {
+                    circular,
+                    halt_transfer_ir: false,
+                },
+            )
+        };
 
         //debug!("Awaiting tx_f");
 
