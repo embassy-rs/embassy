@@ -49,15 +49,15 @@ async fn main(_spawner: Spawner) {
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
 
-//    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await; 
-//
-//    info!("starting ble...");
-//    mbox.ble_subsystem.write(0x0c, &[]).await;
-//
-//    info!("waiting for ble...");
-//    let ble_event = mbox.ble_subsystem.read().await;
-//
-//    info!("ble event: {}", ble_event.payload());
+    mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
+    //
+    //    info!("starting ble...");
+    //    mbox.ble_subsystem.write(0x0c, &[]).await;
+    //
+    //    info!("waiting for ble...");
+    //    let ble_event = mbox.ble_subsystem.read().await;
+    //
+    //    info!("ble event: {}", ble_event.payload());
 
     info!("Test OK");
     cortex_m::asm::bkpt();

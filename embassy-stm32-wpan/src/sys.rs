@@ -61,6 +61,12 @@ impl Sys {
         }
     }
 
+    #[cfg(feature = "mac")]
+    pub async fn shci_c2_mac_802_15_4_init(&self) -> SchiCommandStatus {
+        self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
+    }
+
+    #[cfg(feature = "ble")]
     pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) -> SchiCommandStatus {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }
