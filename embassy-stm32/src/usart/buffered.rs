@@ -21,27 +21,33 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
         // RX
         unsafe {
             let sr = sr(r).read();
+            // On v1 & v2, reading DR clears the rxne, error and idle interrupt
+            // flags. Keep this close to the SR read to reduce the chance of a
+            // flag being set in-between.
+            let dr = if sr.rxne() || cfg!(any(usart_v1, usart_v2)) && (sr.ore() || sr.idle()) {
+                Some(rdr(r).read_volatile())
+            } else {
+                None
+            };
             clear_interrupt_flags(r, sr);
 
+            if sr.pe() {
+                warn!("Parity error");
+            }
+            if sr.fe() {
+                warn!("Framing error");
+            }
+            if sr.ne() {
+                warn!("Noise error");
+            }
+            if sr.ore() {
+                warn!("Overrun error");
+            }
             if sr.rxne() {
-                if sr.pe() {
-                    warn!("Parity error");
-                }
-                if sr.fe() {
-                    warn!("Framing error");
-                }
-                if sr.ne() {
-                    warn!("Noise error");
-                }
-                if sr.ore() {
-                    warn!("Overrun error");
-                }
-
                 let mut rx_writer = state.rx_buf.writer();
                 let buf = rx_writer.push_slice();
                 if !buf.is_empty() {
-                    // This read also clears the error and idle interrupt flags on v1.
-                    buf[0] = rdr(r).read_volatile();
+                    buf[0] = dr.unwrap();
                     rx_writer.push_done(1);
                 } else {
                     // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
@@ -54,7 +60,7 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
 
             if sr.idle() {
                 state.rx_waker.wake();
-            };
+            }
         }
 
         // TX
