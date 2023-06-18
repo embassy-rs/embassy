@@ -122,7 +122,6 @@ impl Ipcc {
         let regs = IPCC::regs();
 
         Self::flush(channel).await;
-        compiler_fence(Ordering::SeqCst);
 
         f();
 
@@ -138,7 +137,7 @@ impl Ipcc {
 
         // This is a race, but is nice for debugging
         if unsafe { regs.cpu(0).sr().read() }.chf(channel as usize) {
-            trace!("ipcc: ch {}:  wait for tx free", channel as u8);
+            trace!("ipcc: ch {}: wait for tx free", channel as u8);
         }
 
         poll_fn(|cx| {
@@ -167,7 +166,7 @@ impl Ipcc {
         loop {
             // This is a race, but is nice for debugging
             if !unsafe { regs.cpu(1).sr().read() }.chf(channel as usize) {
-                trace!("ipcc: ch {}:  wait for rx occupied", channel as u8);
+                trace!("ipcc: ch {}: wait for rx occupied", channel as u8);
             }
 
             poll_fn(|cx| {
@@ -188,8 +187,7 @@ impl Ipcc {
             })
             .await;
 
-            trace!("ipcc: ch {}:  read data", channel as u8);
-            compiler_fence(Ordering::SeqCst);
+            trace!("ipcc: ch {}: read data", channel as u8);
 
             match f() {
                 Some(ret) => return ret,
@@ -239,7 +237,7 @@ pub(crate) mod sealed {
             }
         }
 
-        pub fn rx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
+        pub const fn rx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
             match channel {
                 IpccChannel::Channel1 => &self.rx_wakers[0],
                 IpccChannel::Channel2 => &self.rx_wakers[1],
@@ -250,7 +248,7 @@ pub(crate) mod sealed {
             }
         }
 
-        pub fn tx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
+        pub const fn tx_waker_for(&self, channel: IpccChannel) -> &AtomicWaker {
             match channel {
                 IpccChannel::Channel1 => &self.tx_wakers[0],
                 IpccChannel::Channel2 => &self.tx_wakers[1],
