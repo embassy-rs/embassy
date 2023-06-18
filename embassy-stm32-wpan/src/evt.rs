@@ -62,6 +62,7 @@ pub struct EvtSerial {
 }
 
 #[derive(Copy, Clone, Default)]
+#[repr(C, packed)]
 pub struct EvtStub {
     pub kind: u8,
     pub evt_code: u8,
@@ -114,7 +115,7 @@ impl EvtBox {
         }
     }
 
-    pub fn payload<'a>(&self) -> &'a [u8] {
+    pub fn payload<'a>(&'a self) -> &'a [u8] {
         unsafe {
             let p_payload_len = &(*self.ptr).evt_serial.evt.payload_len as *const u8;
             let p_payload = &(*self.ptr).evt_serial.evt.payload as *const u8;
@@ -124,72 +125,10 @@ impl EvtBox {
             slice::from_raw_parts(p_payload, payload_len as usize)
         }
     }
-
-    // TODO: bring back acl
-
-    //     /// writes an underlying [`EvtPacket`] into the provided buffer.
-    //     /// Returns the number of bytes that were written.
-    //     /// Returns an error if event kind is unknown or if provided buffer size is not enough.
-    //     #[allow(clippy::result_unit_err)]
-    //     pub fn write(&self, buf: &mut [u8]) -> Result<usize, ()> {
-    //         unsafe {
-    //             let evt_kind = TlPacketType::try_from((*self.ptr).evt_serial.kind)?;
-    //
-    //             let evt_data: *const EvtPacket = self.ptr.cast();
-    //             let evt_serial: *const EvtSerial = &(*evt_data).evt_serial;
-    //             let evt_serial_buf: *const u8 = evt_serial.cast();
-    //
-    //             let acl_data: *const AclDataPacket = self.ptr.cast();
-    //             let acl_serial: *const AclDataSerial = &(*acl_data).acl_data_serial;
-    //             let acl_serial_buf: *const u8 = acl_serial.cast();
-    //
-    //             if let TlPacketType::AclData = evt_kind {
-    //                 let len = (*acl_serial).length as usize + 5;
-    //                 if len > buf.len() {
-    //                     return Err(());
-    //                 }
-    //
-    //                 core::ptr::copy(evt_serial_buf, buf.as_mut_ptr(), len);
-    //
-    //                 Ok(len)
-    //             } else {
-    //                 let len = (*evt_serial).evt.payload_len as usize + TL_EVT_HEADER_SIZE;
-    //                 if len > buf.len() {
-    //                     return Err(());
-    //                 }
-    //
-    //                 core::ptr::copy(acl_serial_buf, buf.as_mut_ptr(), len);
-    //
-    //                 Ok(len)
-    //             }
-    //         }
-    //     }
-    //
-    //     /// returns the size of a buffer required to hold this event
-    //     #[allow(clippy::result_unit_err)]
-    //     pub fn size(&self) -> Result<usize, ()> {
-    //         unsafe {
-    //             let evt_kind = TlPacketType::try_from((*self.ptr).evt_serial.kind)?;
-    //
-    //             let evt_data: *const EvtPacket = self.ptr.cast();
-    //             let evt_serial: *const EvtSerial = &(*evt_data).evt_serial;
-    //
-    //             let acl_data: *const AclDataPacket = self.ptr.cast();
-    //             let acl_serial: *const AclDataSerial = &(*acl_data).acl_data_serial;
-    //
-    //             if let TlPacketType::AclData = evt_kind {
-    //                 Ok((*acl_serial).length as usize + 5)
-    //             } else {
-    //                 Ok((*evt_serial).evt.payload_len as usize + TL_EVT_HEADER_SIZE)
-    //             }
-    //         }
-    //     }
 }
 
 impl Drop for EvtBox {
     fn drop(&mut self) {
-        trace!("evt box drop packet");
-
         unsafe { mm::MemoryManager::drop_event_packet(self.ptr) };
     }
 }

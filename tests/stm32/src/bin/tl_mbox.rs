@@ -39,7 +39,7 @@ async fn main(spawner: Spawner) {
     let ready_event = mbox.sys_subsystem.read().await;
     let _ = poll_once(mbox.sys_subsystem.read()); // clear rx not
 
-    info!("coprocessor ready {}", ready_event.payload());
+    info!("sys event {:x} : {:x}", ready_event.stub().kind, ready_event.payload());
 
     // test memory manager
     mem::drop(ready_event);
@@ -59,7 +59,8 @@ async fn main(spawner: Spawner) {
 
     Timer::after(Duration::from_millis(50)).await;
 
-    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    let result = mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    info!("subsystem initialization: {}", result);
 
     info!("starting ble...");
     mbox.ble_subsystem.write(0x0c, &[]).await;
@@ -67,9 +68,8 @@ async fn main(spawner: Spawner) {
     info!("waiting for ble...");
     let ble_event = mbox.ble_subsystem.read().await;
 
-    info!("ble event: {}", ble_event.payload());
+    info!("ble event {:x} : {:x}", ble_event.stub().kind, ble_event.payload());
 
-    Timer::after(Duration::from_millis(150)).await;
     info!("Test OK");
     cortex_m::asm::bkpt();
 }
