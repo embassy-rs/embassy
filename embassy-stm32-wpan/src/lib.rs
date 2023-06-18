@@ -10,13 +10,8 @@ use ble::Ble;
 use cmd::CmdPacket;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
-use embassy_stm32::interrupt::typelevel::Interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
-use embassy_sync::signal::Signal;
-use evt::{CcEvt, EvtBox};
 use mm::MemoryManager;
 use sys::Sys;
 use tables::{
@@ -129,19 +124,6 @@ static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 //                                 fuck these "magic" numbers from ST ---v---v
 static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();
 
-// TODO: remove these items
-
-#[allow(dead_code)]
-/// current event that is produced during IPCC IRQ handler execution
-/// on SYS channel
-static EVT_CHANNEL: Channel<CriticalSectionRawMutex, EvtBox, 32> = Channel::new();
-
-#[allow(dead_code)]
-/// last received Command Complete event
-static LAST_CC_EVT: Signal<CriticalSectionRawMutex, CcEvt> = Signal::new();
-
-static STATE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-
 pub struct TlMbox<'d> {
     _ipcc: PeripheralRef<'d, IPCC>,
 
@@ -232,24 +214,11 @@ impl<'d> TlMbox<'d> {
 
         Ipcc::enable(config);
 
-        let sys = sys::Sys::new();
-        let ble = ble::Ble::new();
-        let mm = mm::MemoryManager::new();
-
-        // enable interrupts
-        interrupt::typelevel::IPCC_C1_RX::unpend();
-        interrupt::typelevel::IPCC_C1_TX::unpend();
-
-        unsafe { interrupt::typelevel::IPCC_C1_RX::enable() };
-        unsafe { interrupt::typelevel::IPCC_C1_TX::enable() };
-
-        STATE.reset();
-
         Self {
             _ipcc: ipcc,
-            sys_subsystem: sys,
-            ble_subsystem: ble,
-            mm_subsystem: mm,
+            sys_subsystem: sys::Sys::new(),
+            ble_subsystem: ble::Ble::new(),
+            mm_subsystem: mm::MemoryManager::new(),
         }
     }
 }
