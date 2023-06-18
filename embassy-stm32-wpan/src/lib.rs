@@ -6,7 +6,6 @@ pub mod fmt;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use ble::Ble;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
@@ -16,11 +15,14 @@ use sys::Sys;
 use tables::*;
 use unsafe_linked_list::LinkedListNode;
 
+#[cfg(feature = "ble")]
 pub mod ble;
 pub mod channels;
 pub mod cmd;
 pub mod consts;
 pub mod evt;
+#[cfg(feature = "mac")]
+pub mod mac;
 pub mod mm;
 pub mod shci;
 pub mod sys;
@@ -34,7 +36,10 @@ pub struct TlMbox<'d> {
 
     pub sys_subsystem: Sys,
     pub mm_subsystem: MemoryManager,
-    pub ble_subsystem: Ble,
+    #[cfg(feature = "ble")]
+    pub ble_subsystem: ble::Ble,
+    #[cfg(feature = "mac")]
+    pub mac_subsystem: mac::Mac,
 }
 
 impl<'d> TlMbox<'d> {
@@ -122,7 +127,10 @@ impl<'d> TlMbox<'d> {
         Self {
             _ipcc: ipcc,
             sys_subsystem: sys::Sys::new(),
+            #[cfg(feature = "ble")]
             ble_subsystem: ble::Ble::new(),
+            #[cfg(feature = "mac")]
+            mac_subsystem: mac::Mac::new(),
             mm_subsystem: mm::MemoryManager::new(),
         }
     }

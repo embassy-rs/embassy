@@ -1,7 +1,6 @@
 use core::{ptr, slice};
 
 use super::PacketHeader;
-use crate::mm;
 
 /**
  * The payload of `Evt` for a command status event
@@ -129,6 +128,18 @@ impl EvtBox {
 
 impl Drop for EvtBox {
     fn drop(&mut self) {
-        unsafe { mm::MemoryManager::drop_event_packet(self.ptr) };
+        #[cfg(feature = "ble")]
+        unsafe {
+            use crate::mm;
+
+            mm::MemoryManager::drop_event_packet(self.ptr)
+        };
+
+        #[cfg(feature = "mac")]
+        unsafe {
+            use crate::mac;
+
+            mac::Mac::drop_event_packet(self.ptr)
+        }
     }
 }

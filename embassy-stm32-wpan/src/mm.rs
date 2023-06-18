@@ -43,7 +43,8 @@ impl MemoryManager {
         Self { phantom: PhantomData }
     }
 
-    /// SAFETY: passing a pointer to something other than an event packet is UB
+    #[allow(dead_code)]
+    /// SAFETY: passing a pointer to something other than a managed event packet is UB
     pub(crate) unsafe fn drop_event_packet(evt: *mut EvtPacket) {
         interrupt::free(|_| unsafe {
             LinkedListNode::insert_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
