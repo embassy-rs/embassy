@@ -53,6 +53,8 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
             }
 
             if sr.idle() {
+                // This read also clears the error and idle interrupt flags on v1.
+                rdr(r).read_volatile();
                 state.rx_waker.wake();
             };
         }
