@@ -1,6 +1,6 @@
 use core::{mem, slice};
 
-use super::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
+use crate::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 
 const SHCI_OGF: u16 = 0x3F;
 

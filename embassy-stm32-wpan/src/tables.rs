@@ -1,6 +1,9 @@
+use core::mem::MaybeUninit;
+
 use bit_field::BitField;
 
 use crate::cmd::{AclDataPacket, CmdPacket};
+use crate::consts::{POOL_SIZE, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 use crate::unsafe_linked_list::LinkedListNode;
 
 #[derive(Debug, Copy, Clone)]
@@ -173,3 +176,77 @@ pub struct RefTable {
     pub traces_table: *const TracesTable,
     pub mac_802_15_4_table: *const Mac802_15_4Table,
 }
+
+// --------------------- ref table ---------------------
+#[link_section = "TL_REF_TABLE"]
+pub static mut TL_REF_TABLE: MaybeUninit<RefTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut TL_DEVICE_INFO_TABLE: MaybeUninit<DeviceInfoTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut TL_BLE_TABLE: MaybeUninit<BleTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut TL_THREAD_TABLE: MaybeUninit<ThreadTable> = MaybeUninit::uninit();
+
+// #[link_section = "MB_MEM1"]
+// pub static mut TL_LLD_TESTS_TABLE: MaybeUninit<LldTestTable> = MaybeUninit::uninit();
+
+// #[link_section = "MB_MEM1"]
+// pub static mut TL_BLE_LLD_TABLE: MaybeUninit<BleLldTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut TL_SYS_TABLE: MaybeUninit<SysTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut TL_MEM_MANAGER_TABLE: MaybeUninit<MemManagerTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut TL_TRACES_TABLE: MaybeUninit<TracesTable> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut TL_MAC_802_15_4_TABLE: MaybeUninit<Mac802_15_4Table> = MaybeUninit::uninit();
+
+// #[link_section = "MB_MEM1"]
+// pub static mut TL_ZIGBEE_TABLE: MaybeUninit<ZigbeeTable> = MaybeUninit::uninit();
+
+// --------------------- tables ---------------------
+#[link_section = "MB_MEM1"]
+pub static mut FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
+
+#[allow(dead_code)]
+#[link_section = "MB_MEM1"]
+pub static mut TRACES_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+pub static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
+    MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+pub static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+pub static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
+
+// --------------------- app tables ---------------------
+#[link_section = "MB_MEM2"]
+pub static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+pub static mut SYS_CMD_BUF: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+pub static mut SYS_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
+    MaybeUninit::uninit();
+
+#[link_section = "MB_MEM1"]
+pub static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+pub static mut BLE_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
+    MaybeUninit::uninit();
+
+#[link_section = "MB_MEM2"]
+//                                 fuck these "magic" numbers from ST ---v---v
+pub static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();
