@@ -9,7 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::InterruptExt;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
 
@@ -74,42 +74,41 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     }
 
     // Enable interrupts
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
-            let irq = unsafe { interrupt::GPIOTE0::steal() };
-        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
-            let irq = unsafe { interrupt::GPIOTE1::steal() };
-        } else {
-            let irq = unsafe { interrupt::GPIOTE::steal() };
-        }
-    }
+    #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+    let irq = interrupt::GPIOTE0;
+    #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+    let irq = interrupt::GPIOTE1;
+    #[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+    let irq = interrupt::GPIOTE;
 
     irq.unpend();
     irq.set_priority(irq_prio);
-    irq.enable();
+    unsafe { irq.enable() };
 
     let g = regs();
     g.events_port.write(|w| w);
     g.intenset.write(|w| w.port().set());
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
-        #[interrupt]
-        fn GPIOTE0() {
-            unsafe { handle_gpiote_interrupt() };
-        }
-    } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
-        #[interrupt]
-        fn GPIOTE1() {
-            unsafe { handle_gpiote_interrupt() };
-        }
-    } else {
-        #[interrupt]
-        fn GPIOTE() {
-            unsafe { handle_gpiote_interrupt() };
-        }
-    }
+#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE0() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE1() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+#[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE() {
+    unsafe { handle_gpiote_interrupt() };
 }
 
 unsafe fn handle_gpiote_interrupt() {

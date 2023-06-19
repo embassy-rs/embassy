@@ -206,7 +206,7 @@ struct ExtiInputFuture<'a> {
 
 impl<'a> ExtiInputFuture<'a> {
     fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             let pin = pin as usize;
             exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
             EXTI.rtsr(0).modify(|w| w.set_line(pin, rising));
@@ -233,7 +233,7 @@ impl<'a> ExtiInputFuture<'a> {
 
 impl<'a> Drop for ExtiInputFuture<'a> {
     fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             let pin = self.pin as _;
             cpu_regs().imr(0).modify(|w| w.set_line(pin, false));
         });
@@ -246,7 +246,7 @@ impl<'a> Future for ExtiInputFuture<'a> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         EXTI_WAKERS[self.pin as usize].register(cx.waker());
 
-        let imr = unsafe { cpu_regs().imr(0).read() };
+        let imr = cpu_regs().imr(0).read();
         if !imr.line(self.pin as _) {
             Poll::Ready(())
         } else {
@@ -291,6 +291,7 @@ macro_rules! foreach_exti_irq {
 
 macro_rules! impl_irq {
     ($e:ident) => {
+        #[cfg(feature = "rt")]
         #[interrupt]
         unsafe fn $e() {
             on_irq()
@@ -354,13 +355,13 @@ impl_exti!(EXTI15, 15);
 
 macro_rules! enable_irq {
     ($e:ident) => {
-        crate::interrupt::$e::steal().enable();
+        crate::interrupt::typelevel::$e::enable();
     };
 }
 
 /// safety: must be called only once
 pub(crate) unsafe fn init() {
-    use crate::interrupt::{Interrupt, InterruptExt};
+    use crate::interrupt::typelevel::Interrupt;
 
     foreach_exti_irq!(enable_irq);
 

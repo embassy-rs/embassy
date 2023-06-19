@@ -462,7 +462,7 @@ struct PllOutput {
     r: Option<Hertz>,
 }
 
-unsafe fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
+fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     let Some(config) = config else {
         // Stop PLL
         RCC.cr().modify(|w| w.set_pllon(num, false));
@@ -595,12 +595,9 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
 
     defmt::debug!("flash: latency={} wrhighfreq={}", latency, wrhighfreq);
 
-    // NOTE(unsafe) Atomic write
-    unsafe {
-        FLASH.acr().write(|w| {
-            w.set_wrhighfreq(wrhighfreq);
-            w.set_latency(latency);
-        });
-        while FLASH.acr().read().latency() != latency {}
-    }
+    FLASH.acr().write(|w| {
+        w.set_wrhighfreq(wrhighfreq);
+        w.set_latency(latency);
+    });
+    while FLASH.acr().read().latency() != latency {}
 }

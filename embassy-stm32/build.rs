@@ -160,13 +160,11 @@ fn main() {
     }
 
     g.extend(quote! {
-        pub mod interrupt {
-            use crate::pac::Interrupt as InterruptEnum;
-            use embassy_cortex_m::interrupt::_export::declare;
+        embassy_hal_common::interrupt_mod!(
             #(
-                declare!(#irqs);
+                #irqs,
             )*
-        }
+        );
     });
 
     // ========
@@ -297,6 +295,7 @@ fn main() {
         let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
 
         g.extend(quote! {
+            #[cfg(feature = "rt")]
             #[crate::interrupt]
             unsafe fn #irq () {
                 #(
@@ -323,7 +322,7 @@ fn main() {
                     let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
                     let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
                     quote! {
-                        critical_section::with(|_| unsafe {
+                        critical_section::with(|_| {
                             crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
                             crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
                         });
@@ -354,13 +353,13 @@ fn main() {
                         })
                     }
                     fn enable() {
-                        critical_section::with(|_| unsafe {
+                        critical_section::with(|_| {
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                             #after_enable
                         })
                     }
                     fn disable() {
-                        critical_section::with(|_| unsafe {
+                        critical_section::with(|_| {
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                         })
                     }

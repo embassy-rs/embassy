@@ -105,10 +105,8 @@ impl<'d, T: Instance> Can<'d, T> {
     ) -> Self {
         into_ref!(peri, rx, tx);
 
-        unsafe {
-            rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-        }
+        rx.set_as_af(rx.af_num(), AFType::Input);
+        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
         T::enable();
         T::reset();
@@ -145,6 +143,9 @@ impl<'d, T: Instance> Can<'d, T> {
             T::SCEInterrupt::steal().unpend();
             T::SCEInterrupt::steal().enable();
         }
+
+        rx.set_as_af(rx.af_num(), AFType::Input);
+        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
         let can = bxcan::Can::builder(BxcanInstance(peri)).leave_disabled();
         Self { can }
@@ -346,7 +347,7 @@ impl<'d, T: Instance> Drop for Can<'d, T> {
     fn drop(&mut self) {
         // Cannot call `free()` because it moves the instance.
         // Manually reset the peripheral.
-        unsafe { T::regs().mcr().write(|w| w.set_reset(true)) }
+        T::regs().mcr().write(|w| w.set_reset(true));
         T::disable();
     }
 }
@@ -422,7 +423,7 @@ unsafe impl<'d, T: Instance> bxcan::Instance for BxcanInstance<'d, T> {
 foreach_peripheral!(
     (can, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.0 as *mut _;
+            const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
 
             fn regs() -> &'static crate::pac::can::Can {
                 &crate::pac::$inst

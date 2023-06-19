@@ -16,16 +16,8 @@ use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
 use embassy_rp::pio::Pio;
 use embassy_time::Duration;
 use embedded_io::asynch::Write;
-use static_cell::StaticCell;
+use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
-
-macro_rules! singleton {
-    ($val:expr) => {{
-        type T = impl Sized;
-        static STATIC_CELL: StaticCell<T> = StaticCell::new();
-        STATIC_CELL.init_with(move || $val)
-    }};
-}
 
 #[embassy_executor::task]
 async fn wifi_task(
@@ -60,7 +52,7 @@ async fn main(spawner: Spawner) {
     let mut pio = Pio::new(p.PIO0);
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
-    let state = singleton!(cyw43::State::new());
+    let state = make_static!(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
     unwrap!(spawner.spawn(wifi_task(runner)));
 
@@ -70,7 +62,7 @@ async fn main(spawner: Spawner) {
         .await;
 
     // Use a link-local address for communication without DHCP server
-    let config = Config::Static(embassy_net::StaticConfig {
+    let config = Config::ipv4_static(embassy_net::StaticConfigV4 {
         address: embassy_net::Ipv4Cidr::new(embassy_net::Ipv4Address::new(169, 254, 1, 1), 16),
         dns_servers: heapless::Vec::new(),
         gateway: None,
@@ -80,10 +72,10 @@ async fn main(spawner: Spawner) {
     let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guarenteed to be random.
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(
+    let stack = &*make_static!(Stack::new(
         net_device,
         config,
-        singleton!(StackResources::<2>::new()),
+        make_static!(StackResources::<2>::new()),
         seed
     ));
 

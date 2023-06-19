@@ -57,14 +57,11 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use core::mem;
-
-use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
-use embassy_rp::executor::{Executor, InterruptExecutor};
+use embassy_executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt;
-use embassy_rp::pac::Interrupt;
+use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_time::{Duration, Instant, Timer, TICK_HZ};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -130,18 +127,15 @@ fn main() -> ! {
     info!("Hello World!");
 
     let _p = embassy_rp::init(Default::default());
-    let mut nvic: NVIC = unsafe { mem::transmute(()) };
 
     // High-priority executor: SWI_IRQ_1, priority level 2
-    unsafe { nvic.set_priority(Interrupt::SWI_IRQ_1, 2 << 6) };
-    info!("bla: {}", NVIC::get_priority(Interrupt::SWI_IRQ_1));
-    let spawner = EXECUTOR_HIGH.start(Interrupt::SWI_IRQ_1);
+    interrupt::SWI_IRQ_1.set_priority(Priority::P2);
+    let spawner = EXECUTOR_HIGH.start(interrupt::SWI_IRQ_1);
     unwrap!(spawner.spawn(run_high()));
 
     // Medium-priority executor: SWI_IRQ_0, priority level 3
-    unsafe { nvic.set_priority(Interrupt::SWI_IRQ_0, 3 << 6) };
-    info!("bla: {}", NVIC::get_priority(Interrupt::SWI_IRQ_0));
-    let spawner = EXECUTOR_MED.start(Interrupt::SWI_IRQ_0);
+    interrupt::SWI_IRQ_0.set_priority(Priority::P3);
+    let spawner = EXECUTOR_MED.start(interrupt::SWI_IRQ_0);
     unwrap!(spawner.spawn(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV

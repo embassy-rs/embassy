@@ -13,7 +13,8 @@ flavors = [
 ]
 
 [features]
-default = [ "rp-pac/rt" ]
+default = [ "rt" ]
+rt = [ "rp-pac/rt" ]
 
 defmt = ["dep:defmt", "embassy-usb-driver?/defmt", "embassy-hal-common/defmt"]
 
@@ -41,8 +42,13 @@ boot2-ram-memcpy = []
 boot2-w25q080 = []
 boot2-w25x10cl = []
 
+# Indicate code is running from RAM.
+# Set this if all code is in RAM, and the cores never access memory-mapped flash memory through XIP.
+# This allows the flash driver to not force pausing execution on both cores when doing flash operations.
+run-from-ram = []
+
 # Enable nightly-only features
-nightly = ["embassy-executor/nightly", "embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
+nightly = ["embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
@@ -50,11 +56,9 @@ unstable-traits = ["embedded-hal-1", "embedded-hal-nb"]
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
-embassy-executor = { version = "0.2.0", path = "../embassy-executor" }
 embassy-time = { version = "0.1.0", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-cortex-m = { version = "0.1.0", path = "../embassy-cortex-m", features = ["prio-bits-2"]}
-embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common" }
+embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
 atomic-polyfill = "1.0.1"
@@ -72,7 +76,7 @@ embedded-storage = { version = "0.3" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
-rp-pac = { version = "4" }
+rp-pac = { version = "5" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
@@ -85,5 +89,5 @@ pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 
 [dev-dependencies]
-embassy-executor = { version = "0.2.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
-static_cell = "1.0"
+embassy-executor = { version = "0.2.0", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
+static_cell = "1.1"

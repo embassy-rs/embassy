@@ -12,12 +12,12 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
 use crate::gpio::{self, Pin as GpioPin};
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::typelevel::Interrupt;
 pub use crate::pac::qspi::ifconfig0::{
     ADDRMODE_A as AddressMode, PPSIZE_A as WritePageSize, READOC_A as ReadOpcode, WRITEOC_A as WriteOpcode,
 };
 pub use crate::pac::qspi::ifconfig1::SPIMODE_A as SpiMode;
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
 
 /// Deep power-down config.
 pub struct DeepPowerDownConfig {
@@ -120,7 +120,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
@@ -143,7 +143,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// Create a new QSPI driver.
     pub fn new(
         qspi: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         csn: impl Peripheral<P = impl GpioPin> + 'd,
         io0: impl Peripheral<P = impl GpioPin> + 'd,
@@ -207,8 +207,8 @@ impl<'d, T: Instance> Qspi<'d, T> {
             w
         });
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         // Enable it
         r.enable.write(|w| w.enable().enabled());
@@ -644,7 +644,7 @@ pub(crate) mod sealed {
 /// QSPI peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_qspi {
@@ -659,7 +659,7 @@ macro_rules! impl_qspi {
             }
         }
         impl crate::qspi::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

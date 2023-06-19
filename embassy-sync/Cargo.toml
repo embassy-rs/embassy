@@ -45,4 +45,4 @@ futures-util = { version = "0.3.17", features = [ "channel" ] }
 
 # Enable critical-section implementation for std, for tests
 critical-section = { version = "1.1", features = ["std"] }
-static_cell = "1.0"
+static_cell = "1.1"

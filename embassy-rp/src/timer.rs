@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
 
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
 struct AlarmState {
@@ -34,13 +34,11 @@ embassy_time::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
 impl Driver for TimerDriver {
     fn now(&self) -> u64 {
         loop {
-            unsafe {
-                let hi = pac::TIMER.timerawh().read();
-                let lo = pac::TIMER.timerawl().read();
-                let hi2 = pac::TIMER.timerawh().read();
-                if hi == hi2 {
-                    return (hi as u64) << 32 | (lo as u64);
-                }
+            let hi = pac::TIMER.timerawh().read();
+            let lo = pac::TIMER.timerawl().read();
+            let hi2 = pac::TIMER.timerawh().read();
+            if hi == hi2 {
+                return (hi as u64) << 32 | (lo as u64);
             }
         }
     }
@@ -78,13 +76,13 @@ impl Driver for TimerDriver {
             // Note that we're not checking the high bits at all. This means the irq may fire early
             // if the alarm is more than 72 minutes (2^32 us) in the future. This is OK, since on irq fire
             // it is checked if the alarm time has passed.
-            unsafe { pac::TIMER.alarm(n).write_value(timestamp as u32) };
+            pac::TIMER.alarm(n).write_value(timestamp as u32);
 
             let now = self.now();
             if timestamp <= now {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                unsafe { pac::TIMER.armed().write(|w| w.set_armed(1 << n)) }
+                pac::TIMER.armed().write(|w| w.set_armed(1 << n));
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -106,17 +104,17 @@ impl TimerDriver {
             } else {
                 // Not elapsed, arm it again.
                 // This can happen if it was set more than 2^32 us in the future.
-                unsafe { pac::TIMER.alarm(n).write_value(timestamp as u32) };
+                pac::TIMER.alarm(n).write_value(timestamp as u32);
             }
         });
 
         // clear the irq
-        unsafe { pac::TIMER.intr().write(|w| w.set_alarm(n, true)) }
+        pac::TIMER.intr().write(|w| w.set_alarm(n, true));
     }
 
     fn trigger_alarm(&self, n: usize, cs: CriticalSection) {
         // disarm
-        unsafe { pac::TIMER.armed().write(|w| w.set_armed(1 << n)) }
+        pac::TIMER.armed().write(|w| w.set_armed(1 << n));
 
         let alarm = &self.alarms.borrow(cs)[n];
         alarm.timestamp.set(u64::MAX);
@@ -145,28 +143,32 @@ pub unsafe fn init() {
         w.set_alarm(2, true);
         w.set_alarm(3, true);
     });
-    interrupt::TIMER_IRQ_0::steal().enable();
-    interrupt::TIMER_IRQ_1::steal().enable();
-    interrupt::TIMER_IRQ_2::steal().enable();
-    interrupt::TIMER_IRQ_3::steal().enable();
+    interrupt::TIMER_IRQ_0.enable();
+    interrupt::TIMER_IRQ_1.enable();
+    interrupt::TIMER_IRQ_2.enable();
+    interrupt::TIMER_IRQ_3.enable();
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
-unsafe fn TIMER_IRQ_0() {
+fn TIMER_IRQ_0() {
     DRIVER.check_alarm(0)
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
-unsafe fn TIMER_IRQ_1() {
+fn TIMER_IRQ_1() {
     DRIVER.check_alarm(1)
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
-unsafe fn TIMER_IRQ_2() {
+fn TIMER_IRQ_2() {
     DRIVER.check_alarm(2)
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
-unsafe fn TIMER_IRQ_3() {
+fn TIMER_IRQ_3() {
     DRIVER.check_alarm(3)
 }

@@ -1,214 +1,208 @@
 //! Interrupt handling for cortex-m devices.
-use core::{mem, ptr};
+use core::mem;
+use core::sync::atomic::{compiler_fence, Ordering};
 
-use atomic_polyfill::{compiler_fence, AtomicPtr, Ordering};
+use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
-use embassy_hal_common::Peripheral;
-pub use embassy_macros::cortex_m_interrupt_take as take;
 
-/// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
-#[doc(hidden)]
-pub mod _export {
-    pub use atomic_polyfill as atomic;
-    pub use embassy_macros::{cortex_m_interrupt as interrupt, cortex_m_interrupt_declare as declare};
-}
+/// Generate a standard `mod interrupt` for a HAL.
+#[macro_export]
+macro_rules! interrupt_mod {
+    ($($irqs:ident),* $(,)?) => {
+        #[cfg(feature = "rt")]
+        pub use cortex_m_rt::interrupt;
 
-/// Interrupt handler trait.
-///
-/// Drivers that need to handle interrupts implement this trait.
-/// The user must ensure `on_interrupt()` is called every time the interrupt fires.
-/// Drivers must use use [`Binding`] to assert at compile time that the user has done so.
-pub trait Handler<I: Interrupt> {
-    /// Interrupt handler function.
-    ///
-    /// Must be called every time the `I` interrupt fires, synchronously from
-    /// the interrupt handler context.
-    ///
-    /// # Safety
-    ///
-    /// This function must ONLY be called from the interrupt handler for `I`.
-    unsafe fn on_interrupt();
-}
+        /// Interrupt definitions.
+        pub mod interrupt {
+            pub use $crate::interrupt::{InterruptExt, Priority};
+            pub use crate::pac::Interrupt::*;
+            pub use crate::pac::Interrupt;
 
-/// Compile-time assertion that an interrupt has been bound to a handler.
-///
-/// For the vast majority of cases, you should use the `bind_interrupts!`
-/// macro instead of writing `unsafe impl`s of this trait.
-///
-/// # Safety
-///
-/// By implementing this trait, you are asserting that you have arranged for `H::on_interrupt()`
-/// to be called every time the `I` interrupt fires.
-///
-/// This allows drivers to check bindings at compile-time.
-pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
+            /// Type-level interrupt infrastructure.
+            ///
+            /// This module contains one *type* per interrupt. This is used for checking at compile time that
+            /// the interrupts are correctly bound to HAL drivers.
+            ///
+            /// As an end user, you shouldn't need to use this module directly. Use the [`crate::bind_interrupts!`] macro
+            /// to bind interrupts, and the [`crate::interrupt`] module to manually register interrupt handlers and manipulate
+            /// interrupts directly (pending/unpending, enabling/disabling, setting the priority, etc...)
+            pub mod typelevel {
+                use super::InterruptExt;
 
-/// Implementation detail, do not use outside embassy crates.
-#[doc(hidden)]
-pub struct DynHandler {
-    pub func: AtomicPtr<()>,
-    pub ctx: AtomicPtr<()>,
-}
+                mod sealed {
+                    pub trait Interrupt {}
+                }
 
-impl DynHandler {
-    pub const fn new() -> Self {
-        Self {
-            func: AtomicPtr::new(ptr::null_mut()),
-            ctx: AtomicPtr::new(ptr::null_mut()),
+                /// Type-level interrupt.
+                ///
+                /// This trait is implemented for all typelevel interrupt types in this module.
+                pub trait Interrupt: sealed::Interrupt {
+
+                    /// Interrupt enum variant.
+                    ///
+                    /// This allows going from typelevel interrupts (one type per interrupt) to
+                    /// non-typelevel interrupts (a single `Interrupt` enum type, with one variant per interrupt).
+                    const IRQ: super::Interrupt;
+
+                    /// Enable the interrupt.
+                    #[inline]
+                    unsafe fn enable() {
+                        Self::IRQ.enable()
+                    }
+
+                    /// Disable the interrupt.
+                    #[inline]
+                    fn disable() {
+                        Self::IRQ.disable()
+                    }
+
+                    /// Check if interrupt is enabled.
+                    #[inline]
+                    fn is_enabled() -> bool {
+                        Self::IRQ.is_enabled()
+                    }
+
+                    /// Check if interrupt is pending.
+                    #[inline]
+                    fn is_pending() -> bool {
+                        Self::IRQ.is_pending()
+                    }
+
+                    /// Set interrupt pending.
+                    #[inline]
+                    fn pend() {
+                        Self::IRQ.pend()
+                    }
+
+                    /// Unset interrupt pending.
+                    #[inline]
+                    fn unpend() {
+                        Self::IRQ.unpend()
+                    }
+
+                    /// Get the priority of the interrupt.
+                    #[inline]
+                    fn get_priority() -> crate::interrupt::Priority {
+                        Self::IRQ.get_priority()
+                    }
+
+                    /// Set the interrupt priority.
+                    #[inline]
+                    fn set_priority(prio: crate::interrupt::Priority) {
+                        Self::IRQ.set_priority(prio)
+                    }
+                }
+
+                $(
+                    #[allow(non_camel_case_types)]
+                    #[doc=stringify!($irqs)]
+                    #[doc=" typelevel interrupt."]
+                    pub enum $irqs {}
+                    impl sealed::Interrupt for $irqs{}
+                    impl Interrupt for $irqs {
+                        const IRQ: super::Interrupt = super::Interrupt::$irqs;
+                    }
+                )*
+
+                /// Interrupt handler trait.
+                ///
+                /// Drivers that need to handle interrupts implement this trait.
+                /// The user must ensure `on_interrupt()` is called every time the interrupt fires.
+                /// Drivers must use use [`Binding`] to assert at compile time that the user has done so.
+                pub trait Handler<I: Interrupt> {
+                    /// Interrupt handler function.
+                    ///
+                    /// Must be called every time the `I` interrupt fires, synchronously from
+                    /// the interrupt handler context.
+                    ///
+                    /// # Safety
+                    ///
+                    /// This function must ONLY be called from the interrupt handler for `I`.
+                    unsafe fn on_interrupt();
+                }
+
+                /// Compile-time assertion that an interrupt has been bound to a handler.
+                ///
+                /// For the vast majority of cases, you should use the `bind_interrupts!`
+                /// macro instead of writing `unsafe impl`s of this trait.
+                ///
+                /// # Safety
+                ///
+                /// By implementing this trait, you are asserting that you have arranged for `H::on_interrupt()`
+                /// to be called every time the `I` interrupt fires.
+                ///
+                /// This allows drivers to check bindings at compile-time.
+                pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
+            }
         }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct NrWrap(pub(crate) u16);
-unsafe impl cortex_m::interrupt::InterruptNumber for NrWrap {
-    fn number(self) -> u16 {
-        self.0
-    }
+    };
 }
 
 /// Represents an interrupt type that can be configured by embassy to handle
 /// interrupts.
-pub unsafe trait Interrupt: Peripheral<P = Self> {
-    /// Return the NVIC interrupt number for this interrupt.
-    fn number(&self) -> u16;
-    /// Steal an instance of this interrupt
-    ///
-    /// # Safety
-    ///
-    /// This may panic if the interrupt has already been stolen and configured.
-    unsafe fn steal() -> Self;
-
-    /// Implementation detail, do not use outside embassy crates.
-    #[doc(hidden)]
-    unsafe fn __handler(&self) -> &'static DynHandler;
-}
-
-/// Represents additional behavior for all interrupts.
-pub trait InterruptExt: Interrupt {
-    /// Configure the interrupt handler for this interrupt.
-    ///
-    /// # Safety
-    ///
-    /// It is the responsibility of the caller to ensure the handler
-    /// points to a valid handler as long as interrupts are enabled.
-    fn set_handler(&self, func: unsafe fn(*mut ()));
-
-    /// Remove the interrupt handler for this interrupt.
-    fn remove_handler(&self);
-
-    /// Set point to a context that is passed to the interrupt handler when
-    /// an interrupt is pending.
-    ///
-    /// # Safety
-    ///
-    /// It is the responsibility of the caller to ensure the context
-    /// points to a valid handler as long as interrupts are enabled.
-    fn set_handler_context(&self, ctx: *mut ());
-
-    /// Enable the interrupt. Once enabled, the interrupt handler may
-    /// be called "any time".
-    fn enable(&self);
+pub unsafe trait InterruptExt: InterruptNumber + Copy {
+    /// Enable the interrupt.
+    #[inline]
+    unsafe fn enable(self) {
+        compiler_fence(Ordering::SeqCst);
+        NVIC::unmask(self)
+    }
 
     /// Disable the interrupt.
-    fn disable(&self);
+    #[inline]
+    fn disable(self) {
+        NVIC::mask(self);
+        compiler_fence(Ordering::SeqCst);
+    }
 
     /// Check if interrupt is being handled.
+    #[inline]
     #[cfg(not(armv6m))]
-    fn is_active(&self) -> bool;
+    fn is_active(self) -> bool {
+        NVIC::is_active(self)
+    }
 
     /// Check if interrupt is enabled.
-    fn is_enabled(&self) -> bool;
+    #[inline]
+    fn is_enabled(self) -> bool {
+        NVIC::is_enabled(self)
+    }
 
     /// Check if interrupt is pending.
-    fn is_pending(&self) -> bool;
+    #[inline]
+    fn is_pending(self) -> bool {
+        NVIC::is_pending(self)
+    }
 
     /// Set interrupt pending.
-    fn pend(&self);
+    #[inline]
+    fn pend(self) {
+        NVIC::pend(self)
+    }
 
     /// Unset interrupt pending.
-    fn unpend(&self);
+    #[inline]
+    fn unpend(self) {
+        NVIC::unpend(self)
+    }
 
     /// Get the priority of the interrupt.
-    fn get_priority(&self) -> Priority;
+    #[inline]
+    fn get_priority(self) -> Priority {
+        Priority::from(NVIC::get_priority(self))
+    }
 
     /// Set the interrupt priority.
-    fn set_priority(&self, prio: Priority);
-}
-
-impl<T: Interrupt + ?Sized> InterruptExt for T {
-    fn set_handler(&self, func: unsafe fn(*mut ())) {
-        compiler_fence(Ordering::SeqCst);
-        let handler = unsafe { self.__handler() };
-        handler.func.store(func as *mut (), Ordering::Relaxed);
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    fn remove_handler(&self) {
-        compiler_fence(Ordering::SeqCst);
-        let handler = unsafe { self.__handler() };
-        handler.func.store(ptr::null_mut(), Ordering::Relaxed);
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    fn set_handler_context(&self, ctx: *mut ()) {
-        let handler = unsafe { self.__handler() };
-        handler.ctx.store(ctx, Ordering::Relaxed);
-    }
-
     #[inline]
-    fn enable(&self) {
-        compiler_fence(Ordering::SeqCst);
-        unsafe {
-            NVIC::unmask(NrWrap(self.number()));
-        }
-    }
-
-    #[inline]
-    fn disable(&self) {
-        NVIC::mask(NrWrap(self.number()));
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    #[inline]
-    #[cfg(not(armv6m))]
-    fn is_active(&self) -> bool {
-        NVIC::is_active(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn is_enabled(&self) -> bool {
-        NVIC::is_enabled(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn is_pending(&self) -> bool {
-        NVIC::is_pending(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn pend(&self) {
-        NVIC::pend(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn unpend(&self) {
-        NVIC::unpend(NrWrap(self.number()))
-    }
-
-    #[inline]
-    fn get_priority(&self) -> Priority {
-        Priority::from(NVIC::get_priority(NrWrap(self.number())))
-    }
-
-    #[inline]
-    fn set_priority(&self, prio: Priority) {
-        unsafe {
+    fn set_priority(self, prio: Priority) {
+        critical_section::with(|_| unsafe {
             let mut nvic: cortex_m::peripheral::NVIC = mem::transmute(());
-            nvic.set_priority(NrWrap(self.number()), prio.into())
-        }
+            nvic.set_priority(self, prio.into())
+        })
     }
 }
+
+unsafe impl<T: InterruptNumber + Copy> InterruptExt for T {}
 
 impl From<u8> for Priority {
     fn from(priority: u8) -> Self {

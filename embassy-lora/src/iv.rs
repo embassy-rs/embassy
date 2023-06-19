@@ -1,7 +1,7 @@
 #[cfg(feature = "stm32wl")]
 use embassy_stm32::interrupt;
 #[cfg(feature = "stm32wl")]
-use embassy_stm32::interrupt::*;
+use embassy_stm32::interrupt::InterruptExt;
 #[cfg(feature = "stm32wl")]
 use embassy_stm32::pac;
 #[cfg(feature = "stm32wl")]
@@ -20,9 +20,9 @@ use lora_phy::mod_traits::InterfaceVariant;
 pub struct InterruptHandler {}
 
 #[cfg(feature = "stm32wl")]
-impl interrupt::Handler<interrupt::SUBGHZ_RADIO> for InterruptHandler {
+impl interrupt::typelevel::Handler<interrupt::typelevel::SUBGHZ_RADIO> for InterruptHandler {
     unsafe fn on_interrupt() {
-        unsafe { SUBGHZ_RADIO::steal() }.disable();
+        interrupt::SUBGHZ_RADIO.disable();
         IRQ_SIGNAL.signal(());
     }
 }
@@ -45,11 +45,11 @@ where
 {
     /// Create an InterfaceVariant instance for an stm32wl/sx1262 combination
     pub fn new(
-        _irq: impl interrupt::Binding<interrupt::SUBGHZ_RADIO, InterruptHandler>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::SUBGHZ_RADIO, InterruptHandler>,
         rf_switch_rx: Option<CTRL>,
         rf_switch_tx: Option<CTRL>,
     ) -> Result<Self, RadioError> {
-        unsafe { interrupt::SUBGHZ_RADIO::steal() }.disable();
+        interrupt::SUBGHZ_RADIO.disable();
         Ok(Self {
             board_type: BoardType::Stm32wlSx1262, // updated when associated with a specific LoRa board
             rf_switch_rx,
@@ -68,34 +68,28 @@ where
     }
     async fn set_nss_low(&mut self) -> Result<(), RadioError> {
         let pwr = pac::PWR;
-        unsafe {
-            pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::LOW));
-        }
+        pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::LOW));
         Ok(())
     }
     async fn set_nss_high(&mut self) -> Result<(), RadioError> {
         let pwr = pac::PWR;
-        unsafe {
-            pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::HIGH));
-        }
+        pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::HIGH));
         Ok(())
     }
     async fn reset(&mut self, _delay: &mut impl DelayUs) -> Result<(), RadioError> {
         let rcc = pac::RCC;
-        unsafe {
-            rcc.csr().modify(|w| w.set_rfrst(true));
-            rcc.csr().modify(|w| w.set_rfrst(false));
-        }
+        rcc.csr().modify(|w| w.set_rfrst(true));
+        rcc.csr().modify(|w| w.set_rfrst(false));
         Ok(())
     }
     async fn wait_on_busy(&mut self) -> Result<(), RadioError> {
         let pwr = pac::PWR;
-        while unsafe { pwr.sr2().read().rfbusys() == pac::pwr::vals::Rfbusys::BUSY } {}
+        while pwr.sr2().read().rfbusys() == pac::pwr::vals::Rfbusys::BUSY {}
         Ok(())
     }
 
     async fn await_irq(&mut self) -> Result<(), RadioError> {
-        unsafe { interrupt::SUBGHZ_RADIO::steal() }.enable();
+        unsafe { interrupt::SUBGHZ_RADIO.enable() };
         IRQ_SIGNAL.wait().await;
         Ok(())
     }

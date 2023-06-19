@@ -46,7 +46,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// Put the pin into input mode.
     #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -84,7 +84,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_output(&mut self, speed: Speed) {
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -116,7 +116,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
     pub fn set_as_input_output(&mut self, speed: Speed, pull: Pull) {
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -147,7 +147,7 @@ impl<'d, T: Pin> Flex<'d, T> {
 
     #[inline]
     pub fn is_low(&self) -> bool {
-        let state = unsafe { self.pin.block().idr().read().idr(self.pin.pin() as _) };
+        let state = self.pin.block().idr().read().idr(self.pin.pin() as _);
         state == vals::Idr::LOW
     }
 
@@ -164,7 +164,7 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// Is the output pin set as low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        let state = unsafe { self.pin.block().odr().read().odr(self.pin.pin() as _) };
+        let state = self.pin.block().odr().read().odr(self.pin.pin() as _);
         state == vals::Odr::LOW
     }
 
@@ -207,7 +207,7 @@ impl<'d, T: Pin> Flex<'d, T> {
 impl<'d, T: Pin> Drop for Flex<'d, T> {
     #[inline]
     fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             let r = self.pin.block();
             let n = self.pin.pin() as usize;
             #[cfg(gpio_v1)]
@@ -341,9 +341,9 @@ impl From<bool> for Level {
     }
 }
 
-impl Into<bool> for Level {
-    fn into(self) -> bool {
-        match self {
+impl From<Level> for bool {
+    fn from(level: Level) -> bool {
+        match level {
             Level::Low => false,
             Level::High => true,
         }
@@ -534,29 +534,25 @@ pub(crate) mod sealed {
         /// Set the output as high.
         #[inline]
         fn set_high(&self) {
-            unsafe {
-                let n = self._pin() as _;
-                self.block().bsrr().write(|w| w.set_bs(n, true));
-            }
+            let n = self._pin() as _;
+            self.block().bsrr().write(|w| w.set_bs(n, true));
         }
 
         /// Set the output as low.
         #[inline]
         fn set_low(&self) {
-            unsafe {
-                let n = self._pin() as _;
-                self.block().bsrr().write(|w| w.set_br(n, true));
-            }
+            let n = self._pin() as _;
+            self.block().bsrr().write(|w| w.set_br(n, true));
         }
 
         #[inline]
-        unsafe fn set_as_af(&self, af_num: u8, af_type: AFType) {
+        fn set_as_af(&self, af_num: u8, af_type: AFType) {
             self.set_as_af_pull(af_num, af_type, Pull::None);
         }
 
         #[cfg(gpio_v1)]
         #[inline]
-        unsafe fn set_as_af_pull(&self, _af_num: u8, af_type: AFType, pull: Pull) {
+        fn set_as_af_pull(&self, _af_num: u8, af_type: AFType, pull: Pull) {
             // F1 uses the AFIO register for remapping.
             // For now, this is not implemented, so af_num is ignored
             // _af_num should be zero here, since it is not set by stm32-data
@@ -599,7 +595,7 @@ pub(crate) mod sealed {
 
         #[cfg(gpio_v2)]
         #[inline]
-        unsafe fn set_as_af_pull(&self, af_num: u8, af_type: AFType, pull: Pull) {
+        fn set_as_af_pull(&self, af_num: u8, af_type: AFType, pull: Pull) {
             let pin = self._pin() as usize;
             let block = self.block();
             block.afr(pin / 8).modify(|w| w.set_afr(pin % 8, af_num));
@@ -614,7 +610,7 @@ pub(crate) mod sealed {
         }
 
         #[inline]
-        unsafe fn set_as_analog(&self) {
+        fn set_as_analog(&self) {
             let pin = self._pin() as usize;
             let block = self.block();
             #[cfg(gpio_v1)]
@@ -635,12 +631,12 @@ pub(crate) mod sealed {
         /// This is currently the same as set_as_analog but is semantically different really.
         /// Drivers should set_as_disconnected pins when dropped.
         #[inline]
-        unsafe fn set_as_disconnected(&self) {
+        fn set_as_disconnected(&self) {
             self.set_as_analog();
         }
 
         #[inline]
-        unsafe fn set_speed(&self, speed: Speed) {
+        fn set_speed(&self, speed: Speed) {
             let pin = self._pin() as usize;
 
             #[cfg(gpio_v1)]

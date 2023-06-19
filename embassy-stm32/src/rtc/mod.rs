@@ -113,7 +113,7 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl<'d, T: Instance> Rtc<'d, T> {
     pub fn new(_rtc: impl Peripheral<P = T> + 'd, rtc_config: RtcConfig) -> Self {
-        unsafe { T::enable_peripheral_clk() };
+        T::enable_peripheral_clk();
 
         let mut rtc_struct = Self {
             phantom: PhantomData,
@@ -144,34 +144,32 @@ impl<'d, T: Instance> Rtc<'d, T> {
     /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
     pub fn now(&self) -> Result<DateTime, RtcError> {
         let r = T::regs();
-        unsafe {
-            let tr = r.tr().read();
-            let second = bcd2_to_byte((tr.st(), tr.su()));
-            let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
-            let hour = bcd2_to_byte((tr.ht(), tr.hu()));
-            // Reading either RTC_SSR or RTC_TR locks the values in the higher-order
-            // calendar shadow registers until RTC_DR is read.
-            let dr = r.dr().read();
+        let tr = r.tr().read();
+        let second = bcd2_to_byte((tr.st(), tr.su()));
+        let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
+        let hour = bcd2_to_byte((tr.ht(), tr.hu()));
+        // Reading either RTC_SSR or RTC_TR locks the values in the higher-order
+        // calendar shadow registers until RTC_DR is read.
+        let dr = r.dr().read();
 
-            let weekday = dr.wdu();
-            let day = bcd2_to_byte((dr.dt(), dr.du()));
-            let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
-            let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
+        let weekday = dr.wdu();
+        let day = bcd2_to_byte((dr.dt(), dr.du()));
+        let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
+        let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
 
-            self::datetime::datetime(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
-        }
+        self::datetime::datetime(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
     }
 
     /// Check if daylight savings time is active.
     pub fn get_daylight_savings(&self) -> bool {
-        let cr = unsafe { T::regs().cr().read() };
+        let cr = T::regs().cr().read();
         cr.bkp()
     }
 
     /// Enable/disable daylight savings time.
     pub fn set_daylight_savings(&mut self, daylight_savings: bool) {
         self.write(true, |rtc| {
-            unsafe { rtc.cr().modify(|w| w.set_bkp(daylight_savings)) };
+            rtc.cr().modify(|w| w.set_bkp(daylight_savings));
         })
     }
 
@@ -228,7 +226,7 @@ pub(crate) mod sealed {
             crate::pac::RTC
         }
 
-        unsafe fn enable_peripheral_clk() {}
+        fn enable_peripheral_clk() {}
 
         /// Read content of the backup register.
         ///

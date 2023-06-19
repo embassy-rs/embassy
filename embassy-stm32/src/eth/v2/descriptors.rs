@@ -73,14 +73,10 @@ impl<'a> TDesRing<'a> {
 
         // Initialize the pointers in the DMA engine. (There will be a memory barrier later
         // before the DMA engine is enabled.)
-        // NOTE (unsafe) Used for atomic writes
-        unsafe {
-            let dma = ETH.ethernet_dma();
-
-            dma.dmactx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
-            dma.dmactx_rlr().write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
-            dma.dmactx_dtpr().write(|w| w.0 = 0);
-        }
+        let dma = ETH.ethernet_dma();
+        dma.dmactx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+        dma.dmactx_rlr().write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
+        dma.dmactx_dtpr().write(|w| w.0 = 0);
 
         Self {
             descriptors,
@@ -129,8 +125,7 @@ impl<'a> TDesRing<'a> {
         }
 
         // signal DMA it can try again.
-        // NOTE(unsafe) Atomic write
-        unsafe { ETH.ethernet_dma().dmactx_dtpr().write(|w| w.0 = 0) }
+        ETH.ethernet_dma().dmactx_dtpr().write(|w| w.0 = 0)
     }
 }
 
@@ -199,13 +194,10 @@ impl<'a> RDesRing<'a> {
             desc.set_ready(buffers[i].0.as_mut_ptr());
         }
 
-        unsafe {
-            let dma = ETH.ethernet_dma();
-
-            dma.dmacrx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
-            dma.dmacrx_rlr().write(|w| w.set_rdrl((descriptors.len() as u16) - 1));
-            dma.dmacrx_dtpr().write(|w| w.0 = 0);
-        }
+        let dma = ETH.ethernet_dma();
+        dma.dmacrx_dlar().write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+        dma.dmacrx_rlr().write(|w| w.set_rdrl((descriptors.len() as u16) - 1));
+        dma.dmacrx_dtpr().write(|w| w.0 = 0);
 
         Self {
             descriptors,
@@ -254,8 +246,7 @@ impl<'a> RDesRing<'a> {
         fence(Ordering::Release);
 
         // signal DMA it can try again.
-        // NOTE(unsafe) Atomic write
-        unsafe { ETH.ethernet_dma().dmacrx_dtpr().write(|w| w.0 = 0) }
+        ETH.ethernet_dma().dmacrx_dtpr().write(|w| w.0 = 0);
 
         // Increment index.
         self.index += 1;

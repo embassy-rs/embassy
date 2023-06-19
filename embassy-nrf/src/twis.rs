@@ -15,9 +15,9 @@ use embassy_time::{Duration, Instant};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{self, Interrupt, InterruptExt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::util::slice_in_ram_or;
-use crate::{gpio, pac, Peripheral};
+use crate::{gpio, interrupt, pac, Peripheral};
 
 /// TWIS config.
 #[non_exhaustive]
@@ -114,7 +114,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
@@ -143,7 +143,7 @@ impl<'d, T: Instance> Twis<'d, T> {
     /// Create a new TWIS driver.
     pub fn new(
         twis: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sda: impl Peripheral<P = impl GpioPin> + 'd,
         scl: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
@@ -204,8 +204,8 @@ impl<'d, T: Instance> Twis<'d, T> {
         // Generate suspend on read event
         r.shorts.write(|w| w.read_suspend().enabled());
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self { _p: twis }
     }
@@ -778,7 +778,7 @@ pub(crate) mod sealed {
 /// TWIS peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_twis {
@@ -793,7 +793,7 @@ macro_rules! impl_twis {
             }
         }
         impl crate::twis::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

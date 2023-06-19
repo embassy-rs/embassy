@@ -121,13 +121,11 @@ impl<'d, T: Instance> Dac<'d, T> {
         T::enable();
         T::reset();
 
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                for ch in 0..channels {
-                    reg.set_en(ch as usize, true);
-                }
-            });
-        }
+        T::regs().cr().modify(|reg| {
+            for ch in 0..channels {
+                reg.set_en(ch as usize, true);
+            }
+        });
 
         Self { channels, _peri: peri }
     }
@@ -143,11 +141,9 @@ impl<'d, T: Instance> Dac<'d, T> {
 
     fn set_channel_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_en(ch.index(), on);
-            })
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_en(ch.index(), on);
+        });
         Ok(())
     }
 
@@ -162,56 +158,42 @@ impl<'d, T: Instance> Dac<'d, T> {
     pub fn select_trigger_ch1(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
         self.check_channel_exists(Channel::Ch1)?;
         unwrap!(self.disable_channel(Channel::Ch1));
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_tsel1(trigger.tsel());
-            })
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_tsel1(trigger.tsel());
+        });
         Ok(())
     }
 
     pub fn select_trigger_ch2(&mut self, trigger: Ch2Trigger) -> Result<(), Error> {
         self.check_channel_exists(Channel::Ch2)?;
         unwrap!(self.disable_channel(Channel::Ch2));
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_tsel2(trigger.tsel());
-            })
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_tsel2(trigger.tsel());
+        });
         Ok(())
     }
 
     pub fn trigger(&mut self, ch: Channel) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
-        unsafe {
-            T::regs().swtrigr().write(|reg| {
-                reg.set_swtrig(ch.index(), true);
-            });
-        }
+        T::regs().swtrigr().write(|reg| {
+            reg.set_swtrig(ch.index(), true);
+        });
         Ok(())
     }
 
     pub fn trigger_all(&mut self) {
-        unsafe {
-            T::regs().swtrigr().write(|reg| {
-                reg.set_swtrig(Channel::Ch1.index(), true);
-                reg.set_swtrig(Channel::Ch2.index(), true);
-            })
-        }
+        T::regs().swtrigr().write(|reg| {
+            reg.set_swtrig(Channel::Ch1.index(), true);
+            reg.set_swtrig(Channel::Ch2.index(), true);
+        });
     }
 
     pub fn set(&mut self, ch: Channel, value: Value) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
         match value {
-            Value::Bit8(v) => unsafe {
-                T::regs().dhr8r(ch.index()).write(|reg| reg.set_dhr(v));
-            },
-            Value::Bit12(v, Alignment::Left) => unsafe {
-                T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v));
-            },
-            Value::Bit12(v, Alignment::Right) => unsafe {
-                T::regs().dhr12r(ch.index()).write(|reg| reg.set_dhr(v));
-            },
+            Value::Bit8(v) => T::regs().dhr8r(ch.index()).write(|reg| reg.set_dhr(v)),
+            Value::Bit12(v, Alignment::Left) => T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v)),
+            Value::Bit12(v, Alignment::Right) => T::regs().dhr12r(ch.index()).write(|reg| reg.set_dhr(v)),
         }
         Ok(())
     }
@@ -239,20 +221,20 @@ foreach_peripheral!(
             }
 
             fn reset() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
                     crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
                 })
             }
 
             fn enable() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
                 })
             }
 
             fn disable() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false));
                 })
             }

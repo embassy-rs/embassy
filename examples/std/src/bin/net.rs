@@ -11,21 +11,12 @@ use embedded_io::asynch::Write;
 use heapless::Vec;
 use log::*;
 use rand_core::{OsRng, RngCore};
-use static_cell::StaticCell;
+use static_cell::{make_static, StaticCell};
 
 #[path = "../tuntap.rs"]
 mod tuntap;
 
 use crate::tuntap::TunTapDevice;
-
-macro_rules! singleton {
-    ($val:expr) => {{
-        type T = impl Sized;
-        static STATIC_CELL: StaticCell<T> = StaticCell::new();
-        STATIC_CELL.init_with(move || $val)
-    }};
-}
-
 #[derive(Parser)]
 #[clap(version = "1.0")]
 struct Opts {
@@ -51,13 +42,13 @@ async fn main_task(spawner: Spawner) {
 
     // Choose between dhcp or static ip
     let config = if opts.static_ip {
-        Config::Static(embassy_net::StaticConfig {
+        Config::ipv4_static(embassy_net::StaticConfigV4 {
             address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
             dns_servers: Vec::new(),
             gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
         })
     } else {
-        Config::Dhcp(Default::default())
+        Config::dhcpv4(Default::default())
     };
 
     // Generate random seed
@@ -66,7 +57,12 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*singleton!(Stack::new(device, config, singleton!(StackResources::<3>::new()), seed));
+    let stack = &*make_static!(Stack::new(
+        device,
+        config,
+        make_static!(StackResources::<3>::new()),
+        seed
+    ));
 
     // Launch network task
     spawner.spawn(net_task(stack)).unwrap();

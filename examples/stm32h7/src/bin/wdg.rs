@@ -15,10 +15,10 @@ async fn main(_spawner: Spawner) {
 
     let mut wdg = IndependentWatchdog::new(p.IWDG1, 20_000_000);
 
-    unsafe { wdg.unleash() };
+    wdg.unleash();
 
     loop {
         Timer::after(Duration::from_secs(1)).await;
-        unsafe { wdg.pet() };
+        wdg.pet();
     }
 }

@@ -1,7 +1,5 @@
-use embassy_cortex_m::interrupt::Interrupt;
-
-use crate::peripherals;
 use crate::rcc::RccPeripheral;
+use crate::{interrupt, peripherals};
 
 #[cfg(feature = "nightly")]
 mod usb;
@@ -25,7 +23,7 @@ pub(crate) mod sealed {
 }
 
 pub trait Instance: sealed::Instance + RccPeripheral {
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 // Internal PHY pins
@@ -109,7 +107,7 @@ foreach_interrupt!(
         }
 
         impl Instance for peripherals::USB_OTG_FS {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 
@@ -150,7 +148,7 @@ foreach_interrupt!(
 
             fn regs() -> crate::pac::otg::Otg {
                 // OTG HS registers are a superset of FS registers
-                crate::pac::otg::Otg(crate::pac::USB_OTG_HS.0)
+                unsafe { crate::pac::otg::Otg::from_ptr(crate::pac::USB_OTG_HS.as_ptr()) }
             }
 
             #[cfg(feature = "nightly")]
@@ -161,7 +159,7 @@ foreach_interrupt!(
         }
 
         impl Instance for peripherals::USB_OTG_HS {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 );

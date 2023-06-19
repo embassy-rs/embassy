@@ -7,8 +7,8 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::BUS_WAKER;
-use crate::interrupt::{self, Interrupt, InterruptExt};
-use crate::pac;
+use crate::interrupt::typelevel::Interrupt;
+use crate::{interrupt, pac};
 
 /// Trait for detecting USB VBUS power.
 ///
@@ -29,9 +29,9 @@ pub trait VbusDetect {
 }
 
 #[cfg(not(feature = "_nrf5340"))]
-type UsbRegIrq = interrupt::POWER_CLOCK;
+type UsbRegIrq = interrupt::typelevel::POWER_CLOCK;
 #[cfg(feature = "_nrf5340")]
-type UsbRegIrq = interrupt::USBREGULATOR;
+type UsbRegIrq = interrupt::typelevel::USBREGULATOR;
 
 #[cfg(not(feature = "_nrf5340"))]
 type UsbRegPeri = pac::POWER;
@@ -43,7 +43,7 @@ pub struct InterruptHandler {
     _private: (),
 }
 
-impl interrupt::Handler<UsbRegIrq> for InterruptHandler {
+impl interrupt::typelevel::Handler<UsbRegIrq> for InterruptHandler {
     unsafe fn on_interrupt() {
         let regs = unsafe { &*UsbRegPeri::ptr() };
 
@@ -77,11 +77,11 @@ static POWER_WAKER: AtomicWaker = AtomicWaker::new();
 
 impl HardwareVbusDetect {
     /// Create a new `VbusDetectNative`.
-    pub fn new(_irq: impl interrupt::Binding<UsbRegIrq, InterruptHandler> + 'static) -> Self {
+    pub fn new(_irq: impl interrupt::typelevel::Binding<UsbRegIrq, InterruptHandler> + 'static) -> Self {
         let regs = unsafe { &*UsbRegPeri::ptr() };
 
-        unsafe { UsbRegIrq::steal() }.unpend();
-        unsafe { UsbRegIrq::steal() }.enable();
+        UsbRegIrq::unpend();
+        unsafe { UsbRegIrq::enable() };
 
         regs.intenset
             .write(|w| w.usbdetected().set().usbremoved().set().usbpwrrdy().set());

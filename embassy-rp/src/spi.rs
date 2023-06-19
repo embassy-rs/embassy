@@ -79,33 +79,37 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     ) -> Self {
         into_ref!(inner);
 
-        unsafe {
-            let p = inner.regs();
-            let (presc, postdiv) = calc_prescs(config.frequency);
+        let p = inner.regs();
+        let (presc, postdiv) = calc_prescs(config.frequency);
 
-            p.cpsr().write(|w| w.set_cpsdvsr(presc));
-            p.cr0().write(|w| {
-                w.set_dss(0b0111); // 8bit
-                w.set_spo(config.polarity == Polarity::IdleHigh);
-                w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-                w.set_scr(postdiv);
-            });
-            p.cr1().write(|w| {
-                w.set_sse(true); // enable
-            });
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().write(|w| {
+            w.set_dss(0b0111); // 8bit
+            w.set_spo(config.polarity == Polarity::IdleHigh);
+            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
+            w.set_scr(postdiv);
+        });
 
-            if let Some(pin) = &clk {
-                pin.io().ctrl().write(|w| w.set_funcsel(1));
-            }
-            if let Some(pin) = &mosi {
-                pin.io().ctrl().write(|w| w.set_funcsel(1));
-            }
-            if let Some(pin) = &miso {
-                pin.io().ctrl().write(|w| w.set_funcsel(1));
-            }
-            if let Some(pin) = &cs {
-                pin.io().ctrl().write(|w| w.set_funcsel(1));
-            }
+        // Always enable DREQ signals -- harmless if DMA is not listening
+        p.dmacr().write(|reg| {
+            reg.set_rxdmae(true);
+            reg.set_txdmae(true);
+        });
+
+        // finally, enable.
+        p.cr1().write(|w| w.set_sse(true));
+
+        if let Some(pin) = &clk {
+            pin.io().ctrl().write(|w| w.set_funcsel(1));
+        }
+        if let Some(pin) = &mosi {
+            pin.io().ctrl().write(|w| w.set_funcsel(1));
+        }
+        if let Some(pin) = &miso {
+            pin.io().ctrl().write(|w| w.set_funcsel(1));
+        }
+        if let Some(pin) = &cs {
+            pin.io().ctrl().write(|w| w.set_funcsel(1));
         }
         Self {
             inner,
@@ -116,60 +120,52 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     }
 
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
-        unsafe {
-            let p = self.inner.regs();
-            for &b in data {
-                while !p.sr().read().tnf() {}
-                p.dr().write(|w| w.set_data(b as _));
-                while !p.sr().read().rne() {}
-                let _ = p.dr().read();
-            }
+        let p = self.inner.regs();
+        for &b in data {
+            while !p.sr().read().tnf() {}
+            p.dr().write(|w| w.set_data(b as _));
+            while !p.sr().read().rne() {}
+            let _ = p.dr().read();
         }
         self.flush()?;
         Ok(())
     }
 
     pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        unsafe {
-            let p = self.inner.regs();
-            for b in data {
-                while !p.sr().read().tnf() {}
-                p.dr().write(|w| w.set_data(*b as _));
-                while !p.sr().read().rne() {}
-                *b = p.dr().read().data() as u8;
-            }
+        let p = self.inner.regs();
+        for b in data {
+            while !p.sr().read().tnf() {}
+            p.dr().write(|w| w.set_data(*b as _));
+            while !p.sr().read().rne() {}
+            *b = p.dr().read().data() as u8;
         }
         self.flush()?;
         Ok(())
     }
 
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        unsafe {
-            let p = self.inner.regs();
-            for b in data {
-                while !p.sr().read().tnf() {}
-                p.dr().write(|w| w.set_data(0));
-                while !p.sr().read().rne() {}
-                *b = p.dr().read().data() as u8;
-            }
+        let p = self.inner.regs();
+        for b in data {
+            while !p.sr().read().tnf() {}
+            p.dr().write(|w| w.set_data(0));
+            while !p.sr().read().rne() {}
+            *b = p.dr().read().data() as u8;
         }
         self.flush()?;
         Ok(())
     }
 
     pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
-        unsafe {
-            let p = self.inner.regs();
-            let len = read.len().max(write.len());
-            for i in 0..len {
-                let wb = write.get(i).copied().unwrap_or(0);
-                while !p.sr().read().tnf() {}
-                p.dr().write(|w| w.set_data(wb as _));
-                while !p.sr().read().rne() {}
-                let rb = p.dr().read().data() as u8;
-                if let Some(r) = read.get_mut(i) {
-                    *r = rb;
-                }
+        let p = self.inner.regs();
+        let len = read.len().max(write.len());
+        for i in 0..len {
+            let wb = write.get(i).copied().unwrap_or(0);
+            while !p.sr().read().tnf() {}
+            p.dr().write(|w| w.set_data(wb as _));
+            while !p.sr().read().rne() {}
+            let rb = p.dr().read().data() as u8;
+            if let Some(r) = read.get_mut(i) {
+                *r = rb;
             }
         }
         self.flush()?;
@@ -177,29 +173,25 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     }
 
     pub fn flush(&mut self) -> Result<(), Error> {
-        unsafe {
-            let p = self.inner.regs();
-            while p.sr().read().bsy() {}
-        }
+        let p = self.inner.regs();
+        while p.sr().read().bsy() {}
         Ok(())
     }
 
     pub fn set_frequency(&mut self, freq: u32) {
         let (presc, postdiv) = calc_prescs(freq);
         let p = self.inner.regs();
-        unsafe {
-            // disable
-            p.cr1().write(|w| w.set_sse(false));
+        // disable
+        p.cr1().write(|w| w.set_sse(false));
 
-            // change stuff
-            p.cpsr().write(|w| w.set_cpsdvsr(presc));
-            p.cr0().modify(|w| {
-                w.set_scr(postdiv);
-            });
+        // change stuff
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().modify(|w| {
+            w.set_scr(postdiv);
+        });
 
-            // enable
-            p.cr1().write(|w| w.set_sse(true));
-        }
+        // enable
+        p.cr1().write(|w| w.set_sse(true));
     }
 }
 
@@ -329,48 +321,45 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let tx_ch = self.tx_dma.as_mut().unwrap();
         let tx_transfer = unsafe {
-            self.inner.regs().dmacr().modify(|reg| {
-                reg.set_txdmae(true);
-            });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(tx_ch, buffer, self.inner.regs().dr().ptr() as *mut _, T::TX_DREQ)
+            crate::dma::write(tx_ch, buffer, self.inner.regs().dr().as_ptr() as *mut _, T::TX_DREQ)
         };
         tx_transfer.await;
 
         let p = self.inner.regs();
-        unsafe {
-            while p.sr().read().bsy() {}
+        while p.sr().read().bsy() {}
 
-            // clear RX FIFO contents to prevent stale reads
-            while p.sr().read().rne() {
-                let _: u16 = p.dr().read().data();
-            }
-            // clear RX overrun interrupt
-            p.icr().write(|w| w.set_roric(true));
+        // clear RX FIFO contents to prevent stale reads
+        while p.sr().read().rne() {
+            let _: u16 = p.dr().read().data();
         }
+        // clear RX overrun interrupt
+        p.icr().write(|w| w.set_roric(true));
 
         Ok(())
     }
 
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        unsafe {
-            self.inner.regs().dmacr().write(|reg| {
-                reg.set_rxdmae(true);
-                reg.set_txdmae(true);
-            })
-        };
-        let tx_ch = self.tx_dma.as_mut().unwrap();
-        let tx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            crate::dma::write_repeated(tx_ch, self.inner.regs().dr().ptr() as *mut u8, buffer.len(), T::TX_DREQ)
-        };
+        // Start RX first. Transfer starts when TX starts, if RX
+        // is not started yet we might lose bytes.
         let rx_ch = self.rx_dma.as_mut().unwrap();
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().ptr() as *const _, buffer, T::RX_DREQ)
+            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, buffer, T::RX_DREQ)
+        };
+
+        let tx_ch = self.tx_dma.as_mut().unwrap();
+        let tx_transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::write_repeated(
+                tx_ch,
+                self.inner.regs().dr().as_ptr() as *mut u8,
+                buffer.len(),
+                T::TX_DREQ,
+            )
         };
         join(tx_transfer, rx_transfer).await;
         Ok(())
@@ -388,11 +377,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let (_, tx_len) = crate::dma::slice_ptr_parts(tx_ptr);
         let (_, rx_len) = crate::dma::slice_ptr_parts_mut(rx_ptr);
 
-        unsafe {
-            self.inner.regs().dmacr().write(|reg| {
-                reg.set_rxdmae(true);
-                reg.set_txdmae(true);
-            })
+        // Start RX first. Transfer starts when TX starts, if RX
+        // is not started yet we might lose bytes.
+        let rx_ch = self.rx_dma.as_mut().unwrap();
+        let rx_transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx_ptr, T::RX_DREQ)
         };
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap();
@@ -401,38 +392,29 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = async {
             let p = self.inner.regs();
             unsafe {
-                crate::dma::write(&mut tx_ch, tx_ptr, p.dr().ptr() as *mut _, T::TX_DREQ).await;
+                crate::dma::write(&mut tx_ch, tx_ptr, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
 
                 if rx_len > tx_len {
                     let write_bytes_len = rx_len - tx_len;
                     // write dummy data
                     // this will disable incrementation of the buffers
-                    crate::dma::write_repeated(tx_ch, p.dr().ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
+                    crate::dma::write_repeated(tx_ch, p.dr().as_ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
                 }
             }
-        };
-
-        let rx_ch = self.rx_dma.as_mut().unwrap();
-        let rx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().ptr() as *const _, rx_ptr, T::RX_DREQ)
         };
         join(tx_transfer, rx_transfer).await;
 
         // if tx > rx we should clear any overflow of the FIFO SPI buffer
         if tx_len > rx_len {
             let p = self.inner.regs();
-            unsafe {
-                while p.sr().read().bsy() {}
+            while p.sr().read().bsy() {}
 
-                // clear RX FIFO contents to prevent stale reads
-                while p.sr().read().rne() {
-                    let _: u16 = p.dr().read().data();
-                }
-                // clear RX overrun interrupt
-                p.icr().write(|w| w.set_roric(true));
+            // clear RX FIFO contents to prevent stale reads
+            while p.sr().read().rne() {
+                let _: u16 = p.dr().read().data();
             }
+            // clear RX overrun interrupt
+            p.icr().write(|w| w.set_roric(true));
         }
 
         Ok(())
@@ -630,14 +612,12 @@ impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
     fn set_config(&mut self, config: &Self::Config) {
         let p = self.inner.regs();
         let (presc, postdiv) = calc_prescs(config.frequency);
-        unsafe {
-            p.cpsr().write(|w| w.set_cpsdvsr(presc));
-            p.cr0().write(|w| {
-                w.set_dss(0b0111); // 8bit
-                w.set_spo(config.polarity == Polarity::IdleHigh);
-                w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-                w.set_scr(postdiv);
-            });
-        }
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().write(|w| {
+            w.set_dss(0b0111); // 8bit
+            w.set_spo(config.polarity == Polarity::IdleHigh);
+            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
+            w.set_scr(postdiv);
+        });
     }
 }

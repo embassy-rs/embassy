@@ -5,13 +5,13 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::future::{select, Either};
 
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
+use crate::interrupt::typelevel::Interrupt;
 #[cfg(not(any(usart_v1, usart_v2)))]
 #[allow(unused_imports)]
 use crate::pac::usart::regs::Isr as Sr;
@@ -31,40 +31,36 @@ pub struct InterruptHandler<T: BasicInstance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: BasicInstance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
 
-        let (sr, cr1, cr3) = unsafe { (sr(r).read(), r.cr1().read(), r.cr3().read()) };
+        let (sr, cr1, cr3) = (sr(r).read(), r.cr1().read(), r.cr3().read());
 
         let has_errors = (sr.pe() && cr1.peie()) || ((sr.fe() || sr.ne() || sr.ore()) && cr3.eie());
         if has_errors {
             // clear all interrupts and DMA Rx Request
-            unsafe {
-                r.cr1().modify(|w| {
-                    // disable RXNE interrupt
-                    w.set_rxneie(false);
-                    // disable parity interrupt
-                    w.set_peie(false);
-                    // disable idle line interrupt
-                    w.set_idleie(false);
-                });
-                r.cr3().modify(|w| {
-                    // disable Error Interrupt: (Frame error, Noise error, Overrun error)
-                    w.set_eie(false);
-                    // disable DMA Rx Request
-                    w.set_dmar(false);
-                });
-            }
+            r.cr1().modify(|w| {
+                // disable RXNE interrupt
+                w.set_rxneie(false);
+                // disable parity interrupt
+                w.set_peie(false);
+                // disable idle line interrupt
+                w.set_idleie(false);
+            });
+            r.cr3().modify(|w| {
+                // disable Error Interrupt: (Frame error, Noise error, Overrun error)
+                w.set_eie(false);
+                // disable DMA Rx Request
+                w.set_dmar(false);
+            });
         } else if cr1.idleie() && sr.idle() {
             // IDLE detected: no more data will come
-            unsafe {
-                r.cr1().modify(|w| {
-                    // disable idle line detection
-                    w.set_idleie(false);
-                });
-            }
+            r.cr1().modify(|w| {
+                // disable idle line detection
+                w.set_idleie(false);
+            });
         } else if cr1.rxneie() {
             // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
 
@@ -205,12 +201,10 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         T::enable();
         T::reset();
 
-        unsafe {
-            cts.set_as_af(cts.af_num(), AFType::Input);
-            T::regs().cr3().write(|w| {
-                w.set_ctse(true);
-            });
-        }
+        cts.set_as_af(cts.af_num(), AFType::Input);
+        T::regs().cr3().write(|w| {
+            w.set_ctse(true);
+        });
         Self::new_inner(peri, tx, tx_dma, config)
     }
 
@@ -224,9 +218,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
 
         let r = T::regs();
 
-        unsafe {
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-        }
+        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
         configure(r, &config, T::frequency(), T::KIND, false, true);
 
@@ -245,11 +237,9 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
     {
         let ch = &mut self.tx_dma;
         let request = ch.request();
-        unsafe {
-            T::regs().cr3().modify(|reg| {
-                reg.set_dmat(true);
-            });
-        }
+        T::regs().cr3().modify(|reg| {
+            reg.set_dmat(true);
+        });
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
         let transfer = unsafe { Transfer::new_write(ch, request, buffer, tdr(T::regs()), Default::default()) };
@@ -258,21 +248,17 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
     }
 
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        unsafe {
-            let r = T::regs();
-            for &b in buffer {
-                while !sr(r).read().txe() {}
-                tdr(r).write_volatile(b);
-            }
+        let r = T::regs();
+        for &b in buffer {
+            while !sr(r).read().txe() {}
+            unsafe { tdr(r).write_volatile(b) };
         }
         Ok(())
     }
 
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        unsafe {
-            let r = T::regs();
-            while !sr(r).read().tc() {}
-        }
+        let r = T::regs();
+        while !sr(r).read().tc() {}
         Ok(())
     }
 }
@@ -281,7 +267,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
@@ -294,7 +280,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
     pub fn new_with_rts(
         peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
@@ -305,12 +291,10 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         T::enable();
         T::reset();
 
-        unsafe {
-            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
-            T::regs().cr3().write(|w| {
-                w.set_rtse(true);
-            });
-        }
+        rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+        T::regs().cr3().write(|w| {
+            w.set_rtse(true);
+        });
 
         Self::new_inner(peri, rx, rx_dma, config)
     }
@@ -325,14 +309,12 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
         let r = T::regs();
 
-        unsafe {
-            rx.set_as_af(rx.af_num(), AFType::Input);
-        }
+        rx.set_as_af(rx.af_num(), AFType::Input);
 
         configure(r, &config, T::frequency(), T::KIND, true, false);
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         // create state once!
         let _s = T::state();
@@ -347,7 +329,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     }
 
     #[cfg(any(usart_v1, usart_v2))]
-    unsafe fn check_rx_flags(&mut self) -> Result<bool, Error> {
+    fn check_rx_flags(&mut self) -> Result<bool, Error> {
         let r = T::regs();
         loop {
             // Handle all buffered error flags.
@@ -380,7 +362,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     }
 
     #[cfg(any(usart_v3, usart_v4))]
-    unsafe fn check_rx_flags(&mut self) -> Result<bool, Error> {
+    fn check_rx_flags(&mut self) -> Result<bool, Error> {
         let r = T::regs();
         let sr = r.isr().read();
         if sr.pe() {
@@ -410,22 +392,18 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
     pub fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
         let r = T::regs();
-        unsafe {
-            if self.check_rx_flags()? {
-                Ok(rdr(r).read_volatile())
-            } else {
-                Err(nb::Error::WouldBlock)
-            }
+        if self.check_rx_flags()? {
+            Ok(unsafe { rdr(r).read_volatile() })
+        } else {
+            Err(nb::Error::WouldBlock)
         }
     }
 
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        unsafe {
-            let r = T::regs();
-            for b in buffer {
-                while !self.check_rx_flags()? {}
-                *b = rdr(r).read_volatile();
-            }
+        let r = T::regs();
+        for b in buffer {
+            while !self.check_rx_flags()? {}
+            unsafe { *b = rdr(r).read_volatile() }
         }
         Ok(())
     }
@@ -451,23 +429,20 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         let on_drop = OnDrop::new(move || {
             // defmt::trace!("Clear all USART interrupts and DMA Read Request");
             // clear all interrupts and DMA Rx Request
-            // SAFETY: only clears Rx related flags
-            unsafe {
-                r.cr1().modify(|w| {
-                    // disable RXNE interrupt
-                    w.set_rxneie(false);
-                    // disable parity interrupt
-                    w.set_peie(false);
-                    // disable idle line interrupt
-                    w.set_idleie(false);
-                });
-                r.cr3().modify(|w| {
-                    // disable Error Interrupt: (Frame error, Noise error, Overrun error)
-                    w.set_eie(false);
-                    // disable DMA Rx Request
-                    w.set_dmar(false);
-                });
-            }
+            r.cr1().modify(|w| {
+                // disable RXNE interrupt
+                w.set_rxneie(false);
+                // disable parity interrupt
+                w.set_peie(false);
+                // disable idle line interrupt
+                w.set_idleie(false);
+            });
+            r.cr3().modify(|w| {
+                // disable Error Interrupt: (Frame error, Noise error, Overrun error)
+                w.set_eie(false);
+                // disable DMA Rx Request
+                w.set_dmar(false);
+            });
         });
 
         let ch = &mut self.rx_dma;
@@ -480,78 +455,74 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         // future which will complete when DMA Read request completes
         let transfer = unsafe { Transfer::new_read(ch, request, rdr(T::regs()), buffer, Default::default()) };
 
-        // SAFETY: The only way we might have a problem is using split rx and tx
-        // here we only modify or read Rx related flags, interrupts and DMA channel
-        unsafe {
-            // clear ORE flag just before enabling DMA Rx Request: can be mandatory for the second transfer
-            if !self.detect_previous_overrun {
-                let sr = sr(r).read();
-                // This read also clears the error and idle interrupt flags on v1.
-                rdr(r).read_volatile();
-                clear_interrupt_flags(r, sr);
+        // clear ORE flag just before enabling DMA Rx Request: can be mandatory for the second transfer
+        if !self.detect_previous_overrun {
+            let sr = sr(r).read();
+            // This read also clears the error and idle interrupt flags on v1.
+            unsafe { rdr(r).read_volatile() };
+            clear_interrupt_flags(r, sr);
+        }
+
+        r.cr1().modify(|w| {
+            // disable RXNE interrupt
+            w.set_rxneie(false);
+            // enable parity interrupt if not ParityNone
+            w.set_peie(w.pce());
+        });
+
+        r.cr3().modify(|w| {
+            // enable Error Interrupt: (Frame error, Noise error, Overrun error)
+            w.set_eie(true);
+            // enable DMA Rx Request
+            w.set_dmar(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        // In case of errors already pending when reception started, interrupts may have already been raised
+        // and lead to reception abortion (Overrun error for instance). In such a case, all interrupts
+        // have been disabled in interrupt handler and DMA Rx Request has been disabled.
+
+        let cr3 = r.cr3().read();
+
+        if !cr3.dmar() {
+            // something went wrong
+            // because the only way to get this flag cleared is to have an interrupt
+
+            // DMA will be stopped when transfer is dropped
+
+            let sr = sr(r).read();
+            // This read also clears the error and idle interrupt flags on v1.
+            unsafe { rdr(r).read_volatile() };
+            clear_interrupt_flags(r, sr);
+
+            if sr.pe() {
+                return Err(Error::Parity);
+            }
+            if sr.fe() {
+                return Err(Error::Framing);
+            }
+            if sr.ne() {
+                return Err(Error::Noise);
+            }
+            if sr.ore() {
+                return Err(Error::Overrun);
             }
 
+            unreachable!();
+        }
+
+        if enable_idle_line_detection {
+            // clear idle flag
+            let sr = sr(r).read();
+            // This read also clears the error and idle interrupt flags on v1.
+            unsafe { rdr(r).read_volatile() };
+            clear_interrupt_flags(r, sr);
+
+            // enable idle interrupt
             r.cr1().modify(|w| {
-                // disable RXNE interrupt
-                w.set_rxneie(false);
-                // enable parity interrupt if not ParityNone
-                w.set_peie(w.pce());
+                w.set_idleie(true);
             });
-
-            r.cr3().modify(|w| {
-                // enable Error Interrupt: (Frame error, Noise error, Overrun error)
-                w.set_eie(true);
-                // enable DMA Rx Request
-                w.set_dmar(true);
-            });
-
-            compiler_fence(Ordering::SeqCst);
-
-            // In case of errors already pending when reception started, interrupts may have already been raised
-            // and lead to reception abortion (Overrun error for instance). In such a case, all interrupts
-            // have been disabled in interrupt handler and DMA Rx Request has been disabled.
-
-            let cr3 = r.cr3().read();
-
-            if !cr3.dmar() {
-                // something went wrong
-                // because the only way to get this flag cleared is to have an interrupt
-
-                // DMA will be stopped when transfer is dropped
-
-                let sr = sr(r).read();
-                // This read also clears the error and idle interrupt flags on v1.
-                rdr(r).read_volatile();
-                clear_interrupt_flags(r, sr);
-
-                if sr.pe() {
-                    return Err(Error::Parity);
-                }
-                if sr.fe() {
-                    return Err(Error::Framing);
-                }
-                if sr.ne() {
-                    return Err(Error::Noise);
-                }
-                if sr.ore() {
-                    return Err(Error::Overrun);
-                }
-
-                unreachable!();
-            }
-
-            if enable_idle_line_detection {
-                // clear idle flag
-                let sr = sr(r).read();
-                // This read also clears the error and idle interrupt flags on v1.
-                rdr(r).read_volatile();
-                clear_interrupt_flags(r, sr);
-
-                // enable idle interrupt
-                r.cr1().modify(|w| {
-                    w.set_idleie(true);
-                });
-            }
         }
 
         compiler_fence(Ordering::SeqCst);
@@ -562,15 +533,11 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
             s.rx_waker.register(cx.waker());
 
-            // SAFETY: read only and we only use Rx related flags
-            let sr = unsafe { sr(r).read() };
+            let sr = sr(r).read();
 
-            // SAFETY: only clears Rx related flags
-            unsafe {
-                // This read also clears the error and idle interrupt flags on v1.
-                rdr(r).read_volatile();
-                clear_interrupt_flags(r, sr);
-            }
+            // This read also clears the error and idle interrupt flags on v1.
+            unsafe { rdr(r).read_volatile() };
+            clear_interrupt_flags(r, sr);
 
             compiler_fence(Ordering::SeqCst);
 
@@ -650,7 +617,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
@@ -665,7 +632,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
@@ -677,14 +644,12 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         T::enable();
         T::reset();
 
-        unsafe {
-            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
-            cts.set_as_af(cts.af_num(), AFType::Input);
-            T::regs().cr3().write(|w| {
-                w.set_rtse(true);
-                w.set_ctse(true);
-            });
-        }
+        rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+        cts.set_as_af(cts.af_num(), AFType::Input);
+        T::regs().cr3().write(|w| {
+            w.set_rtse(true);
+            w.set_ctse(true);
+        });
         Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
@@ -693,7 +658,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         de: impl Peripheral<P = impl DePin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
@@ -704,12 +669,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         T::enable();
         T::reset();
 
-        unsafe {
-            de.set_as_af(de.af_num(), AFType::OutputPushPull);
-            T::regs().cr3().write(|w| {
-                w.set_dem(true);
-            });
-        }
+        de.set_as_af(de.af_num(), AFType::OutputPushPull);
+        T::regs().cr3().write(|w| {
+            w.set_dem(true);
+        });
         Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
@@ -725,15 +688,13 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         let r = T::regs();
 
-        unsafe {
-            rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-        }
+        rx.set_as_af(rx.af_num(), AFType::Input);
+        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
         configure(r, &config, T::frequency(), T::KIND, true, true);
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         // create state once!
         let _s = T::state();
@@ -847,11 +808,9 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
             if div * 2 >= brr_min && kind == Kind::Uart && !cfg!(usart_v1) {
                 over8 = true;
                 let div = div as u32;
-                unsafe {
-                    r.brr().write_value(regs::Brr(((div << 1) & !0xF) | (div & 0x07)));
-                    #[cfg(usart_v4)]
-                    r.presc().write(|w| w.set_prescaler(_presc_val));
-                }
+                r.brr().write_value(regs::Brr(((div << 1) & !0xF) | (div & 0x07)));
+                #[cfg(usart_v4)]
+                r.presc().write(|w| w.set_prescaler(_presc_val));
                 found = Some(div);
                 break;
             }
@@ -860,11 +819,9 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
 
         if div < brr_max {
             let div = div as u32;
-            unsafe {
-                r.brr().write_value(regs::Brr(div));
-                #[cfg(usart_v4)]
-                r.presc().write(|w| w.set_prescaler(_presc_val));
-            }
+            r.brr().write_value(regs::Brr(div));
+            #[cfg(usart_v4)]
+            r.presc().write(|w| w.set_prescaler(_presc_val));
             found = Some(div);
             break;
         }
@@ -883,44 +840,42 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
         pclk_freq.0 / div
     );
 
-    unsafe {
-        r.cr2().write(|w| {
-            w.set_stop(match config.stop_bits {
-                StopBits::STOP0P5 => vals::Stop::STOP0P5,
-                StopBits::STOP1 => vals::Stop::STOP1,
-                StopBits::STOP1P5 => vals::Stop::STOP1P5,
-                StopBits::STOP2 => vals::Stop::STOP2,
-            });
+    r.cr2().write(|w| {
+        w.set_stop(match config.stop_bits {
+            StopBits::STOP0P5 => vals::Stop::STOP0P5,
+            StopBits::STOP1 => vals::Stop::STOP1,
+            StopBits::STOP1P5 => vals::Stop::STOP1P5,
+            StopBits::STOP2 => vals::Stop::STOP2,
         });
-        r.cr1().write(|w| {
-            // enable uart
-            w.set_ue(true);
-            // enable transceiver
-            w.set_te(enable_tx);
-            // enable receiver
-            w.set_re(enable_rx);
-            // configure word size
-            w.set_m0(if config.parity != Parity::ParityNone {
-                vals::M0::BIT9
-            } else {
-                vals::M0::BIT8
-            });
-            // configure parity
-            w.set_pce(config.parity != Parity::ParityNone);
-            w.set_ps(match config.parity {
-                Parity::ParityOdd => vals::Ps::ODD,
-                Parity::ParityEven => vals::Ps::EVEN,
-                _ => vals::Ps::EVEN,
-            });
-            #[cfg(not(usart_v1))]
-            w.set_over8(vals::Over8(over8 as _));
+    });
+    r.cr1().write(|w| {
+        // enable uart
+        w.set_ue(true);
+        // enable transceiver
+        w.set_te(enable_tx);
+        // enable receiver
+        w.set_re(enable_rx);
+        // configure word size
+        w.set_m0(if config.parity != Parity::ParityNone {
+            vals::M0::BIT9
+        } else {
+            vals::M0::BIT8
         });
-
+        // configure parity
+        w.set_pce(config.parity != Parity::ParityNone);
+        w.set_ps(match config.parity {
+            Parity::ParityOdd => vals::Ps::ODD,
+            Parity::ParityEven => vals::Ps::EVEN,
+            _ => vals::Ps::EVEN,
+        });
         #[cfg(not(usart_v1))]
-        r.cr3().modify(|w| {
-            w.set_onebit(config.assume_noise_free);
-        });
-    }
+        w.set_over8(vals::Over8(over8 as _));
+    });
+
+    #[cfg(not(usart_v1))]
+    r.cr3().modify(|w| {
+        w.set_onebit(config.assume_noise_free);
+    });
 }
 
 mod eh02 {
@@ -1111,12 +1066,12 @@ use self::sealed::Kind;
 
 #[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
-    r.dr().ptr() as _
+    r.dr().as_ptr() as _
 }
 
 #[cfg(any(usart_v1, usart_v2))]
 fn rdr(r: crate::pac::usart::Usart) -> *mut u8 {
-    r.dr().ptr() as _
+    r.dr().as_ptr() as _
 }
 
 #[cfg(any(usart_v1, usart_v2))]
@@ -1126,18 +1081,18 @@ fn sr(r: crate::pac::usart::Usart) -> crate::pac::common::Reg<regs::Sr, crate::p
 
 #[cfg(any(usart_v1, usart_v2))]
 #[allow(unused)]
-unsafe fn clear_interrupt_flags(_r: Regs, _sr: regs::Sr) {
+fn clear_interrupt_flags(_r: Regs, _sr: regs::Sr) {
     // On v1 the flags are cleared implicitly by reads and writes to DR.
 }
 
 #[cfg(any(usart_v3, usart_v4))]
 fn tdr(r: Regs) -> *mut u8 {
-    r.tdr().ptr() as _
+    r.tdr().as_ptr() as _
 }
 
 #[cfg(any(usart_v3, usart_v4))]
 fn rdr(r: Regs) -> *mut u8 {
-    r.rdr().ptr() as _
+    r.rdr().as_ptr() as _
 }
 
 #[cfg(any(usart_v3, usart_v4))]
@@ -1147,7 +1102,7 @@ fn sr(r: Regs) -> crate::pac::common::Reg<regs::Isr, crate::pac::common::R> {
 
 #[cfg(any(usart_v3, usart_v4))]
 #[allow(unused)]
-unsafe fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
+fn clear_interrupt_flags(r: Regs, sr: regs::Isr) {
     r.icr().write(|w| *w = regs::Icr(sr.0));
 }
 
@@ -1179,7 +1134,7 @@ pub(crate) mod sealed {
 
     pub trait BasicInstance: crate::rcc::RccPeripheral {
         const KIND: Kind;
-        type Interrupt: crate::interrupt::Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> Regs;
         fn state() -> &'static State;
@@ -1211,10 +1166,10 @@ macro_rules! impl_usart {
     ($inst:ident, $irq:ident, $kind:expr) => {
         impl sealed::BasicInstance for crate::peripherals::$inst {
             const KIND: Kind = $kind;
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> Regs {
-                Regs(crate::pac::$inst.0)
+                unsafe { Regs::from_ptr(crate::pac::$inst.as_ptr()) }
             }
 
             fn state() -> &'static crate::usart::sealed::State {

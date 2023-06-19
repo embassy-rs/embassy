@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers", "arch-cortex-m", "executor-thread", "executor-interrupt"] }
+embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["nightly", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers", "arch-cortex-m", "executor-thread", "executor-interrupt"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "unstable-traits", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "unstable-traits", "defmt", "stm32f429zi", "unstable-pac", "memory-x", "time-driver-any", "exti", "embedded-sdmmc", "chrono"]  }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
@@ -25,7 +25,7 @@ heapless = { version = "0.7.5", default-features = false }
 nb = "1.0.0"
 embedded-storage = "0.3.0"
 micromath = "2.0.0"
-static_cell = "1.0"
+static_cell = { version = "1.1", features = ["nightly"]}
 chrono = { version = "^0.4", default-features = false}
 
 [profile.release]

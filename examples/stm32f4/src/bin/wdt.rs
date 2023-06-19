@@ -17,9 +17,7 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PB7, Level::High, Speed::Low);
 
     let mut wdt = IndependentWatchdog::new(p.IWDG, 1_000_000);
-    unsafe {
-        wdt.unleash();
-    }
+    wdt.unleash();
 
     let mut i = 0;
 
@@ -36,9 +34,7 @@ async fn main(_spawner: Spawner) {
         // MCU should restart in 1 second after the last pet.
         if i < 5 {
             info!("Petting watchdog");
-            unsafe {
-                wdt.pet();
-            }
+            wdt.pet();
         }
 
         i += 1;

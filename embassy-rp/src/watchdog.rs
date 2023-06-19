@@ -35,45 +35,37 @@ impl Watchdog {
     /// * `cycles` - Total number of tick cycles before the next tick is generated.
     ///   It is expected to be the frequency in MHz of clk_ref.
     pub fn enable_tick_generation(&mut self, cycles: u8) {
-        unsafe {
-            let watchdog = pac::WATCHDOG;
-            watchdog.tick().write(|w| {
-                w.set_enable(true);
-                w.set_cycles(cycles.into())
-            });
-        }
+        let watchdog = pac::WATCHDOG;
+        watchdog.tick().write(|w| {
+            w.set_enable(true);
+            w.set_cycles(cycles.into())
+        });
     }
 
     /// Defines whether or not the watchdog timer should be paused when processor(s) are in debug mode
     /// or when JTAG is accessing bus fabric
     pub fn pause_on_debug(&mut self, pause: bool) {
-        unsafe {
-            let watchdog = pac::WATCHDOG;
-            watchdog.ctrl().write(|w| {
-                w.set_pause_dbg0(pause);
-                w.set_pause_dbg1(pause);
-                w.set_pause_jtag(pause);
-            })
-        }
+        let watchdog = pac::WATCHDOG;
+        watchdog.ctrl().write(|w| {
+            w.set_pause_dbg0(pause);
+            w.set_pause_dbg1(pause);
+            w.set_pause_jtag(pause);
+        })
     }
 
     fn load_counter(&self, counter: u32) {
-        unsafe {
-            let watchdog = pac::WATCHDOG;
-            watchdog.load().write_value(pac::watchdog::regs::Load(counter));
-        }
+        let watchdog = pac::WATCHDOG;
+        watchdog.load().write_value(pac::watchdog::regs::Load(counter));
     }
 
     fn enable(&self, bit: bool) {
-        unsafe {
-            let watchdog = pac::WATCHDOG;
-            watchdog.ctrl().write(|w| w.set_enable(bit))
-        }
+        let watchdog = pac::WATCHDOG;
+        watchdog.ctrl().write(|w| w.set_enable(bit))
     }
 
     // Configure which hardware will be reset by the watchdog
     // (everything except ROSC, XOSC)
-    unsafe fn configure_wdog_reset_triggers(&self) {
+    fn configure_wdog_reset_triggers(&self) {
         let psm = pac::PSM;
         psm.wdsel().write_value(pac::psm::regs::Wdsel(
             0x0001ffff & !(0x01 << 0usize) & !(0x01 << 1usize),
@@ -100,23 +92,19 @@ impl Watchdog {
         self.load_value = delay_us * 2;
 
         self.enable(false);
-        unsafe {
-            self.configure_wdog_reset_triggers();
-        }
+        self.configure_wdog_reset_triggers();
         self.load_counter(self.load_value);
         self.enable(true);
     }
 
     /// Trigger a system reset
     pub fn trigger_reset(&mut self) {
-        unsafe {
-            self.configure_wdog_reset_triggers();
-            self.pause_on_debug(false);
-            self.enable(true);
-            let watchdog = pac::WATCHDOG;
-            watchdog.ctrl().write(|w| {
-                w.set_trigger(true);
-            })
-        }
+        self.configure_wdog_reset_triggers();
+        self.pause_on_debug(false);
+        self.enable(true);
+        let watchdog = pac::WATCHDOG;
+        watchdog.ctrl().write(|w| {
+            w.set_trigger(true);
+        })
     }
 }

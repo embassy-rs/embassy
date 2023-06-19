@@ -8,7 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -16,7 +16,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let ris = crate::pac::DCMI.ris().read();
         if ris.err_ris() {
@@ -96,8 +96,7 @@ impl Default for Config {
 macro_rules! config_pins {
     ($($pin:ident),*) => {
         into_ref!($($pin),*);
-        // NOTE(unsafe) Exclusive access to the registers
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             $(
                 $pin.set_as_af($pin.af_num(), AFType::Input);
                 $pin.set_speed(Speed::VeryHigh);
@@ -119,7 +118,7 @@ where
     pub fn new_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -143,7 +142,7 @@ where
     pub fn new_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -169,7 +168,7 @@ where
     pub fn new_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -197,7 +196,7 @@ where
     pub fn new_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -227,7 +226,7 @@ where
     pub fn new_es_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -249,7 +248,7 @@ where
     pub fn new_es_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -273,7 +272,7 @@ where
     pub fn new_es_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -299,7 +298,7 @@ where
     pub fn new_es_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
         d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
         d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
@@ -334,25 +333,23 @@ where
         T::reset();
         T::enable();
 
-        unsafe {
-            peri.regs().cr().modify(|r| {
-                r.set_cm(true); // disable continuous mode (snapshot mode)
-                r.set_ess(use_embedded_synchronization);
-                r.set_pckpol(config.pixclk_polarity == PixelClockPolarity::RisingEdge);
-                r.set_vspol(config.vsync_level == VSyncDataInvalidLevel::High);
-                r.set_hspol(config.hsync_level == HSyncDataInvalidLevel::High);
-                r.set_fcrc(0x00); // capture every frame
-                r.set_edm(edm); // extended data mode
-            });
-        }
+        peri.regs().cr().modify(|r| {
+            r.set_cm(true); // disable continuous mode (snapshot mode)
+            r.set_ess(use_embedded_synchronization);
+            r.set_pckpol(config.pixclk_polarity == PixelClockPolarity::RisingEdge);
+            r.set_vspol(config.vsync_level == VSyncDataInvalidLevel::High);
+            r.set_hspol(config.hsync_level == HSyncDataInvalidLevel::High);
+            r.set_fcrc(0x00); // capture every frame
+            r.set_edm(edm); // extended data mode
+        });
 
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self { inner: peri, dma }
     }
 
-    unsafe fn toggle(enable: bool) {
+    fn toggle(enable: bool) {
         crate::pac::DCMI.cr().modify(|r| {
             r.set_enable(enable);
             r.set_capture(enable);
@@ -360,23 +357,19 @@ where
     }
 
     fn enable_irqs() {
-        unsafe {
-            crate::pac::DCMI.ier().modify(|r| {
-                r.set_err_ie(true);
-                r.set_ovr_ie(true);
-                r.set_frame_ie(true);
-            });
-        }
+        crate::pac::DCMI.ier().modify(|r| {
+            r.set_err_ie(true);
+            r.set_ovr_ie(true);
+            r.set_frame_ie(true);
+        });
     }
 
     fn clear_interrupt_flags() {
-        unsafe {
-            crate::pac::DCMI.icr().write(|r| {
-                r.set_ovr_isc(true);
-                r.set_err_isc(true);
-                r.set_frame_isc(true);
-            })
-        }
+        crate::pac::DCMI.icr().write(|r| {
+            r.set_ovr_isc(true);
+            r.set_err_isc(true);
+            r.set_frame_isc(true);
+        })
     }
 
     /// This method starts the capture and finishes when both the dma transfer and DCMI finish the frame transfer.
@@ -392,41 +385,30 @@ where
             return self.capture_giant(buffer).await;
         }
     }
+
     async fn capture_small(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
         let r = self.inner.regs();
-        let src = r.dr().ptr() as *mut u32;
+        let src = r.dr().as_ptr() as *mut u32;
         let request = self.dma.request();
         let dma_read = unsafe { Transfer::new_read(&mut self.dma, request, src, buffer, Default::default()) };
 
         Self::clear_interrupt_flags();
         Self::enable_irqs();
 
-        unsafe { Self::toggle(true) };
+        Self::toggle(true);
 
         let result = poll_fn(|cx| {
             STATE.waker.register(cx.waker());
 
-            let ris = unsafe { crate::pac::DCMI.ris().read() };
+            let ris = crate::pac::DCMI.ris().read();
             if ris.err_ris() {
-                unsafe {
-                    crate::pac::DCMI.icr().write(|r| {
-                        r.set_err_isc(true);
-                    })
-                };
+                crate::pac::DCMI.icr().write(|r| r.set_err_isc(true));
                 Poll::Ready(Err(Error::PeripheralError))
             } else if ris.ovr_ris() {
-                unsafe {
-                    crate::pac::DCMI.icr().write(|r| {
-                        r.set_ovr_isc(true);
-                    })
-                };
+                crate::pac::DCMI.icr().write(|r| r.set_ovr_isc(true));
                 Poll::Ready(Err(Error::Overrun))
             } else if ris.frame_ris() {
-                unsafe {
-                    crate::pac::DCMI.icr().write(|r| {
-                        r.set_frame_isc(true);
-                    })
-                };
+                crate::pac::DCMI.icr().write(|r| r.set_frame_isc(true));
                 Poll::Ready(Ok(()))
             } else {
                 Poll::Pending
@@ -435,7 +417,7 @@ where
 
         let (_, result) = embassy_futures::join::join(dma_read, result).await;
 
-        unsafe { Self::toggle(false) };
+        Self::toggle(false);
 
         result
     }
@@ -468,7 +450,7 @@ where
         let request = channel.request();
 
         let r = self.inner.regs();
-        let src = r.dr().ptr() as *mut u32;
+        let src = r.dr().as_ptr() as *mut u32;
 
         let mut transfer = unsafe {
             crate::dma::DoubleBuffered::new_read(
@@ -526,38 +508,26 @@ where
         let result = poll_fn(|cx| {
             STATE.waker.register(cx.waker());
 
-            let ris = unsafe { crate::pac::DCMI.ris().read() };
+            let ris = crate::pac::DCMI.ris().read();
             if ris.err_ris() {
-                unsafe {
-                    crate::pac::DCMI.icr().write(|r| {
-                        r.set_err_isc(true);
-                    })
-                };
+                crate::pac::DCMI.icr().write(|r| r.set_err_isc(true));
                 Poll::Ready(Err(Error::PeripheralError))
             } else if ris.ovr_ris() {
-                unsafe {
-                    crate::pac::DCMI.icr().write(|r| {
-                        r.set_ovr_isc(true);
-                    })
-                };
+                crate::pac::DCMI.icr().write(|r| r.set_ovr_isc(true));
                 Poll::Ready(Err(Error::Overrun))
             } else if ris.frame_ris() {
-                unsafe {
-                    crate::pac::DCMI.icr().write(|r| {
-                        r.set_frame_isc(true);
-                    })
-                };
+                crate::pac::DCMI.icr().write(|r| r.set_frame_isc(true));
                 Poll::Ready(Ok(()))
             } else {
                 Poll::Pending
             }
         });
 
-        unsafe { Self::toggle(true) };
+        Self::toggle(true);
 
         let (_, result) = embassy_futures::join::join(dma_result, result).await;
 
-        unsafe { Self::toggle(false) };
+        Self::toggle(false);
 
         result
     }
@@ -570,7 +540,7 @@ mod sealed {
 }
 
 pub trait Instance: sealed::Instance + 'static {
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 pin_trait!(D0Pin, Instance);
@@ -602,7 +572,7 @@ macro_rules! impl_peripheral {
         }
 
         impl Instance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

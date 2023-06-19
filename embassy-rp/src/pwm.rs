@@ -71,20 +71,18 @@ impl<'d, T: Channel> Pwm<'d, T> {
         into_ref!(inner);
 
         let p = inner.regs();
-        unsafe {
-            p.csr().modify(|w| {
-                w.set_divmode(divmode);
-                w.set_en(false);
-            });
-            p.ctr().write(|w| w.0 = 0);
-            Self::configure(p, &config);
+        p.csr().modify(|w| {
+            w.set_divmode(divmode);
+            w.set_en(false);
+        });
+        p.ctr().write(|w| w.0 = 0);
+        Self::configure(p, &config);
 
-            if let Some(pin) = &a {
-                pin.io().ctrl().write(|w| w.set_funcsel(4));
-            }
-            if let Some(pin) = &b {
-                pin.io().ctrl().write(|w| w.set_funcsel(4));
-            }
+        if let Some(pin) = &a {
+            pin.io().ctrl().write(|w| w.set_funcsel(4));
+        }
+        if let Some(pin) = &b {
+            pin.io().ctrl().write(|w| w.set_funcsel(4));
         }
         Self {
             inner,
@@ -161,31 +159,29 @@ impl<'d, T: Channel> Pwm<'d, T> {
             panic!("Requested divider is too large");
         }
 
-        unsafe {
-            p.div().write_value(ChDiv(config.divider.to_bits() as u32));
-            p.cc().write(|w| {
-                w.set_a(config.compare_a);
-                w.set_b(config.compare_b);
-            });
-            p.top().write(|w| w.set_top(config.top));
-            p.csr().modify(|w| {
-                w.set_a_inv(config.invert_a);
-                w.set_b_inv(config.invert_b);
-                w.set_ph_correct(config.phase_correct);
-                w.set_en(config.enable);
-            });
-        }
+        p.div().write_value(ChDiv(config.divider.to_bits() as u32));
+        p.cc().write(|w| {
+            w.set_a(config.compare_a);
+            w.set_b(config.compare_b);
+        });
+        p.top().write(|w| w.set_top(config.top));
+        p.csr().modify(|w| {
+            w.set_a_inv(config.invert_a);
+            w.set_b_inv(config.invert_b);
+            w.set_ph_correct(config.phase_correct);
+            w.set_en(config.enable);
+        });
     }
 
     #[inline]
-    pub unsafe fn phase_advance(&mut self) {
+    pub fn phase_advance(&mut self) {
         let p = self.inner.regs();
         p.csr().write_set(|w| w.set_ph_adv(true));
         while p.csr().read().ph_adv() {}
     }
 
     #[inline]
-    pub unsafe fn phase_retard(&mut self) {
+    pub fn phase_retard(&mut self) {
         let p = self.inner.regs();
         p.csr().write_set(|w| w.set_ph_ret(true));
         while p.csr().read().ph_ret() {}
@@ -193,12 +189,12 @@ impl<'d, T: Channel> Pwm<'d, T> {
 
     #[inline]
     pub fn counter(&self) -> u16 {
-        unsafe { self.inner.regs().ctr().read().ctr() }
+        self.inner.regs().ctr().read().ctr()
     }
 
     #[inline]
     pub fn set_counter(&self, ctr: u16) {
-        unsafe { self.inner.regs().ctr().write(|w| w.set_ctr(ctr)) }
+        self.inner.regs().ctr().write(|w| w.set_ctr(ctr))
     }
 
     #[inline]
@@ -209,14 +205,12 @@ impl<'d, T: Channel> Pwm<'d, T> {
 
     #[inline]
     pub fn wrapped(&mut self) -> bool {
-        unsafe { pac::PWM.intr().read().0 & self.bit() != 0 }
+        pac::PWM.intr().read().0 & self.bit() != 0
     }
 
     #[inline]
     pub fn clear_wrapped(&mut self) {
-        unsafe {
-            pac::PWM.intr().write_value(Intr(self.bit() as _));
-        }
+        pac::PWM.intr().write_value(Intr(self.bit() as _));
     }
 
     #[inline]
@@ -237,26 +231,22 @@ impl PwmBatch {
     pub fn set_enabled(enabled: bool, batch: impl FnOnce(&mut PwmBatch)) {
         let mut en = PwmBatch(0);
         batch(&mut en);
-        unsafe {
-            if enabled {
-                pac::PWM.en().write_set(|w| w.0 = en.0);
-            } else {
-                pac::PWM.en().write_clear(|w| w.0 = en.0);
-            }
+        if enabled {
+            pac::PWM.en().write_set(|w| w.0 = en.0);
+        } else {
+            pac::PWM.en().write_clear(|w| w.0 = en.0);
         }
     }
 }
 
 impl<'d, T: Channel> Drop for Pwm<'d, T> {
     fn drop(&mut self) {
-        unsafe {
-            self.inner.regs().csr().write_clear(|w| w.set_en(false));
-            if let Some(pin) = &self.pin_a {
-                pin.io().ctrl().write(|w| w.set_funcsel(31));
-            }
-            if let Some(pin) = &self.pin_b {
-                pin.io().ctrl().write(|w| w.set_funcsel(31));
-            }
+        self.inner.regs().csr().write_clear(|w| w.set_en(false));
+        if let Some(pin) = &self.pin_a {
+            pin.io().ctrl().write(|w| w.set_funcsel(31));
+        }
+        if let Some(pin) = &self.pin_b {
+            pin.io().ctrl().write(|w| w.set_funcsel(31));
         }
     }
 }

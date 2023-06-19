@@ -3,7 +3,7 @@
 set -euo pipefail
 
 export RUSTFLAGS=-Dwarnings
-export DEFMT_LOG=trace
+export DEFMT_LOG=trace,cyw43=info,cyw43_pio=info,smoltcp=info
 
 # needed by wifi examples
 export WIFI_NETWORK=x
@@ -25,11 +25,19 @@ cargo batch  \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt \
     --- build --release --manifest-path embassy-time/Cargo.toml --target thumbv6m-none-eabi --features nightly,unstable-traits,defmt,defmt-timestamp-uptime,tick-hz-32_768,generic-queue-8 \
-    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,medium-ethernet \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,medium-ethernet \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,dhcpv4,medium-ethernet \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,dhcpv4,medium-ethernet,unstable-traits \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,dhcpv4,medium-ethernet,nightly \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,dhcpv4,medium-ethernet,unstable-traits,nightly \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet,unstable-traits \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet,nightly \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet,unstable-traits,nightly \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet,unstable-traits \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet,nightly \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ethernet,unstable-traits,nightly \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52805,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52810,gpiote,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nightly,nrf52811,gpiote,time-driver-rtc1 \
@@ -71,6 +79,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h755zi-cm7,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h7b3ai,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32l476vg,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32l422cb,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32wb15cc,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features nightly,stm32l072cz,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features nightly,stm32l041f6,defmt,exti,time-driver-any,unstable-traits \
@@ -103,6 +112,7 @@ cargo batch  \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-irq/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-async/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840 \
+    --- build --release --manifest-path examples/nrf52840-rtic/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840-rtic \
     --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf5340 \
     --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/rp \
     --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32f0 \

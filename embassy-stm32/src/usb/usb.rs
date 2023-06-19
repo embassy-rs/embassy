@@ -14,7 +14,7 @@ use embassy_usb_driver::{
 
 use super::{DmPin, DpPin, Instance};
 use crate::gpio::sealed::AFType;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
@@ -26,84 +26,82 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        unsafe {
-            let regs = T::regs();
-            //let x = regs.istr().read().0;
-            //trace!("USB IRQ: {:08x}", x);
+        let regs = T::regs();
+        //let x = regs.istr().read().0;
+        //trace!("USB IRQ: {:08x}", x);
 
-            let istr = regs.istr().read();
+        let istr = regs.istr().read();
 
-            if istr.susp() {
-                //trace!("USB IRQ: susp");
-                IRQ_SUSPEND.store(true, Ordering::Relaxed);
-                regs.cntr().modify(|w| {
-                    w.set_fsusp(true);
-                    w.set_lpmode(true);
-                });
+        if istr.susp() {
+            //trace!("USB IRQ: susp");
+            IRQ_SUSPEND.store(true, Ordering::Relaxed);
+            regs.cntr().modify(|w| {
+                w.set_fsusp(true);
+                w.set_lpmode(true);
+            });
 
-                // Write 0 to clear.
-                let mut clear = regs::Istr(!0);
-                clear.set_susp(false);
-                regs.istr().write_value(clear);
+            // Write 0 to clear.
+            let mut clear = regs::Istr(!0);
+            clear.set_susp(false);
+            regs.istr().write_value(clear);
 
-                // Wake main thread.
-                BUS_WAKER.wake();
-            }
+            // Wake main thread.
+            BUS_WAKER.wake();
+        }
 
-            if istr.wkup() {
-                //trace!("USB IRQ: wkup");
-                IRQ_RESUME.store(true, Ordering::Relaxed);
-                regs.cntr().modify(|w| {
-                    w.set_fsusp(false);
-                    w.set_lpmode(false);
-                });
+        if istr.wkup() {
+            //trace!("USB IRQ: wkup");
+            IRQ_RESUME.store(true, Ordering::Relaxed);
+            regs.cntr().modify(|w| {
+                w.set_fsusp(false);
+                w.set_lpmode(false);
+            });
 
-                // Write 0 to clear.
-                let mut clear = regs::Istr(!0);
-                clear.set_wkup(false);
-                regs.istr().write_value(clear);
+            // Write 0 to clear.
+            let mut clear = regs::Istr(!0);
+            clear.set_wkup(false);
+            regs.istr().write_value(clear);
 
-                // Wake main thread.
-                BUS_WAKER.wake();
-            }
+            // Wake main thread.
+            BUS_WAKER.wake();
+        }
 
-            if istr.reset() {
-                //trace!("USB IRQ: reset");
-                IRQ_RESET.store(true, Ordering::Relaxed);
+        if istr.reset() {
+            //trace!("USB IRQ: reset");
+            IRQ_RESET.store(true, Ordering::Relaxed);
 
-                // Write 0 to clear.
-                let mut clear = regs::Istr(!0);
-                clear.set_reset(false);
-                regs.istr().write_value(clear);
+            // Write 0 to clear.
+            let mut clear = regs::Istr(!0);
+            clear.set_reset(false);
+            regs.istr().write_value(clear);
 
-                // Wake main thread.
-                BUS_WAKER.wake();
-            }
+            // Wake main thread.
+            BUS_WAKER.wake();
+        }
 
-            if istr.ctr() {
-                let index = istr.ep_id() as usize;
-                let mut epr = regs.epr(index).read();
-                if epr.ctr_rx() {
-                    if index == 0 && epr.setup() {
-                        EP0_SETUP.store(true, Ordering::Relaxed);
-                    }
-                    //trace!("EP {} RX, setup={}", index, epr.setup());
-                    EP_OUT_WAKERS[index].wake();
+        if istr.ctr() {
+            let index = istr.ep_id() as usize;
+            let mut epr = regs.epr(index).read();
+            if epr.ctr_rx() {
+                if index == 0 && epr.setup() {
+                    EP0_SETUP.store(true, Ordering::Relaxed);
                 }
-                if epr.ctr_tx() {
-                    //trace!("EP {} TX", index);
-                    EP_IN_WAKERS[index].wake();
-                }
-                epr.set_dtog_rx(false);
-                epr.set_dtog_tx(false);
-                epr.set_stat_rx(Stat(0));
-                epr.set_stat_tx(Stat(0));
-                epr.set_ctr_rx(!epr.ctr_rx());
-                epr.set_ctr_tx(!epr.ctr_tx());
-                regs.epr(index).write_value(epr);
+                //trace!("EP {} RX, setup={}", index, epr.setup());
+                EP_OUT_WAKERS[index].wake();
             }
+            if epr.ctr_tx() {
+                //trace!("EP {} TX", index);
+                EP_IN_WAKERS[index].wake();
+            }
+            epr.set_dtog_rx(false);
+            epr.set_dtog_tx(false);
+            epr.set_stat_rx(Stat(0));
+            epr.set_stat_tx(Stat(0));
+            epr.set_ctr_rx(!epr.ctr_rx());
+            epr.set_ctr_tx(!epr.ctr_tx());
+            regs.epr(index).write_value(epr);
         }
     }
 }
@@ -168,20 +166,20 @@ fn calc_out_len(len: u16) -> (u16, u16) {
 mod btable {
     use super::*;
 
-    pub(super) unsafe fn write_in<T: Instance>(index: usize, addr: u16) {
+    pub(super) fn write_in<T: Instance>(index: usize, addr: u16) {
         USBRAM.mem(index * 4 + 0).write_value(addr);
     }
 
-    pub(super) unsafe fn write_in_len<T: Instance>(index: usize, _addr: u16, len: u16) {
+    pub(super) fn write_in_len<T: Instance>(index: usize, _addr: u16, len: u16) {
         USBRAM.mem(index * 4 + 1).write_value(len);
     }
 
-    pub(super) unsafe fn write_out<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
+    pub(super) fn write_out<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
         USBRAM.mem(index * 4 + 2).write_value(addr);
         USBRAM.mem(index * 4 + 3).write_value(max_len_bits);
     }
 
-    pub(super) unsafe fn read_out_len<T: Instance>(index: usize) -> u16 {
+    pub(super) fn read_out_len<T: Instance>(index: usize) -> u16 {
         USBRAM.mem(index * 4 + 3).read()
     }
 }
@@ -189,19 +187,19 @@ mod btable {
 mod btable {
     use super::*;
 
-    pub(super) unsafe fn write_in<T: Instance>(_index: usize, _addr: u16) {}
+    pub(super) fn write_in<T: Instance>(_index: usize, _addr: u16) {}
 
-    pub(super) unsafe fn write_in_len<T: Instance>(index: usize, addr: u16, len: u16) {
+    pub(super) fn write_in_len<T: Instance>(index: usize, addr: u16, len: u16) {
         USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
     }
 
-    pub(super) unsafe fn write_out<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
+    pub(super) fn write_out<T: Instance>(index: usize, addr: u16, max_len_bits: u16) {
         USBRAM
             .mem(index * 2 + 1)
             .write_value((addr as u32) | ((max_len_bits as u32) << 16));
     }
 
-    pub(super) unsafe fn read_out_len<T: Instance>(index: usize) -> u16 {
+    pub(super) fn read_out_len<T: Instance>(index: usize) -> u16 {
         (USBRAM.mem(index * 2 + 1).read() >> 16) as u16
     }
 }
@@ -216,7 +214,7 @@ impl<T: Instance> EndpointBuffer<T> {
     fn read(&mut self, buf: &mut [u8]) {
         assert!(buf.len() <= self.len as usize);
         for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
-            let val = unsafe { USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read() };
+            let val = USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read();
             let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
             buf[i * USBRAM_ALIGN..][..n].copy_from_slice(&val.to_le_bytes()[..n]);
         }
@@ -233,7 +231,7 @@ impl<T: Instance> EndpointBuffer<T> {
             let val = u16::from_le_bytes(val);
             #[cfg(usbram_32_2048)]
             let val = u32::from_le_bytes(val);
-            unsafe { USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val) };
+            USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
         }
     }
 }
@@ -255,47 +253,43 @@ pub struct Driver<'d, T: Instance> {
 impl<'d, T: Instance> Driver<'d, T> {
     pub fn new(
         _usb: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
         into_ref!(dp, dm);
-        unsafe { T::Interrupt::steal() }.unpend();
-        unsafe { T::Interrupt::steal() }.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let regs = T::regs();
 
         #[cfg(stm32l5)]
-        unsafe {
+        {
             crate::peripherals::PWR::enable();
             crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
         }
 
         #[cfg(pwr_h5)]
-        unsafe {
-            crate::pac::PWR.usbscr().modify(|w| w.set_usb33sv(true))
-        }
+        crate::pac::PWR.usbscr().modify(|w| w.set_usb33sv(true));
 
-        unsafe {
-            <T as RccPeripheral>::enable();
-            <T as RccPeripheral>::reset();
+        <T as RccPeripheral>::enable();
+        <T as RccPeripheral>::reset();
 
-            regs.cntr().write(|w| {
-                w.set_pdwn(false);
-                w.set_fres(true);
-            });
+        regs.cntr().write(|w| {
+            w.set_pdwn(false);
+            w.set_fres(true);
+        });
 
-            #[cfg(time)]
-            embassy_time::block_for(embassy_time::Duration::from_millis(100));
-            #[cfg(not(time))]
-            cortex_m::asm::delay(crate::rcc::get_freqs().sys.0 / 10);
+        #[cfg(time)]
+        embassy_time::block_for(embassy_time::Duration::from_millis(100));
+        #[cfg(not(time))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.0 / 10);
 
-            #[cfg(not(usb_v4))]
-            regs.btable().write(|w| w.set_btable(0));
+        #[cfg(not(usb_v4))]
+        regs.btable().write(|w| w.set_btable(0));
 
-            dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
-            dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
-        }
+        dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
+        dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
 
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
@@ -363,7 +357,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 let addr = self.alloc_ep_mem(len);
 
                 trace!("  len_bits = {:04x}", len_bits);
-                unsafe { btable::write_out::<T>(index, addr, len_bits) }
+                btable::write_out::<T>(index, addr, len_bits);
 
                 EndpointBuffer {
                     addr,
@@ -379,7 +373,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 let addr = self.alloc_ep_mem(len);
 
                 // ep_in_len is written when actually TXing packets.
-                unsafe { btable::write_in::<T>(index, addr) }
+                btable::write_in::<T>(index, addr);
 
                 EndpointBuffer {
                     addr,
@@ -440,19 +434,17 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
         let regs = T::regs();
 
-        unsafe {
-            regs.cntr().write(|w| {
-                w.set_pdwn(false);
-                w.set_fres(false);
-                w.set_resetm(true);
-                w.set_suspm(true);
-                w.set_wkupm(true);
-                w.set_ctrm(true);
-            });
+        regs.cntr().write(|w| {
+            w.set_pdwn(false);
+            w.set_fres(false);
+            w.set_resetm(true);
+            w.set_suspm(true);
+            w.set_wkupm(true);
+            w.set_ctrm(true);
+        });
 
-            #[cfg(any(usb_v3, usb_v4))]
-            regs.bcdr().write(|w| w.set_dppu(true))
-        }
+        #[cfg(any(usb_v3, usb_v4))]
+        regs.bcdr().write(|w| w.set_dppu(true));
 
         trace!("enabled");
 
@@ -485,7 +477,7 @@ pub struct Bus<'d, T: Instance> {
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn poll(&mut self) -> Event {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
 
             if self.inited {
@@ -548,7 +540,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         match ep_addr.direction() {
             Direction::In => {
                 loop {
-                    let r = unsafe { reg.read() };
+                    let r = reg.read();
                     match r.stat_tx() {
                         Stat::DISABLED => break, // if disabled, stall does nothing.
                         Stat::STALL => break,    // done!
@@ -559,7 +551,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                             };
                             let mut w = invariant(r);
                             w.set_stat_tx(Stat(r.stat_tx().0 ^ want_stat.0));
-                            unsafe { reg.write_value(w) };
+                            reg.write_value(w);
                         }
                     }
                 }
@@ -567,7 +559,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             }
             Direction::Out => {
                 loop {
-                    let r = unsafe { reg.read() };
+                    let r = reg.read();
                     match r.stat_rx() {
                         Stat::DISABLED => break, // if disabled, stall does nothing.
                         Stat::STALL => break,    // done!
@@ -578,7 +570,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                             };
                             let mut w = invariant(r);
                             w.set_stat_rx(Stat(r.stat_rx().0 ^ want_stat.0));
-                            unsafe { reg.write_value(w) };
+                            reg.write_value(w);
                         }
                     }
                 }
@@ -589,7 +581,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
         let regs = T::regs();
-        let epr = unsafe { regs.epr(ep_addr.index() as _).read() };
+        let epr = regs.epr(ep_addr.index() as _).read();
         match ep_addr.direction() {
             Direction::In => epr.stat_tx() == Stat::STALL,
             Direction::Out => epr.stat_rx() == Stat::STALL,
@@ -600,7 +592,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         trace!("set_enabled {:x} {}", ep_addr, enabled);
         // This can race, so do a retry loop.
         let reg = T::regs().epr(ep_addr.index() as _);
-        trace!("EPR before: {:04x}", unsafe { reg.read() }.0);
+        trace!("EPR before: {:04x}", reg.read().0);
         match ep_addr.direction() {
             Direction::In => {
                 loop {
@@ -608,13 +600,13 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                         false => Stat::DISABLED,
                         true => Stat::NAK,
                     };
-                    let r = unsafe { reg.read() };
+                    let r = reg.read();
                     if r.stat_tx() == want_stat {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_tx(Stat(r.stat_tx().0 ^ want_stat.0));
-                    unsafe { reg.write_value(w) };
+                    reg.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
             }
@@ -624,18 +616,18 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                         false => Stat::DISABLED,
                         true => Stat::VALID,
                     };
-                    let r = unsafe { reg.read() };
+                    let r = reg.read();
                     if r.stat_rx() == want_stat {
                         break;
                     }
                     let mut w = invariant(r);
                     w.set_stat_rx(Stat(r.stat_rx().0 ^ want_stat.0));
-                    unsafe { reg.write_value(w) };
+                    reg.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
             }
         }
-        trace!("EPR after: {:04x}", unsafe { reg.read() }.0);
+        trace!("EPR after: {:04x}", reg.read().0);
     }
 
     async fn enable(&mut self) {}
@@ -685,12 +677,12 @@ impl<'d, T: Instance, D> Endpoint<'d, T, D> {
     fn write_data(&mut self, buf: &[u8]) {
         let index = self.info.addr.index();
         self.buf.write(buf);
-        unsafe { btable::write_in_len::<T>(index, self.buf.addr, buf.len() as _) }
+        btable::write_in_len::<T>(index, self.buf.addr, buf.len() as _);
     }
 
     fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let index = self.info.addr.index();
-        let rx_len = unsafe { btable::read_out_len::<T>(index) as usize } & 0x3FF;
+        let rx_len = btable::read_out_len::<T>(index) as usize & 0x3FF;
         trace!("READ DONE, rx_len = {}", rx_len);
         if rx_len > buf.len() {
             return Err(EndpointError::BufferOverflow);
@@ -711,7 +703,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            if unsafe { regs.epr(index).read() }.stat_tx() == Stat::DISABLED {
+            if regs.epr(index).read().stat_tx() == Stat::DISABLED {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -733,7 +725,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            if unsafe { regs.epr(index).read() }.stat_rx() == Stat::DISABLED {
+            if regs.epr(index).read().stat_rx() == Stat::DISABLED {
                 Poll::Pending
             } else {
                 Poll::Ready(())
@@ -751,7 +743,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let stat = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            let stat = unsafe { regs.epr(index).read() }.stat_rx();
+            let stat = regs.epr(index).read().stat_rx();
             if matches!(stat, Stat::NAK | Stat::DISABLED) {
                 Poll::Ready(stat)
             } else {
@@ -767,16 +759,14 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let rx_len = self.read_data(buf)?;
 
         let regs = T::regs();
-        unsafe {
-            regs.epr(index).write(|w| {
-                w.set_ep_type(convert_type(self.info.ep_type));
-                w.set_ea(self.info.addr.index() as _);
-                w.set_stat_rx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
-                w.set_stat_tx(Stat(0));
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            })
-        };
+        regs.epr(index).write(|w| {
+            w.set_ep_type(convert_type(self.info.ep_type));
+            w.set_ea(self.info.addr.index() as _);
+            w.set_stat_rx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+            w.set_stat_tx(Stat(0));
+            w.set_ctr_rx(true); // don't clear
+            w.set_ctr_tx(true); // don't clear
+        });
         trace!("READ OK, rx_len = {}", rx_len);
 
         Ok(rx_len)
@@ -795,7 +785,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         let stat = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
-            let stat = unsafe { regs.epr(index).read() }.stat_tx();
+            let stat = regs.epr(index).read().stat_tx();
             if matches!(stat, Stat::NAK | Stat::DISABLED) {
                 Poll::Ready(stat)
             } else {
@@ -811,16 +801,14 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         self.write_data(buf);
 
         let regs = T::regs();
-        unsafe {
-            regs.epr(index).write(|w| {
-                w.set_ep_type(convert_type(self.info.ep_type));
-                w.set_ea(self.info.addr.index() as _);
-                w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
-                w.set_stat_rx(Stat(0));
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            })
-        };
+        regs.epr(index).write(|w| {
+            w.set_ep_type(convert_type(self.info.ep_type));
+            w.set_ea(self.info.addr.index() as _);
+            w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+            w.set_stat_rx(Stat(0));
+            w.set_ctr_rx(true); // don't clear
+            w.set_ctr_tx(true); // don't clear
+        });
 
         trace!("WRITE OK");
 
@@ -889,22 +877,20 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             }
             // Note: if this is the first AND last transfer, the above effectively
             // changes stat_tx like NAK -> NAK, so noop.
-            unsafe {
-                regs.epr(0).write(|w| {
-                    w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_rx(Stat(stat_rx));
-                    w.set_stat_tx(Stat(stat_tx));
-                    w.set_ctr_rx(true); // don't clear
-                    w.set_ctr_tx(true); // don't clear
-                })
-            }
+            regs.epr(0).write(|w| {
+                w.set_ep_type(EpType::CONTROL);
+                w.set_stat_rx(Stat(stat_rx));
+                w.set_stat_tx(Stat(stat_tx));
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
         }
 
         trace!("data_out WAITING, buf.len() = {}", buf.len());
         poll_fn(|cx| {
             EP_OUT_WAKERS[0].register(cx.waker());
             let regs = T::regs();
-            if unsafe { regs.epr(0).read() }.stat_rx() == Stat::NAK {
+            if regs.epr(0).read().stat_rx() == Stat::NAK {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -919,19 +905,17 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         let rx_len = self.ep_out.read_data(buf)?;
 
-        unsafe {
-            regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
-                w.set_stat_rx(Stat(match last {
-                    // If last, set STAT_RX=STALL.
-                    true => Stat::NAK.0 ^ Stat::STALL.0,
-                    // Otherwise, set STAT_RX=VALID, to allow the host to send the next packet.
-                    false => Stat::NAK.0 ^ Stat::VALID.0,
-                }));
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            })
-        };
+        regs.epr(0).write(|w| {
+            w.set_ep_type(EpType::CONTROL);
+            w.set_stat_rx(Stat(match last {
+                // If last, set STAT_RX=STALL.
+                true => Stat::NAK.0 ^ Stat::STALL.0,
+                // Otherwise, set STAT_RX=VALID, to allow the host to send the next packet.
+                false => Stat::NAK.0 ^ Stat::VALID.0,
+            }));
+            w.set_ctr_rx(true); // don't clear
+            w.set_ctr_tx(true); // don't clear
+        });
 
         Ok(rx_len)
     }
@@ -960,15 +944,13 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             }
             // Note: if this is the first AND last transfer, the above effectively
             // does a change of NAK -> VALID.
-            unsafe {
-                regs.epr(0).write(|w| {
-                    w.set_ep_type(EpType::CONTROL);
-                    w.set_stat_rx(Stat(stat_rx));
-                    w.set_ep_kind(last); // set OUT_STATUS if last.
-                    w.set_ctr_rx(true); // don't clear
-                    w.set_ctr_tx(true); // don't clear
-                })
-            }
+            regs.epr(0).write(|w| {
+                w.set_ep_type(EpType::CONTROL);
+                w.set_stat_rx(Stat(stat_rx));
+                w.set_ep_kind(last); // set OUT_STATUS if last.
+                w.set_ctr_rx(true); // don't clear
+                w.set_ctr_tx(true); // don't clear
+            });
         }
 
         trace!("WRITE WAITING");
@@ -976,7 +958,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             EP_IN_WAKERS[0].register(cx.waker());
             EP_OUT_WAKERS[0].register(cx.waker());
             let regs = T::regs();
-            if unsafe { regs.epr(0).read() }.stat_tx() == Stat::NAK {
+            if regs.epr(0).read().stat_tx() == Stat::NAK {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -992,15 +974,13 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         self.ep_in.write_data(data);
 
         let regs = T::regs();
-        unsafe {
-            regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
-                w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
-                w.set_ep_kind(last); // set OUT_STATUS if last.
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            })
-        };
+        regs.epr(0).write(|w| {
+            w.set_ep_type(EpType::CONTROL);
+            w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+            w.set_ep_kind(last); // set OUT_STATUS if last.
+            w.set_ctr_rx(true); // don't clear
+            w.set_ctr_tx(true); // don't clear
+        });
 
         trace!("WRITE OK");
 
@@ -1014,16 +994,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         self.ep_in.write_data(&[]);
 
         // Set OUT=stall, IN=accept
-        unsafe {
-            let epr = regs.epr(0).read();
-            regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
-                w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
-                w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::VALID.0));
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            });
-        }
+        let epr = regs.epr(0).read();
+        regs.epr(0).write(|w| {
+            w.set_ep_type(EpType::CONTROL);
+            w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
+            w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::VALID.0));
+            w.set_ctr_rx(true); // don't clear
+            w.set_ctr_tx(true); // don't clear
+        });
         trace!("control: accept WAITING");
 
         // Wait is needed, so that we don't set the address too soon, breaking the status stage.
@@ -1031,7 +1009,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         poll_fn(|cx| {
             EP_IN_WAKERS[0].register(cx.waker());
             let regs = T::regs();
-            if unsafe { regs.epr(0).read() }.stat_tx() == Stat::NAK {
+            if regs.epr(0).read().stat_tx() == Stat::NAK {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1047,16 +1025,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         trace!("control: reject");
 
         // Set IN+OUT to stall
-        unsafe {
-            let epr = regs.epr(0).read();
-            regs.epr(0).write(|w| {
-                w.set_ep_type(EpType::CONTROL);
-                w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
-                w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::STALL.0));
-                w.set_ctr_rx(true); // don't clear
-                w.set_ctr_tx(true); // don't clear
-            });
-        }
+        let epr = regs.epr(0).read();
+        regs.epr(0).write(|w| {
+            w.set_ep_type(EpType::CONTROL);
+            w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
+            w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::STALL.0));
+            w.set_ctr_rx(true); // don't clear
+            w.set_ctr_tx(true); // don't clear
+        });
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
@@ -1064,11 +1040,9 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         let regs = T::regs();
         trace!("setting addr: {}", addr);
-        unsafe {
-            regs.daddr().write(|w| {
-                w.set_ef(true);
-                w.set_add(addr);
-            })
-        }
+        regs.daddr().write(|w| {
+            w.set_ef(true);
+            w.set_add(addr);
+        });
     }
 }

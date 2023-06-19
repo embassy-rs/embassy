@@ -1,7 +1,6 @@
 use core::marker::PhantomData;
 
 use atomic_polyfill::{fence, Ordering};
-use embassy_cortex_m::interrupt::{Interrupt, InterruptExt};
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -11,6 +10,7 @@ use super::{
     blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
     WRITE_SIZE,
 };
+use crate::interrupt::InterruptExt;
 use crate::peripherals::FLASH;
 use crate::{interrupt, Peripheral};
 
@@ -19,13 +19,12 @@ pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new
 impl<'d> Flash<'d, Async> {
     pub fn new(
         p: impl Peripheral<P = FLASH> + 'd,
-        _irq: impl interrupt::Binding<crate::interrupt::FLASH, InterruptHandler> + 'd,
+        _irq: impl interrupt::typelevel::Binding<crate::interrupt::typelevel::FLASH, InterruptHandler> + 'd,
     ) -> Self {
         into_ref!(p);
 
-        let flash_irq = unsafe { crate::interrupt::FLASH::steal() };
-        flash_irq.unpend();
-        flash_irq.enable();
+        crate::interrupt::FLASH.unpend();
+        unsafe { crate::interrupt::FLASH.enable() };
 
         Self {
             inner: p,
@@ -50,7 +49,7 @@ impl<'d> Flash<'d, Async> {
 /// Interrupt handler
 pub struct InterruptHandler;
 
-impl interrupt::Handler<crate::interrupt::FLASH> for InterruptHandler {
+impl interrupt::typelevel::Handler<crate::interrupt::typelevel::FLASH> for InterruptHandler {
     unsafe fn on_interrupt() {
         family::on_interrupt();
     }

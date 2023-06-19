@@ -7,7 +7,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
 
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
 fn rtc() -> &'static pac::rtc0::RegisterBlock {
@@ -142,9 +142,8 @@ impl RtcDriver {
         // Wait for clear
         while r.counter.read().bits() != 0 {}
 
-        let irq = unsafe { interrupt::RTC1::steal() };
-        irq.set_priority(irq_prio);
-        irq.enable();
+        interrupt::RTC1.set_priority(irq_prio);
+        unsafe { interrupt::RTC1.enable() };
     }
 
     fn on_interrupt(&self) {
@@ -296,6 +295,7 @@ impl Driver for RtcDriver {
     }
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 fn RTC1() {
     DRIVER.on_interrupt()

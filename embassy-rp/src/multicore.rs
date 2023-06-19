@@ -50,7 +50,7 @@
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
 use crate::{gpio, interrupt, pac};
 
@@ -106,6 +106,7 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 #[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_PROC1() {
@@ -156,21 +157,18 @@ where
 
         IS_CORE1_INIT.store(true, Ordering::Release);
         // Enable fifo interrupt on CORE1 for `pause` functionality.
-        let irq = unsafe { interrupt::SIO_IRQ_PROC1::steal() };
-        irq.enable();
+        unsafe { interrupt::SIO_IRQ_PROC1.enable() };
 
         entry()
     }
 
     // Reset the core
-    unsafe {
-        let psm = pac::PSM;
-        psm.frce_off().modify(|w| w.set_proc1(true));
-        while !psm.frce_off().read().proc1() {
-            cortex_m::asm::nop();
-        }
-        psm.frce_off().modify(|w| w.set_proc1(false));
+    let psm = pac::PSM;
+    psm.frce_off().modify(|w| w.set_proc1(true));
+    while !psm.frce_off().read().proc1() {
+        cortex_m::asm::nop();
     }
+    psm.frce_off().modify(|w| w.set_proc1(false));
 
     // The ARM AAPCS ABI requires 8-byte stack alignment.
     // #[align] on `struct Stack` ensures the bottom is aligned, but the top could still be
@@ -270,14 +268,12 @@ pub fn resume_core1() {
 // Push a value to the inter-core FIFO, block until space is available
 #[inline(always)]
 fn fifo_write(value: u32) {
-    unsafe {
-        let sio = pac::SIO;
-        // Wait for the FIFO to have enough space
-        while !sio.fifo().st().read().rdy() {
-            cortex_m::asm::nop();
-        }
-        sio.fifo().wr().write_value(value);
+    let sio = pac::SIO;
+    // Wait for the FIFO to have enough space
+    while !sio.fifo().st().read().rdy() {
+        cortex_m::asm::nop();
     }
+    sio.fifo().wr().write_value(value);
     // Fire off an event to the other core.
     // This is required as the other core may be `wfe` (waiting for event)
     cortex_m::asm::sev();
@@ -286,37 +282,32 @@ fn fifo_write(value: u32) {
 // Pop a value from inter-core FIFO, block until available
 #[inline(always)]
 fn fifo_read() -> u32 {
-    unsafe {
-        let sio = pac::SIO;
-        // Wait until FIFO has data
-        while !sio.fifo().st().read().vld() {
-            cortex_m::asm::nop();
-        }
-        sio.fifo().rd().read()
+    let sio = pac::SIO;
+    // Wait until FIFO has data
+    while !sio.fifo().st().read().vld() {
+        cortex_m::asm::nop();
     }
+    sio.fifo().rd().read()
 }
 
 // Pop a value from inter-core FIFO, `wfe` until available
 #[inline(always)]
+#[allow(unused)]
 fn fifo_read_wfe() -> u32 {
-    unsafe {
-        let sio = pac::SIO;
-        // Wait until FIFO has data
-        while !sio.fifo().st().read().vld() {
-            cortex_m::asm::wfe();
-        }
-        sio.fifo().rd().read()
+    let sio = pac::SIO;
+    // Wait until FIFO has data
+    while !sio.fifo().st().read().vld() {
+        cortex_m::asm::wfe();
     }
+    sio.fifo().rd().read()
 }
 
 // Drain inter-core FIFO
 #[inline(always)]
 fn fifo_drain() {
-    unsafe {
-        let sio = pac::SIO;
-        while sio.fifo().st().read().vld() {
-            let _ = sio.fifo().rd().read();
-        }
+    let sio = pac::SIO;
+    while sio.fifo().st().read().vld() {
+        let _ = sio.fifo().rd().read();
     }
 }
 

@@ -15,7 +15,6 @@ use core::slice;
 use core::sync::atomic::{compiler_fence, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::atomic_ring_buffer::RingBuffer;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -24,13 +23,13 @@ pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Pari
 
 use crate::gpio::sealed::Pin;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::{self, InterruptExt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::ppi::{
     self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
 };
 use crate::timer::{Instance as TimerInstance, Timer};
 use crate::uarte::{apply_workaround_for_enable_anomaly, Config, Instance as UarteInstance};
-use crate::{pac, Peripheral};
+use crate::{interrupt, pac, Peripheral};
 
 mod sealed {
     use super::*;
@@ -77,7 +76,7 @@ pub struct InterruptHandler<U: UarteInstance> {
     _phantom: PhantomData<U>,
 }
 
-impl<U: UarteInstance> interrupt::Handler<U::Interrupt> for InterruptHandler<U> {
+impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for InterruptHandler<U> {
     unsafe fn on_interrupt() {
         //trace!("irq: start");
         let r = U::regs();
@@ -202,7 +201,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_group: impl Peripheral<P = impl Group> + 'd,
-        _irq: impl interrupt::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
@@ -237,7 +236,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch1: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_ch2: impl Peripheral<P = impl ConfigurableChannel> + 'd,
         ppi_group: impl Peripheral<P = impl Group> + 'd,
-        _irq: impl interrupt::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         cts: impl Peripheral<P = impl GpioPin> + 'd,
@@ -362,8 +361,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         ppi_ch2.disable();
         ppi_group.add_channel(&ppi_ch2);
 
-        unsafe { U::Interrupt::steal() }.pend();
-        unsafe { U::Interrupt::steal() }.enable();
+        U::Interrupt::pend();
+        unsafe { U::Interrupt::enable() };
 
         Self {
             _peri: peri,
@@ -375,7 +374,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     fn pend_irq() {
-        unsafe { <U::Interrupt as Interrupt>::steal() }.pend()
+        U::Interrupt::pend()
     }
 
     /// Adjust the baud rate to the provided value.
