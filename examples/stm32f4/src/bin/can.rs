@@ -4,11 +4,20 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
+use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::bxcan::filter::Mask32;
 use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
-use embassy_stm32::can::Can;
+use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
+use embassy_stm32::peripherals::CAN1;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    CAN1_RX0 => Rx0InterruptHandler<CAN1>;
+    CAN1_RX1 => Rx1InterruptHandler<CAN1>;
+    CAN1_SCE => SceInterruptHandler<CAN1>;
+    CAN1_TX => TxInterruptHandler<CAN1>;
+});
 
 #[entry]
 fn main() -> ! {
@@ -23,7 +32,7 @@ fn main() -> ! {
     let rx_pin = Input::new(&mut p.PA11, Pull::Up);
     core::mem::forget(rx_pin);
 
-    let mut can = Can::new(p.CAN1, p.PA11, p.PA12);
+    let mut can = Can::new(p.CAN1, p.PA11, p.PA12, Irqs);
 
     can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 

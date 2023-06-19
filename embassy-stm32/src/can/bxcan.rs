@@ -5,12 +5,11 @@ use core::task::Poll;
 
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use futures::FutureExt;
 
 use crate::gpio::sealed::AFType;
-use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::can::vals::{Lec, RirIde};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -21,7 +20,7 @@ pub struct TxInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::TXInterrupt> for TxInterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::TXInterrupt> for TxInterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::regs().tsr().write(|v| {
             v.set_rqcp(0, true);
@@ -37,7 +36,7 @@ pub struct Rx0InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::RX0Interrupt> for Rx0InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::RX0Interrupt> for Rx0InterruptHandler<T> {
     unsafe fn on_interrupt() {
         // info!("rx0 irq");
         Can::<T>::receive_fifo(RxFifo::Fifo0);
@@ -48,7 +47,7 @@ pub struct Rx1InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::RX1Interrupt> for Rx1InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::RX1Interrupt> for Rx1InterruptHandler<T> {
     unsafe fn on_interrupt() {
         // info!("rx1 irq");
         Can::<T>::receive_fifo(RxFifo::Fifo1);
@@ -59,7 +58,7 @@ pub struct SceInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
     unsafe fn on_interrupt() {
         // info!("sce irq");
         let msr = T::regs().msr();
@@ -97,10 +96,10 @@ impl<'d, T: Instance> Can<'d, T> {
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        _irqs: impl interrupt::Binding<T::TXInterrupt, TxInterruptHandler<T>>
-            + interrupt::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
-            + interrupt::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
-            + interrupt::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
+        _irqs: impl interrupt::typelevel::Binding<T::TXInterrupt, TxInterruptHandler<T>>
+            + interrupt::typelevel::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
+            + interrupt::typelevel::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
+            + interrupt::typelevel::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
             + 'd,
     ) -> Self {
         into_ref!(peri, rx, tx);
@@ -111,7 +110,7 @@ impl<'d, T: Instance> Can<'d, T> {
         T::enable();
         T::reset();
 
-        unsafe {
+        {
             use crate::pac::can::vals::{Errie, Fmpie, Tmeie};
 
             T::regs().ier().write(|w| {
@@ -127,21 +126,21 @@ impl<'d, T: Instance> Can<'d, T> {
                 // Enable timestamps on rx messages
 
                 w.set_ttcm(true);
-            })
+            });
         }
 
         unsafe {
-            T::TXInterrupt::steal().unpend();
-            T::TXInterrupt::steal().enable();
+            T::TXInterrupt::unpend();
+            T::TXInterrupt::enable();
 
-            T::RX0Interrupt::steal().unpend();
-            T::RX0Interrupt::steal().enable();
+            T::RX0Interrupt::unpend();
+            T::RX0Interrupt::enable();
 
-            T::RX1Interrupt::steal().unpend();
-            T::RX1Interrupt::steal().enable();
+            T::RX1Interrupt::unpend();
+            T::RX1Interrupt::enable();
 
-            T::SCEInterrupt::steal().unpend();
-            T::SCEInterrupt::steal().enable();
+            T::SCEInterrupt::unpend();
+            T::SCEInterrupt::enable();
         }
 
         rx.set_as_af(rx.af_num(), AFType::Input);
@@ -169,7 +168,7 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     pub async fn flush(&self, mb: bxcan::Mailbox) {
-        poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             if T::regs().tsr().read().tme(mb.index()) {
                 return Poll::Ready(());
             }
@@ -194,7 +193,7 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     fn curr_error(&self) -> Option<BusError> {
-        let err = unsafe { T::regs().esr().read() };
+        let err = { T::regs().esr().read() };
         if err.boff() {
             return Some(BusError::BusOff);
         } else if err.epvf() {
@@ -396,19 +395,19 @@ pub(crate) mod sealed {
 }
 
 pub trait TXInstance {
-    type TXInterrupt: crate::interrupt::Interrupt;
+    type TXInterrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 pub trait RX0Instance {
-    type RX0Interrupt: crate::interrupt::Interrupt;
+    type RX0Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 pub trait RX1Instance {
-    type RX1Interrupt: crate::interrupt::Interrupt;
+    type RX1Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 pub trait SCEInstance {
-    type SCEInterrupt: crate::interrupt::Interrupt;
+    type SCEInterrupt: crate::interrupt::typelevel::Interrupt;
 }
 
 pub trait InterruptableInstance: TXInstance + RX0Instance + RX1Instance + SCEInstance {}
@@ -440,22 +439,22 @@ foreach_peripheral!(
         foreach_interrupt!(
             ($inst,can,CAN,TX,$irq:ident) => {
                 impl TXInstance for peripherals::$inst {
-                    type TXInterrupt = crate::interrupt::$irq;
+                    type TXInterrupt = crate::interrupt::typelevel::$irq;
                 }
             };
             ($inst,can,CAN,RX0,$irq:ident) => {
                 impl RX0Instance for peripherals::$inst {
-                    type RX0Interrupt = crate::interrupt::$irq;
+                    type RX0Interrupt = crate::interrupt::typelevel::$irq;
                 }
             };
             ($inst,can,CAN,RX1,$irq:ident) => {
                 impl RX1Instance for peripherals::$inst {
-                    type RX1Interrupt = crate::interrupt::$irq;
+                    type RX1Interrupt = crate::interrupt::typelevel::$irq;
                 }
             };
             ($inst,can,CAN,SCE,$irq:ident) => {
                 impl SCEInstance for peripherals::$inst {
-                    type SCEInterrupt = crate::interrupt::$irq;
+                    type SCEInterrupt = crate::interrupt::typelevel::$irq;
                 }
             };
         );
