@@ -113,7 +113,7 @@ pub struct ShciConfigParam {
 }
 
 impl ShciConfigParam {
-    pub fn payload<'a>(&self) -> &'a [u8] {
+    pub fn payload<'a>(&'a self) -> &'a [u8] {
         unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
     }
 }
