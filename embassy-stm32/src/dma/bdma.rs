@@ -325,7 +325,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
         let en = ch.cr().read().en();
-        let circular = unsafe { ch.cr().read() }.circ() == vals::Circ::ENABLED;
+        let circular = ch.cr().read().circ() == vals::Circ::ENABLED;
         let tcif = STATE.complete_count[self.channel.index()].load(Ordering::Acquire) != 0;
         en && (circular || !tcif)
     }
