@@ -4,8 +4,9 @@
 
 // required-features: can
 
-#[path = "../example_common.rs"]
-mod example_common;
+#[path = "../common.rs"]
+mod common;
+use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::bxcan::filter::Mask32;
@@ -13,7 +14,6 @@ use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
 use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
-use example_common::*;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
