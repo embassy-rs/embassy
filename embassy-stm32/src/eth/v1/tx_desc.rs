@@ -120,12 +120,9 @@ impl<'a> TDesRing<'a> {
         }
 
         // Register txdescriptor start
-        // NOTE (unsafe) Used for atomic writes
-        unsafe {
-            ETH.ethernet_dma()
-                .dmatdlar()
-                .write(|w| w.0 = descriptors.as_ptr() as u32);
-        }
+        ETH.ethernet_dma()
+            .dmatdlar()
+            .write(|w| w.0 = descriptors.as_ptr() as u32);
 
         Self {
             descriptors,
@@ -169,6 +166,6 @@ impl<'a> TDesRing<'a> {
             self.index = 0
         }
         // Request the DMA engine to poll the latest tx descriptor
-        unsafe { ETH.ethernet_dma().dmatpdr().modify(|w| w.0 = 1) }
+        ETH.ethernet_dma().dmatpdr().modify(|w| w.0 = 1)
     }
 }

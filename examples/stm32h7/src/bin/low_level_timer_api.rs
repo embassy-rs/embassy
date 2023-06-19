@@ -62,49 +62,39 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
         T::enable();
         <T as embassy_stm32::rcc::low_level::RccPeripheral>::reset();
 
-        unsafe {
-            ch1.set_speed(Speed::VeryHigh);
-            ch1.set_as_af(ch1.af_num(), AFType::OutputPushPull);
-            ch2.set_speed(Speed::VeryHigh);
-            ch2.set_as_af(ch1.af_num(), AFType::OutputPushPull);
-            ch3.set_speed(Speed::VeryHigh);
-            ch3.set_as_af(ch1.af_num(), AFType::OutputPushPull);
-            ch4.set_speed(Speed::VeryHigh);
-            ch4.set_as_af(ch1.af_num(), AFType::OutputPushPull);
-        }
+        ch1.set_speed(Speed::VeryHigh);
+        ch1.set_as_af(ch1.af_num(), AFType::OutputPushPull);
+        ch2.set_speed(Speed::VeryHigh);
+        ch2.set_as_af(ch1.af_num(), AFType::OutputPushPull);
+        ch3.set_speed(Speed::VeryHigh);
+        ch3.set_as_af(ch1.af_num(), AFType::OutputPushPull);
+        ch4.set_speed(Speed::VeryHigh);
+        ch4.set_as_af(ch1.af_num(), AFType::OutputPushPull);
 
         let mut this = Self { inner: tim };
 
         this.set_freq(freq);
         this.inner.start();
 
-        unsafe {
-            T::regs_gp32()
-                .ccmr_output(0)
-                .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
-            T::regs_gp32()
-                .ccmr_output(0)
-                .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
-            T::regs_gp32()
-                .ccmr_output(1)
-                .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
-            T::regs_gp32()
-                .ccmr_output(1)
-                .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
-        }
+        let r = T::regs_gp32();
+        r.ccmr_output(0)
+            .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
+        r.ccmr_output(0)
+            .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
+        r.ccmr_output(1)
+            .modify(|w| w.set_ocm(0, OutputCompareMode::PwmMode1.into()));
+        r.ccmr_output(1)
+            .modify(|w| w.set_ocm(1, OutputCompareMode::PwmMode1.into()));
+
         this
     }
 
     pub fn enable(&mut self, channel: Channel) {
-        unsafe {
-            T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), true));
-        }
+        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), true));
     }
 
     pub fn disable(&mut self, channel: Channel) {
-        unsafe {
-            T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), false));
-        }
+        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), false));
     }
 
     pub fn set_freq(&mut self, freq: Hertz) {
@@ -112,11 +102,11 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     }
 
     pub fn get_max_duty(&self) -> u32 {
-        unsafe { T::regs_gp32().arr().read().arr() }
+        T::regs_gp32().arr().read().arr()
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         defmt::assert!(duty < self.get_max_duty());
-        unsafe { T::regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(duty)) }
+        T::regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(duty))
     }
 }

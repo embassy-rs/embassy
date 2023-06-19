@@ -1,8 +1,8 @@
-use super::cmd::CmdPacket;
-use super::consts::TlPacketType;
-use super::{sys, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE, TL_SYS_TABLE};
+use core::{mem, slice};
 
-const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;
+use super::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
+
+pub const SCHI_OPCODE_BLE_INIT: u16 = 0xfc66;
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
@@ -30,6 +30,12 @@ pub struct ShciBleInitCmdParam {
     pub viterbi_enable: u8,
     pub ll_only: u8,
     pub hw_version: u8,
+}
+
+impl ShciBleInitCmdParam {
+    pub fn payload<'a>(&self) -> &'a [u8] {
+        unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
+    }
 }
 
 impl Default for ShciBleInitCmdParam {
@@ -66,35 +72,10 @@ pub struct ShciHeader {
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 pub struct ShciBleInitCmdPacket {
-    header: ShciHeader,
-    param: ShciBleInitCmdParam,
+    pub header: ShciHeader,
+    pub param: ShciBleInitCmdParam,
 }
 
 pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
 #[allow(dead_code)] // Not used currently but reserved
 const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;
-
-pub fn shci_ble_init(param: ShciBleInitCmdParam) {
-    debug!("sending SHCI");
-
-    let mut packet = ShciBleInitCmdPacket {
-        header: ShciHeader::default(),
-        param,
-    };
-
-    let packet_ptr: *mut _ = &mut packet;
-
-    unsafe {
-        let cmd_ptr: *mut CmdPacket = packet_ptr.cast();
-
-        (*cmd_ptr).cmdserial.cmd.cmd_code = SCHI_OPCODE_BLE_INIT;
-        (*cmd_ptr).cmdserial.cmd.payload_len = core::mem::size_of::<ShciBleInitCmdParam>() as u8;
-
-        let p_cmd_buffer = &mut *(*TL_SYS_TABLE.as_mut_ptr()).pcmd_buffer;
-        core::ptr::write(p_cmd_buffer, *cmd_ptr);
-
-        p_cmd_buffer.cmdserial.ty = TlPacketType::SysCmd as u8;
-
-        sys::Sys::send_cmd();
-    }
-}

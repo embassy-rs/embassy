@@ -146,35 +146,35 @@ impl Default for Config {
 pub fn init(config: Config) -> Peripherals {
     let p = Peripherals::take();
 
-    unsafe {
-        #[cfg(dbgmcu)]
-        if config.enable_debug_during_sleep {
-            crate::pac::DBGMCU.cr().modify(|cr| {
-                #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5))]
-                {
-                    cr.set_dbg_stop(true);
-                    cr.set_dbg_standby(true);
-                }
-                #[cfg(any(
-                    dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7, dbgmcu_l0, dbgmcu_l1,
-                    dbgmcu_l4, dbgmcu_wb, dbgmcu_wl
-                ))]
-                {
-                    cr.set_dbg_sleep(true);
-                    cr.set_dbg_stop(true);
-                    cr.set_dbg_standby(true);
-                }
-                #[cfg(dbgmcu_h7)]
-                {
-                    cr.set_d1dbgcken(true);
-                    cr.set_d3dbgcken(true);
-                    cr.set_dbgsleep_d1(true);
-                    cr.set_dbgstby_d1(true);
-                    cr.set_dbgstop_d1(true);
-                }
-            });
-        }
+    #[cfg(dbgmcu)]
+    if config.enable_debug_during_sleep {
+        crate::pac::DBGMCU.cr().modify(|cr| {
+            #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5))]
+            {
+                cr.set_dbg_stop(true);
+                cr.set_dbg_standby(true);
+            }
+            #[cfg(any(
+                dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7, dbgmcu_l0, dbgmcu_l1,
+                dbgmcu_l4, dbgmcu_wb, dbgmcu_wl
+            ))]
+            {
+                cr.set_dbg_sleep(true);
+                cr.set_dbg_stop(true);
+                cr.set_dbg_standby(true);
+            }
+            #[cfg(dbgmcu_h7)]
+            {
+                cr.set_d1dbgcken(true);
+                cr.set_d3dbgcken(true);
+                cr.set_dbgsleep_d1(true);
+                cr.set_dbgstby_d1(true);
+                cr.set_dbgstop_d1(true);
+            }
+        });
+    }
 
+    unsafe {
         gpio::init();
         dma::init(
             #[cfg(bdma)]

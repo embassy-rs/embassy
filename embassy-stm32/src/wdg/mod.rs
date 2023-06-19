@@ -48,11 +48,9 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         let rl = reload_value(psc, timeout_us);
 
         let wdg = T::regs();
-        unsafe {
-            wdg.kr().write(|w| w.set_key(Key::ENABLE));
-            wdg.pr().write(|w| w.set_pr(Pr(pr)));
-            wdg.rlr().write(|w| w.set_rl(rl));
-        }
+        wdg.kr().write(|w| w.set_key(Key::ENABLE));
+        wdg.pr().write(|w| w.set_pr(Pr(pr)));
+        wdg.rlr().write(|w| w.set_rl(rl));
 
         trace!(
             "Watchdog configured with {}us timeout, desired was {}us (PR={}, RL={})",
@@ -67,11 +65,11 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         }
     }
 
-    pub unsafe fn unleash(&mut self) {
+    pub fn unleash(&mut self) {
         T::regs().kr().write(|w| w.set_key(Key::START));
     }
 
-    pub unsafe fn pet(&mut self) {
+    pub fn pet(&mut self) {
         T::regs().kr().write(|w| w.set_key(Key::RESET));
     }
 }

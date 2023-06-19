@@ -114,7 +114,7 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::bdma::Dma, channel_num: usize, index
     let cr = dma.ch(channel_num).cr();
 
     if isr.teif(channel_num) {
-        panic!("DMA: error on BDMA@{:08x} channel {}", dma.0 as u32, channel_num);
+        panic!("DMA: error on BDMA@{:08x} channel {}", dma.as_ptr() as u32, channel_num);
     }
 
     if isr.htif(channel_num) && cr.read().htie() {
@@ -306,29 +306,25 @@ impl<'a, C: Channel> Transfer<'a, C> {
     }
 
     fn clear_irqs(&mut self) {
-        unsafe {
-            self.channel.regs().ifcr().write(|w| {
-                w.set_tcif(self.channel.num(), true);
-                w.set_teif(self.channel.num(), true);
-            })
-        }
+        self.channel.regs().ifcr().write(|w| {
+            w.set_tcif(self.channel.num(), true);
+            w.set_teif(self.channel.num(), true);
+        });
     }
 
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().ch(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        unsafe {
-            ch.cr().write(|w| {
-                w.set_teie(true);
-                w.set_tcie(true);
-            })
-        }
+        ch.cr().write(|w| {
+            w.set_teie(true);
+            w.set_tcie(true);
+        });
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
-        let en = unsafe { ch.cr().read() }.en();
+        let en = ch.cr().read().en();
         let circular = unsafe { ch.cr().read() }.circ() == vals::Circ::ENABLED;
         let tcif = STATE.complete_count[self.channel.index()].load(Ordering::Acquire) != 0;
         en && (circular || !tcif)
@@ -338,7 +334,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
     /// Note: this will be zero for transfers that completed without cancellation.
     pub fn get_remaining_transfers(&self) -> u16 {
         let ch = self.channel.regs().ch(self.channel.num());
-        unsafe { ch.ndtr().read() }.ndt()
+        ch.ndtr().read().ndt()
     }
 
     pub fn blocking_wait(mut self) {
@@ -382,7 +378,7 @@ struct DmaCtrlImpl<'a, C: Channel>(PeripheralRef<'a, C>);
 impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     fn get_remaining_transfers(&self) -> usize {
         let ch = self.0.regs().ch(self.0.num());
-        unsafe { ch.ndtr().read() }.ndt() as usize
+        ch.ndtr().read().ndt() as usize
     }
 
     fn get_complete_count(&self) -> usize {
@@ -458,7 +454,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
 
     pub fn start(&mut self) {
         let ch = self.channel.regs().ch(self.channel.num());
-        unsafe { ch.cr().write_value(self.cr) }
+        ch.cr().write_value(self.cr)
     }
 
     pub fn clear(&mut self) {
@@ -485,13 +481,11 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
 
     fn clear_irqs(&mut self) {
         let dma = self.channel.regs();
-        unsafe {
-            dma.ifcr().write(|w| {
-                w.set_htif(self.channel.num(), true);
-                w.set_tcif(self.channel.num(), true);
-                w.set_teif(self.channel.num(), true);
-            })
-        }
+        dma.ifcr().write(|w| {
+            w.set_htif(self.channel.num(), true);
+            w.set_tcif(self.channel.num(), true);
+            w.set_teif(self.channel.num(), true);
+        });
     }
 
     pub fn request_stop(&mut self) {
@@ -500,18 +494,16 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
         // If the channel is enabled and transfer is not completed, we need to perform
         // two separate write access to the CR register to disable the channel.
-        unsafe {
-            ch.cr().write(|w| {
-                w.set_teie(true);
-                w.set_htie(true);
-                w.set_tcie(true);
-            })
-        }
+        ch.cr().write(|w| {
+            w.set_teie(true);
+            w.set_htie(true);
+            w.set_tcie(true);
+        });
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
-        unsafe { ch.cr().read() }.en()
+        ch.cr().read().en()
     }
 }
 

@@ -25,7 +25,7 @@ pub struct Config {
     pub pll48: bool,
 }
 
-unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bool) -> PllResults {
+fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bool) -> PllResults {
     use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
@@ -97,7 +97,7 @@ unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48
     }
 }
 
-unsafe fn flash_setup(sysclk: u32) {
+fn flash_setup(sysclk: u32) {
     use crate::pac::flash::vals::Latency;
 
     // Be conservative with voltage ranges

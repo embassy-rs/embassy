@@ -1,65 +1,70 @@
-use embassy_stm32::ipcc::Ipcc;
+use core::marker::PhantomData;
 
-use crate::cmd::{CmdPacket, CmdSerial};
-use crate::evt::{CcEvt, EvtBox, EvtSerial};
-use crate::tables::SysTable;
+use crate::cmd::CmdPacket;
+use crate::consts::TlPacketType;
+use crate::evt::EvtBox;
+use crate::shci::{ShciBleInitCmdParam, SCHI_OPCODE_BLE_INIT};
+use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, EVT_CHANNEL, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_SYS_TABLE};
+use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
-pub struct Sys;
+pub struct Sys {
+    phantom: PhantomData<Sys>,
+}
 
 impl Sys {
-    pub fn enable() {
+    /// TL_Sys_Init
+    pub(crate) fn new() -> Self {
         unsafe {
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
             TL_SYS_TABLE.as_mut_ptr().write_volatile(SysTable {
                 pcmd_buffer: SYS_CMD_BUF.as_mut_ptr(),
                 sys_queue: SYSTEM_EVT_QUEUE.as_ptr(),
-            })
+            });
         }
 
-        Ipcc::c1_set_rx_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, true);
+        Self { phantom: PhantomData }
     }
 
-    pub fn cmd_evt_handler() -> CcEvt {
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, false);
+    /// Returns CPU2 wireless firmware information (if present).
+    pub fn wireless_fw_info(&self) -> Option<WirelessFwInfoTable> {
+        let info = unsafe { TL_DEVICE_INFO_TABLE.as_mut_ptr().read_volatile().wireless_fw_info_table };
 
-        // ST's command response data structure is really convoluted.
-        //
-        // for command response events on SYS channel, the header is missing
-        // and one should:
-        // 1. interpret the content of CMD_BUFFER as CmdPacket
-        // 2. Access CmdPacket's cmdserial field and interpret its content as EvtSerial
-        // 3. Access EvtSerial's evt field (as Evt) and interpret its payload as CcEvt
-        // 4. CcEvt type is the actual SHCI response
-        // 5. profit
-        unsafe {
-            let pcmd: *const CmdPacket = (*TL_SYS_TABLE.as_ptr()).pcmd_buffer;
-            let cmd_serial: *const CmdSerial = &(*pcmd).cmdserial;
-            let evt_serial: *const EvtSerial = cmd_serial.cast();
-            let cc: *const CcEvt = (*evt_serial).evt.payload.as_ptr().cast();
-            *cc
+        // Zero version indicates that CPU2 wasn't active and didn't fill the information table
+        if info.version != 0 {
+            Some(info)
+        } else {
+            None
         }
     }
 
-    pub fn evt_handler() {
+    pub fn write(&self, opcode: u16, payload: &[u8]) {
         unsafe {
-            while !LinkedListNode::is_empty(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                let node_ptr = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
+            CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode, payload);
+        }
+    }
 
-                let event = node_ptr.cast();
-                let event = EvtBox::new(event);
+    pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) {
+        debug!("sending SHCI");
 
-                EVT_CHANNEL.try_send(event).unwrap();
+        Ipcc::send(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, || {
+            self.write(SCHI_OPCODE_BLE_INIT, param.payload());
+        })
+        .await;
+
+        Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
+    }
+
+    /// `HW_IPCC_SYS_EvtNot`
+    pub async fn read(&self) -> EvtBox {
+        Ipcc::receive(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, || unsafe {
+            if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
+                Some(EvtBox::new(node_ptr.cast()))
+            } else {
+                None
             }
-        }
-
-        Ipcc::c1_clear_flag_channel(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL);
-    }
-
-    pub fn send_cmd() {
-        Ipcc::c1_set_flag_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL);
-        Ipcc::c1_set_tx_channel(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, true);
+        })
+        .await
     }
 }

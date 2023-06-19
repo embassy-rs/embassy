@@ -117,7 +117,12 @@ impl LinkedListNode {
     /// Remove `node` from the linked list
     pub unsafe fn remove_node(mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
-            let node = ptr::read_volatile(p_node);
+            // trace!("remove node: {:x}", p_node);
+            // apparently linked list nodes are not always aligned.
+            // if more hardfaults occur, more of these may need to be converted to unaligned.
+            let node = ptr::read_unaligned(p_node);
+            // trace!("remove node: prev/next {:x}/{:x}", node.prev, node.next);
+
             if node.next != node.prev {
                 let mut node_next = ptr::read_volatile(node.next);
                 let mut node_prev = ptr::read_volatile(node.prev);
@@ -139,28 +144,36 @@ impl LinkedListNode {
     }
 
     /// Remove `list_head` and return a pointer to the `node`.
-    pub unsafe fn remove_head(mut p_list_head: *mut LinkedListNode) -> *mut LinkedListNode {
+    pub unsafe fn remove_head(mut p_list_head: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
         interrupt::free(|_| {
             let list_head = ptr::read_volatile(p_list_head);
 
-            // Allowed because a removed node is not seen by another core
-            let p_node = list_head.next;
-            Self::remove_node(p_node);
+            if list_head.next == p_list_head {
+                None
+            } else {
+                // Allowed because a removed node is not seen by another core
+                let p_node = list_head.next;
+                Self::remove_node(p_node);
 
-            p_node
+                Some(p_node)
+            }
         })
     }
 
     /// Remove `list_tail` and return a pointer to the `node`.
-    pub unsafe fn remove_tail(mut p_list_tail: *mut LinkedListNode) -> *mut LinkedListNode {
+    pub unsafe fn remove_tail(mut p_list_tail: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
         interrupt::free(|_| {
             let list_tail = ptr::read_volatile(p_list_tail);
 
-            // Allowed because a removed node is not seen by another core
-            let p_node = list_tail.prev;
-            Self::remove_node(p_node);
+            if list_tail.prev == p_list_tail {
+                None
+            } else {
+                // Allowed because a removed node is not seen by another core
+                let p_node = list_tail.prev;
+                Self::remove_node(p_node);
 
-            p_node
+                Some(p_node)
+            }
         })
     }
 

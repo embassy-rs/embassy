@@ -85,95 +85,79 @@ impl<'d> Crc<'d> {
     }
 
     pub fn reset(&mut self) {
-        unsafe {
-            PAC_CRC.cr().modify(|w| w.set_reset(true));
-        }
+        PAC_CRC.cr().modify(|w| w.set_reset(true));
     }
 
     /// Reconfigures the CRC peripheral. Doesn't reset.
     fn reconfigure(&mut self) {
-        unsafe {
-            // Init CRC value
-            PAC_CRC.init().write_value(self._config.crc_init_value);
-            #[cfg(crc_v3)]
-            PAC_CRC.pol().write_value(self._config.crc_poly);
+        // Init CRC value
+        PAC_CRC.init().write_value(self._config.crc_init_value);
+        #[cfg(crc_v3)]
+        PAC_CRC.pol().write_value(self._config.crc_poly);
 
-            // configure CR components
-            // (reverse I/O, polysize, poly)
-            PAC_CRC.cr().write(|w| {
-                // configure reverse output
-                w.set_rev_out(match self._config.reverse_out {
-                    true => vals::RevOut::REVERSED,
-                    false => vals::RevOut::NORMAL,
-                });
-                // configure reverse input
-                w.set_rev_in(match self._config.reverse_in {
-                    InputReverseConfig::None => vals::RevIn::NORMAL,
-                    InputReverseConfig::Byte => vals::RevIn::BYTE,
-                    InputReverseConfig::Halfword => vals::RevIn::HALFWORD,
-                    InputReverseConfig::Word => vals::RevIn::WORD,
-                });
-                // configure the polynomial.
-                #[cfg(crc_v3)]
-                w.set_polysize(match self._config.poly_size {
-                    PolySize::Width7 => vals::Polysize::POLYSIZE7,
-                    PolySize::Width8 => vals::Polysize::POLYSIZE8,
-                    PolySize::Width16 => vals::Polysize::POLYSIZE16,
-                    PolySize::Width32 => vals::Polysize::POLYSIZE32,
-                });
-            })
-        }
+        // configure CR components
+        // (reverse I/O, polysize, poly)
+        PAC_CRC.cr().write(|w| {
+            // configure reverse output
+            w.set_rev_out(match self._config.reverse_out {
+                true => vals::RevOut::REVERSED,
+                false => vals::RevOut::NORMAL,
+            });
+            // configure reverse input
+            w.set_rev_in(match self._config.reverse_in {
+                InputReverseConfig::None => vals::RevIn::NORMAL,
+                InputReverseConfig::Byte => vals::RevIn::BYTE,
+                InputReverseConfig::Halfword => vals::RevIn::HALFWORD,
+                InputReverseConfig::Word => vals::RevIn::WORD,
+            });
+            // configure the polynomial.
+            #[cfg(crc_v3)]
+            w.set_polysize(match self._config.poly_size {
+                PolySize::Width7 => vals::Polysize::POLYSIZE7,
+                PolySize::Width8 => vals::Polysize::POLYSIZE8,
+                PolySize::Width16 => vals::Polysize::POLYSIZE16,
+                PolySize::Width32 => vals::Polysize::POLYSIZE32,
+            });
+        });
 
         self.reset();
     }
 
     /// Feeds a byte into the CRC peripheral. Returns the computed checksum.
     pub fn feed_byte(&mut self, byte: u8) -> u32 {
-        unsafe {
-            PAC_CRC.dr8().write_value(byte);
-            PAC_CRC.dr().read()
-        }
+        PAC_CRC.dr8().write_value(byte);
+        PAC_CRC.dr().read()
     }
 
     /// Feeds an slice of bytes into the CRC peripheral. Returns the computed checksum.
     pub fn feed_bytes(&mut self, bytes: &[u8]) -> u32 {
         for byte in bytes {
-            unsafe {
-                PAC_CRC.dr8().write_value(*byte);
-            }
+            PAC_CRC.dr8().write_value(*byte);
         }
-        unsafe { PAC_CRC.dr().read() }
+        PAC_CRC.dr().read()
     }
     /// Feeds a halfword into the CRC peripheral. Returns the computed checksum.
     pub fn feed_halfword(&mut self, halfword: u16) -> u32 {
-        unsafe {
-            PAC_CRC.dr16().write_value(halfword);
-            PAC_CRC.dr().read()
-        }
+        PAC_CRC.dr16().write_value(halfword);
+        PAC_CRC.dr().read()
     }
     /// Feeds an slice of halfwords into the CRC peripheral. Returns the computed checksum.
     pub fn feed_halfwords(&mut self, halfwords: &[u16]) -> u32 {
         for halfword in halfwords {
-            unsafe {
-                PAC_CRC.dr16().write_value(*halfword);
-            }
+            PAC_CRC.dr16().write_value(*halfword);
         }
-        unsafe { PAC_CRC.dr().read() }
+        PAC_CRC.dr().read()
     }
     /// Feeds a words into the CRC peripheral. Returns the computed checksum.
     pub fn feed_word(&mut self, word: u32) -> u32 {
-        unsafe {
-            PAC_CRC.dr().write_value(word as u32);
-            PAC_CRC.dr().read()
-        }
+        PAC_CRC.dr().write_value(word as u32);
+        PAC_CRC.dr().read()
     }
     /// Feeds an slice of words into the CRC peripheral. Returns the computed checksum.
     pub fn feed_words(&mut self, words: &[u32]) -> u32 {
         for word in words {
-            unsafe {
-                PAC_CRC.dr().write_value(*word as u32);
-            }
+            PAC_CRC.dr().write_value(*word as u32);
         }
-        unsafe { PAC_CRC.dr().read() }
+        PAC_CRC.dr().read()
     }
 }

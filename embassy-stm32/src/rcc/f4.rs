@@ -36,18 +36,18 @@ pub struct Config {
 }
 
 #[cfg(stm32f410)]
-unsafe fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
+fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
 // Not currently implemented, but will be in the future
 #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
-unsafe fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
+fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
 #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
-unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
     let min_div = 2;
     let max_div = 7;
     let target = match plli2s {
@@ -82,13 +82,7 @@ unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
     Some(output)
 }
 
-unsafe fn setup_pll(
-    pllsrcclk: u32,
-    use_hse: bool,
-    pllsysclk: Option<u32>,
-    plli2s: Option<u32>,
-    pll48clk: bool,
-) -> PllResults {
+fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Option<u32>, pll48clk: bool) -> PllResults {
     use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
@@ -320,7 +314,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
     }
 }
 
-unsafe fn flash_setup(sysclk: u32) {
+fn flash_setup(sysclk: u32) {
     use crate::pac::flash::vals::Latency;
 
     // Be conservative with voltage ranges
