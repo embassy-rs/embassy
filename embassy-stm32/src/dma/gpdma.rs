@@ -252,6 +252,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         super::dmamux::configure_dmamux(&mut *this.channel, request);
 
         ch.cr().write(|w| w.set_reset(true));
+        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
         ch.llr().write(|_| {}); // no linked list
         ch.tr1().write(|w| {
             w.set_sdw(data_size.into());
