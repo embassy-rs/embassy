@@ -11,11 +11,9 @@ use {defmt_rtt as _, panic_probe as _};
 fn main() -> ! {
     info!("Hello World!");
 
-    unsafe {
-        pac::RCC.apb1enr1().modify(|w| {
-            w.set_dac1en(true);
-        });
-    }
+    pac::RCC.apb1enr1().modify(|w| {
+        w.set_dac1en(true);
+    });
 
     let p = embassy_stm32::init(Default::default());
 

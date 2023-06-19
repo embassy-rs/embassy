@@ -21,7 +21,7 @@ macro_rules! complementary_channel_impl {
         impl<'d, Perip: CaptureCompare16bitInstance> ComplementaryPwmPin<'d, Perip, $channel> {
             pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<Perip>> + 'd) -> Self {
                 into_ref!(pin);
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     pin.set_low();
                     pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
                     #[cfg(gpio_v2)]
@@ -72,33 +72,27 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
         this.inner.set_frequency(freq);
         this.inner.start();
 
-        unsafe {
-            this.inner.enable_outputs(true);
+        this.inner.enable_outputs(true);
 
-            this.inner
-                .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
-            this.inner
-                .set_output_compare_mode(Channel::Ch2, OutputCompareMode::PwmMode1);
-            this.inner
-                .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
-            this.inner
-                .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
-        }
+        this.inner
+            .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
+        this.inner
+            .set_output_compare_mode(Channel::Ch2, OutputCompareMode::PwmMode1);
+        this.inner
+            .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
+        this.inner
+            .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
         this
     }
 
     pub fn enable(&mut self, channel: Channel) {
-        unsafe {
-            self.inner.enable_channel(channel, true);
-            self.inner.enable_complementary_channel(channel, true);
-        }
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_complementary_channel(channel, true);
     }
 
     pub fn disable(&mut self, channel: Channel) {
-        unsafe {
-            self.inner.enable_complementary_channel(channel, false);
-            self.inner.enable_channel(channel, false);
-        }
+        self.inner.enable_complementary_channel(channel, false);
+        self.inner.enable_channel(channel, false);
     }
 
     pub fn set_freq(&mut self, freq: Hertz) {
@@ -106,22 +100,20 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
     }
 
     pub fn get_max_duty(&self) -> u16 {
-        unsafe { self.inner.get_max_compare_value() }
+        self.inner.get_max_compare_value()
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u16) {
         assert!(duty < self.get_max_duty());
-        unsafe { self.inner.set_compare_value(channel, duty) }
+        self.inner.set_compare_value(channel, duty)
     }
 
     /// Set the dead time as a proportion of max_duty
     pub fn set_dead_time(&mut self, value: u16) {
         let (ckd, value) = compute_dead_time_value(value);
 
-        unsafe {
-            self.inner.set_dead_time_clock_division(ckd);
-            self.inner.set_dead_time_value(value);
-        }
+        self.inner.set_dead_time_clock_division(ckd);
+        self.inner.set_dead_time_value(value);
     }
 }
 

@@ -16,7 +16,7 @@ unsafe impl<'d, T> stm32_fmc::FmcPeripheral for Fmc<'d, T>
 where
     T: Instance,
 {
-    const REGISTERS: *const () = T::REGS.0 as *const _;
+    const REGISTERS: *const () = T::REGS.as_ptr() as *const _;
 
     fn enable(&mut self) {
         <T as crate::rcc::sealed::RccPeripheral>::enable();
@@ -28,9 +28,7 @@ where
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
         #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1)))]
-        unsafe {
-            T::REGS.bcr1().modify(|r| r.set_fmcen(true))
-        };
+        T::REGS.bcr1().modify(|r| r.set_fmcen(true));
     }
 
     fn source_clock_hz(&self) -> u32 {
@@ -67,7 +65,7 @@ macro_rules! fmc_sdram_constructor {
             chip: CHIP
         ) -> stm32_fmc::Sdram<Fmc<'d, T>, CHIP> {
 
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             config_pins!(
                 $($addr_pin_name),*,
                 $($ba_pin_name),*,

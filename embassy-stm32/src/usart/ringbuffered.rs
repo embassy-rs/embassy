@@ -59,23 +59,20 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
         let r = T::regs();
         // clear all interrupts and DMA Rx Request
-        // SAFETY: only clears Rx related flags
-        unsafe {
-            r.cr1().modify(|w| {
-                // disable RXNE interrupt
-                w.set_rxneie(false);
-                // enable parity interrupt if not ParityNone
-                w.set_peie(w.pce());
-                // enable idle line interrupt
-                w.set_idleie(true);
-            });
-            r.cr3().modify(|w| {
-                // enable Error Interrupt: (Frame error, Noise error, Overrun error)
-                w.set_eie(true);
-                // enable DMA Rx Request
-                w.set_dmar(true);
-            });
-        }
+        r.cr1().modify(|w| {
+            // disable RXNE interrupt
+            w.set_rxneie(false);
+            // enable parity interrupt if not ParityNone
+            w.set_peie(w.pce());
+            // enable idle line interrupt
+            w.set_idleie(true);
+        });
+        r.cr3().modify(|w| {
+            // enable Error Interrupt: (Frame error, Noise error, Overrun error)
+            w.set_eie(true);
+            // enable DMA Rx Request
+            w.set_dmar(true);
+        });
     }
 
     /// Stop uart background receive
@@ -84,23 +81,20 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 
         let r = T::regs();
         // clear all interrupts and DMA Rx Request
-        // SAFETY: only clears Rx related flags
-        unsafe {
-            r.cr1().modify(|w| {
-                // disable RXNE interrupt
-                w.set_rxneie(false);
-                // disable parity interrupt
-                w.set_peie(false);
-                // disable idle line interrupt
-                w.set_idleie(false);
-            });
-            r.cr3().modify(|w| {
-                // disable Error Interrupt: (Frame error, Noise error, Overrun error)
-                w.set_eie(false);
-                // disable DMA Rx Request
-                w.set_dmar(false);
-            });
-        }
+        r.cr1().modify(|w| {
+            // disable RXNE interrupt
+            w.set_rxneie(false);
+            // disable parity interrupt
+            w.set_peie(false);
+            // disable idle line interrupt
+            w.set_idleie(false);
+        });
+        r.cr3().modify(|w| {
+            // disable Error Interrupt: (Frame error, Noise error, Overrun error)
+            w.set_eie(false);
+            // disable DMA Rx Request
+            w.set_dmar(false);
+        });
 
         compiler_fence(Ordering::SeqCst);
     }
@@ -117,8 +111,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         let r = T::regs();
 
         // Start background receive if it was not already started
-        // SAFETY: read only
-        match unsafe { r.cr3().read().dmar() } {
+        match r.cr3().read().dmar() {
             false => self.start()?,
             _ => {}
         };
@@ -213,19 +206,17 @@ fn check_for_errors(s: Sr) -> Result<(), Error> {
 
 /// Clear IDLE and return the Sr register
 fn clear_idle_flag(r: Regs) -> Sr {
-    unsafe {
-        // SAFETY: read only and we only use Rx related flags
+    // SAFETY: read only and we only use Rx related flags
 
-        let sr = sr(r).read();
+    let sr = sr(r).read();
 
-        // This read also clears the error and idle interrupt flags on v1.
-        rdr(r).read_volatile();
-        clear_interrupt_flags(r, sr);
+    // This read also clears the error and idle interrupt flags on v1.
+    unsafe { rdr(r).read_volatile() };
+    clear_interrupt_flags(r, sr);
 
-        r.cr1().modify(|w| w.set_idleie(true));
+    r.cr1().modify(|w| w.set_idleie(true));
 
-        sr
-    }
+    sr
 }
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]

@@ -20,13 +20,13 @@ fn main() -> ! {
     let led = Output::new(p.PB14, Level::Low, Speed::Low);
     let mut button = Input::new(p.PC13, Pull::Up);
 
-    cortex_m::interrupt::free(|cs| unsafe {
+    cortex_m::interrupt::free(|cs| {
         enable_interrupt(&mut button);
 
         LED.borrow(cs).borrow_mut().replace(led);
         BUTTON.borrow(cs).borrow_mut().replace(button);
 
-        NVIC::unmask(pac::Interrupt::EXTI15_10);
+        unsafe { NVIC::unmask(pac::Interrupt::EXTI15_10) };
     });
 
     loop {
@@ -64,25 +64,21 @@ const PORT: u8 = 2;
 const PIN: usize = 13;
 fn check_interrupt<P: Pin>(_pin: &mut Input<'static, P>) -> bool {
     let exti = pac::EXTI;
-    unsafe {
-        let pin = PIN;
-        let lines = exti.pr(0).read();
-        lines.line(pin)
-    }
+    let pin = PIN;
+    let lines = exti.pr(0).read();
+    lines.line(pin)
 }
 
 fn clear_interrupt<P: Pin>(_pin: &mut Input<'static, P>) {
     let exti = pac::EXTI;
-    unsafe {
-        let pin = PIN;
-        let mut lines = exti.pr(0).read();
-        lines.set_line(pin, true);
-        exti.pr(0).write_value(lines);
-    }
+    let pin = PIN;
+    let mut lines = exti.pr(0).read();
+    lines.set_line(pin, true);
+    exti.pr(0).write_value(lines);
 }
 
 fn enable_interrupt<P: Pin>(_pin: &mut Input<'static, P>) {
-    cortex_m::interrupt::free(|_| unsafe {
+    cortex_m::interrupt::free(|_| {
         let rcc = pac::RCC;
         rcc.apb2enr().modify(|w| w.set_syscfgen(true));
 

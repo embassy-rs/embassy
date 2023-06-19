@@ -24,10 +24,8 @@ async fn main(_spawner: Spawner) {
 
     info!("Starting LSI");
 
-    unsafe {
-        pac::RCC.csr().modify(|w| w.set_lsion(true));
-        while !pac::RCC.csr().read().lsirdy() {}
-    }
+    pac::RCC.csr().modify(|w| w.set_lsion(true));
+    while !pac::RCC.csr().read().lsirdy() {}
 
     info!("Started LSI");
 

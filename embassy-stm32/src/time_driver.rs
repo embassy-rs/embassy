@@ -155,8 +155,7 @@ impl RtcDriver {
 
         let timer_freq = T::frequency();
 
-        // NOTE(unsafe) Critical section to use the unsafe methods
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             r.cr1().modify(|w| w.set_cen(false));
             r.cnt().write(|w| w.set_cnt(0));
 
@@ -184,7 +183,7 @@ impl RtcDriver {
             });
 
             <T as BasicInstance>::Interrupt::unpend();
-            <T as BasicInstance>::Interrupt::enable();
+            unsafe { <T as BasicInstance>::Interrupt::enable() };
 
             r.cr1().modify(|w| w.set_cen(true));
         })
@@ -193,9 +192,8 @@ impl RtcDriver {
     fn on_interrupt(&self) {
         let r = T::regs_gp16();
 
-        // NOTE(unsafe) Use critical section to access the methods
         // XXX: reduce the size of this critical section ?
-        critical_section::with(|cs| unsafe {
+        critical_section::with(|cs| {
             let sr = r.sr().read();
             let dier = r.dier().read();
 
@@ -228,7 +226,7 @@ impl RtcDriver {
         let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
         let t = (period as u64) << 15;
 
-        critical_section::with(move |cs| unsafe {
+        critical_section::with(move |cs| {
             r.dier().modify(move |w| {
                 for n in 0..ALARM_COUNT {
                     let alarm = &self.alarms.borrow(cs)[n];
@@ -269,8 +267,7 @@ impl Driver for RtcDriver {
 
         let period = self.period.load(Ordering::Relaxed);
         compiler_fence(Ordering::Acquire);
-        // NOTE(unsafe) Atomic read with no side-effects
-        let counter = unsafe { r.cnt().read().cnt() };
+        let counter = r.cnt().read().cnt();
         calc_now(period, counter)
     }
 
@@ -310,7 +307,7 @@ impl Driver for RtcDriver {
             if timestamp <= t {
                 // If alarm timestamp has passed the alarm will not fire.
                 // Disarm the alarm and return `false` to indicate that.
-                unsafe { r.dier().modify(|w| w.set_ccie(n + 1, false)) };
+                r.dier().modify(|w| w.set_ccie(n + 1, false));
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -321,12 +318,11 @@ impl Driver for RtcDriver {
 
             // Write the CCR value regardless of whether we're going to enable it now or not.
             // This way, when we enable it later, the right value is already set.
-            unsafe { r.ccr(n + 1).write(|w| w.set_ccr(safe_timestamp as u16)) };
+            r.ccr(n + 1).write(|w| w.set_ccr(safe_timestamp as u16));
 
             // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
             let diff = timestamp - t;
-            // NOTE(unsafe) We're in a critical section
-            unsafe { r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000)) };
+            r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
 
             true
         })

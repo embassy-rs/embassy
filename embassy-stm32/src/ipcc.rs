@@ -26,7 +26,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for Receive
         ];
 
         // Status register gives channel occupied status. For rx, use cpu1.
-        let sr = unsafe { regs.cpu(1).sr().read() };
+        let sr = regs.cpu(1).sr().read();
         regs.cpu(0).mr().modify(|w| {
             for channel in channels {
                 if sr.chf(channel as usize) {
@@ -57,7 +57,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for Transmi
         ];
 
         // Status register gives channel occupied status. For tx, use cpu0.
-        let sr = unsafe { regs.cpu(0).sr().read() };
+        let sr = regs.cpu(0).sr().read();
         regs.cpu(0).mr().modify(|w| {
             for channel in channels {
                 if !sr.chf(channel as usize) {
@@ -98,16 +98,14 @@ impl Ipcc {
         IPCC::reset();
         IPCC::set_cpu2(true);
 
-        unsafe { _configure_pwr() };
+        _configure_pwr();
 
         let regs = IPCC::regs();
 
-        unsafe {
-            regs.cpu(0).cr().modify(|w| {
-                w.set_rxoie(true);
-                w.set_txfie(true);
-            })
-        }
+        regs.cpu(0).cr().modify(|w| {
+            w.set_rxoie(true);
+            w.set_txfie(true);
+        });
 
         // enable interrupts
         crate::interrupt::typelevel::IPCC_C1_RX::unpend();
@@ -129,7 +127,7 @@ impl Ipcc {
         compiler_fence(Ordering::SeqCst);
 
         trace!("ipcc: ch {}: send data", channel as u8);
-        unsafe { regs.cpu(0).scr().write(|w| w.set_chs(channel as usize, true)) }
+        regs.cpu(0).scr().write(|w| w.set_chs(channel as usize, true));
     }
 
     /// Wait for the tx channel to become clear
@@ -137,20 +135,20 @@ impl Ipcc {
         let regs = IPCC::regs();
 
         // This is a race, but is nice for debugging
-        if unsafe { regs.cpu(0).sr().read() }.chf(channel as usize) {
+        if regs.cpu(0).sr().read().chf(channel as usize) {
             trace!("ipcc: ch {}:  wait for tx free", channel as u8);
         }
 
         poll_fn(|cx| {
             IPCC::state().tx_waker_for(channel).register(cx.waker());
             // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-            unsafe { regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, false)) }
+            regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, false));
 
             compiler_fence(Ordering::SeqCst);
 
-            if !unsafe { regs.cpu(0).sr().read() }.chf(channel as usize) {
+            if !regs.cpu(0).sr().read().chf(channel as usize) {
                 // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                unsafe { regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, true)) }
+                regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, true));
 
                 Poll::Ready(())
             } else {
@@ -166,20 +164,20 @@ impl Ipcc {
 
         loop {
             // This is a race, but is nice for debugging
-            if !unsafe { regs.cpu(1).sr().read() }.chf(channel as usize) {
+            if !regs.cpu(1).sr().read().chf(channel as usize) {
                 trace!("ipcc: ch {}:  wait for rx occupied", channel as u8);
             }
 
             poll_fn(|cx| {
                 IPCC::state().rx_waker_for(channel).register(cx.waker());
                 // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-                unsafe { regs.cpu(0).mr().modify(|w| w.set_chom(channel as usize, false)) }
+                regs.cpu(0).mr().modify(|w| w.set_chom(channel as usize, false));
 
                 compiler_fence(Ordering::SeqCst);
 
-                if unsafe { regs.cpu(1).sr().read() }.chf(channel as usize) {
+                if regs.cpu(1).sr().read().chf(channel as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                    unsafe { regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, true)) }
+                    regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, true));
 
                     Poll::Ready(())
                 } else {
@@ -199,7 +197,7 @@ impl Ipcc {
             trace!("ipcc: ch {}: clear rx", channel as u8);
             compiler_fence(Ordering::SeqCst);
             // If the channel is clear and the read function returns none, fetch more data
-            unsafe { regs.cpu(0).scr().write(|w| w.set_chc(channel as usize, true)) }
+            regs.cpu(0).scr().write(|w| w.set_chc(channel as usize, true));
         }
     }
 }
@@ -210,7 +208,7 @@ impl sealed::Instance for crate::peripherals::IPCC {
     }
 
     fn set_cpu2(enabled: bool) {
-        unsafe { crate::pac::PWR.cr4().modify(|w| w.set_c2boot(enabled)) }
+        crate::pac::PWR.cr4().modify(|w| w.set_c2boot(enabled));
     }
 
     fn state() -> &'static self::sealed::State {
@@ -269,7 +267,7 @@ pub(crate) mod sealed {
     }
 }
 
-unsafe fn _configure_pwr() {
+fn _configure_pwr() {
     // TODO: move this to RCC
 
     let pwr = crate::pac::PWR;

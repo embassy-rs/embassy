@@ -46,8 +46,8 @@ foreach_peripheral!(
     (adc, ADC1) => {
         impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC1 {
             fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe {
-                    match crate::rcc::get_freqs().adc {
+                critical_section::with(|_| {
+                    match unsafe { crate::rcc::get_freqs() }.adc {
                         Some(ck) => ck,
                         None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
                     }
@@ -55,7 +55,7 @@ foreach_peripheral!(
             }
 
             fn enable() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(true))
                 });
                 ADC12_ENABLE_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -63,7 +63,7 @@ foreach_peripheral!(
 
             fn disable() {
                 if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| unsafe {
+                    critical_section::with(|_| {
                         crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(false));
                     })
                 }
@@ -72,7 +72,7 @@ foreach_peripheral!(
 
             fn reset() {
                 if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| unsafe {
+                    critical_section::with(|_| {
                         crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(true));
                         crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(false));
                     });
@@ -85,8 +85,8 @@ foreach_peripheral!(
     (adc, ADC2) => {
         impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC2 {
             fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe {
-                    match crate::rcc::get_freqs().adc {
+                critical_section::with(|_| {
+                    match unsafe { crate::rcc::get_freqs() }.adc {
                         Some(ck) => ck,
                         None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
                     }
@@ -94,7 +94,7 @@ foreach_peripheral!(
             }
 
             fn enable() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(true))
                 });
                 ADC12_ENABLE_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -102,7 +102,7 @@ foreach_peripheral!(
 
             fn disable() {
                 if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| unsafe {
+                    critical_section::with(|_| {
                         crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(false));
                     })
                 }
@@ -111,7 +111,7 @@ foreach_peripheral!(
 
             fn reset() {
                 if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| unsafe {
+                    critical_section::with(|_| {
                         crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(true));
                         crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(false));
                     });
@@ -124,8 +124,8 @@ foreach_peripheral!(
     (adc, ADC3) => {
         impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC3 {
             fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe {
-                    match crate::rcc::get_freqs().adc {
+                critical_section::with(|_| {
+                    match unsafe { crate::rcc::get_freqs() }.adc {
                         Some(ck) => ck,
                         None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
                     }
@@ -133,22 +133,22 @@ foreach_peripheral!(
             }
 
             fn enable() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.ahb4enr().modify(|w| w.set_adc3en(true))
                 });
             }
 
             fn disable() {
-                    critical_section::with(|_| unsafe {
-                        crate::pac::RCC.ahb4enr().modify(|w| w.set_adc3en(false));
-                    })
+                critical_section::with(|_| {
+                    crate::pac::RCC.ahb4enr().modify(|w| w.set_adc3en(false));
+                })
             }
 
             fn reset() {
-                    critical_section::with(|_| unsafe {
-                        crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(true));
-                        crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(false));
-                    });
+                critical_section::with(|_| {
+                    crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(true));
+                    crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(false));
+                });
             }
         }
 
@@ -232,9 +232,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 
-        unsafe {
-            T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
-        }
+        T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
         info!("ADC frequency set to {} Hz", frequency.0);
@@ -251,9 +249,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         } else {
             Boost::LT50
         };
-        unsafe {
-            T::regs().cr().modify(|w| w.set_boost(boost));
-        }
+        T::regs().cr().modify(|w| w.set_boost(boost));
 
         let mut s = Self {
             adc,
@@ -272,84 +268,68 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     fn power_up(&mut self, delay: &mut impl DelayUs<u16>) {
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_deeppwd(false);
-                reg.set_advregen(true);
-            });
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_deeppwd(false);
+            reg.set_advregen(true);
+        });
 
         delay.delay_us(10);
     }
 
     fn configure_differential_inputs(&mut self) {
-        unsafe {
-            T::regs().difsel().modify(|w| {
-                for n in 0..20 {
-                    w.set_difsel(n, Difsel::SINGLEENDED);
-                }
-            })
-        };
+        T::regs().difsel().modify(|w| {
+            for n in 0..20 {
+                w.set_difsel(n, Difsel::SINGLEENDED);
+            }
+        });
     }
 
     fn calibrate(&mut self) {
-        unsafe {
-            T::regs().cr().modify(|w| {
-                w.set_adcaldif(Adcaldif::SINGLEENDED);
-                w.set_adcallin(true);
-            });
+        T::regs().cr().modify(|w| {
+            w.set_adcaldif(Adcaldif::SINGLEENDED);
+            w.set_adcallin(true);
+        });
 
-            T::regs().cr().modify(|w| w.set_adcal(true));
+        T::regs().cr().modify(|w| w.set_adcal(true));
 
-            while T::regs().cr().read().adcal() {}
-        }
+        while T::regs().cr().read().adcal() {}
     }
 
     fn enable(&mut self) {
-        unsafe {
-            T::regs().isr().write(|w| w.set_adrdy(true));
-            T::regs().cr().modify(|w| w.set_aden(true));
-            while !T::regs().isr().read().adrdy() {}
-            T::regs().isr().write(|w| w.set_adrdy(true));
-        }
+        T::regs().isr().write(|w| w.set_adrdy(true));
+        T::regs().cr().modify(|w| w.set_aden(true));
+        while !T::regs().isr().read().adrdy() {}
+        T::regs().isr().write(|w| w.set_adrdy(true));
     }
 
     fn configure(&mut self) {
         // single conversion mode, software trigger
-        unsafe {
-            T::regs().cfgr().modify(|w| {
-                w.set_cont(false);
-                w.set_exten(Exten::DISABLED);
-            })
-        }
+        T::regs().cfgr().modify(|w| {
+            w.set_cont(false);
+            w.set_exten(Exten::DISABLED);
+        });
     }
 
     pub fn enable_vrefint(&self) -> VrefInt {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_vrefen(true);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_vrefen(true);
+        });
 
         VrefInt {}
     }
 
     pub fn enable_temperature(&self) -> Temperature {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_vsenseen(true);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_vsenseen(true);
+        });
 
         Temperature {}
     }
 
     pub fn enable_vbat(&self) -> Vbat {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_vbaten(true);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_vbaten(true);
+        });
 
         Vbat {}
     }
@@ -359,30 +339,26 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        unsafe {
-            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
-        }
+        T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
     }
 
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
+        T::regs().isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
 
-            // Start conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
 
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            T::regs().dr().read().0 as u16
+        while !T::regs().isr().read().eos() {
+            // spin
         }
+
+        T::regs().dr().read().0 as u16
     }
 
     pub fn read<P>(&mut self, pin: &mut P) -> u16
@@ -390,18 +366,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         P: AdcPin<T>,
         P: crate::gpio::sealed::Pin,
     {
-        unsafe {
-            pin.set_as_analog();
+        pin.set_as_analog();
 
-            self.read_channel(pin.channel())
-        }
+        self.read_channel(pin.channel())
     }
 
     pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        unsafe { self.read_channel(channel.channel()) }
+        self.read_channel(channel.channel())
     }
 
-    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+    fn read_channel(&mut self, channel: u8) -> u16 {
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);
 
@@ -417,7 +391,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.convert()
     }
 
-    unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         let sample_time = sample_time.into();
         if ch <= 9 {
             T::regs().smpr(0).modify(|reg| reg.set_smp(ch as _, sample_time));

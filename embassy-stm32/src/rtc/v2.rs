@@ -8,74 +8,72 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
     /// It this changes the RTC clock source the time will be reset
     pub(super) fn apply_config(&mut self, rtc_config: RtcConfig) {
         // Unlock the backup domain
-        unsafe {
-            let clock_config = rtc_config.clock_config as u8;
+        let clock_config = rtc_config.clock_config as u8;
 
-            #[cfg(not(rtc_v2wb))]
-            use stm32_metapac::rcc::vals::Rtcsel;
+        #[cfg(not(rtc_v2wb))]
+        use stm32_metapac::rcc::vals::Rtcsel;
 
-            #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
-            let cr = crate::pac::PWR.cr();
-            #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-            let cr = crate::pac::PWR.cr1();
+        #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
+        let cr = crate::pac::PWR.cr();
+        #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+        let cr = crate::pac::PWR.cr1();
 
-            // TODO: Missing from PAC for l0 and f0?
-            #[cfg(not(any(rtc_v2f0, rtc_v2l0)))]
-            {
-                cr.modify(|w| w.set_dbp(true));
-                while !cr.read().dbp() {}
-            }
-
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-            let reg = crate::pac::RCC.bdcr().read();
-            #[cfg(any(rtc_v2l0, rtc_v2l1))]
-            let reg = crate::pac::RCC.csr().read();
-
-            #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-            assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
-            #[cfg(rtc_v2wb)]
-            let rtcsel = reg.rtcsel();
-            #[cfg(not(rtc_v2wb))]
-            let rtcsel = reg.rtcsel().0;
-
-            if !reg.rtcen() || rtcsel != clock_config {
-                #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-                crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
-
-                #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-                let cr = crate::pac::RCC.bdcr();
-                #[cfg(any(rtc_v2l0, rtc_v2l1))]
-                let cr = crate::pac::RCC.csr();
-
-                cr.modify(|w| {
-                    // Reset
-                    #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-                    w.set_bdrst(false);
-
-                    // Select RTC source
-                    #[cfg(not(rtc_v2wb))]
-                    w.set_rtcsel(Rtcsel(clock_config));
-                    #[cfg(rtc_v2wb)]
-                    w.set_rtcsel(clock_config);
-                    w.set_rtcen(true);
-
-                    // Restore bcdr
-                    #[cfg(any(rtc_v2l4, rtc_v2wb))]
-                    w.set_lscosel(reg.lscosel());
-                    #[cfg(any(rtc_v2l4, rtc_v2wb))]
-                    w.set_lscoen(reg.lscoen());
-
-                    w.set_lseon(reg.lseon());
-
-                    #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-                    w.set_lsedrv(reg.lsedrv());
-                    w.set_lsebyp(reg.lsebyp());
-                });
-            }
+        // TODO: Missing from PAC for l0 and f0?
+        #[cfg(not(any(rtc_v2f0, rtc_v2l0)))]
+        {
+            cr.modify(|w| w.set_dbp(true));
+            while !cr.read().dbp() {}
         }
 
-        self.write(true, |rtc| unsafe {
+        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+        let reg = crate::pac::RCC.bdcr().read();
+        #[cfg(any(rtc_v2l0, rtc_v2l1))]
+        let reg = crate::pac::RCC.csr().read();
+
+        #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
+
+        #[cfg(rtc_v2wb)]
+        let rtcsel = reg.rtcsel();
+        #[cfg(not(rtc_v2wb))]
+        let rtcsel = reg.rtcsel().0;
+
+        if !reg.rtcen() || rtcsel != clock_config {
+            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+            crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
+
+            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+            let cr = crate::pac::RCC.bdcr();
+            #[cfg(any(rtc_v2l0, rtc_v2l1))]
+            let cr = crate::pac::RCC.csr();
+
+            cr.modify(|w| {
+                // Reset
+                #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+                w.set_bdrst(false);
+
+                // Select RTC source
+                #[cfg(not(rtc_v2wb))]
+                w.set_rtcsel(Rtcsel(clock_config));
+                #[cfg(rtc_v2wb)]
+                w.set_rtcsel(clock_config);
+                w.set_rtcen(true);
+
+                // Restore bcdr
+                #[cfg(any(rtc_v2l4, rtc_v2wb))]
+                w.set_lscosel(reg.lscosel());
+                #[cfg(any(rtc_v2l4, rtc_v2wb))]
+                w.set_lscoen(reg.lscoen());
+
+                w.set_lseon(reg.lseon());
+
+                #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+                w.set_lsedrv(reg.lsedrv());
+                w.set_lsebyp(reg.lsebyp());
+            });
+        }
+
+        self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 #[cfg(rtc_v2f2)]
                 w.set_fmt(false);
@@ -117,47 +115,45 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
         clock_drift = clock_drift / RTC_CALR_RESOLUTION_PPM;
 
         self.write(false, |rtc| {
-            unsafe {
-                rtc.calr().write(|w| {
-                    match period {
-                        super::RtcCalibrationCyclePeriod::Seconds8 => {
-                            w.set_calw8(stm32_metapac::rtc::vals::Calw8::EIGHT_SECOND);
-                        }
-                        super::RtcCalibrationCyclePeriod::Seconds16 => {
-                            w.set_calw16(stm32_metapac::rtc::vals::Calw16::SIXTEEN_SECOND);
-                        }
-                        super::RtcCalibrationCyclePeriod::Seconds32 => {
-                            // Set neither `calw8` nor `calw16` to use 32 seconds
-                        }
+            rtc.calr().write(|w| {
+                match period {
+                    super::RtcCalibrationCyclePeriod::Seconds8 => {
+                        w.set_calw8(stm32_metapac::rtc::vals::Calw8::EIGHT_SECOND);
                     }
-
-                    // Extra pulses during calibration cycle period: CALP * 512 - CALM
-                    //
-                    // CALP sets whether pulses are added or omitted.
-                    //
-                    // CALM contains how many pulses (out of 512) are masked in a
-                    // given calibration cycle period.
-                    if clock_drift > 0.0 {
-                        // Maximum (about 512.2) rounds to 512.
-                        clock_drift += 0.5;
-
-                        // When the offset is positive (0 to 512), the opposite of
-                        // the offset (512 - offset) is masked, i.e. for the
-                        // maximum offset (512), 0 pulses are masked.
-                        w.set_calp(stm32_metapac::rtc::vals::Calp::INCREASEFREQ);
-                        w.set_calm(512 - clock_drift as u16);
-                    } else {
-                        // Minimum (about -510.7) rounds to -511.
-                        clock_drift -= 0.5;
-
-                        // When the offset is negative or zero (-511 to 0),
-                        // the absolute offset is masked, i.e. for the minimum
-                        // offset (-511), 511 pulses are masked.
-                        w.set_calp(stm32_metapac::rtc::vals::Calp::NOCHANGE);
-                        w.set_calm((clock_drift * -1.0) as u16);
+                    super::RtcCalibrationCyclePeriod::Seconds16 => {
+                        w.set_calw16(stm32_metapac::rtc::vals::Calw16::SIXTEEN_SECOND);
                     }
-                });
-            }
+                    super::RtcCalibrationCyclePeriod::Seconds32 => {
+                        // Set neither `calw8` nor `calw16` to use 32 seconds
+                    }
+                }
+
+                // Extra pulses during calibration cycle period: CALP * 512 - CALM
+                //
+                // CALP sets whether pulses are added or omitted.
+                //
+                // CALM contains how many pulses (out of 512) are masked in a
+                // given calibration cycle period.
+                if clock_drift > 0.0 {
+                    // Maximum (about 512.2) rounds to 512.
+                    clock_drift += 0.5;
+
+                    // When the offset is positive (0 to 512), the opposite of
+                    // the offset (512 - offset) is masked, i.e. for the
+                    // maximum offset (512), 0 pulses are masked.
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::INCREASEFREQ);
+                    w.set_calm(512 - clock_drift as u16);
+                } else {
+                    // Minimum (about -510.7) rounds to -511.
+                    clock_drift -= 0.5;
+
+                    // When the offset is negative or zero (-511 to 0),
+                    // the absolute offset is masked, i.e. for the minimum
+                    // offset (-511), 511 pulses are masked.
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::NOCHANGE);
+                    w.set_calm((clock_drift * -1.0) as u16);
+                }
+            });
         })
     }
 
@@ -168,31 +164,27 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
         let r = T::regs();
         // Disable write protection.
         // This is safe, as we're only writin the correct and expected values.
-        unsafe {
-            r.wpr().write(|w| w.set_key(0xca));
-            r.wpr().write(|w| w.set_key(0x53));
+        r.wpr().write(|w| w.set_key(0xca));
+        r.wpr().write(|w| w.set_key(0x53));
 
-            // true if initf bit indicates RTC peripheral is in init mode
-            if init_mode && !r.isr().read().initf() {
-                // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
-                r.isr().modify(|w| w.set_init(Init::INITMODE));
-                // wait till init state entered
-                // ~2 RTCCLK cycles
-                while !r.isr().read().initf() {}
-            }
+        // true if initf bit indicates RTC peripheral is in init mode
+        if init_mode && !r.isr().read().initf() {
+            // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
+            r.isr().modify(|w| w.set_init(Init::INITMODE));
+            // wait till init state entered
+            // ~2 RTCCLK cycles
+            while !r.isr().read().initf() {}
         }
 
         let result = f(&r);
 
-        unsafe {
-            if init_mode {
-                r.isr().modify(|w| w.set_init(Init::FREERUNNINGMODE)); // Exits init mode
-            }
-
-            // Re-enable write protection.
-            // This is safe, as the field accepts the full range of 8-bit values.
-            r.wpr().write(|w| w.set_key(0xff));
+        if init_mode {
+            r.isr().modify(|w| w.set_init(Init::FREERUNNINGMODE)); // Exits init mode
         }
+
+        // Re-enable write protection.
+        // This is safe, as the field accepts the full range of 8-bit values.
+        r.wpr().write(|w| w.set_key(0xff));
         result
     }
 }
@@ -200,7 +192,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
 impl sealed::Instance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 20;
 
-    unsafe fn enable_peripheral_clk() {
+    fn enable_peripheral_clk() {
         #[cfg(any(rtc_v2l4, rtc_v2wb))]
         {
             // enable peripheral clock for communication
@@ -213,7 +205,7 @@ impl sealed::Instance for crate::peripherals::RTC {
 
     fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {
-            Some(unsafe { rtc.bkpr(register).read().bkp() })
+            Some(rtc.bkpr(register).read().bkp())
         } else {
             None
         }
@@ -221,7 +213,7 @@ impl sealed::Instance for crate::peripherals::RTC {
 
     fn write_backup_register(rtc: &Rtc, register: usize, value: u32) {
         if register < Self::BACKUP_REGISTER_COUNT {
-            unsafe { rtc.bkpr(register).write(|w| w.set_bkp(value)) }
+            rtc.bkpr(register).write(|w| w.set_bkp(value));
         }
     }
 }
