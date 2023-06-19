@@ -26,6 +26,8 @@ pub enum FirmwareUpdaterError {
     Flash(NorFlashErrorKind),
     /// Signature errors.
     Signature(signature::Error),
+    /// Bad state.
+    BadState,
 }
 
 #[cfg(feature = "defmt")]
@@ -34,6 +36,7 @@ impl defmt::Format for FirmwareUpdaterError {
         match self {
             FirmwareUpdaterError::Flash(_) => defmt::write!(fmt, "FirmwareUpdaterError::Flash(_)"),
             FirmwareUpdaterError::Signature(_) => defmt::write!(fmt, "FirmwareUpdaterError::Signature(_)"),
+            FirmwareUpdaterError::BadState => defmt::write!(fmt, "FirmwareUpdaterError::BadState"),
         }
     }
 }
