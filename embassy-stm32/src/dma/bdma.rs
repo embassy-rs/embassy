@@ -1,7 +1,6 @@
 #![macro_use]
 
 use core::future::Future;
-use core::option;
 use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -24,14 +23,14 @@ use crate::pac::bdma::{regs, vals};
 #[non_exhaustive]
 pub struct TransferOptions {
     pub circular: bool,
-    pub halt_transfer_ir: bool,
+    pub half_transfer_ir: bool,
 }
 
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
             circular: false,
-            halt_transfer_ir: false,
+            half_transfer_ir: false,
         }
     }
 }
@@ -291,7 +290,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             w.set_dir(dir.into());
             w.set_teie(true);
             w.set_tcie(true);
-            w.set_htie(options.halt_transfer_ir);
+            w.set_htie(options.half_transfer_ir);
             if options.circular {
                 w.set_circ(vals::Circ::ENABLED);
                 debug!("Setting circular mode");

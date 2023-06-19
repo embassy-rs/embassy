@@ -275,42 +275,43 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         });
 
         let tx_request = self.txdma.request();
+        let channel = &mut self.txdma;
 
         // Initiate the correct type of DMA transfer depending on what data is passed
         let tx_f = match data_ch1 {
             ValueArray::Bit8(buf) => unsafe {
                 Transfer::new_write(
-                    &mut self.txdma,
+                    channel,
                     tx_request,
                     buf,
                     T::regs().dhr8r(CHANNEL).as_ptr() as *mut u8,
                     TransferOptions {
                         circular,
-                        halt_transfer_ir: false,
+                        half_transfer_ir: false,
                     },
                 )
             },
             ValueArray::Bit12Left(buf) => unsafe {
                 Transfer::new_write(
-                    &mut self.txdma,
+                    channel,
                     tx_request,
                     buf,
                     T::regs().dhr12l(CHANNEL).as_ptr() as *mut u16,
                     TransferOptions {
                         circular,
-                        halt_transfer_ir: false,
+                        half_transfer_ir: false,
                     },
                 )
             },
             ValueArray::Bit12Right(buf) => unsafe {
                 Transfer::new_write(
-                    &mut self.txdma,
+                    channel,
                     tx_request,
                     buf,
                     T::regs().dhr12r(CHANNEL).as_ptr() as *mut u16,
                     TransferOptions {
                         circular,
-                        halt_transfer_ir: false,
+                        half_transfer_ir: false,
                     },
                 )
             },
