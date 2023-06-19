@@ -148,7 +148,7 @@ foreach_interrupt!(
 
             fn regs() -> crate::pac::otg::Otg {
                 // OTG HS registers are a superset of FS registers
-                crate::pac::otg::Otg(crate::pac::USB_OTG_HS.0)
+                unsafe { crate::pac::otg::Otg::from_ptr(crate::pac::USB_OTG_HS.as_ptr()) }
             }
 
             #[cfg(feature = "nightly")]

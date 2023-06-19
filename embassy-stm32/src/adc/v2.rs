@@ -100,13 +100,10 @@ where
         T::reset();
 
         let presc = Prescaler::from_pclk2(T::frequency());
-        unsafe {
-            T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
-
-            T::regs().cr2().modify(|reg| {
-                reg.set_adon(crate::pac::adc::vals::Adon::ENABLED);
-            });
-        }
+        T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(crate::pac::adc::vals::Adon::ENABLED);
+        });
 
         delay.delay_us(ADC_POWERUP_TIME_US);
 
@@ -121,19 +118,15 @@ where
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        unsafe {
-            T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));
-        }
+        T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
     /// [Adc::read_internal()] to perform conversion.
     pub fn enable_vrefint(&self) -> VrefInt {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
+        });
 
         VrefInt {}
     }
@@ -144,11 +137,9 @@ where
     /// On STM32F42 and STM32F43 this can not be used together with [Vbat]. If both are enabled,
     /// temperature sensor will return vbat value.
     pub fn enable_temperature(&self) -> Temperature {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
+        });
 
         Temperature {}
     }
@@ -156,37 +147,33 @@ where
     /// Enables vbat input and returns [Vbat], which can be used in
     /// [Adc::read_internal()] to perform conversion.
     pub fn enable_vbat(&self) -> Vbat {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_vbate(crate::pac::adccommon::vals::Vbate::ENABLED);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_vbate(crate::pac::adccommon::vals::Vbate::ENABLED);
+        });
 
         Vbat {}
     }
 
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
-        unsafe {
-            // clear end of conversion flag
-            T::regs().sr().modify(|reg| {
-                reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
-            });
+        // clear end of conversion flag
+        T::regs().sr().modify(|reg| {
+            reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
+        });
 
-            // Start conversion
-            T::regs().cr2().modify(|reg| {
-                reg.set_swstart(true);
-            });
+        // Start conversion
+        T::regs().cr2().modify(|reg| {
+            reg.set_swstart(true);
+        });
 
-            while T::regs().sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
-                // spin //wait for actual start
-            }
-            while T::regs().sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
-                // spin //wait for finish
-            }
-
-            T::regs().dr().read().0 as u16
+        while T::regs().sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
+            // spin //wait for actual start
         }
+        while T::regs().sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
+            // spin //wait for finish
+        }
+
+        T::regs().dr().read().0 as u16
     }
 
     pub fn read<P>(&mut self, pin: &mut P) -> u16
@@ -194,18 +181,16 @@ where
         P: AdcPin<T>,
         P: crate::gpio::sealed::Pin,
     {
-        unsafe {
-            pin.set_as_analog();
+        pin.set_as_analog();
 
-            self.read_channel(pin.channel())
-        }
+        self.read_channel(pin.channel())
     }
 
     pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        unsafe { self.read_channel(channel.channel()) }
+        self.read_channel(channel.channel())
     }
 
-    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+    fn read_channel(&mut self, channel: u8) -> u16 {
         // Configure ADC
 
         // Select channel
@@ -219,7 +204,7 @@ where
         val
     }
 
-    unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         let sample_time = sample_time.into();
         if ch <= 9 {
             T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));

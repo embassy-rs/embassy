@@ -32,26 +32,22 @@ impl<'d, T: Instance> Adc<'d, T> {
         into_ref!(adc);
         T::enable();
         T::reset();
-        unsafe {
-            T::regs().cr2().modify(|reg| reg.set_adon(true));
-        }
+        T::regs().cr2().modify(|reg| reg.set_adon(true));
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)
         // for at least two ADC clock cycles
         delay.delay_us((1_000_000 * 2) / Self::freq().0 + 1);
 
-        unsafe {
-            // Reset calibration
-            T::regs().cr2().modify(|reg| reg.set_rstcal(true));
-            while T::regs().cr2().read().rstcal() {
-                // spin
-            }
+        // Reset calibration
+        T::regs().cr2().modify(|reg| reg.set_rstcal(true));
+        while T::regs().cr2().read().rstcal() {
+            // spin
+        }
 
-            // Calibrate
-            T::regs().cr2().modify(|reg| reg.set_cal(true));
-            while T::regs().cr2().read().cal() {
-                // spin
-            }
+        // Calibrate
+        T::regs().cr2().modify(|reg| reg.set_cal(true));
+        while T::regs().cr2().read().cal() {
+            // spin
         }
 
         // One cycle after calibration
@@ -81,20 +77,16 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn enable_vref(&self, _delay: &mut impl DelayUs<u32>) -> Vref {
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_tsvrefe(true);
-            })
-        }
+        T::regs().cr2().modify(|reg| {
+            reg.set_tsvrefe(true);
+        });
         Vref {}
     }
 
     pub fn enable_temperature(&self) -> Temperature {
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_tsvrefe(true);
-            })
-        }
+        T::regs().cr2().modify(|reg| {
+            reg.set_tsvrefe(true);
+        });
         Temperature {}
     }
 
@@ -104,41 +96,37 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_adon(true);
-                reg.set_swstart(true);
-            });
-            while T::regs().cr2().read().swstart() {}
-            while !T::regs().sr().read().eoc() {}
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+            reg.set_swstart(true);
+        });
+        while T::regs().cr2().read().swstart() {}
+        while !T::regs().sr().read().eoc() {}
 
-            T::regs().dr().read().0 as u16
-        }
+        T::regs().dr().read().0 as u16
     }
 
     pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        unsafe {
-            Self::set_channel_sample_time(pin.channel(), self.sample_time);
-            T::regs().cr1().modify(|reg| {
-                reg.set_scan(false);
-                reg.set_discen(false);
-            });
-            T::regs().sqr1().modify(|reg| reg.set_l(0));
+        Self::set_channel_sample_time(pin.channel(), self.sample_time);
+        T::regs().cr1().modify(|reg| {
+            reg.set_scan(false);
+            reg.set_discen(false);
+        });
+        T::regs().sqr1().modify(|reg| reg.set_l(0));
 
-            T::regs().cr2().modify(|reg| {
-                reg.set_cont(false);
-                reg.set_exttrig(true);
-                reg.set_swstart(false);
-                reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
-            });
-        }
+        T::regs().cr2().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_exttrig(true);
+            reg.set_swstart(false);
+            reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
+        });
 
         // Configure the channel to sample
-        unsafe { T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel())) }
+        T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));
         self.convert()
     }
 
-    unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         let sample_time = sample_time.into();
         if ch <= 9 {
             T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));

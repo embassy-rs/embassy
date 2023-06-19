@@ -92,13 +92,15 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::gpdma::Gpdma, channel_num: usize, in
     if sr.dtef() {
         panic!(
             "DMA: data transfer error on DMA@{:08x} channel {}",
-            dma.0 as u32, channel_num
+            dma.as_ptr() as u32,
+            channel_num
         );
     }
     if sr.usef() {
         panic!(
             "DMA: user settings error on DMA@{:08x} channel {}",
-            dma.0 as u32, channel_num
+            dma.as_ptr() as u32,
+            channel_num
         );
     }
 
@@ -298,26 +300,24 @@ impl<'a, C: Channel> Transfer<'a, C> {
         let ch = self.channel.regs().ch(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        unsafe {
-            ch.cr().write(|w| {
-                w.set_tcie(true);
-                w.set_useie(true);
-                w.set_dteie(true);
-                w.set_suspie(true);
-            })
-        }
+        ch.cr().write(|w| {
+            w.set_tcie(true);
+            w.set_useie(true);
+            w.set_dteie(true);
+            w.set_suspie(true);
+        })
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
-        !unsafe { ch.sr().read() }.tcf()
+        !ch.sr().read().tcf()
     }
 
     /// Gets the total remaining transfers for the channel
     /// Note: this will be zero for transfers that completed without cancellation.
     pub fn get_remaining_transfers(&self) -> u16 {
         let ch = self.channel.regs().ch(self.channel.num());
-        unsafe { ch.br1().read() }.bndt()
+        ch.br1().read().bndt()
     }
 
     pub fn blocking_wait(mut self) {

@@ -68,53 +68,45 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         T::enable();
         T::reset();
 
-        unsafe {
-            scl.set_as_af_pull(
-                scl.af_num(),
-                AFType::OutputOpenDrain,
-                match config.scl_pullup {
-                    true => Pull::Up,
-                    false => Pull::None,
-                },
-            );
-            sda.set_as_af_pull(
-                sda.af_num(),
-                AFType::OutputOpenDrain,
-                match config.sda_pullup {
-                    true => Pull::Up,
-                    false => Pull::None,
-                },
-            );
-        }
+        scl.set_as_af_pull(
+            scl.af_num(),
+            AFType::OutputOpenDrain,
+            match config.scl_pullup {
+                true => Pull::Up,
+                false => Pull::None,
+            },
+        );
+        sda.set_as_af_pull(
+            sda.af_num(),
+            AFType::OutputOpenDrain,
+            match config.sda_pullup {
+                true => Pull::Up,
+                false => Pull::None,
+            },
+        );
 
-        unsafe {
-            T::regs().cr1().modify(|reg| {
-                reg.set_pe(false);
-                //reg.set_anfoff(false);
-            });
-        }
+        T::regs().cr1().modify(|reg| {
+            reg.set_pe(false);
+            //reg.set_anfoff(false);
+        });
 
         let timings = Timings::new(T::frequency(), freq.into());
 
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_freq(timings.freq);
-            });
-            T::regs().ccr().modify(|reg| {
-                reg.set_f_s(timings.mode.f_s());
-                reg.set_duty(timings.duty.duty());
-                reg.set_ccr(timings.ccr);
-            });
-            T::regs().trise().modify(|reg| {
-                reg.set_trise(timings.trise);
-            });
-        }
+        T::regs().cr2().modify(|reg| {
+            reg.set_freq(timings.freq);
+        });
+        T::regs().ccr().modify(|reg| {
+            reg.set_f_s(timings.mode.f_s());
+            reg.set_duty(timings.duty.duty());
+            reg.set_ccr(timings.ccr);
+        });
+        T::regs().trise().modify(|reg| {
+            reg.set_trise(timings.trise);
+        });
 
-        unsafe {
-            T::regs().cr1().modify(|reg| {
-                reg.set_pe(true);
-            });
-        }
+        T::regs().cr1().modify(|reg| {
+            reg.set_pe(true);
+        });
 
         Self {
             phantom: PhantomData,
@@ -123,7 +115,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
-    unsafe fn check_and_clear_error_flags(&self) -> Result<i2c::regs::Sr1, Error> {
+    fn check_and_clear_error_flags(&self) -> Result<i2c::regs::Sr1, Error> {
         // Note that flags should only be cleared once they have been registered. If flags are
         // cleared otherwise, there may be an inherent race condition and flags may be missed.
         let sr1 = T::regs().sr1().read();
@@ -162,7 +154,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(sr1)
     }
 
-    unsafe fn write_bytes(
+    fn write_bytes(
         &mut self,
         addr: u8,
         bytes: &[u8],
@@ -211,7 +203,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    unsafe fn send_byte(&self, byte: u8, check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
+    fn send_byte(&self, byte: u8, check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
         // Wait until we're ready for sending
         while {
             // Check for any I2C errors. If a NACK occurs, the ADDR bit will never be set.
@@ -234,7 +226,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    unsafe fn recv_byte(&self, check_timeout: impl Fn() -> Result<(), Error>) -> Result<u8, Error> {
+    fn recv_byte(&self, check_timeout: impl Fn() -> Result<(), Error>) -> Result<u8, Error> {
         while {
             // Check for any potential error conditions.
             self.check_and_clear_error_flags()?;
@@ -256,56 +248,52 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     ) -> Result<(), Error> {
         if let Some((last, buffer)) = buffer.split_last_mut() {
             // Send a START condition and set ACK bit
-            unsafe {
-                T::regs().cr1().modify(|reg| {
-                    reg.set_start(true);
-                    reg.set_ack(true);
-                });
-            }
+            T::regs().cr1().modify(|reg| {
+                reg.set_start(true);
+                reg.set_ack(true);
+            });
 
             // Wait until START condition was generated
-            while unsafe { !self.check_and_clear_error_flags()?.start() } {
+            while !self.check_and_clear_error_flags()?.start() {
                 check_timeout()?;
             }
 
             // Also wait until signalled we're master and everything is waiting for us
             while {
-                let sr2 = unsafe { T::regs().sr2().read() };
+                let sr2 = T::regs().sr2().read();
                 !sr2.msl() && !sr2.busy()
             } {
                 check_timeout()?;
             }
 
             // Set up current address, we're trying to talk to
-            unsafe { T::regs().dr().write(|reg| reg.set_dr((addr << 1) + 1)) }
+            T::regs().dr().write(|reg| reg.set_dr((addr << 1) + 1));
 
             // Wait until address was sent
             // Wait for the address to be acknowledged
-            while unsafe { !self.check_and_clear_error_flags()?.addr() } {
+            while !self.check_and_clear_error_flags()?.addr() {
                 check_timeout()?;
             }
 
             // Clear condition by reading SR2
-            let _ = unsafe { T::regs().sr2().read() };
+            let _ = T::regs().sr2().read();
 
             // Receive bytes into buffer
             for c in buffer {
-                *c = unsafe { self.recv_byte(&check_timeout)? };
+                *c = self.recv_byte(&check_timeout)?;
             }
 
             // Prepare to send NACK then STOP after next byte
-            unsafe {
-                T::regs().cr1().modify(|reg| {
-                    reg.set_ack(false);
-                    reg.set_stop(true);
-                })
-            }
+            T::regs().cr1().modify(|reg| {
+                reg.set_ack(false);
+                reg.set_stop(true);
+            });
 
             // Receive last byte
-            *last = unsafe { self.recv_byte(&check_timeout)? };
+            *last = self.recv_byte(&check_timeout)?;
 
             // Wait for the STOP to be sent.
-            while unsafe { T::regs().cr1().read().stop() } {
+            while T::regs().cr1().read().stop() {
                 check_timeout()?;
             }
 
@@ -326,15 +314,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         write: &[u8],
         check_timeout: impl Fn() -> Result<(), Error>,
     ) -> Result<(), Error> {
-        unsafe {
-            self.write_bytes(addr, write, &check_timeout)?;
-            // Send a STOP condition
-            T::regs().cr1().modify(|reg| reg.set_stop(true));
-            // Wait for STOP condition to transmit.
-            while T::regs().cr1().read().stop() {
-                check_timeout()?;
-            }
-        };
+        self.write_bytes(addr, write, &check_timeout)?;
+        // Send a STOP condition
+        T::regs().cr1().modify(|reg| reg.set_stop(true));
+        // Wait for STOP condition to transmit.
+        while T::regs().cr1().read().stop() {
+            check_timeout()?;
+        }
 
         // Fallthrough is success
         Ok(())
@@ -351,7 +337,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         read: &mut [u8],
         check_timeout: impl Fn() -> Result<(), Error>,
     ) -> Result<(), Error> {
-        unsafe { self.write_bytes(addr, write, &check_timeout)? };
+        self.write_bytes(addr, write, &check_timeout)?;
         self.blocking_read_timeout(addr, read, &check_timeout)?;
 
         Ok(())
@@ -478,8 +464,6 @@ impl Timings {
         assert!(freq >= 2 && freq <= 50);
 
         // Configure bus frequency into I2C peripheral
-        //self.i2c.cr2.write(|w| unsafe { w.freq().bits(freq as u8) });
-
         let trise = if speed <= 100_000 {
             freq + 1
         } else {
@@ -539,18 +523,16 @@ impl<'d, T: Instance> SetConfig for I2c<'d, T> {
     type Config = Hertz;
     fn set_config(&mut self, config: &Self::Config) {
         let timings = Timings::new(T::frequency(), *config);
-        unsafe {
-            T::regs().cr2().modify(|reg| {
-                reg.set_freq(timings.freq);
-            });
-            T::regs().ccr().modify(|reg| {
-                reg.set_f_s(timings.mode.f_s());
-                reg.set_duty(timings.duty.duty());
-                reg.set_ccr(timings.ccr);
-            });
-            T::regs().trise().modify(|reg| {
-                reg.set_trise(timings.trise);
-            });
-        }
+        T::regs().cr2().modify(|reg| {
+            reg.set_freq(timings.freq);
+        });
+        T::regs().ccr().modify(|reg| {
+            reg.set_f_s(timings.mode.f_s());
+            reg.set_duty(timings.duty.duty());
+            reg.set_ccr(timings.ccr);
+        });
+        T::regs().trise().modify(|reg| {
+            reg.set_trise(timings.trise);
+        });
     }
 }

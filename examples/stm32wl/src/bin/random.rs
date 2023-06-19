@@ -15,11 +15,9 @@ async fn main(_spawner: Spawner) {
     config.rcc.enable_lsi = true; //Needed for RNG to work
 
     let p = embassy_stm32::init(config);
-    unsafe {
-        pac::RCC.ccipr().modify(|w| {
-            w.set_rngsel(0b01);
-        });
-    }
+    pac::RCC.ccipr().modify(|w| {
+        w.set_rngsel(0b01);
+    });
 
     info!("Hello World!");
 

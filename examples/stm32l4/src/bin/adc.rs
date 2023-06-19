@@ -12,12 +12,10 @@ use {defmt_rtt as _, panic_probe as _};
 fn main() -> ! {
     info!("Hello World!");
 
-    unsafe {
-        pac::RCC.ccipr().modify(|w| {
-            w.set_adcsel(0b11);
-        });
-        pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
-    }
+    pac::RCC.ccipr().modify(|w| {
+        w.set_adcsel(0b11);
+    });
+    pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
 
     let p = embassy_stm32::init(Default::default());
 

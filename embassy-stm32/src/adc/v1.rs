@@ -57,18 +57,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         //
         // 6.3.20 Vbat monitoring characteristics
         // ts_vbat ≥ 4μs
-        unsafe {
-            T::regs().ccr().modify(|reg| reg.set_vbaten(true));
-        }
+        T::regs().ccr().modify(|reg| reg.set_vbaten(true));
         Vbat
     }
 
     pub fn enable_vref(&self, delay: &mut impl DelayUs<u32>) -> Vref {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
-        unsafe {
-            T::regs().ccr().modify(|reg| reg.set_vrefen(true));
-        }
+        T::regs().ccr().modify(|reg| reg.set_vrefen(true));
         delay.delay_us(10);
         Vref
     }
@@ -79,27 +75,23 @@ impl<'d, T: Instance> Adc<'d, T> {
         // 6.3.19 Temperature sensor characteristics
         // tstart ≤ 10μs
         // ts_temp ≥ 4μs
-        unsafe {
-            T::regs().ccr().modify(|reg| reg.set_tsen(true));
-        }
+        T::regs().ccr().modify(|reg| reg.set_tsen(true));
         delay.delay_us(10);
         Temperature
     }
 
     fn calibrate(&self) {
-        unsafe {
-            // A.7.1 ADC calibration code example
-            if T::regs().cr().read().aden() {
-                T::regs().cr().modify(|reg| reg.set_addis(true));
-            }
-            while T::regs().cr().read().aden() {
-                // spin
-            }
-            T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
-            T::regs().cr().modify(|reg| reg.set_adcal(true));
-            while T::regs().cr().read().adcal() {
-                // spin
-            }
+        // A.7.1 ADC calibration code example
+        if T::regs().cr().read().aden() {
+            T::regs().cr().modify(|reg| reg.set_addis(true));
+        }
+        while T::regs().cr().read().aden() {
+            // spin
+        }
+        T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
+        T::regs().cr().modify(|reg| reg.set_adcal(true));
+        while T::regs().cr().read().adcal() {
+            // spin
         }
     }
 
@@ -108,9 +100,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        unsafe {
-            T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
-        }
+        T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
     pub fn read<P>(&mut self, pin: &mut P) -> u16
@@ -118,18 +108,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         P: AdcPin<T> + crate::gpio::sealed::Pin,
     {
         let channel = pin.channel();
-        unsafe {
-            pin.set_as_analog();
-            self.read_channel(channel)
-        }
+        pin.set_as_analog();
+        self.read_channel(channel)
     }
 
     pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
         let channel = channel.channel();
-        unsafe { self.read_channel(channel) }
+        self.read_channel(channel)
     }
 
-    unsafe fn read_channel(&mut self, channel: u8) -> u16 {
+    fn read_channel(&mut self, channel: u8) -> u16 {
         // A.7.2 ADC enable sequence code example
         if T::regs().isr().read().adrdy() {
             T::regs().isr().modify(|reg| reg.set_adrdy(true));

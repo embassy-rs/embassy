@@ -154,29 +154,27 @@ pub(super) fn write_date_time(rtc: &Rtc, t: DateTime) {
     let yr_offset = (yr - 1970_u16) as u8;
     let (yt, yu) = byte_to_bcd2(yr_offset);
 
-    unsafe {
-        use crate::pac::rtc::vals::Ampm;
+    use crate::pac::rtc::vals::Ampm;
 
-        rtc.tr().write(|w| {
-            w.set_ht(ht);
-            w.set_hu(hu);
-            w.set_mnt(mnt);
-            w.set_mnu(mnu);
-            w.set_st(st);
-            w.set_su(su);
-            w.set_pm(Ampm::AM);
-        });
+    rtc.tr().write(|w| {
+        w.set_ht(ht);
+        w.set_hu(hu);
+        w.set_mnt(mnt);
+        w.set_mnu(mnu);
+        w.set_st(st);
+        w.set_su(su);
+        w.set_pm(Ampm::AM);
+    });
 
-        rtc.dr().write(|w| {
-            w.set_dt(dt);
-            w.set_du(du);
-            w.set_mt(mt > 0);
-            w.set_mu(mu);
-            w.set_yt(yt);
-            w.set_yu(yu);
-            w.set_wdu(day_of_week_to_u8(t.day_of_week));
-        });
-    }
+    rtc.dr().write(|w| {
+        w.set_dt(dt);
+        w.set_du(du);
+        w.set_mt(mt > 0);
+        w.set_mu(mu);
+        w.set_yt(yt);
+        w.set_yu(yu);
+        w.set_wdu(day_of_week_to_u8(t.day_of_week));
+    });
 }
 
 pub(super) fn datetime(

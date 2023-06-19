@@ -19,68 +19,64 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
         let state = T::buffered_state();
 
         // RX
-        unsafe {
-            let sr = sr(r).read();
-            // On v1 & v2, reading DR clears the rxne, error and idle interrupt
-            // flags. Keep this close to the SR read to reduce the chance of a
-            // flag being set in-between.
-            let dr = if sr.rxne() || cfg!(any(usart_v1, usart_v2)) && (sr.ore() || sr.idle()) {
-                Some(rdr(r).read_volatile())
+        let sr_val = sr(r).read();
+        // On v1 & v2, reading DR clears the rxne, error and idle interrupt
+        // flags. Keep this close to the SR read to reduce the chance of a
+        // flag being set in-between.
+        let dr = if sr_val.rxne() || cfg!(any(usart_v1, usart_v2)) && (sr_val.ore() || sr_val.idle()) {
+            Some(rdr(r).read_volatile())
+        } else {
+            None
+        };
+        clear_interrupt_flags(r, sr_val);
+
+        if sr_val.pe() {
+            warn!("Parity error");
+        }
+        if sr_val.fe() {
+            warn!("Framing error");
+        }
+        if sr_val.ne() {
+            warn!("Noise error");
+        }
+        if sr_val.ore() {
+            warn!("Overrun error");
+        }
+        if sr_val.rxne() {
+            let mut rx_writer = state.rx_buf.writer();
+            let buf = rx_writer.push_slice();
+            if !buf.is_empty() {
+                buf[0] = dr.unwrap();
+                rx_writer.push_done(1);
             } else {
-                None
-            };
-            clear_interrupt_flags(r, sr);
-
-            if sr.pe() {
-                warn!("Parity error");
-            }
-            if sr.fe() {
-                warn!("Framing error");
-            }
-            if sr.ne() {
-                warn!("Noise error");
-            }
-            if sr.ore() {
-                warn!("Overrun error");
-            }
-            if sr.rxne() {
-                let mut rx_writer = state.rx_buf.writer();
-                let buf = rx_writer.push_slice();
-                if !buf.is_empty() {
-                    buf[0] = dr.unwrap();
-                    rx_writer.push_done(1);
-                } else {
-                    // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
-                }
-
-                if state.rx_buf.is_full() {
-                    state.rx_waker.wake();
-                }
+                // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
             }
 
-            if sr.idle() {
+            if state.rx_buf.is_full() {
                 state.rx_waker.wake();
             }
         }
 
+        if sr_val.idle() {
+            state.rx_waker.wake();
+        }
+
         // TX
-        unsafe {
-            if sr(r).read().txe() {
-                let mut tx_reader = state.tx_buf.reader();
-                let buf = tx_reader.pop_slice();
-                if !buf.is_empty() {
-                    r.cr1().modify(|w| {
-                        w.set_txeie(true);
-                    });
-                    tdr(r).write_volatile(buf[0].into());
-                    tx_reader.pop_done(1);
-                    state.tx_waker.wake();
-                } else {
-                    // Disable interrupt until we have something to transmit again
-                    r.cr1().modify(|w| {
-                        w.set_txeie(false);
-                    });
-                }
+        if sr(r).read().txe() {
+            let mut tx_reader = state.tx_buf.reader();
+            let buf = tx_reader.pop_slice();
+            if !buf.is_empty() {
+                r.cr1().modify(|w| {
+                    w.set_txeie(true);
+                });
+                tdr(r).write_volatile(buf[0].into());
+                tx_reader.pop_done(1);
+                state.tx_waker.wake();
+            } else {
+                // Disable interrupt until we have something to transmit again
+                r.cr1().modify(|w| {
+                    w.set_txeie(false);
+                });
             }
         }
     }
@@ -150,14 +146,12 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         T::enable();
         T::reset();
 
-        unsafe {
-            rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
-            cts.set_as_af(cts.af_num(), AFType::Input);
-            T::regs().cr3().write(|w| {
-                w.set_rtse(true);
-                w.set_ctse(true);
-            });
-        }
+        rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
+        cts.set_as_af(cts.af_num(), AFType::Input);
+        T::regs().cr3().write(|w| {
+            w.set_rtse(true);
+            w.set_ctse(true);
+        });
 
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
@@ -178,12 +172,10 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         T::enable();
         T::reset();
 
-        unsafe {
-            de.set_as_af(de.af_num(), AFType::OutputPushPull);
-            T::regs().cr3().write(|w| {
-                w.set_dem(true);
-            });
-        }
+        de.set_as_af(de.af_num(), AFType::OutputPushPull);
+        T::regs().cr3().write(|w| {
+            w.set_dem(true);
+        });
 
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
@@ -205,22 +197,18 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
 
         let r = T::regs();
-        unsafe {
-            rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-        }
+        rx.set_as_af(rx.af_num(), AFType::Input);
+        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
         configure(r, &config, T::frequency(), T::KIND, true, true);
 
-        unsafe {
-            r.cr1().modify(|w| {
-                #[cfg(lpuart_v2)]
-                w.set_fifoen(true);
+        r.cr1().modify(|w| {
+            #[cfg(lpuart_v2)]
+            w.set_fifoen(true);
 
-                w.set_rxneie(true);
-                w.set_idleie(true);
-            });
-        }
+            w.set_rxneie(true);
+            w.set_idleie(true);
+        });
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };

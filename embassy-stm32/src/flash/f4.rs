@@ -192,7 +192,7 @@ impl FlashSector {
 
 #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479))]
 pub(crate) fn is_default_layout() -> bool {
-    unsafe { !pac::FLASH.optcr().read().db1m() }
+    !pac::FLASH.optcr().read().db1m()
 }
 
 #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f469, stm32f479)))]
@@ -336,7 +336,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     ret
 }
 
-pub(crate) unsafe fn clear_all_err() {
+pub(crate) fn clear_all_err() {
     pac::FLASH.sr().write(|w| {
         w.set_pgserr(true);
         w.set_pgperr(true);
@@ -345,7 +345,7 @@ pub(crate) unsafe fn clear_all_err() {
     });
 }
 
-pub(crate) async unsafe fn wait_ready() -> Result<(), Error> {
+pub(crate) async fn wait_ready() -> Result<(), Error> {
     use core::task::Poll;
 
     use futures::future::poll_fn;
@@ -391,10 +391,10 @@ fn save_data_cache_state() {
     let dual_bank = get_flash_regions().last().unwrap().bank == FlashBank::Bank2;
     if dual_bank {
         // Disable data cache during write/erase if there are two banks, see errata 2.2.12
-        let dcen = unsafe { pac::FLASH.acr().read().dcen() };
+        let dcen = pac::FLASH.acr().read().dcen();
         DATA_CACHE_WAS_ENABLED.store(dcen, Ordering::Relaxed);
         if dcen {
-            unsafe { pac::FLASH.acr().modify(|w| w.set_dcen(false)) };
+            pac::FLASH.acr().modify(|w| w.set_dcen(false));
         }
     }
 }
@@ -405,12 +405,10 @@ fn restore_data_cache_state() {
         // Restore data cache if it was enabled
         let dcen = DATA_CACHE_WAS_ENABLED.load(Ordering::Relaxed);
         if dcen {
-            unsafe {
-                // Reset data cache before we enable it again
-                pac::FLASH.acr().modify(|w| w.set_dcrst(true));
-                pac::FLASH.acr().modify(|w| w.set_dcrst(false));
-                pac::FLASH.acr().modify(|w| w.set_dcen(true))
-            };
+            // Reset data cache before we enable it again
+            pac::FLASH.acr().modify(|w| w.set_dcrst(true));
+            pac::FLASH.acr().modify(|w| w.set_dcrst(false));
+            pac::FLASH.acr().modify(|w| w.set_dcen(true))
         }
     }
 }
@@ -445,7 +443,7 @@ pub(crate) fn assert_not_corrupted_read(end_address: u32) {
         feature = "stm32f439vi",
         feature = "stm32f439zi",
     ))]
-    if second_bank_read && unsafe { pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() } {
+    if second_bank_read && pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() {
         panic!("Read corruption for stm32f42xxI and stm32f43xxI when PA12 is in use for chips below revision 3, see errata 2.2.11");
     }
 
@@ -479,11 +477,9 @@ fn pa12_is_output_pull_low() -> bool {
     use pac::gpio::vals;
     use pac::GPIOA;
     const PIN: usize = 12;
-    unsafe {
-        GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
-            && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULLDOWN
-            && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
-    }
+    GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
+        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULLDOWN
+        && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
 }
 
 #[cfg(test)]

@@ -153,19 +153,17 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
     ) -> Self {
         into_ref!(sd, ws, ck, mck);
 
-        unsafe {
-            sd.set_as_af(sd.af_num(), AFType::OutputPushPull);
-            sd.set_speed(crate::gpio::Speed::VeryHigh);
+        sd.set_as_af(sd.af_num(), AFType::OutputPushPull);
+        sd.set_speed(crate::gpio::Speed::VeryHigh);
 
-            ws.set_as_af(ws.af_num(), AFType::OutputPushPull);
-            ws.set_speed(crate::gpio::Speed::VeryHigh);
+        ws.set_as_af(ws.af_num(), AFType::OutputPushPull);
+        ws.set_speed(crate::gpio::Speed::VeryHigh);
 
-            ck.set_as_af(ck.af_num(), AFType::OutputPushPull);
-            ck.set_speed(crate::gpio::Speed::VeryHigh);
+        ck.set_as_af(ck.af_num(), AFType::OutputPushPull);
+        ck.set_speed(crate::gpio::Speed::VeryHigh);
 
-            mck.set_as_af(mck.af_num(), AFType::OutputPushPull);
-            mck.set_speed(crate::gpio::Speed::VeryHigh);
-        }
+        mck.set_as_af(mck.af_num(), AFType::OutputPushPull);
+        mck.set_speed(crate::gpio::Speed::VeryHigh);
 
         let spi = Spi::new_internal(peri, txdma, rxdma, freq, SpiConfig::default());
 
@@ -178,7 +176,7 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
 
         #[cfg(any(spi_v1, spi_f1))]
-        unsafe {
+        {
             use stm32_metapac::spi::vals::{I2scfg, Odd};
 
             // 1. Select the I2SDIV[7:0] bits in the SPI_I2SPR register to define the serial clock baud
@@ -232,10 +230,6 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
                 w.set_i2se(true)
             });
         }
-        #[cfg(spi_v2)]
-        unsafe {}
-        #[cfg(any(spi_v3, spi_v4))]
-        unsafe {}
 
         Self {
             _peri: spi,
@@ -264,12 +258,10 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
 
 impl<'d, T: Instance, Tx, Rx> Drop for I2S<'d, T, Tx, Rx> {
     fn drop(&mut self) {
-        unsafe {
-            self.sd.as_ref().map(|x| x.set_as_disconnected());
-            self.ws.as_ref().map(|x| x.set_as_disconnected());
-            self.ck.as_ref().map(|x| x.set_as_disconnected());
-            self.mck.as_ref().map(|x| x.set_as_disconnected());
-        }
+        self.sd.as_ref().map(|x| x.set_as_disconnected());
+        self.ws.as_ref().map(|x| x.set_as_disconnected());
+        self.ck.as_ref().map(|x| x.set_as_disconnected());
+        self.mck.as_ref().map(|x| x.set_as_disconnected());
     }
 }
 
