@@ -98,6 +98,14 @@ pub enum Value {
     Bit12(u16, Alignment),
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ValueArray<'a> {
+    Bit8(&'a [u8]),
+    Bit12Left(&'a [u16]),
+    Bit12Right(&'a [u16]),
+}
+
 pub struct Dac<'d, T: Instance, Tx> {
     channels: u8,
     txdma: PeripheralRef<'d, Tx>,
@@ -129,21 +137,19 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         T::enable();
         T::reset();
 
-        unsafe {
-            T::regs().mcr().modify(|reg| {
-                for ch in 0..channels {
-                    reg.set_mode(ch as usize, 0);
-                    reg.set_mode(ch as usize, 0);
-                }
-            });
+        T::regs().mcr().modify(|reg| {
+            for ch in 0..channels {
+                reg.set_mode(ch as usize, 0);
+                reg.set_mode(ch as usize, 0);
+            }
+        });
 
-            T::regs().cr().modify(|reg| {
-                for ch in 0..channels {
-                    reg.set_en(ch as usize, true);
-                    reg.set_ten(ch as usize, true);
-                }
-            });
-        }
+        T::regs().cr().modify(|reg| {
+            for ch in 0..channels {
+                reg.set_en(ch as usize, true);
+                reg.set_ten(ch as usize, true);
+            }
+        });
 
         Self {
             channels,
@@ -161,13 +167,12 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         }
     }
 
+    /// Set the enable register of the given channel
     fn set_channel_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_en(ch.index(), on);
-            })
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_en(ch.index(), on);
+        });
         Ok(())
     }
 
@@ -179,112 +184,149 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         self.set_channel_enable(ch, false)
     }
 
+    /// Performs all register accesses necessary to select a new trigger for CH1    
     pub fn select_trigger_ch1(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
         self.check_channel_exists(Channel::Ch1)?;
         unwrap!(self.disable_channel(Channel::Ch1));
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_tsel1(trigger.tsel());
-            })
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_tsel1(trigger.tsel());
+        });
         Ok(())
     }
 
+    /// Performs all register accesses necessary to select a new trigger for CH2    
     pub fn select_trigger_ch2(&mut self, trigger: Ch2Trigger) -> Result<(), Error> {
         self.check_channel_exists(Channel::Ch2)?;
         unwrap!(self.disable_channel(Channel::Ch2));
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_tsel2(trigger.tsel());
-            })
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_tsel2(trigger.tsel());
+        });
         Ok(())
     }
 
+    /// Perform a software trigger on a given channel
     pub fn trigger(&mut self, ch: Channel) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
-        unsafe {
-            T::regs().swtrigr().write(|reg| {
-                reg.set_swtrig(ch.index(), true);
-            });
-        }
+        T::regs().swtrigr().write(|reg| {
+            reg.set_swtrig(ch.index(), true);
+        });
         Ok(())
     }
 
+    /// Perform a software trigger on all channels
     pub fn trigger_all(&mut self) {
-        unsafe {
-            T::regs().swtrigr().write(|reg| {
-                reg.set_swtrig(Channel::Ch1.index(), true);
-                reg.set_swtrig(Channel::Ch2.index(), true);
-            })
-        }
+        T::regs().swtrigr().write(|reg| {
+            reg.set_swtrig(Channel::Ch1.index(), true);
+            reg.set_swtrig(Channel::Ch2.index(), true);
+        });
     }
 
     pub fn set(&mut self, ch: Channel, value: Value) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
         match value {
-            Value::Bit8(v) => unsafe {
-                T::regs().dhr8r(ch.index()).write(|reg| reg.set_dhr(v));
-            },
-            Value::Bit12(v, Alignment::Left) => unsafe {
-                T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v));
-            },
-            Value::Bit12(v, Alignment::Right) => unsafe {
-                T::regs().dhr12r(ch.index()).write(|reg| reg.set_dhr(v));
-            },
+            Value::Bit8(v) => T::regs().dhr8r(ch.index()).write(|reg| reg.set_dhr(v)),
+            Value::Bit12(v, Alignment::Left) => T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v)),
+            Value::Bit12(v, Alignment::Right) => T::regs().dhr12r(ch.index()).write(|reg| reg.set_dhr(v)),
         }
         Ok(())
     }
 
+    /// Write `data` to the DAC via DMA.
+    ///
+    /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
+    /// This will configure a circular DMA transfer that periodically outputs the `data`.
+    ///
+    /// ## Current limitations
+    /// - Only CH1 Supported
+    ///
     /// TODO: Allow an array of Value instead of only u16, right-aligned
-    pub async fn write(&mut self, data: &[u16], circular: bool) -> Result<(), Error>
+    pub async fn write_8bit(&mut self, data_ch1: &[u8], circular: bool) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        self.write_inner(ValueArray::Bit8(data_ch1), circular).await
+    }
+
+    pub async fn write_12bit_right_aligned(&mut self, data_ch1: &[u16], circular: bool) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        self.write_inner(ValueArray::Bit12Right(data_ch1), circular).await
+    }
+
+    pub async fn write_12bit_left_aligned(&mut self, data_ch1: &[u16], circular: bool) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        self.write_inner(ValueArray::Bit12Left(data_ch1), circular).await
+    }
+
+    async fn write_inner(&mut self, data_ch1: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: Dma<T>,
     {
         // TODO: Make this a parameter or get it from the struct or so...
         const CHANNEL: usize = 0;
 
-        //debug!("Starting DAC");
-        unsafe {
-            T::regs().cr().modify(|w| {
-                w.set_en(CHANNEL, true);
-                w.set_dmaen(CHANNEL, true);
-            });
-        }
+        // Enable DAC and DMA
+        T::regs().cr().modify(|w| {
+            w.set_en(CHANNEL, true);
+            w.set_dmaen(CHANNEL, true);
+        });
 
         let tx_request = self.txdma.request();
 
-        // Use the 12 bit right-aligned register for now. TODO: distinguish values
-        let tx_dst = T::regs().dhr12r(CHANNEL).ptr() as *mut u16;
-
-        let tx_f = unsafe {
-            Transfer::new_write(
-                &mut self.txdma,
-                tx_request,
-                data,
-                tx_dst,
-                TransferOptions {
-                    circular,
-                    halt_transfer_ir: false,
-                },
-            )
+        // Initiate the correct type of DMA transfer depending on what data is passed
+        let tx_f = match data_ch1 {
+            ValueArray::Bit8(buf) => unsafe {
+                Transfer::new_write(
+                    &mut self.txdma,
+                    tx_request,
+                    buf,
+                    T::regs().dhr8r(CHANNEL).as_ptr() as *mut u8,
+                    TransferOptions {
+                        circular,
+                        halt_transfer_ir: false,
+                    },
+                )
+            },
+            ValueArray::Bit12Left(buf) => unsafe {
+                Transfer::new_write(
+                    &mut self.txdma,
+                    tx_request,
+                    buf,
+                    T::regs().dhr12l(CHANNEL).as_ptr() as *mut u16,
+                    TransferOptions {
+                        circular,
+                        halt_transfer_ir: false,
+                    },
+                )
+            },
+            ValueArray::Bit12Right(buf) => unsafe {
+                Transfer::new_write(
+                    &mut self.txdma,
+                    tx_request,
+                    buf,
+                    T::regs().dhr12r(CHANNEL).as_ptr() as *mut u16,
+                    TransferOptions {
+                        circular,
+                        halt_transfer_ir: false,
+                    },
+                )
+            },
         };
-
-        //debug!("Awaiting tx_f");
 
         tx_f.await;
 
         // finish dma
-        unsafe {
-            // TODO: Do we need to check any status registers here?
+        // TODO: Do we need to check any status registers here?
+        T::regs().cr().modify(|w| {
+            // Disable the DAC peripheral
+            w.set_en(CHANNEL, false);
+            // Disable the DMA. TODO: Is this necessary?
+            w.set_dmaen(CHANNEL, false);
+        });
 
-            T::regs().cr().modify(|w| {
-                // Disable the dac peripheral
-                w.set_en(CHANNEL, false);
-                // Disable the DMA. TODO: Is this necessary?
-                w.set_dmaen(CHANNEL, false);
-            });
-        }
         Ok(())
     }
 }
