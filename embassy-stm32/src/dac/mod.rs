@@ -86,23 +86,23 @@ impl Ch2Trigger {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Alignment {
-    Left,
-    Right,
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Value {
+    // 8 bit value
     Bit8(u8),
-    Bit12(u16, Alignment),
+    // 12 bit value stored in a u16, left-aligned
+    Bit12Left(u16),
+    // 12 bit value stored in a u16, right-aligned
+    Bit12Right(u16),
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ValueArray<'a> {
+    // 8 bit values
     Bit8(&'a [u8]),
+    // 12 bit value stored in a u16, left-aligned
     Bit12Left(&'a [u16]),
+    // 12 bit values stored in a u16, right-aligned
     Bit12Right(&'a [u16]),
 }
 
@@ -225,8 +225,8 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         self.check_channel_exists(ch)?;
         match value {
             Value::Bit8(v) => T::regs().dhr8r(ch.index()).write(|reg| reg.set_dhr(v)),
-            Value::Bit12(v, Alignment::Left) => T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v)),
-            Value::Bit12(v, Alignment::Right) => T::regs().dhr12r(ch.index()).write(|reg| reg.set_dhr(v)),
+            Value::Bit12Left(v) => T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v)),
+            Value::Bit12Right(v) => T::regs().dhr12r(ch.index()).write(|reg| reg.set_dhr(v)),
         }
         Ok(())
     }
