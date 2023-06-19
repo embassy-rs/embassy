@@ -86,6 +86,7 @@ impl Ch2Trigger {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Single 8 or 12 bit value that can be output by the DAC
 pub enum Value {
     // 8 bit value
     Bit8(u8),
@@ -97,6 +98,7 @@ pub enum Value {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Array variant of [`Value`]
 pub enum ValueArray<'a> {
     // 8 bit values
     Bit8(&'a [u8]),
@@ -239,29 +241,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
     /// ## Current limitations
     /// - Only CH1 Supported
     ///
-    /// TODO: Allow an array of Value instead of only u16, right-aligned
-    pub async fn write_8bit(&mut self, data_ch1: &[u8], circular: bool) -> Result<(), Error>
-    where
-        Tx: Dma<T>,
-    {
-        self.write_inner(ValueArray::Bit8(data_ch1), circular).await
-    }
-
-    pub async fn write_12bit_right_aligned(&mut self, data_ch1: &[u16], circular: bool) -> Result<(), Error>
-    where
-        Tx: Dma<T>,
-    {
-        self.write_inner(ValueArray::Bit12Right(data_ch1), circular).await
-    }
-
-    pub async fn write_12bit_left_aligned(&mut self, data_ch1: &[u16], circular: bool) -> Result<(), Error>
-    where
-        Tx: Dma<T>,
-    {
-        self.write_inner(ValueArray::Bit12Left(data_ch1), circular).await
-    }
-
-    async fn write_inner(&mut self, data_ch1: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    pub async fn write(&mut self, data_ch1: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: Dma<T>,
     {
