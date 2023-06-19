@@ -69,24 +69,27 @@ async fn main(_spawner: Spawner) {
     const LEN: usize = 128;
     let mut tx_buf = [0; LEN];
     let mut rx_buf = [0; LEN];
-    for i in 0..LEN {
-        tx_buf[i] = i as u8;
-    }
 
     let (mut tx, mut rx) = usart.split();
 
-    let tx_fut = async {
-        tx.write(&tx_buf).await.unwrap();
-    };
-    let rx_fut = async {
-        rx.read(&mut rx_buf).await.unwrap();
-    };
+    for n in 0..42 {
+        for i in 0..LEN {
+            tx_buf[i] = (i ^ n) as u8;
+        }
 
-    // note: rx needs to be polled first, to workaround this bug:
-    // https://github.com/embassy-rs/embassy/issues/1426
-    join(rx_fut, tx_fut).await;
+        let tx_fut = async {
+            tx.write(&tx_buf).await.unwrap();
+        };
+        let rx_fut = async {
+            rx.read(&mut rx_buf).await.unwrap();
+        };
 
-    assert_eq!(tx_buf, rx_buf);
+        // note: rx needs to be polled first, to workaround this bug:
+        // https://github.com/embassy-rs/embassy/issues/1426
+        join(rx_fut, tx_fut).await;
+
+        assert_eq!(tx_buf, rx_buf);
+    }
 
     info!("Test OK");
     cortex_m::asm::bkpt();
