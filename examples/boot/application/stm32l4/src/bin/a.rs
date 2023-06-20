@@ -10,8 +10,12 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
+#[cfg(feature = "skip-include")]
+static APP_B: &[u8] = &[0, 1, 2, 3];
+#[cfg(not(feature = "skip-include"))]
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 #[embassy_executor::main]
@@ -29,15 +33,15 @@ async fn main(_spawner: Spawner) {
     let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
     let mut updater = FirmwareUpdater::new(config);
     button.wait_for_falling_edge().await;
+    let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut offset = 0;
     for chunk in APP_B.chunks(2048) {
         let mut buf: [u8; 2048] = [0; 2048];
         buf[..chunk.len()].copy_from_slice(chunk);
-        updater.write_firmware(offset, &buf).await.unwrap();
+        updater.write_firmware(magic.as_mut(), offset, &buf).await.unwrap();
         offset += chunk.len();
     }
-    let mut magic = AlignedBuffer([0; WRITE_SIZE]);
-    updater.mark_updated(&mut flash, magic.as_mut()).await.unwrap();
+    updater.mark_updated(magic.as_mut()).await.unwrap();
     led.set_low();
     cortex_m::peripheral::SCB::sys_reset();
 }
