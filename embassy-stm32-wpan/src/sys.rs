@@ -4,6 +4,7 @@ use core::ptr;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{CcEvt, EvtBox, EvtPacket};
+#[allow(unused_imports)]
 use crate::shci::{SchiCommandStatus, ShciBleInitCmdParam, ShciOpcode};
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;

@@ -8,14 +8,13 @@ use embassy_futures::poll_once;
 use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::channels;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
 use crate::tables::{
     Mac802_15_4Table, MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, TL_MAC_802_15_4_TABLE,
 };
-use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, EVT_QUEUE};
 
 static MAC_WAKER: AtomicWaker = AtomicWaker::new();
 static MAC_EVT_OUT: AtomicBool = AtomicBool::new(false);
@@ -27,8 +26,6 @@ pub struct Mac {
 impl Mac {
     pub(crate) fn new() -> Self {
         unsafe {
-            LinkedListNode::init_head(EVT_QUEUE.as_mut_ptr());
-
             TL_MAC_802_15_4_TABLE.as_mut_ptr().write_volatile(Mac802_15_4Table {
                 p_cmdrsp_buffer: MAC_802_15_4_CMD_BUFFER.as_mut_ptr().cast(),
                 p_notack_buffer: MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr().cast(),
@@ -42,7 +39,12 @@ impl Mac {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB
     pub(crate) unsafe fn drop_event_packet(_: *mut EvtPacket) {
         // Write the ack
-        CmdPacket::write_into(MAC_802_15_4_CMD_BUFFER.as_mut_ptr(), TlPacketType::OtAck, 0, &[]);
+        CmdPacket::write_into(
+            MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _,
+            TlPacketType::OtAck,
+            0,
+            &[],
+        );
 
         // Clear the rx flag
         let _ = poll_once(Ipcc::receive::<bool>(

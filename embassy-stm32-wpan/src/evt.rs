@@ -45,15 +45,15 @@ pub struct AsynchEvt {
     payload: [u8; 1],
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct Evt {
     pub evt_code: u8,
     pub payload_len: u8,
-    pub payload: [u8; 1],
+    pub payload: [u8; 255],
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct EvtSerial {
     pub kind: u8,
@@ -75,7 +75,7 @@ pub struct EvtStub {
 /// Be careful that the asynchronous events reported by the CPU2 on the system channel do
 /// include the header and shall use `EvtPacket` format. Only the command response format on the
 /// system channel is different.
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct EvtPacket {
     pub header: PacketHeader,
