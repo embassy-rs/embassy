@@ -245,7 +245,7 @@ impl Default for Config {
 }
 
 impl PllConfig {
-    pub(crate) unsafe fn init(self) -> u32 {
+    pub(crate) fn init(self) -> u32 {
         assert!(self.n >= 8 && self.n <= 86);
         let (src, input_freq) = match self.source {
             PllSrc::HSI16 => (vals::Pllsrc::HSI16, HSI_FREQ.0),

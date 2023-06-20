@@ -146,12 +146,9 @@ impl<'a> RDesRing<'a> {
         }
 
         // Register rx descriptor start
-        // NOTE (unsafe) Used for atomic writes
-        unsafe {
-            ETH.ethernet_dma()
-                .dmardlar()
-                .write(|w| w.0 = descriptors.as_ptr() as u32);
-        };
+        ETH.ethernet_dma()
+            .dmardlar()
+            .write(|w| w.0 = descriptors.as_ptr() as u32);
         // We already have fences in `set_owned`, which is called in `setup`
 
         Self {
@@ -162,12 +159,12 @@ impl<'a> RDesRing<'a> {
     }
 
     pub(crate) fn demand_poll(&self) {
-        unsafe { ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::POLL)) };
+        ETH.ethernet_dma().dmarpdr().write(|w| w.set_rpd(Rpd::POLL));
     }
 
     /// Get current `RunningState`
     fn running_state(&self) -> RunningState {
-        match unsafe { ETH.ethernet_dma().dmasr().read().rps() } {
+        match ETH.ethernet_dma().dmasr().read().rps() {
             //  Reset or Stop Receive Command issued
             Rps::STOPPED => RunningState::Stopped,
             //  Fetching receive transfer descriptor

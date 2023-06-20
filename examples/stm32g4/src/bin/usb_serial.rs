@@ -38,9 +38,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    unsafe {
-        pac::RCC.ccipr().write(|w| w.set_clk48sel(0b10));
-    }
+    pac::RCC.ccipr().write(|w| w.set_clk48sel(0b10));
 
     let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
 
