@@ -158,10 +158,11 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Queues the message to be sent but exerts backpressure
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
+            T::state().tx_waker.register(cx.waker());
             if let Ok(status) = self.can.transmit(frame) {
                 return Poll::Ready(status);
             }
-            T::state().tx_waker.register(cx.waker());
+
             Poll::Pending
         })
         .await
@@ -169,10 +170,11 @@ impl<'d, T: Instance> Can<'d, T> {
 
     pub async fn flush(&self, mb: bxcan::Mailbox) {
         poll_fn(|cx| {
+            T::state().tx_waker.register(cx.waker());
             if T::regs().tsr().read().tme(mb.index()) {
                 return Poll::Ready(());
             }
-            T::state().tx_waker.register(cx.waker());
+
             Poll::Pending
         })
         .await;
@@ -181,12 +183,13 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
         poll_fn(|cx| {
+            T::state().err_waker.register(cx.waker());
             if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
                 return Poll::Ready(Ok((time, frame)));
             } else if let Some(err) = self.curr_error() {
                 return Poll::Ready(Err(err));
             }
-            T::state().err_waker.register(cx.waker());
+
             Poll::Pending
         })
         .await
