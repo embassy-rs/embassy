@@ -7,7 +7,7 @@ autobins = false
 
 [features]
 stm32f103c8 = ["embassy-stm32/stm32f103c8", "not-gpdma"]     # Blue Pill
-stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "not-gpdma"]     # Nucleo "sdmmc"
+stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "can", "not-gpdma"]     # Nucleo "sdmmc"
 stm32g071rb = ["embassy-stm32/stm32g071rb", "not-gpdma"]     # Nucleo
 stm32c031c6 = ["embassy-stm32/stm32c031c6", "not-gpdma"]     # Nucleo
 stm32g491re = ["embassy-stm32/stm32g491re", "not-gpdma"]     # Nucleo
@@ -18,6 +18,7 @@ stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
 
 sdmmc = []
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
+can = []
 ble = ["dep:embassy-stm32-wpan"]
 not-gpdma = []
 
@@ -51,6 +52,11 @@ chrono = { version = "^0.4", default-features = false, optional = true}
 name = "tl_mbox"
 path = "src/bin/tl_mbox.rs"
 required-features = [ "ble",]
+
+[[bin]]
+name = "can"
+path = "src/bin/can.rs"
+required-features = [ "can",]
 
 [[bin]]
 name = "gpio"

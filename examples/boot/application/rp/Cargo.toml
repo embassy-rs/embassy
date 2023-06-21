@@ -29,6 +29,7 @@ debug = [
     "embassy-boot-rp/defmt",
     "panic-probe"
 ]
+skip-include = []
 
 [profile.release]
 debug = true

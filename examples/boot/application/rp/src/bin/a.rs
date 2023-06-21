@@ -18,7 +18,11 @@ use panic_probe as _;
 #[cfg(feature = "panic-reset")]
 use panic_reset as _;
 
+#[cfg(feature = "skip-include")]
+static APP_B: &[u8] = &[0, 1, 2, 3];
+#[cfg(not(feature = "skip-include"))]
 static APP_B: &[u8] = include_bytes!("../../b.bin");
+
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
 #[embassy_executor::main]
@@ -43,7 +47,7 @@ async fn main(_s: Spawner) {
     let mut buf: AlignedBuffer<4096> = AlignedBuffer([0; 4096]);
     defmt::info!("preparing update");
     let writer = updater
-        .prepare_update()
+        .prepare_update(&mut buf.0[..1])
         .map_err(|e| defmt::warn!("E: {:?}", defmt::Debug2Format(&e)))
         .unwrap();
     defmt::info!("writer created, starting write");

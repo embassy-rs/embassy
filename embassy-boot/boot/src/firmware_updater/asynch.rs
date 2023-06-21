@@ -56,6 +56,16 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
         }
     }
 
+    // Make sure we are running a booted firmware to avoid reverting to a bad state.
+    async fn verify_booted(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
+        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
+        if self.get_state(aligned).await? == State::Boot {
+            Ok(())
+        } else {
+            Err(FirmwareUpdaterError::BadState)
+        }
+    }
+
     /// Obtain the current state.
     ///
     /// This is useful to check if the bootloader has just done a swap, in order
@@ -97,6 +107,8 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     ) -> Result<(), FirmwareUpdaterError> {
         assert_eq!(_aligned.len(), STATE::WRITE_SIZE);
         assert!(_update_len <= self.dfu.capacity() as u32);
+
+        self.verify_booted(_aligned).await?;
 
         #[cfg(feature = "ed25519-dalek")]
         {
@@ -217,8 +229,16 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
-    pub async fn write_firmware(&mut self, offset: usize, data: &[u8]) -> Result<(), FirmwareUpdaterError> {
+    pub async fn write_firmware(
+        &mut self,
+        aligned: &mut [u8],
+        offset: usize,
+        data: &[u8],
+    ) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= DFU::ERASE_SIZE);
+        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
+
+        self.verify_booted(aligned).await?;
 
         self.dfu.erase(offset as u32, (offset + data.len()) as u32).await?;
 
@@ -232,7 +252,14 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     ///
     /// Using this instead of `write_firmware` allows for an optimized API in
     /// exchange for added complexity.
-    pub async fn prepare_update(&mut self) -> Result<&mut DFU, FirmwareUpdaterError> {
+    ///
+    /// # Safety
+    ///
+    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being written to.
+    pub async fn prepare_update(&mut self, aligned: &mut [u8]) -> Result<&mut DFU, FirmwareUpdaterError> {
+        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
+        self.verify_booted(aligned).await?;
+
         self.dfu.erase(0, self.dfu.capacity() as u32).await?;
 
         Ok(&mut self.dfu)
@@ -255,13 +282,14 @@ mod tests {
         let flash = Mutex::<NoopRawMutex, _>::new(MemFlash::<131072, 4096, 8>::default());
         let state = Partition::new(&flash, 0, 4096);
         let dfu = Partition::new(&flash, 65536, 65536);
+        let mut aligned = [0; 8];
 
         let update = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
         let mut to_write = [0; 4096];
         to_write[..7].copy_from_slice(update.as_slice());
 
         let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state });
-        block_on(updater.write_firmware(0, to_write.as_slice())).unwrap();
+        block_on(updater.write_firmware(&mut aligned, 0, to_write.as_slice())).unwrap();
         let mut chunk_buf = [0; 2];
         let mut hash = [0; 20];
         block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();

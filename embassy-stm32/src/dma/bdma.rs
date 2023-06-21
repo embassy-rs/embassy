@@ -338,6 +338,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
 
     pub fn blocking_wait(mut self) {
         while self.is_running() {}
+        self.request_stop();
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);

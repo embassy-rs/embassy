@@ -51,6 +51,8 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unused_imports)]
+
     use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
     #[cfg(feature = "nightly")]
     use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
@@ -120,8 +122,12 @@ mod tests {
             dfu: flash.dfu(),
             state: flash.state(),
         });
-        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.write_firmware(&mut aligned, 0, &UPDATE)).unwrap();
         block_on(updater.mark_updated(&mut aligned)).unwrap();
+
+        // Writing after marking updated is not allowed until marked as booted.
+        let res: Result<(), FirmwareUpdaterError> = block_on(updater.write_firmware(&mut aligned, 0, &UPDATE));
+        assert!(matches!(res, Err::<(), _>(FirmwareUpdaterError::BadState)));
 
         let flash = flash.into_blocking();
         let mut bootloader = BootLoader::new(BootLoaderConfig {
@@ -188,7 +194,7 @@ mod tests {
             dfu: flash.dfu(),
             state: flash.state(),
         });
-        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.write_firmware(&mut aligned, 0, &UPDATE)).unwrap();
         block_on(updater.mark_updated(&mut aligned)).unwrap();
 
         let flash = flash.into_blocking();
@@ -230,7 +236,7 @@ mod tests {
             dfu: flash.dfu(),
             state: flash.state(),
         });
-        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.write_firmware(&mut aligned, 0, &UPDATE)).unwrap();
         block_on(updater.mark_updated(&mut aligned)).unwrap();
 
         let flash = flash.into_blocking();
