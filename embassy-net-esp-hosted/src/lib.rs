@@ -11,6 +11,7 @@ use ioctl::Shared;
 use proto::CtrlMsg;
 
 use crate::ioctl::PendingIoctl;
+use crate::proto::CtrlMsgPayload;
 
 mod proto;
 
@@ -308,6 +309,16 @@ where
         };
 
         debug!("event: {:?}", &event);
+
+        let Some(payload) = &event.payload else {
+            warn!("event without payload?");
+            return
+        };
+
+        match payload {
+            CtrlMsgPayload::EventEspInit(_) => self.shared.init_done(),
+            _ => {}
+        }
     }
 }
 

@@ -23,6 +23,7 @@ pub struct Shared(RefCell<SharedInner>);
 
 struct SharedInner {
     ioctl: IoctlState,
+    is_init: bool,
     control_waker: WakerRegistration,
     runner_waker: WakerRegistration,
 }
@@ -31,6 +32,7 @@ impl Shared {
     pub fn new() -> Self {
         Self(RefCell::new(SharedInner {
             ioctl: IoctlState::Done { resp_len: 0 },
+            is_init: false,
             control_waker: WakerRegistration::new(),
             runner_waker: WakerRegistration::new(),
         }))
@@ -96,5 +98,26 @@ impl Shared {
         } else {
             warn!("IOCTL Response but no pending Ioctl");
         }
+    }
+
+    // // // // // // // // // // // // // // // // // // // //
+
+    pub fn init_done(&self) {
+        let mut this = self.0.borrow_mut();
+        this.is_init = true;
+        this.control_waker.wake();
+    }
+
+    pub async fn init_wait(&self) {
+        poll_fn(|cx| {
+            let mut this = self.0.borrow_mut();
+            if this.is_init {
+                Poll::Ready(())
+            } else {
+                this.control_waker.register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await
     }
 }

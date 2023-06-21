@@ -29,6 +29,9 @@ impl<'a> Control<'a> {
     }
 
     pub async fn init(&mut self) {
+        debug!("wait for init event...");
+        self.shared.init_wait().await;
+
         debug!("set wifi mode");
         self.set_wifi_mode(WifiMode::Sta as _).await;
         let mac_addr = self.get_mac_addr().await;

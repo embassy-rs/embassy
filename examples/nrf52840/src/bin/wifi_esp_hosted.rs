@@ -69,9 +69,6 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(wifi_task(runner)));
 
-    // TODO: wait for ESP_INIT event instead of hardcoding delay.
-    Timer::after(Duration::from_secs(3)).await;
-
     control.init().await;
     control.join(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
 
