@@ -94,7 +94,7 @@ impl IoctlState {
     }
 
     pub async fn do_ioctl(&self, buf: &mut [u8], req_len: usize) -> usize {
-        debug!("IOCTL Request: {:02x}", Bytes(&buf[..req_len]));
+        trace!("ioctl req bytes: {:02x}", Bytes(&buf[..req_len]));
 
         self.state.set(IoctlStateInner::Pending(PendingIoctl { buf, req_len }));
         self.wake_runner();
@@ -103,7 +103,7 @@ impl IoctlState {
 
     pub fn ioctl_done(&self, response: &[u8]) {
         if let IoctlStateInner::Sent { buf } = self.state.get() {
-            debug!("IOCTL Response: {:02x}", Bytes(response));
+            trace!("ioctl resp bytes: {:02x}", Bytes(response));
 
             // TODO fix this
             (unsafe { &mut *buf }[..response.len()]).copy_from_slice(response);

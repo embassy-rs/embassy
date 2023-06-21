@@ -8,6 +8,7 @@ use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
 use ioctl::IoctlState;
+use proto::CtrlMsg;
 
 use crate::ioctl::PendingIoctl;
 
@@ -194,8 +195,6 @@ where
                     tx_buf[0..12].copy_from_slice(&header.to_bytes());
                     header.checksum = checksum(&tx_buf[..26 + req_len]);
                     tx_buf[0..12].copy_from_slice(&header.to_bytes());
-
-                    debug!("====== SENDING IOCTL");
                 }
                 Either3::Second(packet) => {
                     tx_buf[12..][..packet.len()].copy_from_slice(packet);
@@ -270,24 +269,45 @@ where
             },
             // serial
             2 => {
-                debug!("serial rx: {:02x}", payload);
+                trace!("serial rx: {:02x}", payload);
                 if payload.len() < 14 {
                     warn!("serial rx: too short");
                     return;
                 }
-                if &payload[..12] != b"\x01\x08\x00ctrlResp\x02" {
-                    warn!("serial rx: bad tlv");
-                    return;
-                }
+
+                let isEvent = match &payload[..12] {
+                    b"\x01\x08\x00ctrlResp\x02" => false,
+                    b"\x01\x08\x00ctrlEvnt\x02" => true,
+                    _ => {
+                        warn!("serial rx: bad tlv");
+                        return;
+                    }
+                };
+
                 let len = u16::from_le_bytes(payload[12..14].try_into().unwrap()) as usize;
                 if payload.len() < 14 + len {
                     warn!("serial rx: too short 2");
                     return;
                 }
-                self.ioctl_state.ioctl_done(&payload[14..][..len]);
+                let data = &payload[14..][..len];
+
+                if isEvent {
+                    self.handle_event(data);
+                } else {
+                    self.ioctl_state.ioctl_done(data);
+                }
             }
             _ => warn!("unknown iftype {}", if_type_and_num),
         }
+    }
+
+    fn handle_event(&self, data: &[u8]) {
+        let Ok(event) = noproto::read::<CtrlMsg>(data) else {
+            warn!("failed to parse event");
+            return
+        };
+
+        debug!("event: {:?}", &event);
     }
 }
 

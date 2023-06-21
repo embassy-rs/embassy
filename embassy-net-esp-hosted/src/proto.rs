@@ -3,6 +3,7 @@ use heapless::{String, Vec};
 /// internal supporting structures for CtrlMsg
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScanResult {
     #[noproto(tag = "1")]
     pub ssid: String<32>,
@@ -17,6 +18,7 @@ pub struct ScanResult {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ConnectedStaList {
     #[noproto(tag = "1")]
     pub mac: String<32>,
@@ -26,12 +28,14 @@ pub struct ConnectedStaList {
 /// * Req/Resp structure *
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqGetMacAddress {
     #[noproto(tag = "1")]
     pub mode: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespGetMacAddress {
     #[noproto(tag = "1")]
     pub mac: String<32>,
@@ -40,9 +44,11 @@ pub struct CtrlMsgRespGetMacAddress {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqGetMode {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespGetMode {
     #[noproto(tag = "1")]
     pub mode: u32,
@@ -51,27 +57,32 @@ pub struct CtrlMsgRespGetMode {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqSetMode {
     #[noproto(tag = "1")]
     pub mode: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespSetMode {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqGetStatus {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespGetStatus {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqSetMacAddress {
     #[noproto(tag = "1")]
     pub mac: String<32>,
@@ -80,15 +91,18 @@ pub struct CtrlMsgReqSetMacAddress {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespSetMacAddress {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqGetApConfig {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespGetApConfig {
     #[noproto(tag = "1")]
     pub ssid: String<32>,
@@ -105,6 +119,7 @@ pub struct CtrlMsgRespGetApConfig {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqConnectAp {
     #[noproto(tag = "1")]
     pub ssid: String<32>,
@@ -119,6 +134,7 @@ pub struct CtrlMsgReqConnectAp {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespConnectAp {
     #[noproto(tag = "1")]
     pub resp: u32,
@@ -127,9 +143,11 @@ pub struct CtrlMsgRespConnectAp {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqGetSoftApConfig {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespGetSoftApConfig {
     #[noproto(tag = "1")]
     pub ssid: String<32>,
@@ -150,6 +168,7 @@ pub struct CtrlMsgRespGetSoftApConfig {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqStartSoftAp {
     #[noproto(tag = "1")]
     pub ssid: String<32>,
@@ -168,6 +187,7 @@ pub struct CtrlMsgReqStartSoftAp {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespStartSoftAp {
     #[noproto(tag = "1")]
     pub resp: u32,
@@ -176,9 +196,11 @@ pub struct CtrlMsgRespStartSoftAp {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqScanResult {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespScanResult {
     #[noproto(tag = "1")]
     pub count: u32,
@@ -189,9 +211,11 @@ pub struct CtrlMsgRespScanResult {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqSoftApConnectedSta {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespSoftApConnectedSta {
     #[noproto(tag = "1")]
     pub num: u32,
@@ -202,36 +226,43 @@ pub struct CtrlMsgRespSoftApConnectedSta {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqOtaBegin {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespOtaBegin {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqOtaWrite {
     #[noproto(tag = "1")]
     pub ota_data: Vec<u8, 1024>,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespOtaWrite {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqOtaEnd {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespOtaEnd {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqVendorIeData {
     #[noproto(tag = "1")]
     pub element_id: u32,
@@ -246,6 +277,7 @@ pub struct CtrlMsgReqVendorIeData {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqSetSoftApVendorSpecificIe {
     #[noproto(tag = "1")]
     pub enable: bool,
@@ -258,27 +290,32 @@ pub struct CtrlMsgReqSetSoftApVendorSpecificIe {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespSetSoftApVendorSpecificIe {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqSetWifiMaxTxPower {
     #[noproto(tag = "1")]
     pub wifi_max_tx_power: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespSetWifiMaxTxPower {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqGetWifiCurrTxPower {}
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespGetWifiCurrTxPower {
     #[noproto(tag = "1")]
     pub wifi_curr_tx_power: u32,
@@ -287,6 +324,7 @@ pub struct CtrlMsgRespGetWifiCurrTxPower {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgReqConfigHeartbeat {
     #[noproto(tag = "1")]
     pub enable: bool,
@@ -295,6 +333,7 @@ pub struct CtrlMsgReqConfigHeartbeat {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgRespConfigHeartbeat {
     #[noproto(tag = "1")]
     pub resp: u32,
@@ -302,24 +341,28 @@ pub struct CtrlMsgRespConfigHeartbeat {
 /// * Event structure *
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgEventEspInit {
     #[noproto(tag = "1")]
     pub init_data: Vec<u8, 64>,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgEventHeartbeat {
     #[noproto(tag = "1")]
     pub hb_num: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgEventStationDisconnectFromAp {
     #[noproto(tag = "1")]
     pub resp: u32,
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsgEventStationDisconnectFromEspSoftAp {
     #[noproto(tag = "1")]
     pub resp: u32,
@@ -328,6 +371,7 @@ pub struct CtrlMsgEventStationDisconnectFromEspSoftAp {
 }
 
 #[derive(Debug, Default, Clone, Eq, PartialEq, noproto::Message)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsg {
     /// msg_type could be req, resp or Event
     #[noproto(tag = "1")]
@@ -345,6 +389,7 @@ pub struct CtrlMsg {
 
 /// union of all msg ids
 #[derive(Debug, Clone, Eq, PartialEq, noproto::Oneof)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlMsgPayload {
     /// * Requests *
     #[noproto(tag = "101")]
@@ -446,6 +491,7 @@ pub enum CtrlMsgPayload {
 /// Enums similar to ESP IDF
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlVendorIeType {
     #[default]
     Beacon = 0,
@@ -457,6 +503,7 @@ pub enum CtrlVendorIeType {
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlVendorIeid {
     #[default]
     Id0 = 0,
@@ -465,6 +512,7 @@ pub enum CtrlVendorIeid {
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlWifiMode {
     #[default]
     None = 0,
@@ -475,6 +523,7 @@ pub enum CtrlWifiMode {
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlWifiBw {
     #[default]
     BwInvalid = 0,
@@ -484,6 +533,7 @@ pub enum CtrlWifiBw {
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlWifiPowerSave {
     #[default]
     PsInvalid = 0,
@@ -493,6 +543,7 @@ pub enum CtrlWifiPowerSave {
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlWifiSecProt {
     #[default]
     Open = 0,
@@ -508,6 +559,7 @@ pub enum CtrlWifiSecProt {
 /// enums for Control path
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlStatus {
     #[default]
     Connected = 0,
@@ -520,6 +572,7 @@ pub enum CtrlStatus {
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlMsgType {
     #[default]
     MsgTypeInvalid = 0,
@@ -531,6 +584,7 @@ pub enum CtrlMsgType {
 
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq, Hash, PartialOrd, Ord, noproto::Enumeration)]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CtrlMsgId {
     #[default]
     MsgIdInvalid = 0,

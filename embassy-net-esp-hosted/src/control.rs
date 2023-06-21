@@ -112,6 +112,8 @@ impl<'a> Control<'a> {
     }
 
     async fn ioctl(&mut self, req: CtrlMsg) -> CtrlMsg {
+        debug!("ioctl req: {:?}", &req);
+
         let mut buf = [0u8; 128];
 
         let req_len = noproto::write(&req, &mut buf).unwrap();
@@ -136,6 +138,9 @@ impl<'a> Control<'a> {
 
         ioctl.defuse();
 
-        noproto::read(&buf[..resp_len]).unwrap()
+        let res = noproto::read(&buf[..resp_len]).unwrap();
+        debug!("ioctl resp: {:?}", &res);
+
+        res
     }
 }
