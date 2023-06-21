@@ -13,105 +13,86 @@ pub struct PendingIoctl {
 }
 
 #[derive(Clone, Copy)]
-enum IoctlStateInner {
+enum IoctlState {
     Pending(PendingIoctl),
     Sent { buf: *mut [u8] },
     Done { resp_len: usize },
 }
 
-struct Wakers {
-    control: WakerRegistration,
-    runner: WakerRegistration,
+pub struct Shared(RefCell<SharedInner>);
+
+struct SharedInner {
+    ioctl: IoctlState,
+    control_waker: WakerRegistration,
+    runner_waker: WakerRegistration,
 }
 
-impl Default for Wakers {
-    fn default() -> Self {
-        Self {
-            control: WakerRegistration::new(),
-            runner: WakerRegistration::new(),
-        }
-    }
-}
-
-pub struct IoctlState {
-    state: Cell<IoctlStateInner>,
-    wakers: RefCell<Wakers>,
-}
-
-impl IoctlState {
+impl Shared {
     pub fn new() -> Self {
-        Self {
-            state: Cell::new(IoctlStateInner::Done { resp_len: 0 }),
-            wakers: Default::default(),
-        }
+        Self(RefCell::new(SharedInner {
+            ioctl: IoctlState::Done { resp_len: 0 },
+            control_waker: WakerRegistration::new(),
+            runner_waker: WakerRegistration::new(),
+        }))
     }
 
-    fn wake_control(&self) {
-        self.wakers.borrow_mut().control.wake();
-    }
-
-    fn register_control(&self, waker: &Waker) {
-        self.wakers.borrow_mut().control.register(waker);
-    }
-
-    fn wake_runner(&self) {
-        self.wakers.borrow_mut().runner.wake();
-    }
-
-    fn register_runner(&self, waker: &Waker) {
-        self.wakers.borrow_mut().runner.register(waker);
-    }
-
-    pub async fn wait_complete(&self) -> usize {
+    pub async fn ioctl_wait_complete(&self) -> usize {
         poll_fn(|cx| {
-            if let IoctlStateInner::Done { resp_len } = self.state.get() {
+            let mut this = self.0.borrow_mut();
+            if let IoctlState::Done { resp_len } = this.ioctl {
                 Poll::Ready(resp_len)
             } else {
-                self.register_control(cx.waker());
+                this.control_waker.register(cx.waker());
                 Poll::Pending
             }
         })
         .await
     }
 
-    pub async fn wait_pending(&self) -> PendingIoctl {
+    pub async fn ioctl_wait_pending(&self) -> PendingIoctl {
         let pending = poll_fn(|cx| {
-            if let IoctlStateInner::Pending(pending) = self.state.get() {
+            let mut this = self.0.borrow_mut();
+            if let IoctlState::Pending(pending) = this.ioctl {
                 Poll::Ready(pending)
             } else {
-                self.register_runner(cx.waker());
+                this.runner_waker.register(cx.waker());
                 Poll::Pending
             }
         })
         .await;
 
-        self.state.set(IoctlStateInner::Sent { buf: pending.buf });
+        self.0.borrow_mut().ioctl = IoctlState::Sent { buf: pending.buf };
         pending
     }
 
-    pub fn cancel_ioctl(&self) {
-        self.state.set(IoctlStateInner::Done { resp_len: 0 });
+    pub fn ioctl_cancel(&self) {
+        self.0.borrow_mut().ioctl = IoctlState::Done { resp_len: 0 };
     }
 
-    pub async fn do_ioctl(&self, buf: &mut [u8], req_len: usize) -> usize {
+    pub async fn ioctl(&self, buf: &mut [u8], req_len: usize) -> usize {
         trace!("ioctl req bytes: {:02x}", Bytes(&buf[..req_len]));
 
-        self.state.set(IoctlStateInner::Pending(PendingIoctl { buf, req_len }));
-        self.wake_runner();
-        self.wait_complete().await
+        {
+            let mut this = self.0.borrow_mut();
+            this.ioctl = IoctlState::Pending(PendingIoctl { buf, req_len });
+            this.runner_waker.wake();
+        }
+
+        self.ioctl_wait_complete().await
     }
 
     pub fn ioctl_done(&self, response: &[u8]) {
-        if let IoctlStateInner::Sent { buf } = self.state.get() {
+        let mut this = self.0.borrow_mut();
+        if let IoctlState::Sent { buf } = this.ioctl {
             trace!("ioctl resp bytes: {:02x}", Bytes(response));
 
             // TODO fix this
             (unsafe { &mut *buf }[..response.len()]).copy_from_slice(response);
 
-            self.state.set(IoctlStateInner::Done {
+            this.ioctl = IoctlState::Done {
                 resp_len: response.len(),
-            });
-            self.wake_control();
+            };
+            this.control_waker.wake();
         } else {
             warn!("IOCTL Response but no pending Ioctl");
         }

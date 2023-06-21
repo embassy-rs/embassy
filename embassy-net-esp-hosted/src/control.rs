@@ -3,7 +3,7 @@ use defmt::Debug2Format;
 use embassy_net_driver_channel as ch;
 use heapless::String;
 
-use crate::ioctl::IoctlState;
+use crate::ioctl::Shared;
 use crate::proto::{self, CtrlMsg};
 
 #[derive(Debug)]
@@ -13,7 +13,7 @@ pub struct Error {
 
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
-    ioctl_state: &'a IoctlState,
+    shared: &'a Shared,
 }
 
 enum WifiMode {
@@ -24,8 +24,8 @@ enum WifiMode {
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, ioctl_state: &'a IoctlState) -> Self {
-        Self { state_ch, ioctl_state }
+    pub(crate) fn new(state_ch: ch::StateRunner<'a>, shared: &'a Shared) -> Self {
+        Self { state_ch, shared }
     }
 
     pub async fn init(&mut self) {
@@ -118,7 +118,7 @@ impl<'a> Control<'a> {
 
         let req_len = noproto::write(&req, &mut buf).unwrap();
 
-        struct CancelOnDrop<'a>(&'a IoctlState);
+        struct CancelOnDrop<'a>(&'a Shared);
 
         impl CancelOnDrop<'_> {
             fn defuse(self) {
@@ -128,13 +128,13 @@ impl<'a> Control<'a> {
 
         impl Drop for CancelOnDrop<'_> {
             fn drop(&mut self) {
-                self.0.cancel_ioctl();
+                self.0.ioctl_cancel();
             }
         }
 
-        let ioctl = CancelOnDrop(self.ioctl_state);
+        let ioctl = CancelOnDrop(self.shared);
 
-        let resp_len = ioctl.0.do_ioctl(&mut buf, req_len).await;
+        let resp_len = ioctl.0.ioctl(&mut buf, req_len).await;
 
         ioctl.defuse();
 

@@ -7,7 +7,7 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
-use ioctl::IoctlState;
+use ioctl::Shared;
 use proto::CtrlMsg;
 
 use crate::ioctl::PendingIoctl;
@@ -95,14 +95,14 @@ enum InterfaceType {
 const MAX_SPI_BUFFER_SIZE: usize = 1600;
 
 pub struct State {
-    ioctl_state: IoctlState,
+    shared: Shared,
     ch: ch::State<MTU, 4, 4>,
 }
 
 impl State {
     pub fn new() -> Self {
         Self {
-            ioctl_state: IoctlState::new(),
+            shared: Shared::new(),
             ch: ch::State::new(),
         }
     }
@@ -127,7 +127,7 @@ where
 
     let mut runner = Runner {
         ch: ch_runner,
-        ioctl_state: &state.ioctl_state,
+        shared: &state.shared,
         next_seq: 1,
         handshake,
         ready,
@@ -136,12 +136,12 @@ where
     };
     runner.init().await;
 
-    (device, Control::new(state_ch, &state.ioctl_state), runner)
+    (device, Control::new(state_ch, &state.shared), runner)
 }
 
 pub struct Runner<'a, SPI, IN, OUT> {
     ch: ch::Runner<'a, MTU>,
-    ioctl_state: &'a IoctlState,
+    shared: &'a Shared,
 
     next_seq: u16,
 
@@ -172,7 +172,7 @@ where
         loop {
             self.handshake.wait_for_high().await.unwrap();
 
-            let ioctl = self.ioctl_state.wait_pending();
+            let ioctl = self.shared.ioctl_wait_pending();
             let tx = self.ch.tx_buf();
             let ev = async { self.ready.wait_for_high().await.unwrap() };
 
@@ -294,7 +294,7 @@ where
                 if isEvent {
                     self.handle_event(data);
                 } else {
-                    self.ioctl_state.ioctl_done(data);
+                    self.shared.ioctl_done(data);
                 }
             }
             _ => warn!("unknown iftype {}", if_type_and_num),
