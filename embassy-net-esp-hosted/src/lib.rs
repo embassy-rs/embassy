@@ -83,6 +83,7 @@ struct PayloadHeader {
 }
 impl_bytes!(PayloadHeader);
 
+#[allow(unused)]
 #[repr(u8)]
 enum InterfaceType {
     Sta = 0,
@@ -276,7 +277,7 @@ where
                     return;
                 }
 
-                let isEvent = match &payload[..12] {
+                let is_event = match &payload[..12] {
                     b"\x01\x08\x00ctrlResp\x02" => false,
                     b"\x01\x08\x00ctrlEvnt\x02" => true,
                     _ => {
@@ -292,7 +293,7 @@ where
                 }
                 let data = &payload[14..][..len];
 
-                if isEvent {
+                if is_event {
                     self.handle_event(data);
                 } else {
                     self.shared.ioctl_done(data);

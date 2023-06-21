@@ -1,6 +1,6 @@
-use core::cell::{Cell, RefCell};
+use core::cell::RefCell;
 use core::future::poll_fn;
-use core::task::{Poll, Waker};
+use core::task::Poll;
 
 use embassy_sync::waitqueue::WakerRegistration;
 

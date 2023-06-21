@@ -16,6 +16,7 @@ pub struct Control<'a> {
     shared: &'a Shared,
 }
 
+#[allow(unused)]
 enum WifiMode {
     None = 0,
     Sta = 1,
@@ -34,6 +35,7 @@ impl<'a> Control<'a> {
 
         debug!("set wifi mode");
         self.set_wifi_mode(WifiMode::Sta as _).await;
+
         let mac_addr = self.get_mac_addr().await;
         debug!("mac addr: {:02x}", mac_addr);
         self.state_ch.set_ethernet_address(mac_addr);
@@ -89,18 +91,6 @@ impl<'a> Control<'a> {
             *b = (nibble_from_hex(mac[i * 3]) << 4) | nibble_from_hex(mac[i * 3 + 1])
         }
         res
-    }
-
-    async fn get_wifi_mode(&mut self) -> u32 {
-        let req = proto::CtrlMsg {
-            msg_id: proto::CtrlMsgId::ReqGetWifiMode as _,
-            msg_type: proto::CtrlMsgType::Req as _,
-            payload: Some(proto::CtrlMsgPayload::ReqGetWifiMode(proto::CtrlMsgReqGetMode {})),
-        };
-        let resp = self.ioctl(req).await;
-        let proto::CtrlMsgPayload::RespGetWifiMode(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
-        assert_eq!(resp.resp, 0);
-        resp.mode
     }
 
     async fn set_wifi_mode(&mut self, mode: u32) {

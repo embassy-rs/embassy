@@ -10,7 +10,6 @@ use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
-use embassy_time::{Duration, Timer};
 use embedded_hal_async::spi::ExclusiveDevice;
 use embedded_io::asynch::Write;
 use static_cell::make_static;
