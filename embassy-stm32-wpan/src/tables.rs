@@ -164,6 +164,9 @@ pub struct Mac802_15_4Table {
     pub evt_queue: *const u8,
 }
 
+#[repr(C, align(4))]
+pub struct AlignedData<const L: usize>([u8; L]);
+
 /// Reference table. Contains pointers to all other tables.
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
@@ -219,9 +222,10 @@ pub static mut FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit
 #[link_section = "MB_MEM1"]
 pub static mut TRACES_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
+const CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
+
 #[link_section = "MB_MEM2"]
-pub static mut CS_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]> =
-    MaybeUninit::uninit();
+pub static mut CS_BUFFER: MaybeUninit<AlignedData<CS_BUFFER_SIZE>> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
 pub static mut EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
@@ -235,8 +239,11 @@ pub static mut SYSTEM_EVT_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::unin
 pub static mut MAC_802_15_4_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
 #[cfg(feature = "mac")]
+const MAC_802_15_4_NOTIF_RSP_EVT_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255;
+
+#[cfg(feature = "mac")]
 #[link_section = "MB_MEM2"]
-pub static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
+pub static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<AlignedData<MAC_802_15_4_NOTIF_RSP_EVT_BUFFER_SIZE>> =
     MaybeUninit::uninit();
 
 #[link_section = "MB_MEM2"]
@@ -245,17 +252,21 @@ pub static mut EVT_POOL: MaybeUninit<[u8; POOL_SIZE]> = MaybeUninit::uninit();
 #[link_section = "MB_MEM2"]
 pub static mut SYS_CMD_BUF: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
+const SYS_SPARE_EVT_BUF_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255;
+
 #[link_section = "MB_MEM2"]
-pub static mut SYS_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
-    MaybeUninit::uninit();
+pub static mut SYS_SPARE_EVT_BUF: MaybeUninit<AlignedData<SYS_SPARE_EVT_BUF_SIZE>> = MaybeUninit::uninit();
 
 #[link_section = "MB_MEM1"]
 pub static mut BLE_CMD_BUFFER: MaybeUninit<CmdPacket> = MaybeUninit::uninit();
 
+const BLE_SPARE_EVT_BUF_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255;
+
 #[link_section = "MB_MEM2"]
-pub static mut BLE_SPARE_EVT_BUF: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]> =
-    MaybeUninit::uninit();
+pub static mut BLE_SPARE_EVT_BUF: MaybeUninit<AlignedData<BLE_SPARE_EVT_BUF_SIZE>> = MaybeUninit::uninit();
+
+const HCI_ACL_DATA_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + 5 + 251;
 
 #[link_section = "MB_MEM2"]
 //                                 fuck these "magic" numbers from ST ---v---v
-pub static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]> = MaybeUninit::uninit();
+pub static mut HCI_ACL_DATA_BUFFER: MaybeUninit<[u8; HCI_ACL_DATA_BUFFER_SIZE]> = MaybeUninit::uninit();
