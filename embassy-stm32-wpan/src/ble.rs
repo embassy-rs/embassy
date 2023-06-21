@@ -2,12 +2,12 @@ use core::marker::PhantomData;
 
 use embassy_stm32::ipcc::Ipcc;
 
+use crate::channels;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::EvtBox;
-use crate::tables::BleTable;
+use crate::tables::{BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE};
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE};
 
 pub struct Ble {
     phantom: PhantomData<Ble>,

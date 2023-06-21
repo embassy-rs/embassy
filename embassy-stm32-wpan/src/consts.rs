@@ -1,5 +1,8 @@
 use core::convert::TryFrom;
 
+use crate::evt::CsEvt;
+use crate::PacketHeader;
+
 #[derive(Debug)]
 #[repr(C)]
 pub enum TlPacketType {
@@ -53,3 +56,34 @@ impl TryFrom<u8> for TlPacketType {
         }
     }
 }
+
+pub const TL_PACKET_HEADER_SIZE: usize = core::mem::size_of::<PacketHeader>();
+pub const TL_EVT_HEADER_SIZE: usize = 3;
+pub const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CsEvt>();
+
+/**
+ * Queue length of BLE Event
+ * This parameter defines the number of asynchronous events that can be stored in the HCI layer before
+ * being reported to the application. When a command is sent to the BLE core coprocessor, the HCI layer
+ * is waiting for the event with the Num_HCI_Command_Packets set to 1. The receive queue shall be large
+ * enough to store all asynchronous events received in between.
+ * When CFG_TLBLE_MOST_EVENT_PAYLOAD_SIZE is set to 27, this allow to store three 255 bytes long asynchronous events
+ * between the HCI command and its event.
+ * This parameter depends on the value given to CFG_TLBLE_MOST_EVENT_PAYLOAD_SIZE. When the queue size is to small,
+ * the system may hang if the queue is full with asynchronous events and the HCI layer is still waiting
+ * for a CC/CS event, In that case, the notification TL_BLE_HCI_ToNot() is called to indicate
+ * to the application a HCI command did not receive its command event within 30s (Default HCI Timeout).
+ */
+pub const CFG_TL_BLE_EVT_QUEUE_LENGTH: usize = 5;
+pub const CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE: usize = 255;
+pub const TL_BLE_EVENT_FRAME_SIZE: usize = TL_EVT_HEADER_SIZE + CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE;
+
+pub const POOL_SIZE: usize = CFG_TL_BLE_EVT_QUEUE_LENGTH * 4 * divc(TL_PACKET_HEADER_SIZE + TL_BLE_EVENT_FRAME_SIZE, 4);
+
+pub const fn divc(x: usize, y: usize) -> usize {
+    (x + y - 1) / y
+}
+
+pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
+#[allow(dead_code)]
+pub const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;

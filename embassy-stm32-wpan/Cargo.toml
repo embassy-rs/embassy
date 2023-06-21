@@ -27,6 +27,9 @@ bit_field = "0.10.2"
 [features]
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt"]
 
+ble = []
+mac = []
+
 stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]
 stm32wb15cc = [ "embassy-stm32/stm32wb15cc" ]
 stm32wb30ce = [ "embassy-stm32/stm32wb30ce" ]
