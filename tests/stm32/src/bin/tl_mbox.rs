@@ -63,10 +63,10 @@ async fn main(spawner: Spawner) {
     info!("subsystem initialization: {}", result);
 
     info!("starting ble...");
-    mbox.ble_subsystem.write(0x0c, &[]).await;
+    mbox.ble_subsystem.tl_write(0x0c, &[]).await;
 
     info!("waiting for ble...");
-    let ble_event = mbox.ble_subsystem.read().await;
+    let ble_event = mbox.ble_subsystem.tl_read().await;
 
     info!("ble event {:x} : {:x}", ble_event.stub().kind, ble_event.payload());
 

@@ -52,10 +52,10 @@ async fn main(_spawner: Spawner) {
     mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
 
     info!("starting ble...");
-    mbox.ble_subsystem.write(0x0c, &[]).await;
+    mbox.ble_subsystem.tl_write(0x0c, &[]).await;
 
     info!("waiting for ble...");
-    let ble_event = mbox.ble_subsystem.read().await;
+    let ble_event = mbox.ble_subsystem.tl_read().await;
 
     info!("ble event: {}", ble_event.payload());
 
