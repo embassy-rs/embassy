@@ -2,7 +2,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
-
+use core::cell::RefCell;
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
 use embassy_hal_common::{into_ref, PeripheralRef};
@@ -72,7 +72,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
 }
 
 pub struct Can<'d, T: Instance> {
-    can: bxcan::Can<BxcanInstance<'d, T>>,
+    pub can: RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
 }
 
 #[derive(Debug)]
@@ -147,19 +147,20 @@ impl<'d, T: Instance> Can<'d, T> {
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
         let can = bxcan::Can::builder(BxcanInstance(peri)).leave_disabled();
-        Self { can }
+        let can_ref_cell = RefCell::new(can);
+        Self { can: can_ref_cell }
     }
 
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = Self::calc_bxcan_timings(T::frequency(), bitrate).unwrap();
-        self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
+        self.can.borrow_mut().modify_config().set_bit_timing(bit_timing).leave_disabled();
     }
 
     /// Queues the message to be sent but exerts backpressure
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
-            if let Ok(status) = self.can.transmit(frame) {
+            if let Ok(status) = self.can.borrow_mut().transmit(frame) {
                 return Poll::Ready(status);
             }
 
@@ -341,6 +342,74 @@ impl<'d, T: Instance> Can<'d, T> {
         // Pack into BTR register values
         Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler as u32 - 1))
     }
+
+    pub fn split<'c>(&'c self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
+        (CanTx { can: &self.can }, CanRx { can: &self.can })
+    }
+}
+
+pub struct CanTx<'c, 'd, T: Instance> {
+    can: &'c RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
+}
+
+impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
+    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+        poll_fn(|cx| {
+            T::state().tx_waker.register(cx.waker());
+            if let Ok(status) = self.can.borrow_mut().transmit(frame) {
+                return Poll::Ready(status);
+            }
+
+            Poll::Pending
+        })
+        .await
+    }
+
+    pub async fn flush(&self, mb: bxcan::Mailbox) {
+        poll_fn(|cx| {
+            T::state().tx_waker.register(cx.waker());
+            if T::regs().tsr().read().tme(mb.index()) {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+    }
+}
+
+pub struct CanRx<'c, 'd, T: Instance> {
+    can: &'c RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
+}
+
+impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
+    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
+        poll_fn(|cx| {
+            T::state().err_waker.register(cx.waker());
+            if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
+                return Poll::Ready(Ok((time, frame)));
+            } else if let Some(err) = self.curr_error() {
+                return Poll::Ready(Err(err));
+            }
+
+            Poll::Pending
+        })
+        .await
+    }
+
+    fn curr_error(&self) -> Option<BusError> {
+        let err = { T::regs().esr().read() };
+        if err.boff() {
+            return Some(BusError::BusOff);
+        } else if err.epvf() {
+            return Some(BusError::BusPassive);
+        } else if err.ewgf() {
+            return Some(BusError::BusWarning);
+        } else if let Some(err) = err.lec().into_bus_err() {
+            return Some(err);
+        }
+        None
+    }
 }
 
 enum RxFifo {
@@ -357,19 +426,19 @@ impl<'d, T: Instance> Drop for Can<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Deref for Can<'d, T> {
-    type Target = bxcan::Can<BxcanInstance<'d, T>>;
+// impl<'d, T: Instance> Deref for Can<'d, T> {
+//     type Target = bxcan::Can<BxcanInstance<'d, T>>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.can
-    }
-}
+//     fn deref(&self) -> &Self::Target {
+//         self.can.borrow()
+//     }
+// }
 
-impl<'d, T: Instance> DerefMut for Can<'d, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.can
-    }
-}
+// impl<'d, T: Instance> DerefMut for Can<'d, T> {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         self.can.borrow_mut()
+//     }
+// }
 
 pub(crate) mod sealed {
     use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
