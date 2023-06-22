@@ -106,14 +106,6 @@ impl EvtBox {
         Self { ptr }
     }
 
-    pub fn evt<'a>(&self) -> &'a [u8] {
-        unsafe {
-            let evt_packet = &(*self.ptr);
-
-            core::slice::from_raw_parts(evt_packet as *const _ as *const u8, core::mem::size_of::<EvtPacket>())
-        }
-    }
-
     /// Returns information about the event
     pub fn stub(&self) -> EvtStub {
         unsafe {
@@ -137,7 +129,7 @@ impl EvtBox {
     /// writes an underlying [`EvtPacket`] into the provided buffer.
     /// Returns the number of bytes that were written.
     /// Returns an error if event kind is unknown or if provided buffer size is not enough.
-    pub fn serial<'a>(&self) -> &'a [u8] {
+    pub fn serial<'a>(&'a self) -> &'a [u8] {
         unsafe {
             let evt_serial: *const EvtSerial = &(*self.ptr).evt_serial;
             let evt_serial_buf: *const u8 = evt_serial.cast();

@@ -70,9 +70,10 @@ impl hci::Controller for Ble {
         self.tl_write(opcode.0, payload).await;
     }
 
-    async fn controller_read(&self) -> &[u8] {
+    async fn controller_read_into(&self, buf: &mut [u8]) {
         let evt_box = self.tl_read().await;
+        let evt_serial = evt_box.serial();
 
-        evt_box.serial()
+        buf[..evt_serial.len()].copy_from_slice(evt_serial);
     }
 }
