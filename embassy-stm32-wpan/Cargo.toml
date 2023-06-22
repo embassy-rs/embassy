@@ -23,11 +23,13 @@ cortex-m = "0.7.6"
 heapless = "0.7.16"
 
 bit_field = "0.10.2"
+stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
+bluetooth-hci-async = { version = "*", git = "https://github.com/OueslatiGhaith/bluetooth-hci", optional = true }
 
 [features]
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt"]
 
-ble = []
+ble = ["dep:bluetooth-hci-async"]
 mac = []
 
 stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]

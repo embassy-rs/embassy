@@ -1,4 +1,5 @@
 #![no_std]
+#![cfg_attr(feature = "ble", feature(async_fn_in_trait))]
 
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
@@ -21,6 +22,7 @@ pub mod channels;
 pub mod cmd;
 pub mod consts;
 pub mod evt;
+pub mod lhci;
 #[cfg(feature = "mac")]
 pub mod mac;
 pub mod mm;
