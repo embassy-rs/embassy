@@ -26,7 +26,7 @@ async fn wifi_task(
         'static,
         ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static, peripherals::P0_31>>,
         Input<'static, AnyPin>,
-        Output<'static, peripherals::P1_03>,
+        Output<'static, peripherals::P1_05>,
     >,
 ) -> ! {
     runner.run().await
@@ -48,11 +48,11 @@ async fn main(spawner: Spawner) {
     let mosi = p.P0_30;
     let cs = Output::new(p.P0_31, Level::High, OutputDrive::HighDrive);
     let handshake = Input::new(p.P1_01.degrade(), Pull::Up);
-    let ready = Input::new(p.P1_02.degrade(), Pull::None);
-    let reset = Output::new(p.P1_03, Level::Low, OutputDrive::Standard);
+    let ready = Input::new(p.P1_04.degrade(), Pull::None);
+    let reset = Output::new(p.P1_05, Level::Low, OutputDrive::Standard);
 
     let mut config = spim::Config::default();
-    config.frequency = spim::Frequency::M1;
+    config.frequency = spim::Frequency::M32;
     config.mode = spim::MODE_2; // !!!
     let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
     let spi = ExclusiveDevice::new(spi, cs);
