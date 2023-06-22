@@ -115,6 +115,7 @@ pub struct Dac<'d, T: Instance, Tx> {
 }
 
 impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
+    /// Create a new instance with one channel
     pub fn new_1ch(
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
@@ -124,6 +125,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         Self::new_inner(peri, 1, txdma)
     }
 
+    /// Create a new instance with two channels
     pub fn new_2ch(
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
@@ -134,6 +136,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         Self::new_inner(peri, 2, txdma)
     }
 
+    /// Perform initialisation steps for the DAC
     fn new_inner(peri: PeripheralRef<'d, T>, channels: u8, txdma: impl Peripheral<P = Tx> + 'd) -> Self {
         into_ref!(txdma);
         T::enable();
@@ -178,15 +181,17 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         Ok(())
     }
 
+    /// Enable the DAC channel `ch`
     pub fn enable_channel(&mut self, ch: Channel) -> Result<(), Error> {
         self.set_channel_enable(ch, true)
     }
 
+    /// Disable the DAC channel `ch`
     pub fn disable_channel(&mut self, ch: Channel) -> Result<(), Error> {
         self.set_channel_enable(ch, false)
     }
 
-    /// Performs all register accesses necessary to select a new trigger for CH1    
+    /// Select a new trigger for CH1 (disables the channel)
     pub fn select_trigger_ch1(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
         self.check_channel_exists(Channel::Ch1)?;
         unwrap!(self.disable_channel(Channel::Ch1));
@@ -196,7 +201,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         Ok(())
     }
 
-    /// Performs all register accesses necessary to select a new trigger for CH2    
+    /// Select a new trigger for CH2 (disables the channel)  
     pub fn select_trigger_ch2(&mut self, trigger: Ch2Trigger) -> Result<(), Error> {
         self.check_channel_exists(Channel::Ch2)?;
         unwrap!(self.disable_channel(Channel::Ch2));
@@ -206,7 +211,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         Ok(())
     }
 
-    /// Perform a software trigger on a given channel
+    /// Perform a software trigger on `ch`
     pub fn trigger(&mut self, ch: Channel) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
         T::regs().swtrigr().write(|reg| {
@@ -223,6 +228,9 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         });
     }
 
+    /// Set a value to be output by the DAC on trigger.
+    ///
+    /// The `value` is written to the corresponding "data holding register"
     pub fn set(&mut self, ch: Channel, value: Value) -> Result<(), Error> {
         self.check_channel_exists(ch)?;
         match value {
@@ -237,6 +245,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
     ///
     /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
     /// This will configure a circular DMA transfer that periodically outputs the `data`.
+    /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// ## Current limitations
     /// - Only CH1 Supported
@@ -255,7 +264,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         });
 
         let tx_request = self.txdma.request();
-        let channel = &mut self.txdma;
+        let channel = &self.txdma;
 
         // Initiate the correct type of DMA transfer depending on what data is passed
         let tx_f = match data_ch1 {
@@ -268,6 +277,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
                     TransferOptions {
                         circular,
                         half_transfer_ir: false,
+                        complete_transfer_ir: !circular,
                     },
                 )
             },
@@ -280,6 +290,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
                     TransferOptions {
                         circular,
                         half_transfer_ir: false,
+                        complete_transfer_ir: !circular,
                     },
                 )
             },
@@ -292,6 +303,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
                     TransferOptions {
                         circular,
                         half_transfer_ir: false,
+                        complete_transfer_ir: !circular,
                     },
                 )
             },
