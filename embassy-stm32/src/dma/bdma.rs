@@ -22,8 +22,12 @@ use crate::pac::bdma::{regs, vals};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct TransferOptions {
+    /// Enable circular DMA
     pub circular: bool,
+    /// Enable half transfer interrupt
     pub half_transfer_ir: bool,
+    /// Enable transfer complete interrupt
+    pub complete_transfer_ir: bool,
 }
 
 impl Default for TransferOptions {
@@ -31,6 +35,7 @@ impl Default for TransferOptions {
         Self {
             circular: false,
             half_transfer_ir: false,
+            complete_transfer_ir: false,
         }
     }
 }
@@ -289,7 +294,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             }
             w.set_dir(dir.into());
             w.set_teie(true);
-            w.set_tcie(true);
+            w.set_tcie(options.complete_transfer_ir);
             w.set_htie(options.half_transfer_ir);
             if options.circular {
                 w.set_circ(vals::Circ::ENABLED);
