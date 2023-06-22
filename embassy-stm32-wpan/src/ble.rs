@@ -63,7 +63,7 @@ impl Ble {
     }
 }
 
-pub extern crate bluetooth_hci_async as hci;
+pub extern crate stm32wb_hci as hci;
 
 impl hci::Controller for Ble {
     async fn controller_write(&mut self, opcode: Opcode, payload: &[u8]) {
