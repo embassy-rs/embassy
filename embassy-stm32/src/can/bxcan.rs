@@ -2,7 +2,9 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
+use core::cell::RefMut;
 use core::cell::RefCell;
+
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
 use embassy_hal_common::{into_ref, PeripheralRef};
@@ -345,6 +347,10 @@ impl<'d, T: Instance> Can<'d, T> {
 
     pub fn split<'c>(&'c self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
         (CanTx { can: &self.can }, CanRx { can: &self.can })
+    }
+
+    pub fn as_mut(&self) -> RefMut<'_, bxcan::Can<BxcanInstance<'d, T>>> {
+        self.can.borrow_mut()
     }
 }
 
