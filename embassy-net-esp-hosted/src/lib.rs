@@ -227,7 +227,12 @@ where
             }
 
             self.spi.transfer(&mut rx_buf, &tx_buf).await.unwrap();
-            let delay_until = Instant::now() + Duration::from_millis(1);
+
+            // The esp-hosted firmware deasserts the HANSHAKE pin a few us AFTER ending the SPI transfer
+            // If we check it again too fast, we'll see it's high from the previous transfer, and if we send it
+            // data it will get lost.
+            // Make sure we check it after 100us at minimum.
+            let delay_until = Instant::now() + Duration::from_micros(100);
             self.handle_rx(&mut rx_buf);
             Timer::at(delay_until).await;
         }
