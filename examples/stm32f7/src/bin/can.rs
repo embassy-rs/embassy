@@ -45,14 +45,16 @@ async fn main(spawner: Spawner) {
     core::mem::forget(rx_pin);
 
     let CAN: &'static mut Can<'static,CAN3> = static_cell::make_static!(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
-    CAN.can.borrow_mut().modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
+    CAN.as_mut().modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
-    CAN.can.borrow_mut()
+    CAN.as_mut()
         .modify_config()
         .set_bit_timing(0x001c0001) // http://www.bittiming.can-wiki.info/
+        .set_loopback(true)
         .enable();
 
     let (tx, mut rx) = CAN.split();
+
     let TX: &'static mut CanTx<'static, 'static, CAN3> = static_cell::make_static!(tx);
     spawner.spawn(send_can_message(TX)).unwrap();
 
