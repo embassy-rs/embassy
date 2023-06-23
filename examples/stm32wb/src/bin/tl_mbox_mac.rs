@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    let sys_event = mbox.sys_subsystem.tl_read().await;
+    let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
 
     mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;

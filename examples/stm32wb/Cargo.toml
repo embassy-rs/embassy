@@ -38,3 +38,6 @@ required-features = ["mac"]
 [[bin]] 
 name = "eddystone_beacon"
 required-features = ["ble"]
+
+[patch.crates-io]
+stm32wb-hci = { git = "https://github.com/OueslatiGhaith/stm32wb-hci", rev = "9f663be"}
