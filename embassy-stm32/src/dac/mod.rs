@@ -22,7 +22,7 @@ pub enum Channel {
 }
 
 impl Channel {
-    fn index(&self) -> usize {
+    const fn index(&self) -> usize {
         match self {
             Channel::Ch1 => 0,
             Channel::Ch2 => 1,
@@ -109,72 +109,100 @@ pub enum ValueArray<'a> {
 }
 
 pub struct Dac<'d, T: Instance, Tx> {
-    channels: u8,
+    ch1: bool,
+    ch2: bool,
     txdma: PeripheralRef<'d, Tx>,
     _peri: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
-    /// Create a new instance with one channel
-    pub fn new_1ch(
+    pub fn new_ch1(
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
     ) -> Self {
         into_ref!(peri);
-        Self::new_inner(peri, 1, txdma)
+        Self::new_inner(peri, true, false, txdma)
     }
 
-    /// Create a new instance with two channels
-    pub fn new_2ch(
+    pub fn new_ch2(
+        peri: impl Peripheral<P = T> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        _ch2: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
+    ) -> Self {
+        into_ref!(peri);
+        Self::new_inner(peri, false, true, txdma)
+    }
+
+    pub fn new_ch1_and_ch2(
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         _ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
         _ch2: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
     ) -> Self {
         into_ref!(peri);
-        Self::new_inner(peri, 2, txdma)
+        Self::new_inner(peri, true, true, txdma)
     }
 
     /// Perform initialisation steps for the DAC
-    fn new_inner(peri: PeripheralRef<'d, T>, channels: u8, txdma: impl Peripheral<P = Tx> + 'd) -> Self {
+    fn new_inner(peri: PeripheralRef<'d, T>, ch1: bool, ch2: bool, txdma: impl Peripheral<P = Tx> + 'd) -> Self {
         into_ref!(txdma);
         T::enable();
         T::reset();
 
-        T::regs().mcr().modify(|reg| {
-            for ch in 0..channels {
-                reg.set_mode(ch as usize, 0);
-                reg.set_mode(ch as usize, 0);
-            }
-        });
-
-        T::regs().cr().modify(|reg| {
-            for ch in 0..channels {
-                reg.set_en(ch as usize, true);
-                reg.set_ten(ch as usize, true);
-            }
-        });
-
-        Self {
-            channels,
+        let mut dac = Self {
+            ch1,
+            ch2,
             txdma,
             _peri: peri,
+        };
+
+        // Configure each activated channel. All results can be `unwrap`ed since they
+        // will only error if the channel is not configured (i.e. ch1, ch2 are false)
+        if ch1 {
+            dac.set_channel_mode(Channel::Ch1, 0).unwrap();
+            dac.enable_channel(Channel::Ch1).unwrap();
+            dac.set_trigger_enable(Channel::Ch1, true).unwrap();
         }
+        if ch2 {
+            dac.set_channel_mode(Channel::Ch2, 0).unwrap();
+            dac.enable_channel(Channel::Ch2).unwrap();
+            dac.set_trigger_enable(Channel::Ch2, true).unwrap();
+        }
+
+        dac
     }
 
     /// Check the channel is configured
-    fn check_channel_exists(&self, ch: Channel) -> Result<(), Error> {
-        if ch == Channel::Ch2 && self.channels < 2 {
+    fn check_channel_configured(&self, ch: Channel) -> Result<(), Error> {
+        if (ch == Channel::Ch1 && !self.ch1) || (ch == Channel::Ch2 && !self.ch2) {
             Err(Error::UnconfiguredChannel)
         } else {
             Ok(())
         }
     }
 
-    /// Set the enable register of the given channel
+    /// Enable trigger of the given channel
+    fn set_trigger_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
+        self.check_channel_configured(ch)?;
+        T::regs().cr().modify(|reg| {
+            reg.set_ten(ch.index(), on);
+        });
+        Ok(())
+    }
+
+    /// Set mode register of the given channel
+    fn set_channel_mode(&mut self, ch: Channel, val: u8) -> Result<(), Error> {
+        self.check_channel_configured(ch)?;
+        T::regs().mcr().modify(|reg| {
+            reg.set_mode(ch.index(), val);
+        });
+        Ok(())
+    }
+
+    /// Set enable register of the given channel
     fn set_channel_enable(&mut self, ch: Channel, on: bool) -> Result<(), Error> {
-        self.check_channel_exists(ch)?;
+        self.check_channel_configured(ch)?;
         T::regs().cr().modify(|reg| {
             reg.set_en(ch.index(), on);
         });
@@ -193,7 +221,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
 
     /// Select a new trigger for CH1 (disables the channel)
     pub fn select_trigger_ch1(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
-        self.check_channel_exists(Channel::Ch1)?;
+        self.check_channel_configured(Channel::Ch1)?;
         unwrap!(self.disable_channel(Channel::Ch1));
         T::regs().cr().modify(|reg| {
             reg.set_tsel1(trigger.tsel());
@@ -203,7 +231,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
 
     /// Select a new trigger for CH2 (disables the channel)  
     pub fn select_trigger_ch2(&mut self, trigger: Ch2Trigger) -> Result<(), Error> {
-        self.check_channel_exists(Channel::Ch2)?;
+        self.check_channel_configured(Channel::Ch2)?;
         unwrap!(self.disable_channel(Channel::Ch2));
         T::regs().cr().modify(|reg| {
             reg.set_tsel2(trigger.tsel());
@@ -213,7 +241,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
 
     /// Perform a software trigger on `ch`
     pub fn trigger(&mut self, ch: Channel) -> Result<(), Error> {
-        self.check_channel_exists(ch)?;
+        self.check_channel_configured(ch)?;
         T::regs().swtrigr().write(|reg| {
             reg.set_swtrig(ch.index(), true);
         });
@@ -232,7 +260,7 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
     ///
     /// The `value` is written to the corresponding "data holding register"
     pub fn set(&mut self, ch: Channel, value: Value) -> Result<(), Error> {
-        self.check_channel_exists(ch)?;
+        self.check_channel_configured(ch)?;
         match value {
             Value::Bit8(v) => T::regs().dhr8r(ch.index()).write(|reg| reg.set_dhr(v)),
             Value::Bit12Left(v) => T::regs().dhr12l(ch.index()).write(|reg| reg.set_dhr(v)),
@@ -241,39 +269,61 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         Ok(())
     }
 
-    /// Write `data` to the DAC via DMA.
+    /// Write `data` to the DAC CH1 via DMA.
     ///
     /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
     /// This will configure a circular DMA transfer that periodically outputs the `data`.
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
-    /// ## Current limitations
-    /// - Only CH1 Supported
-    ///
-    pub async fn write(&mut self, data_ch1: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    /// **Important:** Channel 1 has to be configured for the DAC instance!
+    pub async fn write_ch1(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: Dma<T>,
     {
-        // TODO: Make this a parameter or get it from the struct or so...
-        const CHANNEL: usize = 0;
+        self.check_channel_configured(Channel::Ch1)?;
+        self.write_inner(data, circular, Channel::Ch1).await
+    }
+
+    /// Write `data` to the DAC CH2 via DMA.
+    ///
+    /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
+    /// This will configure a circular DMA transfer that periodically outputs the `data`.
+    /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
+    ///
+    /// **Important:** Channel 2 has to be configured for the DAC instance!
+    pub async fn write_ch2(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        self.check_channel_configured(Channel::Ch2)?;
+        self.write_inner(data, circular, Channel::Ch2).await
+    }
+
+    /// Performs the dma write for the given channel.
+    /// TODO: Should self be &mut?
+    async fn write_inner(&self, data_ch1: ValueArray<'_>, circular: bool, channel: Channel) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        let channel = channel.index();
 
         // Enable DAC and DMA
         T::regs().cr().modify(|w| {
-            w.set_en(CHANNEL, true);
-            w.set_dmaen(CHANNEL, true);
+            w.set_en(channel, true);
+            w.set_dmaen(channel, true);
         });
 
         let tx_request = self.txdma.request();
-        let channel = &self.txdma;
+        let dma_channel = &self.txdma;
 
         // Initiate the correct type of DMA transfer depending on what data is passed
         let tx_f = match data_ch1 {
             ValueArray::Bit8(buf) => unsafe {
                 Transfer::new_write(
-                    channel,
+                    dma_channel,
                     tx_request,
                     buf,
-                    T::regs().dhr8r(CHANNEL).as_ptr() as *mut u8,
+                    T::regs().dhr8r(channel).as_ptr() as *mut u8,
                     TransferOptions {
                         circular,
                         half_transfer_ir: false,
@@ -283,10 +333,10 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
             },
             ValueArray::Bit12Left(buf) => unsafe {
                 Transfer::new_write(
-                    channel,
+                    dma_channel,
                     tx_request,
                     buf,
-                    T::regs().dhr12l(CHANNEL).as_ptr() as *mut u16,
+                    T::regs().dhr12l(channel).as_ptr() as *mut u16,
                     TransferOptions {
                         circular,
                         half_transfer_ir: false,
@@ -296,10 +346,10 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
             },
             ValueArray::Bit12Right(buf) => unsafe {
                 Transfer::new_write(
-                    channel,
+                    dma_channel,
                     tx_request,
                     buf,
-                    T::regs().dhr12r(CHANNEL).as_ptr() as *mut u16,
+                    T::regs().dhr12r(channel).as_ptr() as *mut u16,
                     TransferOptions {
                         circular,
                         half_transfer_ir: false,
@@ -315,9 +365,9 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         // TODO: Do we need to check any status registers here?
         T::regs().cr().modify(|w| {
             // Disable the DAC peripheral
-            w.set_en(CHANNEL, false);
+            w.set_en(channel, false);
             // Disable the DMA. TODO: Is this necessary?
-            w.set_dmaen(CHANNEL, false);
+            w.set_dmaen(channel, false);
         });
 
         Ok(())
