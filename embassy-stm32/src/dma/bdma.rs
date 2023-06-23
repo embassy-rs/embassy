@@ -35,7 +35,7 @@ impl Default for TransferOptions {
         Self {
             circular: false,
             half_transfer_ir: false,
-            complete_transfer_ir: false,
+            complete_transfer_ir: true,
         }
     }
 }
