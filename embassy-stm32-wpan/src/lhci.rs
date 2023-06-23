@@ -1,7 +1,9 @@
+use core::ptr;
+
 use crate::cmd::CmdPacket;
 use crate::consts::{TlPacketType, TL_EVT_HEADER_SIZE};
 use crate::evt::{CcEvt, EvtPacket, EvtSerial};
-use crate::tables::{DeviceInfoTable, RssInfoTable, SafeBootInfoTable, WirelessFwInfoTable};
+use crate::tables::{DeviceInfoTable, RssInfoTable, SafeBootInfoTable, WirelessFwInfoTable, TL_DEVICE_INFO_TABLE};
 use crate::TL_REF_TABLE;
 
 const TL_BLEEVT_CC_OPCODE: u8 = 0x0e;
@@ -38,7 +40,7 @@ impl Default for LhciC1DeviceInformationCcrp {
             safe_boot_info_table,
             rss_info_table,
             wireless_fw_info_table,
-        } = unsafe { &*(*TL_REF_TABLE.as_ptr()).device_info_table }.clone();
+        } = unsafe { ptr::read_volatile(TL_DEVICE_INFO_TABLE.as_ptr()) };
 
         let device_id = stm32_device_signature::device_id();
         let uid96_0 = (device_id[3] as u32) << 24
@@ -105,7 +107,7 @@ impl LhciC1DeviceInformationCcrp {
             let self_ptr: *const LhciC1DeviceInformationCcrp = self;
             let self_buf = self_ptr.cast();
 
-            core::ptr::copy(self_buf, evt_cc_payload_buf, self_size);
+            ptr::copy(self_buf, evt_cc_payload_buf, self_size);
         }
     }
 }

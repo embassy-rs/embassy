@@ -11,25 +11,23 @@ use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
-use mm::MemoryManager;
-use sys::Sys;
+use sub::mm::MemoryManager;
+use sub::sys::Sys;
 use tables::*;
 use unsafe_linked_list::LinkedListNode;
 
-#[cfg(feature = "ble")]
-pub mod ble;
 pub mod channels;
 pub mod cmd;
 pub mod consts;
 pub mod evt;
 pub mod lhci;
-#[cfg(feature = "mac")]
-pub mod mac;
-pub mod mm;
 pub mod shci;
-pub mod sys;
+pub mod sub;
 pub mod tables;
 pub mod unsafe_linked_list;
+
+#[cfg(feature = "ble")]
+pub use crate::sub::ble::hci;
 
 type PacketHeader = LinkedListNode;
 
@@ -39,9 +37,9 @@ pub struct TlMbox<'d> {
     pub sys_subsystem: Sys,
     pub mm_subsystem: MemoryManager,
     #[cfg(feature = "ble")]
-    pub ble_subsystem: ble::Ble,
+    pub ble_subsystem: sub::ble::Ble,
     #[cfg(feature = "mac")]
-    pub mac_subsystem: mac::Mac,
+    pub mac_subsystem: sub::mac::Mac,
 }
 
 impl<'d> TlMbox<'d> {
@@ -128,12 +126,12 @@ impl<'d> TlMbox<'d> {
 
         Self {
             _ipcc: ipcc,
-            sys_subsystem: sys::Sys::new(),
+            sys_subsystem: sub::sys::Sys::new(),
             #[cfg(feature = "ble")]
-            ble_subsystem: ble::Ble::new(),
+            ble_subsystem: sub::ble::Ble::new(),
             #[cfg(feature = "mac")]
-            mac_subsystem: mac::Mac::new(),
-            mm_subsystem: mm::MemoryManager::new(),
+            mac_subsystem: sub::mac::Mac::new(),
+            mm_subsystem: sub::mm::MemoryManager::new(),
         }
     }
 }

@@ -145,14 +145,14 @@ impl Drop for EvtBox {
     fn drop(&mut self) {
         #[cfg(feature = "ble")]
         unsafe {
-            use crate::mm;
+            use crate::sub::mm;
 
             mm::MemoryManager::drop_event_packet(self.ptr)
         };
 
         #[cfg(feature = "mac")]
         unsafe {
-            use crate::mac;
+            use crate::sub::mac;
 
             mac::Mac::drop_event_packet(self.ptr)
         }
