@@ -1,22 +1,23 @@
 //! Memory manager routines
-
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use core::task::Poll;
 
 use cortex_m::interrupt;
 use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::channels;
+use crate::consts::POOL_SIZE;
 use crate::evt::EvtPacket;
-use crate::tables::MemManagerTable;
-use crate::unsafe_linked_list::LinkedListNode;
-use crate::{
-    channels, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUF_QUEUE, LOCAL_FREE_BUF_QUEUE, POOL_SIZE, SYS_SPARE_EVT_BUF,
-    TL_MEM_MANAGER_TABLE,
+use crate::tables::{
+    MemManagerTable, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUF_QUEUE, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE,
 };
+use crate::unsafe_linked_list::LinkedListNode;
 
 static MM_WAKER: AtomicWaker = AtomicWaker::new();
+static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
 
 pub struct MemoryManager {
     phantom: PhantomData<MemoryManager>,
@@ -42,7 +43,8 @@ impl MemoryManager {
         Self { phantom: PhantomData }
     }
 
-    /// SAFETY: passing a pointer to something other than an event packet is UB
+    #[allow(dead_code)]
+    /// SAFETY: passing a pointer to something other than a managed event packet is UB
     pub(crate) unsafe fn drop_event_packet(evt: *mut EvtPacket) {
         interrupt::free(|_| unsafe {
             LinkedListNode::insert_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);

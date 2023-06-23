@@ -1,9 +1,11 @@
 use core::marker::PhantomData;
+use core::ptr;
 
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
-use crate::evt::EvtBox;
-use crate::shci::{ShciBleInitCmdParam, SCHI_OPCODE_BLE_INIT};
+use crate::evt::{CcEvt, EvtBox, EvtPacket};
+#[allow(unused_imports)]
+use crate::shci::{SchiCommandStatus, ShciBleInitCmdParam, ShciOpcode};
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
@@ -39,21 +41,35 @@ impl Sys {
         }
     }
 
-    pub fn write(&self, opcode: u16, payload: &[u8]) {
+    pub async fn write(&self, opcode: ShciOpcode, payload: &[u8]) {
+        Ipcc::send(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, || unsafe {
+            CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode as u16, payload);
+        })
+        .await;
+    }
+
+    /// `HW_IPCC_SYS_CmdEvtNot`
+    pub async fn write_and_get_response(&self, opcode: ShciOpcode, payload: &[u8]) -> SchiCommandStatus {
+        self.write(opcode, payload).await;
+        Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
+
         unsafe {
-            CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode, payload);
+            let p_event_packet = SYS_CMD_BUF.as_ptr() as *const EvtPacket;
+            let p_command_event = &((*p_event_packet).evt_serial.evt.payload) as *const _ as *const CcEvt;
+            let p_payload = &((*p_command_event).payload) as *const u8;
+
+            ptr::read_volatile(p_payload).try_into().unwrap()
         }
     }
 
-    pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) {
-        debug!("sending SHCI");
+    #[cfg(feature = "mac")]
+    pub async fn shci_c2_mac_802_15_4_init(&self) -> SchiCommandStatus {
+        self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
+    }
 
-        Ipcc::send(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, || {
-            self.write(SCHI_OPCODE_BLE_INIT, param.payload());
-        })
-        .await;
-
-        Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
+    #[cfg(feature = "ble")]
+    pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) -> SchiCommandStatus {
+        self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }
 
     /// `HW_IPCC_SYS_EvtNot`

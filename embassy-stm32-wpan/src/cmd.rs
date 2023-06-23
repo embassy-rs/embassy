@@ -37,7 +37,7 @@ pub struct CmdSerialStub {
 }
 
 #[derive(Copy, Clone, Default)]
-#[repr(C, packed)]
+#[repr(C, packed(4))]
 pub struct CmdPacket {
     pub header: PacketHeader,
     pub cmdserial: CmdSerial,
@@ -52,7 +52,7 @@ impl CmdPacket {
             p_cmd_serial,
             CmdSerialStub {
                 ty: packet_type as u8,
-                cmd_code: cmd_code,
+                cmd_code,
                 payload_len: payload.len() as u8,
             },
         );
