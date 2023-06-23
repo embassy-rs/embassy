@@ -21,6 +21,7 @@ embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
 defmt = { version = "0.3", optional = true }
 cortex-m = "0.7.6"
 heapless = "0.7.16"
+aligned = "0.4.1"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
