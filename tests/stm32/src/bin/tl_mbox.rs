@@ -39,14 +39,14 @@ async fn run_mm_queue(memory_manager: mm::MemoryManager) {
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config());
     info!("Hello World!");
 
     let config = Config::default();
     let mut mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    // spawner.spawn(run_mm_queue(mbox.mm_subsystem)).unwrap();
+    spawner.spawn(run_mm_queue(mbox.mm_subsystem)).unwrap();
 
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());

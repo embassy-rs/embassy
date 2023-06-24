@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use core::{ptr, slice};
 
 use super::PacketHeader;
@@ -93,17 +94,22 @@ impl EvtPacket {
     }
 }
 
+pub trait MemoryManager {
+    unsafe fn drop_event_packet(evt: *mut EvtPacket);
+}
+
 /// smart pointer to the [`EvtPacket`] that will dispose of [`EvtPacket`] buffer automatically
 /// on [`Drop`]
 #[derive(Debug)]
-pub struct EvtBox {
+pub struct EvtBox<T: MemoryManager> {
     ptr: *mut EvtPacket,
+    mm: PhantomData<T>,
 }
 
-unsafe impl Send for EvtBox {}
-impl EvtBox {
+unsafe impl<T: MemoryManager> Send for EvtBox<T> {}
+impl<T: MemoryManager> EvtBox<T> {
     pub(super) fn new(ptr: *mut EvtPacket) -> Self {
-        Self { ptr }
+        Self { ptr, mm: PhantomData }
     }
 
     /// Returns information about the event
@@ -126,9 +132,6 @@ impl EvtBox {
         }
     }
 
-    /// writes an underlying [`EvtPacket`] into the provided buffer.
-    /// Returns the number of bytes that were written.
-    /// Returns an error if event kind is unknown or if provided buffer size is not enough.
     pub fn serial<'a>(&'a self) -> &'a [u8] {
         unsafe {
             let evt_serial: *const EvtSerial = &(*self.ptr).evt_serial;
@@ -141,20 +144,8 @@ impl EvtBox {
     }
 }
 
-impl Drop for EvtBox {
+impl<T: MemoryManager> Drop for EvtBox<T> {
     fn drop(&mut self) {
-        #[cfg(feature = "ble")]
-        unsafe {
-            use crate::sub::mm;
-
-            mm::MemoryManager::drop_event_packet(self.ptr)
-        };
-
-        #[cfg(feature = "mac")]
-        unsafe {
-            use crate::sub::mac;
-
-            mac::Mac::drop_event_packet(self.ptr)
-        }
+        unsafe { T::drop_event_packet(self.ptr) };
     }
 }

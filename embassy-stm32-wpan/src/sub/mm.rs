@@ -8,13 +8,13 @@ use cortex_m::interrupt;
 use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::channels;
 use crate::consts::POOL_SIZE;
 use crate::evt::EvtPacket;
 use crate::tables::{
     MemManagerTable, BLE_SPARE_EVT_BUF, EVT_POOL, FREE_BUF_QUEUE, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE,
 };
 use crate::unsafe_linked_list::LinkedListNode;
+use crate::{channels, evt};
 
 static MM_WAKER: AtomicWaker = AtomicWaker::new();
 static mut LOCAL_FREE_BUF_QUEUE: MaybeUninit<LinkedListNode> = MaybeUninit::uninit();
@@ -43,16 +43,6 @@ impl MemoryManager {
         Self { phantom: PhantomData }
     }
 
-    #[allow(dead_code)]
-    /// SAFETY: passing a pointer to something other than a managed event packet is UB
-    pub(crate) unsafe fn drop_event_packet(evt: *mut EvtPacket) {
-        interrupt::free(|_| unsafe {
-            LinkedListNode::insert_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
-        });
-
-        MM_WAKER.wake();
-    }
-
     pub async fn run_queue(&self) {
         loop {
             poll_fn(|cx| unsafe {
@@ -75,5 +65,16 @@ impl MemoryManager {
             })
             .await;
         }
+    }
+}
+
+impl evt::MemoryManager for MemoryManager {
+    /// SAFETY: passing a pointer to something other than a managed event packet is UB
+    unsafe fn drop_event_packet(evt: *mut EvtPacket) {
+        interrupt::free(|_| unsafe {
+            LinkedListNode::insert_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
+        });
+
+        MM_WAKER.wake();
     }
 }
