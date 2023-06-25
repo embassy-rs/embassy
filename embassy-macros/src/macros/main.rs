@@ -1,3 +1,4 @@
+use darling::export::NestedMeta;
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -11,8 +12,8 @@ struct Args {
     entry: Option<String>,
 }
 
-pub fn riscv(args: syn::AttributeArgs) -> TokenStream {
-    let maybe_entry = match Args::from_list(&args) {
+pub fn riscv(args: &[NestedMeta]) -> TokenStream {
+    let maybe_entry = match Args::from_list(args) {
         Ok(args) => args.entry,
         Err(e) => return e.write_errors(),
     };
@@ -77,9 +78,9 @@ pub fn std() -> TokenStream {
     }
 }
 
-pub fn run(args: syn::AttributeArgs, f: syn::ItemFn, main: TokenStream) -> Result<TokenStream, TokenStream> {
+pub fn run(args: &[NestedMeta], f: syn::ItemFn, main: TokenStream) -> Result<TokenStream, TokenStream> {
     #[allow(unused_variables)]
-    let args = Args::from_list(&args).map_err(|e| e.write_errors())?;
+    let args = Args::from_list(args).map_err(|e| e.write_errors())?;
 
     let fargs = f.sig.inputs.clone();
 

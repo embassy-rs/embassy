@@ -1,3 +1,4 @@
+use darling::export::NestedMeta;
 use darling::FromMeta;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -11,8 +12,8 @@ struct Args {
     pool_size: Option<usize>,
 }
 
-pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
-    let args = Args::from_list(&args).map_err(|e| e.write_errors())?;
+pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
+    let args = Args::from_list(args).map_err(|e| e.write_errors())?;
 
     let pool_size: usize = args.pool_size.unwrap_or(1);
 

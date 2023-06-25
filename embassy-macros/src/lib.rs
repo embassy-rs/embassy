@@ -1,11 +1,28 @@
 #![doc = include_str!("../README.md")]
 extern crate proc_macro;
 
+use darling::ast::NestedMeta;
 use proc_macro::TokenStream;
 
 mod macros;
 mod util;
 use macros::*;
+use syn::parse::{Parse, ParseBuffer};
+use syn::punctuated::Punctuated;
+use syn::Token;
+
+struct Args {
+    meta: Vec<NestedMeta>,
+}
+
+impl Parse for Args {
+    fn parse(input: &ParseBuffer) -> syn::Result<Self> {
+        let meta = Punctuated::<NestedMeta, Token![,]>::parse_terminated(input)?;
+        Ok(Args {
+            meta: meta.into_iter().collect(),
+        })
+    }
+}
 
 /// Declares an async task that can be run by `embassy-executor`. The optional `pool_size` parameter can be used to specify how
 /// many concurrent tasks can be spawned (default is 1) for the function.
@@ -39,10 +56,10 @@ use macros::*;
 /// ```
 #[proc_macro_attribute]
 pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+    let args = syn::parse_macro_input!(args as Args);
     let f = syn::parse_macro_input!(item as syn::ItemFn);
 
-    task::run(args, f).unwrap_or_else(|x| x).into()
+    task::run(&args.meta, f).unwrap_or_else(|x| x).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for Cortex-M spawning the corresponding function body as an async task.
@@ -65,9 +82,9 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+    let args = syn::parse_macro_input!(args as Args);
     let f = syn::parse_macro_input!(item as syn::ItemFn);
-    main::run(args, f, main::cortex_m()).unwrap_or_else(|x| x).into()
+    main::run(&args.meta, f, main::cortex_m()).unwrap_or_else(|x| x).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for RISC-V spawning the corresponding function body as an async task.
@@ -100,9 +117,9 @@ pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_riscv(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+    let args = syn::parse_macro_input!(args as Args);
     let f = syn::parse_macro_input!(item as syn::ItemFn);
-    main::run(args.clone(), f, main::riscv(args))
+    main::run(&args.meta, f, main::riscv(&args.meta))
         .unwrap_or_else(|x| x)
         .into()
 }
@@ -127,9 +144,9 @@ pub fn main_riscv(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_std(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+    let args = syn::parse_macro_input!(args as Args);
     let f = syn::parse_macro_input!(item as syn::ItemFn);
-    main::run(args, f, main::std()).unwrap_or_else(|x| x).into()
+    main::run(&args.meta, f, main::std()).unwrap_or_else(|x| x).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for WASM spawning the corresponding function body as an async task.
@@ -152,7 +169,7 @@ pub fn main_std(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_wasm(args: TokenStream, item: TokenStream) -> TokenStream {
-    let args = syn::parse_macro_input!(args as syn::AttributeArgs);
+    let args = syn::parse_macro_input!(args as Args);
     let f = syn::parse_macro_input!(item as syn::ItemFn);
-    main::run(args, f, main::wasm()).unwrap_or_else(|x| x).into()
+    main::run(&args.meta, f, main::wasm()).unwrap_or_else(|x| x).into()
 }
