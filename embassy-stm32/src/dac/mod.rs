@@ -168,9 +168,9 @@ pub trait DacChannel<T: Instance, Tx> {
     }
 }
 
-pub struct Dac<'d, T: Instance, Tx> {
-    ch1: DacCh1<'d, T, Tx>,
-    ch2: DacCh2<'d, T, Tx>,
+pub struct Dac<'d, T: Instance, TxCh1, TxCh2> {
+    ch1: DacCh1<'d, T, TxCh1>,
+    ch2: DacCh2<'d, T, TxCh2>,
 }
 
 pub struct DacCh1<'d, T: Instance, Tx> {
@@ -220,7 +220,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 1 has to be configured for the DAC instance!
-    async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: Dma<T>,
     {
@@ -297,11 +297,11 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
 impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     /// Perform initialisation steps for the DAC
     pub fn new_ch2(
-        peri: impl Peripheral<P = T> + 'd,
+        _peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Tx> + 'd,
         _pin: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
     ) -> Self {
-        into_ref!(peri, dma);
+        into_ref!(_peri, dma);
         T::enable();
         T::reset();
 
@@ -335,7 +335,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 1 has to be configured for the DAC instance!
-    async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: Dma<T>,
     {
@@ -409,11 +409,11 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     }
 }
 
-impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
+impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
-        dma_ch1: impl Peripheral<P = Tx> + 'd,
-        dma_ch2: impl Peripheral<P = Tx> + 'd,
+        dma_ch1: impl Peripheral<P = TxCh1> + 'd,
+        dma_ch2: impl Peripheral<P = TxCh2> + 'd,
         _pin_ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
         _pin_ch2: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
     ) -> Self {
@@ -437,14 +437,34 @@ impl<'d, T: Instance, Tx> Dac<'d, T, Tx> {
         dac_ch1.enable_channel().unwrap();
         dac_ch1.set_trigger_enable(true).unwrap();
 
-        dac_ch1.set_channel_mode(0).unwrap();
-        dac_ch1.enable_channel().unwrap();
-        dac_ch1.set_trigger_enable(true).unwrap();
+        dac_ch2.set_channel_mode(0).unwrap();
+        dac_ch2.enable_channel().unwrap();
+        dac_ch2.set_trigger_enable(true).unwrap();
 
         Self {
             ch1: dac_ch1,
             ch2: dac_ch2,
         }
+    }
+
+    pub fn split(self) -> (DacCh1<'d, T, TxCh1>, DacCh2<'d, T, TxCh2>) {
+        (self.ch1, self.ch2)
+    }
+
+    pub fn ch1_mut(&mut self) -> &mut DacCh1<'d, T, TxCh1> {
+        &mut self.ch1
+    }
+
+    pub fn ch2_mut(&mut self) -> &mut DacCh2<'d, T, TxCh2> {
+        &mut self.ch2
+    }
+
+    pub fn ch1(&mut self) -> &DacCh1<'d, T, TxCh1> {
+        &self.ch1
+    }
+
+    pub fn ch2(&mut self) -> &DacCh2<'d, T, TxCh2> {
+        &self.ch2
     }
 }
 
