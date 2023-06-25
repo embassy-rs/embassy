@@ -1,5 +1,6 @@
 #![macro_use]
 
+//! Provide access to the STM32 digital-to-analog converter (DAC).
 use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
@@ -11,6 +12,7 @@ use crate::{peripherals, Peripheral};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Curstom Errors
 pub enum Error {
     UnconfiguredChannel,
     InvalidValue,
@@ -18,6 +20,7 @@ pub enum Error {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// DAC Channels
 pub enum Channel {
     Ch1,
     Ch2,
@@ -34,6 +37,7 @@ impl Channel {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Trigger sources for CH1
 pub enum Ch1Trigger {
     Tim6,
     Tim3,
@@ -60,6 +64,7 @@ impl Ch1Trigger {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Trigger sources for CH2
 pub enum Ch2Trigger {
     Tim6,
     Tim8,
@@ -109,7 +114,7 @@ pub enum ValueArray<'a> {
     // 12 bit values stored in a u16, right-aligned
     Bit12Right(&'a [u16]),
 }
-
+/// Provide common functions for DAC channels
 pub trait DacChannel<T: Instance, Tx> {
     const CHANNEL: Channel;
 
@@ -157,7 +162,7 @@ pub trait DacChannel<T: Instance, Tx> {
 
     /// Set a value to be output by the DAC on trigger.
     ///
-    /// The `value` is written to the corresponding "data holding register"
+    /// The `value` is written to the corresponding "data holding register".
     fn set(&mut self, value: Value) -> Result<(), Error> {
         match value {
             Value::Bit8(v) => T::regs().dhr8r(Self::CHANNEL.index()).write(|reg| reg.set_dhr(v)),
@@ -166,25 +171,51 @@ pub trait DacChannel<T: Instance, Tx> {
         }
         Ok(())
     }
+
+    /// Write `data` to the DAC channel via DMA.
+    ///
+    /// `circular` sets the DMA to circular mode.
+    async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    where
+        Tx: Dma<T>;
 }
 
+/// Hold two DAC channels
+///
+/// Note: This consumes the DAC `Instance` only once, allowing to get both channels simultaneously.
+///
+/// # Example for obtaining both DAC channels
+///
+/// ```no_run
+/// // DMA channels and pins may need to be changed for your controller
+/// let (dac_ch1, dac_ch2) =
+///     embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, p.PA4, p.PA5).split();
+/// ```
 pub struct Dac<'d, T: Instance, TxCh1, TxCh2> {
     ch1: DacCh1<'d, T, TxCh1>,
     ch2: DacCh2<'d, T, TxCh2>,
 }
 
+/// DAC CH1
+///
+/// Note: This consumes the DAC `Instance`. Use [`Dac::new`] to get both channels simultaneously.
 pub struct DacCh1<'d, T: Instance, Tx> {
+    /// To consume T
     _peri: PeripheralRef<'d, T>,
     dma: PeripheralRef<'d, Tx>,
 }
 
+/// DAC CH2
+///
+/// Note: This consumes the DAC `Instance`. Use [`Dac::new`] to get both channels simultaneously.
 pub struct DacCh2<'d, T: Instance, Tx> {
+    /// Instead of PeripheralRef to consume T
     phantom: PhantomData<&'d mut T>,
     dma: PeripheralRef<'d, Tx>,
 }
 
 impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
-    /// Perform initialisation steps for the DAC
+    /// Obtain DAC CH1
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Tx> + 'd,
@@ -204,7 +235,8 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
 
         dac
     }
-    /// Select a new trigger for CH1 (disables the channel)
+
+    /// Select a new trigger for this channel
     pub fn select_trigger(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
         unwrap!(self.disable_channel());
         T::regs().cr().modify(|reg| {
@@ -212,91 +244,11 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
         });
         Ok(())
     }
-
-    /// Write `data` to the DAC CH1 via DMA.
-    ///
-    /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
-    /// This will configure a circular DMA transfer that periodically outputs the `data`.
-    /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
-    ///
-    /// **Important:** Channel 1 has to be configured for the DAC instance!
-    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
-    where
-        Tx: Dma<T>,
-    {
-        let channel = Channel::Ch1.index();
-        debug!("Writing to channel {}", channel);
-
-        // Enable DAC and DMA
-        T::regs().cr().modify(|w| {
-            w.set_en(channel, true);
-            w.set_dmaen(channel, true);
-        });
-
-        let tx_request = self.dma.request();
-        let dma_channel = &self.dma;
-
-        // Initiate the correct type of DMA transfer depending on what data is passed
-        let tx_f = match data {
-            ValueArray::Bit8(buf) => unsafe {
-                Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr8r(channel).as_ptr() as *mut u8,
-                    TransferOptions {
-                        circular,
-                        half_transfer_ir: false,
-                        complete_transfer_ir: !circular,
-                    },
-                )
-            },
-            ValueArray::Bit12Left(buf) => unsafe {
-                Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr12l(channel).as_ptr() as *mut u16,
-                    TransferOptions {
-                        circular,
-                        half_transfer_ir: false,
-                        complete_transfer_ir: !circular,
-                    },
-                )
-            },
-            ValueArray::Bit12Right(buf) => unsafe {
-                Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr12r(channel).as_ptr() as *mut u16,
-                    TransferOptions {
-                        circular,
-                        half_transfer_ir: false,
-                        complete_transfer_ir: !circular,
-                    },
-                )
-            },
-        };
-
-        tx_f.await;
-
-        // finish dma
-        // TODO: Do we need to check any status registers here?
-        T::regs().cr().modify(|w| {
-            // Disable the DAC peripheral
-            w.set_en(channel, false);
-            // Disable the DMA. TODO: Is this necessary?
-            w.set_dmaen(channel, false);
-        });
-
-        Ok(())
-    }
 }
 
 impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
-    /// Perform initialisation steps for the DAC
-    pub fn new_ch2(
+    /// Obtain DAC CH2
+    pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Tx> + 'd,
         _pin: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
@@ -319,7 +271,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
         dac
     }
 
-    /// Select a new trigger for CH1 (disables the channel)
+    /// Select a new trigger for this channel
     pub fn select_trigger(&mut self, trigger: Ch2Trigger) -> Result<(), Error> {
         unwrap!(self.disable_channel());
         T::regs().cr().modify(|reg| {
@@ -327,89 +279,12 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
         });
         Ok(())
     }
-
-    /// Write `data` to the DAC CH1 via DMA.
-    ///
-    /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
-    /// This will configure a circular DMA transfer that periodically outputs the `data`.
-    /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
-    ///
-    /// **Important:** Channel 1 has to be configured for the DAC instance!
-    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
-    where
-        Tx: Dma<T>,
-    {
-        let channel = Channel::Ch2.index();
-        debug!("Writing to channel {}", channel);
-
-        // Enable DAC and DMA
-        T::regs().cr().modify(|w| {
-            w.set_en(channel, true);
-            w.set_dmaen(channel, true);
-        });
-
-        let tx_request = self.dma.request();
-        let dma_channel = &self.dma;
-
-        // Initiate the correct type of DMA transfer depending on what data is passed
-        let tx_f = match data {
-            ValueArray::Bit8(buf) => unsafe {
-                Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr8r(channel).as_ptr() as *mut u8,
-                    TransferOptions {
-                        circular,
-                        half_transfer_ir: false,
-                        complete_transfer_ir: !circular,
-                    },
-                )
-            },
-            ValueArray::Bit12Left(buf) => unsafe {
-                Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr12l(channel).as_ptr() as *mut u16,
-                    TransferOptions {
-                        circular,
-                        half_transfer_ir: false,
-                        complete_transfer_ir: !circular,
-                    },
-                )
-            },
-            ValueArray::Bit12Right(buf) => unsafe {
-                Transfer::new_write(
-                    dma_channel,
-                    tx_request,
-                    buf,
-                    T::regs().dhr12r(channel).as_ptr() as *mut u16,
-                    TransferOptions {
-                        circular,
-                        half_transfer_ir: false,
-                        complete_transfer_ir: !circular,
-                    },
-                )
-            },
-        };
-
-        tx_f.await;
-
-        // finish dma
-        // TODO: Do we need to check any status registers here?
-        T::regs().cr().modify(|w| {
-            // Disable the DAC peripheral
-            w.set_en(channel, false);
-            // Disable the DMA. TODO: Is this necessary?
-            w.set_dmaen(channel, false);
-        });
-
-        Ok(())
-    }
 }
 
 impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
+    /// Create a new DAC instance with both channels.
+    ///
+    /// This is used to obtain two independent channels via `split()` for use e.g. with DMA.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         dma_ch1: impl Peripheral<P = TxCh1> + 'd,
@@ -447,22 +322,27 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
         }
     }
 
+    /// Split the DAC into CH1 and CH2 for independent use.
     pub fn split(self) -> (DacCh1<'d, T, TxCh1>, DacCh2<'d, T, TxCh2>) {
         (self.ch1, self.ch2)
     }
 
+    /// Get mutable reference to CH1
     pub fn ch1_mut(&mut self) -> &mut DacCh1<'d, T, TxCh1> {
         &mut self.ch1
     }
 
+    /// Get mutable reference to CH2
     pub fn ch2_mut(&mut self) -> &mut DacCh2<'d, T, TxCh2> {
         &mut self.ch2
     }
 
+    /// Get reference to CH1
     pub fn ch1(&mut self) -> &DacCh1<'d, T, TxCh1> {
         &self.ch1
     }
 
+    /// Get reference to CH2
     pub fn ch2(&mut self) -> &DacCh2<'d, T, TxCh2> {
         &self.ch2
     }
@@ -470,10 +350,117 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
 
 impl<'d, T: Instance, Tx> DacChannel<T, Tx> for DacCh1<'d, T, Tx> {
     const CHANNEL: Channel = Channel::Ch1;
+
+    /// Write `data` to the DAC CH1 via DMA.
+    ///
+    /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
+    /// This will configure a circular DMA transfer that periodically outputs the `data`.
+    /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
+    ///
+    /// **Important:** Channel 1 has to be configured for the DAC instance!
+    async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        write_inner(Self::CHANNEL, &self.dma, data, circular).await
+    }
 }
 
 impl<'d, T: Instance, Tx> DacChannel<T, Tx> for DacCh2<'d, T, Tx> {
     const CHANNEL: Channel = Channel::Ch2;
+
+    /// Write `data` to the DAC CH2 via DMA.
+    ///
+    /// To prevent delays/glitches when outputting a periodic waveform, the `circular` flag can be set.
+    /// This will configure a circular DMA transfer that periodically outputs the `data`.
+    /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
+    ///
+    /// **Important:** Channel 2 has to be configured for the DAC instance!
+    async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
+    where
+        Tx: Dma<T>,
+    {
+        write_inner(Self::CHANNEL, &self.dma, data, circular).await
+    }
+}
+
+/// Shared utility function to perform the actual DMA config and write.
+async fn write_inner<T: Instance, Tx>(
+    ch: Channel,
+    dma: &PeripheralRef<'_, Tx>,
+    data: ValueArray<'_>,
+    circular: bool,
+) -> Result<(), Error>
+where
+    Tx: Dma<T>,
+{
+    let channel = ch.index();
+    debug!("Writing to channel {}", channel);
+
+    // Enable DAC and DMA
+    T::regs().cr().modify(|w| {
+        w.set_en(channel, true);
+        w.set_dmaen(channel, true);
+    });
+
+    let tx_request = dma.request();
+    let dma_channel = dma;
+
+    // Initiate the correct type of DMA transfer depending on what data is passed
+    let tx_f = match data {
+        ValueArray::Bit8(buf) => unsafe {
+            Transfer::new_write(
+                dma_channel,
+                tx_request,
+                buf,
+                T::regs().dhr8r(channel).as_ptr() as *mut u8,
+                TransferOptions {
+                    circular,
+                    half_transfer_ir: false,
+                    complete_transfer_ir: !circular,
+                },
+            )
+        },
+        ValueArray::Bit12Left(buf) => unsafe {
+            Transfer::new_write(
+                dma_channel,
+                tx_request,
+                buf,
+                T::regs().dhr12l(channel).as_ptr() as *mut u16,
+                TransferOptions {
+                    circular,
+                    half_transfer_ir: false,
+                    complete_transfer_ir: !circular,
+                },
+            )
+        },
+        ValueArray::Bit12Right(buf) => unsafe {
+            Transfer::new_write(
+                dma_channel,
+                tx_request,
+                buf,
+                T::regs().dhr12r(channel).as_ptr() as *mut u16,
+                TransferOptions {
+                    circular,
+                    half_transfer_ir: false,
+                    complete_transfer_ir: !circular,
+                },
+            )
+        },
+    };
+
+    tx_f.await;
+
+    // finish dma
+    // TODO: Do we need to check any status registers here?
+    T::regs().cr().modify(|w| {
+        // Disable the DAC peripheral
+        w.set_en(channel, false);
+        // Disable the DMA. TODO: Is this necessary?
+        w.set_dmaen(channel, false);
+    });
+
+    Ok(())
 }
 
 pub(crate) mod sealed {
@@ -485,6 +472,7 @@ pub(crate) mod sealed {
 pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
 dma_trait!(Dma, Instance);
 
+/// Marks a pin that can be used with the DAC
 pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
