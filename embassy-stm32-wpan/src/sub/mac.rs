@@ -8,13 +8,13 @@ use embassy_futures::poll_once;
 use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::channels;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
 use crate::tables::{
     Mac802_15_4Table, MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, TL_MAC_802_15_4_TABLE,
 };
+use crate::{channels, evt};
 
 static MAC_WAKER: AtomicWaker = AtomicWaker::new();
 static MAC_EVT_OUT: AtomicBool = AtomicBool::new(false);
@@ -36,31 +36,10 @@ impl Mac {
         Self { phantom: PhantomData }
     }
 
-    /// SAFETY: passing a pointer to something other than a managed event packet is UB
-    pub(crate) unsafe fn drop_event_packet(_: *mut EvtPacket) {
-        // Write the ack
-        CmdPacket::write_into(
-            MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _,
-            TlPacketType::OtAck,
-            0,
-            &[],
-        );
-
-        // Clear the rx flag
-        let _ = poll_once(Ipcc::receive::<bool>(
-            channels::cpu2::IPCC_MAC_802_15_4_NOTIFICATION_ACK_CHANNEL,
-            || None,
-        ));
-
-        // Allow a new read call
-        MAC_EVT_OUT.store(false, Ordering::SeqCst);
-        MAC_WAKER.wake();
-    }
-
     /// `HW_IPCC_MAC_802_15_4_EvtNot`
     ///
     /// This function will stall if the previous `EvtBox` has not been dropped
-    pub async fn read(&self) -> EvtBox {
+    pub async fn read(&self) -> EvtBox<Self> {
         // Wait for the last event box to be dropped
         poll_fn(|cx| {
             MAC_WAKER.register(cx.waker());
@@ -107,5 +86,28 @@ impl Mac {
             );
         })
         .await;
+    }
+}
+
+impl evt::MemoryManager for Mac {
+    /// SAFETY: passing a pointer to something other than a managed event packet is UB
+    unsafe fn drop_event_packet(_: *mut EvtPacket) {
+        // Write the ack
+        CmdPacket::write_into(
+            MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _,
+            TlPacketType::OtAck,
+            0,
+            &[],
+        );
+
+        // Clear the rx flag
+        let _ = poll_once(Ipcc::receive::<bool>(
+            channels::cpu2::IPCC_MAC_802_15_4_NOTIFICATION_ACK_CHANNEL,
+            || None,
+        ));
+
+        // Allow a new read call
+        MAC_EVT_OUT.store(false, Ordering::SeqCst);
+        MAC_WAKER.wake();
     }
 }

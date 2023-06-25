@@ -87,3 +87,7 @@ pub const fn divc(x: usize, y: usize) -> usize {
 pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
 #[allow(dead_code)]
 pub const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;
+
+pub const TL_BLEEVT_CC_OPCODE: u8 = 0x0E;
+pub const TL_BLEEVT_CS_OPCODE: u8 = 0x0F;
+pub const TL_BLEEVT_VS_OPCODE: u8 = 0xFF;

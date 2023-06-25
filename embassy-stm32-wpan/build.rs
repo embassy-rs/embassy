@@ -1,4 +1,5 @@
-use std::env;
+use std::path::PathBuf;
+use std::{env, fs};
 
 fn main() {
     match env::vars()
@@ -10,6 +11,16 @@ fn main() {
         Err(GetOneError::None) => panic!("No stm32xx Cargo feature enabled"),
         Err(GetOneError::Multiple) => panic!("Multiple stm32xx Cargo features enabled"),
     }
+
+    let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
+
+    // ========
+    // stm32wb tl_mbox link sections
+
+    let out_file = out_dir.join("tl_mbox.x").to_string_lossy().to_string();
+    fs::write(out_file, fs::read_to_string("tl_mbox.x.in").unwrap()).unwrap();
+    println!("cargo:rustc-link-search={}", out_dir.display());
+    println!("cargo:rerun-if-changed=tl_mbox.x.in");
 }
 
 enum GetOneError {

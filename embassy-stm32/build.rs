@@ -911,16 +911,6 @@ fn main() {
         println!("cargo:rustc-cfg={}x{}", &chip_name[..9], &chip_name[10..11]);
     }
 
-    // ========
-    // stm32wb tl_mbox link sections
-
-    if chip_name.starts_with("stm32wb") {
-        let out_file = out_dir.join("tl_mbox.x").to_string_lossy().to_string();
-        fs::write(out_file, fs::read_to_string("tl_mbox.x.in").unwrap()).unwrap();
-        println!("cargo:rustc-link-search={}", out_dir.display());
-        println!("cargo:rerun-if-changed=tl_mbox.x.in");
-    }
-
     // =======
     // Features for targeting groups of chips
 

@@ -1,14 +1,16 @@
 use core::marker::PhantomData;
+use core::ptr;
 
 use embassy_stm32::ipcc::Ipcc;
 use hci::Opcode;
 
-use crate::channels;
 use crate::cmd::CmdPacket;
-use crate::consts::TlPacketType;
-use crate::evt::EvtBox;
+use crate::consts::{TlPacketType, TL_BLEEVT_CC_OPCODE, TL_BLEEVT_CS_OPCODE};
+use crate::evt::{EvtBox, EvtPacket, EvtStub};
+use crate::sub::mm;
 use crate::tables::{BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE};
 use crate::unsafe_linked_list::LinkedListNode;
+use crate::{channels, evt};
 
 pub struct Ble {
     phantom: PhantomData<Ble>,
@@ -30,7 +32,7 @@ impl Ble {
         Self { phantom: PhantomData }
     }
     /// `HW_IPCC_BLE_EvtNot`
-    pub async fn tl_read(&self) -> EvtBox {
+    pub async fn tl_read(&self) -> EvtBox<Self> {
         Ipcc::receive(channels::cpu2::IPCC_BLE_EVENT_CHANNEL, || unsafe {
             if let Some(node_ptr) = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr()) {
                 Some(EvtBox::new(node_ptr.cast()))
@@ -60,6 +62,21 @@ impl Ble {
             );
         })
         .await;
+    }
+}
+
+impl evt::MemoryManager for Ble {
+    /// SAFETY: passing a pointer to something other than a managed event packet is UB
+    unsafe fn drop_event_packet(evt: *mut EvtPacket) {
+        let stub = unsafe {
+            let p_evt_stub = &(*evt).evt_serial as *const _ as *const EvtStub;
+
+            ptr::read_volatile(p_evt_stub)
+        };
+
+        if !(stub.evt_code == TL_BLEEVT_CS_OPCODE || stub.evt_code == TL_BLEEVT_CC_OPCODE) {
+            mm::MemoryManager::drop_event_packet(evt);
+        }
     }
 }
 

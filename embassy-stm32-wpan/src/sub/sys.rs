@@ -6,6 +6,7 @@ use crate::consts::TlPacketType;
 use crate::evt::{CcEvt, EvtBox, EvtPacket};
 #[allow(unused_imports)]
 use crate::shci::{SchiCommandStatus, ShciBleInitCmdParam, ShciOpcode};
+use crate::sub::mm;
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
@@ -73,7 +74,7 @@ impl Sys {
     }
 
     /// `HW_IPCC_SYS_EvtNot`
-    pub async fn read(&self) -> EvtBox {
+    pub async fn read(&self) -> EvtBox<mm::MemoryManager> {
         Ipcc::receive(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, || unsafe {
             if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
                 Some(EvtBox::new(node_ptr.cast()))
