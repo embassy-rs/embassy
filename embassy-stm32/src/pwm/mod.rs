@@ -1,3 +1,5 @@
+#[cfg(hrtim_v1)]
+pub mod advanced_pwm;
 pub mod complementary_pwm;
 pub mod simple_pwm;
 
@@ -23,6 +25,29 @@ impl Channel {
             Channel::Ch2 => 1,
             Channel::Ch3 => 2,
             Channel::Ch4 => 3,
+        }
+    }
+}
+
+#[cfg(hrtim_v1)]
+#[derive(Clone, Copy)]
+pub enum AdvancedChannel {
+    ChA,
+    ChB,
+    ChC,
+    ChD,
+    ChE,
+}
+
+#[cfg(hrtim_v1)]
+impl AdvancedChannel {
+    pub fn raw(&self) -> usize {
+        match self {
+            AdvancedChannel::ChA => 0,
+            AdvancedChannel::ChB => 1,
+            AdvancedChannel::ChC => 2,
+            AdvancedChannel::ChD => 3,
+            AdvancedChannel::ChE => 4,
         }
     }
 }
@@ -57,6 +82,14 @@ impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
 pub(crate) mod sealed {
     use super::*;
 
+    pub trait AdvancedCaptureCompare16bitInstance: crate::timer::sealed::HighResolutionControlInstance {
+        fn enable_outputs(&mut self, enable: bool);
+
+        fn set_output_compare_mode(&mut self, channel: AdvancedChannel, mode: OutputCompareMode);
+
+        fn enable_channel(&mut self, channel: AdvancedChannel, enable: bool);
+    }
+
     pub trait CaptureCompare16bitInstance: crate::timer::sealed::GeneralPurpose16bitInstance {
         /// Global output enable. Does not do anything on non-advanced timers.
         fn enable_outputs(&mut self, enable: bool);
@@ -88,6 +121,8 @@ pub(crate) mod sealed {
         fn get_max_compare_value(&self) -> u32;
     }
 }
+
+pub trait AdvancedCaptureCompare16bitInstance: sealed::AdvancedCaptureCompare16bitInstance + 'static {}
 
 pub trait CaptureCompare16bitInstance:
     sealed::CaptureCompare16bitInstance + crate::timer::GeneralPurpose16bitInstance + 'static
@@ -250,6 +285,20 @@ foreach_interrupt! {
 
         }
     };
+
+    ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {
+        impl crate::pwm::sealed::AdvancedCaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn enable_outputs(&mut self, enable: bool) { todo!() }
+
+            fn set_output_compare_mode(&mut self, channel: AdvancedChannel, mode: OutputCompareMode) { todo!() }
+
+            fn enable_channel(&mut self, channel: AdvancedChannel, enable: bool) { todo!() }
+        }
+
+        impl AdvancedCaptureCompare16bitInstance for crate::peripherals::$inst {
+
+        }
+    };
 }
 
 pin_trait!(Channel1Pin, CaptureCompare16bitInstance);
@@ -267,3 +316,14 @@ pin_trait!(BreakInputComparator2Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Comparator1Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Comparator2Pin, CaptureCompare16bitInstance);
+
+pin_trait!(ChannelAPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelAComplementaryPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelBPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelBComplementaryPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelCPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelCComplementaryPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelDPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelDComplementaryPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelEPin, AdvancedCaptureCompare16bitInstance);
+pin_trait!(ChannelEComplementaryPin, AdvancedCaptureCompare16bitInstance);

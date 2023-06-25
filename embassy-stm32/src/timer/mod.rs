@@ -43,6 +43,21 @@ pub(crate) mod sealed {
     pub trait AdvancedControlInstance: GeneralPurpose16bitInstance {
         fn regs_advanced() -> crate::pac::timer::TimAdv;
     }
+
+    #[cfg(hrtim_v1)]
+    pub trait HighResolutionControlInstance: RccPeripheral {
+        type Interrupt: interrupt::typelevel::Interrupt;
+
+        fn regs_highres() -> crate::pac::hrtim::Hrtim;
+
+        fn start(&mut self);
+
+        fn stop(&mut self);
+
+        fn reset(&mut self);
+
+        fn set_frequency(&mut self, frequency: Hertz);
+    }
 }
 
 pub trait GeneralPurpose16bitInstance: sealed::GeneralPurpose16bitInstance + 'static {}
@@ -50,6 +65,9 @@ pub trait GeneralPurpose16bitInstance: sealed::GeneralPurpose16bitInstance + 'st
 pub trait GeneralPurpose32bitInstance: sealed::GeneralPurpose32bitInstance + 'static {}
 
 pub trait AdvancedControlInstance: sealed::AdvancedControlInstance + 'static {}
+
+#[cfg(hrtim_v1)]
+pub trait HighResolutionControlInstance: sealed::HighResolutionControlInstance + 'static {}
 
 pub trait Basic16bitInstance: sealed::Basic16bitInstance + 'static {}
 
@@ -206,6 +224,27 @@ foreach_interrupt! {
         }
 
         impl AdvancedControlInstance for crate::peripherals::$inst {
+        }
+    };
+
+    ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {
+        impl sealed::HighResolutionControlInstance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+
+            fn regs_highres() -> crate::pac::hrtim::Hrtim {
+                crate::pac::$inst
+            }
+
+            fn start(&mut self) { todo!() }
+
+            fn stop(&mut self) { todo!() }
+
+            fn reset(&mut self) { todo!() }
+
+            fn set_frequency(&mut self, frequency: Hertz) { todo!() }
+        }
+
+        impl HighResolutionControlInstance for crate::peripherals::$inst {
         }
     };
 }
