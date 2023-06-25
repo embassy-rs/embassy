@@ -49,7 +49,9 @@ async fn main(_spawner: Spawner) {
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
 
-    mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
+    let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
+    info!("initialized mac: {}", result);
+
     //
     //    info!("starting ble...");
     //    mbox.ble_subsystem.t_write(0x0c, &[]).await;
