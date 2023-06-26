@@ -38,7 +38,7 @@ igmp = ["smoltcp/proto-igmp"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev = "803840b5ccac01cc0f108993958f637835f0adbe", default-features = false, features = [
+smoltcp = { version = "0.10.0", default-features = false, features = [
   "socket",
   "async",
 ] }
