@@ -107,4 +107,100 @@ impl Watchdog {
             w.set_trigger(true);
         })
     }
+
+    pub fn set_scratch0(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch0().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch0(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch0().read()
+    }
+
+    pub fn set_scratch1(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch1().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch1(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch1().read()
+    }
+
+    pub fn set_scratch2(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch2().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch2(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch2().read()
+    }
+
+    pub fn set_scratch3(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch3().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch3(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch3().read()
+    }
+
+    pub fn set_scratch4(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch4().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch4(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch4().read()
+    }
+
+    pub fn set_scratch5(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch5().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch5(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch5().read()
+    }
+
+    pub fn set_scratch6(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch6().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch6(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch6().read()
+    }
+
+    pub fn set_scratch7(&mut self, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch7().write(|w| {
+            *w = value;
+        })
+    }
+
+    pub fn get_scratch7(&mut self) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        watchdog.scratch7().read()
+    }
 }
