@@ -29,6 +29,12 @@ pub struct TransferOptions {
     pub flow_ctrl: FlowControl,
     /// FIFO threshold for DMA FIFO mode. If none, direct mode is used.
     pub fifo_threshold: Option<FifoThreshold>,
+    /// Enable circular DMA
+    pub circular: bool,
+    /// Enable half transfer interrupt
+    pub half_transfer_ir: bool,
+    /// Enable transfer complete interrupt
+    pub complete_transfer_ir: bool,
 }
 
 impl Default for TransferOptions {
@@ -38,6 +44,9 @@ impl Default for TransferOptions {
             mburst: Burst::Single,
             flow_ctrl: FlowControl::Dma,
             fifo_threshold: None,
+            circular: false,
+            half_transfer_ir: false,
+            complete_transfer_ir: true,
         }
     }
 }
@@ -366,13 +375,20 @@ impl<'a, C: Channel> Transfer<'a, C> {
             });
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
-            w.set_tcie(true);
+            w.set_tcie(options.complete_transfer_ir);
+            w.set_htie(options.half_transfer_ir);
             #[cfg(dma_v1)]
             w.set_trbuff(true);
 
             #[cfg(dma_v2)]
             w.set_chsel(_request);
 
+            if options.circular {
+                w.set_circ(vals::Circ::ENABLED);
+                debug!("Setting circular mode");
+            } else {
+                w.set_circ(vals::Circ::DISABLED);
+            }
             w.set_pburst(options.pburst.into());
             w.set_mburst(options.mburst.into());
             w.set_pfctrl(options.flow_ctrl.into());
@@ -404,8 +420,14 @@ impl<'a, C: Channel> Transfer<'a, C> {
     }
 
     pub fn is_running(&mut self) -> bool {
+        //let ch = self.channel.regs().st(self.channel.num());
+        //ch.cr().read().en()
+
         let ch = self.channel.regs().st(self.channel.num());
-        ch.cr().read().en()
+        let en = ch.cr().read().en();
+        let circular = ch.cr().read().circ() == vals::Circ::ENABLED;
+        let tcif = STATE.complete_count[self.channel.index()].load(Ordering::Acquire) != 0;
+        en && (circular || !tcif)
     }
 
     /// Gets the total remaining transfers for the channel
