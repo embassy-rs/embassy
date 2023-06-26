@@ -235,12 +235,19 @@ impl<D: Driver + 'static> Stack<D> {
         #[cfg(feature = "medium-ethernet")]
         let medium = device.capabilities().medium;
 
-        let mut iface_cfg = smoltcp::iface::Config::new();
+        let hardware_addr = match medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())),
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => HardwareAddress::Ip,
+            #[allow(unreachable_patterns)]
+            _ => panic!(
+                "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
+                medium
+            ),
+        };
+        let mut iface_cfg = smoltcp::iface::Config::new(hardware_addr);
         iface_cfg.random_seed = random_seed;
-        #[cfg(feature = "medium-ethernet")]
-        if medium == Medium::Ethernet {
-            iface_cfg.hardware_addr = Some(HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())));
-        }
 
         let iface = Interface::new(
             iface_cfg,
@@ -248,6 +255,7 @@ impl<D: Driver + 'static> Stack<D> {
                 inner: &mut device,
                 cx: None,
             },
+            instant_to_smoltcp(Instant::now()),
         );
 
         let sockets = SocketSet::new(&mut resources.sockets[..]);
