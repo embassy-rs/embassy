@@ -540,6 +540,19 @@ impl<'d, T: Instance> Bus<'d, T> {
             fifo_top <= T::FIFO_DEPTH_WORDS,
             "FIFO allocations exceeded maximum capacity"
         );
+
+        // Flush fifos
+        r.grstctl().write(|w| {
+            w.set_rxfflsh(true);
+            w.set_txfflsh(true);
+            w.set_txfnum(0x10);
+        });
+        loop {
+            let x = r.grstctl().read();
+            if !x.rxfflsh() && !x.txfflsh() {
+                break;
+            }
+        }
     }
 
     fn configure_endpoints(&mut self) {
@@ -744,7 +757,19 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
 
                     r.doepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
-                    })
+                    });
+
+                    // Flush tx fifo
+                    r.grstctl().write(|w| {
+                        w.set_txfflsh(true);
+                        w.set_txfnum(ep_addr.index() as _);
+                    });
+                    loop {
+                        let x = r.grstctl().read();
+                        if !x.txfflsh() {
+                            break;
+                        }
+                    }
                 });
 
                 // Wake `Endpoint::wait_enabled()`
