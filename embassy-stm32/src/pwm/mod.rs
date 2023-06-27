@@ -29,7 +29,6 @@ impl Channel {
     }
 }
 
-#[cfg(hrtim_v1)]
 #[derive(Clone, Copy)]
 pub enum AdvancedChannel {
     ChA,
@@ -39,7 +38,6 @@ pub enum AdvancedChannel {
     ChE,
 }
 
-#[cfg(hrtim_v1)]
 impl AdvancedChannel {
     pub fn raw(&self) -> usize {
         match self {
@@ -82,6 +80,7 @@ impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
 pub(crate) mod sealed {
     use super::*;
 
+    #[cfg(hrtim_v1)]
     pub trait AdvancedCaptureCompare16bitInstance: crate::timer::sealed::HighResolutionControlInstance {
         fn enable_outputs(&mut self, enable: bool);
 
@@ -122,6 +121,7 @@ pub(crate) mod sealed {
     }
 }
 
+#[cfg(hrtim_v1)]
 pub trait AdvancedCaptureCompare16bitInstance: sealed::AdvancedCaptureCompare16bitInstance + 'static {}
 
 pub trait CaptureCompare16bitInstance:
@@ -317,13 +317,21 @@ pin_trait!(BreakInput2Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Comparator1Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Comparator2Pin, CaptureCompare16bitInstance);
 
-pin_trait!(ChannelAPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelAComplementaryPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelBPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelBComplementaryPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelCPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelCComplementaryPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelDPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelDComplementaryPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelEPin, AdvancedCaptureCompare16bitInstance);
-pin_trait!(ChannelEComplementaryPin, AdvancedCaptureCompare16bitInstance);
+#[cfg(hrtim_v1)]
+mod hrtim_pins {
+    use super::*;
+
+    pin_trait!(ChannelAPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelAComplementaryPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelBPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelBComplementaryPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelCPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelCComplementaryPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelDPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelDComplementaryPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelEPin, AdvancedCaptureCompare16bitInstance);
+    pin_trait!(ChannelEComplementaryPin, AdvancedCaptureCompare16bitInstance);
+}
+
+#[cfg(hrtim_v1)]
+pub use hrtim_pins::*;
