@@ -480,56 +480,57 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
 
-            if self.inited {
-                let regs = T::regs();
-
-                if IRQ_RESUME.load(Ordering::Acquire) {
-                    IRQ_RESUME.store(false, Ordering::Relaxed);
-                    return Poll::Ready(Event::Resume);
-                }
-
-                if IRQ_RESET.load(Ordering::Acquire) {
-                    IRQ_RESET.store(false, Ordering::Relaxed);
-
-                    trace!("RESET");
-                    regs.daddr().write(|w| {
-                        w.set_ef(true);
-                        w.set_add(0);
-                    });
-
-                    regs.epr(0).write(|w| {
-                        w.set_ep_type(EpType::CONTROL);
-                        w.set_stat_rx(Stat::NAK);
-                        w.set_stat_tx(Stat::NAK);
-                    });
-
-                    for i in 1..EP_COUNT {
-                        regs.epr(i).write(|w| {
-                            w.set_ea(i as _);
-                            w.set_ep_type(self.ep_types[i - 1]);
-                        })
-                    }
-
-                    for w in &EP_IN_WAKERS {
-                        w.wake()
-                    }
-                    for w in &EP_OUT_WAKERS {
-                        w.wake()
-                    }
-
-                    return Poll::Ready(Event::Reset);
-                }
-
-                if IRQ_SUSPEND.load(Ordering::Acquire) {
-                    IRQ_SUSPEND.store(false, Ordering::Relaxed);
-                    return Poll::Ready(Event::Suspend);
-                }
-
-                Poll::Pending
-            } else {
+            // TODO: implement VBUS detection.
+            if !self.inited {
                 self.inited = true;
                 return Poll::Ready(Event::PowerDetected);
             }
+
+            let regs = T::regs();
+
+            if IRQ_RESUME.load(Ordering::Acquire) {
+                IRQ_RESUME.store(false, Ordering::Relaxed);
+                return Poll::Ready(Event::Resume);
+            }
+
+            if IRQ_RESET.load(Ordering::Acquire) {
+                IRQ_RESET.store(false, Ordering::Relaxed);
+
+                trace!("RESET");
+                regs.daddr().write(|w| {
+                    w.set_ef(true);
+                    w.set_add(0);
+                });
+
+                regs.epr(0).write(|w| {
+                    w.set_ep_type(EpType::CONTROL);
+                    w.set_stat_rx(Stat::NAK);
+                    w.set_stat_tx(Stat::NAK);
+                });
+
+                for i in 1..EP_COUNT {
+                    regs.epr(i).write(|w| {
+                        w.set_ea(i as _);
+                        w.set_ep_type(self.ep_types[i - 1]);
+                    })
+                }
+
+                for w in &EP_IN_WAKERS {
+                    w.wake()
+                }
+                for w in &EP_OUT_WAKERS {
+                    w.wake()
+                }
+
+                return Poll::Ready(Event::Reset);
+            }
+
+            if IRQ_SUSPEND.load(Ordering::Acquire) {
+                IRQ_SUSPEND.store(false, Ordering::Relaxed);
+                return Poll::Ready(Event::Suspend);
+            }
+
+            Poll::Pending
         })
         .await
     }
