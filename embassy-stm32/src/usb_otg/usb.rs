@@ -124,7 +124,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     }
 
                     state.ep_in_wakers[ep_num].wake();
-                    trace!("in ep={} irq val={:b}", ep_num, ep_ints.0);
+                    trace!("in ep={} irq val={:08x}", ep_num, ep_ints.0);
                 }
 
                 ep_mask >>= 1;
@@ -144,7 +144,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         //             // clear all
         //             r.doepint(ep_num).write_value(ep_ints);
         //             state.ep_out_wakers[ep_num].wake();
-        //             trace!("out ep={} irq val={=u32:b}", ep_num, ep_ints.0);
+        //             trace!("out ep={} irq val={:08x}", ep_num, ep_ints.0);
         //         }
 
         //         ep_mask >>= 1;
@@ -571,6 +571,8 @@ impl<'d, T: Instance> Bus<'d, T> {
                             w.set_mpsiz(ep.max_packet_size);
                             w.set_eptyp(to_eptyp(ep.ep_type));
                             w.set_sd0pid_sevnfrm(true);
+                            w.set_txfnum(index as _);
+                            w.set_snak(true);
                         }
                     });
                 });
