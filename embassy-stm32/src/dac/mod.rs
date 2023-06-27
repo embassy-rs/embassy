@@ -153,11 +153,10 @@ pub trait DacChannel<T: Instance, Tx> {
     }
 
     /// Perform a software trigger on `ch`
-    fn trigger(&mut self) -> Result<(), Error> {
+    fn trigger(&mut self) {
         T::regs().swtrigr().write(|reg| {
             reg.set_swtrig(Self::CHANNEL.index(), true);
         });
-        Ok(())
     }
 
     /// Set a value to be output by the DAC on trigger.
@@ -230,6 +229,8 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     }
 
     /// Select a new trigger for this channel
+    ///
+    /// **Important**: This disables the channel!
     pub fn select_trigger(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
         unwrap!(self.disable_channel());
         T::regs().cr().modify(|reg| {
@@ -245,6 +246,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 1 has to be configured for the DAC instance!
+    #[cfg(all(bdma, not(dma)))] // It currently only works with BDMA-only chips (DMA should theoretically work though)
     pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: DmaCh1<T>,
@@ -355,6 +357,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 2 has to be configured for the DAC instance!
+    #[cfg(all(bdma, not(dma)))] // It currently only works with BDMA-only chips (DMA should theoretically work though)
     pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: DmaCh2<T>,
