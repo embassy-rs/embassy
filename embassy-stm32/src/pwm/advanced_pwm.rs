@@ -11,11 +11,30 @@ use crate::time::Hertz;
 use crate::Peripheral;
 
 // Re-implement the channels for hrtim
-pub struct ChA;
-pub struct ChB;
-pub struct ChC;
-pub struct ChD;
-pub struct ChE;
+pub struct Master {
+    phantom: PhantomData<bool>,
+}
+pub struct ChA {
+    phantom: PhantomData<bool>,
+}
+pub struct ChB {
+    phantom: PhantomData<bool>,
+}
+pub struct ChC {
+    phantom: PhantomData<bool>,
+}
+pub struct ChD {
+    phantom: PhantomData<bool>,
+}
+pub struct ChE {
+    phantom: PhantomData<bool>,
+}
+
+mod sealed {
+    pub trait AdvancedChannel {}
+}
+
+pub trait AdvancedChannel: sealed::AdvancedChannel {}
 
 pub struct PwmPin<'d, Perip, Channel> {
     _pin: PeripheralRef<'d, AnyPin>,
@@ -60,6 +79,9 @@ macro_rules! advanced_channel_impl {
                 }
             }
         }
+
+        impl sealed::AdvancedChannel for $channel {}
+        impl AdvancedChannel for $channel {}
     };
 }
 
@@ -69,8 +91,15 @@ advanced_channel_impl!(new_chc, ChC, ChannelCPin, ChannelCComplementaryPin);
 advanced_channel_impl!(new_chd, ChD, ChannelDPin, ChannelDComplementaryPin);
 advanced_channel_impl!(new_che, ChE, ChannelEPin, ChannelEComplementaryPin);
 
+/// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T> {
     inner: PeripheralRef<'d, T>,
+    pub master: Master,
+    pub ch_a: ChA,
+    pub ch_b: ChB,
+    pub ch_c: ChC,
+    pub ch_d: ChD,
+    pub ch_e: ChE,
 }
 
 impl<'d, T: ComplementaryCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
@@ -84,18 +113,25 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
         _ch3n: Option<ComplementaryPwmPin<'d, T, Ch3>>,
         _ch4: Option<PwmPin<'d, T, Ch4>>,
         _ch4n: Option<ComplementaryPwmPin<'d, T, Ch4>>,
-        freq: Hertz,
     ) -> Self {
-        Self::new_inner(tim, freq)
+        Self::new_inner(tim)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz) -> Self {
+    fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
         T::enable();
         <T as crate::rcc::sealed::RccPeripheral>::reset();
 
-        let mut this = Self { inner: tim };
+        Self {
+            inner: tim,
+            master: Master { phantom: PhantomData },
+            ch_a: ChA { phantom: PhantomData },
+            ch_b: ChB { phantom: PhantomData },
+            ch_c: ChC { phantom: PhantomData },
+            ch_d: ChD { phantom: PhantomData },
+            ch_e: ChE { phantom: PhantomData },
+        }
         //
         //        this.inner.set_frequency(freq);
         //        this.inner.start();
@@ -110,32 +146,31 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
         //            .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
         //        this.inner
         //            .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
-        this
     }
 
-    pub fn enable(&mut self, channel: AdvancedChannel) {
-        // self.inner.enable_channel(channel, true);
-        // self.inner.enable_complementary_channel(channel, true);
-    }
-
-    pub fn disable(&mut self, channel: AdvancedChannel) {
-        // self.inner.enable_complementary_channel(channel, false);
-        // self.inner.enable_channel(channel, false);
-    }
-
-    pub fn set_freq(&mut self, freq: Hertz) {
-        // self.inner.set_frequency(freq);
-    }
-
-    pub fn get_max_duty(&self) -> u16 {
-        todo!()
-        // self.inner.get_max_compare_value()
-    }
-
-    pub fn set_duty(&mut self, channel: AdvancedChannel, duty: u16) {
-        // assert!(duty < self.get_max_duty());
-        // self.inner.set_compare_value(channel, duty)
-    }
+    //    pub fn enable(&mut self, channel: AdvancedChannel) {
+    //        // self.inner.enable_channel(channel, true);
+    //        // self.inner.enable_complementary_channel(channel, true);
+    //    }
+    //
+    //    pub fn disable(&mut self, channel: AdvancedChannel) {
+    //        // self.inner.enable_complementary_channel(channel, false);
+    //        // self.inner.enable_channel(channel, false);
+    //    }
+    //
+    //    pub fn set_freq(&mut self, freq: Hertz) {
+    //        // self.inner.set_frequency(freq);
+    //    }
+    //
+    //    pub fn get_max_duty(&self) -> u16 {
+    //        todo!()
+    //        // self.inner.get_max_compare_value()
+    //    }
+    //
+    //    pub fn set_duty(&mut self, channel: AdvancedChannel, duty: u16) {
+    //        // assert!(duty < self.get_max_duty());
+    //        // self.inner.set_compare_value(channel, duty)
+    //    }
 
     /// Set the dead time as a proportion of max_duty
     pub fn set_dead_time(&mut self, value: u16) {
@@ -143,5 +178,35 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
         //
         //        self.inner.set_dead_time_clock_division(ckd);
         //        self.inner.set_dead_time_value(value);
+    }
+}
+
+// Represents a fixed-frequency bridge converter
+pub struct BridgeConverter<T: AdvancedChannel> {
+    pub ch: T,
+}
+
+impl<T: AdvancedChannel> BridgeConverter<T> {
+    pub fn new(channel: T, frequency: Hertz) -> Self {
+        Self { ch: channel }
+    }
+
+    pub fn set_duty(&mut self, primary: u16, secondary: u16) {
+        todo!()
+    }
+}
+
+// Represents a variable-frequency resonant converter
+pub struct ResonantConverter<T: AdvancedChannel> {
+    pub ch: T,
+}
+
+impl<T: AdvancedChannel> ResonantConverter<T> {
+    pub fn new(channel: T, min_frequency: Hertz) -> Self {
+        Self { ch: channel }
+    }
+
+    pub fn set_frequency(&mut self, frequency: Hertz) {
+        todo!()
     }
 }
