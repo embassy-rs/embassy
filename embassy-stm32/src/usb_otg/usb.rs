@@ -780,13 +780,14 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
                     // cancel transfer if active
                     if !enabled && r.diepctl(ep_addr.index()).read().epena() {
                         r.diepctl(ep_addr.index()).modify(|w| {
-                            w.set_snak(true);
+                            w.set_snak(true); // set NAK
                             w.set_epdis(true);
                         })
                     }
 
                     r.diepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
+                        w.set_cnak(enabled); // clear NAK that might've been set by SNAK above.
                     })
                 });
 
