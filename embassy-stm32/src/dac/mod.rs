@@ -127,6 +127,7 @@ pub trait DacChannel<T: Instance, Tx> {
     }
 
     /// Set mode register of the given channel
+    #[cfg(dac_v2)]
     fn set_channel_mode(&mut self, val: u8) -> Result<(), Error> {
         T::regs().mcr().modify(|reg| {
             reg.set_mode(Self::CHANNEL.index(), val);
@@ -221,6 +222,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
+        #[cfg(dac_v2)]
         dac.set_channel_mode(0).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
@@ -334,6 +336,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
+        #[cfg(dac_v2)]
         dac.set_channel_mode(0).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
@@ -454,10 +457,12 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
+        #[cfg(dac_v2)]
         dac_ch1.set_channel_mode(0).unwrap();
         dac_ch1.enable_channel().unwrap();
         dac_ch1.set_trigger_enable(true).unwrap();
 
+        #[cfg(dac_v2)]
         dac_ch2.set_channel_mode(0).unwrap();
         dac_ch2.enable_channel().unwrap();
         dac_ch2.set_trigger_enable(true).unwrap();
@@ -521,27 +526,25 @@ foreach_peripheral!(
         #[cfg(rcc_h7)]
         impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
             fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe {
-                    crate::rcc::get_freqs().apb1
-                })
+                critical_section::with(|_| crate::rcc::get_freqs().apb1)
             }
 
             fn reset() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
                     crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
                 })
             }
 
             fn enable() {
-                critical_section::with(|_| unsafe {
+                critical_section::with(|_| {
                     crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
                 })
             }
 
             fn disable() {
-                critical_section::with(|_| unsafe {
-                    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false));
+                critical_section::with(|_| {
+                    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
                 })
             }
         }
