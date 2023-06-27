@@ -1,7 +1,7 @@
 use crate::pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
 use crate::pac::RCC;
 #[cfg(crs)]
-use crate::pac::{CRS, SYSCFG};
+use crate::pac::{crs, CRS, SYSCFG};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -338,7 +338,7 @@ pub(crate) unsafe fn init(config: Config) {
         CRS.cfgr().write(|w|
 
         // Select LSE as synchronization source
-        w.set_syncsrc(0b01));
+        w.set_syncsrc(crs::vals::Syncsrc::LSE));
         CRS.cr().modify(|w| {
             w.set_autotrimen(true);
             w.set_cen(true);

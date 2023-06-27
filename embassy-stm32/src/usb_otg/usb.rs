@@ -6,8 +6,8 @@ use atomic_polyfill::{AtomicBool, AtomicU16, Ordering};
 use embassy_hal_common::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
-    self, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
-    EndpointType, Event, Unsupported,
+    self, Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo,
+    EndpointOut, EndpointType, Event, Unsupported,
 };
 use futures::future::poll_fn;
 
@@ -31,7 +31,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let state = T::state();
 
         let ints = r.gintsts().read();
-        if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() {
+        if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
             // Mask interrupts and notify `Bus` to process them
             r.gintmsk().write(|_| {});
             T::state().bus_waker.wake();
@@ -124,7 +124,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     }
 
                     state.ep_in_wakers[ep_num].wake();
-                    trace!("in ep={} irq val={:b}", ep_num, ep_ints.0);
+                    trace!("in ep={} irq val={:08x}", ep_num, ep_ints.0);
                 }
 
                 ep_mask >>= 1;
@@ -144,7 +144,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         //             // clear all
         //             r.doepint(ep_num).write_value(ep_ints);
         //             state.ep_out_wakers[ep_num].wake();
-        //             trace!("out ep={} irq val={=u32:b}", ep_num, ep_ints.0);
+        //             trace!("out ep={} irq val={:08x}", ep_num, ep_ints.0);
         //         }
 
         //         ep_mask >>= 1;
@@ -256,7 +256,34 @@ struct EndpointData {
     fifo_size_words: u16,
 }
 
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Config {
+    /// Enable VBUS detection.
+    ///
+    /// The USB spec requires USB devices monitor for USB cable plug/unplug and react accordingly.
+    /// This is done by checkihg whether there is 5V on the VBUS pin or not.
+    ///
+    /// If your device is bus-powered (powers itself from the USB host via VBUS), then this is optional.
+    /// (if there's no power in VBUS your device would be off anyway, so it's fine to always assume
+    /// there's power in VBUS, i.e. the USB cable is always plugged in.)
+    ///
+    /// If your device is self-powered (i.e. it gets power from a source other than the USB cable, and
+    /// therefore can stay powered through USB cable plug/unplug) then you MUST set this to true.
+    ///
+    /// If you set this to true, you must connect VBUS to PA9 for FS, PB13 for HS, possibly with a
+    /// voltage divider. See ST application note AN4879 and the reference manual for more details.
+    pub vbus_detection: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { vbus_detection: true }
+    }
+}
+
 pub struct Driver<'d, T: Instance> {
+    config: Config,
     phantom: PhantomData<&'d mut T>,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
@@ -279,6 +306,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
+        config: Config,
     ) -> Self {
         into_ref!(dp, dm);
 
@@ -286,6 +314,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
 
         Self {
+            config,
             phantom: PhantomData,
             ep_in: [None; MAX_EP_COUNT],
             ep_out: [None; MAX_EP_COUNT],
@@ -318,6 +347,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
         ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
+        config: Config,
     ) -> Self {
         assert!(T::HIGH_SPEED == true, "Peripheral is not capable of high-speed USB");
 
@@ -327,6 +357,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         );
 
         Self {
+            config,
             phantom: PhantomData,
             ep_in: [None; MAX_EP_COUNT],
             ep_out: [None; MAX_EP_COUNT],
@@ -464,11 +495,12 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 
         (
             Bus {
+                config: self.config,
                 phantom: PhantomData,
                 ep_in: self.ep_in,
                 ep_out: self.ep_out,
                 phy_type: self.phy_type,
-                enabled: false,
+                inited: false,
             },
             ControlPipe {
                 _phantom: PhantomData,
@@ -481,11 +513,12 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 }
 
 pub struct Bus<'d, T: Instance> {
+    config: Config,
     phantom: PhantomData<&'d mut T>,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
     phy_type: PhyType,
-    enabled: bool,
+    inited: bool,
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
@@ -498,282 +531,14 @@ impl<'d, T: Instance> Bus<'d, T> {
             w.set_iepint(true);
             w.set_oepint(true);
             w.set_rxflvlm(true);
+            w.set_srqim(true);
+            w.set_otgint(true);
         });
     }
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
-    fn init_fifo(&mut self) {
-        trace!("init_fifo");
-
-        let r = T::regs();
-
-        // Configure RX fifo size. All endpoints share the same FIFO area.
-        let rx_fifo_size_words = RX_FIFO_EXTRA_SIZE_WORDS + ep_fifo_size(&self.ep_out);
-        trace!("configuring rx fifo size={}", rx_fifo_size_words);
-
-        r.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words));
-
-        // Configure TX (USB in direction) fifo size for each endpoint
-        let mut fifo_top = rx_fifo_size_words;
-        for i in 0..T::ENDPOINT_COUNT {
-            if let Some(ep) = self.ep_in[i] {
-                trace!(
-                    "configuring tx fifo ep={}, offset={}, size={}",
-                    i,
-                    fifo_top,
-                    ep.fifo_size_words
-                );
-
-                let dieptxf = if i == 0 { r.dieptxf0() } else { r.dieptxf(i - 1) };
-
-                dieptxf.write(|w| {
-                    w.set_fd(ep.fifo_size_words);
-                    w.set_sa(fifo_top);
-                });
-
-                fifo_top += ep.fifo_size_words;
-            }
-        }
-
-        assert!(
-            fifo_top <= T::FIFO_DEPTH_WORDS,
-            "FIFO allocations exceeded maximum capacity"
-        );
-    }
-
-    fn configure_endpoints(&mut self) {
-        trace!("configure_endpoints");
-
-        let r = T::regs();
-
-        // Configure IN endpoints
-        for (index, ep) in self.ep_in.iter().enumerate() {
-            if let Some(ep) = ep {
-                critical_section::with(|_| {
-                    r.diepctl(index).write(|w| {
-                        if index == 0 {
-                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
-                        } else {
-                            w.set_mpsiz(ep.max_packet_size);
-                            w.set_eptyp(to_eptyp(ep.ep_type));
-                            w.set_sd0pid_sevnfrm(true);
-                        }
-                    });
-                });
-            }
-        }
-
-        // Configure OUT endpoints
-        for (index, ep) in self.ep_out.iter().enumerate() {
-            if let Some(ep) = ep {
-                critical_section::with(|_| {
-                    r.doepctl(index).write(|w| {
-                        if index == 0 {
-                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
-                        } else {
-                            w.set_mpsiz(ep.max_packet_size);
-                            w.set_eptyp(to_eptyp(ep.ep_type));
-                            w.set_sd0pid_sevnfrm(true);
-                        }
-                    });
-
-                    r.doeptsiz(index).modify(|w| {
-                        w.set_xfrsiz(ep.max_packet_size as _);
-                        if index == 0 {
-                            w.set_rxdpid_stupcnt(1);
-                        } else {
-                            w.set_pktcnt(1);
-                        }
-                    });
-                });
-            }
-        }
-
-        // Enable IRQs for allocated endpoints
-        r.daintmsk().modify(|w| {
-            w.set_iepm(ep_irq_mask(&self.ep_in));
-            // OUT interrupts not used, handled in RXFLVL
-            // w.set_oepm(ep_irq_mask(&self.ep_out));
-        });
-    }
-
-    fn disable(&mut self) {
-        T::Interrupt::disable();
-
-        <T as RccPeripheral>::disable();
-
-        #[cfg(stm32l4)]
-        crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
-        // Cannot disable PWR, because other peripherals might be using it
-    }
-}
-
-impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
-    async fn poll(&mut self) -> Event {
-        poll_fn(move |cx| {
-            // TODO: implement VBUS detection
-            if !self.enabled {
-                return Poll::Ready(Event::PowerDetected);
-            }
-
-            let r = T::regs();
-
-            T::state().bus_waker.register(cx.waker());
-
-            let ints = r.gintsts().read();
-            if ints.usbrst() {
-                trace!("reset");
-
-                self.init_fifo();
-                self.configure_endpoints();
-
-                // Reset address
-                critical_section::with(|_| {
-                    r.dcfg().modify(|w| {
-                        w.set_dad(0);
-                    });
-                });
-
-                r.gintsts().write(|w| w.set_usbrst(true)); // clear
-                Self::restore_irqs();
-            }
-
-            if ints.enumdne() {
-                trace!("enumdne");
-
-                let speed = r.dsts().read().enumspd();
-                trace!("  speed={}", speed.0);
-
-                r.gusbcfg().modify(|w| {
-                    w.set_trdt(calculate_trdt(speed, T::frequency()));
-                });
-
-                r.gintsts().write(|w| w.set_enumdne(true)); // clear
-                Self::restore_irqs();
-
-                return Poll::Ready(Event::Reset);
-            }
-
-            if ints.usbsusp() {
-                trace!("suspend");
-                r.gintsts().write(|w| w.set_usbsusp(true)); // clear
-                Self::restore_irqs();
-                return Poll::Ready(Event::Suspend);
-            }
-
-            if ints.wkupint() {
-                trace!("resume");
-                r.gintsts().write(|w| w.set_wkupint(true)); // clear
-                Self::restore_irqs();
-                return Poll::Ready(Event::Resume);
-            }
-
-            Poll::Pending
-        })
-        .await
-    }
-
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        trace!("endpoint_set_stalled ep={:?} en={}", ep_addr, stalled);
-
-        assert!(
-            ep_addr.index() < T::ENDPOINT_COUNT,
-            "endpoint_set_stalled index {} out of range",
-            ep_addr.index()
-        );
-
-        let regs = T::regs();
-        match ep_addr.direction() {
-            Direction::Out => {
-                critical_section::with(|_| {
-                    regs.doepctl(ep_addr.index()).modify(|w| {
-                        w.set_stall(stalled);
-                    });
-                });
-
-                T::state().ep_out_wakers[ep_addr.index()].wake();
-            }
-            Direction::In => {
-                critical_section::with(|_| {
-                    regs.diepctl(ep_addr.index()).modify(|w| {
-                        w.set_stall(stalled);
-                    });
-                });
-
-                T::state().ep_in_wakers[ep_addr.index()].wake();
-            }
-        }
-    }
-
-    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        assert!(
-            ep_addr.index() < T::ENDPOINT_COUNT,
-            "endpoint_is_stalled index {} out of range",
-            ep_addr.index()
-        );
-
-        let regs = T::regs();
-
-        match ep_addr.direction() {
-            Direction::Out => regs.doepctl(ep_addr.index()).read().stall(),
-            Direction::In => regs.diepctl(ep_addr.index()).read().stall(),
-        }
-    }
-
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        trace!("endpoint_set_enabled ep={:?} en={}", ep_addr, enabled);
-
-        assert!(
-            ep_addr.index() < T::ENDPOINT_COUNT,
-            "endpoint_set_enabled index {} out of range",
-            ep_addr.index()
-        );
-
-        let r = T::regs();
-        match ep_addr.direction() {
-            Direction::Out => {
-                critical_section::with(|_| {
-                    // cancel transfer if active
-                    if !enabled && r.doepctl(ep_addr.index()).read().epena() {
-                        r.doepctl(ep_addr.index()).modify(|w| {
-                            w.set_snak(true);
-                            w.set_epdis(true);
-                        })
-                    }
-
-                    r.doepctl(ep_addr.index()).modify(|w| {
-                        w.set_usbaep(enabled);
-                    })
-                });
-
-                // Wake `Endpoint::wait_enabled()`
-                T::state().ep_out_wakers[ep_addr.index()].wake();
-            }
-            Direction::In => {
-                critical_section::with(|_| {
-                    // cancel transfer if active
-                    if !enabled && r.diepctl(ep_addr.index()).read().epena() {
-                        r.diepctl(ep_addr.index()).modify(|w| {
-                            w.set_snak(true);
-                            w.set_epdis(true);
-                        })
-                    }
-
-                    r.diepctl(ep_addr.index()).modify(|w| {
-                        w.set_usbaep(enabled);
-                    })
-                });
-
-                // Wake `Endpoint::wait_enabled()`
-                T::state().ep_in_wakers[ep_addr.index()].wake();
-            }
-        }
-    }
-
-    async fn enable(&mut self) {
-        trace!("enable");
-
+    fn init(&mut self) {
         #[cfg(stm32l4)]
         {
             crate::peripherals::PWR::enable();
@@ -908,9 +673,9 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
 
                 // F429-like chips have the GCCFG.NOVBUSSENS bit
                 r.gccfg_v1().modify(|w| {
-                    w.set_novbussens(true);
+                    w.set_novbussens(!self.config.vbus_detection);
                     w.set_vbusasen(false);
-                    w.set_vbusbsen(false);
+                    w.set_vbusbsen(self.config.vbus_detection);
                     w.set_sofouten(false);
                 });
             }
@@ -923,12 +688,12 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
                 });
 
                 r.gccfg_v2().modify(|w| {
-                    w.set_vbden(false);
+                    w.set_vbden(self.config.vbus_detection);
                 });
 
                 // Force B-peripheral session
                 r.gotgctl().modify(|w| {
-                    w.set_bvaloen(true);
+                    w.set_bvaloen(!self.config.vbus_detection);
                     w.set_bvaloval(true);
                 });
             }
@@ -960,16 +725,352 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
 
         // Connect
         r.dctl().write(|w| w.set_sdis(false));
+    }
 
-        self.enabled = true;
+    fn init_fifo(&mut self) {
+        trace!("init_fifo");
+
+        let r = T::regs();
+
+        // Configure RX fifo size. All endpoints share the same FIFO area.
+        let rx_fifo_size_words = RX_FIFO_EXTRA_SIZE_WORDS + ep_fifo_size(&self.ep_out);
+        trace!("configuring rx fifo size={}", rx_fifo_size_words);
+
+        r.grxfsiz().modify(|w| w.set_rxfd(rx_fifo_size_words));
+
+        // Configure TX (USB in direction) fifo size for each endpoint
+        let mut fifo_top = rx_fifo_size_words;
+        for i in 0..T::ENDPOINT_COUNT {
+            if let Some(ep) = self.ep_in[i] {
+                trace!(
+                    "configuring tx fifo ep={}, offset={}, size={}",
+                    i,
+                    fifo_top,
+                    ep.fifo_size_words
+                );
+
+                let dieptxf = if i == 0 { r.dieptxf0() } else { r.dieptxf(i - 1) };
+
+                dieptxf.write(|w| {
+                    w.set_fd(ep.fifo_size_words);
+                    w.set_sa(fifo_top);
+                });
+
+                fifo_top += ep.fifo_size_words;
+            }
+        }
+
+        assert!(
+            fifo_top <= T::FIFO_DEPTH_WORDS,
+            "FIFO allocations exceeded maximum capacity"
+        );
+
+        // Flush fifos
+        r.grstctl().write(|w| {
+            w.set_rxfflsh(true);
+            w.set_txfflsh(true);
+            w.set_txfnum(0x10);
+        });
+        loop {
+            let x = r.grstctl().read();
+            if !x.rxfflsh() && !x.txfflsh() {
+                break;
+            }
+        }
+    }
+
+    fn configure_endpoints(&mut self) {
+        trace!("configure_endpoints");
+
+        let r = T::regs();
+
+        // Configure IN endpoints
+        for (index, ep) in self.ep_in.iter().enumerate() {
+            if let Some(ep) = ep {
+                critical_section::with(|_| {
+                    r.diepctl(index).write(|w| {
+                        if index == 0 {
+                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
+                        } else {
+                            w.set_mpsiz(ep.max_packet_size);
+                            w.set_eptyp(to_eptyp(ep.ep_type));
+                            w.set_sd0pid_sevnfrm(true);
+                            w.set_txfnum(index as _);
+                            w.set_snak(true);
+                        }
+                    });
+                });
+            }
+        }
+
+        // Configure OUT endpoints
+        for (index, ep) in self.ep_out.iter().enumerate() {
+            if let Some(ep) = ep {
+                critical_section::with(|_| {
+                    r.doepctl(index).write(|w| {
+                        if index == 0 {
+                            w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
+                        } else {
+                            w.set_mpsiz(ep.max_packet_size);
+                            w.set_eptyp(to_eptyp(ep.ep_type));
+                            w.set_sd0pid_sevnfrm(true);
+                        }
+                    });
+
+                    r.doeptsiz(index).modify(|w| {
+                        w.set_xfrsiz(ep.max_packet_size as _);
+                        if index == 0 {
+                            w.set_rxdpid_stupcnt(1);
+                        } else {
+                            w.set_pktcnt(1);
+                        }
+                    });
+                });
+            }
+        }
+
+        // Enable IRQs for allocated endpoints
+        r.daintmsk().modify(|w| {
+            w.set_iepm(ep_irq_mask(&self.ep_in));
+            // OUT interrupts not used, handled in RXFLVL
+            // w.set_oepm(ep_irq_mask(&self.ep_out));
+        });
+    }
+
+    fn disable_all_endpoints(&mut self) {
+        for i in 0..T::ENDPOINT_COUNT {
+            self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::In), false);
+            self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::Out), false);
+        }
+    }
+
+    fn disable(&mut self) {
+        T::Interrupt::disable();
+
+        <T as RccPeripheral>::disable();
+
+        #[cfg(stm32l4)]
+        crate::pac::PWR.cr2().modify(|w| w.set_usv(false));
+        // Cannot disable PWR, because other peripherals might be using it
+    }
+}
+
+impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
+    async fn poll(&mut self) -> Event {
+        poll_fn(move |cx| {
+            if !self.inited {
+                self.init();
+                self.inited = true;
+
+                // If no vbus detection, just return a single PowerDetected event at startup.
+                if !self.config.vbus_detection {
+                    return Poll::Ready(Event::PowerDetected);
+                }
+            }
+
+            let r = T::regs();
+
+            T::state().bus_waker.register(cx.waker());
+
+            let ints = r.gintsts().read();
+
+            if ints.srqint() {
+                trace!("vbus detected");
+
+                r.gintsts().write(|w| w.set_srqint(true)); // clear
+                Self::restore_irqs();
+
+                if self.config.vbus_detection {
+                    return Poll::Ready(Event::PowerDetected);
+                }
+            }
+
+            if ints.otgint() {
+                let otgints = r.gotgint().read();
+                r.gotgint().write_value(otgints); // clear all
+                Self::restore_irqs();
+
+                if otgints.sedet() {
+                    trace!("vbus removed");
+                    if self.config.vbus_detection {
+                        self.disable_all_endpoints();
+                        return Poll::Ready(Event::PowerRemoved);
+                    }
+                }
+            }
+
+            if ints.usbrst() {
+                trace!("reset");
+
+                self.init_fifo();
+                self.configure_endpoints();
+
+                // Reset address
+                critical_section::with(|_| {
+                    r.dcfg().modify(|w| {
+                        w.set_dad(0);
+                    });
+                });
+
+                r.gintsts().write(|w| w.set_usbrst(true)); // clear
+                Self::restore_irqs();
+            }
+
+            if ints.enumdne() {
+                trace!("enumdne");
+
+                let speed = r.dsts().read().enumspd();
+                trace!("  speed={}", speed.0);
+
+                r.gusbcfg().modify(|w| {
+                    w.set_trdt(calculate_trdt(speed, T::frequency()));
+                });
+
+                r.gintsts().write(|w| w.set_enumdne(true)); // clear
+                Self::restore_irqs();
+
+                return Poll::Ready(Event::Reset);
+            }
+
+            if ints.usbsusp() {
+                trace!("suspend");
+                r.gintsts().write(|w| w.set_usbsusp(true)); // clear
+                Self::restore_irqs();
+                return Poll::Ready(Event::Suspend);
+            }
+
+            if ints.wkupint() {
+                trace!("resume");
+                r.gintsts().write(|w| w.set_wkupint(true)); // clear
+                Self::restore_irqs();
+                return Poll::Ready(Event::Resume);
+            }
+
+            Poll::Pending
+        })
+        .await
+    }
+
+    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        trace!("endpoint_set_stalled ep={:?} en={}", ep_addr, stalled);
+
+        assert!(
+            ep_addr.index() < T::ENDPOINT_COUNT,
+            "endpoint_set_stalled index {} out of range",
+            ep_addr.index()
+        );
+
+        let regs = T::regs();
+        match ep_addr.direction() {
+            Direction::Out => {
+                critical_section::with(|_| {
+                    regs.doepctl(ep_addr.index()).modify(|w| {
+                        w.set_stall(stalled);
+                    });
+                });
+
+                T::state().ep_out_wakers[ep_addr.index()].wake();
+            }
+            Direction::In => {
+                critical_section::with(|_| {
+                    regs.diepctl(ep_addr.index()).modify(|w| {
+                        w.set_stall(stalled);
+                    });
+                });
+
+                T::state().ep_in_wakers[ep_addr.index()].wake();
+            }
+        }
+    }
+
+    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+        assert!(
+            ep_addr.index() < T::ENDPOINT_COUNT,
+            "endpoint_is_stalled index {} out of range",
+            ep_addr.index()
+        );
+
+        let regs = T::regs();
+
+        match ep_addr.direction() {
+            Direction::Out => regs.doepctl(ep_addr.index()).read().stall(),
+            Direction::In => regs.diepctl(ep_addr.index()).read().stall(),
+        }
+    }
+
+    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+        trace!("endpoint_set_enabled ep={:?} en={}", ep_addr, enabled);
+
+        assert!(
+            ep_addr.index() < T::ENDPOINT_COUNT,
+            "endpoint_set_enabled index {} out of range",
+            ep_addr.index()
+        );
+
+        let r = T::regs();
+        match ep_addr.direction() {
+            Direction::Out => {
+                critical_section::with(|_| {
+                    // cancel transfer if active
+                    if !enabled && r.doepctl(ep_addr.index()).read().epena() {
+                        r.doepctl(ep_addr.index()).modify(|w| {
+                            w.set_snak(true);
+                            w.set_epdis(true);
+                        })
+                    }
+
+                    r.doepctl(ep_addr.index()).modify(|w| {
+                        w.set_usbaep(enabled);
+                    });
+
+                    // Flush tx fifo
+                    r.grstctl().write(|w| {
+                        w.set_txfflsh(true);
+                        w.set_txfnum(ep_addr.index() as _);
+                    });
+                    loop {
+                        let x = r.grstctl().read();
+                        if !x.txfflsh() {
+                            break;
+                        }
+                    }
+                });
+
+                // Wake `Endpoint::wait_enabled()`
+                T::state().ep_out_wakers[ep_addr.index()].wake();
+            }
+            Direction::In => {
+                critical_section::with(|_| {
+                    // cancel transfer if active
+                    if !enabled && r.diepctl(ep_addr.index()).read().epena() {
+                        r.diepctl(ep_addr.index()).modify(|w| {
+                            w.set_snak(true); // set NAK
+                            w.set_epdis(true);
+                        })
+                    }
+
+                    r.diepctl(ep_addr.index()).modify(|w| {
+                        w.set_usbaep(enabled);
+                        w.set_cnak(enabled); // clear NAK that might've been set by SNAK above.
+                    })
+                });
+
+                // Wake `Endpoint::wait_enabled()`
+                T::state().ep_in_wakers[ep_addr.index()].wake();
+            }
+        }
+    }
+
+    async fn enable(&mut self) {
+        trace!("enable");
+        // TODO: enable the peripheral once enable/disable semantics are cleared up in embassy-usb
     }
 
     async fn disable(&mut self) {
         trace!("disable");
 
-        Bus::disable(self);
-
-        self.enabled = false;
+        // TODO: disable the peripheral once enable/disable semantics are cleared up in embassy-usb
+        //Bus::disable(self);
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
@@ -1112,11 +1213,16 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
             state.ep_in_wakers[index].register(cx.waker());
 
             let diepctl = r.diepctl(index).read();
+            let dtxfsts = r.dtxfsts(index).read();
+            info!("diepctl {:08x} ftxfsts {:08x}", diepctl.0, dtxfsts.0);
             if !diepctl.usbaep() {
+                trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
                 Poll::Ready(Err(EndpointError::Disabled))
             } else if !diepctl.epena() {
+                trace!("write ep={:?} wait for prev: ready", self.info.addr);
                 Poll::Ready(Ok(()))
             } else {
+                trace!("write ep={:?} wait for prev: pending", self.info.addr);
                 Poll::Pending
             }
         })
@@ -1141,6 +1247,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
 
                     Poll::Pending
                 } else {
+                    trace!("write ep={:?} wait for fifo: ready", self.info.addr);
                     Poll::Ready(())
                 }
             })

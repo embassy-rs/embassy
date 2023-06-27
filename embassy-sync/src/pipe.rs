@@ -282,7 +282,7 @@ where
     /// returns the amount of bytes written.
     ///
     /// If it is not possible to write a nonzero amount of bytes because the pipe's buffer is full,
-    /// this method will wait until it is. See [`try_write`](Self::try_write) for a variant that
+    /// this method will wait until it isn't. See [`try_write`](Self::try_write) for a variant that
     /// returns an error instead of waiting.
     ///
     /// It is not guaranteed that all bytes in the buffer are written, even if there's enough
@@ -319,7 +319,7 @@ where
     /// returns the amount of bytes read.
     ///
     /// If it is not possible to read a nonzero amount of bytes because the pipe's buffer is empty,
-    /// this method will wait until it is. See [`try_read`](Self::try_read) for a variant that
+    /// this method will wait until it isn't. See [`try_read`](Self::try_read) for a variant that
     /// returns an error instead of waiting.
     ///
     /// It is not guaranteed that all bytes in the buffer are read, even if there's enough
