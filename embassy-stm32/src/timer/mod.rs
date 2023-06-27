@@ -51,66 +51,7 @@ pub(crate) mod sealed {
     pub trait HighResolutionControlInstance: RccPeripheral {
         type Interrupt: interrupt::typelevel::Interrupt;
 
-        fn regs_highres() -> crate::pac::hrtim::Hrtim;
-
-        fn set_master_frequency(&mut self, frequency: Hertz);
-
-        fn set_channel_frequency(&mut self, channel: usize, frequency: Hertz);
-
-        fn start(&mut self);
-
-        fn stop(&mut self);
-
-        fn reset(&mut self);
-    }
-}
-
-#[cfg(hrtim_v1)]
-#[derive(Clone, Copy)]
-pub(crate) enum HighResolutionControlPrescaler {
-    Div1,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div32,
-    Div64,
-    Div128,
-}
-
-#[cfg(hrtim_v1)]
-impl ops::Div<HighResolutionControlPrescaler> for Hertz {
-    type Output = Hertz;
-
-    fn div(self, rhs: HighResolutionControlPrescaler) -> Self::Output {
-        let divisor = match rhs {
-            HighResolutionControlPrescaler::Div1 => 1,
-            HighResolutionControlPrescaler::Div2 => 2,
-            HighResolutionControlPrescaler::Div4 => 4,
-            HighResolutionControlPrescaler::Div8 => 8,
-            HighResolutionControlPrescaler::Div16 => 16,
-            HighResolutionControlPrescaler::Div32 => 32,
-            HighResolutionControlPrescaler::Div64 => 64,
-            HighResolutionControlPrescaler::Div128 => 128,
-        };
-
-        Hertz(self.0 / divisor)
-    }
-}
-
-#[cfg(hrtim_v1)]
-impl From<HighResolutionControlPrescaler> for u8 {
-    fn from(val: HighResolutionControlPrescaler) -> Self {
-        match val {
-            HighResolutionControlPrescaler::Div1 => 0b000,
-            HighResolutionControlPrescaler::Div2 => 0b001,
-            HighResolutionControlPrescaler::Div4 => 0b010,
-            HighResolutionControlPrescaler::Div8 => 0b011,
-            HighResolutionControlPrescaler::Div16 => 0b100,
-            HighResolutionControlPrescaler::Div32 => 0b101,
-            HighResolutionControlPrescaler::Div64 => 0b110,
-            HighResolutionControlPrescaler::Div128 => 0b111,
-        }
+        fn regs() -> crate::pac::hrtim::Hrtim;
     }
 }
 
@@ -285,95 +226,9 @@ foreach_interrupt! {
         impl sealed::HighResolutionControlInstance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
 
-            fn regs_highres() -> crate::pac::hrtim::Hrtim {
+            fn regs() -> crate::pac::hrtim::Hrtim {
                 crate::pac::$inst
             }
-
-            fn set_master_frequency(&mut self, frequency: Hertz) {
-                use crate::rcc::sealed::RccPeripheral;
-
-                // TODO: fix frequency source
-                let f = frequency.0;
-                let timer_f = Self::frequency().0;
-                // Ratio taken from RM0364 Table 81
-                let base_f = Hertz(timer_f * (70_300 / 144_000_000));
-
-                /*
-                    Find the smallest prescaler that allows us to acheive our frequency
-                */
-                let psc = [
-                    HighResolutionControlPrescaler::Div1,
-                    HighResolutionControlPrescaler::Div2,
-                    HighResolutionControlPrescaler::Div4,
-                    HighResolutionControlPrescaler::Div8,
-                    HighResolutionControlPrescaler::Div16,
-                    HighResolutionControlPrescaler::Div32,
-                    HighResolutionControlPrescaler::Div64,
-                    HighResolutionControlPrescaler::Div128,
-                ]
-                .iter()
-                .skip_while(|psc| frequency < base_f / **psc)
-                .next()
-                .unwrap();
-
-                let psc_timer_f = Hertz(timer_f) / *psc;
-                let per: u16 = (psc_timer_f / f).0 as u16;
-
-                let regs = Self::regs_highres();
-
-                regs.mcr().modify(|w| w.set_ckpsc(((*psc).into())));
-                regs.mper().modify(|w| w.set_mper(per));
-
-                // regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
-                // regs.egr().write(|r| r.set_ug(true));
-                // regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
-            }
-
-            fn set_channel_frequency(&mut self, channel: usize, frequency: Hertz) {
-                use crate::rcc::sealed::RccPeripheral;
-
-                // TODO: fix frequency source
-                let f = frequency.0;
-                let timer_f = Self::frequency().0;
-                // Ratio taken from RM0364 Table 81
-                let base_f = Hertz(timer_f * (70_300 / 144_000_000));
-
-                /*
-                    Find the smallest prescaler that allows us to acheive our frequency
-                */
-                let psc = [
-                    HighResolutionControlPrescaler::Div1,
-                    HighResolutionControlPrescaler::Div2,
-                    HighResolutionControlPrescaler::Div4,
-                    HighResolutionControlPrescaler::Div8,
-                    HighResolutionControlPrescaler::Div16,
-                    HighResolutionControlPrescaler::Div32,
-                    HighResolutionControlPrescaler::Div64,
-                    HighResolutionControlPrescaler::Div128,
-                ]
-                .iter()
-                .skip_while(|psc| frequency < base_f / **psc)
-                .next()
-                .unwrap();
-
-                let psc_timer_f = Hertz(timer_f) / *psc;
-                let per: u16 = (psc_timer_f / f).0 as u16;
-
-                let regs = Self::regs_highres();
-
-                regs.tim(channel).cr().modify(|w| w.set_ckpsc(((*psc).into())));
-                regs.tim(channel).per().modify(|w| w.set_per(per));
-
-                // regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
-                // regs.egr().write(|r| r.set_ug(true));
-                // regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
-            }
-
-            fn start(&mut self) { todo!() }
-
-            fn stop(&mut self) { todo!() }
-
-            fn reset(&mut self) { todo!() }
         }
 
         impl HighResolutionControlInstance for crate::peripherals::$inst {

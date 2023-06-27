@@ -3,7 +3,13 @@ pub mod advanced_pwm;
 pub mod complementary_pwm;
 pub mod simple_pwm;
 
+#[cfg(hrtim_v1)]
+use core::ops;
+
 use stm32_metapac::timer::vals::Ckd;
+
+#[cfg(hrtim_v1)]
+use crate::time::Hertz;
 
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
@@ -25,27 +31,6 @@ impl Channel {
             Channel::Ch2 => 1,
             Channel::Ch3 => 2,
             Channel::Ch4 => 3,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub enum AdvancedChannel {
-    ChA,
-    ChB,
-    ChC,
-    ChD,
-    ChE,
-}
-
-impl AdvancedChannel {
-    pub fn raw(&self) -> usize {
-        match self {
-            AdvancedChannel::ChA => 0,
-            AdvancedChannel::ChB => 1,
-            AdvancedChannel::ChC => 2,
-            AdvancedChannel::ChD => 3,
-            AdvancedChannel::ChE => 4,
         }
     }
 }
@@ -77,16 +62,87 @@ impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
     }
 }
 
+#[cfg(hrtim_v1)]
+#[derive(Clone, Copy)]
+pub(crate) enum HighResolutionControlPrescaler {
+    Div1,
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+    Div32,
+    Div64,
+    Div128,
+}
+
+#[cfg(hrtim_v1)]
+impl ops::Div<HighResolutionControlPrescaler> for Hertz {
+    type Output = Hertz;
+
+    fn div(self, rhs: HighResolutionControlPrescaler) -> Self::Output {
+        let divisor = match rhs {
+            HighResolutionControlPrescaler::Div1 => 1,
+            HighResolutionControlPrescaler::Div2 => 2,
+            HighResolutionControlPrescaler::Div4 => 4,
+            HighResolutionControlPrescaler::Div8 => 8,
+            HighResolutionControlPrescaler::Div16 => 16,
+            HighResolutionControlPrescaler::Div32 => 32,
+            HighResolutionControlPrescaler::Div64 => 64,
+            HighResolutionControlPrescaler::Div128 => 128,
+        };
+
+        Hertz(self.0 / divisor)
+    }
+}
+
+#[cfg(hrtim_v1)]
+impl From<HighResolutionControlPrescaler> for u8 {
+    fn from(val: HighResolutionControlPrescaler) -> Self {
+        match val {
+            HighResolutionControlPrescaler::Div1 => 0b000,
+            HighResolutionControlPrescaler::Div2 => 0b001,
+            HighResolutionControlPrescaler::Div4 => 0b010,
+            HighResolutionControlPrescaler::Div8 => 0b011,
+            HighResolutionControlPrescaler::Div16 => 0b100,
+            HighResolutionControlPrescaler::Div32 => 0b101,
+            HighResolutionControlPrescaler::Div64 => 0b110,
+            HighResolutionControlPrescaler::Div128 => 0b111,
+        }
+    }
+}
+
+#[cfg(hrtim_v1)]
+impl HighResolutionControlPrescaler {
+    pub fn compute_min(base_f: Hertz, frequency: Hertz) -> Self {
+        *[
+            HighResolutionControlPrescaler::Div1,
+            HighResolutionControlPrescaler::Div2,
+            HighResolutionControlPrescaler::Div4,
+            HighResolutionControlPrescaler::Div8,
+            HighResolutionControlPrescaler::Div16,
+            HighResolutionControlPrescaler::Div32,
+            HighResolutionControlPrescaler::Div64,
+            HighResolutionControlPrescaler::Div128,
+        ]
+        .iter()
+        .skip_while(|psc| frequency <= base_f / **psc)
+        .next()
+        .unwrap()
+    }
+}
+
 pub(crate) mod sealed {
     use super::*;
 
     #[cfg(hrtim_v1)]
     pub trait AdvancedCaptureCompare16bitInstance: crate::timer::sealed::HighResolutionControlInstance {
-        fn enable_outputs(&mut self, enable: bool);
+        fn set_master_frequency(frequency: Hertz);
 
-        fn set_output_compare_mode(&mut self, channel: AdvancedChannel, mode: OutputCompareMode);
+        fn set_channel_frequency(channnel: usize, frequency: Hertz);
 
-        fn enable_channel(&mut self, channel: AdvancedChannel, enable: bool);
+        //        fn enable_outputs(enable: bool);
+        //
+        //        fn enable_channel(&mut self, channel: usize, enable: bool);
     }
 
     pub trait CaptureCompare16bitInstance: crate::timer::sealed::GeneralPurpose16bitInstance {
@@ -288,11 +344,45 @@ foreach_interrupt! {
 
     ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {
         impl crate::pwm::sealed::AdvancedCaptureCompare16bitInstance for crate::peripherals::$inst {
-            fn enable_outputs(&mut self, enable: bool) { todo!() }
+            fn set_master_frequency(frequency: Hertz) {
+                use crate::rcc::sealed::RccPeripheral;
+                use crate::timer::sealed::HighResolutionControlInstance;
 
-            fn set_output_compare_mode(&mut self, channel: AdvancedChannel, mode: OutputCompareMode) { todo!() }
+                let f = frequency.0;
+                // TODO: fix frequency source
+                // let timer_f = Self::frequency().0;
+                let timer_f = Hertz(144_000_000).0;
+                let base_f = Hertz((32 * timer_f as u64 / u16::MAX as u64) as u32);
+                let psc = HighResolutionControlPrescaler::compute_min(base_f, frequency);
 
-            fn enable_channel(&mut self, channel: AdvancedChannel, enable: bool) { todo!() }
+                let psc_timer_f = Hertz(timer_f) / psc;
+                let per: u16 = (psc_timer_f / f).0 as u16;
+
+                let regs = Self::regs();
+
+                regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
+                regs.mper().modify(|w| w.set_mper(per));
+            }
+
+            fn set_channel_frequency(channel: usize, frequency: Hertz) {
+                use crate::rcc::sealed::RccPeripheral;
+                use crate::timer::sealed::HighResolutionControlInstance;
+
+                let f = frequency.0;
+                // TODO: fix frequency source
+                // let timer_f = Self::frequency().0;
+                let timer_f = Hertz(144_000_000).0;
+                let base_f = Hertz((32 * timer_f as u64 / u16::MAX as u64) as u32);
+                let psc = HighResolutionControlPrescaler::compute_min(base_f, frequency);
+
+                let psc_timer_f = Hertz(timer_f) / psc;
+                let per: u16 = (psc_timer_f / f).0 as u16;
+
+                let regs = Self::regs();
+
+                regs.tim(channel).cr().modify(|w| w.set_ckpsc(psc.into()));
+                regs.tim(channel).per().modify(|w| w.set_per(per));
+            }
         }
 
         impl AdvancedCaptureCompare16bitInstance for crate::peripherals::$inst {
