@@ -5,7 +5,6 @@ use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use crate::dma::{Transfer, TransferOptions};
 use crate::pac::dac;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -195,6 +194,7 @@ pub struct Dac<'d, T: Instance, TxCh1, TxCh2> {
 pub struct DacCh1<'d, T: Instance, Tx> {
     /// To consume T
     _peri: PeripheralRef<'d, T>,
+    #[allow(unused)] // For chips whose DMA is not (yet) supported
     dma: PeripheralRef<'d, Tx>,
 }
 
@@ -204,6 +204,7 @@ pub struct DacCh1<'d, T: Instance, Tx> {
 pub struct DacCh2<'d, T: Instance, Tx> {
     /// Instead of PeripheralRef to consume T
     phantom: PhantomData<&'d mut T>,
+    #[allow(unused)] // For chips whose DMA is not (yet) supported
     dma: PeripheralRef<'d, Tx>,
 }
 
@@ -265,7 +266,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
         let tx_request = self.dma.request();
         let dma_channel = &self.dma;
 
-        let tx_options = TransferOptions {
+        let tx_options = crate::dma::TransferOptions {
             circular,
             half_transfer_ir: false,
             complete_transfer_ir: !circular,
@@ -275,7 +276,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
         // Initiate the correct type of DMA transfer depending on what data is passed
         let tx_f = match data {
             ValueArray::Bit8(buf) => unsafe {
-                Transfer::new_write(
+                crate::dma::Transfer::new_write(
                     dma_channel,
                     tx_request,
                     buf,
@@ -284,7 +285,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
                 )
             },
             ValueArray::Bit12Left(buf) => unsafe {
-                Transfer::new_write(
+                crate::dma::Transfer::new_write(
                     dma_channel,
                     tx_request,
                     buf,
@@ -293,7 +294,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
                 )
             },
             ValueArray::Bit12Right(buf) => unsafe {
-                Transfer::new_write(
+                crate::dma::Transfer::new_write(
                     dma_channel,
                     tx_request,
                     buf,
@@ -377,7 +378,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
         let tx_request = self.dma.request();
         let dma_channel = &self.dma;
 
-        let tx_options = TransferOptions {
+        let tx_options = crate::dma::TransferOptions {
             circular,
             half_transfer_ir: false,
             complete_transfer_ir: !circular,
@@ -387,7 +388,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
         // Initiate the correct type of DMA transfer depending on what data is passed
         let tx_f = match data {
             ValueArray::Bit8(buf) => unsafe {
-                Transfer::new_write(
+                crate::dma::Transfer::new_write(
                     dma_channel,
                     tx_request,
                     buf,
@@ -396,7 +397,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
                 )
             },
             ValueArray::Bit12Left(buf) => unsafe {
-                Transfer::new_write(
+                crate::dma::Transfer::new_write(
                     dma_channel,
                     tx_request,
                     buf,
@@ -405,7 +406,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
                 )
             },
             ValueArray::Bit12Right(buf) => unsafe {
-                Transfer::new_write(
+                crate::dma::Transfer::new_write(
                     dma_channel,
                     tx_request,
                     buf,
@@ -526,7 +527,7 @@ foreach_peripheral!(
         #[cfg(rcc_h7)]
         impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
             fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| crate::rcc::get_freqs().apb1)
+                critical_section::with(|_| unsafe { crate::rcc::get_freqs().apb1 })
             }
 
             fn reset() {
