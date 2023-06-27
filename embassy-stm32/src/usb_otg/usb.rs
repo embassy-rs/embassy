@@ -6,8 +6,8 @@ use atomic_polyfill::{AtomicBool, AtomicU16, Ordering};
 use embassy_hal_common::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
-    self, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
-    EndpointType, Event, Unsupported,
+    self, Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo,
+    EndpointOut, EndpointType, Event, Unsupported,
 };
 use futures::future::poll_fn;
 
@@ -31,7 +31,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let state = T::state();
 
         let ints = r.gintsts().read();
-        if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() {
+        if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
             // Mask interrupts and notify `Bus` to process them
             r.gintmsk().write(|_| {});
             T::state().bus_waker.wake();
@@ -256,7 +256,34 @@ struct EndpointData {
     fifo_size_words: u16,
 }
 
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Config {
+    /// Enable VBUS detection.
+    ///
+    /// The USB spec requires USB devices monitor for USB cable plug/unplug and react accordingly.
+    /// This is done by checkihg whether there is 5V on the VBUS pin or not.
+    ///
+    /// If your device is bus-powered (powers itself from the USB host via VBUS), then this is optional.
+    /// (if there's no power in VBUS your device would be off anyway, so it's fine to always assume
+    /// there's power in VBUS, i.e. the USB cable is always plugged in.)
+    ///
+    /// If your device is self-powered (i.e. it gets power from a source other than the USB cable, and
+    /// therefore can stay powered through USB cable plug/unplug) then you MUST set this to true.
+    ///
+    /// If you set this to true, you must connect VBUS to PA9 for FS, PB13 for HS, possibly with a
+    /// voltage divider. See ST application note AN4879 and the reference manual for more details.
+    pub vbus_detection: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { vbus_detection: true }
+    }
+}
+
 pub struct Driver<'d, T: Instance> {
+    config: Config,
     phantom: PhantomData<&'d mut T>,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
@@ -279,6 +306,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         dp: impl Peripheral<P = impl DpPin<T>> + 'd,
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
+        config: Config,
     ) -> Self {
         into_ref!(dp, dm);
 
@@ -286,6 +314,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
 
         Self {
+            config,
             phantom: PhantomData,
             ep_in: [None; MAX_EP_COUNT],
             ep_out: [None; MAX_EP_COUNT],
@@ -318,6 +347,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
         ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
+        config: Config,
     ) -> Self {
         assert!(T::HIGH_SPEED == true, "Peripheral is not capable of high-speed USB");
 
@@ -327,6 +357,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         );
 
         Self {
+            config,
             phantom: PhantomData,
             ep_in: [None; MAX_EP_COUNT],
             ep_out: [None; MAX_EP_COUNT],
@@ -464,11 +495,12 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 
         (
             Bus {
+                config: self.config,
                 phantom: PhantomData,
                 ep_in: self.ep_in,
                 ep_out: self.ep_out,
                 phy_type: self.phy_type,
-                enabled: false,
+                inited: false,
             },
             ControlPipe {
                 _phantom: PhantomData,
@@ -481,11 +513,12 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
 }
 
 pub struct Bus<'d, T: Instance> {
+    config: Config,
     phantom: PhantomData<&'d mut T>,
     ep_in: [Option<EndpointData>; MAX_EP_COUNT],
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
     phy_type: PhyType,
-    enabled: bool,
+    inited: bool,
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
@@ -498,11 +531,202 @@ impl<'d, T: Instance> Bus<'d, T> {
             w.set_iepint(true);
             w.set_oepint(true);
             w.set_rxflvlm(true);
+            w.set_srqim(true);
+            w.set_otgint(true);
         });
     }
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
+    fn init(&mut self) {
+        #[cfg(stm32l4)]
+        {
+            crate::peripherals::PWR::enable();
+            critical_section::with(|_| crate::pac::PWR.cr2().modify(|w| w.set_usv(true)));
+        }
+
+        #[cfg(stm32f7)]
+        {
+            // Enable ULPI clock if external PHY is used
+            let ulpien = !self.phy_type.internal();
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb1enr().modify(|w| {
+                    if T::HIGH_SPEED {
+                        w.set_usb_otg_hsulpien(ulpien);
+                    } else {
+                        w.set_usb_otg_hsen(ulpien);
+                    }
+                });
+
+                // Low power mode
+                crate::pac::RCC.ahb1lpenr().modify(|w| {
+                    if T::HIGH_SPEED {
+                        w.set_usb_otg_hsulpilpen(ulpien);
+                    } else {
+                        w.set_usb_otg_hslpen(ulpien);
+                    }
+                });
+            });
+        }
+
+        #[cfg(stm32h7)]
+        {
+            // If true, VDD33USB is generated by internal regulator from VDD50USB
+            // If false, VDD33USB and VDD50USB must be suplied directly with 3.3V (default on nucleo)
+            // TODO: unhardcode
+            let internal_regulator = false;
+
+            // Enable USB power
+            critical_section::with(|_| {
+                crate::pac::PWR.cr3().modify(|w| {
+                    w.set_usb33den(true);
+                    w.set_usbregen(internal_regulator);
+                })
+            });
+
+            // Wait for USB power to stabilize
+            while !crate::pac::PWR.cr3().read().usb33rdy() {}
+
+            // Use internal 48MHz HSI clock. Should be enabled in RCC by default.
+            critical_section::with(|_| {
+                crate::pac::RCC
+                    .d2ccip2r()
+                    .modify(|w| w.set_usbsel(crate::pac::rcc::vals::Usbsel::HSI48))
+            });
+
+            // Enable ULPI clock if external PHY is used
+            let ulpien = !self.phy_type.internal();
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb1enr().modify(|w| {
+                    if T::HIGH_SPEED {
+                        w.set_usb_otg_hs_ulpien(ulpien);
+                    } else {
+                        w.set_usb_otg_fs_ulpien(ulpien);
+                    }
+                });
+                crate::pac::RCC.ahb1lpenr().modify(|w| {
+                    if T::HIGH_SPEED {
+                        w.set_usb_otg_hs_ulpilpen(ulpien);
+                    } else {
+                        w.set_usb_otg_fs_ulpilpen(ulpien);
+                    }
+                });
+            });
+        }
+
+        #[cfg(stm32u5)]
+        {
+            // Enable USB power
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb3enr().modify(|w| {
+                    w.set_pwren(true);
+                });
+                cortex_m::asm::delay(2);
+
+                crate::pac::PWR.svmcr().modify(|w| {
+                    w.set_usv(true);
+                    w.set_uvmen(true);
+                });
+            });
+
+            // Wait for USB power to stabilize
+            while !crate::pac::PWR.svmsr().read().vddusbrdy() {}
+
+            // Select HSI48 as USB clock source.
+            critical_section::with(|_| {
+                crate::pac::RCC.ccipr1().modify(|w| {
+                    w.set_iclksel(crate::pac::rcc::vals::Iclksel::HSI48);
+                })
+            });
+        }
+
+        <T as RccPeripheral>::enable();
+        <T as RccPeripheral>::reset();
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        let r = T::regs();
+        let core_id = r.cid().read().0;
+        info!("Core id {:08x}", core_id);
+
+        // Wait for AHB ready.
+        while !r.grstctl().read().ahbidl() {}
+
+        // Configure as device.
+        r.gusbcfg().write(|w| {
+            // Force device mode
+            w.set_fdmod(true);
+            // Enable internal full-speed PHY
+            w.set_physel(self.phy_type.internal() && !self.phy_type.high_speed());
+        });
+
+        // Configuring Vbus sense and SOF output
+        match core_id {
+            0x0000_1200 | 0x0000_1100 => {
+                assert!(self.phy_type != PhyType::InternalHighSpeed);
+
+                r.gccfg_v1().modify(|w| {
+                    // Enable internal full-speed PHY, logic is inverted
+                    w.set_pwrdwn(self.phy_type.internal());
+                });
+
+                // F429-like chips have the GCCFG.NOVBUSSENS bit
+                r.gccfg_v1().modify(|w| {
+                    w.set_novbussens(!self.config.vbus_detection);
+                    w.set_vbusasen(false);
+                    w.set_vbusbsen(self.config.vbus_detection);
+                    w.set_sofouten(false);
+                });
+            }
+            0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => {
+                // F446-like chips have the GCCFG.VBDEN bit with the opposite meaning
+                r.gccfg_v2().modify(|w| {
+                    // Enable internal full-speed PHY, logic is inverted
+                    w.set_pwrdwn(self.phy_type.internal() && !self.phy_type.high_speed());
+                    w.set_phyhsen(self.phy_type.internal() && self.phy_type.high_speed());
+                });
+
+                r.gccfg_v2().modify(|w| {
+                    w.set_vbden(self.config.vbus_detection);
+                });
+
+                // Force B-peripheral session
+                r.gotgctl().modify(|w| {
+                    w.set_bvaloen(!self.config.vbus_detection);
+                    w.set_bvaloval(true);
+                });
+            }
+            _ => unimplemented!("Unknown USB core id {:X}", core_id),
+        }
+
+        // Soft disconnect.
+        r.dctl().write(|w| w.set_sdis(true));
+
+        // Set speed.
+        r.dcfg().write(|w| {
+            w.set_pfivl(vals::Pfivl::FRAME_INTERVAL_80);
+            w.set_dspd(self.phy_type.to_dspd());
+        });
+
+        // Unmask transfer complete EP interrupt
+        r.diepmsk().write(|w| {
+            w.set_xfrcm(true);
+        });
+
+        // Unmask and clear core interrupts
+        Bus::<T>::restore_irqs();
+        r.gintsts().write_value(regs::Gintsts(0xFFFF_FFFF));
+
+        // Unmask global interrupt
+        r.gahbcfg().write(|w| {
+            w.set_gint(true); // unmask global interrupt
+        });
+
+        // Connect
+        r.dctl().write(|w| w.set_sdis(false));
+    }
+
     fn init_fifo(&mut self) {
         trace!("init_fifo");
 
@@ -613,6 +837,13 @@ impl<'d, T: Instance> Bus<'d, T> {
         });
     }
 
+    fn disable_all_endpoints(&mut self) {
+        for i in 0..T::ENDPOINT_COUNT {
+            self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::In), false);
+            self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::Out), false);
+        }
+    }
+
     fn disable(&mut self) {
         T::Interrupt::disable();
 
@@ -627,9 +858,14 @@ impl<'d, T: Instance> Bus<'d, T> {
 impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
-            // TODO: implement VBUS detection
-            if !self.enabled {
-                return Poll::Ready(Event::PowerDetected);
+            if !self.inited {
+                self.init();
+                self.inited = true;
+
+                // If no vbus detection, just return a single PowerDetected event at startup.
+                if !self.config.vbus_detection {
+                    return Poll::Ready(Event::PowerDetected);
+                }
             }
 
             let r = T::regs();
@@ -637,6 +873,32 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
             T::state().bus_waker.register(cx.waker());
 
             let ints = r.gintsts().read();
+
+            if ints.srqint() {
+                trace!("vbus detected");
+
+                r.gintsts().write(|w| w.set_srqint(true)); // clear
+                Self::restore_irqs();
+
+                if self.config.vbus_detection {
+                    return Poll::Ready(Event::PowerDetected);
+                }
+            }
+
+            if ints.otgint() {
+                let otgints = r.gotgint().read();
+                r.gotgint().write_value(otgints); // clear all
+                Self::restore_irqs();
+
+                if otgints.sedet() {
+                    trace!("vbus removed");
+                    if self.config.vbus_detection {
+                        self.disable_all_endpoints();
+                        return Poll::Ready(Event::PowerRemoved);
+                    }
+                }
+            }
+
             if ints.usbrst() {
                 trace!("reset");
 
@@ -801,203 +1063,14 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
 
     async fn enable(&mut self) {
         trace!("enable");
-
-        #[cfg(stm32l4)]
-        {
-            crate::peripherals::PWR::enable();
-            critical_section::with(|_| crate::pac::PWR.cr2().modify(|w| w.set_usv(true)));
-        }
-
-        #[cfg(stm32f7)]
-        {
-            // Enable ULPI clock if external PHY is used
-            let ulpien = !self.phy_type.internal();
-            critical_section::with(|_| {
-                crate::pac::RCC.ahb1enr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hsulpien(ulpien);
-                    } else {
-                        w.set_usb_otg_hsen(ulpien);
-                    }
-                });
-
-                // Low power mode
-                crate::pac::RCC.ahb1lpenr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hsulpilpen(ulpien);
-                    } else {
-                        w.set_usb_otg_hslpen(ulpien);
-                    }
-                });
-            });
-        }
-
-        #[cfg(stm32h7)]
-        {
-            // If true, VDD33USB is generated by internal regulator from VDD50USB
-            // If false, VDD33USB and VDD50USB must be suplied directly with 3.3V (default on nucleo)
-            // TODO: unhardcode
-            let internal_regulator = false;
-
-            // Enable USB power
-            critical_section::with(|_| {
-                crate::pac::PWR.cr3().modify(|w| {
-                    w.set_usb33den(true);
-                    w.set_usbregen(internal_regulator);
-                })
-            });
-
-            // Wait for USB power to stabilize
-            while !crate::pac::PWR.cr3().read().usb33rdy() {}
-
-            // Use internal 48MHz HSI clock. Should be enabled in RCC by default.
-            critical_section::with(|_| {
-                crate::pac::RCC
-                    .d2ccip2r()
-                    .modify(|w| w.set_usbsel(crate::pac::rcc::vals::Usbsel::HSI48))
-            });
-
-            // Enable ULPI clock if external PHY is used
-            let ulpien = !self.phy_type.internal();
-            critical_section::with(|_| {
-                crate::pac::RCC.ahb1enr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hs_ulpien(ulpien);
-                    } else {
-                        w.set_usb_otg_fs_ulpien(ulpien);
-                    }
-                });
-                crate::pac::RCC.ahb1lpenr().modify(|w| {
-                    if T::HIGH_SPEED {
-                        w.set_usb_otg_hs_ulpilpen(ulpien);
-                    } else {
-                        w.set_usb_otg_fs_ulpilpen(ulpien);
-                    }
-                });
-            });
-        }
-
-        #[cfg(stm32u5)]
-        {
-            // Enable USB power
-            critical_section::with(|_| {
-                crate::pac::RCC.ahb3enr().modify(|w| {
-                    w.set_pwren(true);
-                });
-                cortex_m::asm::delay(2);
-
-                crate::pac::PWR.svmcr().modify(|w| {
-                    w.set_usv(true);
-                    w.set_uvmen(true);
-                });
-            });
-
-            // Wait for USB power to stabilize
-            while !crate::pac::PWR.svmsr().read().vddusbrdy() {}
-
-            // Select HSI48 as USB clock source.
-            critical_section::with(|_| {
-                crate::pac::RCC.ccipr1().modify(|w| {
-                    w.set_iclksel(crate::pac::rcc::vals::Iclksel::HSI48);
-                })
-            });
-        }
-
-        <T as RccPeripheral>::enable();
-        <T as RccPeripheral>::reset();
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
-        let r = T::regs();
-        let core_id = r.cid().read().0;
-        info!("Core id {:08x}", core_id);
-
-        // Wait for AHB ready.
-        while !r.grstctl().read().ahbidl() {}
-
-        // Configure as device.
-        r.gusbcfg().write(|w| {
-            // Force device mode
-            w.set_fdmod(true);
-            // Enable internal full-speed PHY
-            w.set_physel(self.phy_type.internal() && !self.phy_type.high_speed());
-        });
-
-        // Configuring Vbus sense and SOF output
-        match core_id {
-            0x0000_1200 | 0x0000_1100 => {
-                assert!(self.phy_type != PhyType::InternalHighSpeed);
-
-                r.gccfg_v1().modify(|w| {
-                    // Enable internal full-speed PHY, logic is inverted
-                    w.set_pwrdwn(self.phy_type.internal());
-                });
-
-                // F429-like chips have the GCCFG.NOVBUSSENS bit
-                r.gccfg_v1().modify(|w| {
-                    w.set_novbussens(true);
-                    w.set_vbusasen(false);
-                    w.set_vbusbsen(false);
-                    w.set_sofouten(false);
-                });
-            }
-            0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => {
-                // F446-like chips have the GCCFG.VBDEN bit with the opposite meaning
-                r.gccfg_v2().modify(|w| {
-                    // Enable internal full-speed PHY, logic is inverted
-                    w.set_pwrdwn(self.phy_type.internal() && !self.phy_type.high_speed());
-                    w.set_phyhsen(self.phy_type.internal() && self.phy_type.high_speed());
-                });
-
-                r.gccfg_v2().modify(|w| {
-                    w.set_vbden(false);
-                });
-
-                // Force B-peripheral session
-                r.gotgctl().modify(|w| {
-                    w.set_bvaloen(true);
-                    w.set_bvaloval(true);
-                });
-            }
-            _ => unimplemented!("Unknown USB core id {:X}", core_id),
-        }
-
-        // Soft disconnect.
-        r.dctl().write(|w| w.set_sdis(true));
-
-        // Set speed.
-        r.dcfg().write(|w| {
-            w.set_pfivl(vals::Pfivl::FRAME_INTERVAL_80);
-            w.set_dspd(self.phy_type.to_dspd());
-        });
-
-        // Unmask transfer complete EP interrupt
-        r.diepmsk().write(|w| {
-            w.set_xfrcm(true);
-        });
-
-        // Unmask and clear core interrupts
-        Bus::<T>::restore_irqs();
-        r.gintsts().write_value(regs::Gintsts(0xFFFF_FFFF));
-
-        // Unmask global interrupt
-        r.gahbcfg().write(|w| {
-            w.set_gint(true); // unmask global interrupt
-        });
-
-        // Connect
-        r.dctl().write(|w| w.set_sdis(false));
-
-        self.enabled = true;
+        // TODO: enable the peripheral once enable/disable semantics are cleared up in embassy-usb
     }
 
     async fn disable(&mut self) {
         trace!("disable");
 
-        Bus::disable(self);
-
-        self.enabled = false;
+        // TODO: disable the peripheral once enable/disable semantics are cleared up in embassy-usb
+        //Bus::disable(self);
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
@@ -1140,11 +1213,16 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
             state.ep_in_wakers[index].register(cx.waker());
 
             let diepctl = r.diepctl(index).read();
+            let dtxfsts = r.dtxfsts(index).read();
+            info!("diepctl {:08x} ftxfsts {:08x}", diepctl.0, dtxfsts.0);
             if !diepctl.usbaep() {
+                trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
                 Poll::Ready(Err(EndpointError::Disabled))
             } else if !diepctl.epena() {
+                trace!("write ep={:?} wait for prev: ready", self.info.addr);
                 Poll::Ready(Ok(()))
             } else {
+                trace!("write ep={:?} wait for prev: pending", self.info.addr);
                 Poll::Pending
             }
         })
@@ -1169,6 +1247,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
 
                     Poll::Pending
                 } else {
+                    trace!("write ep={:?} wait for fifo: ready", self.info.addr);
                     Poll::Ready(())
                 }
             })
