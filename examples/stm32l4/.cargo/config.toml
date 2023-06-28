@@ -2,8 +2,7 @@
 # replace STM32F429ZITx with your chip as listed in `probe-rs-cli chip list`
 #runner = "probe-rs-cli run --chip STM32L475VGT6"
 #runner = "probe-rs-cli run --chip STM32L475VG"
-#runner = "probe-rs-cli run --chip STM32L4S5VI"
-runner = "probe-run --chip STM32L432KCUx"
+runner = "probe-rs-cli run --chip STM32L4S5VI"
 
 [build]
 target = "thumbv7em-none-eabi"
