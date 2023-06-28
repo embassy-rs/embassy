@@ -52,6 +52,8 @@ async fn dac_task1(dac: &'static mut Dac1Type<'static>) {
 
     info!("TIM6 frequency is {}", TIM6::frequency());
     const FREQUENCY: Hertz = Hertz::hz(200);
+
+    // Compute the reload value such that we obtain the FREQUENCY for the sine
     let reload: u32 = (TIM6::frequency().0 / FREQUENCY.0) / data.len() as u32;
 
     // Depends on your clock and on the specific chip used, you may need higher or lower values here
