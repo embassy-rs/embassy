@@ -52,7 +52,7 @@ pub struct ComplementaryPwmPin<'d, Perip, Channel> {
 macro_rules! advanced_channel_impl {
     ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
         impl<'d, Perip: AdvancedCaptureCompare16bitInstance> PwmPin<'d, Perip, $channel<Perip>> {
-            pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<Perip>> + 'd) -> Self {
+            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
