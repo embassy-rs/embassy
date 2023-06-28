@@ -178,7 +178,7 @@ pub trait DacChannel<T: Instance, Tx> {
 ///
 /// # Example for obtaining both DAC channels
 ///
-/// ```no_run
+/// ```ignore
 /// // DMA channels and pins may need to be changed for your controller
 /// let (dac_ch1, dac_ch2) =
 ///     embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, p.PA4, p.PA5).split();
