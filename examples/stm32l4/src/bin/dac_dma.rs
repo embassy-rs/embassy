@@ -93,7 +93,7 @@ async fn dac_task1(dac: &'static mut Dac1Type<'static>) {
 #[embassy_executor::task]
 async fn dac_task2(dac: &'static mut Dac2Type<'static>) {
     let data: &[u8; 256] = &calculate_array::<256>();
-    
+
     info!("TIM7 frequency is {}", TIM7::frequency());
 
     const FREQUENCY: Hertz = Hertz::hz(600);
