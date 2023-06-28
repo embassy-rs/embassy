@@ -11,14 +11,13 @@ use embassy_stm32::rcc::low_level::RccPeripheral;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Basic16bitInstance;
 use micromath::F32Ext;
-use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-pub type Dac1Type<'d> =
-    embassy_stm32::dac::DacCh1<'d, embassy_stm32::peripherals::DAC1, embassy_stm32::peripherals::DMA1_CH3>;
+pub type Dac1Type =
+    embassy_stm32::dac::DacCh1<'static, embassy_stm32::peripherals::DAC1, embassy_stm32::peripherals::DMA1_CH3>;
 
-pub type Dac2Type<'d> =
-    embassy_stm32::dac::DacCh2<'d, embassy_stm32::peripherals::DAC1, embassy_stm32::peripherals::DMA1_CH4>;
+pub type Dac2Type =
+    embassy_stm32::dac::DacCh2<'static, embassy_stm32::peripherals::DAC1, embassy_stm32::peripherals::DMA1_CH4>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -30,24 +29,12 @@ async fn main(spawner: Spawner) {
     // Obtain two independent channels (p.DAC1 can only be consumed once, though!)
     let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, p.PA4, p.PA5).split();
 
-    let dac1 = {
-        type T = impl Sized;
-        static STATIC_CELL: StaticCell<T> = StaticCell::new();
-        STATIC_CELL.init(dac_ch1)
-    };
-
-    let dac2 = {
-        type T = impl Sized;
-        static STATIC_CELL: StaticCell<T> = StaticCell::new();
-        STATIC_CELL.init(dac_ch2)
-    };
-
-    spawner.spawn(dac_task1(dac1)).ok();
-    spawner.spawn(dac_task2(dac2)).ok();
+    spawner.spawn(dac_task1(dac_ch1)).ok();
+    spawner.spawn(dac_task2(dac_ch2)).ok();
 }
 
 #[embassy_executor::task]
-async fn dac_task1(dac: &'static mut Dac1Type<'static>) {
+async fn dac_task1(mut dac: Dac1Type) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM6 frequency is {}", TIM6::frequency());
@@ -91,7 +78,7 @@ async fn dac_task1(dac: &'static mut Dac1Type<'static>) {
 }
 
 #[embassy_executor::task]
-async fn dac_task2(dac: &'static mut Dac2Type<'static>) {
+async fn dac_task2(mut dac: Dac2Type) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM7 frequency is {}", TIM7::frequency());
