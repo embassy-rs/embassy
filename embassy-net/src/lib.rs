@@ -57,7 +57,7 @@ pub struct StackResources<const SOCK: usize> {
 
 impl<const SOCK: usize> StackResources<SOCK> {
     /// Create a new set of stack resources.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         #[cfg(feature = "dns")]
         const INIT: Option<dns::DnsQuery> = None;
         Self {
