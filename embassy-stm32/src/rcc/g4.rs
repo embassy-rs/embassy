@@ -3,6 +3,7 @@ use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
 use stm32_metapac::FLASH;
 
 use crate::pac::{PWR, RCC};
+use crate::rcc::sealed::RccPeripheral;
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -316,6 +317,27 @@ impl Into<Hpre> for AHBPrescaler {
     }
 }
 
+/// Sets the source for the 48MHz clock to the USB and RNG peripherals.
+pub enum Clock48MhzSrc {
+    /// Use the High Speed Internal Oscillator. For USB usage, the CRS must be used to calibrate the
+    /// oscillator to comply with the USB specification for oscillator tolerance.
+    Hsi48(Option<CrsConfig>),
+    /// Use the PLLQ output. The PLL must be configured to output a 48MHz clock. For USB usage the
+    /// PLL needs to be using the HSE source to comply with the USB specification for oscillator
+    /// tolerance.
+    PllQ,
+}
+
+/// Sets the sync source for the Clock Recovery System (CRS).
+pub enum CrsSyncSource {
+    /// Use an external GPIO to sync the CRS.
+    Gpio,
+    /// Use the Low Speed External oscillator to sync the CRS.
+    Lse,
+    /// Use the USB SOF to sync the CRS.
+    Usb,
+}
+
 /// Clocks configutation
 pub struct Config {
     pub mux: ClockSrc,
@@ -326,6 +348,14 @@ pub struct Config {
     /// Iff PLL is requested as the main clock source in the `mux` field then the PLL configuration
     /// MUST turn on the PLLR output.
     pub pll: Option<Pll>,
+    /// Sets the clock source for the 48MHz clock used by the USB and RNG peripherals.
+    pub clock_48mhz_src: Option<Clock48MhzSrc>,
+}
+
+/// Configuration for the Clock Recovery System (CRS) used to trim the HSI48 oscillator.
+pub struct CrsConfig {
+    /// Sync source for the CRS.
+    pub sync_src: CrsSyncSource,
 }
 
 impl Default for Config {
@@ -338,6 +368,7 @@ impl Default for Config {
             apb2_pre: APBPrescaler::NotDivided,
             low_power_run: false,
             pll: None,
+            clock_48mhz_src: None,
         }
     }
 }
@@ -430,7 +461,7 @@ pub(crate) unsafe fn init(config: Config) {
             assert!(pll_freq.is_some());
             assert!(pll_freq.as_ref().unwrap().pll_r.is_some());
 
-            let freq = pll_freq.unwrap().pll_r.unwrap().0;
+            let freq = pll_freq.as_ref().unwrap().pll_r.unwrap().0;
 
             assert!(freq <= 170_000_000);
 
@@ -496,6 +527,50 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, freq * 2)
         }
     };
+
+    // Setup the 48 MHz clock if needed
+    if let Some(clock_48mhz_src) = config.clock_48mhz_src {
+        let source = match clock_48mhz_src {
+            Clock48MhzSrc::PllQ => {
+                // Make sure the PLLQ is enabled and running at 48Mhz
+                let pllq_freq = pll_freq.as_ref().and_then(|f| f.pll_q);
+                assert!(pllq_freq.is_some() && pllq_freq.unwrap().0 == 48_000_000);
+
+                crate::pac::rcc::vals::Clk48sel::PLLQCLK
+            }
+            Clock48MhzSrc::Hsi48(crs_config) => {
+                // Enable HSI48
+                RCC.crrcr().modify(|w| w.set_hsi48on(true));
+                // Wait for HSI48 to turn on
+                while RCC.crrcr().read().hsi48rdy() == false {}
+
+                // Enable and setup CRS if needed
+                if let Some(crs_config) = crs_config {
+                    crate::peripherals::CRS::enable();
+
+                    let sync_src = match crs_config.sync_src {
+                        CrsSyncSource::Gpio => crate::pac::crs::vals::Syncsrc::GPIO,
+                        CrsSyncSource::Lse => crate::pac::crs::vals::Syncsrc::LSE,
+                        CrsSyncSource::Usb => crate::pac::crs::vals::Syncsrc::USB,
+                    };
+
+                    crate::pac::CRS.cfgr().modify(|w| {
+                        w.set_syncsrc(sync_src);
+                    });
+
+                    // These are the correct settings for standard USB operation. If other settings
+                    // are needed there will need to be additional config options for the CRS.
+                    crate::pac::CRS.cr().modify(|w| {
+                        w.set_autotrimen(true);
+                        w.set_cen(true);
+                    });
+                }
+                crate::pac::rcc::vals::Clk48sel::HSI48
+            }
+        };
+
+        RCC.ccipr().modify(|w| w.set_clk48sel(source));
+    }
 
     if config.low_power_run {
         assert!(sys_clk <= 2_000_000);
