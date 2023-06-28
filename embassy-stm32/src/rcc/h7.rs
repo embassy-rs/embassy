@@ -601,22 +601,22 @@ pub(crate) unsafe fn init(mut config: Config) {
 
     // Core Prescaler / AHB Prescaler / APB3 Prescaler
     RCC.d1cfgr().modify(|w| {
-        w.set_d1cpre(Hpre(d1cpre_bits));
-        w.set_d1ppre(Dppre(ppre3_bits));
+        w.set_d1cpre(Hpre::from_bits(d1cpre_bits));
+        w.set_d1ppre(Dppre::from_bits(ppre3_bits));
         w.set_hpre(hpre_bits)
     });
     // Ensure core prescaler value is valid before future lower
     // core voltage
-    while RCC.d1cfgr().read().d1cpre().0 != d1cpre_bits {}
+    while RCC.d1cfgr().read().d1cpre().to_bits() != d1cpre_bits {}
 
     // APB1 / APB2 Prescaler
     RCC.d2cfgr().modify(|w| {
-        w.set_d2ppre1(Dppre(ppre1_bits));
-        w.set_d2ppre2(Dppre(ppre2_bits));
+        w.set_d2ppre1(Dppre::from_bits(ppre1_bits));
+        w.set_d2ppre2(Dppre::from_bits(ppre2_bits));
     });
 
     // APB4 Prescaler
-    RCC.d3cfgr().modify(|w| w.set_d3ppre(Dppre(ppre4_bits)));
+    RCC.d3cfgr().modify(|w| w.set_d3ppre(Dppre::from_bits(ppre4_bits)));
 
     // Peripheral Clock (per_ck)
     RCC.d1ccipr().modify(|w| w.set_ckpersel(ckpersel));
@@ -640,7 +640,7 @@ pub(crate) unsafe fn init(mut config: Config) {
         _ => Sw::HSI,
     };
     RCC.cfgr().modify(|w| w.set_sw(sw));
-    while RCC.cfgr().read().sws() != sw.0 {}
+    while RCC.cfgr().read().sws().to_bits() != sw.to_bits() {}
 
     // IO compensation cell - Requires CSI clock and SYSCFG
     assert!(RCC.cr().read().csirdy());
@@ -806,7 +806,8 @@ mod pll {
                 RCC.pllcfgr().modify(|w| w.set_pllfracen(plln, false));
                 let vco_ck = ref_x_ck * pll_x_n;
 
-                RCC.plldivr(plln).modify(|w| w.set_divp1(Divp((pll_x_p - 1) as u8)));
+                RCC.plldivr(plln)
+                    .modify(|w| w.set_divp1(Divp::from_bits((pll_x_p - 1) as u8)));
                 RCC.pllcfgr().modify(|w| w.set_divpen(plln, true));
 
                 // Calulate additional output dividers

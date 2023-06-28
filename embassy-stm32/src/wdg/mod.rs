@@ -49,7 +49,7 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
 
         let wdg = T::regs();
         wdg.kr().write(|w| w.set_key(Key::ENABLE));
-        wdg.pr().write(|w| w.set_pr(Pr(pr)));
+        wdg.pr().write(|w| w.set_pr(Pr::from_bits(pr)));
         wdg.rlr().write(|w| w.set_rl(rl));
 
         trace!(

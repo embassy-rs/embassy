@@ -26,7 +26,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
 
         let config_rtcsel = rtc_config.clock_config as u8;
         #[cfg(not(any(rcc_wl5, rcc_wle)))]
-        let config_rtcsel = crate::pac::rcc::vals::Rtcsel(config_rtcsel);
+        let config_rtcsel = crate::pac::rcc::vals::Rtcsel::from_bits(config_rtcsel);
 
         if !reg.rtcen() || reg.rtcsel() != config_rtcsel {
             crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));

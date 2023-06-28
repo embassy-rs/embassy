@@ -174,7 +174,7 @@ impl<'a> RDesRing<'a> {
             //  Receive descriptor unavailable
             Rps::SUSPENDED => RunningState::Stopped,
             //  Closing receive descriptor
-            Rps(0b101) => RunningState::Running,
+            Rps::_RESERVED_5 => RunningState::Running,
             //  Transferring the receive packet data from receive buffer to host memory
             Rps::RUNNINGWRITING => RunningState::Running,
             _ => RunningState::Unknown,

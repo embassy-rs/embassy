@@ -1,3 +1,5 @@
+use stm32_metapac::flash::vals::Latency;
+
 use super::{set_freqs, Clocks};
 use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Sw, Usbsw};
 use crate::pac::{FLASH, RCC};
@@ -85,14 +87,11 @@ pub(crate) unsafe fn init(config: Config) {
     let timer_mul = if ppre == 1 { 1 } else { 2 };
 
     FLASH.acr().write(|w| {
-        let latency = if real_sysclk <= 24_000_000 {
-            0
-        } else if real_sysclk <= 48_000_000 {
-            1
+        w.set_latency(if real_sysclk <= 24_000_000 {
+            Latency::WS0
         } else {
-            2
-        };
-        w.latency().0 = latency;
+            Latency::WS1
+        });
     });
 
     match (config.hse.is_some(), use_hsi48) {
@@ -134,20 +133,20 @@ pub(crate) unsafe fn init(config: Config) {
     // TODO: Option to use CRS (Clock Recovery)
 
     if let Some(pllmul_bits) = pllmul_bits {
-        RCC.cfgr().modify(|w| w.set_pllmul(Pllmul(pllmul_bits)));
+        RCC.cfgr().modify(|w| w.set_pllmul(Pllmul::from_bits(pllmul_bits)));
 
         RCC.cr().modify(|w| w.set_pllon(true));
         while !RCC.cr().read().pllrdy() {}
 
         RCC.cfgr().modify(|w| {
-            w.set_ppre(Ppre(ppre_bits));
-            w.set_hpre(Hpre(hpre_bits));
+            w.set_ppre(Ppre::from_bits(ppre_bits));
+            w.set_hpre(Hpre::from_bits(hpre_bits));
             w.set_sw(Sw::PLL)
         });
     } else {
         RCC.cfgr().modify(|w| {
-            w.set_ppre(Ppre(ppre_bits));
-            w.set_hpre(Hpre(hpre_bits));
+            w.set_ppre(Ppre::from_bits(ppre_bits));
+            w.set_hpre(Hpre::from_bits(hpre_bits));
 
             if config.hse.is_some() {
                 w.set_sw(Sw::HSE);

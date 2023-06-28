@@ -650,7 +650,7 @@ fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> Br {
         _ => 0b111,
     };
 
-    Br(val)
+    Br::from_bits(val)
 }
 
 trait RegsExt {
@@ -772,7 +772,7 @@ fn set_rxdmaen(regs: Regs, val: bool) {
 
 fn finish_dma(regs: Regs) {
     #[cfg(spi_v2)]
-    while regs.sr().read().ftlvl() > 0 {}
+    while regs.sr().read().ftlvl().to_bits() > 0 {}
 
     #[cfg(any(spi_v3, spi_v4, spi_v5))]
     while !regs.sr().read().txc() {}

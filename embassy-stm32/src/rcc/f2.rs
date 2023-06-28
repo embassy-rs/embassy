@@ -485,7 +485,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre1(config.apb1_pre.into());
         w.set_ppre2(config.apb2_pre.into());
     });
-    while RCC.cfgr().read().sws() != sw.0 {}
+    while RCC.cfgr().read().sws().to_bits() != sw.to_bits() {}
 
     // Turn off HSI to save power if we don't need it
     if !config.hsi {

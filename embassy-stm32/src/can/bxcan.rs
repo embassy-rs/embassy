@@ -116,10 +116,10 @@ impl<'d, T: Instance> Can<'d, T> {
             T::regs().ier().write(|w| {
                 // TODO: fix metapac
 
-                w.set_errie(Errie(1));
-                w.set_fmpie(0, Fmpie(1));
-                w.set_fmpie(1, Fmpie(1));
-                w.set_tmeie(Tmeie(1));
+                w.set_errie(Errie::from_bits(1));
+                w.set_fmpie(0, Fmpie::from_bits(1));
+                w.set_fmpie(1, Fmpie::from_bits(1));
+                w.set_tmeie(Tmeie::from_bits(1));
             });
 
             T::regs().mcr().write(|w| {

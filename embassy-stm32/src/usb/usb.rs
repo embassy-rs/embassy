@@ -97,8 +97,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             }
             epr.set_dtog_rx(false);
             epr.set_dtog_tx(false);
-            epr.set_stat_rx(Stat(0));
-            epr.set_stat_tx(Stat(0));
+            epr.set_stat_rx(Stat::from_bits(0));
+            epr.set_stat_tx(Stat::from_bits(0));
             epr.set_ctr_rx(!epr.ctr_rx());
             epr.set_ctr_tx(!epr.ctr_tx());
             regs.epr(index).write_value(epr);
@@ -143,8 +143,8 @@ fn invariant(mut r: regs::Epr) -> regs::Epr {
     r.set_ctr_tx(true); // don't clear
     r.set_dtog_rx(false); // don't toggle
     r.set_dtog_tx(false); // don't toggle
-    r.set_stat_rx(Stat(0));
-    r.set_stat_tx(Stat(0));
+    r.set_stat_rx(Stat::from_bits(0));
+    r.set_stat_tx(Stat::from_bits(0));
     r
 }
 
@@ -551,7 +551,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                                 true => Stat::STALL,
                             };
                             let mut w = invariant(r);
-                            w.set_stat_tx(Stat(r.stat_tx().0 ^ want_stat.0));
+                            w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
                             reg.write_value(w);
                         }
                     }
@@ -570,7 +570,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                                 true => Stat::STALL,
                             };
                             let mut w = invariant(r);
-                            w.set_stat_rx(Stat(r.stat_rx().0 ^ want_stat.0));
+                            w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
                             reg.write_value(w);
                         }
                     }
@@ -606,7 +606,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                         break;
                     }
                     let mut w = invariant(r);
-                    w.set_stat_tx(Stat(r.stat_tx().0 ^ want_stat.0));
+                    w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
                     reg.write_value(w);
                 }
                 EP_IN_WAKERS[ep_addr.index()].wake();
@@ -622,7 +622,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                         break;
                     }
                     let mut w = invariant(r);
-                    w.set_stat_rx(Stat(r.stat_rx().0 ^ want_stat.0));
+                    w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
                     reg.write_value(w);
                 }
                 EP_OUT_WAKERS[ep_addr.index()].wake();
@@ -763,8 +763,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         regs.epr(index).write(|w| {
             w.set_ep_type(convert_type(self.info.ep_type));
             w.set_ea(self.info.addr.index() as _);
-            w.set_stat_rx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
-            w.set_stat_tx(Stat(0));
+            w.set_stat_rx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
+            w.set_stat_tx(Stat::from_bits(0));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });
@@ -805,8 +805,8 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         regs.epr(index).write(|w| {
             w.set_ep_type(convert_type(self.info.ep_type));
             w.set_ea(self.info.addr.index() as _);
-            w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
-            w.set_stat_rx(Stat(0));
+            w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
+            w.set_stat_rx(Stat::from_bits(0));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });
@@ -869,19 +869,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             let mut stat_tx = 0;
             if first {
                 // change NAK -> VALID
-                stat_rx ^= Stat::NAK.0 ^ Stat::VALID.0;
-                stat_tx ^= Stat::NAK.0 ^ Stat::STALL.0;
+                stat_rx ^= Stat::NAK.to_bits() ^ Stat::VALID.to_bits();
+                stat_tx ^= Stat::NAK.to_bits() ^ Stat::STALL.to_bits();
             }
             if last {
                 // change STALL -> VALID
-                stat_tx ^= Stat::STALL.0 ^ Stat::NAK.0;
+                stat_tx ^= Stat::STALL.to_bits() ^ Stat::NAK.to_bits();
             }
             // Note: if this is the first AND last transfer, the above effectively
             // changes stat_tx like NAK -> NAK, so noop.
             regs.epr(0).write(|w| {
                 w.set_ep_type(EpType::CONTROL);
-                w.set_stat_rx(Stat(stat_rx));
-                w.set_stat_tx(Stat(stat_tx));
+                w.set_stat_rx(Stat::from_bits(stat_rx));
+                w.set_stat_tx(Stat::from_bits(stat_tx));
                 w.set_ctr_rx(true); // don't clear
                 w.set_ctr_tx(true); // don't clear
             });
@@ -908,11 +908,11 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         regs.epr(0).write(|w| {
             w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat(match last {
+            w.set_stat_rx(Stat::from_bits(match last {
                 // If last, set STAT_RX=STALL.
-                true => Stat::NAK.0 ^ Stat::STALL.0,
+                true => Stat::NAK.to_bits() ^ Stat::STALL.to_bits(),
                 // Otherwise, set STAT_RX=VALID, to allow the host to send the next packet.
-                false => Stat::NAK.0 ^ Stat::VALID.0,
+                false => Stat::NAK.to_bits() ^ Stat::VALID.to_bits(),
             }));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
@@ -937,17 +937,17 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             let mut stat_rx = 0;
             if first {
                 // change NAK -> STALL
-                stat_rx ^= Stat::NAK.0 ^ Stat::STALL.0;
+                stat_rx ^= Stat::NAK.to_bits() ^ Stat::STALL.to_bits();
             }
             if last {
                 // change STALL -> VALID
-                stat_rx ^= Stat::STALL.0 ^ Stat::VALID.0;
+                stat_rx ^= Stat::STALL.to_bits() ^ Stat::VALID.to_bits();
             }
             // Note: if this is the first AND last transfer, the above effectively
             // does a change of NAK -> VALID.
             regs.epr(0).write(|w| {
                 w.set_ep_type(EpType::CONTROL);
-                w.set_stat_rx(Stat(stat_rx));
+                w.set_stat_rx(Stat::from_bits(stat_rx));
                 w.set_ep_kind(last); // set OUT_STATUS if last.
                 w.set_ctr_rx(true); // don't clear
                 w.set_ctr_tx(true); // don't clear
@@ -977,7 +977,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         let regs = T::regs();
         regs.epr(0).write(|w| {
             w.set_ep_type(EpType::CONTROL);
-            w.set_stat_tx(Stat(Stat::NAK.0 ^ Stat::VALID.0));
+            w.set_stat_tx(Stat::from_bits(Stat::NAK.to_bits() ^ Stat::VALID.to_bits()));
             w.set_ep_kind(last); // set OUT_STATUS if last.
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
@@ -998,8 +998,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         let epr = regs.epr(0).read();
         regs.epr(0).write(|w| {
             w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
-            w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::VALID.0));
+            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
+            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::VALID.to_bits()));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });
@@ -1029,8 +1029,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         let epr = regs.epr(0).read();
         regs.epr(0).write(|w| {
             w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat(epr.stat_rx().0 ^ Stat::STALL.0));
-            w.set_stat_tx(Stat(epr.stat_tx().0 ^ Stat::STALL.0));
+            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
+            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::STALL.to_bits()));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });
