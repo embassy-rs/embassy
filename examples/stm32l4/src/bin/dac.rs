@@ -5,7 +5,6 @@
 use defmt::*;
 use embassy_stm32::dac::{DacCh1, DacChannel, Value};
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::pac;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
