@@ -3,26 +3,21 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_stm32::dac::{Channel, Dac, Value};
-use embassy_stm32::pac;
+use embassy_stm32::dac::{DacCh1, DacChannel, Value};
+use embassy_stm32::dma::NoDma;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    pac::RCC.apb1enr1().modify(|w| {
-        w.set_dac1en(true);
-    });
-
-    let p = embassy_stm32::init(Default::default());
-
-    let mut dac = Dac::new_1ch(p.DAC1, p.PA4);
+    let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
 
     loop {
         for v in 0..=255 {
-            unwrap!(dac.set(Channel::Ch1, Value::Bit8(to_sine_wave(v))));
-            unwrap!(dac.trigger(Channel::Ch1));
+            unwrap!(dac.set(Value::Bit8(to_sine_wave(v))));
+            dac.trigger();
         }
     }
 }
