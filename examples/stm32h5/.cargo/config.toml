@@ -1,5 +1,5 @@
 [target.thumbv8m.main-none-eabihf]
-runner = 'probe-rs-cli run --chip STM32H563ZITx'
+runner = 'probe-rs run --chip STM32H563ZITx'
 
 [build]
 target = "thumbv8m.main-none-eabihf"

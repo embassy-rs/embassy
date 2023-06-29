@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Hello NVMC!");
 
-    // probe-rs-cli run breaks without this, I'm not sure why.
+    // probe-rs run breaks without this, I'm not sure why.
     Timer::after(Duration::from_secs(1)).await;
 
     let mut f = Nvmc::new(p.NVMC);

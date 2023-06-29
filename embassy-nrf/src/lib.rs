@@ -410,13 +410,13 @@ pub fn init(config: config::Config) -> Peripherals {
             warn!(
                 "You have requested enabling chip reset functionality on the reset pin, by not enabling the Cargo feature `reset-pin-as-gpio`.\n\
                 However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
-                To fix this, erase UICR manually, for example using `probe-rs-cli erase` or `nrfjprog --eraseuicr`."
+                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
             );
             #[cfg(feature = "reset-pin-as-gpio")]
             warn!(
                 "You have requested using the reset pin as GPIO, by enabling the Cargo feature `reset-pin-as-gpio`.\n\
                 However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
-                To fix this, erase UICR manually, for example using `probe-rs-cli erase` or `nrfjprog --eraseuicr`."
+                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
             );
         }
     }
@@ -432,7 +432,7 @@ pub fn init(config: config::Config) -> Peripherals {
             warn!(
                 "You have requested to use P0.09 and P0.10 pins for NFC, by not enabling the Cargo feature `nfc-pins-as-gpio`.\n\
                 However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
-                To fix this, erase UICR manually, for example using `probe-rs-cli erase` or `nrfjprog --eraseuicr`."
+                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
             );
         }
     }
