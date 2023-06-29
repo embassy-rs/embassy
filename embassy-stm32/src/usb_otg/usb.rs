@@ -97,7 +97,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 vals::Pktstsd::SETUP_DATA_DONE => {
                     trace!("SETUP_DATA_DONE ep={}", ep_num);
                 }
-                x => trace!("unknown PKTSTS: {}", x.0),
+                x => trace!("unknown PKTSTS: {}", x.to_bits()),
             }
         }
 
@@ -920,7 +920,7 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
                 trace!("enumdne");
 
                 let speed = r.dsts().read().enumspd();
-                trace!("  speed={}", speed.0);
+                trace!("  speed={}", speed.to_bits());
 
                 r.gusbcfg().modify(|w| {
                     w.set_trdt(calculate_trdt(speed, T::frequency()));

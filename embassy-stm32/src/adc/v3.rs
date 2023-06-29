@@ -211,10 +211,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(not(stm32g0))]
     fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr1().modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
+        T::regs()
+            .smpr(ch as usize / 10)
+            .modify(|reg| reg.set_smp(ch as usize % 10, sample_time));
     }
 }
