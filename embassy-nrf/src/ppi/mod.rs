@@ -15,6 +15,7 @@
 //! many tasks and events, but any single task or event can only be coupled with one channel.
 //!
 
+use core::marker::PhantomData;
 use core::ptr::NonNull;
 
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
@@ -125,16 +126,16 @@ const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();
 /// When a task is subscribed to a PPI channel, it will run when the channel is triggered by
 /// a published event.
 #[derive(PartialEq, Eq, Clone, Copy)]
-pub struct Task(NonNull<u32>);
+pub struct Task<'d>(NonNull<u32>, PhantomData<&'d ()>);
 
-impl Task {
+impl<'d> Task<'_> {
     /// Create a new `Task` from a task register pointer
     ///
     /// # Safety
     ///
     /// `ptr` must be a pointer to a valid `TASKS_*` register from an nRF peripheral.
     pub unsafe fn new_unchecked(ptr: NonNull<u32>) -> Self {
-        Self(ptr)
+        Self(ptr, PhantomData)
     }
 
     /// Triggers this task.
@@ -143,7 +144,10 @@ impl Task {
     }
 
     pub(crate) fn from_reg<T>(reg: &T) -> Self {
-        Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
+        Self(
+            unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) },
+            PhantomData,
+        )
     }
 
     /// Address of subscription register for this task.
@@ -156,26 +160,29 @@ impl Task {
 /// # Safety
 ///
 /// NonNull is not send, but this event is only allowed to point at registers and those exist in any context on the same core.
-unsafe impl Send for Task {}
+unsafe impl Send for Task<'_> {}
 
 /// Represents an event that a peripheral can publish.
 ///
 /// An event can be set to publish on a PPI channel when the event happens.
 #[derive(PartialEq, Eq, Clone, Copy)]
-pub struct Event(NonNull<u32>);
+pub struct Event<'d>(NonNull<u32>, PhantomData<&'d ()>);
 
-impl Event {
+impl<'d> Event<'_> {
     /// Create a new `Event` from an event register pointer
     ///
     /// # Safety
     ///
     /// `ptr` must be a pointer to a valid `EVENTS_*` register from an nRF peripheral.
     pub unsafe fn new_unchecked(ptr: NonNull<u32>) -> Self {
-        Self(ptr)
+        Self(ptr, PhantomData)
     }
 
-    pub(crate) fn from_reg<T>(reg: &T) -> Self {
-        Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
+    pub(crate) fn from_reg<T>(reg: &'d T) -> Self {
+        Self(
+            unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) },
+            PhantomData,
+        )
     }
 
     /// Describes whether this Event is currently in a triggered state.
@@ -198,7 +205,7 @@ impl Event {
 /// # Safety
 ///
 /// NonNull is not send, but this event is only allowed to point at registers and those exist in any context on the same core.
-unsafe impl Send for Event {}
+unsafe impl Send for Event<'_> {}
 
 // ======================
 //       traits
