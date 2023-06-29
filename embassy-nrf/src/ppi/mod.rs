@@ -31,9 +31,9 @@ pub(crate) use _version::*;
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
     ch: PeripheralRef<'d, C>,
     #[cfg(feature = "_dppi")]
-    events: [Event; EVENT_COUNT],
+    events: [Event<'d>; EVENT_COUNT],
     #[cfg(feature = "_dppi")]
-    tasks: [Task; TASK_COUNT],
+    tasks: [Task<'d>; TASK_COUNT],
 }
 
 /// PPI channel group driver.
