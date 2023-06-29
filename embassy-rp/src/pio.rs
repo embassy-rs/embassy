@@ -834,7 +834,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     /// of [`Pio`] do not keep pin registrations alive.**
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
-        pin.io().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL.0));
+        pin.io().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         Pin {
@@ -998,7 +998,7 @@ fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
     if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
-        let null = Gpio0ctrlFuncsel::NULL.0;
+        let null = Gpio0ctrlFuncsel::NULL as _;
         // we only have 30 pins. don't test the other two since gpio() asserts.
         for i in 0..30 {
             if used_pins & (1 << i) != 0 {
