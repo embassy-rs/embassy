@@ -405,11 +405,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
-        let en = ch.cr().read().en();
-        // Check if circular mode is enabled, if so it will still be running even if tcif == 1
-        let circular = ch.cr().read().circ() == vals::Circ::ENABLED;
-        let tcif = STATE.complete_count[self.channel.index()].load(Ordering::Acquire) != 0;
-        en && (circular || !tcif)
+        ch.cr().read().en()
     }
 
     /// Gets the total remaining transfers for the channel
