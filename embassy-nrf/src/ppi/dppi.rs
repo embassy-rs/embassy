@@ -30,8 +30,8 @@ impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usi
     /// Configure a DPPI channel to trigger all `tasks` when any of the `events` fires.
     pub fn new_many_to_many(
         ch: impl Peripheral<P = C> + 'd,
-        events: [Event; EVENT_COUNT],
-        tasks: [Task; TASK_COUNT],
+        events: [Event<'d>; EVENT_COUNT],
+        tasks: [Task<'d>; TASK_COUNT],
     ) -> Self {
         into_ref!(ch);
 
