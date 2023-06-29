@@ -6,7 +6,7 @@ An adaptation of `embassy-boot` for nRF.
 
 ## Features
 
-* Load applications with our without the softdevice.
+* Load applications with or without the softdevice.
 * Configure bootloader partitions based on linker script.
 * Using watchdog timer to detect application failure.
 
