@@ -5,9 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::pwm::advanced_pwm::*;
-use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::khz;
-use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -17,7 +15,7 @@ async fn main(_spawner: Spawner) {
 
     let ch1 = PwmPin::new_cha(p.PA8);
     let ch1n = ComplementaryPwmPin::new_cha(p.PA9);
-    let mut pwm = AdvancedPwm::new(
+    let pwm = AdvancedPwm::new(
         p.HRTIM1,
         Some(ch1),
         Some(ch1n),

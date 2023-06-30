@@ -3,9 +3,6 @@ pub mod advanced_pwm;
 pub mod complementary_pwm;
 pub mod simple_pwm;
 
-#[cfg(hrtim_v1)]
-use core::ops;
-
 use stm32_metapac::timer::vals::Ckd;
 
 #[cfg(hrtim_v1)]
@@ -402,7 +399,6 @@ foreach_interrupt! {
             }
 
             fn set_channel_dead_time(channel: usize, dead_time: u16) {
-                use crate::rcc::sealed::RccPeripheral;
                 use crate::timer::sealed::HighResolutionControlInstance;
 
                 let regs = Self::regs();

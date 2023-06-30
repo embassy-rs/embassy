@@ -1,6 +1,3 @@
-#[cfg(hrtim_v1)]
-use core::ops;
-
 use stm32_metapac::timer::vals;
 
 use crate::interrupt;
