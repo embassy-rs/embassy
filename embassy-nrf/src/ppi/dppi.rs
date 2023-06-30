@@ -19,8 +19,8 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
     /// Configure PPI channel to trigger both `task1` and `task2` on `event`.
-    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
-        Ppi<'d>::new_many_to_many(ch, [event], [task1, task2])
+    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task1: Task<'d>, task2: Task<'d>) -> Self {
+        Ppi::new_many_to_many(ch, [event], [task1, task2])
     }
 }
 
