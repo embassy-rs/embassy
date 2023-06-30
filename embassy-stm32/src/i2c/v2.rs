@@ -7,6 +7,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::{Duration, Instant};
 
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
@@ -613,10 +614,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
+        let deadline = Instant::now() + Duration::from_millis(100);
         if write.is_empty() {
-            self.write_internal(address, write, true, || Ok(()))
+            self.write_internal(address, write, true, || check_timeout(deadline))
         } else {
-            self.write_dma_internal(address, write, true, true, || Ok(())).await
+            self.write_dma_internal(address, write, true, true, || check_timeout(deadline))
+                .await
         }
     }
 
@@ -631,11 +634,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         let mut first = true;
         let mut current = iter.next();
+        let deadline = Instant::now() + Duration::from_millis(100);
         while let Some(c) = current {
             let next = iter.next();
             let is_last = next.is_none();
 
-            self.write_dma_internal(address, c, first, is_last, || Ok(())).await?;
+            self.write_dma_internal(address, c, first, is_last, || check_timeout(deadline))
+                .await?;
             first = false;
             current = next;
         }
@@ -646,10 +651,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
+        let deadline = Instant::now() + Duration::from_millis(100);
         if buffer.is_empty() {
-            self.read_internal(address, buffer, false, || Ok(()))
+            self.read_internal(address, buffer, false, || check_timeout(deadline))
         } else {
-            self.read_dma_internal(address, buffer, false, || Ok(())).await
+            self.read_dma_internal(address, buffer, false, || check_timeout(deadline))
+                .await
         }
     }
 
@@ -658,16 +665,20 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         TXDMA: super::TxDma<T>,
         RXDMA: super::RxDma<T>,
     {
+        let deadline = Instant::now() + Duration::from_millis(100);
         if write.is_empty() {
-            self.write_internal(address, write, false, || Ok(()))?;
+            self.write_internal(address, write, false, || check_timeout(deadline))?;
         } else {
-            self.write_dma_internal(address, write, true, true, || Ok(())).await?;
+            self.write_dma_internal(address, write, true, true, || check_timeout(deadline))
+                .await?;
         }
 
+        let deadline = Instant::now() + Duration::from_millis(100);
         if read.is_empty() {
-            self.read_internal(address, read, true, || Ok(()))?;
+            self.read_internal(address, read, true, || check_timeout(deadline))?;
         } else {
-            self.read_dma_internal(address, read, true, || Ok(())).await?;
+            self.read_dma_internal(address, read, true, || check_timeout(deadline))
+                .await?;
         }
 
         Ok(())
@@ -687,7 +698,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_timeout(address, read, || Ok(()))
+        let deadline = Instant::now() + Duration::from_millis(100);
+        self.blocking_read_timeout(address, read, || check_timeout(deadline))
     }
 
     pub fn blocking_write_timeout(
@@ -700,7 +712,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.blocking_write_timeout(address, write, || Ok(()))
+        let deadline = Instant::now() + Duration::from_millis(100);
+        self.blocking_write_timeout(address, write, || check_timeout(deadline))
     }
 
     pub fn blocking_write_read_timeout(
@@ -711,12 +724,17 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         check_timeout: impl Fn() -> Result<(), Error>,
     ) -> Result<(), Error> {
         self.write_internal(address, write, false, &check_timeout)?;
-        self.read_internal(address, read, true, &check_timeout)
+        self.read_internal(address, read, true, &check_timeout)?;
+        Ok(())
         // Automatic Stop
     }
 
     pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_read_timeout(address, write, read, || Ok(()))
+        let deadline = Instant::now() + Duration::from_millis(100);
+        match self.blocking_write_read_timeout(address, write, read, || check_timeout(deadline)) {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err),
+        }
     }
 
     pub fn blocking_write_vectored_timeout(
@@ -816,7 +834,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
-        self.blocking_write_vectored_timeout(address, write, || Ok(()))
+        let deadline = Instant::now() + Duration::from_millis(100);
+        self.blocking_write_vectored_timeout(address, write, || check_timeout(deadline))
     }
 }
 
@@ -845,6 +864,14 @@ mod eh02 {
         fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_write_read(address, write, read)
         }
+    }
+}
+
+fn check_timeout(deadline: Instant) -> Result<(), Error> {
+    if Instant::now() > deadline {
+        Err(Error::Timeout)
+    } else {
+        Ok(())
     }
 }
 
