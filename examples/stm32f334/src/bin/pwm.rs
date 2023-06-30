@@ -31,16 +31,17 @@ async fn main(_spawner: Spawner) {
         None,
     );
 
-    pwm.set_dead_time(0);
-
     let mut buck_converter = BridgeConverter::new(pwm.ch_a, khz(100));
 
-    buck_converter.set_duty(0, u16::MAX);
+    buck_converter.set_primary_duty(0);
+    buck_converter.set_secondary_duty(0);
+    buck_converter.set_dead_time(0);
 
     // note: if the pins are not passed into the advanced pwm struct, they will not be output
     let mut boost_converter = BridgeConverter::new(pwm.ch_b, khz(100));
 
-    boost_converter.set_duty(0, 0);
+    boost_converter.set_primary_duty(0);
+    boost_converter.set_secondary_duty(0);
 
     //    let max = pwm.get_max_duty();
     //    pwm.set_dead_time(max / 1024);
