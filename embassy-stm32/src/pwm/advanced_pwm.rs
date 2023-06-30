@@ -43,12 +43,12 @@ pub struct ChE<T: HighResolutionCaptureCompare16bitInstance> {
 mod sealed {
     use crate::pwm::HighResolutionCaptureCompare16bitInstance;
 
-    pub trait AdvancedChannel<T: HighResolutionCaptureCompare16bitInstance> {}
+    pub trait AdvancedChannel<T: HighResolutionCaptureCompare16bitInstance> {
+        fn raw() -> usize;
+    }
 }
 
-pub trait AdvancedChannel<T: HighResolutionCaptureCompare16bitInstance>: sealed::AdvancedChannel<T> {
-    fn raw() -> usize;
-}
+pub trait AdvancedChannel<T: HighResolutionCaptureCompare16bitInstance>: sealed::AdvancedChannel<T> {}
 
 pub struct PwmPin<'d, Perip, Channel> {
     _pin: PeripheralRef<'d, AnyPin>,
@@ -94,12 +94,12 @@ macro_rules! advanced_channel_impl {
             }
         }
 
-        impl<T: HighResolutionCaptureCompare16bitInstance> sealed::AdvancedChannel<T> for $channel<T> {}
-        impl<T: HighResolutionCaptureCompare16bitInstance> AdvancedChannel<T> for $channel<T> {
+        impl<T: HighResolutionCaptureCompare16bitInstance> sealed::AdvancedChannel<T> for $channel<T> {
             fn raw() -> usize {
                 $ch_num
             }
         }
+        impl<T: HighResolutionCaptureCompare16bitInstance> AdvancedChannel<T> for $channel<T> {}
     };
 }
 
@@ -158,8 +158,8 @@ impl<'d, T: HighResolutionCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
 }
 
 impl<T: HighResolutionCaptureCompare16bitInstance> BurstController<T> {
-    pub fn set_source(&mut self, source: Source) {
-        let regs = T::regs();
+    pub fn set_source(&mut self, _source: Source) {
+        todo!("burst mode control registers not implemented")
     }
 }
 
@@ -229,6 +229,32 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
         T::regs().mcr().modify(|w| w.set_tcen(C::raw(), false));
     }
 
+    pub fn enable_burst_mode(&mut self) {
+        use crate::pac::hrtim::vals::{Idlem, Idles};
+
+        // TODO: fix metapac
+        T::regs().tim(C::raw()).outr().modify(|w| {
+            w.set_idlem(0, Idlem(1));
+            w.set_idlem(1, Idlem(1));
+
+            w.set_idles(0, Idles(1));
+            w.set_idles(1, Idles(1));
+        })
+    }
+
+    pub fn disable_burst_mode(&mut self) {
+        use crate::pac::hrtim::vals::{Idlem, Idles};
+
+        // TODO: fix metapac
+        T::regs().tim(C::raw()).outr().modify(|w| {
+            w.set_idlem(0, Idlem(0));
+            w.set_idlem(1, Idlem(0));
+
+            w.set_idles(0, Idles(0));
+            w.set_idles(1, Idles(0));
+        })
+    }
+
     /// Set the dead time as a proportion of the maximum compare value
     pub fn set_dead_time(&mut self, value: u16) {
         T::set_channel_dead_time(C::raw(), value);
@@ -282,11 +308,12 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Resona
             w.set_half(true);
         });
 
-        // TODO: compute min period value
+        let max_period = T::regs().tim(C::raw()).per().read().per();
+        let min_period = max_period * (min_frequency.0 / max_frequency.0) as u16;
 
         Self {
-            min_period: 0,
-            max_period: T::regs().tim(C::raw()).per().read().per(),
+            min_period: min_period,
+            max_period: max_period,
             phantom: PhantomData,
             ch: channel,
         }
