@@ -12,7 +12,7 @@ pub(crate) fn regs() -> &'static pac::dppic::RegisterBlock {
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
     /// Configure PPI channel to trigger `task` on `event`.
-    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event, task: Task) -> Self {
+    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task: Task<'d>) -> Self {
         Ppi::new_many_to_many(ch, [event], [task])
     }
 }
