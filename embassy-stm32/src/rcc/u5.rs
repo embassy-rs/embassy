@@ -126,7 +126,7 @@ pub enum PllM {
 
 impl Into<Pllm> for PllM {
     fn into(self) -> Pllm {
-        Pllm(self as u8)
+        Pllm::from_bits(self as u8)
     }
 }
 

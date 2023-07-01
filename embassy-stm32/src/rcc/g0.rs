@@ -344,7 +344,7 @@ pub(crate) unsafe fn init(config: Config) {
             });
             while !RCC.cr().read().hsirdy() {}
 
-            (HSI_FREQ.0 >> div.0, Sw::HSI)
+            (HSI_FREQ.0 >> div.to_bits(), Sw::HSI)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE
@@ -381,7 +381,7 @@ pub(crate) unsafe fn init(config: Config) {
     let mut set_flash_latency_after = false;
     FLASH.acr().modify(|w| {
         // Is the current flash latency less than what we need at the new SYSCLK?
-        if w.latency().0 <= target_flash_latency.0 {
+        if w.latency().to_bits() <= target_flash_latency.to_bits() {
             // We must increase the number of wait states now
             w.set_latency(target_flash_latency)
         } else {
@@ -395,12 +395,12 @@ pub(crate) unsafe fn init(config: Config) {
         // > Flash memory.
         //
         // Enable flash prefetching if we have at least one wait state, and disable it otherwise.
-        w.set_prften(target_flash_latency.0 > 0);
+        w.set_prften(target_flash_latency.to_bits() > 0);
     });
 
     if !set_flash_latency_after {
         // Spin until the effective flash latency is compatible with the clock change
-        while FLASH.acr().read().latency().0 < target_flash_latency.0 {}
+        while FLASH.acr().read().latency().to_bits() < target_flash_latency.to_bits() {}
     }
 
     // Configure SYSCLK source, HCLK divisor, and PCLK divisor all at once
@@ -442,7 +442,7 @@ pub(crate) unsafe fn init(config: Config) {
         APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
-            let pre: u8 = 1 << (pre.0 - 3);
+            let pre: u8 = 1 << (pre.to_bits() - 3);
             let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }

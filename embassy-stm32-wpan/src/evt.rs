@@ -1,6 +1,8 @@
+use core::marker::PhantomData;
 use core::{ptr, slice};
 
 use super::PacketHeader;
+use crate::consts::TL_EVT_HEADER_SIZE;
 
 /**
  * The payload of `Evt` for a command status event
@@ -92,17 +94,22 @@ impl EvtPacket {
     }
 }
 
+pub trait MemoryManager {
+    unsafe fn drop_event_packet(evt: *mut EvtPacket);
+}
+
 /// smart pointer to the [`EvtPacket`] that will dispose of [`EvtPacket`] buffer automatically
 /// on [`Drop`]
 #[derive(Debug)]
-pub struct EvtBox {
+pub struct EvtBox<T: MemoryManager> {
     ptr: *mut EvtPacket,
+    mm: PhantomData<T>,
 }
 
-unsafe impl Send for EvtBox {}
-impl EvtBox {
+unsafe impl<T: MemoryManager> Send for EvtBox<T> {}
+impl<T: MemoryManager> EvtBox<T> {
     pub(super) fn new(ptr: *mut EvtPacket) -> Self {
-        Self { ptr }
+        Self { ptr, mm: PhantomData }
     }
 
     /// Returns information about the event
@@ -124,22 +131,21 @@ impl EvtBox {
             slice::from_raw_parts(p_payload, payload_len as usize)
         }
     }
+
+    pub fn serial<'a>(&'a self) -> &'a [u8] {
+        unsafe {
+            let evt_serial: *const EvtSerial = &(*self.ptr).evt_serial;
+            let evt_serial_buf: *const u8 = evt_serial.cast();
+
+            let len = (*evt_serial).evt.payload_len as usize + TL_EVT_HEADER_SIZE;
+
+            slice::from_raw_parts(evt_serial_buf, len)
+        }
+    }
 }
 
-impl Drop for EvtBox {
+impl<T: MemoryManager> Drop for EvtBox<T> {
     fn drop(&mut self) {
-        #[cfg(feature = "ble")]
-        unsafe {
-            use crate::mm;
-
-            mm::MemoryManager::drop_event_packet(self.ptr)
-        };
-
-        #[cfg(feature = "mac")]
-        unsafe {
-            use crate::mac;
-
-            mac::Mac::drop_event_packet(self.ptr)
-        }
+        unsafe { T::drop_event_packet(self.ptr) };
     }
 }

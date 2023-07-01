@@ -52,7 +52,7 @@ impl CmdPacket {
             p_cmd_serial,
             CmdSerialStub {
                 ty: packet_type as u8,
-                cmd_code: cmd_code,
+                cmd_code,
                 payload_len: payload.len() as u8,
             },
         );

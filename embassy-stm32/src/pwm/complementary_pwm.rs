@@ -243,7 +243,7 @@ mod tests {
         for test_run in fn_results {
             let (ckd, bits) = compute_dead_time_value(test_run.value);
 
-            assert_eq!(ckd.0, test_run.ckd.0);
+            assert_eq!(ckd.to_bits(), test_run.ckd.to_bits());
             assert_eq!(bits, test_run.bits);
         }
     }

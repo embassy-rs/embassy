@@ -36,7 +36,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
         #[cfg(rtc_v2wb)]
         let rtcsel = reg.rtcsel();
         #[cfg(not(rtc_v2wb))]
-        let rtcsel = reg.rtcsel().0;
+        let rtcsel = reg.rtcsel().to_bits();
 
         if !reg.rtcen() || rtcsel != clock_config {
             #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
@@ -54,7 +54,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
 
                 // Select RTC source
                 #[cfg(not(rtc_v2wb))]
-                w.set_rtcsel(Rtcsel(clock_config));
+                w.set_rtcsel(Rtcsel::from_bits(clock_config));
                 #[cfg(rtc_v2wb)]
                 w.set_rtcsel(clock_config);
                 w.set_rtcen(true);

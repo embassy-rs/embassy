@@ -99,10 +99,10 @@ Examples are found in the `examples/` folder seperated by the chip manufacturer 
 
 ### Running examples
 
-- Install `probe-rs-cli` with defmt support.
+- Install `probe-rs`.
 
 ```bash
-cargo install probe-rs-cli
+cargo install probe-rs --features cli
 ```
 
 - Change directory to the sample's base directory. For example:

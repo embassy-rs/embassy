@@ -353,6 +353,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         poll_fn(move |cx| {
             BUS_WAKER.register(cx.waker());
 
+            // TODO: implement VBUS detection.
             if !self.inited {
                 self.inited = true;
                 return Poll::Ready(Event::PowerDetected);

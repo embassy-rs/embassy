@@ -112,8 +112,14 @@ impl<'d> Adc<'d> {
         r.result().read().result().into()
     }
 
-    pub fn blocking_read<PIN: Channel<Adc<'d>, ID = u8>>(&mut self, _pin: &mut PIN) -> u16 {
+    pub fn blocking_read<PIN: Channel<Adc<'d>, ID = u8> + Pin>(&mut self, pin: &mut PIN) -> u16 {
         let r = Self::regs();
+        pin.pad_ctrl().modify(|w| {
+            w.set_ie(true);
+            let (pu, pd) = (false, false);
+            w.set_pue(pu);
+            w.set_pde(pd);
+        });
         r.cs().modify(|w| {
             w.set_ainsel(PIN::channel());
             w.set_start_once(true)
@@ -166,7 +172,7 @@ impl_pin!(PIN_29, 3);
 impl<WORD, PIN> OneShot<Adc<'static>, WORD, PIN> for Adc<'static>
 where
     WORD: From<u16>,
-    PIN: Channel<Adc<'static>, ID = u8>,
+    PIN: Channel<Adc<'static>, ID = u8> + Pin,
 {
     type Error = ();
     fn read(&mut self, pin: &mut PIN) -> nb::Result<WORD, Self::Error> {

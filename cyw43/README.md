@@ -1,6 +1,6 @@
 # cyw43
 
-WIP driver for the CYW43439 wifi chip, used in the Raspberry Pi Pico W. Implementation based on [Infineon/wifi-host-driver](https://github.com/Infineon/wifi-host-driver).
+Rust driver for the CYW43439 wifi chip, used in the Raspberry Pi Pico W. Implementation based on [Infineon/wifi-host-driver](https://github.com/Infineon/wifi-host-driver).
 
 ## Current status
 
@@ -19,18 +19,18 @@ Working:
 TODO:
 
 - Setting a custom MAC address.
-- Bus sleep (unclear what the benefit is. Is it needed for IRQs? or is it just power consumption optimization?)
+- Bus sleep (for power consumption optimization)
 
 ## Running the examples
 
-- `cargo install probe-rs-cli`
-- `cd examples/rpi-pico-w`
+- `cargo install probe-rs --features cli`
+- `cd examples/rp`
 ### Example 1: Scan the wifi stations
 - `cargo run --release --bin wifi_scan`
 ### Example 2: Create an access point (IP and credentials in the code)
-- `cargo run --release --bin tcp_server_ap`
+- `cargo run --release --bin wifi_ap_tcp_server`
 ### Example 3: Connect to an existing network and create a server
-- `WIFI_NETWORK=MyWifiNetwork WIFI_PASSWORD=MyWifiPassword cargo run --release`
+- `WIFI_NETWORK=MyWifiNetwork WIFI_PASSWORD=MyWifiPassword cargo run --release --bin wifi_tcp_server`
 
 After a few seconds, you should see that DHCP picks up an IP address like this
 ```

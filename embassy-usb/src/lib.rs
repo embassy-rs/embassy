@@ -23,7 +23,7 @@ mod config {
 use embassy_futures::select::{select, Either};
 use heapless::Vec;
 
-pub use crate::builder::{Builder, Config};
+pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder};
 use crate::config::*;
 use crate::control::*;
 use crate::descriptor::*;
