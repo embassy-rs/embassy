@@ -31,6 +31,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         random
     }
 
+    #[cfg(rng_v1)]
     pub fn reset(&mut self) {
         // rng_v2 locks up on seed error, needs reset
         #[cfg(rng_v2)]
@@ -47,6 +48,38 @@ impl<'d, T: Instance> Rng<'d, T> {
         });
         // Reference manual says to discard the first.
         let _ = self.next_u32();
+    }
+
+    #[cfg(not(rng_v1))]
+    pub fn reset(&mut self) {
+        T::regs().cr().modify(|reg| {
+            reg.set_rngen(false);
+            reg.set_condrst(true);
+            // set RNG config "A" according to reference manual
+            // this has to be written within the same write access as setting the CONDRST bit
+            reg.set_nistc(pac::rng::vals::Nistc::DEFAULT);
+            reg.set_rng_config1(pac::rng::vals::RngConfig1::CONFIGA);
+            reg.set_rng_config2(pac::rng::vals::RngConfig2::CONFIGA_B);
+            reg.set_rng_config3(pac::rng::vals::RngConfig3::CONFIGA);
+            reg.set_clkdiv(pac::rng::vals::Clkdiv::NODIV);
+        });
+        // wait for CONDRST to be set
+        while !T::regs().cr().read().condrst() {}
+        // magic number must be written immediately before every read or write access to HTCR
+        T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::MAGIC));
+        // write recommended value according to reference manual
+        // note: HTCR can only be written during conditioning
+        T::regs()
+            .htcr()
+            .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+        // finish conditioning
+        T::regs().cr().modify(|reg| {
+            reg.set_rngen(true);
+            reg.set_condrst(false);
+            reg.set_ie(true);
+        });
+        // wait for CONDRST to be reset
+        while T::regs().cr().read().condrst() {}
     }
 
     pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
