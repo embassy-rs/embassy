@@ -46,5 +46,4 @@ async fn main(_spawner: Spawner) {
 
     let then: NaiveDateTime = rtc.now().unwrap().into();
     info!("Got RTC! {:?}", then.timestamp());
-
 }

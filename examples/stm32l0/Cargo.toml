@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-stm32/nightly", "embassy-time/nightly", "embassy-time/unstable-traits",
+nightly = ["embassy-stm32/nightly", "embassy-time/nightly", "embassy-time/unstable-traits", "embassy-executor/nightly",
            "embassy-lora", "lora-phy", "lorawan-device", "lorawan", "embedded-io/async"]
 
 [dependencies]

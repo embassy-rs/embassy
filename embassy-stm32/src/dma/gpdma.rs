@@ -5,14 +5,14 @@ use core::pin::Pin;
 use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::GPDMA_CHANNEL_COUNT;
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::Priority;
 use crate::pac;
 use crate::pac::gpdma::vals;
 
@@ -56,8 +56,8 @@ static STATE: State = State::new();
 pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
-            crate::interrupt::$irq::set_priority(irq_priority);
-            crate::interrupt::$irq::enable();
+            crate::interrupt::typelevel::$irq::set_priority(irq_priority);
+            crate::interrupt::typelevel::$irq::enable();
         };
     }
     crate::_generated::init_gpdma();
@@ -92,13 +92,15 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::gpdma::Gpdma, channel_num: usize, in
     if sr.dtef() {
         panic!(
             "DMA: data transfer error on DMA@{:08x} channel {}",
-            dma.0 as u32, channel_num
+            dma.as_ptr() as u32,
+            channel_num
         );
     }
     if sr.usef() {
         panic!(
             "DMA: user settings error on DMA@{:08x} channel {}",
-            dma.0 as u32, channel_num
+            dma.as_ptr() as u32,
+            channel_num
         );
     }
 
@@ -250,6 +252,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         super::dmamux::configure_dmamux(&mut *this.channel, request);
 
         ch.cr().write(|w| w.set_reset(true));
+        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
         ch.llr().write(|_| {}); // no linked list
         ch.tr1().write(|w| {
             w.set_sdw(data_size.into());
@@ -298,26 +301,24 @@ impl<'a, C: Channel> Transfer<'a, C> {
         let ch = self.channel.regs().ch(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        unsafe {
-            ch.cr().write(|w| {
-                w.set_tcie(true);
-                w.set_useie(true);
-                w.set_dteie(true);
-                w.set_suspie(true);
-            })
-        }
+        ch.cr().write(|w| {
+            w.set_tcie(true);
+            w.set_useie(true);
+            w.set_dteie(true);
+            w.set_suspie(true);
+        })
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
-        !unsafe { ch.sr().read() }.tcf()
+        !ch.sr().read().tcf()
     }
 
     /// Gets the total remaining transfers for the channel
     /// Note: this will be zero for transfers that completed without cancellation.
     pub fn get_remaining_transfers(&self) -> u16 {
         let ch = self.channel.regs().ch(self.channel.num());
-        unsafe { ch.br1().read() }.bndt()
+        ch.br1().read().bndt()
     }
 
     pub fn blocking_wait(mut self) {

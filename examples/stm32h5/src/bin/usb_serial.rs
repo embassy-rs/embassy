@@ -45,11 +45,9 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    unsafe {
-        pac::RCC.ccipr4().write(|w| {
-            w.set_usbsel(pac::rcc::vals::Usbsel::HSI48);
-        });
-    }
+    pac::RCC.ccipr4().write(|w| {
+        w.set_usbsel(pac::rcc::vals::Usbsel::HSI48);
+    });
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);

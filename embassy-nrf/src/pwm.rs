@@ -8,10 +8,9 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::Interrupt;
 use crate::ppi::{Event, Task};
 use crate::util::slice_in_ram_or;
-use crate::{pac, Peripheral};
+use crate::{interrupt, pac, Peripheral};
 
 /// SimplePwm is the traditional pwm interface you're probably used to, allowing
 /// to simply set a duty cycle across up to four channels.
@@ -843,7 +842,7 @@ pub(crate) mod sealed {
 /// PWM peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_pwm {
@@ -854,7 +853,7 @@ macro_rules! impl_pwm {
             }
         }
         impl crate::pwm::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

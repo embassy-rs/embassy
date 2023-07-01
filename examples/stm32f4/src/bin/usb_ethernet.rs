@@ -52,7 +52,9 @@ async fn main(spawner: Spawner) {
 
     // Create the driver, from the HAL.
     let ep_out_buffer = &mut make_static!([0; 256])[..];
-    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, ep_out_buffer);
+    let mut config = embassy_stm32::usb_otg::Config::default();
+    config.vbus_detection = true;
+    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, ep_out_buffer, config);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -94,8 +96,8 @@ async fn main(spawner: Spawner) {
     let (runner, device) = class.into_embassy_net_device::<MTU, 4, 4>(make_static!(NetState::new()), our_mac_addr);
     unwrap!(spawner.spawn(usb_ncm_task(runner)));
 
-    let config = embassy_net::Config::Dhcp(Default::default());
-    //let config = embassy_net::Config::Static(embassy_net::StaticConfig {
+    let config = embassy_net::Config::dhcpv4(Default::default());
+    //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
     //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
     //    dns_servers: Vec::new(),
     //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),

@@ -16,9 +16,9 @@ use embassy_time::{Duration, Instant};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{self, Interrupt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::util::{slice_in_ram, slice_in_ram_or};
-use crate::{gpio, pac, Peripheral};
+use crate::{gpio, interrupt, pac, Peripheral};
 
 /// TWI frequency
 #[derive(Clone, Copy)]
@@ -98,7 +98,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
@@ -123,7 +123,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// Create a new TWI driver.
     pub fn new(
         twim: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sda: impl Peripheral<P = impl GpioPin> + 'd,
         scl: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
@@ -750,7 +750,7 @@ pub(crate) mod sealed {
 /// TWIM peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_twim {
@@ -765,7 +765,7 @@ macro_rules! impl_twim {
             }
         }
         impl crate::twim::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

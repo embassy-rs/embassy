@@ -18,11 +18,9 @@ async fn main(_spawner: Spawner) {
     const PI_F: f32 = 3.1415926535f32;
     const PI_D: f64 = 3.14159265358979323846f64;
 
-    unsafe {
-        pac::BUSCTRL
-            .perfsel(0)
-            .write(|r| r.set_perfsel(pac::busctrl::vals::Perfsel::ROM));
-    }
+    pac::BUSCTRL
+        .perfsel(0)
+        .write(|r| r.set_perfsel(pac::busctrl::vals::Perfsel::ROM));
 
     for i in 0..=360 {
         let rad_f = (i as f32) * PI_F / 180.0;
@@ -46,7 +44,7 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_millis(10)).await;
     }
 
-    let rom_accesses = unsafe { pac::BUSCTRL.perfctr(0).read().perfctr() };
+    let rom_accesses = pac::BUSCTRL.perfctr(0).read().perfctr();
     // every float operation used here uses at least 10 cycles
     defmt::assert!(rom_accesses >= 360 * 12 * 10);
 

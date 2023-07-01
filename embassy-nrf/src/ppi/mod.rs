@@ -137,6 +137,11 @@ impl Task {
         Self(ptr)
     }
 
+    /// Triggers this task.
+    pub fn trigger(&mut self) {
+        unsafe { self.0.as_ptr().write_volatile(1) };
+    }
+
     pub(crate) fn from_reg<T>(reg: &T) -> Self {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
     }
@@ -171,6 +176,16 @@ impl Event {
 
     pub(crate) fn from_reg<T>(reg: &T) -> Self {
         Self(unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) })
+    }
+
+    /// Describes whether this Event is currently in a triggered state.
+    pub fn is_triggered(&self) -> bool {
+        unsafe { self.0.as_ptr().read_volatile() == 1 }
+    }
+
+    /// Clear the current register's triggered state, reverting it to 0.
+    pub fn clear(&mut self) {
+        unsafe { self.0.as_ptr().write_volatile(0) };
     }
 
     /// Address of publish register for this event.

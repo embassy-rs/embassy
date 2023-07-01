@@ -15,9 +15,9 @@ pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
-use crate::interrupt::{self, Interrupt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
-use crate::{pac, Peripheral};
+use crate::{interrupt, pac, Peripheral};
 
 /// SPIM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +63,7 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
@@ -84,7 +84,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     /// Create a new SPIM driver.
     pub fn new(
         spim: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         miso: impl Peripheral<P = impl GpioPin> + 'd,
         mosi: impl Peripheral<P = impl GpioPin> + 'd,
@@ -103,7 +103,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     /// Create a new SPIM driver, capable of TX only (MOSI only).
     pub fn new_txonly(
         spim: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         mosi: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
@@ -115,7 +115,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     /// Create a new SPIM driver, capable of RX only (MISO only).
     pub fn new_rxonly(
         spim: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: impl Peripheral<P = impl GpioPin> + 'd,
         miso: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
@@ -408,7 +408,7 @@ pub(crate) mod sealed {
 /// SPIM peripheral instance
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
     /// Interrupt for this peripheral.
-    type Interrupt: Interrupt;
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_spim {
@@ -423,7 +423,7 @@ macro_rules! impl_spim {
             }
         }
         impl crate::spim::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }

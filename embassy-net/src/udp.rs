@@ -104,7 +104,7 @@ impl<'a> UdpSocket<'a> {
     pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
         poll_fn(move |cx| {
             self.with_mut(|s, _| match s.recv_slice(buf) {
-                Ok(x) => Poll::Ready(Ok(x)),
+                Ok((n, meta)) => Poll::Ready(Ok((n, meta.endpoint))),
                 // No data ready
                 Err(udp::RecvError::Exhausted) => {
                     s.register_recv_waker(cx.waker());

@@ -2,7 +2,7 @@
 
 use crate::{pac, peripherals};
 
-pub(crate) unsafe fn configure_dmamux<M: MuxChannel>(channel: &mut M, request: u8) {
+pub(crate) fn configure_dmamux<M: MuxChannel>(channel: &mut M, request: u8) {
     let ch_mux_regs = channel.mux_regs().ccr(channel.mux_num());
     ch_mux_regs.write(|reg| {
         reg.set_nbreq(0);

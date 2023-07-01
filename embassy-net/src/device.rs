@@ -51,15 +51,19 @@ where
             Medium::Ethernet => phy::Medium::Ethernet,
             #[cfg(feature = "medium-ip")]
             Medium::Ip => phy::Medium::Ip,
+            #[allow(unreachable_patterns)]
             _ => panic!(
-                "Unsupported medium {:?}. MAke sure to enable it in embassy-net's Cargo features.",
+                "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
                 caps.medium
             ),
         };
         smolcaps.checksum.ipv4 = convert(caps.checksum.ipv4);
         smolcaps.checksum.tcp = convert(caps.checksum.tcp);
         smolcaps.checksum.udp = convert(caps.checksum.udp);
-        smolcaps.checksum.icmpv4 = convert(caps.checksum.icmpv4);
+        #[cfg(feature = "proto-ipv4")]
+        {
+            smolcaps.checksum.icmpv4 = convert(caps.checksum.icmpv4);
+        }
         #[cfg(feature = "proto-ipv6")]
         {
             smolcaps.checksum.icmpv6 = convert(caps.checksum.icmpv6);

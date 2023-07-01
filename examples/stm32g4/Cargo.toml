@@ -6,10 +6,11 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["nightly", "arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "time-driver-any", "stm32g491re", "memory-x", "unstable-pac", "exti"]  }
 embassy-hal-common = {version = "0.1.0", path = "../../embassy-hal-common" }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"

@@ -17,45 +17,43 @@ where
 {
     let sio = rp_pac::SIO;
 
-    unsafe {
-        // Since we can't save the signed-ness of the calculation, we have to make
-        // sure that there's at least an 8 cycle delay before we read the result.
-        // The Pico SDK ensures this by using a 6 cycle push and two 1 cycle reads.
-        // Since we can't be sure the Rust implementation will optimize to the same,
-        // just use an explicit wait.
-        while !sio.div().csr().read().ready() {}
+    // Since we can't save the signed-ness of the calculation, we have to make
+    // sure that there's at least an 8 cycle delay before we read the result.
+    // The Pico SDK ensures this by using a 6 cycle push and two 1 cycle reads.
+    // Since we can't be sure the Rust implementation will optimize to the same,
+    // just use an explicit wait.
+    while !sio.div().csr().read().ready() {}
 
-        // Read the quotient last, since that's what clears the dirty flag
-        let dividend = sio.div().udividend().read();
-        let divisor = sio.div().udivisor().read();
-        let remainder = sio.div().remainder().read();
-        let quotient = sio.div().quotient().read();
+    // Read the quotient last, since that's what clears the dirty flag
+    let dividend = sio.div().udividend().read();
+    let divisor = sio.div().udivisor().read();
+    let remainder = sio.div().remainder().read();
+    let quotient = sio.div().quotient().read();
 
-        // If we get interrupted here (before a write sets the DIRTY flag) its fine, since
-        // we have the full state, so the interruptor doesn't have to restore it.  Once the
-        // write happens and the DIRTY flag is set, the interruptor becomes responsible for
-        // restoring our state.
-        let result = f();
+    // If we get interrupted here (before a write sets the DIRTY flag) its fine, since
+    // we have the full state, so the interruptor doesn't have to restore it.  Once the
+    // write happens and the DIRTY flag is set, the interruptor becomes responsible for
+    // restoring our state.
+    let result = f();
 
-        // If we are interrupted here, then the interruptor will start an incorrect calculation
-        // using a wrong divisor, but we'll restore the divisor and result ourselves correctly.
-        // This sets DIRTY, so any interruptor will save the state.
-        sio.div().udividend().write_value(dividend);
-        // If we are interrupted here, the the interruptor may start the calculation using
-        // incorrectly signed inputs, but we'll restore the result ourselves.
-        // This sets DIRTY, so any interruptor will save the state.
-        sio.div().udivisor().write_value(divisor);
-        // If we are interrupted here, the interruptor will have restored everything but the
-        // quotient may be wrongly signed.  If the calculation started by the above writes is
-        // still ongoing it is stopped, so it won't replace the result we're restoring.
-        // DIRTY and READY set, but only DIRTY matters to make the interruptor save the state.
-        sio.div().remainder().write_value(remainder);
-        // State fully restored after the quotient write.  This sets both DIRTY and READY, so
-        // whatever we may have interrupted can read the result.
-        sio.div().quotient().write_value(quotient);
+    // If we are interrupted here, then the interruptor will start an incorrect calculation
+    // using a wrong divisor, but we'll restore the divisor and result ourselves correctly.
+    // This sets DIRTY, so any interruptor will save the state.
+    sio.div().udividend().write_value(dividend);
+    // If we are interrupted here, the the interruptor may start the calculation using
+    // incorrectly signed inputs, but we'll restore the result ourselves.
+    // This sets DIRTY, so any interruptor will save the state.
+    sio.div().udivisor().write_value(divisor);
+    // If we are interrupted here, the interruptor will have restored everything but the
+    // quotient may be wrongly signed.  If the calculation started by the above writes is
+    // still ongoing it is stopped, so it won't replace the result we're restoring.
+    // DIRTY and READY set, but only DIRTY matters to make the interruptor save the state.
+    sio.div().remainder().write_value(remainder);
+    // State fully restored after the quotient write.  This sets both DIRTY and READY, so
+    // whatever we may have interrupted can read the result.
+    sio.div().quotient().write_value(quotient);
 
-        result
-    }
+    result
 }
 
 fn save_divider<F, R>(f: F) -> R
@@ -63,7 +61,7 @@ where
     F: FnOnce() -> R,
 {
     let sio = rp_pac::SIO;
-    if unsafe { !sio.div().csr().read().dirty() } {
+    if !sio.div().csr().read().dirty() {
         // Not dirty, so nothing is waiting for the calculation.  So we can just
         // issue it directly without a save/restore.
         f()

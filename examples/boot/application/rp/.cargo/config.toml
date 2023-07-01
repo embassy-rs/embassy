@@ -3,7 +3,7 @@ build-std = ["core"]
 build-std-features = ["panic_immediate_abort"]
 
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs-cli run --chip RP2040"
+runner = "probe-rs run --chip RP2040"
 
 [build]
 target = "thumbv6m-none-eabi"

@@ -12,7 +12,7 @@ pub const VREF_CALIB_MV: u32 = 3000;
 /// Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent ADC clock
 /// configuration.
 fn enable() {
-    critical_section::with(|_| unsafe {
+    critical_section::with(|_| {
         #[cfg(stm32h7)]
         crate::pac::RCC.apb2enr().modify(|w| w.set_adcen(true));
         #[cfg(stm32g0)]
@@ -62,29 +62,25 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(adc);
         enable();
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                #[cfg(not(adc_g0))]
-                reg.set_deeppwd(false);
-                reg.set_advregen(true);
-            });
+        T::regs().cr().modify(|reg| {
+            #[cfg(not(adc_g0))]
+            reg.set_deeppwd(false);
+            reg.set_advregen(true);
+        });
 
-            #[cfg(adc_g0)]
-            T::regs().cfgr1().modify(|reg| {
-                reg.set_chselrmod(false);
-            });
-        }
+        #[cfg(adc_g0)]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_chselrmod(false);
+        });
 
         delay.delay_us(20);
 
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_adcal(true);
-            });
+        T::regs().cr().modify(|reg| {
+            reg.set_adcal(true);
+        });
 
-            while T::regs().cr().read().adcal() {
-                // spin
-            }
+        while T::regs().cr().read().adcal() {
+            // spin
         }
 
         delay.delay_us(1);
@@ -96,11 +92,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn enable_vrefint(&self, delay: &mut impl DelayUs<u32>) -> VrefInt {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_vrefen(true);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_vrefen(true);
+        });
 
         // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
         // to stabilize the internal voltage reference, we wait a little more.
@@ -112,21 +106,17 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn enable_temperature(&self) -> Temperature {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_ch17sel(true);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_ch17sel(true);
+        });
 
         Temperature {}
     }
 
     pub fn enable_vbat(&self) -> Vbat {
-        unsafe {
-            T::common_regs().ccr().modify(|reg| {
-                reg.set_ch18sel(true);
-            });
-        }
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_ch18sel(true);
+        });
 
         Vbat {}
     }
@@ -136,12 +126,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
-        unsafe {
-            #[cfg(not(stm32g0))]
-            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
-            #[cfg(stm32g0)]
-            T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
-        }
+        #[cfg(not(stm32g0))]
+        T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+        #[cfg(stm32g0)]
+        T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
     /*
@@ -155,82 +143,76 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Perform a single conversion.
     fn convert(&mut self) -> u16 {
-        unsafe {
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
+        T::regs().isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
 
-            // Start conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
 
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-
-            T::regs().dr().read().0 as u16
+        while !T::regs().isr().read().eos() {
+            // spin
         }
+
+        T::regs().dr().read().0 as u16
     }
 
     pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        unsafe {
-            // Make sure bits are off
-            while T::regs().cr().read().addis() {
-                // spin
-            }
-
-            // Enable ADC
-            T::regs().isr().modify(|reg| {
-                reg.set_adrdy(true);
-            });
-            T::regs().cr().modify(|reg| {
-                reg.set_aden(true);
-            });
-
-            while !T::regs().isr().read().adrdy() {
-                // spin
-            }
-
-            // Configure channel
-            Self::set_channel_sample_time(pin.channel(), self.sample_time);
-
-            // Select channel
-            #[cfg(not(stm32g0))]
-            T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
-            #[cfg(stm32g0)]
-            T::regs().chselr().write(|reg| reg.set_chsel(1 << pin.channel()));
-
-            // Some models are affected by an erratum:
-            // If we perform conversions slower than 1 kHz, the first read ADC value can be
-            // corrupted, so we discard it and measure again.
-            //
-            // STM32L471xx: Section 2.7.3
-            // STM32G4: Section 2.7.3
-            #[cfg(any(rcc_l4, rcc_g4))]
-            let _ = self.convert();
-
-            let val = self.convert();
-
-            T::regs().cr().modify(|reg| reg.set_addis(true));
-
-            val
+        // Make sure bits are off
+        while T::regs().cr().read().addis() {
+            // spin
         }
+
+        // Enable ADC
+        T::regs().isr().modify(|reg| {
+            reg.set_adrdy(true);
+        });
+        T::regs().cr().modify(|reg| {
+            reg.set_aden(true);
+        });
+
+        while !T::regs().isr().read().adrdy() {
+            // spin
+        }
+
+        // Configure channel
+        Self::set_channel_sample_time(pin.channel(), self.sample_time);
+
+        // Select channel
+        #[cfg(not(stm32g0))]
+        T::regs().sqr1().write(|reg| reg.set_sq(0, pin.channel()));
+        #[cfg(stm32g0)]
+        T::regs().chselr().write(|reg| reg.set_chsel(1 << pin.channel()));
+
+        // Some models are affected by an erratum:
+        // If we perform conversions slower than 1 kHz, the first read ADC value can be
+        // corrupted, so we discard it and measure again.
+        //
+        // STM32L471xx: Section 2.7.3
+        // STM32G4: Section 2.7.3
+        #[cfg(any(rcc_l4, rcc_g4))]
+        let _ = self.convert();
+
+        let val = self.convert();
+
+        T::regs().cr().modify(|reg| reg.set_addis(true));
+
+        val
     }
 
     #[cfg(stm32g0)]
-    unsafe fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
+    fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
         T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
     }
 
     #[cfg(not(stm32g0))]
-    unsafe fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
+    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
         let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr1().modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
+        T::regs()
+            .smpr(ch as usize / 10)
+            .modify(|reg| reg.set_smp(ch as usize % 10, sample_time));
     }
 }

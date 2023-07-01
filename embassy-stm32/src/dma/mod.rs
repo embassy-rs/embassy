@@ -26,11 +26,11 @@ pub mod word;
 
 use core::mem;
 
-use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::impl_peripheral;
 
 #[cfg(dmamux)]
 pub use self::dmamux::*;
+use crate::interrupt::Priority;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

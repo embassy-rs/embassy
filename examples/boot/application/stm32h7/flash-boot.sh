@@ -1,5 +1,5 @@
 #!/bin/bash
-probe-rs-cli erase --chip STM32H743ZITx
+probe-rs erase --chip STM32H743ZITx
 mv ../../bootloader/stm32/memory.x ../../bootloader/stm32/memory-old.x
 cp memory-bl.x ../../bootloader/stm32/memory.x
 

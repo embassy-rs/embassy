@@ -12,6 +12,9 @@ use embassy_nrf::wdt::{self, Watchdog};
 use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
+#[cfg(feature = "skip-include")]
+static APP_B: &[u8] = &[0, 1, 2, 3];
+#[cfg(not(feature = "skip-include"))]
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 #[embassy_executor::main]
@@ -55,13 +58,13 @@ async fn main(_spawner: Spawner) {
         button.wait_for_any_edge().await;
         if button.is_low() {
             let mut offset = 0;
+            let mut magic = [0; 4];
             for chunk in APP_B.chunks(4096) {
                 let mut buf: [u8; 4096] = [0; 4096];
                 buf[..chunk.len()].copy_from_slice(chunk);
-                updater.write_firmware(offset, &buf).await.unwrap();
+                updater.write_firmware(&mut magic, offset, &buf).await.unwrap();
                 offset += chunk.len();
             }
-            let mut magic = [0; 4];
             updater.mark_updated(&mut magic).await.unwrap();
             led.set_high();
             cortex_m::peripheral::SCB::sys_reset();

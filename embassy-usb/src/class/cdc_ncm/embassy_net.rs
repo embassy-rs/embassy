@@ -1,4 +1,5 @@
-//! [`embassy-net`](crates.io/crates/embassy-net) driver for the CDC-NCM class.
+//! [`embassy-net`](https://crates.io/crates/embassy-net) driver for the CDC-NCM class.
+
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
@@ -79,7 +80,7 @@ impl<'d, D: Driver<'d>, const MTU: usize> Runner<'d, D, MTU> {
 pub type Device<'d, const MTU: usize> = embassy_net_driver_channel::Device<'d, MTU>;
 
 impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
-    /// Obtain a driver for using the CDC-NCM class with [`embassy-net`](crates.io/crates/embassy-net).
+    /// Obtain a driver for using the CDC-NCM class with [`embassy-net`](https://crates.io/crates/embassy-net).
     pub fn into_embassy_net_device<const MTU: usize, const N_RX: usize, const N_TX: usize>(
         self,
         state: &'d mut State<MTU, N_RX, N_TX>,

@@ -1,20 +1,24 @@
+use darling::export::NestedMeta;
 use darling::FromMeta;
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{parse_quote, ItemFn, ReturnType, Type};
+use syn::{parse_quote, Expr, ExprLit, ItemFn, Lit, LitInt, ReturnType, Type};
 
 use crate::util::ctxt::Ctxt;
 
 #[derive(Debug, FromMeta)]
 struct Args {
     #[darling(default)]
-    pool_size: Option<usize>,
+    pool_size: Option<syn::Expr>,
 }
 
-pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
-    let args = Args::from_list(&args).map_err(|e| e.write_errors())?;
+pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStream> {
+    let args = Args::from_list(args).map_err(|e| e.write_errors())?;
 
-    let pool_size: usize = args.pool_size.unwrap_or(1);
+    let pool_size = args.pool_size.unwrap_or(Expr::Lit(ExprLit {
+        attrs: vec![],
+        lit: Lit::Int(LitInt::new("1", Span::call_site())),
+    }));
 
     let ctxt = Ctxt::new();
 
@@ -43,10 +47,6 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
                 "task functions must either not return a value, return `()` or return `!`",
             ),
         },
-    }
-
-    if pool_size < 1 {
-        ctxt.error_spanned_by(&f.sig, "pool_size must be 1 or greater");
     }
 
     let mut arg_names = Vec::new();
@@ -82,7 +82,8 @@ pub fn run(args: syn::AttributeArgs, f: syn::ItemFn) -> Result<TokenStream, Toke
     let mut task_outer: ItemFn = parse_quote! {
         #visibility fn #task_ident(#fargs) -> ::embassy_executor::SpawnToken<impl Sized> {
             type Fut = impl ::core::future::Future + 'static;
-            static POOL: ::embassy_executor::raw::TaskPool<Fut, #pool_size> = ::embassy_executor::raw::TaskPool::new();
+            const POOL_SIZE: usize = #pool_size;
+            static POOL: ::embassy_executor::raw::TaskPool<Fut, POOL_SIZE> = ::embassy_executor::raw::TaskPool::new();
             unsafe { POOL._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
         }
     };

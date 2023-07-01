@@ -4,14 +4,15 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::tl_mbox::{Config, TlMbox};
-use embassy_stm32::{bind_interrupts, tl_mbox};
+use embassy_stm32::bind_interrupts;
+use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32_wpan::TlMbox;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
-    IPCC_C1_RX => tl_mbox::ReceiveInterruptHandler;
-    IPCC_C1_TX => tl_mbox::TransmitInterruptHandler;
+    IPCC_C1_RX => ReceiveInterruptHandler;
+    IPCC_C1_TX => TransmitInterruptHandler;
 });
 
 #[embassy_executor::main]
@@ -44,10 +45,10 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::new(p.IPCC, Irqs, config);
+    let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
     loop {
-        let wireless_fw_info = mbox.wireless_fw_info();
+        let wireless_fw_info = mbox.sys_subsystem.wireless_fw_info();
         match wireless_fw_info {
             None => info!("not yet initialized"),
             Some(fw_info) => {

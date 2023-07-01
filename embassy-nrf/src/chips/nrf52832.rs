@@ -263,46 +263,42 @@ impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
 impl_i2s!(I2S, I2S, I2S);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(POWER_CLOCK);
-    declare!(RADIO);
-    declare!(UARTE0_UART0);
-    declare!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-    declare!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
-    declare!(NFCT);
-    declare!(GPIOTE);
-    declare!(SAADC);
-    declare!(TIMER0);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(RTC0);
-    declare!(TEMP);
-    declare!(RNG);
-    declare!(ECB);
-    declare!(CCM_AAR);
-    declare!(WDT);
-    declare!(RTC1);
-    declare!(QDEC);
-    declare!(COMP_LPCOMP);
-    declare!(SWI0_EGU0);
-    declare!(SWI1_EGU1);
-    declare!(SWI2_EGU2);
-    declare!(SWI3_EGU3);
-    declare!(SWI4_EGU4);
-    declare!(SWI5_EGU5);
-    declare!(TIMER3);
-    declare!(TIMER4);
-    declare!(PWM0);
-    declare!(PDM);
-    declare!(MWU);
-    declare!(PWM1);
-    declare!(PWM2);
-    declare!(SPIM2_SPIS2_SPI2);
-    declare!(RTC2);
-    declare!(FPU);
-    declare!(I2S);
-}
+embassy_hal_common::interrupt_mod!(
+    POWER_CLOCK,
+    RADIO,
+    UARTE0_UART0,
+    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
+    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
+    NFCT,
+    GPIOTE,
+    SAADC,
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    RTC0,
+    TEMP,
+    RNG,
+    ECB,
+    CCM_AAR,
+    WDT,
+    RTC1,
+    QDEC,
+    COMP_LPCOMP,
+    SWI0_EGU0,
+    SWI1_EGU1,
+    SWI2_EGU2,
+    SWI3_EGU3,
+    SWI4_EGU4,
+    SWI5_EGU5,
+    TIMER3,
+    TIMER4,
+    PWM0,
+    PDM,
+    MWU,
+    PWM1,
+    PWM2,
+    SPIM2_SPIS2_SPI2,
+    RTC2,
+    FPU,
+    I2S,
+);

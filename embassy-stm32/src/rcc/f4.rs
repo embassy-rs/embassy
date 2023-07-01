@@ -36,18 +36,18 @@ pub struct Config {
 }
 
 #[cfg(stm32f410)]
-unsafe fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
+fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
 // Not currently implemented, but will be in the future
 #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
-unsafe fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
+fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
 #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
-unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
     let min_div = 2;
     let max_div = 7;
     let target = match plli2s {
@@ -82,18 +82,12 @@ unsafe fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
     Some(output)
 }
 
-unsafe fn setup_pll(
-    pllsrcclk: u32,
-    use_hse: bool,
-    pllsysclk: Option<u32>,
-    plli2s: Option<u32>,
-    pll48clk: bool,
-) -> PllResults {
+fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Option<u32>, pll48clk: bool) -> PllResults {
     use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
     if pllsysclk.is_none() && !pll48clk {
-        RCC.pllcfgr().modify(|w| w.set_pllsrc(Pllsrc(use_hse as u8)));
+        RCC.pllcfgr().modify(|w| w.set_pllsrc(Pllsrc::from_bits(use_hse as u8)));
 
         return PllResults {
             use_pll: false,
@@ -147,9 +141,9 @@ unsafe fn setup_pll(
     RCC.pllcfgr().modify(|w| {
         w.set_pllm(pllm as u8);
         w.set_plln(plln as u16);
-        w.set_pllp(Pllp(pllp as u8));
+        w.set_pllp(Pllp::from_bits(pllp as u8));
         w.set_pllq(pllq as u8);
-        w.set_pllsrc(Pllsrc(use_hse as u8));
+        w.set_pllsrc(Pllsrc::from_bits(use_hse as u8));
     });
 
     let real_pllsysclk = vco_in * plln / sysclk_div;
@@ -320,7 +314,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
     }
 }
 
-unsafe fn flash_setup(sysclk: u32) {
+fn flash_setup(sysclk: u32) {
     use crate::pac::flash::vals::Latency;
 
     // Be conservative with voltage ranges
@@ -329,7 +323,7 @@ unsafe fn flash_setup(sysclk: u32) {
     critical_section::with(|_| {
         FLASH
             .acr()
-            .modify(|w| w.set_latency(Latency(((sysclk - 1) / FLASH_LATENCY_STEP) as u8)));
+            .modify(|w| w.set_latency(Latency::from_bits(((sysclk - 1) / FLASH_LATENCY_STEP) as u8)));
     });
 }
 
@@ -446,8 +440,8 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     RCC.cfgr().modify(|w| {
-        w.set_ppre2(Ppre(ppre2_bits));
-        w.set_ppre1(Ppre(ppre1_bits));
+        w.set_ppre2(Ppre::from_bits(ppre2_bits));
+        w.set_ppre1(Ppre::from_bits(ppre1_bits));
         w.set_hpre(hpre_bits);
     });
 

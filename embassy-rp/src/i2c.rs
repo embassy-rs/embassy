@@ -2,14 +2,14 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
 
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
-use crate::{pac, peripherals, Peripheral};
+use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 /// I2C error abort reason
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let r = T::regs();
 
         // mask everything initially
-        unsafe { r.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0)) }
+        r.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -135,13 +135,11 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                 let last = remaining_queue == 0;
                 batch += 1;
 
-                unsafe {
-                    p.ic_data_cmd().write(|w| {
-                        w.set_restart(restart && remaining_queue == buffer.len() - 1);
-                        w.set_stop(last && send_stop);
-                        w.set_cmd(true);
-                    });
-                }
+                p.ic_data_cmd().write(|w| {
+                    w.set_restart(restart && remaining_queue == buffer.len() - 1);
+                    w.set_stop(last && send_stop);
+                    w.set_cmd(true);
+                });
             }
 
             // We've either run out of txfifo or just plain finished setting up
@@ -161,7 +159,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                             Poll::Pending
                         }
                     },
-                    |_me| unsafe {
+                    |_me| {
                         // Set the read threshold to the number of bytes we're
                         // expecting so we don't get spurious interrupts.
                         p.ic_rx_tl().write(|w| w.set_rx_tl(batch - 1));
@@ -185,7 +183,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                     let rxbytes = (rxfifo as usize).min(remaining);
                     let received = buffer.len() - remaining;
                     for b in &mut buffer[received..received + rxbytes] {
-                        *b = unsafe { p.ic_data_cmd().read().dat() };
+                        *b = p.ic_data_cmd().read().dat();
                     }
                     remaining -= rxbytes;
                 }
@@ -211,13 +209,11 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                 if let Some(byte) = bytes.next() {
                     let last = bytes.peek().is_none();
 
-                    unsafe {
-                        p.ic_data_cmd().write(|w| {
-                            w.set_stop(last && send_stop);
-                            w.set_cmd(false);
-                            w.set_dat(byte);
-                        });
-                    }
+                    p.ic_data_cmd().write(|w| {
+                        w.set_stop(last && send_stop);
+                        w.set_cmd(false);
+                        w.set_dat(byte);
+                    });
                 } else {
                     break 'xmit Ok(());
                 }
@@ -235,7 +231,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                             Poll::Pending
                         }
                     },
-                    |_me| unsafe {
+                    |_me| {
                         // Set tx "free" threshold a little high so that we get
                         // woken before the fifo completely drains to minimize
                         // transfer stalls.
@@ -267,7 +263,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
             let had_abort2 = self
                 .wait_on(
-                    |me| unsafe {
+                    |me| {
                         // We could see an abort while processing fifo backlog,
                         // so handle it here.
                         let abort = me.read_and_clear_abort_reason();
@@ -279,7 +275,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                             Poll::Pending
                         }
                     },
-                    |_me| unsafe {
+                    |_me| {
                         p.ic_intr_mask().modify(|w| {
                             w.set_m_stop_det(true);
                             w.set_m_tx_abrt(true);
@@ -287,9 +283,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                     },
                 )
                 .await;
-            unsafe {
-                p.ic_clr_stop_det().read();
-            }
+            p.ic_clr_stop_det().read();
 
             had_abort.and(had_abort2)
         } else {
@@ -312,7 +306,7 @@ pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     // Mask interrupts and wake any task waiting for this interrupt
     unsafe fn on_interrupt() {
         let i2c = T::regs();
@@ -336,95 +330,93 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
 
         let p = T::regs();
 
-        unsafe {
-            let reset = T::reset();
-            crate::reset::reset(reset);
-            crate::reset::unreset_wait(reset);
+        let reset = T::reset();
+        crate::reset::reset(reset);
+        crate::reset::unreset_wait(reset);
 
-            p.ic_enable().write(|w| w.set_enable(false));
+        p.ic_enable().write(|w| w.set_enable(false));
 
-            // Select controller mode & speed
-            p.ic_con().modify(|w| {
-                // Always use "fast" mode (<= 400 kHz, works fine for standard
-                // mode too)
-                w.set_speed(i2c::vals::Speed::FAST);
-                w.set_master_mode(true);
-                w.set_ic_slave_disable(true);
-                w.set_ic_restart_en(true);
-                w.set_tx_empty_ctrl(true);
-            });
+        // Select controller mode & speed
+        p.ic_con().modify(|w| {
+            // Always use "fast" mode (<= 400 kHz, works fine for standard
+            // mode too)
+            w.set_speed(i2c::vals::Speed::FAST);
+            w.set_master_mode(true);
+            w.set_ic_slave_disable(true);
+            w.set_ic_restart_en(true);
+            w.set_tx_empty_ctrl(true);
+        });
 
-            // Set FIFO watermarks to 1 to make things simpler. This is encoded
-            // by a register value of 0.
-            p.ic_tx_tl().write(|w| w.set_tx_tl(0));
-            p.ic_rx_tl().write(|w| w.set_rx_tl(0));
+        // Set FIFO watermarks to 1 to make things simpler. This is encoded
+        // by a register value of 0.
+        p.ic_tx_tl().write(|w| w.set_tx_tl(0));
+        p.ic_rx_tl().write(|w| w.set_rx_tl(0));
 
-            // Configure SCL & SDA pins
-            scl.io().ctrl().write(|w| w.set_funcsel(3));
-            sda.io().ctrl().write(|w| w.set_funcsel(3));
+        // Configure SCL & SDA pins
+        scl.io().ctrl().write(|w| w.set_funcsel(3));
+        sda.io().ctrl().write(|w| w.set_funcsel(3));
 
-            scl.pad_ctrl().write(|w| {
-                w.set_schmitt(true);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(true);
-                w.set_pde(false);
-            });
-            sda.pad_ctrl().write(|w| {
-                w.set_schmitt(true);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(true);
-                w.set_pde(false);
-            });
+        scl.pad_ctrl().write(|w| {
+            w.set_schmitt(true);
+            w.set_ie(true);
+            w.set_od(false);
+            w.set_pue(true);
+            w.set_pde(false);
+        });
+        sda.pad_ctrl().write(|w| {
+            w.set_schmitt(true);
+            w.set_ie(true);
+            w.set_od(false);
+            w.set_pue(true);
+            w.set_pde(false);
+        });
 
-            // Configure baudrate
+        // Configure baudrate
 
-            // There are some subtleties to I2C timing which we are completely
-            // ignoring here See:
-            // https://github.com/raspberrypi/pico-sdk/blob/bfcbefafc5d2a210551a4d9d80b4303d4ae0adf7/src/rp2_common/hardware_i2c/i2c.c#L69
-            let clk_base = crate::clocks::clk_peri_freq();
+        // There are some subtleties to I2C timing which we are completely
+        // ignoring here See:
+        // https://github.com/raspberrypi/pico-sdk/blob/bfcbefafc5d2a210551a4d9d80b4303d4ae0adf7/src/rp2_common/hardware_i2c/i2c.c#L69
+        let clk_base = crate::clocks::clk_peri_freq();
 
-            let period = (clk_base + config.frequency / 2) / config.frequency;
-            let lcnt = period * 3 / 5; // spend 3/5 (60%) of the period low
-            let hcnt = period - lcnt; // and 2/5 (40%) of the period high
+        let period = (clk_base + config.frequency / 2) / config.frequency;
+        let lcnt = period * 3 / 5; // spend 3/5 (60%) of the period low
+        let hcnt = period - lcnt; // and 2/5 (40%) of the period high
 
-            // Check for out-of-range divisors:
-            assert!(hcnt <= 0xffff);
-            assert!(lcnt <= 0xffff);
-            assert!(hcnt >= 8);
-            assert!(lcnt >= 8);
+        // Check for out-of-range divisors:
+        assert!(hcnt <= 0xffff);
+        assert!(lcnt <= 0xffff);
+        assert!(hcnt >= 8);
+        assert!(lcnt >= 8);
 
-            // Per I2C-bus specification a device in standard or fast mode must
-            // internally provide a hold time of at least 300ns for the SDA
-            // signal to bridge the undefined region of the falling edge of SCL.
-            // A smaller hold time of 120ns is used for fast mode plus.
-            let sda_tx_hold_count = if config.frequency < 1_000_000 {
-                // sda_tx_hold_count = clk_base [cycles/s] * 300ns * (1s /
-                // 1e9ns) Reduce 300/1e9 to 3/1e7 to avoid numbers that don't
-                // fit in uint. Add 1 to avoid division truncation.
-                ((clk_base * 3) / 10_000_000) + 1
-            } else {
-                // fast mode plus requires a clk_base > 32MHz
-                assert!(clk_base >= 32_000_000);
+        // Per I2C-bus specification a device in standard or fast mode must
+        // internally provide a hold time of at least 300ns for the SDA
+        // signal to bridge the undefined region of the falling edge of SCL.
+        // A smaller hold time of 120ns is used for fast mode plus.
+        let sda_tx_hold_count = if config.frequency < 1_000_000 {
+            // sda_tx_hold_count = clk_base [cycles/s] * 300ns * (1s /
+            // 1e9ns) Reduce 300/1e9 to 3/1e7 to avoid numbers that don't
+            // fit in uint. Add 1 to avoid division truncation.
+            ((clk_base * 3) / 10_000_000) + 1
+        } else {
+            // fast mode plus requires a clk_base > 32MHz
+            assert!(clk_base >= 32_000_000);
 
-                // sda_tx_hold_count = clk_base [cycles/s] * 120ns * (1s /
-                // 1e9ns) Reduce 120/1e9 to 3/25e6 to avoid numbers that don't
-                // fit in uint. Add 1 to avoid division truncation.
-                ((clk_base * 3) / 25_000_000) + 1
-            };
-            assert!(sda_tx_hold_count <= lcnt - 2);
+            // sda_tx_hold_count = clk_base [cycles/s] * 120ns * (1s /
+            // 1e9ns) Reduce 120/1e9 to 3/25e6 to avoid numbers that don't
+            // fit in uint. Add 1 to avoid division truncation.
+            ((clk_base * 3) / 25_000_000) + 1
+        };
+        assert!(sda_tx_hold_count <= lcnt - 2);
 
-            p.ic_fs_scl_hcnt().write(|w| w.set_ic_fs_scl_hcnt(hcnt as u16));
-            p.ic_fs_scl_lcnt().write(|w| w.set_ic_fs_scl_lcnt(lcnt as u16));
-            p.ic_fs_spklen()
-                .write(|w| w.set_ic_fs_spklen(if lcnt < 16 { 1 } else { (lcnt / 16) as u8 }));
-            p.ic_sda_hold()
-                .modify(|w| w.set_ic_sda_tx_hold(sda_tx_hold_count as u16));
+        p.ic_fs_scl_hcnt().write(|w| w.set_ic_fs_scl_hcnt(hcnt as u16));
+        p.ic_fs_scl_lcnt().write(|w| w.set_ic_fs_scl_lcnt(lcnt as u16));
+        p.ic_fs_spklen()
+            .write(|w| w.set_ic_fs_spklen(if lcnt < 16 { 1 } else { (lcnt / 16) as u8 }));
+        p.ic_sda_hold()
+            .modify(|w| w.set_ic_sda_tx_hold(sda_tx_hold_count as u16));
 
-            // Enable I2C block
-            p.ic_enable().write(|w| w.set_enable(true));
-        }
+        // Enable I2C block
+        p.ic_enable().write(|w| w.set_enable(true));
 
         Self { phantom: PhantomData }
     }
@@ -439,11 +431,9 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         }
 
         let p = T::regs();
-        unsafe {
-            p.ic_enable().write(|w| w.set_enable(false));
-            p.ic_tar().write(|w| w.set_ic_tar(addr));
-            p.ic_enable().write(|w| w.set_enable(true));
-        }
+        p.ic_enable().write(|w| w.set_enable(false));
+        p.ic_tar().write(|w| w.set_ic_tar(addr));
+        p.ic_enable().write(|w| w.set_enable(true));
         Ok(())
     }
 
@@ -455,40 +445,38 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     #[inline]
     fn tx_fifo_capacity() -> u8 {
         let p = T::regs();
-        unsafe { FIFO_SIZE - p.ic_txflr().read().txflr() }
+        FIFO_SIZE - p.ic_txflr().read().txflr()
     }
 
     #[inline]
     fn rx_fifo_len() -> u8 {
         let p = T::regs();
-        unsafe { p.ic_rxflr().read().rxflr() }
+        p.ic_rxflr().read().rxflr()
     }
 
     fn read_and_clear_abort_reason(&mut self) -> Result<(), Error> {
         let p = T::regs();
-        unsafe {
-            let abort_reason = p.ic_tx_abrt_source().read();
-            if abort_reason.0 != 0 {
-                // Note clearing the abort flag also clears the reason, and this
-                // instance of flag is clear-on-read! Note also the
-                // IC_CLR_TX_ABRT register always reads as 0.
-                p.ic_clr_tx_abrt().read();
+        let abort_reason = p.ic_tx_abrt_source().read();
+        if abort_reason.0 != 0 {
+            // Note clearing the abort flag also clears the reason, and this
+            // instance of flag is clear-on-read! Note also the
+            // IC_CLR_TX_ABRT register always reads as 0.
+            p.ic_clr_tx_abrt().read();
 
-                let reason = if abort_reason.abrt_7b_addr_noack()
-                    | abort_reason.abrt_10addr1_noack()
-                    | abort_reason.abrt_10addr2_noack()
-                {
-                    AbortReason::NoAcknowledge
-                } else if abort_reason.arb_lost() {
-                    AbortReason::ArbitrationLoss
-                } else {
-                    AbortReason::Other(abort_reason.0)
-                };
-
-                Err(Error::Abort(reason))
+            let reason = if abort_reason.abrt_7b_addr_noack()
+                | abort_reason.abrt_10addr1_noack()
+                | abort_reason.abrt_10addr2_noack()
+            {
+                AbortReason::NoAcknowledge
+            } else if abort_reason.arb_lost() {
+                AbortReason::ArbitrationLoss
             } else {
-                Ok(())
-            }
+                AbortReason::Other(abort_reason.0)
+            };
+
+            Err(Error::Abort(reason))
+        } else {
+            Ok(())
         }
     }
 
@@ -503,24 +491,21 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             let first = i == 0;
             let last = i == lastindex;
 
-            // NOTE(unsafe) We have &mut self
-            unsafe {
-                // wait until there is space in the FIFO to write the next byte
-                while Self::tx_fifo_full() {}
+            // wait until there is space in the FIFO to write the next byte
+            while Self::tx_fifo_full() {}
 
-                p.ic_data_cmd().write(|w| {
-                    w.set_restart(restart && first);
-                    w.set_stop(send_stop && last);
+            p.ic_data_cmd().write(|w| {
+                w.set_restart(restart && first);
+                w.set_stop(send_stop && last);
 
-                    w.set_cmd(true);
-                });
+                w.set_cmd(true);
+            });
 
-                while Self::rx_fifo_len() == 0 {
-                    self.read_and_clear_abort_reason()?;
-                }
-
-                *byte = p.ic_data_cmd().read().dat();
+            while Self::rx_fifo_len() == 0 {
+                self.read_and_clear_abort_reason()?;
             }
+
+            *byte = p.ic_data_cmd().read().dat();
         }
 
         Ok(())
@@ -536,36 +521,33 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         for (i, byte) in write.iter().enumerate() {
             let last = i == write.len() - 1;
 
-            // NOTE(unsafe) We have &mut self
-            unsafe {
-                p.ic_data_cmd().write(|w| {
-                    w.set_stop(send_stop && last);
-                    w.set_dat(*byte);
-                });
+            p.ic_data_cmd().write(|w| {
+                w.set_stop(send_stop && last);
+                w.set_dat(*byte);
+            });
 
-                // Wait until the transmission of the address/data from the
-                // internal shift register has completed. For this to function
-                // correctly, the TX_EMPTY_CTRL flag in IC_CON must be set. The
-                // TX_EMPTY_CTRL flag was set in i2c_init.
-                while !p.ic_raw_intr_stat().read().tx_empty() {}
+            // Wait until the transmission of the address/data from the
+            // internal shift register has completed. For this to function
+            // correctly, the TX_EMPTY_CTRL flag in IC_CON must be set. The
+            // TX_EMPTY_CTRL flag was set in i2c_init.
+            while !p.ic_raw_intr_stat().read().tx_empty() {}
 
-                let abort_reason = self.read_and_clear_abort_reason();
+            let abort_reason = self.read_and_clear_abort_reason();
 
-                if abort_reason.is_err() || (send_stop && last) {
-                    // If the transaction was aborted or if it completed
-                    // successfully wait until the STOP condition has occurred.
+            if abort_reason.is_err() || (send_stop && last) {
+                // If the transaction was aborted or if it completed
+                // successfully wait until the STOP condition has occurred.
 
-                    while !p.ic_raw_intr_stat().read().stop_det() {}
+                while !p.ic_raw_intr_stat().read().stop_det() {}
 
-                    p.ic_clr_stop_det().read().clr_stop_det();
-                }
-
-                // Note the hardware issues a STOP automatically on an abort
-                // condition. Note also the hardware clears RX FIFO as well as
-                // TX on abort, ecause we set hwparam
-                // IC_AVOID_RX_FIFO_FLUSH_ON_TX_ABRT to 0.
-                abort_reason?;
+                p.ic_clr_stop_det().read().clr_stop_det();
             }
+
+            // Note the hardware issues a STOP automatically on an abort
+            // condition. Note also the hardware clears RX FIFO as well as
+            // TX on abort, ecause we set hwparam
+            // IC_AVOID_RX_FIFO_FLUSH_ON_TX_ABRT to 0.
+            abort_reason?;
         }
         Ok(())
     }
@@ -760,14 +742,15 @@ fn i2c_reserved_addr(addr: u16) -> bool {
 }
 
 mod sealed {
-    use embassy_cortex_m::interrupt::Interrupt;
     use embassy_sync::waitqueue::AtomicWaker;
+
+    use crate::interrupt;
 
     pub trait Instance {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
 
-        type Interrupt: Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> crate::pac::i2c::I2c;
         fn reset() -> crate::pac::resets::regs::Peripherals;
@@ -803,7 +786,7 @@ macro_rules! impl_instance {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
 
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             #[inline]
             fn regs() -> pac::i2c::I2c {

@@ -5,7 +5,6 @@ use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use atomic_polyfill::AtomicUsize;
-use embassy_cortex_m::interrupt::Priority;
 use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -13,7 +12,8 @@ use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::DMA_CHANNEL_COUNT;
-use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::Priority;
 use crate::pac::dma::{regs, vals};
 use crate::{interrupt, pac};
 
@@ -149,8 +149,8 @@ static STATE: State = State::new();
 pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
-            interrupt::$irq::set_priority(irq_priority);
-            interrupt::$irq::enable();
+            interrupt::typelevel::$irq::set_priority(irq_priority);
+            interrupt::typelevel::$irq::enable();
         };
     }
     crate::_generated::init_dma();
@@ -183,7 +183,7 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::dma::Dma, channel_num: usize, index:
     let isr = dma.isr(channel_num / 4).read();
 
     if isr.teif(channel_num % 4) {
-        panic!("DMA: error on DMA@{:08x} channel {}", dma.0 as u32, channel_num);
+        panic!("DMA: error on DMA@{:08x} channel {}", dma.as_ptr() as u32, channel_num);
     }
 
     if isr.htif(channel_num % 4) && cr.read().htie() {
@@ -387,36 +387,32 @@ impl<'a, C: Channel> Transfer<'a, C> {
         let isrn = self.channel.num() / 4;
         let isrbit = self.channel.num() % 4;
 
-        unsafe {
-            self.channel.regs().ifcr(isrn).write(|w| {
-                w.set_tcif(isrbit, true);
-                w.set_teif(isrbit, true);
-            })
-        }
+        self.channel.regs().ifcr(isrn).write(|w| {
+            w.set_tcif(isrbit, true);
+            w.set_teif(isrbit, true);
+        });
     }
 
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        unsafe {
-            ch.cr().write(|w| {
-                w.set_teie(true);
-                w.set_tcie(true);
-            })
-        }
+        ch.cr().write(|w| {
+            w.set_teie(true);
+            w.set_tcie(true);
+        });
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.cr().read() }.en()
+        ch.cr().read().en()
     }
 
     /// Gets the total remaining transfers for the channel
     /// Note: this will be zero for transfers that completed without cancellation.
     pub fn get_remaining_transfers(&self) -> u16 {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.ndtr().read() }.ndt()
+        ch.ndtr().read().ndt()
     }
 
     pub fn blocking_wait(mut self) {
@@ -537,13 +533,11 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         let isrn = channel_number / 4;
         let isrbit = channel_number % 4;
 
-        unsafe {
-            dma.ifcr(isrn).write(|w| {
-                w.set_htif(isrbit, true);
-                w.set_tcif(isrbit, true);
-                w.set_teif(isrbit, true);
-            })
-        }
+        dma.ifcr(isrn).write(|w| {
+            w.set_htif(isrbit, true);
+            w.set_tcif(isrbit, true);
+            w.set_teif(isrbit, true);
+        });
     }
 
     pub unsafe fn set_buffer0(&mut self, buffer: *mut W) {
@@ -558,7 +552,7 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
 
     pub fn is_buffer0_accessible(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.cr().read() }.ct() == vals::Ct::MEMORY1
+        ch.cr().read().ct() == vals::Ct::MEMORY1
     }
 
     pub fn set_waker(&mut self, waker: &Waker) {
@@ -569,24 +563,22 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         let ch = self.channel.regs().st(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        unsafe {
-            ch.cr().write(|w| {
-                w.set_teie(true);
-                w.set_tcie(true);
-            })
-        }
+        ch.cr().write(|w| {
+            w.set_teie(true);
+            w.set_tcie(true);
+        });
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.cr().read() }.en()
+        ch.cr().read().en()
     }
 
     /// Gets the total remaining transfers for the channel
     /// Note: this will be zero for transfers that completed without cancellation.
     pub fn get_remaining_transfers(&self) -> u16 {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.ndtr().read() }.ndt()
+        ch.ndtr().read().ndt()
     }
 }
 
@@ -607,7 +599,7 @@ struct DmaCtrlImpl<'a, C: Channel>(PeripheralRef<'a, C>);
 impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     fn get_remaining_transfers(&self) -> usize {
         let ch = self.0.regs().st(self.0.num());
-        unsafe { ch.ndtr().read() }.ndt() as usize
+        ch.ndtr().read().ndt() as usize
     }
 
     fn get_complete_count(&self) -> usize {
@@ -698,7 +690,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
 
     pub fn start(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.cr().write_value(self.cr) }
+        ch.cr().write_value(self.cr);
     }
 
     pub fn clear(&mut self) {
@@ -729,31 +721,27 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         let isrn = channel_number / 4;
         let isrbit = channel_number % 4;
 
-        unsafe {
-            dma.ifcr(isrn).write(|w| {
-                w.set_htif(isrbit, true);
-                w.set_tcif(isrbit, true);
-                w.set_teif(isrbit, true);
-            })
-        }
+        dma.ifcr(isrn).write(|w| {
+            w.set_htif(isrbit, true);
+            w.set_tcif(isrbit, true);
+            w.set_teif(isrbit, true);
+        });
     }
 
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        unsafe {
-            ch.cr().write(|w| {
-                w.set_teie(true);
-                w.set_htie(true);
-                w.set_tcie(true);
-            })
-        }
+        ch.cr().write(|w| {
+            w.set_teie(true);
+            w.set_htie(true);
+            w.set_tcie(true);
+        });
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
-        unsafe { ch.cr().read() }.en()
+        ch.cr().read().en()
     }
 }
 

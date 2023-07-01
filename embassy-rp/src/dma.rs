@@ -4,16 +4,17 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_cortex_m::interrupt::Interrupt;
 use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::vals::DataSize;
 
+use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals;
 use crate::{interrupt, pac, peripherals};
 
+#[cfg(feature = "rt")]
 #[interrupt]
-unsafe fn DMA_IRQ_0() {
+fn DMA_IRQ_0() {
     let ints0 = pac::DMA.ints0().read().ints0();
     for channel in 0..CHANNEL_COUNT {
         let ctrl_trig = pac::DMA.ch(channel).ctrl_trig().read();
@@ -29,12 +30,12 @@ unsafe fn DMA_IRQ_0() {
 }
 
 pub(crate) unsafe fn init() {
-    interrupt::DMA_IRQ_0::disable();
-    interrupt::DMA_IRQ_0::set_priority(interrupt::Priority::P3);
+    interrupt::DMA_IRQ_0.disable();
+    interrupt::DMA_IRQ_0.set_priority(interrupt::Priority::P3);
 
     pac::DMA.inte0().write(|w| w.set_inte0(0xFFFF));
 
-    interrupt::DMA_IRQ_0::enable();
+    interrupt::DMA_IRQ_0.enable();
 }
 
 pub unsafe fn read<'a, C: Channel, W: Word>(
@@ -75,16 +76,17 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     )
 }
 
+static DUMMY: u32 = 0;
+
 pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     to: *mut W,
     len: usize,
     dreq: u8,
 ) -> Transfer<'a, C> {
-    let dummy: u32 = 0;
     copy_inner(
         ch,
-        &dummy as *const u32,
+        &DUMMY as *const u32,
         to as *mut u32,
         len,
         W::size(),
@@ -126,28 +128,26 @@ fn copy_inner<'a, C: Channel>(
 ) -> Transfer<'a, C> {
     into_ref!(ch);
 
-    unsafe {
-        let p = ch.regs();
+    let p = ch.regs();
 
-        p.read_addr().write_value(from as u32);
-        p.write_addr().write_value(to as u32);
-        p.trans_count().write_value(len as u32);
+    p.read_addr().write_value(from as u32);
+    p.write_addr().write_value(to as u32);
+    p.trans_count().write_value(len as u32);
 
-        compiler_fence(Ordering::SeqCst);
+    compiler_fence(Ordering::SeqCst);
 
-        p.ctrl_trig().write(|w| {
-            // TODO: Add all DREQ options to pac vals::TreqSel, and use
-            // `set_treq:sel`
-            w.0 = ((dreq as u32) & 0x3f) << 15usize;
-            w.set_data_size(data_size);
-            w.set_incr_read(incr_read);
-            w.set_incr_write(incr_write);
-            w.set_chain_to(ch.number());
-            w.set_en(true);
-        });
+    p.ctrl_trig().write(|w| {
+        // TODO: Add all DREQ options to pac vals::TreqSel, and use
+        // `set_treq:sel`
+        w.0 = ((dreq as u32) & 0x3f) << 15usize;
+        w.set_data_size(data_size);
+        w.set_incr_read(incr_read);
+        w.set_incr_write(incr_write);
+        w.set_chain_to(ch.number());
+        w.set_en(true);
+    });
 
-        compiler_fence(Ordering::SeqCst);
-    }
+    compiler_fence(Ordering::SeqCst);
     Transfer::new(ch)
 }
 
@@ -167,12 +167,10 @@ impl<'a, C: Channel> Transfer<'a, C> {
 impl<'a, C: Channel> Drop for Transfer<'a, C> {
     fn drop(&mut self) {
         let p = self.channel.regs();
-        unsafe {
-            pac::DMA
-                .chan_abort()
-                .modify(|m| m.set_chan_abort(1 << self.channel.number()));
-            while p.ctrl_trig().read().busy() {}
-        }
+        pac::DMA
+            .chan_abort()
+            .modify(|m| m.set_chan_abort(1 << self.channel.number()));
+        while p.ctrl_trig().read().busy() {}
     }
 }
 
@@ -184,7 +182,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
         // calls to wake will deregister the waker.
         CHANNEL_WAKERS[self.channel.number() as usize].register(cx.waker());
 
-        if unsafe { self.channel.regs().ctrl_trig().read().busy() } {
+        if self.channel.regs().ctrl_trig().read().busy() {
             Poll::Pending
         } else {
             Poll::Ready(())

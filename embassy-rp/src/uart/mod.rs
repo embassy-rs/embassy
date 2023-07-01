@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
-use embassy_cortex_m::interrupt::{self, Binding, Interrupt};
 use embassy_futures::select::{select, Either};
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -14,8 +13,9 @@ use crate::clocks::clk_peri_freq;
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
+use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 #[cfg(feature = "nightly")]
 mod buffered;
@@ -146,23 +146,21 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
 
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = T::regs();
-        unsafe {
-            for &b in buffer {
-                while r.uartfr().read().txff() {}
-                r.uartdr().write(|w| w.set_data(b));
-            }
+        for &b in buffer {
+            while r.uartfr().read().txff() {}
+            r.uartdr().write(|w| w.set_data(b));
         }
         Ok(())
     }
 
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         let r = T::regs();
-        unsafe { while !r.uartfr().read().txfe() {} }
+        while !r.uartfr().read().txfe() {}
         Ok(())
     }
 
     pub fn busy(&self) -> bool {
-        unsafe { T::regs().uartfr().read().busy() }
+        T::regs().uartfr().read().busy()
     }
 
     /// Assert a break condition after waiting for the transmit buffers to empty,
@@ -174,28 +172,23 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
     /// for the transmit fifo to empty, which may take a while on slow links.
     pub async fn send_break(&mut self, bits: u32) {
         let regs = T::regs();
-        let bits = bits.max(unsafe {
+        let bits = bits.max({
             let lcr = regs.uartlcr_h().read();
             let width = lcr.wlen() as u32 + 5;
             let parity = lcr.pen() as u32;
             let stops = 1 + lcr.stp2() as u32;
             2 * (1 + width + parity + stops)
         });
-        let divx64 = unsafe {
-            ((regs.uartibrd().read().baud_divint() as u32) << 6) + regs.uartfbrd().read().baud_divfrac() as u32
-        } as u64;
+        let divx64 = (((regs.uartibrd().read().baud_divint() as u32) << 6)
+            + regs.uartfbrd().read().baud_divfrac() as u32) as u64;
         let div_clk = clk_peri_freq() as u64 * 64;
         let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
 
         self.blocking_flush().unwrap();
         while self.busy() {}
-        unsafe {
-            regs.uartlcr_h().write_set(|w| w.set_brk(true));
-        }
+        regs.uartlcr_h().write_set(|w| w.set_brk(true));
         Timer::after(Duration::from_micros(wait_usecs)).await;
-        unsafe {
-            regs.uartlcr_h().write_clear(|w| w.set_brk(true));
-        }
+        regs.uartlcr_h().write_clear(|w| w.set_brk(true));
     }
 }
 
@@ -221,7 +214,7 @@ impl<'d, T: Instance> UartTx<'d, T, Async> {
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(ch, buffer, T::regs().uartdr().ptr() as *mut _, T::TX_DREQ)
+            crate::dma::write(ch, buffer, T::regs().uartdr().as_ptr() as *mut _, T::TX_DREQ)
         };
         transfer.await;
         Ok(())
@@ -246,7 +239,7 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
         debug_assert_eq!(has_irq, rx_dma.is_some());
         if has_irq {
             // disable all error interrupts initially
-            unsafe { T::regs().uartimsc().write(|w| w.0 = 0) }
+            T::regs().uartimsc().write(|w| w.0 = 0);
             T::Interrupt::unpend();
             unsafe { T::Interrupt::enable() };
         }
@@ -267,11 +260,11 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
     fn drain_fifo(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         let r = T::regs();
         for (i, b) in buffer.iter_mut().enumerate() {
-            if unsafe { r.uartfr().read().rxfe() } {
+            if r.uartfr().read().rxfe() {
                 return Ok(i);
             }
 
-            let dr = unsafe { r.uartdr().read() };
+            let dr = r.uartdr().read();
 
             if dr.oe() {
                 return Err(Error::Overrun);
@@ -292,15 +285,13 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
 impl<'d, T: Instance, M: Mode> Drop for UartRx<'d, T, M> {
     fn drop(&mut self) {
         if let Some(_) = self.rx_dma {
-            unsafe {
-                T::Interrupt::disable();
-                // clear dma flags. irq handlers use these to disambiguate among themselves.
-                T::regs().uartdmacr().write_clear(|reg| {
-                    reg.set_rxdmae(true);
-                    reg.set_txdmae(true);
-                    reg.set_dmaonerr(true);
-                });
-            }
+            T::Interrupt::disable();
+            // clear dma flags. irq handlers use these to disambiguate among themselves.
+            T::regs().uartdmacr().write_clear(|reg| {
+                reg.set_rxdmae(true);
+                reg.set_txdmae(true);
+                reg.set_dmaonerr(true);
+            });
         }
     }
 }
@@ -332,7 +323,7 @@ pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let uart = T::regs();
         if !uart.uartdmacr().read().rxdmae() {
@@ -355,14 +346,12 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         // clear error flags before we drain the fifo. errors that have accumulated
         // in the flags will also be present in the fifo.
         T::dma_state().rx_errs.store(0, Ordering::Relaxed);
-        unsafe {
-            T::regs().uarticr().write(|w| {
-                w.set_oeic(true);
-                w.set_beic(true);
-                w.set_peic(true);
-                w.set_feic(true);
-            });
-        }
+        T::regs().uarticr().write(|w| {
+            w.set_oeic(true);
+            w.set_beic(true);
+            w.set_peic(true);
+            w.set_feic(true);
+        });
 
         // then drain the fifo. we need to read at most 32 bytes. errors that apply
         // to fifo bytes will be reported directly.
@@ -379,20 +368,20 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         // interrupt flags will have been raised, and those will be picked up immediately
         // by the interrupt handler.
         let ch = self.rx_dma.as_mut().unwrap();
+        T::regs().uartimsc().write_set(|w| {
+            w.set_oeim(true);
+            w.set_beim(true);
+            w.set_peim(true);
+            w.set_feim(true);
+        });
+        T::regs().uartdmacr().write_set(|reg| {
+            reg.set_rxdmae(true);
+            reg.set_dmaonerr(true);
+        });
         let transfer = unsafe {
-            T::regs().uartimsc().write_set(|w| {
-                w.set_oeim(true);
-                w.set_beim(true);
-                w.set_peim(true);
-                w.set_feim(true);
-            });
-            T::regs().uartdmacr().write_set(|reg| {
-                reg.set_rxdmae(true);
-                reg.set_dmaonerr(true);
-            });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(ch, T::regs().uartdr().ptr() as *const _, buffer, T::RX_DREQ)
+            crate::dma::read(ch, T::regs().uartdr().as_ptr() as *const _, buffer, T::RX_DREQ)
         };
 
         // wait for either the transfer to complete or an error to happen.
@@ -575,81 +564,79 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
         config: Config,
     ) {
         let r = T::regs();
-        unsafe {
-            if let Some(pin) = &tx {
-                pin.io().ctrl().write(|w| {
-                    w.set_funcsel(2);
-                    w.set_outover(if config.invert_tx {
-                        Outover::INVERT
-                    } else {
-                        Outover::NORMAL
-                    });
+        if let Some(pin) = &tx {
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(2);
+                w.set_outover(if config.invert_tx {
+                    Outover::INVERT
+                } else {
+                    Outover::NORMAL
                 });
-                pin.pad_ctrl().write(|w| w.set_ie(true));
-            }
-            if let Some(pin) = &rx {
-                pin.io().ctrl().write(|w| {
-                    w.set_funcsel(2);
-                    w.set_inover(if config.invert_rx {
-                        Inover::INVERT
-                    } else {
-                        Inover::NORMAL
-                    });
-                });
-                pin.pad_ctrl().write(|w| w.set_ie(true));
-            }
-            if let Some(pin) = &cts {
-                pin.io().ctrl().write(|w| {
-                    w.set_funcsel(2);
-                    w.set_inover(if config.invert_cts {
-                        Inover::INVERT
-                    } else {
-                        Inover::NORMAL
-                    });
-                });
-                pin.pad_ctrl().write(|w| w.set_ie(true));
-            }
-            if let Some(pin) = &rts {
-                pin.io().ctrl().write(|w| {
-                    w.set_funcsel(2);
-                    w.set_outover(if config.invert_rts {
-                        Outover::INVERT
-                    } else {
-                        Outover::NORMAL
-                    });
-                });
-                pin.pad_ctrl().write(|w| w.set_ie(true));
-            }
-
-            Self::set_baudrate_inner(config.baudrate);
-
-            let (pen, eps) = match config.parity {
-                Parity::ParityNone => (false, false),
-                Parity::ParityOdd => (true, false),
-                Parity::ParityEven => (true, true),
-            };
-
-            r.uartlcr_h().write(|w| {
-                w.set_wlen(config.data_bits.bits());
-                w.set_stp2(config.stop_bits == StopBits::STOP2);
-                w.set_pen(pen);
-                w.set_eps(eps);
-                w.set_fen(true);
             });
-
-            r.uartifls().write(|w| {
-                w.set_rxiflsel(0b000);
-                w.set_txiflsel(0b000);
-            });
-
-            r.uartcr().write(|w| {
-                w.set_uarten(true);
-                w.set_rxe(true);
-                w.set_txe(true);
-                w.set_ctsen(cts.is_some());
-                w.set_rtsen(rts.is_some());
-            });
+            pin.pad_ctrl().write(|w| w.set_ie(true));
         }
+        if let Some(pin) = &rx {
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(2);
+                w.set_inover(if config.invert_rx {
+                    Inover::INVERT
+                } else {
+                    Inover::NORMAL
+                });
+            });
+            pin.pad_ctrl().write(|w| w.set_ie(true));
+        }
+        if let Some(pin) = &cts {
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(2);
+                w.set_inover(if config.invert_cts {
+                    Inover::INVERT
+                } else {
+                    Inover::NORMAL
+                });
+            });
+            pin.pad_ctrl().write(|w| w.set_ie(true));
+        }
+        if let Some(pin) = &rts {
+            pin.io().ctrl().write(|w| {
+                w.set_funcsel(2);
+                w.set_outover(if config.invert_rts {
+                    Outover::INVERT
+                } else {
+                    Outover::NORMAL
+                });
+            });
+            pin.pad_ctrl().write(|w| w.set_ie(true));
+        }
+
+        Self::set_baudrate_inner(config.baudrate);
+
+        let (pen, eps) = match config.parity {
+            Parity::ParityNone => (false, false),
+            Parity::ParityOdd => (true, false),
+            Parity::ParityEven => (true, true),
+        };
+
+        r.uartlcr_h().write(|w| {
+            w.set_wlen(config.data_bits.bits());
+            w.set_stp2(config.stop_bits == StopBits::STOP2);
+            w.set_pen(pen);
+            w.set_eps(eps);
+            w.set_fen(true);
+        });
+
+        r.uartifls().write(|w| {
+            w.set_rxiflsel(0b000);
+            w.set_txiflsel(0b000);
+        });
+
+        r.uartcr().write(|w| {
+            w.set_uarten(true);
+            w.set_rxe(true);
+            w.set_txe(true);
+            w.set_ctsen(cts.is_some());
+            w.set_rtsen(rts.is_some());
+        });
     }
 
     /// sets baudrate on runtime    
@@ -674,15 +661,13 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             baud_fbrd = 0;
         }
 
-        unsafe {
-            // Load PL011's baud divisor registers
-            r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
-            r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
+        // Load PL011's baud divisor registers
+        r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
+        r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
 
-            // PL011 needs a (dummy) line control register write to latch in the
-            // divisors. We don't want to actually change LCR contents here.
-            r.uartlcr_h().modify(|_| {});
-        }
+        // PL011 needs a (dummy) line control register write to latch in the
+        // divisors. We don't want to actually change LCR contents here.
+        r.uartlcr_h().modify(|_| {});
     }
 }
 
@@ -731,24 +716,22 @@ mod eh02 {
         type Error = Error;
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             let r = T::regs();
-            unsafe {
-                if r.uartfr().read().rxfe() {
-                    return Err(nb::Error::WouldBlock);
-                }
+            if r.uartfr().read().rxfe() {
+                return Err(nb::Error::WouldBlock);
+            }
 
-                let dr = r.uartdr().read();
+            let dr = r.uartdr().read();
 
-                if dr.oe() {
-                    Err(nb::Error::Other(Error::Overrun))
-                } else if dr.be() {
-                    Err(nb::Error::Other(Error::Break))
-                } else if dr.pe() {
-                    Err(nb::Error::Other(Error::Parity))
-                } else if dr.fe() {
-                    Err(nb::Error::Other(Error::Framing))
-                } else {
-                    Ok(dr.data())
-                }
+            if dr.oe() {
+                Err(nb::Error::Other(Error::Overrun))
+            } else if dr.be() {
+                Err(nb::Error::Other(Error::Break))
+            } else if dr.pe() {
+                Err(nb::Error::Other(Error::Parity))
+            } else if dr.fe() {
+                Err(nb::Error::Other(Error::Framing))
+            } else {
+                Ok(dr.data())
             }
         }
     }
@@ -758,22 +741,18 @@ mod eh02 {
 
         fn write(&mut self, word: u8) -> Result<(), nb::Error<Self::Error>> {
             let r = T::regs();
-            unsafe {
-                if r.uartfr().read().txff() {
-                    return Err(nb::Error::WouldBlock);
-                }
-
-                r.uartdr().write(|w| w.set_data(word));
+            if r.uartfr().read().txff() {
+                return Err(nb::Error::WouldBlock);
             }
+
+            r.uartdr().write(|w| w.set_data(word));
             Ok(())
         }
 
         fn flush(&mut self) -> Result<(), nb::Error<Self::Error>> {
             let r = T::regs();
-            unsafe {
-                if !r.uartfr().read().txfe() {
-                    return Err(nb::Error::WouldBlock);
-                }
+            if !r.uartfr().read().txfe() {
+                return Err(nb::Error::WouldBlock);
             }
             Ok(())
         }
@@ -854,22 +833,20 @@ mod eh1 {
     impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, T, M> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
             let r = T::regs();
-            unsafe {
-                let dr = r.uartdr().read();
+            let dr = r.uartdr().read();
 
-                if dr.oe() {
-                    Err(nb::Error::Other(Error::Overrun))
-                } else if dr.be() {
-                    Err(nb::Error::Other(Error::Break))
-                } else if dr.pe() {
-                    Err(nb::Error::Other(Error::Parity))
-                } else if dr.fe() {
-                    Err(nb::Error::Other(Error::Framing))
-                } else if dr.fe() {
-                    Ok(dr.data())
-                } else {
-                    Err(nb::Error::WouldBlock)
-                }
+            if dr.oe() {
+                Err(nb::Error::Other(Error::Overrun))
+            } else if dr.be() {
+                Err(nb::Error::Other(Error::Break))
+            } else if dr.pe() {
+                Err(nb::Error::Other(Error::Parity))
+            } else if dr.fe() {
+                Err(nb::Error::Other(Error::Framing))
+            } else if dr.fe() {
+                Ok(dr.data())
+            } else {
+                Err(nb::Error::WouldBlock)
             }
         }
     }
@@ -930,7 +907,7 @@ mod sealed {
         const TX_DREQ: u8;
         const RX_DREQ: u8;
 
-        type Interrupt: crate::interrupt::Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> pac::uart::Uart;
 
@@ -968,7 +945,7 @@ macro_rules! impl_instance {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
 
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> pac::uart::Uart {
                 pac::$inst

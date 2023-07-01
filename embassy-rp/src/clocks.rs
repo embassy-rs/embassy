@@ -46,13 +46,13 @@ static CLOCKS: Clocks = Clocks {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeriClkSrc {
-    Sys = ClkPeriCtrlAuxsrc::CLK_SYS.0,
-    PllSys = ClkPeriCtrlAuxsrc::CLKSRC_PLL_SYS.0,
-    PllUsb = ClkPeriCtrlAuxsrc::CLKSRC_PLL_USB.0,
-    Rosc = ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH.0,
-    Xosc = ClkPeriCtrlAuxsrc::XOSC_CLKSRC.0,
-    // Gpin0 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN0.0,
-    // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1.0,
+    Sys = ClkPeriCtrlAuxsrc::CLK_SYS as _,
+    PllSys = ClkPeriCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    PllUsb = ClkPeriCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    Rosc = ClkPeriCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Xosc = ClkPeriCtrlAuxsrc::XOSC_CLKSRC as _,
+    // Gpin0 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
+    // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
 #[non_exhaustive]
@@ -251,12 +251,12 @@ pub struct SysClkConfig {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsbClkSrc {
-    PllUsb = ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB.0,
-    PllSys = ClkUsbCtrlAuxsrc::CLKSRC_PLL_SYS.0,
-    Rosc = ClkUsbCtrlAuxsrc::ROSC_CLKSRC_PH.0,
-    Xosc = ClkUsbCtrlAuxsrc::XOSC_CLKSRC.0,
-    // Gpin0 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN0.0,
-    // Gpin1 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN1.0,
+    PllUsb = ClkUsbCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllSys = ClkUsbCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    Rosc = ClkUsbCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Xosc = ClkUsbCtrlAuxsrc::XOSC_CLKSRC as _,
+    // Gpin0 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
+    // Gpin1 = ClkUsbCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
 pub struct UsbClkConfig {
@@ -269,12 +269,12 @@ pub struct UsbClkConfig {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdcClkSrc {
-    PllUsb = ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB.0,
-    PllSys = ClkAdcCtrlAuxsrc::CLKSRC_PLL_SYS.0,
-    Rosc = ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH.0,
-    Xosc = ClkAdcCtrlAuxsrc::XOSC_CLKSRC.0,
-    // Gpin0 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN0.0,
-    // Gpin1 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN1.0,
+    PllUsb = ClkAdcCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllSys = ClkAdcCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    Rosc = ClkAdcCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Xosc = ClkAdcCtrlAuxsrc::XOSC_CLKSRC as _,
+    // Gpin0 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
+    // Gpin1 = ClkAdcCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
 pub struct AdcClkConfig {
@@ -287,12 +287,12 @@ pub struct AdcClkConfig {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RtcClkSrc {
-    PllUsb = ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB.0,
-    PllSys = ClkRtcCtrlAuxsrc::CLKSRC_PLL_SYS.0,
-    Rosc = ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH.0,
-    Xosc = ClkRtcCtrlAuxsrc::XOSC_CLKSRC.0,
-    // Gpin0 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN0.0,
-    // Gpin1 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN1.0,
+    PllUsb = ClkRtcCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    PllSys = ClkRtcCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    Rosc = ClkRtcCtrlAuxsrc::ROSC_CLKSRC_PH as _,
+    Xosc = ClkRtcCtrlAuxsrc::XOSC_CLKSRC as _,
+    // Gpin0 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
+    // Gpin1 = ClkRtcCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
 pub struct RtcClkConfig {
@@ -396,7 +396,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         w.set_src(ref_src);
         w.set_auxsrc(ref_aux);
     });
-    while c.clk_ref_selected().read() != 1 << ref_src.0 {}
+    while c.clk_ref_selected().read() != 1 << ref_src as u32 {}
     c.clk_ref_div().write(|w| {
         w.set_int(config.ref_clk.div);
     });
@@ -425,13 +425,13 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     CLOCKS.sys.store(clk_sys_freq, Ordering::Relaxed);
     if sys_src != ClkSysCtrlSrc::CLK_REF {
         c.clk_sys_ctrl().write(|w| w.set_src(ClkSysCtrlSrc::CLK_REF));
-        while c.clk_sys_selected().read() != 1 << ClkSysCtrlSrc::CLK_REF.0 {}
+        while c.clk_sys_selected().read() != 1 << ClkSysCtrlSrc::CLK_REF as u32 {}
     }
     c.clk_sys_ctrl().write(|w| {
         w.set_auxsrc(sys_aux);
         w.set_src(sys_src);
     });
-    while c.clk_sys_selected().read() != 1 << sys_src.0 {}
+    while c.clk_sys_selected().read() != 1 << sys_src as u32 {}
     c.clk_sys_div().write(|w| {
         w.set_int(config.sys_clk.div_int);
         w.set_frac(config.sys_clk.div_frac);
@@ -442,7 +442,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     if let Some(src) = config.peri_clk_src {
         c.clk_peri_ctrl().write(|w| {
             w.set_enable(true);
-            w.set_auxsrc(ClkPeriCtrlAuxsrc(src as _));
+            w.set_auxsrc(ClkPeriCtrlAuxsrc::from_bits(src as _));
         });
         let peri_freq = match src {
             PeriClkSrc::Sys => clk_sys_freq,
@@ -468,7 +468,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         c.clk_usb_ctrl().write(|w| {
             w.set_phase(conf.phase);
             w.set_enable(true);
-            w.set_auxsrc(ClkUsbCtrlAuxsrc(conf.src as _));
+            w.set_auxsrc(ClkUsbCtrlAuxsrc::from_bits(conf.src as _));
         });
         let usb_freq = match conf.src {
             UsbClkSrc::PllUsb => pll_usb_freq,
@@ -491,7 +491,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         c.clk_adc_ctrl().write(|w| {
             w.set_phase(conf.phase);
             w.set_enable(true);
-            w.set_auxsrc(ClkAdcCtrlAuxsrc(conf.src as _));
+            w.set_auxsrc(ClkAdcCtrlAuxsrc::from_bits(conf.src as _));
         });
         let adc_in_freq = match conf.src {
             AdcClkSrc::PllUsb => pll_usb_freq,
@@ -517,7 +517,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         c.clk_rtc_ctrl().write(|w| {
             w.set_phase(conf.phase);
             w.set_enable(true);
-            w.set_auxsrc(ClkRtcCtrlAuxsrc(conf.src as _));
+            w.set_auxsrc(ClkRtcCtrlAuxsrc::from_bits(conf.src as _));
         });
         let rtc_in_freq = match conf.src {
             RtcClkSrc::PllUsb => pll_usb_freq,
@@ -542,7 +542,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     reset::unreset_wait(peris);
 }
 
-unsafe fn configure_rosc(config: RoscConfig) -> u32 {
+fn configure_rosc(config: RoscConfig) -> u32 {
     let p = pac::ROSC;
 
     p.freqa().write(|w| {
@@ -620,7 +620,7 @@ pub fn clk_rtc_freq() -> u16 {
     CLOCKS.rtc.load(Ordering::Relaxed)
 }
 
-unsafe fn start_xosc(crystal_hz: u32) {
+fn start_xosc(crystal_hz: u32) {
     pac::XOSC
         .ctrl()
         .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
@@ -635,7 +635,7 @@ unsafe fn start_xosc(crystal_hz: u32) {
 }
 
 #[inline(always)]
-unsafe fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
+fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> u32 {
     let ref_freq = input_freq / config.refdiv as u32;
     assert!(config.fbdiv >= 16 && config.fbdiv <= 320);
     assert!(config.post_div1 >= 1 && config.post_div1 <= 7);
@@ -700,9 +700,7 @@ impl<'d, T: Pin> Gpin<'d, T> {
     pub fn new<P: GpinPin>(gpin: impl Peripheral<P = P> + 'd) -> Gpin<'d, P> {
         into_ref!(gpin);
 
-        unsafe {
-            gpin.io().ctrl().write(|w| w.set_funcsel(0x08));
-        }
+        gpin.io().ctrl().write(|w| w.set_funcsel(0x08));
 
         Gpin {
             gpin: gpin.map_into(),
@@ -717,12 +715,10 @@ impl<'d, T: Pin> Gpin<'d, T> {
 
 impl<'d, T: Pin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
-        unsafe {
-            self.gpin
-                .io()
-                .ctrl()
-                .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
-        }
+        self.gpin
+            .io()
+            .ctrl()
+            .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
     }
 }
 
@@ -747,17 +743,17 @@ impl_gpoutpin!(PIN_25, 3);
 
 #[repr(u8)]
 pub enum GpoutSrc {
-    PllSys = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS.0,
-    // Gpin0 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0.0,
-    // Gpin1 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1.0,
-    PllUsb = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB.0,
-    Rosc = ClkGpoutCtrlAuxsrc::ROSC_CLKSRC.0,
-    Xosc = ClkGpoutCtrlAuxsrc::XOSC_CLKSRC.0,
-    Sys = ClkGpoutCtrlAuxsrc::CLK_SYS.0,
-    Usb = ClkGpoutCtrlAuxsrc::CLK_USB.0,
-    Adc = ClkGpoutCtrlAuxsrc::CLK_ADC.0,
-    Rtc = ClkGpoutCtrlAuxsrc::CLK_RTC.0,
-    Ref = ClkGpoutCtrlAuxsrc::CLK_REF.0,
+    PllSys = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS as _,
+    // Gpin0 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN0 as _ ,
+    // Gpin1 = ClkGpoutCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
+    PllUsb = ClkGpoutCtrlAuxsrc::CLKSRC_PLL_USB as _,
+    Rosc = ClkGpoutCtrlAuxsrc::ROSC_CLKSRC as _,
+    Xosc = ClkGpoutCtrlAuxsrc::XOSC_CLKSRC as _,
+    Sys = ClkGpoutCtrlAuxsrc::CLK_SYS as _,
+    Usb = ClkGpoutCtrlAuxsrc::CLK_USB as _,
+    Adc = ClkGpoutCtrlAuxsrc::CLK_ADC as _,
+    Rtc = ClkGpoutCtrlAuxsrc::CLK_RTC as _,
+    Ref = ClkGpoutCtrlAuxsrc::CLK_REF as _,
 }
 
 pub struct Gpout<'d, T: GpoutPin> {
@@ -768,53 +764,43 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(gpout);
 
-        unsafe {
-            gpout.io().ctrl().write(|w| w.set_funcsel(0x08));
-        }
+        gpout.io().ctrl().write(|w| w.set_funcsel(0x08));
 
         Self { gpout }
     }
 
     pub fn set_div(&self, int: u32, frac: u8) {
-        unsafe {
-            let c = pac::CLOCKS;
-            c.clk_gpout_div(self.gpout.number()).write(|w| {
-                w.set_int(int);
-                w.set_frac(frac);
-            });
-        }
+        let c = pac::CLOCKS;
+        c.clk_gpout_div(self.gpout.number()).write(|w| {
+            w.set_int(int);
+            w.set_frac(frac);
+        });
     }
 
     pub fn set_src(&self, src: GpoutSrc) {
-        unsafe {
-            let c = pac::CLOCKS;
-            c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
-                w.set_auxsrc(ClkGpoutCtrlAuxsrc(src as _));
-            });
-        }
+        let c = pac::CLOCKS;
+        c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
+            w.set_auxsrc(ClkGpoutCtrlAuxsrc::from_bits(src as _));
+        });
     }
 
     pub fn enable(&self) {
-        unsafe {
-            let c = pac::CLOCKS;
-            c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
-                w.set_enable(true);
-            });
-        }
+        let c = pac::CLOCKS;
+        c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
+            w.set_enable(true);
+        });
     }
 
     pub fn disable(&self) {
-        unsafe {
-            let c = pac::CLOCKS;
-            c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
-                w.set_enable(false);
-            });
-        }
+        let c = pac::CLOCKS;
+        c.clk_gpout_ctrl(self.gpout.number()).modify(|w| {
+            w.set_enable(false);
+        });
     }
 
     pub fn get_freq(&self) -> u32 {
         let c = pac::CLOCKS;
-        let src = unsafe { c.clk_gpout_ctrl(self.gpout.number()).read().auxsrc() };
+        let src = c.clk_gpout_ctrl(self.gpout.number()).read().auxsrc();
 
         let base = match src {
             ClkGpoutCtrlAuxsrc::CLKSRC_PLL_SYS => pll_sys_freq(),
@@ -831,7 +817,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
             _ => unreachable!(),
         };
 
-        let div = unsafe { c.clk_gpout_div(self.gpout.number()).read() };
+        let div = c.clk_gpout_div(self.gpout.number()).read();
         let int = if div.int() == 0 { 65536 } else { div.int() } as u64;
         let frac = div.frac() as u64;
 
@@ -842,12 +828,10 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
 impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
     fn drop(&mut self) {
         self.disable();
-        unsafe {
-            self.gpout
-                .io()
-                .ctrl()
-                .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL.0));
-        }
+        self.gpout
+            .io()
+            .ctrl()
+            .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
     }
 }
 
@@ -864,7 +848,7 @@ impl RoscRng {
         let mut acc = 0;
         for _ in 0..u8::BITS {
             acc <<= 1;
-            acc |= unsafe { random_reg.read().randombit() as u8 };
+            acc |= random_reg.read().randombit() as u8;
         }
         acc
     }
