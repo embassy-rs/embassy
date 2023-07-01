@@ -358,9 +358,7 @@ impl<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> ContinuousTransfer<'a, '
 
         if pc.read_addr().read() == control_input.as_ptr() as u32 && pd.ctrl_trig().read().busy() {
             poll_fn(|cx: &mut Context<'_>| {
-                // the more efficient solution would be to use the interrupts,
-                // but I was not able to get it working robustly
-                cx.waker().wake_by_ref();
+                CHANNEL_WAKERS[channels.data.number() as usize].register(cx.waker());
                 if pc.read_addr().read() == control_input.as_ptr() as u32 + 16 {
                     Poll::Ready(())
                 } else {
@@ -418,8 +416,7 @@ impl<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> ContinuousTransfer<'a, '
     pub async fn stop(self) {
         // when no longer enabling the chain, data simply stops
         poll_fn(|cx| {
-            // using interrupts would be nicer
-            cx.waker().wake_by_ref();
+            CHANNEL_WAKERS[self.channels.data.number() as usize].register(cx.waker());
             if self.channels.data.regs().ctrl_trig().read().busy() {
                 Poll::Pending
             } else {
