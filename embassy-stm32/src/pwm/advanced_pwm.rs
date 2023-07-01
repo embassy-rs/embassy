@@ -187,8 +187,12 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
         T::regs().tim(C::raw()).cr().modify(|w| {
             w.set_preen(true);
 
-            // TODO: fix metapac
-            w.set_cont(Cont(1));
+            w.set_cont(Cont::CONTINUOUS);
+        });
+
+        T::regs().oenr().modify(|w| {
+            w.set_t1oen(C::raw(), true);
+            w.set_t2oen(C::raw(), true);
         });
 
         // Set output 1 to active on a period event
@@ -234,24 +238,23 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
 
         // TODO: fix metapac
         T::regs().tim(C::raw()).outr().modify(|w| {
-            w.set_idlem(0, Idlem(1));
-            w.set_idlem(1, Idlem(1));
+            w.set_idlem(0, Idlem::SETIDLE);
+            w.set_idlem(1, Idlem::SETIDLE);
 
-            w.set_idles(0, Idles(1));
-            w.set_idles(1, Idles(1));
+            w.set_idles(0, Idles::INACTIVE);
+            w.set_idles(1, Idles::INACTIVE);
         })
     }
 
     pub fn disable_burst_mode(&mut self) {
         use crate::pac::hrtim::vals::{Idlem, Idles};
 
-        // TODO: fix metapac
         T::regs().tim(C::raw()).outr().modify(|w| {
-            w.set_idlem(0, Idlem(0));
-            w.set_idlem(1, Idlem(0));
+            w.set_idlem(0, Idlem::NOEFFECT);
+            w.set_idlem(1, Idlem::NOEFFECT);
 
-            w.set_idles(0, Idles(0));
-            w.set_idles(1, Idles(0));
+            w.set_idles(0, Idles::INACTIVE);
+            w.set_idles(1, Idles::INACTIVE);
         })
     }
 
@@ -303,8 +306,7 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Resona
         T::regs().tim(C::raw()).cr().modify(|w| {
             w.set_preen(true);
 
-            // TODO: fix metapac
-            w.set_cont(Cont(1));
+            w.set_cont(Cont::CONTINUOUS);
             w.set_half(true);
         });
 
