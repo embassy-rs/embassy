@@ -74,7 +74,7 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { version = "10", default-features = false, features = ["metadata"]}
+stm32-metapac = { version = "12", default-features = false, features = ["metadata"]}
 
 [features]
 default = ["rt"]

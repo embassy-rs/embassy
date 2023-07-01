@@ -869,7 +869,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
             _ => vals::Ps::EVEN,
         });
         #[cfg(not(usart_v1))]
-        w.set_over8(vals::Over8(over8 as _));
+        w.set_over8(vals::Over8::from_bits(over8 as _));
     });
 
     #[cfg(not(usart_v1))]

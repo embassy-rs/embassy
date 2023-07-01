@@ -6,16 +6,16 @@
   "rust-analyzer.check.allTargets": false,
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.cargo.noDefaultFeatures": true,
-  "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+  "rust-analyzer.cargo.target": "thumbv7m-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
-    "nightly",
+    ///"nightly",
   ],
   "rust-analyzer.linkedProjects": [
     // Declare for the target you wish to develop
     // "embassy-executor/Cargo.toml",
     // "embassy-sync/Cargo.toml",
-    "examples/nrf52840/Cargo.toml",
+    "examples/stm32wl/Cargo.toml",
     // "examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
     // "examples/rp/Cargo.toml",

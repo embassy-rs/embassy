@@ -30,7 +30,9 @@ async fn main(_spawner: Spawner) {
 
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
-    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer);
+    let mut config = embassy_stm32::usb_otg::Config::default();
+    config.vbus_detection = true;
+    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

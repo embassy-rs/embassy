@@ -1,7 +1,7 @@
 use crate::pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
 use crate::pac::RCC;
 #[cfg(crs)]
-use crate::pac::{CRS, SYSCFG};
+use crate::pac::{crs, CRS, SYSCFG};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -293,7 +293,7 @@ pub(crate) unsafe fn init(config: Config) {
         AHBPrescaler::NotDivided => sys_clk,
         pre => {
             let pre: Hpre = pre.into();
-            let pre = 1 << (pre.0 as u32 - 7);
+            let pre = 1 << (pre.to_bits() as u32 - 7);
             sys_clk / pre
         }
     };
@@ -302,7 +302,7 @@ pub(crate) unsafe fn init(config: Config) {
         APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
-            let pre: u8 = 1 << (pre.0 - 3);
+            let pre: u8 = 1 << (pre.to_bits() - 3);
             let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
@@ -312,7 +312,7 @@ pub(crate) unsafe fn init(config: Config) {
         APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
-            let pre: u8 = 1 << (pre.0 - 3);
+            let pre: u8 = 1 << (pre.to_bits() - 3);
             let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
@@ -338,7 +338,7 @@ pub(crate) unsafe fn init(config: Config) {
         CRS.cfgr().write(|w|
 
         // Select LSE as synchronization source
-        w.set_syncsrc(0b01));
+        w.set_syncsrc(crs::vals::Syncsrc::LSE));
         CRS.cr().modify(|w| {
             w.set_autotrimen(true);
             w.set_cen(true);

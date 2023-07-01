@@ -4,10 +4,10 @@
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{ClockSrc, Pll, PllM, PllN, PllQ, PllR, PllSrc};
+use embassy_stm32::rcc::{Clock48MhzSrc, ClockSrc, CrsConfig, CrsSyncSource, Pll, PllM, PllN, PllQ, PllR, PllSrc};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{self, Driver, Instance};
-use embassy_stm32::{bind_interrupts, pac, peripherals, Config};
+use embassy_stm32::{bind_interrupts, peripherals, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
@@ -22,23 +22,35 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
+    // Change this to `false` to use the HSE clock source for the USB. This example assumes an 8MHz HSE.
+    const USE_HSI48: bool = true;
+
+    let pllq_div = if USE_HSI48 { None } else { Some(PllQ::Div6) };
+
     config.rcc.pll = Some(Pll {
-        source: PllSrc::HSE(Hertz(8000000)),
+        source: PllSrc::HSE(Hertz(8_000_000)),
         prediv_m: PllM::Div2,
         mul_n: PllN::Mul72,
         div_p: None,
-        // USB and CAN at 48 MHz
-        div_q: Some(PllQ::Div6),
+        div_q: pllq_div,
         // Main system clock at 144 MHz
         div_r: Some(PllR::Div2),
     });
 
     config.rcc.mux = ClockSrc::PLL;
 
-    let p = embassy_stm32::init(config);
-    info!("Hello World!");
+    if USE_HSI48 {
+        // Sets up the Clock Recovery System (CRS) to use the USB SOF to trim the HSI48 oscillator.
+        config.rcc.clock_48mhz_src = Some(Clock48MhzSrc::Hsi48(Some(CrsConfig {
+            sync_src: CrsSyncSource::Usb,
+        })));
+    } else {
+        config.rcc.clock_48mhz_src = Some(Clock48MhzSrc::PllQ);
+    }
 
-    pac::RCC.ccipr().write(|w| w.set_clk48sel(0b10));
+    let p = embassy_stm32::init(config);
+
+    info!("Hello World!");
 
     let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
 

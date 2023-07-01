@@ -227,7 +227,11 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     fifo_threshold: Some(crate::dma::FifoThreshold::Full),
 };
 #[cfg(all(sdmmc_v1, not(dma)))]
-const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {};
+const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
+    circular: false,
+    half_transfer_ir: false,
+    complete_transfer_ir: true,
+};
 
 /// SDMMC configuration
 ///

@@ -1,5 +1,6 @@
+//! [`embassy-net`](https://crates.io/crates/embassy-net) driver for the WIZnet W5500 ethernet chip.
 #![no_std]
-/// [`embassy-net`](crates.io/crates/embassy-net) driver for the WIZnet W5500 ethernet chip.
+
 mod device;
 mod socket;
 mod spi;
@@ -77,7 +78,7 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
     }
 }
 
-/// Obtain a driver for using the W5500 with [`embassy-net`](crates.io/crates/embassy-net).
+/// Obtain a driver for using the W5500 with [`embassy-net`](https://crates.io/crates/embassy-net).
 pub async fn new<'a, const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
     mac_addr: [u8; 6],
     state: &'a mut State<N_RX, N_TX>,
