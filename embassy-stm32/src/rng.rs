@@ -3,11 +3,12 @@
 use core::future::poll_fn;
 use core::task::Poll;
 
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::{CryptoRng, RngCore};
 
-use crate::{pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 pub(crate) static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -28,23 +29,23 @@ impl<'d, T: Instance> Rng<'d, T> {
         into_ref!(inner);
         let mut random = Self { _inner: inner };
         random.reset();
+        unsafe {
+            interrupt::RNG.enable();
+        }
         random
     }
 
     #[cfg(rng_v1)]
     pub fn reset(&mut self) {
-        // rng_v2 locks up on seed error, needs reset
-        #[cfg(rng_v2)]
-        if T::regs().sr().read().seis() {
-            T::reset();
-        }
-        T::regs().cr().modify(|reg| {
-            reg.set_rngen(true);
-            reg.set_ie(true);
+        T::regs().cr().write(|reg| {
+            reg.set_rngen(false);
         });
         T::regs().sr().modify(|reg| {
             reg.set_seis(false);
             reg.set_ceis(false);
+        });
+        T::regs().cr().modify(|reg| {
+            reg.set_rngen(true);
         });
         // Reference manual says to discard the first.
         let _ = self.next_u32();
@@ -52,7 +53,7 @@ impl<'d, T: Instance> Rng<'d, T> {
 
     #[cfg(not(rng_v1))]
     pub fn reset(&mut self) {
-        T::regs().cr().modify(|reg| {
+        T::regs().cr().write(|reg| {
             reg.set_rngen(false);
             reg.set_condrst(true);
             // set RNG config "A" according to reference manual
@@ -76,42 +77,68 @@ impl<'d, T: Instance> Rng<'d, T> {
         T::regs().cr().modify(|reg| {
             reg.set_rngen(true);
             reg.set_condrst(false);
-            reg.set_ie(true);
         });
         // wait for CONDRST to be reset
         while T::regs().cr().read().condrst() {}
     }
 
+    pub fn recover_seed_error(&mut self) -> () {
+        self.reset();
+        // reset should also clear the SEIS flag
+        if T::regs().sr().read().seis() {
+            warn!("recovering from seed error failed");
+            return;
+        }
+        // wait for SECS to be cleared by RNG
+        while T::regs().sr().read().secs() {}
+    }
+
     pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        T::regs().cr().modify(|reg| {
-            reg.set_rngen(true);
-        });
-
         for chunk in dest.chunks_mut(4) {
-            poll_fn(|cx| {
-                RNG_WAKER.register(cx.waker());
-                T::regs().cr().modify(|reg| {
-                    reg.set_ie(true);
-                });
-
-                let bits = T::regs().sr().read();
-
-                if bits.drdy() {
-                    Poll::Ready(Ok(()))
-                } else if bits.seis() {
-                    self.reset();
-                    Poll::Ready(Err(Error::SeedError))
-                } else if bits.ceis() {
-                    self.reset();
-                    Poll::Ready(Err(Error::ClockError))
-                } else {
-                    Poll::Pending
+            let bits = T::regs().sr().read();
+            if bits.seis() {
+                // in case of noise-source or seed error we try to recover here
+                // but we must not use the data in DR and we return an error
+                // to leave retry-logic to the application
+                self.recover_seed_error();
+                return Err(Error::SeedError);
+            } else if bits.ceis() {
+                // clock error detected, DR could still be used but keep it safe,
+                // clear the error and abort
+                T::regs().sr().modify(|sr| sr.set_ceis(false));
+                return Err(Error::ClockError);
+            } else if bits.drdy() {
+                // DR can be read up to four times until the output buffer is empty
+                // DRDY is cleared automatically when that happens
+                let random_word = T::regs().dr().read();
+                // reference manual: always check if DR is zero
+                if random_word == 0 {
+                    return Err(Error::SeedError);
                 }
-            })
-            .await?;
-            let random_bytes = T::regs().dr().read().to_be_bytes();
-            for (dest, src) in chunk.iter_mut().zip(random_bytes.iter()) {
-                *dest = *src
+                // write bytes to chunk
+                for (dest, src) in chunk.iter_mut().zip(random_word.to_be_bytes().iter()) {
+                    *dest = *src
+                }
+            } else {
+                // wait for interrupt
+                poll_fn(|cx| {
+                    // quick check to avoid registration if already done.
+                    let bits = T::regs().sr().read();
+                    if bits.drdy() || bits.seis() || bits.ceis() {
+                        return Poll::Ready(());
+                    }
+                    RNG_WAKER.register(cx.waker());
+                    T::regs().cr().modify(|reg| reg.set_ie(true));
+                    // Need to check condition **after** `register` to avoid a race
+                    // condition that would result in lost notifications.
+                    let bits = T::regs().sr().read();
+                    if bits.drdy() || bits.seis() || bits.ceis() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
             }
         }
 
@@ -186,7 +213,7 @@ macro_rules! irq {
             unsafe fn $irq() {
                 let bits = $crate::pac::RNG.sr().read();
                 if bits.drdy() || bits.seis() || bits.ceis() {
-                    $crate::pac::RNG.cr().write(|reg| reg.set_ie(false));
+                    $crate::pac::RNG.cr().modify(|reg| reg.set_ie(false));
                     $crate::rng::RNG_WAKER.wake();
                 }
             }
