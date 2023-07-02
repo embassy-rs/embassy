@@ -5,12 +5,20 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::pwm::advanced_pwm::*;
-use embassy_stm32::time::khz;
+use embassy_stm32::time::{khz, mhz};
+use embassy_stm32::Config;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut config: Config = Default::default();
+    config.rcc.sysclk = Some(mhz(64));
+    config.rcc.hclk = Some(mhz(64));
+    config.rcc.pclk1 = Some(mhz(32));
+    config.rcc.pclk2 = Some(mhz(64));
+
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let ch1 = PwmPin::new_cha(p.PA8);
@@ -29,34 +37,35 @@ async fn main(_spawner: Spawner) {
         None,
     );
 
-    let mut buck_converter = BridgeConverter::new(pwm.ch_a, khz(100));
+    info!("pwm constructed");
 
-    buck_converter.set_primary_duty(0);
-    buck_converter.set_secondary_duty(0);
-    buck_converter.set_dead_time(0);
+    let mut buck_converter = BridgeConverter::new(pwm.ch_a, khz(5));
 
-    // note: if the pins are not passed into the advanced pwm struct, they will not be output
-    let mut boost_converter = BridgeConverter::new(pwm.ch_b, khz(100));
-
-    boost_converter.set_primary_duty(0);
-    boost_converter.set_secondary_duty(0);
-
-    //    let max = pwm.get_max_duty();
-    //    pwm.set_dead_time(max / 1024);
+    //    embassy_stm32::pac::HRTIM1
+    //        .tim(0)
+    //        .setr(0)
+    //        .modify(|w| w.set_sst(Activeeffect::SETACTIVE));
     //
-    //    pwm.enable(Channel::Ch1);
+    //    Timer::after(Duration::from_millis(500)).await;
     //
-    //    info!("PWM initialized");
-    //    info!("PWM max duty {}", max);
-    //
-    //    loop {
-    //        pwm.set_duty(Channel::Ch1, 0);
-    //        Timer::after(Duration::from_millis(300)).await;
-    //        pwm.set_duty(Channel::Ch1, max / 4);
-    //        Timer::after(Duration::from_millis(300)).await;
-    //        pwm.set_duty(Channel::Ch1, max / 2);
-    //        Timer::after(Duration::from_millis(300)).await;
-    //        pwm.set_duty(Channel::Ch1, max - 1);
-    //        Timer::after(Duration::from_millis(300)).await;
-    //    }
+    //    embassy_stm32::pac::HRTIM1
+    //        .tim(0)
+    //        .rstr(0)
+    //        .modify(|w| w.set_srt(Inactiveeffect::SETINACTIVE));
+
+    let max_duty = buck_converter.get_max_compare_value();
+
+    info!("max compare value: {}", max_duty);
+
+    buck_converter.set_dead_time(max_duty / 20);
+    buck_converter.set_primary_duty(max_duty / 2);
+    buck_converter.set_secondary_duty(3 * max_duty / 4);
+
+    buck_converter.start();
+
+    Timer::after(Duration::from_millis(500)).await;
+
+    info!("end program");
+
+    cortex_m::asm::bkpt();
 }

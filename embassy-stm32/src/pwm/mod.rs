@@ -123,13 +123,25 @@ impl From<u8> for HighResolutionControlPrescaler {
 
 #[cfg(hrtim_v1)]
 impl HighResolutionControlPrescaler {
-    pub fn compute_min(val: u32) -> Self {
+    pub fn compute_min_high_res(val: u32) -> Self {
         *[
             HighResolutionControlPrescaler::Div1,
             HighResolutionControlPrescaler::Div2,
             HighResolutionControlPrescaler::Div4,
             HighResolutionControlPrescaler::Div8,
             HighResolutionControlPrescaler::Div16,
+            HighResolutionControlPrescaler::Div32,
+            HighResolutionControlPrescaler::Div64,
+            HighResolutionControlPrescaler::Div128,
+        ]
+        .iter()
+        .skip_while(|psc| <HighResolutionControlPrescaler as Into<u32>>::into(**psc) <= val)
+        .next()
+        .unwrap()
+    }
+
+    pub fn compute_min_low_res(val: u32) -> Self {
+        *[
             HighResolutionControlPrescaler::Div32,
             HighResolutionControlPrescaler::Div64,
             HighResolutionControlPrescaler::Div128,
@@ -367,10 +379,14 @@ foreach_interrupt! {
                 let f = frequency.0;
                 let timer_f = Self::frequency().0;
                 let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
-                let psc = HighResolutionControlPrescaler::compute_min(psc_min);
+                let psc = if Self::regs().isr().read().dllrdy() {
+                    HighResolutionControlPrescaler::compute_min_high_res(psc_min)
+                } else {
+                    HighResolutionControlPrescaler::compute_min_low_res(psc_min)
+                };
 
                 let psc_val: u32 = psc.into();
-                let timer_f = timer_f / psc_val;
+                let timer_f = 32 * (timer_f / psc_val);
                 let per: u16 = (timer_f / f) as u16;
 
                 let regs = Self::regs();
@@ -386,10 +402,14 @@ foreach_interrupt! {
                 let f = frequency.0;
                 let timer_f = Self::frequency().0;
                 let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
-                let psc = HighResolutionControlPrescaler::compute_min(psc_min);
+                let psc = if Self::regs().isr().read().dllrdy() {
+                    HighResolutionControlPrescaler::compute_min_high_res(psc_min)
+                } else {
+                    HighResolutionControlPrescaler::compute_min_low_res(psc_min)
+                };
 
                 let psc_val: u32 = psc.into();
-                let timer_f = timer_f / psc_val;
+                let timer_f = 32 * (timer_f / psc_val);
                 let per: u16 = (timer_f / f) as u16;
 
                 let regs = Self::regs();
@@ -410,7 +430,12 @@ foreach_interrupt! {
                 // The dead-time base clock runs 4 times slower than the hrtim base clock
                 // u9::MAX = 511
                 let psc_min = (psc_val * dead_time as u32) / (4 * 511);
-                let psc = HighResolutionControlPrescaler::compute_min(psc_min);
+                let psc = if Self::regs().isr().read().dllrdy() {
+                    HighResolutionControlPrescaler::compute_min_high_res(psc_min)
+                } else {
+                    HighResolutionControlPrescaler::compute_min_low_res(psc_min)
+                };
+
                 let dt_psc_val: u32 = psc.into();
                 let dt_val = (dt_psc_val * dead_time as u32) / (4 * psc_val);
 

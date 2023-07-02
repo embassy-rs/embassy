@@ -144,6 +144,18 @@ impl<'d, T: HighResolutionCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
         T::enable();
         <T as crate::rcc::sealed::RccPeripheral>::reset();
 
+        //        // Enable and and stabilize the DLL
+        //        T::regs().dllcr().modify(|w| {
+        //            // w.set_calen(true);
+        //            // w.set_calrte(11);
+        //            w.set_cal(true);
+        //        });
+        //
+        //        debug!("wait for dll calibration");
+        //        while !T::regs().isr().read().dllrdy() {}
+        //
+        //        debug!("dll calibration complete");
+
         Self {
             _inner: tim,
             master: Master { phantom: PhantomData },
@@ -173,12 +185,14 @@ impl<T: HighResolutionCaptureCompare16bitInstance> BurstController<T> {
 /// light loading conditions, and that the low-side switch must be active for a short time to drive
 /// a bootstrapped high-side switch.
 pub struct BridgeConverter<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> {
-    phantom: PhantomData<T>,
-    pub ch: C,
+    timer: PhantomData<T>,
+    channel: PhantomData<C>,
+    dead_time: u16,
+    primary_duty: u16,
 }
 
 impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
-    pub fn new(channel: C, frequency: Hertz) -> Self {
+    pub fn new(_channel: C, frequency: Hertz) -> Self {
         use crate::pac::hrtim::vals::{Activeeffect, Cont, Inactiveeffect};
 
         T::set_channel_frequency(C::raw(), frequency);
@@ -186,14 +200,20 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
         // Always enable preload
         T::regs().tim(C::raw()).cr().modify(|w| {
             w.set_preen(true);
+            w.set_repu(true);
 
             w.set_cont(Cont::CONTINUOUS);
         });
 
+        // Enable timer outputs
         T::regs().oenr().modify(|w| {
             w.set_t1oen(C::raw(), true);
             w.set_t2oen(C::raw(), true);
         });
+
+        // The dead-time generation unit cannot be used because it forces the other output
+        // to be completely complementary to the first output, which restricts certain waveforms
+        // Therefore, software-implemented dead time must be used when setting the duty cycles
 
         // Set output 1 to active on a period event
         T::regs()
@@ -207,21 +227,23 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
             .rstr(0)
             .modify(|w| w.set_cmp(0, Inactiveeffect::SETINACTIVE));
 
-        // Set output 2 to active on a compare 1 event
+        // Set output 2 to active on a compare 2 event
         T::regs()
             .tim(C::raw())
             .setr(1)
-            .modify(|w| w.set_cmp(0, Activeeffect::SETACTIVE));
+            .modify(|w| w.set_cmp(1, Activeeffect::SETACTIVE));
 
-        // Set output 2 to inactive on a compare 2 event
+        // Set output 2 to inactive on a compare 3 event
         T::regs()
             .tim(C::raw())
             .rstr(1)
-            .modify(|w| w.set_cmp(1, Inactiveeffect::SETINACTIVE));
+            .modify(|w| w.set_cmp(2, Inactiveeffect::SETINACTIVE));
 
         Self {
-            phantom: PhantomData,
-            ch: channel,
+            timer: PhantomData,
+            channel: PhantomData,
+            dead_time: 0,
+            primary_duty: 0,
         }
     }
 
@@ -236,7 +258,6 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
     pub fn enable_burst_mode(&mut self) {
         use crate::pac::hrtim::vals::{Idlem, Idles};
 
-        // TODO: fix metapac
         T::regs().tim(C::raw()).outr().modify(|w| {
             w.set_idlem(0, Idlem::SETIDLE);
             w.set_idlem(1, Idlem::SETIDLE);
@@ -258,9 +279,18 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
         })
     }
 
+    fn update_primary_duty_or_dead_time(&mut self) {
+        T::regs().tim(C::raw()).cmp(0).modify(|w| w.set_cmp(self.primary_duty));
+        T::regs()
+            .tim(C::raw())
+            .cmp(1)
+            .modify(|w| w.set_cmp(self.primary_duty + self.dead_time));
+    }
+
     /// Set the dead time as a proportion of the maximum compare value
-    pub fn set_dead_time(&mut self, value: u16) {
-        T::set_channel_dead_time(C::raw(), value);
+    pub fn set_dead_time(&mut self, dead_time: u16) {
+        self.dead_time = dead_time;
+        self.update_primary_duty_or_dead_time();
     }
 
     /// Get the maximum compare value of a duty cycle
@@ -272,15 +302,17 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
     ///
     /// In the case of a buck converter, this is the high-side switch
     /// In the case of a boost converter, this is the low-side switch
-    pub fn set_primary_duty(&mut self, primary: u16) {
-        T::regs().tim(C::raw()).cmp(0).modify(|w| w.set_cmp(primary));
+    pub fn set_primary_duty(&mut self, primary_duty: u16) {
+        self.primary_duty = primary_duty;
+        self.update_primary_duty_or_dead_time();
     }
 
-    /// The primary duty is the period in any switch is active
+    /// The secondary duty is the period in any switch is active
     ///
     /// If less than or equal to the primary duty, the secondary switch will never be active
-    pub fn set_secondary_duty(&mut self, secondary: u16) {
-        T::regs().tim(C::raw()).cmp(1).modify(|w| w.set_cmp(secondary));
+    /// If a fully complementary output is desired, the secondary duty can be set to the max compare
+    pub fn set_secondary_duty(&mut self, secondary_duty: u16) {
+        T::regs().tim(C::raw()).cmp(2).modify(|w| w.set_cmp(secondary_duty));
     }
 }
 
@@ -290,14 +322,14 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
 /// but does not include secondary rectification, which is appropriate for applications
 /// with a low-voltage on the secondary side.
 pub struct ResonantConverter<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> {
-    phantom: PhantomData<T>,
+    timer: PhantomData<T>,
+    channel: PhantomData<C>,
     min_period: u16,
     max_period: u16,
-    pub ch: C,
 }
 
 impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
-    pub fn new(channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
+    pub fn new(_channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
         use crate::pac::hrtim::vals::Cont;
 
         T::set_channel_frequency(C::raw(), min_frequency);
@@ -305,19 +337,30 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Resona
         // Always enable preload
         T::regs().tim(C::raw()).cr().modify(|w| {
             w.set_preen(true);
+            w.set_repu(true);
 
             w.set_cont(Cont::CONTINUOUS);
             w.set_half(true);
         });
 
+        // Enable timer outputs
+        T::regs().oenr().modify(|w| {
+            w.set_t1oen(C::raw(), true);
+            w.set_t2oen(C::raw(), true);
+        });
+
+        // Dead-time generator can be used in this case because the primary fets
+        // of a resonant converter are always complementary
+        T::regs().tim(C::raw()).outr().modify(|w| w.set_dten(true));
+
         let max_period = T::regs().tim(C::raw()).per().read().per();
         let min_period = max_period * (min_frequency.0 / max_frequency.0) as u16;
 
         Self {
+            timer: PhantomData,
+            channel: PhantomData,
             min_period: min_period,
             max_period: max_period,
-            phantom: PhantomData,
-            ch: channel,
         }
     }
 
