@@ -177,7 +177,7 @@ impl<T: HighResolutionCaptureCompare16bitInstance> BurstController<T> {
 
 /// Represents a fixed-frequency bridge converter
 ///
-/// Our implementation of the bridge converter uses a single channel and two compare registers,
+/// Our implementation of the bridge converter uses a single channel and three compare registers,
 /// allowing implementation of a synchronous buck or boost converter in continuous or discontinuous
 /// conduction mode.
 ///
@@ -189,6 +189,8 @@ pub struct BridgeConverter<T: HighResolutionCaptureCompare16bitInstance, C: Adva
     channel: PhantomData<C>,
     dead_time: u16,
     primary_duty: u16,
+    min_secondary_duty: u16,
+    max_secondary_duty: u16,
 }
 
 impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
@@ -244,6 +246,8 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
             channel: PhantomData,
             dead_time: 0,
             primary_duty: 0,
+            min_secondary_duty: 0,
+            max_secondary_duty: 0,
         }
     }
 
@@ -280,16 +284,19 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
     }
 
     fn update_primary_duty_or_dead_time(&mut self) {
+        self.min_secondary_duty = self.primary_duty + self.dead_time;
+
         T::regs().tim(C::raw()).cmp(0).modify(|w| w.set_cmp(self.primary_duty));
         T::regs()
             .tim(C::raw())
             .cmp(1)
-            .modify(|w| w.set_cmp(self.primary_duty + self.dead_time));
+            .modify(|w| w.set_cmp(self.min_secondary_duty));
     }
 
     /// Set the dead time as a proportion of the maximum compare value
     pub fn set_dead_time(&mut self, dead_time: u16) {
         self.dead_time = dead_time;
+        self.max_secondary_duty = self.get_max_compare_value() - dead_time;
         self.update_primary_duty_or_dead_time();
     }
 
@@ -309,9 +316,17 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
 
     /// The secondary duty is the period in any switch is active
     ///
-    /// If less than or equal to the primary duty, the secondary switch will never be active
+    /// If less than or equal to the primary duty, the secondary switch will be active for one tick
     /// If a fully complementary output is desired, the secondary duty can be set to the max compare
     pub fn set_secondary_duty(&mut self, secondary_duty: u16) {
+        let secondary_duty = if secondary_duty > self.max_secondary_duty {
+            self.max_secondary_duty
+        } else if secondary_duty <= self.min_secondary_duty {
+            self.min_secondary_duty + 1
+        } else {
+            secondary_duty
+        };
+
         T::regs().tim(C::raw()).cmp(2).modify(|w| w.set_cmp(secondary_duty));
     }
 }
