@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
         .modify_filters()
         .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
-    can.as_mut().set_bitrate(1_000_000);
+    can.set_bitrate(1_000_000);
     can.as_mut()
         .modify_config()
         .set_loopback(true) // Receive own frames
