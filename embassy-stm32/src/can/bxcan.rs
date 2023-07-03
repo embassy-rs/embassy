@@ -387,6 +387,7 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     }
 }
 
+#[allow(dead_code)]
 pub struct CanRx<'c, 'd, T: Instance> {
     can: &'c RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
 }

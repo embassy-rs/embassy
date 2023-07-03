@@ -11,7 +11,7 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::bxcan::filter::Mask32;
 use embassy_stm32::can::bxcan::{Data, Fifo, Frame, StandardId};
 use embassy_stm32::can::{
-    Can, CanRx, CanTx, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
+    Can, CanTx, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
 };
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN3;
@@ -46,21 +46,21 @@ async fn main(spawner: Spawner) {
     let rx_pin = Input::new(&mut p.PA15, Pull::Up);
     core::mem::forget(rx_pin);
 
-    let CAN: &'static mut Can<'static, CAN3> = static_cell::make_static!(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
-    CAN.as_mut()
+    let can: &'static mut Can<'static, CAN3> = static_cell::make_static!(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
+    can.as_mut()
         .modify_filters()
         .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
-    CAN.as_mut()
+    can.as_mut()
         .modify_config()
         .set_bit_timing(0x001c0001) // http://www.bittiming.can-wiki.info/
         .set_loopback(true)
         .enable();
 
-    let (tx, mut rx) = CAN.split();
+    let (tx, mut rx) = can.split();
 
-    let TX: &'static mut CanTx<'static, 'static, CAN3> = static_cell::make_static!(tx);
-    spawner.spawn(send_can_message(TX)).unwrap();
+    let tx: &'static mut CanTx<'static, 'static, CAN3> = static_cell::make_static!(tx);
+    spawner.spawn(send_can_message(tx)).unwrap();
 
     loop {
         let frame = rx.read().await.unwrap();
