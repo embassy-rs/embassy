@@ -1,9 +1,8 @@
+use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
-use core::cell::RefMut;
-use core::cell::RefCell;
 
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
@@ -155,7 +154,11 @@ impl<'d, T: Instance> Can<'d, T> {
 
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = Self::calc_bxcan_timings(T::frequency(), bitrate).unwrap();
-        self.can.borrow_mut().modify_config().set_bit_timing(bit_timing).leave_disabled();
+        self.can
+            .borrow_mut()
+            .modify_config()
+            .set_bit_timing(bit_timing)
+            .leave_disabled();
     }
 
     /// Queues the message to be sent but exerts backpressure
@@ -432,19 +435,19 @@ impl<'d, T: Instance> Drop for Can<'d, T> {
     }
 }
 
-// impl<'d, T: Instance> Deref for Can<'d, T> {
-//     type Target = bxcan::Can<BxcanInstance<'d, T>>;
+impl<'d, T: Instance> Deref for Can<'d, T> {
+    type Target = RefCell<bxcan::Can<BxcanInstance<'d, T>>>;
 
-//     fn deref(&self) -> &Self::Target {
-//         self.can.borrow()
-//     }
-// }
+    fn deref(&self) -> &Self::Target {
+        &self.can
+    }
+}
 
-// impl<'d, T: Instance> DerefMut for Can<'d, T> {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         self.can.borrow_mut()
-//     }
-// }
+impl<'d, T: Instance> DerefMut for Can<'d, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.can
+    }
+}
 
 pub(crate) mod sealed {
     use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
