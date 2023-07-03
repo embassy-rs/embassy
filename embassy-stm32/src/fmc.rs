@@ -104,7 +104,6 @@ impl<'d, T: Instance> Fmc<'d, T> {
         ]
     ));
 
-
     fmc_sdram_constructor!(sdram_a12bits_d32bits_4banks_bank1: (
         bank: stm32_fmc::SdramTargetBank::Bank1,
         addr: [
