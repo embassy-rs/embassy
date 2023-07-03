@@ -2,14 +2,11 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use core::borrow::{Borrow, BorrowMut};
-
-use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::bxcan::filter::Mask32;
-use embassy_stm32::can::bxcan::{Data, Fifo, Frame, StandardId};
+use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
 use embassy_stm32::can::{
     Can, CanTx, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
 };
