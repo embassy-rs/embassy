@@ -393,34 +393,33 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             if send_stop {
                 self.master_stop();
             }
-            Err(err)
-        } else {
-            for (number, chunk) in write.chunks(255).enumerate() {
-                if number != 0 {
-                    Self::master_continue(chunk.len(), number != last_chunk_idx, &check_timeout)?;
-                }
-
-                for byte in chunk {
-                    // Wait until we are allowed to send data
-                    // (START has been ACKed or last byte when
-                    // through)
-                    if let Err(err) = self.wait_txe(&check_timeout) {
-                        if send_stop {
-                            self.master_stop();
-                        }
-                        return Err(err);
-                    }
-
-                    T::regs().txdr().write(|w| w.set_txdata(*byte));
-                }
-            }
-            // Wait until the write finishes
-            let result = self.wait_tc(&check_timeout);
-            if send_stop {
-                self.master_stop();
-            }
-            result
+            return Err(err);
         }
+        for (number, chunk) in write.chunks(255).enumerate() {
+            if number != 0 {
+                Self::master_continue(chunk.len(), number != last_chunk_idx, &check_timeout)?;
+            }
+
+            for byte in chunk {
+                // Wait until we are allowed to send data
+                // (START has been ACKed or last byte when
+                // through)
+                if let Err(err) = self.wait_txe(&check_timeout) {
+                    if send_stop {
+                        self.master_stop();
+                    }
+                    return Err(err);
+                }
+
+                T::regs().txdr().write(|w| w.set_txdata(*byte));
+            }
+        }
+        // Wait until the write finishes
+        let result = self.wait_tc(&check_timeout);
+        if send_stop {
+            self.master_stop();
+        }
+        result
     }
 
     async fn write_dma_internal(
@@ -739,22 +738,34 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             &check_timeout,
         ) {
             self.master_stop();
-            Err(err)
-        } else {
-            for (idx, slice) in write.iter().enumerate() {
-                let slice_len = slice.len();
-                let completed_chunks = slice_len / 255;
-                let total_chunks = if completed_chunks * 255 == slice_len {
-                    completed_chunks
-                } else {
-                    completed_chunks + 1
-                };
-                let last_chunk_idx = total_chunks.saturating_sub(1);
+            return Err(err);
+        }
+        for (idx, slice) in write.iter().enumerate() {
+            let slice_len = slice.len();
+            let completed_chunks = slice_len / 255;
+            let total_chunks = if completed_chunks * 255 == slice_len {
+                completed_chunks
+            } else {
+                completed_chunks + 1
+            };
+            let last_chunk_idx = total_chunks.saturating_sub(1);
 
-                if idx != 0 {
+            if idx != 0 {
+                if let Err(err) = Self::master_continue(
+                    slice_len.min(255),
+                    (idx != last_slice_index) || (slice_len > 255),
+                    &check_timeout,
+                ) {
+                    self.master_stop();
+                    return Err(err);
+                }
+            }
+
+            for (number, chunk) in slice.chunks(255).enumerate() {
+                if number != 0 {
                     if let Err(err) = Self::master_continue(
-                        slice_len.min(255),
-                        (idx != last_slice_index) || (slice_len > 255),
+                        chunk.len(),
+                        (number != last_chunk_idx) || (idx != last_slice_index),
                         &check_timeout,
                     ) {
                         self.master_stop();
@@ -762,38 +773,25 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                     }
                 }
 
-                for (number, chunk) in slice.chunks(255).enumerate() {
-                    if number != 0 {
-                        if let Err(err) = Self::master_continue(
-                            chunk.len(),
-                            (number != last_chunk_idx) || (idx != last_slice_index),
-                            &check_timeout,
-                        ) {
-                            self.master_stop();
-                            return Err(err);
-                        }
+                for byte in chunk {
+                    // Wait until we are allowed to send data
+                    // (START has been ACKed or last byte when
+                    // through)
+                    if let Err(err) = self.wait_txe(&check_timeout) {
+                        self.master_stop();
+                        return Err(err);
                     }
 
-                    for byte in chunk {
-                        // Wait until we are allowed to send data
-                        // (START has been ACKed or last byte when
-                        // through)
-                        if let Err(err) = self.wait_txe(&check_timeout) {
-                            self.master_stop();
-                            return Err(err);
-                        }
-
-                        // Put byte on the wire
-                        //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
-                        T::regs().txdr().write(|w| w.set_txdata(*byte));
-                    }
+                    // Put byte on the wire
+                    //self.i2c.txdr.write(|w| w.txdata().bits(*byte));
+                    T::regs().txdr().write(|w| w.set_txdata(*byte));
                 }
             }
-            // Wait until the write finishes
-            let result = self.wait_tc(&check_timeout);
-            self.master_stop();
-            result
         }
+        // Wait until the write finishes
+        let result = self.wait_tc(&check_timeout);
+        self.master_stop();
+        result
     }
 
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
