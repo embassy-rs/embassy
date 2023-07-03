@@ -195,7 +195,7 @@ pub struct BridgeConverter<T: HighResolutionCaptureCompare16bitInstance, C: Adva
 
 impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
     pub fn new(_channel: C, frequency: Hertz) -> Self {
-        use crate::pac::hrtim::vals::{Activeeffect, Cont, Inactiveeffect};
+        use crate::pac::hrtim::vals::{Activeeffect, Inactiveeffect};
 
         T::set_channel_frequency(C::raw(), frequency);
 
@@ -203,8 +203,7 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
         T::regs().tim(C::raw()).cr().modify(|w| {
             w.set_preen(true);
             w.set_repu(true);
-
-            w.set_cont(Cont::CONTINUOUS);
+            w.set_cont(true);
         });
 
         // Enable timer outputs
@@ -260,26 +259,22 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
     }
 
     pub fn enable_burst_mode(&mut self) {
-        use crate::pac::hrtim::vals::{Idlem, Idles};
-
         T::regs().tim(C::raw()).outr().modify(|w| {
-            w.set_idlem(0, Idlem::SETIDLE);
-            w.set_idlem(1, Idlem::SETIDLE);
+            // Enable Burst Mode
+            w.set_idlem(0, true);
+            w.set_idlem(1, true);
 
-            w.set_idles(0, Idles::INACTIVE);
-            w.set_idles(1, Idles::INACTIVE);
+            // Set output to active during the burst
+            w.set_idles(0, true);
+            w.set_idles(1, true);
         })
     }
 
     pub fn disable_burst_mode(&mut self) {
-        use crate::pac::hrtim::vals::{Idlem, Idles};
-
         T::regs().tim(C::raw()).outr().modify(|w| {
-            w.set_idlem(0, Idlem::NOEFFECT);
-            w.set_idlem(1, Idlem::NOEFFECT);
-
-            w.set_idles(0, Idles::INACTIVE);
-            w.set_idles(1, Idles::INACTIVE);
+            // Disable Burst Mode
+            w.set_idlem(0, false);
+            w.set_idlem(1, false);
         })
     }
 
@@ -345,8 +340,6 @@ pub struct ResonantConverter<T: HighResolutionCaptureCompare16bitInstance, C: Ad
 
 impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
     pub fn new(_channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
-        use crate::pac::hrtim::vals::Cont;
-
         T::set_channel_frequency(C::raw(), min_frequency);
 
         // Always enable preload
@@ -354,7 +347,7 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Resona
             w.set_preen(true);
             w.set_repu(true);
 
-            w.set_cont(Cont::CONTINUOUS);
+            w.set_cont(true);
             w.set_half(true);
         });
 
