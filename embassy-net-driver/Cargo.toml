@@ -3,13 +3,22 @@ name = "embassy-net-driver"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-
+description = "Driver trait for the `embassy-net` async TCP/IP network stack."
+repository = "https://github.com/embassy-rs/embassy"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-driver-v$VERSION/embassy-net-driver/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-driver/src/"
 features = ["defmt"]
 target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["defmt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
