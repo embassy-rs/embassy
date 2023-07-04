@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nrf-v$VERSION/embassy-nrf/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nrf/src/"
 
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "gpiote", "time-driver-rtc1"]
+features = ["nightly", "time", "defmt", "unstable-pac", "unstable-traits", "gpiote", "time-driver-rtc1"]
 flavors = [
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
     { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
