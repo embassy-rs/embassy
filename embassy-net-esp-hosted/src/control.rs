@@ -54,7 +54,9 @@ impl<'a> Control<'a> {
             })),
         };
         let resp = self.ioctl(req).await;
-        let proto::CtrlMsgPayload::RespConnectAp(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
+        let proto::CtrlMsgPayload::RespConnectAp(resp) = resp.payload.unwrap() else {
+            panic!("unexpected resp")
+        };
         debug!("======= {:?}", Debug2Format(&resp));
         assert_eq!(resp.resp, 0);
         self.state_ch.set_link_state(LinkState::Up);
@@ -71,7 +73,9 @@ impl<'a> Control<'a> {
             )),
         };
         let resp = self.ioctl(req).await;
-        let proto::CtrlMsgPayload::RespGetMacAddress(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
+        let proto::CtrlMsgPayload::RespGetMacAddress(resp) = resp.payload.unwrap() else {
+            panic!("unexpected resp")
+        };
         assert_eq!(resp.resp, 0);
 
         // WHY IS THIS A STRING? WHYYYY
@@ -100,7 +104,9 @@ impl<'a> Control<'a> {
             payload: Some(proto::CtrlMsgPayload::ReqSetWifiMode(proto::CtrlMsgReqSetMode { mode })),
         };
         let resp = self.ioctl(req).await;
-        let proto::CtrlMsgPayload::RespSetWifiMode(resp) = resp.payload.unwrap() else { panic!("unexpected resp") };
+        let proto::CtrlMsgPayload::RespSetWifiMode(resp) = resp.payload.unwrap() else {
+            panic!("unexpected resp")
+        };
         assert_eq!(resp.resp, 0);
     }
 
