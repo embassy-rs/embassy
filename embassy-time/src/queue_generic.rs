@@ -16,7 +16,7 @@ const QUEUE_SIZE: usize = 16;
 #[cfg(feature = "generic-queue-32")]
 const QUEUE_SIZE: usize = 32;
 #[cfg(feature = "generic-queue-64")]
-const QUEUE_SIZE: usize = 32;
+const QUEUE_SIZE: usize = 64;
 #[cfg(feature = "generic-queue-128")]
 const QUEUE_SIZE: usize = 128;
 #[cfg(not(any(

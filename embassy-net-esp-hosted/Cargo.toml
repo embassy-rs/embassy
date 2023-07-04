@@ -12,8 +12,8 @@ embassy-sync = { version = "0.2.0", path = "../embassy-sync"}
 embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
 embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel"}
 
-embedded-hal = { version = "1.0.0-alpha.10" }
-embedded-hal-async = { version = "=0.2.0-alpha.1" }
+embedded-hal = { version = "1.0.0-alpha.11" }
+embedded-hal-async = { version = "=0.2.0-alpha.2" }
 
 noproto = { git="https://github.com/embassy-rs/noproto", default-features = false, features = ["derive"] }
 #noproto = { version = "0.1", path = "/home/dirbaio/noproto", default-features = false, features = ["derive"] }

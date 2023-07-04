@@ -264,7 +264,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
         });
 
         let tx_request = self.dma.request();
-        let dma_channel = &self.dma;
+        let dma_channel = &mut self.dma;
 
         let tx_options = crate::dma::TransferOptions {
             circular,
@@ -376,7 +376,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
         });
 
         let tx_request = self.dma.request();
-        let dma_channel = &self.dma;
+        let dma_channel = &mut self.dma;
 
         let tx_options = crate::dma::TransferOptions {
             circular,

@@ -74,7 +74,21 @@ where
     E: embedded_hal_1::spi::Error + 'static,
     T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
 {
-    async fn transfer<'a>(&'a mut self, read: &'a mut [u8], write: &'a [u8]) -> Result<(), Self::Error> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+        self.wrapped.write(data)?;
+        Ok(())
+    }
+
+    async fn read(&mut self, data: &mut [u8]) -> Result<(), Self::Error> {
+        self.wrapped.transfer(data)?;
+        Ok(())
+    }
+
+    async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
         // Ensure we write the expected bytes
         for i in 0..core::cmp::min(read.len(), write.len()) {
             read[i] = write[i].clone();
@@ -83,38 +97,7 @@ where
         Ok(())
     }
 
-    async fn transfer_in_place<'a>(&'a mut self, _: &'a mut [u8]) -> Result<(), Self::Error> {
-        todo!()
-    }
-}
-
-impl<T, E> embedded_hal_async::spi::SpiBusFlush for BlockingAsync<T>
-where
-    E: embedded_hal_1::spi::Error + 'static,
-    T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
-{
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-impl<T, E> embedded_hal_async::spi::SpiBusWrite<u8> for BlockingAsync<T>
-where
-    E: embedded_hal_1::spi::Error + 'static,
-    T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
-{
-    async fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
-        self.wrapped.write(data)?;
-        Ok(())
-    }
-}
-
-impl<T, E> embedded_hal_async::spi::SpiBusRead<u8> for BlockingAsync<T>
-where
-    E: embedded_hal_1::spi::Error + 'static,
-    T: blocking::spi::Transfer<u8, Error = E> + blocking::spi::Write<u8, Error = E>,
-{
-    async fn read(&mut self, data: &mut [u8]) -> Result<(), Self::Error> {
+    async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Self::Error> {
         self.wrapped.transfer(data)?;
         Ok(())
     }
