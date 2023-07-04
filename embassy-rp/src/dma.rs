@@ -194,7 +194,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
 pub enum Read<'a, W: Word> {
     Constant(&'a W),
     Increase(&'a [W]),
-    // TODO ring also possible, but more complicated due to generic size and alignment requirements
+    // ring also possible, but more complicated due to generic size and alignment requirements
 }
 
 impl<'a, W: Word> Read<'a, W> {
@@ -219,73 +219,42 @@ impl<'a, W: Word> Read<'a, W> {
     }
 }
 
-struct InnerChannels<'a, C1: Channel, C2: Channel> {
+struct InnerContinuous<'a, 'c, 'r, W: Word, C1: Channel, C2: Channel> {
     data: PeripheralRef<'a, C1>,
     control: PeripheralRef<'a, C2>,
-}
-
-impl<'a, C1: Channel, C2: Channel> Drop for InnerChannels<'a, C1, C2> {
-    fn drop(&mut self) {
-        pac::DMA
-            .chan_abort()
-            .modify(|m| m.set_chan_abort((1 << self.data.number()) | (1 << self.control.number())));
-
-        // wait until both channels are ready again, this should go quite fast so no async used here
-        while self.data.regs().ctrl_trig().read().busy() || self.control.regs().ctrl_trig().read().busy() {}
-    }
-}
-
-pub struct ContinuousTransfer<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> {
-    channels: InnerChannels<'a, C1, C2>,
-    #[allow(dead_code)] // reference is kept to signal that dma channels are writing to it
-    buffer: &'b mut [W],
-    control_input: &'c mut [[u32; 4]; 2],
+    control_input: &'c mut [u32; 4],
     dreq: TreqSel,
     read: Read<'r, W>,
 }
 
-impl<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> ContinuousTransfer<'a, 'b, 'c, 'r, W, C1, C2> {
-    pub fn start_new(
-        ch1: PeripheralRef<'a, C1>,
-        ch2: PeripheralRef<'a, C2>,
-        control_input: &'c mut [[u32; 4]; 2],
-        buffer: &'b mut [W],
-        dreq: TreqSel,
-        mut read: Read<'r, W>,
-    ) -> ContinuousTransfer<'a, 'b, 'c, 'r, W, C1, C2> {
-        let channels = InnerChannels {
-            data: ch1,
-            control: ch2,
-        };
+impl<'a, 'c, 'r, W: Word, C1: Channel, C2: Channel> InnerContinuous<'a, 'c, 'r, W, C1, C2> {
+    // SAFETY: the compiler does not know buffer is still modified after the function returns
+    unsafe fn start(&mut self, buffer: &mut [W]) {
+        let pc = self.control.regs();
+        let pd = self.data.regs();
+        let control_ptr = self.control_input.as_ptr() as u32;
 
         // configure what control channel writes
-        // using registers: READ_ADDR, WRITE_ADDR, TRANS_COUNT, CTRL_TRIG
         let mut w = CtrlTrig(0);
-        w.set_treq_sel(dreq);
+        w.set_treq_sel(self.dreq);
         w.set_data_size(W::size());
-        w.set_incr_read(read.is_increase());
+        w.set_incr_read(self.read.is_increase());
         w.set_incr_write(true);
-        w.set_chain_to(channels.data.number()); // chain disabled by default
+        w.set_chain_to(self.data.number()); // chain disabled by default
         w.set_en(true);
         w.set_irq_quiet(false);
+        // writing to registers: READ_ADDR, WRITE_ADDR, TRANS_COUNT, CTRL_TRIG
+        *self.control_input = [self.read.address(), buffer.as_ptr() as u32, buffer.len() as u32, w.0];
 
-        *control_input = [
-            [read.address(), buffer.as_ptr() as u32, buffer.len() as u32, w.0], // first control write
-            [0; 4],                                                             // Null trigger to stop
-        ];
-
-        // Configure data channel
-        // will be set by control channel
-        let pd = channels.data.regs();
+        // configure data channel to some values, correct ones will be set by control channel
         pd.read_addr().write_value(0);
         pd.write_addr().write_value(0);
         pd.trans_count().write_value(0);
         pd.al1_ctrl().write_value(0);
 
-        // Configure control channel
-        let pc = channels.control.regs();
+        // configure control channel
         pc.write_addr().write_value(pd.read_addr().as_ptr() as u32);
-        pc.read_addr().write_value(control_input.as_ptr() as u32);
+        pc.read_addr().write_value(control_ptr);
         pc.trans_count().write_value(4); // each control input is 4 u32s long
 
         // trigger control channel
@@ -297,27 +266,154 @@ impl<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> ContinuousTransfer<'a, '
             w.set_incr_write(true); // yes, but ring is required
             w.set_ring_sel(true); // wrap write addresses
             w.set_ring_size(4); // 1 << 4 = 16 = 4 * sizeof(u32) bytes
-            w.set_chain_to(channels.control.number()); // disable chain, data channel is triggered by write
+            w.set_chain_to(self.control.number()); // disable chain, data channel is triggered by write
             w.set_irq_quiet(false);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
 
-        // wait until control ran
+        self.after_start(buffer.len());
+    }
+
+    // SAFETY: the compiler does not know buffer is still modified after the function returns
+    async unsafe fn next(&mut self, buffer: &mut [W], auto_restart: bool) -> bool {
+        let pc = self.control.regs();
+        let pd = self.data.regs();
+        let control_ptr = self.control_input.as_ptr() as u32;
+
+        // configure control input to use new buffer
+        let mut w = CtrlTrig(0);
+        w.set_treq_sel(self.dreq);
+        w.set_data_size(W::size());
+        w.set_incr_read(self.read.is_increase());
+        w.set_incr_write(true);
+        w.set_chain_to(self.data.number()); // chain disabled by default
+        w.set_en(true);
+        w.set_irq_quiet(false);
+        *self.control_input = [self.read.address(), buffer.as_ptr() as u32, buffer.len() as u32, w.0];
+
+        // enable chain of running data channel, now we can't change control safely anymore
+        // using al1_ctrl to not trigger the channel in case it stopped
+        compiler_fence(Ordering::SeqCst);
+        pd.al1_ctrl().write_value({
+            let mut ctrl = pd.ctrl_trig().read();
+            ctrl.set_chain_to(self.control.number());
+            ctrl.0
+        });
+        compiler_fence(Ordering::SeqCst);
+
+        // order is really important in this if statement, otherwise it can happen that the chain still activated
+        if pd.ctrl_trig().read().busy() || pc.read_addr().read() > control_ptr {
+            poll_fn(|cx: &mut Context<'_>| {
+                CHANNEL_WAKERS[self.data.number() as usize].register(cx.waker());
+                if pc.read_addr().read() > control_ptr {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+
+            self.after_start(buffer.len());
+            true
+        } else {
+            if auto_restart {
+                // trigger control to restart loop
+                pc.ctrl_trig().write_value(pc.ctrl_trig().read());
+                compiler_fence(Ordering::SeqCst);
+
+                self.after_start(buffer.len());
+            }
+            false
+        }
+    }
+
+    fn after_start(&mut self, buffer_len: usize) {
+        let control_ptr = self.control_input.as_ptr() as u32;
+        let pc = self.control.regs();
+
         while pc.ctrl_trig().read().busy() {}
 
-        // reset control
-        control_input[0] = [0; 4];
-        pc.read_addr().write_value(control_input.as_ptr() as u32);
+        // don't fail silently, control must not read anything but control_input
+        assert!(pc.read_addr().read() == control_ptr + 16);
 
-        read.forward(buffer.len());
+        // reset read adress
+        pc.read_addr().write_value(control_ptr);
 
-        ContinuousTransfer {
-            channels,
-            buffer,
+        // reset control input, not strictly necessary, but helpful if something goes wrong
+        *self.control_input = [0; 4];
+
+        self.read.forward(buffer_len);
+    }
+
+    async fn stop(&mut self) {
+        // when no longer enabling the chain, the data channel simply stops
+        poll_fn(|cx| {
+            CHANNEL_WAKERS[self.data.number() as usize].register(cx.waker());
+            if self.data.regs().ctrl_trig().read().busy() {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+    }
+}
+
+impl<'a, 'c, 'r, W: Word, C1: Channel, C2: Channel> Drop for InnerContinuous<'a, 'c, 'r, W, C1, C2> {
+    fn drop(&mut self) {
+        pac::DMA
+            .chan_abort()
+            .modify(|m| m.set_chan_abort((1 << self.data.number()) | (1 << self.control.number())));
+
+        // wait until both channels are ready again, this should go quite fast so no async used here
+        while self.data.regs().ctrl_trig().read().busy() || self.control.regs().ctrl_trig().read().busy() {}
+    }
+}
+
+// contract: if the user has a ContinuousTransfer, it is always running
+// Using InnerContinuous is unsafe, because the rust compiler has no knowledge of the dma
+// channels modifying the buffer. This is why we keep a &mut to the buffer here
+pub struct ContinuousTransfer<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> {
+    inner: InnerContinuous<'a, 'c, 'r, W, C1, C2>,
+    #[allow(dead_code)]
+    buffer: &'b mut [W],
+}
+
+impl<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> ContinuousTransfer<'a, 'b, 'c, 'r, W, C1, C2> {
+    pub fn start_new(
+        ch1: PeripheralRef<'a, C1>,
+        ch2: PeripheralRef<'a, C2>,
+        control_input: &'c mut [u32; 4],
+        buffer: &'b mut [W],
+        dreq: TreqSel,
+        read: Read<'r, W>,
+    ) -> ContinuousTransfer<'a, 'b, 'c, 'r, W, C1, C2> {
+        let mut inner = InnerContinuous {
+            data: ch1,
+            control: ch2,
             control_input,
             dreq,
             read,
+        };
+        // SAFETY: we keep a &mut to buffer around to signal it is being written to
+        unsafe { inner.start(buffer) };
+        ContinuousTransfer { inner, buffer }
+    }
+
+    pub async fn next_or_stop<'new_buf>(
+        self,
+        buffer: &'new_buf mut [W],
+    ) -> Option<ContinuousTransfer<'a, 'new_buf, 'c, 'r, W, C1, C2>> {
+        let ContinuousTransfer {
+            mut inner,
+            buffer: _old,
+        } = self;
+        // SAFETY: we keep a &mut to buffer around to signal it is being written to
+        let in_time = unsafe { inner.next(buffer, false).await };
+        match in_time {
+            true => Some(ContinuousTransfer { inner, buffer }),
+            false => None,
         }
     }
 
@@ -326,104 +422,16 @@ impl<'a, 'b, 'c, 'r, W: Word, C1: Channel, C2: Channel> ContinuousTransfer<'a, '
         buffer: &'new_buf mut [W],
     ) -> (ContinuousTransfer<'a, 'new_buf, 'c, 'r, W, C1, C2>, bool) {
         let ContinuousTransfer {
-            channels,
-            buffer: _old, // is free now, and the compiler knows it
-            control_input,
-            dreq,
-            mut read,
+            mut inner,
+            buffer: _old,
         } = self;
-
-        let pc = channels.control.regs();
-        let pd = channels.data.regs();
-
-        let mut w = CtrlTrig(0);
-        w.set_treq_sel(dreq);
-        w.set_data_size(W::size());
-        w.set_incr_read(read.is_increase());
-        w.set_incr_write(true);
-        w.set_chain_to(channels.data.number()); // chain disabled by default
-        w.set_en(true);
-        w.set_irq_quiet(false);
-
-        // configure control
-        control_input[0] = [read.address(), buffer.as_ptr() as u32, buffer.len() as u32, w.0];
-
-        // enable chain, now we can't change control safely anymore
-        compiler_fence(Ordering::SeqCst);
-        pd.al1_ctrl().write_value({
-            let mut ctrl = pd.ctrl_trig().read();
-            ctrl.set_chain_to(channels.control.number());
-            ctrl.0
-        });
-
-        if pc.read_addr().read() == control_input.as_ptr() as u32 && pd.ctrl_trig().read().busy() {
-            poll_fn(|cx: &mut Context<'_>| {
-                CHANNEL_WAKERS[channels.data.number() as usize].register(cx.waker());
-                if pc.read_addr().read() == control_input.as_ptr() as u32 + 16 {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            // reset control
-            assert!(!pc.ctrl_trig().read().busy());
-            control_input[0] = [0; 4];
-            pc.read_addr().write_value(control_input.as_ptr() as u32);
-
-            read.forward(buffer.len());
-
-            (
-                ContinuousTransfer {
-                    channels,
-                    buffer,
-                    control_input,
-                    dreq,
-                    read,
-                },
-                true,
-            )
-        } else {
-            if pc.read_addr().read() == control_input.as_ptr() as u32 {
-                // trigger control to restart loop
-                pc.ctrl_trig().write_value(pc.ctrl_trig().read());
-                compiler_fence(Ordering::SeqCst);
-            }
-            // if control read already moved, data has already been activated
-
-            // wait for control to complete
-            while pc.ctrl_trig().read().busy() {}
-            // reset control
-            control_input[0] = [0; 4];
-            pc.read_addr().write_value(control_input.as_ptr() as u32);
-
-            read.forward(buffer.len());
-
-            (
-                ContinuousTransfer {
-                    channels,
-                    control_input,
-                    buffer,
-                    dreq,
-                    read,
-                },
-                false,
-            )
-        }
+        // SAFETY: we keep a &mut to buffer around to signal it is being written to
+        let in_time = unsafe { inner.next(buffer, true).await };
+        (ContinuousTransfer { inner, buffer }, in_time)
     }
 
-    pub async fn stop(self) {
-        // when no longer enabling the chain, data simply stops
-        poll_fn(|cx| {
-            CHANNEL_WAKERS[self.channels.data.number() as usize].register(cx.waker());
-            if self.channels.data.regs().ctrl_trig().read().busy() {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
+    pub async fn stop(mut self) {
+        self.inner.stop().await;
     }
 
     pub fn abort(self) {} // drop channels

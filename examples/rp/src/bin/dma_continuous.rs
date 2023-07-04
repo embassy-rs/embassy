@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
             *x = (2 - i as u32 / 100) * 100 + i as u32 % 100 + 1;
         }
 
-        let mut control_input = [[0u32; 4]; 2];
+        let mut control_input = [0u32; 4];
 
         let mut to_buf0 = [0u32; 100];
         let mut to_buf1 = [0u32; 100];

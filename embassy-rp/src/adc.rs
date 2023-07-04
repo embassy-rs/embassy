@@ -105,7 +105,7 @@ where
 {
     pin.pad_ctrl().modify(|w| {
         w.set_ie(true);
-        let (pu, pd) = (false, true); // TODO there is another pull request related to this change, also check datasheet chapter 4.9
+        let (pu, pd) = (false, true); // datasheet chapter 4.9
         w.set_pue(pu);
         w.set_pde(pd);
     });
@@ -468,6 +468,11 @@ pub struct ContinuousAdc<'a, 'b, 'c, 'd, 'r, W: Word, C1: DmaChannel, C2: DmaCha
     corrupted: bool,
 }
 
+pub enum NextOrStop<'a, 'b, 'c, 'd, 'r, W: Word, C1: DmaChannel, C2: DmaChannel, In: Input> {
+    Next(ContinuousAdc<'a, 'b, 'c, 'd, 'r, W, C1, C2, In>),
+    Stop(Adc<'d>),
+}
+
 impl<'a, 'b, 'c, 'd, 'r, W: Word, C1: DmaChannel, C2: DmaChannel, In: Input>
     ContinuousAdc<'a, 'b, 'c, 'd, 'r, W, C1, C2, In>
 {
@@ -477,7 +482,7 @@ impl<'a, 'b, 'c, 'd, 'r, W: Word, C1: DmaChannel, C2: DmaChannel, In: Input>
         ch2: PeripheralRef<'a, C2>,
         mut input: In,
         speed: SamplingSpeed,
-        control_input: &'c mut [[u32; 4]; 2],
+        control_input: &'c mut [u32; 4],
         buffer: &'b mut [W],
     ) -> ContinuousAdc<'a, 'b, 'c, 'd, 'r, W, C1, C2, In> {
         assert!(W::size() as u8 <= 1); // u16 or u8 (will right-shift) allowed TODO static_assert possible?
@@ -553,20 +558,49 @@ impl<'a, 'b, 'c, 'd, 'r, W: Word, C1: DmaChannel, C2: DmaChannel, In: Input>
         )
     }
 
+    pub async fn next_or_stop<'new_buf>(
+        self,
+        buffer: &'new_buf mut [W],
+    ) -> NextOrStop<'a, 'new_buf, 'c, 'd, 'r, W, C1, C2, In> {
+        let ContinuousAdc {
+            adc,
+            transfer,
+            input,
+            corrupted,
+        } = self;
+        if let Some(transfer) = transfer.next_or_stop(buffer).await {
+            NextOrStop::Next(ContinuousAdc {
+                adc,
+                transfer,
+                input,
+                corrupted,
+            })
+        } else {
+            Self::stop_private(true).await;
+            NextOrStop::Stop(adc)
+        }
+    }
+
     pub async fn stop(self) -> Adc<'d> {
         self.transfer.stop().await;
 
+        Self::stop_private(self.corrupted).await;
+
+        // you only get your adc back if you stop the ContinuousAdc like intended
+        // (i.e. don't drop it while it is still running)
+        self.adc
+    }
+
+    async fn stop_private(hard_reset: bool) {
         // stop adc
         let r = Adc::regs();
         r.cs().modify(|w| {
             w.set_start_many(false);
         });
-        if self.input.measure_temperature() {
-            r.cs().modify(|w| w.set_ts_en(false));
-        }
+        r.cs().modify(|w| w.set_ts_en(false));
         Adc::fifo_drain().await;
 
-        if self.corrupted {
+        if hard_reset {
             // TODO this is a fix to a problem where round robin order is shifted and the first few samples of any following start_many measurements seem to have random order
             // TODO I was not able to find the real cause, but it would only appear with a certain chance if the next buffer was not provided in time
             // completely reset adc
@@ -579,10 +613,6 @@ impl<'a, 'b, 'c, 'd, 'r, W: Word, C1: DmaChannel, C2: DmaChannel, In: Input>
             // Wait for ADC ready
             while !r.cs().read().ready() {}
         }
-
-        // you only get your adc back if you stop the ContinuousAdc like intended
-        // (i.e. don't drop it while it is still running)
-        self.adc
     }
 }
 

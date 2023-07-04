@@ -98,7 +98,7 @@ async fn main(_spawner: Spawner) {
 
             // this particular input leads to adc measuring temp, p26, p27, p28, temp, p26, p27, p28, ...
             let input = adc::input_temperature(true).add(&mut p28).add(&mut p27).add(&mut p26);
-            let mut control_input = [[0u32; 4]; 2];
+            let mut control_input = [0u32; 4];
             let speed = SamplingSpeed::Fastest;
 
             let mut sums = [0u32; 4]; // p26, p27, p28, temp
