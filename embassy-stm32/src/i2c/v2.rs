@@ -7,6 +7,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
 
 use crate::dma::{NoDma, Transfer};
@@ -598,12 +599,23 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
+
         if write.is_empty() {
-            self.write_internal(address, write, true, || check_timeout(deadline))
+            #[cfg(feature = "time")]
+            return self.write_internal(address, write, true, || check_timeout(deadline));
+
+            #[cfg(not(feature = "time"))]
+            return self.write_internal(address, write, true, || Ok(()));
         } else {
-            self.write_dma_internal(address, write, true, true, || check_timeout(deadline))
-                .await
+            #[cfg(feature = "time")]
+            return self
+                .write_dma_internal(address, write, true, true, || check_timeout(deadline))
+                .await;
+
+            #[cfg(not(feature = "time"))]
+            return self.write_dma_internal(address, write, true, true, || Ok(())).await;
         }
     }
 
@@ -618,13 +630,18 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         let mut first = true;
         let mut current = iter.next();
+
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
         while let Some(c) = current {
             let next = iter.next();
             let is_last = next.is_none();
 
+            #[cfg(feature = "time")]
             self.write_dma_internal(address, c, first, is_last, || check_timeout(deadline))
                 .await?;
+            #[cfg(not(feature = "time"))]
+            self.write_dma_internal(address, c, first, is_last, || Ok(())).await?;
             first = false;
             current = next;
         }
@@ -635,12 +652,22 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
         if buffer.is_empty() {
-            self.read_internal(address, buffer, false, || check_timeout(deadline))
+            #[cfg(feature = "time")]
+            return self.read_internal(address, buffer, false, || check_timeout(deadline));
+
+            #[cfg(not(feature = "time"))]
+            return self.read_internal(address, buffer, false, || Ok(()));
         } else {
-            self.read_dma_internal(address, buffer, false, || check_timeout(deadline))
-                .await
+            #[cfg(feature = "time")]
+            return self
+                .read_dma_internal(address, buffer, false, || check_timeout(deadline))
+                .await;
+
+            #[cfg(not(feature = "time"))]
+            return self.read_dma_internal(address, buffer, false, || Ok(())).await;
         }
     }
 
@@ -649,20 +676,34 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         TXDMA: super::TxDma<T>,
         RXDMA: super::RxDma<T>,
     {
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
         if write.is_empty() {
+            #[cfg(feature = "time")]
             self.write_internal(address, write, false, || check_timeout(deadline))?;
+            #[cfg(not(feature = "time"))]
+            self.write_internal(address, write, false, || Ok(()))?;
         } else {
+            #[cfg(feature = "time")]
             self.write_dma_internal(address, write, true, true, || check_timeout(deadline))
                 .await?;
+            #[cfg(not(feature = "time"))]
+            self.write_dma_internal(address, write, true, true, || Ok(())).await?;
         }
 
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
         if read.is_empty() {
+            #[cfg(feature = "time")]
             self.read_internal(address, read, true, || check_timeout(deadline))?;
+            #[cfg(not(feature = "time"))]
+            self.read_internal(address, read, true, || Ok(()))?;
         } else {
+            #[cfg(feature = "time")]
             self.read_dma_internal(address, read, true, || check_timeout(deadline))
                 .await?;
+            #[cfg(not(feature = "time"))]
+            self.read_dma_internal(address, read, true, || Ok(())).await?;
         }
 
         Ok(())
@@ -682,8 +723,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
-        self.blocking_read_timeout(address, read, || check_timeout(deadline))
+        #[cfg(feature = "time")]
+        return self.blocking_read_timeout(address, read, || check_timeout(deadline));
+
+        #[cfg(not(feature = "time"))]
+        return self.blocking_read_timeout(address, read, || Ok(()));
     }
 
     pub fn blocking_write_timeout(
@@ -696,8 +742,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
-        self.blocking_write_timeout(address, write, || check_timeout(deadline))
+        #[cfg(feature = "time")]
+        return self.blocking_write_timeout(address, write, || check_timeout(deadline));
+
+        #[cfg(not(feature = "time"))]
+        return self.blocking_write_timeout(address, write, || Ok(()));
     }
 
     pub fn blocking_write_read_timeout(
@@ -714,8 +765,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
-        self.blocking_write_read_timeout(address, write, read, || check_timeout(deadline))
+        #[cfg(feature = "time")]
+        return self.blocking_write_read_timeout(address, write, read, || check_timeout(deadline));
+
+        #[cfg(not(feature = "time"))]
+        return self.blocking_write_read_timeout(address, write, read, || Ok(()));
     }
 
     pub fn blocking_write_vectored_timeout(
@@ -795,8 +851,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
         let deadline = Instant::now() + Duration::from_millis(100);
-        self.blocking_write_vectored_timeout(address, write, || check_timeout(deadline))
+        #[cfg(feature = "time")]
+        return self.blocking_write_vectored_timeout(address, write, || check_timeout(deadline));
+
+        #[cfg(not(feature = "time"))]
+        return self.blocking_write_vectored_timeout(address, write, || Ok(()));
     }
 }
 
@@ -828,6 +889,7 @@ mod eh02 {
     }
 }
 
+#[cfg(feature = "time")]
 fn check_timeout(deadline: Instant) -> Result<(), Error> {
     if Instant::now() > deadline {
         Err(Error::Timeout)
