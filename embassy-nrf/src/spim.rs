@@ -468,25 +468,19 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::SpiBusFlush for Spim<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::spi::SpiBus<u8> for Spim<'d, T> {
         fn flush(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::SpiBusRead<u8> for Spim<'d, T> {
         fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(words, &[])
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::SpiBusWrite<u8> for Spim<'d, T> {
         fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_1::spi::SpiBus<u8> for Spim<'d, T> {
         fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }
@@ -502,30 +496,24 @@ mod eha {
 
     use super::*;
 
-    impl<'d, T: Instance> embedded_hal_async::spi::SpiBusFlush for Spim<'d, T> {
+    impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
         async fn flush(&mut self) -> Result<(), Error> {
             Ok(())
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_async::spi::SpiBusRead<u8> for Spim<'d, T> {
         async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
             self.read(words).await
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_async::spi::SpiBusWrite<u8> for Spim<'d, T> {
         async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
             self.write(data).await
         }
-    }
 
-    impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
-        async fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Result<(), Error> {
+        async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
             self.transfer(rx, tx).await
         }
 
-        async fn transfer_in_place<'a>(&'a mut self, words: &'a mut [u8]) -> Result<(), Error> {
+        async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
             self.transfer_in_place(words).await
         }
     }

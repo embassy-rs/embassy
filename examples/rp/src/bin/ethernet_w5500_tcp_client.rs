@@ -17,7 +17,7 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::peripherals::{PIN_17, PIN_20, PIN_21, SPI0};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Timer};
 use embedded_hal_async::spi::ExclusiveDevice;
 use embedded_io::asynch::Write;
 use rand::RngCore;
@@ -28,7 +28,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn ethernet_task(
     runner: Runner<
         'static,
-        ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static, PIN_17>>,
+        ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static, PIN_17>, Delay>,
         Input<'static, PIN_21>,
         Output<'static, PIN_20>,
     >,
@@ -57,8 +57,14 @@ async fn main(spawner: Spawner) {
 
     let mac_addr = [0x02, 0x00, 0x00, 0x00, 0x00, 0x00];
     let state = make_static!(State::<8, 8>::new());
-    let (device, runner) =
-        embassy_net_w5500::new(mac_addr, state, ExclusiveDevice::new(spi, cs), w5500_int, w5500_reset).await;
+    let (device, runner) = embassy_net_w5500::new(
+        mac_addr,
+        state,
+        ExclusiveDevice::new(spi, cs, Delay),
+        w5500_int,
+        w5500_reset,
+    )
+    .await;
     unwrap!(spawner.spawn(ethernet_task(runner)));
 
     // Generate random seed
