@@ -98,8 +98,8 @@ embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional=true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
-embedded-hal-async = { version = "=0.2.0-alpha.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11", optional = true}
+embedded-hal-async = { version = "=0.2.0-alpha.2", optional = true}
 embedded-io = { version = "0.4.0", features = ["async"], optional = true }
 
 defmt = { version = "0.3", optional = true }

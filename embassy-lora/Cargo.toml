@@ -23,8 +23,8 @@ log = { version = "0.4.14", optional = true }
 embassy-time = { version = "0.1.0", path = "../embassy-time" }
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false, optional = true }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10" }
-embedded-hal-async = { version = "=0.2.0-alpha.1" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11" }
+embedded-hal-async = { version = "=0.2.0-alpha.2" }
 embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 embedded-hal = { version = "0.2", features = ["unproven"] }
@@ -32,3 +32,6 @@ bit_field = { version = "0.10" }
 
 lora-phy = { version = "1" }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async"] }
+
+[patch.crates-io]
+lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }
