@@ -83,12 +83,12 @@ static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 /// Safety: Sets a mutable global.
 pub(crate) unsafe fn set_freqs(freqs: Clocks) {
     debug!("rcc: {:?}", freqs);
-    CLOCK_FREQS.as_mut_ptr().write(freqs);
+    CLOCK_FREQS = MaybeUninit::new(freqs);
 }
 
 /// Safety: Reads a mutable global.
 pub(crate) unsafe fn get_freqs() -> &'static Clocks {
-    &*CLOCK_FREQS.as_ptr()
+    CLOCK_FREQS.assume_init_ref()
 }
 
 #[cfg(feature = "unstable-pac")]
