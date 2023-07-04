@@ -521,11 +521,11 @@ mod eha {
     }
 
     impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
-        async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+        async fn transfer<'a>(&'a mut self, rx: &'a mut [u8], tx: &'a [u8]) -> Result<(), Error> {
             self.transfer(rx, tx).await
         }
 
-        async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+        async fn transfer_in_place<'a>(&'a mut self, words: &'a mut [u8]) -> Result<(), Error> {
             self.transfer_in_place(words).await
         }
     }
