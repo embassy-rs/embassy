@@ -32,7 +32,7 @@ flavors = [
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
+embassy-time = { version = "0.1.2", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }

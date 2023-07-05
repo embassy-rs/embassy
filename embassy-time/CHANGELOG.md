@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.2 - 2023-07-05
+
+- Update `embedded-hal-async` to `0.2.0-alpha.2`.
+- Update `embedded-hal v1` to `1.0.0-alpha.11`. (Note: v0.2 support is kept unchanged).
+
 ## 0.1.1 - 2023-04-13
 
 - Update `embedded-hal-async` to `0.2.0-alpha.1` (uses `async fn` in traits).
