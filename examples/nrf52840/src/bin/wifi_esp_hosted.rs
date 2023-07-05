@@ -16,6 +16,9 @@ use embedded_io::asynch::Write;
 use static_cell::make_static;
 use {defmt_rtt as _, embassy_net_esp_hosted as hosted, panic_probe as _};
 
+const WIFI_NETWORK: &str = "EmbassyTest";
+const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
+
 bind_interrupts!(struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
     RNG => embassy_nrf::rng::InterruptHandler<peripherals::RNG>;
@@ -70,7 +73,7 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(wifi_task(runner)));
 
     control.init().await;
-    control.join(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await;
+    control.join(WIFI_NETWORK, WIFI_PASSWORD).await;
 
     let config = embassy_net::Config::dhcpv4(Default::default());
     // let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {

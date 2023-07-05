@@ -19,6 +19,9 @@ use embedded_io::asynch::Write;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
 
+const WIFI_NETWORK: &str = "EmbassyTest";
+const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
+
 #[embassy_executor::task]
 async fn wifi_task(
     runner: cyw43::Runner<'static, Output<'static, PIN_23>, PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>>,
@@ -82,8 +85,8 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(net_task(stack)));
 
     loop {
-        //control.join_open(env!("WIFI_NETWORK")).await;
-        match control.join_wpa2(env!("WIFI_NETWORK"), env!("WIFI_PASSWORD")).await {
+        //control.join_open(WIFI_NETWORK).await;
+        match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
             Ok(_) => break,
             Err(err) => {
                 info!("join failed with status={}", err.status);
