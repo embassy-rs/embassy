@@ -311,14 +311,14 @@ where
     fn handle_event(&self, data: &[u8]) {
         let Ok(event) = noproto::read::<CtrlMsg>(data) else {
             warn!("failed to parse event");
-            return
+            return;
         };
 
         debug!("event: {:?}", &event);
 
         let Some(payload) = &event.payload else {
             warn!("event without payload?");
-            return
+            return;
         };
 
         match payload {

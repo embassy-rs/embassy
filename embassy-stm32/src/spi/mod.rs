@@ -852,25 +852,19 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::SpiBusFlush for Spi<'d, T, Tx, Rx> {
+    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
         fn flush(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
-    }
 
-    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBusRead<W> for Spi<'d, T, Tx, Rx> {
         fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.blocking_read(words)
         }
-    }
 
-    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBusWrite<W> for Spi<'d, T, Tx, Rx> {
         fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
             self.blocking_write(words)
         }
-    }
 
-    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
         fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
             self.blocking_transfer(read, write)
         }
@@ -895,32 +889,25 @@ mod eh1 {
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
     use super::*;
-    impl<'d, T: Instance, Tx, Rx> embedded_hal_async::spi::SpiBusFlush for Spi<'d, T, Tx, Rx> {
+
+    impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
         async fn flush(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
-    }
 
-    impl<'d, T: Instance, Tx: TxDma<T>, Rx, W: Word> embedded_hal_async::spi::SpiBusWrite<W> for Spi<'d, T, Tx, Rx> {
         async fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
             self.write(words).await
         }
-    }
 
-    impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBusRead<W>
-        for Spi<'d, T, Tx, Rx>
-    {
         async fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.read(words).await
         }
-    }
 
-    impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
-        async fn transfer<'a>(&'a mut self, read: &'a mut [W], write: &'a [W]) -> Result<(), Self::Error> {
+        async fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
             self.transfer(read, write).await
         }
 
-        async fn transfer_in_place<'a>(&'a mut self, words: &'a mut [W]) -> Result<(), Self::Error> {
+        async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
             self.transfer_in_place(words).await
         }
     }

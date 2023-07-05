@@ -52,4 +52,7 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
-embedded-hal-async = { version = "0.2.0-alpha.1", optional = true }
+embedded-hal-async = { version = "0.2.0-alpha.2", optional = true }
+
+[patch.crates-io]
+lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }
