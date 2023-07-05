@@ -8,7 +8,7 @@ impl<'d> Task<'_> {
         self.0.as_ptr() as _
     }
 }
-impl<'d> Event<'_> {
+impl<'d> Event<'d> {
     fn reg_val(&self) -> u32 {
         self.0.as_ptr() as _
     }
