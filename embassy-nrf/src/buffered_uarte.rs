@@ -352,7 +352,6 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         s.rx_ppi_ch.store(ppi_ch2.number() as u8, Ordering::Relaxed);
         let mut ppi_group = PpiGroup::new(ppi_group);
-        
         let mut ppi_ch2 = Ppi::new_one_to_two(
             ppi_ch2,
             Event::from_reg(&r.events_endrx),
