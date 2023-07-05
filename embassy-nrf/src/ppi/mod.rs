@@ -128,7 +128,7 @@ const REGISTER_DPPI_CONFIG_OFFSET: usize = 0x80 / core::mem::size_of::<u32>();
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Task<'d>(NonNull<u32>, PhantomData<&'d ()>);
 
-impl<'d> Task<'_> {
+impl<'d> Task<'d> {
     /// Create a new `Task` from a task register pointer
     ///
     /// # Safety
