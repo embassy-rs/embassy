@@ -36,7 +36,7 @@
 //! ```
 //! use embassy_time::driver::{Driver, AlarmHandle};
 //!
-//! struct MyDriver{}; // not public!
+//! struct MyDriver{} // not public!
 //! embassy_time::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
 //!
 //! impl Driver for MyDriver {
