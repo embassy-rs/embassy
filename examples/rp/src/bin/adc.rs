@@ -4,8 +4,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::adc::{Adc, Config, InterruptHandler};
+use embassy_rp::adc::{Adc, Config, InterruptHandler, Pin};
 use embassy_rp::bind_interrupts;
+use embassy_rp::gpio::Pull;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -18,18 +19,18 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut adc = Adc::new(p.ADC, Irqs, Config::default());
 
-    let mut p26 = p.PIN_26;
-    let mut p27 = p.PIN_27;
-    let mut p28 = p.PIN_28;
+    let mut p26 = Pin::new(p.PIN_26, Pull::None);
+    let mut p27 = Pin::new(p.PIN_27, Pull::None);
+    let mut p28 = Pin::new(p.PIN_28, Pull::None);
 
     loop {
-        let level = adc.read(&mut p26).await;
+        let level = adc.read(&mut p26).await.unwrap();
         info!("Pin 26 ADC: {}", level);
-        let level = adc.read(&mut p27).await;
+        let level = adc.read(&mut p27).await.unwrap();
         info!("Pin 27 ADC: {}", level);
-        let level = adc.read(&mut p28).await;
+        let level = adc.read(&mut p28).await.unwrap();
         info!("Pin 28 ADC: {}", level);
-        let temp = adc.read_temperature().await;
+        let temp = adc.read_temperature().await.unwrap();
         info!("Temp: {} degrees", convert_to_celsius(temp));
         Timer::after(Duration::from_secs(1)).await;
     }
