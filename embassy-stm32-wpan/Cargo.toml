@@ -5,8 +5,8 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32-wpan/src"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32-wpan/src/"
 target = "thumbv7em-none-eabihf"
 features = ["stm32wb55rg"]
 
