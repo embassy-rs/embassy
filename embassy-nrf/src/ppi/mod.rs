@@ -168,7 +168,7 @@ unsafe impl Send for Task<'_> {}
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Event<'d>(NonNull<u32>, PhantomData<&'d ()>);
 
-impl<'d> Event<'_> {
+impl<'d> Event<'d> {
     /// Create a new `Event` from an event register pointer
     ///
     /// # Safety
