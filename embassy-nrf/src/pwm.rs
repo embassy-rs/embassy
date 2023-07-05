@@ -181,7 +181,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Returns reference to `Stopped` event endpoint for PPI.
     #[inline(always)]
-    pub fn event_stopped(&self) -> Event {
+    pub fn event_stopped(&self) -> Event<'d> {
         let r = T::regs();
 
         Event::from_reg(&r.events_stopped)
@@ -189,7 +189,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Returns reference to `LoopsDone` event endpoint for PPI.
     #[inline(always)]
-    pub fn event_loops_done(&self) -> Event {
+    pub fn event_loops_done(&self) -> Event<'d> {
         let r = T::regs();
 
         Event::from_reg(&r.events_loopsdone)
@@ -197,7 +197,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Returns reference to `PwmPeriodEnd` event endpoint for PPI.
     #[inline(always)]
-    pub fn event_pwm_period_end(&self) -> Event {
+    pub fn event_pwm_period_end(&self) -> Event<'d> {
         let r = T::regs();
 
         Event::from_reg(&r.events_pwmperiodend)
@@ -205,7 +205,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Returns reference to `Seq0 End` event endpoint for PPI.
     #[inline(always)]
-    pub fn event_seq_end(&self) -> Event {
+    pub fn event_seq_end(&self) -> Event<'d> {
         let r = T::regs();
 
         Event::from_reg(&r.events_seqend[0])
@@ -213,7 +213,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Returns reference to `Seq1 End` event endpoint for PPI.
     #[inline(always)]
-    pub fn event_seq1_end(&self) -> Event {
+    pub fn event_seq1_end(&self) -> Event<'d> {
         let r = T::regs();
 
         Event::from_reg(&r.events_seqend[1])
@@ -221,7 +221,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Returns reference to `Seq0 Started` event endpoint for PPI.
     #[inline(always)]
-    pub fn event_seq0_started(&self) -> Event {
+    pub fn event_seq0_started(&self) -> Event<'d> {
         let r = T::regs();
 
         Event::from_reg(&r.events_seqstarted[0])
@@ -229,7 +229,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
 
     /// Returns reference to `Seq1 Started` event endpoint for PPI.
     #[inline(always)]
-    pub fn event_seq1_started(&self) -> Event {
+    pub fn event_seq1_started(&self) -> Event<'d> {
         let r = T::regs();
 
         Event::from_reg(&r.events_seqstarted[1])
@@ -240,7 +240,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     ///
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
-    pub unsafe fn task_start_seq0(&self) -> Task {
+    pub unsafe fn task_start_seq0(&self) -> Task<'d> {
         let r = T::regs();
 
         Task::from_reg(&r.tasks_seqstart[0])
@@ -251,7 +251,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     ///
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
-    pub unsafe fn task_start_seq1(&self) -> Task {
+    pub unsafe fn task_start_seq1(&self) -> Task<'d> {
         let r = T::regs();
 
         Task::from_reg(&r.tasks_seqstart[1])
@@ -262,7 +262,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     ///
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
-    pub unsafe fn task_next_step(&self) -> Task {
+    pub unsafe fn task_next_step(&self) -> Task<'d> {
         let r = T::regs();
 
         Task::from_reg(&r.tasks_nextstep)
@@ -273,7 +273,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     ///
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
-    pub unsafe fn task_stop(&self) -> Task {
+    pub unsafe fn task_stop(&self) -> Task<'d> {
         let r = T::regs();
 
         Task::from_reg(&r.tasks_stop)

@@ -96,7 +96,7 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     /// Get a reference to the "enable all" task.
     ///
     /// When triggered, it will enable all the channels in this group.
-    pub fn task_enable_all<'s: 'd>(&'d self) -> Task<'s> {
+    pub fn task_enable_all(&self) -> Task<'d> {
         let n = self.g.number();
         Task::from_reg(&regs().tasks_chg[n].en)
     }
@@ -104,7 +104,7 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     /// Get a reference to the "disable all" task.
     ///
     /// When triggered, it will disable all the channels in this group.
-    pub fn task_disable_all<'s: 'd>(&self) -> Task<'s> {
+    pub fn task_disable_all(&self) -> Task<'d> {
         let n = self.g.number();
         Task::from_reg(&regs().tasks_chg[n].dis)
     }

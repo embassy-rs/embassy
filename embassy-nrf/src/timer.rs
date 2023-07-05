@@ -168,21 +168,21 @@ impl<'d, T: Instance> Timer<'d, T> {
     /// Returns the START task, for use with PPI.
     ///
     /// When triggered, this task starts the timer.
-    pub fn task_start<'s: 'd>(&self) -> Task<'s> {
+    pub fn task_start(&self) -> Task<'d> {
         Task::from_reg(&T::regs().tasks_start)
     }
 
     /// Returns the STOP task, for use with PPI.
     ///
     /// When triggered, this task stops the timer.
-    pub fn task_stop<'s: 'd>(&self) -> Task<'s> {
+    pub fn task_stop(&self) -> Task<'d> {
         Task::from_reg(&T::regs().tasks_stop)
     }
 
     /// Returns the CLEAR task, for use with PPI.
     ///
     /// When triggered, this task resets the timer's counter to 0.
-    pub fn task_clear<'s: 'd>(&self) -> Task<'s> {
+    pub fn task_clear(&self) -> Task<'d> {
         Task::from_reg(&T::regs().tasks_clear)
     }
 
@@ -190,7 +190,7 @@ impl<'d, T: Instance> Timer<'d, T> {
     ///
     /// When triggered, this task increments the timer's counter by 1.
     /// Only works in counter mode.
-    pub fn task_count<'s: 'd>(&self) -> Task<'s> {
+    pub fn task_count(&self) -> Task<'d> {
         Task::from_reg(&T::regs().tasks_count)
     }
 
@@ -258,14 +258,14 @@ impl<'d, T: Instance> Cc<'d, T> {
     /// Returns this CC register's CAPTURE task, for use with PPI.
     ///
     /// When triggered, this task will capture the current value of the timer's counter in this register.
-    pub fn task_capture<'s: 'd>(&self) -> Task<'s> {
+    pub fn task_capture(&self) -> Task<'d> {
         Task::from_reg(&T::regs().tasks_capture)
     }
 
     /// Returns this CC register's COMPARE event, for use with PPI.
     ///
     /// This event will fire when the timer's counter reaches the value in this CC register.
-    pub fn event_compare<'s: 'd>(&self) -> Event<'s> {
+    pub fn event_compare(&self) -> Event<'d> {
         Event::from_reg(&T::regs().events_compare[self.n])
     }
 
