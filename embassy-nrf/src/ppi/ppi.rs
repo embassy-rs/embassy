@@ -3,7 +3,7 @@ use embassy_hal_common::into_ref;
 use super::{Channel, ConfigurableChannel, Event, Ppi, StaticChannel, Task};
 use crate::{pac, Peripheral};
 
-impl<'d> Task<'_> {
+impl<'d> Task<'d> {
     fn reg_val(&self) -> u32 {
         self.0.as_ptr() as _
     }
