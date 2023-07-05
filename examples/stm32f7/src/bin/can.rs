@@ -22,7 +22,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-pub async fn send_can_message(tx: &'static mut CanTx<'static, 'static, CAN3>) {
+pub async fn send_can_message(tx: &'static mut CanTx<'static, CAN3>) {
     loop {
         let frame = Frame::new_data(unwrap!(StandardId::new(0 as _)), [0]);
         tx.write(&frame).await;
@@ -56,7 +56,7 @@ async fn main(spawner: Spawner) {
 
     let (tx, mut rx) = can.split();
 
-    let tx: &'static mut CanTx<'static, 'static, CAN3> = static_cell::make_static!(tx);
+    let tx: &'static mut CanTx<'static, CAN3> = static_cell::make_static!(tx);
     spawner.spawn(send_can_message(tx)).unwrap();
 
     loop {

@@ -348,7 +348,7 @@ impl<'d, T: Instance> Can<'d, T> {
         Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler as u32 - 1))
     }
 
-    pub fn split<'c>(&'c self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
+    pub fn split(&'d self) -> (CanTx<'d, T>, CanRx<'d, T>) {
         (CanTx { can: &self.can }, CanRx { can: &self.can })
     }
 
@@ -357,11 +357,11 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 }
 
-pub struct CanTx<'c, 'd, T: Instance> {
-    can: &'c RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
+pub struct CanTx<'d, T: Instance> {
+    can: &'d RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
 }
 
-impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
+impl<'d, T: Instance> CanTx<'d, T> {
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
@@ -388,11 +388,11 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
 }
 
 #[allow(dead_code)]
-pub struct CanRx<'c, 'd, T: Instance> {
-    can: &'c RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
+pub struct CanRx<'d, T: Instance> {
+    can: &'d RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
 }
 
-impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
+impl<'d, T: Instance> CanRx<'d, T> {
     pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
