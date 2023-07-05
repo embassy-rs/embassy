@@ -320,7 +320,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
         timer.cc(0).write(sample_counter);
         timer.cc(0).short_compare_clear();
 
-        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer.cc(0).event_compare(), Task::from_reg(&r.tasks_sample));
+        let timer_cc = timer.cc(0);
+
+        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer_cc.event_compare(), Task::from_reg(&r.tasks_sample));
 
         timer.start();
 
