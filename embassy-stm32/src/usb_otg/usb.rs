@@ -648,7 +648,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         let r = T::regs();
         let core_id = r.cid().read().0;
-        info!("Core id {:08x}", core_id);
+        trace!("Core id {:08x}", core_id);
 
         // Wait for AHB ready.
         while !r.grstctl().read().ahbidl() {}
@@ -1214,7 +1214,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
 
             let diepctl = r.diepctl(index).read();
             let dtxfsts = r.dtxfsts(index).read();
-            info!("diepctl {:08x} ftxfsts {:08x}", diepctl.0, dtxfsts.0);
+            trace!("diepctl {:08x} ftxfsts {:08x}", diepctl.0, dtxfsts.0);
             if !diepctl.usbaep() {
                 trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
                 Poll::Ready(Err(EndpointError::Disabled))
