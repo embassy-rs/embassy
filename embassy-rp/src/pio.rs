@@ -16,12 +16,12 @@ use pio::{SideSet, Wrap};
 use crate::dma::{Channel, Transfer, Word};
 use crate::gpio::sealed::Pin as SealedPin;
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SlewRate};
-use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::pac::dma::vals::TreqSel;
 use crate::relocate::RelocatedProgram;
-use crate::{interrupt, pac, peripherals, pio_instr_util, RegExt};
+use crate::{pac, peripherals, pio_instr_util, RegExt};
 
-struct Wakers([AtomicWaker; 12]);
+pub struct Wakers([AtomicWaker; 12]);
 
 impl Wakers {
     #[inline(always)]
@@ -37,10 +37,6 @@ impl Wakers {
         &self.0[8..12]
     }
 }
-
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-const PIO_WAKERS_INIT: Wakers = Wakers([NEW_AW; 12]);
-static WAKERS: [Wakers; 2] = [PIO_WAKERS_INIT; 2];
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -85,42 +81,20 @@ const RXNEMPTY_MASK: u32 = 1 << 0;
 const TXNFULL_MASK: u32 = 1 << 4;
 const SMIRQ_MASK: u32 = 1 << 8;
 
-#[cfg(feature = "rt")]
-#[interrupt]
-fn PIO0_IRQ_0() {
-    use crate::pac;
-    let ints = pac::PIO0.irqs(0).ints().read().0;
-    for bit in 0..12 {
-        if ints & (1 << bit) != 0 {
-            WAKERS[0].0[bit].wake();
-        }
-    }
-    pac::PIO0.irqs(0).inte().write_clear(|m| m.0 = ints);
+pub struct InterruptHandler<PIO: Instance> {
+    _pio: PhantomData<PIO>,
 }
 
-#[cfg(feature = "rt")]
-#[interrupt]
-fn PIO1_IRQ_0() {
-    use crate::pac;
-    let ints = pac::PIO1.irqs(0).ints().read().0;
-    for bit in 0..12 {
-        if ints & (1 << bit) != 0 {
-            WAKERS[1].0[bit].wake();
+impl<PIO: Instance> Handler<PIO::Interrupt> for InterruptHandler<PIO> {
+    unsafe fn on_interrupt() {
+        let ints = PIO::PIO.irqs(0).ints().read().0;
+        for bit in 0..12 {
+            if ints & (1 << bit) != 0 {
+                PIO::wakers().0[bit].wake();
+            }
         }
+        PIO::PIO.irqs(0).inte().write_clear(|m| m.0 = ints);
     }
-    pac::PIO1.irqs(0).inte().write_clear(|m| m.0 = ints);
-}
-
-pub(crate) unsafe fn init() {
-    interrupt::PIO0_IRQ_0.disable();
-    interrupt::PIO0_IRQ_0.set_priority(interrupt::Priority::P3);
-    pac::PIO0.irqs(0).inte().write(|m| m.0 = 0);
-    interrupt::PIO0_IRQ_0.enable();
-
-    interrupt::PIO1_IRQ_0.disable();
-    interrupt::PIO1_IRQ_0.set_priority(interrupt::Priority::P3);
-    pac::PIO1.irqs(0).inte().write(|m| m.0 = 0);
-    interrupt::PIO1_IRQ_0.enable();
 }
 
 /// Future that waits for TX-FIFO to become writable
@@ -144,7 +118,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PI
         if self.get_mut().sm_tx.try_push(value) {
             Poll::Ready(())
         } else {
-            WAKERS[PIO::PIO_NO as usize].fifo_out()[SM].register(cx.waker());
+            PIO::wakers().fifo_out()[SM].register(cx.waker());
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = TXNFULL_MASK << SM;
             });
@@ -181,7 +155,7 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO
         if let Some(v) = self.sm_rx.try_pull() {
             Poll::Ready(v)
         } else {
-            WAKERS[PIO::PIO_NO as usize].fifo_in()[SM].register(cx.waker());
+            PIO::wakers().fifo_in()[SM].register(cx.waker());
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = RXNEMPTY_MASK << SM;
             });
@@ -217,7 +191,7 @@ impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
             return Poll::Ready(());
         }
 
-        WAKERS[PIO::PIO_NO as usize].irq()[self.irq_no as usize].register(cx.waker());
+        PIO::wakers().irq()[self.irq_no as usize].register(cx.waker());
         PIO::PIO.irqs(0).inte().write_set(|m| {
             m.0 = SMIRQ_MASK << self.irq_no;
         });
@@ -949,9 +923,11 @@ pub struct Pio<'d, PIO: Instance> {
 }
 
 impl<'d, PIO: Instance> Pio<'d, PIO> {
-    pub fn new(_pio: impl Peripheral<P = PIO> + 'd) -> Self {
+    pub fn new(_pio: impl Peripheral<P = PIO> + 'd, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
+        PIO::Interrupt::unpend();
+        unsafe { PIO::Interrupt::enable() };
         Self {
             common: Common {
                 instructions_used: 0,
@@ -1017,6 +993,15 @@ mod sealed {
         const PIO_NO: u8;
         const PIO: &'static crate::pac::pio::Pio;
         const FUNCSEL: crate::pac::io::vals::Gpio0ctrlFuncsel;
+        type Interrupt: crate::interrupt::typelevel::Interrupt;
+
+        #[inline]
+        fn wakers() -> &'static Wakers {
+            const NEW_AW: AtomicWaker = AtomicWaker::new();
+            static WAKERS: Wakers = Wakers([NEW_AW; 12]);
+
+            &WAKERS
+        }
 
         #[inline]
         fn state() -> &'static State {
@@ -1033,18 +1018,19 @@ mod sealed {
 pub trait Instance: sealed::Instance + Sized + Unpin {}
 
 macro_rules! impl_pio {
-    ($name:ident, $pio:expr, $pac:ident, $funcsel:ident) => {
+    ($name:ident, $pio:expr, $pac:ident, $funcsel:ident, $irq:ident) => {
         impl sealed::Instance for peripherals::$name {
             const PIO_NO: u8 = $pio;
             const PIO: &'static pac::pio::Pio = &pac::$pac;
             const FUNCSEL: pac::io::vals::Gpio0ctrlFuncsel = pac::io::vals::Gpio0ctrlFuncsel::$funcsel;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
         impl Instance for peripherals::$name {}
     };
 }
 
-impl_pio!(PIO0, 0, PIO0, PIO0_0);
-impl_pio!(PIO1, 1, PIO1, PIO1_0);
+impl_pio!(PIO0, 0, PIO0, PIO0_0, PIO0_IRQ_0);
+impl_pio!(PIO1, 1, PIO1, PIO1_0, PIO1_IRQ_0);
 
 pub trait PioPin: sealed::PioPin + gpio::Pin {}
 
