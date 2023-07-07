@@ -34,7 +34,7 @@ use smoltcp::socket::dhcpv4::{self, RetryConfig};
 pub use smoltcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
-pub use smoltcp::wire::{IpAddress, IpCidr};
+pub use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
 pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
