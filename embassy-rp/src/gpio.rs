@@ -41,7 +41,7 @@ impl From<Level> for bool {
 }
 
 /// Represents a pull setting for an input.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Pull {
     None,
     Up,
