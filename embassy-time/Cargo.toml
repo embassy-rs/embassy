@@ -23,7 +23,7 @@ target = "x86_64-unknown-linux-gnu"
 features = ["nightly", "defmt", "unstable-traits", "std"]
 
 [features]
-std = ["tick-hz-1_000_000"]
+std = ["tick-hz-1_000_000", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
 
 # Enable nightly-only features
