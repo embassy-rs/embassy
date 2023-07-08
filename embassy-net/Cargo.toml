@@ -50,7 +50,7 @@ smoltcp = { version = "0.10.0", default-features = false, features = [
 ] }
 
 embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.1.0", path = "../embassy-time" }
+embassy-time = { version = "0.1.2", path = "../embassy-time" }
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
 embedded-io = { version = "0.4.0", optional = true }
 

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -23,7 +23,7 @@ target = "x86_64-unknown-linux-gnu"
 features = ["nightly", "defmt", "unstable-traits", "std"]
 
 [features]
-std = ["tick-hz-1_000_000"]
+std = ["tick-hz-1_000_000", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
 
 # Enable nightly-only features
@@ -152,8 +152,8 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
-embedded-hal-async = { version = "=0.2.0-alpha.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11", optional = true}
+embedded-hal-async = { version = "=0.2.0-alpha.2", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
 atomic-polyfill = "1.0.1"
