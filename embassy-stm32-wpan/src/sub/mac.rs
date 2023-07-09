@@ -11,9 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
-use crate::tables::{
-    Mac802_15_4Table, MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, TL_MAC_802_15_4_TABLE,
-};
+use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
 
 static MAC_WAKER: AtomicWaker = AtomicWaker::new();
@@ -25,14 +23,6 @@ pub struct Mac {
 
 impl Mac {
     pub(crate) fn new() -> Self {
-        unsafe {
-            TL_MAC_802_15_4_TABLE.as_mut_ptr().write_volatile(Mac802_15_4Table {
-                p_cmdrsp_buffer: MAC_802_15_4_CMD_BUFFER.as_mut_ptr().cast(),
-                p_notack_buffer: MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr().cast(),
-                evt_queue: ptr::null_mut(),
-            });
-        }
-
         Self { phantom: PhantomData }
     }
 
