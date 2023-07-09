@@ -11,9 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
-use crate::tables::{
-    Mac802_15_4Table, MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, TL_MAC_802_15_4_TABLE,
-};
+use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
 
 static MAC_WAKER: AtomicWaker = AtomicWaker::new();
