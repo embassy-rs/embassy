@@ -79,6 +79,7 @@ pub const CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE: usize = 255;
 pub const TL_BLE_EVENT_FRAME_SIZE: usize = TL_EVT_HEADER_SIZE + CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE;
 
 pub const POOL_SIZE: usize = CFG_TL_BLE_EVT_QUEUE_LENGTH * 4 * divc(TL_PACKET_HEADER_SIZE + TL_BLE_EVENT_FRAME_SIZE, 4);
+pub const C_SIZE_CMD_STRING: usize = 256;
 
 pub const fn divc(x: usize, y: usize) -> usize {
     (x + y - 1) / y

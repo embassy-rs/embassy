@@ -37,7 +37,7 @@ pub struct CmdSerialStub {
 }
 
 #[derive(Copy, Clone, Default)]
-#[repr(C, packed(4))]
+#[repr(C, packed)]
 pub struct CmdPacket {
     pub header: PacketHeader,
     pub cmdserial: CmdSerial,
