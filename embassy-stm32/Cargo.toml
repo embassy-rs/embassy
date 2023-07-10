@@ -43,7 +43,7 @@ embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["un
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11", optional = true}
 embedded-hal-async = { version = "=0.2.0-alpha.2", optional = true}
 embedded-hal-nb = { version = "=1.0.0-alpha.3", optional = true}
-embedded-can = { version = "0.4.1", optional = true}
+embedded-can = { version = "0.4.1"}
 
 embedded-storage = "0.3.0"
 embedded-storage-async = { version = "0.4.0", optional = true }
@@ -100,7 +100,7 @@ time-driver-tim12 = ["_time-driver"]
 time-driver-tim15 = ["_time-driver"]
 
 # Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly", "embedded-can"]
+nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
 
 # Reexport stm32-metapac at `embassy_stm32::pac`.
 # This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
