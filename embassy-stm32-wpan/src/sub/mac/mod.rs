@@ -8,11 +8,15 @@ use embassy_futures::poll_once;
 use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use self::commands::MacCommand;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
 use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
+
+pub mod commands;
+mod opcodes;
 
 static MAC_WAKER: AtomicWaker = AtomicWaker::new();
 static MAC_EVT_OUT: AtomicBool = AtomicBool::new(false);
@@ -77,7 +81,21 @@ impl Mac {
         })
         .await;
     }
+
+    pub async fn send_command<T>(&self, cmd: T) -> u8
+    where
+        T: MacCommand,
+    {
+        let mut payload = [0u8; MAX_PACKET_SIZE];
+        cmd.copy_into_slice(&mut payload);
+
+        debug!("sending {:#x}", payload[..T::SIZE]);
+
+        self.write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE]).await
+    }
 }
+
+const MAX_PACKET_SIZE: usize = 255;
 
 impl evt::MemoryManager for Mac {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB

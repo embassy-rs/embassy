@@ -28,6 +28,7 @@ stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
 stm32wb-hci = { version = "0.1.2", features = ["version-5-0"], optional = true }
 
 [features]
+default = ["stm32wb55rg", "mac", "ble"]
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt"]
 
 ble = ["dep:stm32wb-hci"]
