@@ -90,6 +90,23 @@ pub enum BusError {
     BusWarning,
 }
 
+impl embedded_can::Error for BusError {
+    fn kind(&self) -> embedded_can::ErrorKind {
+        match *self {
+            Self::Stuff => embedded_can::ErrorKind::Stuff,
+            Self::Form => embedded_can::ErrorKind::Form,
+            Self::Acknowledge => embedded_can::ErrorKind::Acknowledge,
+            Self::BitRecessive => embedded_can::ErrorKind::Other,
+            Self::BitDominant => embedded_can::ErrorKind::Other,
+            Self::Crc => embedded_can::ErrorKind::Crc,
+            Self::Software => embedded_can::ErrorKind::Other,
+            Self::BusOff => embedded_can::ErrorKind::Other,
+            Self::BusPassive => embedded_can::ErrorKind::Other,
+            Self::BusWarning => embedded_can::ErrorKind::Other,
+        }
+    }
+}
+
 impl<'d, T: Instance> Can<'d, T> {
     /// Creates a new Bxcan instance, keeping the peripheral in sleep mode.
     /// You must call [Can::enable_non_blocking] to use the peripheral.
