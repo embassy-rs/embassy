@@ -18,6 +18,7 @@ use crate::{channels, evt};
 
 pub mod commands;
 mod consts;
+pub mod indications;
 mod opcodes;
 pub mod responses;
 pub mod typedefs;

@@ -9,6 +9,7 @@ pub trait MacResponse {
 
 /// MLME ASSOCIATE Confirm used to inform of the initiating device whether
 /// its request to associate was successful or unsuccessful
+#[repr(C)]
 pub struct AssociateConfirm {
     /// short address allocated by the coordinator on successful association
     pub assoc_short_address: [u8; 2],
@@ -25,6 +26,7 @@ pub struct AssociateConfirm {
 }
 
 /// MLME DISASSOCIATE Confirm used to send disassociation Confirmation to the application.
+#[repr(C)]
 pub struct DisassociateConfirm {
     /// status of the disassociation attempt
     pub status: u8,
@@ -37,6 +39,7 @@ pub struct DisassociateConfirm {
 }
 
 ///  MLME GET Confirm which requests information about a given PIB attribute
+#[repr(C)]
 pub struct GetConfirm {
     /// The pointer to the value of the PIB attribute attempted to read
     pub pib_attribute_value_ptr: *const u8,
@@ -50,6 +53,7 @@ pub struct GetConfirm {
 
 /// MLME GTS Confirm which eports the results of a request to allocate a new GTS
 /// or to deallocate an existing GTS
+#[repr(C)]
 pub struct GtsConfirm {
     /// The characteristics of the GTS
     pub gts_characteristics: u8,
@@ -58,6 +62,7 @@ pub struct GtsConfirm {
 }
 
 /// MLME RESET Confirm which is used to report the results of the reset operation
+#[repr(C)]
 pub struct ResetConfirm {
     /// The result of the reset operation
     status: u8,
@@ -65,12 +70,14 @@ pub struct ResetConfirm {
 
 /// MLME RX ENABLE Confirm which is used to report the results of the attempt
 /// to enable or disable the receiver
+#[repr(C)]
 pub struct RxEnableConfirm {
     /// Result of the request to enable or disable the receiver
     status: u8,
 }
 
 /// MLME SCAN Confirm which is used to report the result of the channel scan request
+#[repr(C)]
 pub struct ScanConfirm {
     /// Status of the scan request
     pub status: u8,
@@ -93,6 +100,7 @@ pub struct ScanConfirm {
 }
 
 /// MLME SET Confirm which reports the result of an attempt to write a value to a PIB attribute
+#[repr(C)]
 pub struct SetConfirm {
     /// The result of the set operation
     pub status: u8,
@@ -102,12 +110,14 @@ pub struct SetConfirm {
 
 /// MLME START Confirm which is used to report the results of the attempt to
 /// start using a new superframe configuration
+#[repr(C)]
 pub struct StartConfirm {
     /// Result of the attempt to start using an updated superframe configuration
     pub status: u8,
 }
 
 /// MLME POLL Confirm which is used to report the result of a request to poll the coordinator for data
+#[repr(C)]
 pub struct PollConfirm {
     /// The status of the data request
     pub status: u8,
@@ -115,6 +125,7 @@ pub struct PollConfirm {
 
 /// MLME SOUNDING Confirm which  reports the result of a request to the PHY to provide
 /// channel sounding information
+#[repr(C)]
 pub struct SoundingConfirm {
     /// Results of the sounding measurement
     sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
@@ -122,6 +133,7 @@ pub struct SoundingConfirm {
 
 /// MLME CALIBRATE Confirm which reports the result of a request to the PHY
 /// to provide internal propagation path information
+#[repr(C)]
 pub struct CalibrateConfirm {
     /// The status of the attempt to return sounding data
     pub status: u8,
@@ -135,6 +147,7 @@ pub struct CalibrateConfirm {
 
 /// MCPS DATA Confirm which will be used for reporting the results of
 /// MAC data related requests from the application
+#[repr(C)]
 pub struct DataConfirm {
     /// The handle associated with the MSDU being confirmed
     pub msdu_handle: u8,
@@ -160,6 +173,7 @@ pub struct DataConfirm {
 
 /// MCPS PURGE Confirm which will be used by the  MAC to notify the application of
 /// the status of its request to purge an MSDU from the transaction queue
+#[repr(C)]
 pub struct PurgeConfirm {
     /// Handle associated with the MSDU requested to be purged from the transaction queue
     pub msdu_handle: u8,
