@@ -1,4 +1,6 @@
-use crate::pac::{FLASH, RCC};
+use stm32_metapac::pwr::vals::Dbp;
+
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -184,6 +186,8 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub enable_lsi: bool,
+    pub enable_rtc_apb: bool,
+    pub rtc_mux: RtcClockSource,
 }
 
 impl Default for Config {
@@ -196,8 +200,23 @@ impl Default for Config {
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
             enable_lsi: false,
+            enable_rtc_apb: false,
+            rtc_mux: RtcClockSource::LSI32,
         }
     }
+}
+
+pub enum RtcClockSource {
+    LSE32,
+    LSI32,
+}
+
+#[repr(u8)]
+pub enum Lsedrv {
+    Low = 0,
+    MediumLow = 1,
+    MediumHigh = 2,
+    High = 3,
 }
 
 pub(crate) unsafe fn init(config: Config) {
@@ -266,6 +285,32 @@ pub(crate) unsafe fn init(config: Config) {
 
     while FLASH.acr().read().latency() != ws {}
 
+    match config.rtc_mux {
+        RtcClockSource::LSE32 => {
+            // 1. Unlock the backup domain
+            PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
+
+            // 2. Setup the LSE
+            RCC.bdcr().modify(|w| {
+                // Enable LSE
+                w.set_lseon(true);
+                // Max drive strength
+                // TODO: should probably be settable
+                w.set_lsedrv(Lsedrv::High as u8); //---// PAM - should not be commented
+            });
+
+            // Wait until LSE is running
+            while !RCC.bdcr().read().lserdy() {}
+        }
+        RtcClockSource::LSI32 => {
+            // Turn on the internal 32 kHz LSI oscillator
+            RCC.csr().modify(|w| w.set_lsion(true));
+
+            // Wait until LSI is running
+            while !RCC.csr().read().lsirdy() {}
+        }
+    }
+
     match config.mux {
         ClockSrc::HSI16 => {
             // Enable HSI16
@@ -287,9 +332,24 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_msirgsel(true);
                 w.set_msirange(range.into());
                 w.set_msion(true);
+
+                if let RtcClockSource::LSE32 = config.rtc_mux {
+                    // If LSE is enabled, enable calibration of MSI
+                    w.set_msipllen(true);
+                } else {
+                    w.set_msipllen(false);
+                }
             });
             while !RCC.cr().read().msirdy() {}
         }
+    }
+
+    if config.enable_rtc_apb {
+        // enable peripheral clock for communication
+        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+
+        // read to allow the pwr clock to enable
+        crate::pac::PWR.cr1().read();
     }
 
     RCC.extcfgr().modify(|w| {
