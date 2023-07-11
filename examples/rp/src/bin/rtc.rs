@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::rtc::{DateTime, DayOfWeek, RealTimeClock};
+use embassy_rp::rtc::{DateTime, DayOfWeek, Rtc};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -23,11 +23,17 @@ async fn main(_spawner: Spawner) {
         second: 50,
     };
 
-    let rtc_result = RealTimeClock::new(p.RTC, now);
-    if let Ok(rtc) = rtc_result {
+    let mut rtc = Rtc::new(p.RTC);
+    if rtc.set_datetime(now).is_ok() {
         // In reality the delay would be much longer
         Timer::after(Duration::from_millis(20000)).await;
 
-        let _then: DateTime = rtc.now().unwrap();
+        if let Ok(dt) = rtc.now() {
+            info!(
+                "Now: {}-{}-{} {}:{}:{}",
+                dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+            );
+        }
     }
+    info!("Done.");
 }
