@@ -9,14 +9,17 @@ use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use self::commands::MacCommand;
+use self::typedefs::MacStatus;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
 use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
 
-pub mod commands;
 mod opcodes;
+pub mod commands;
+pub mod responses;
+pub mod typedefs;
 
 static MAC_WAKER: AtomicWaker = AtomicWaker::new();
 static MAC_EVT_OUT: AtomicBool = AtomicBool::new(false);
@@ -59,11 +62,24 @@ impl Mac {
     /// `HW_IPCC_MAC_802_15_4_CmdEvtNot`
     pub async fn write_and_get_response(&self, opcode: u16, payload: &[u8]) -> u8 {
         self.write(opcode, payload).await;
-        Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
+        Ipcc::flush(channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL).await;
 
         unsafe {
             let p_event_packet = MAC_802_15_4_CMD_BUFFER.as_ptr() as *const EvtPacket;
             let p_mac_rsp_evt = &((*p_event_packet).evt_serial.evt.payload) as *const u8;
+
+            let evt_serial = (MAC_802_15_4_CMD_BUFFER.as_ptr() as *const EvtPacket)
+                .read_volatile()
+                .evt_serial;
+            let kind = (evt_serial).kind;
+            let evt_code = evt_serial.evt.evt_code;
+            let payload_len = evt_serial.evt.payload_len;
+            let payload = evt_serial.evt.payload;
+
+            debug!(
+                "evt kind {} evt_code {} len {} payload {}",
+                kind, evt_code, payload_len, payload
+            );
 
             ptr::read_volatile(p_mac_rsp_evt)
         }
@@ -74,15 +90,32 @@ impl Mac {
         Ipcc::send(channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL, || unsafe {
             CmdPacket::write_into(
                 MAC_802_15_4_CMD_BUFFER.as_mut_ptr(),
-                TlPacketType::OtCmd,
+                TlPacketType::MacCmd,
                 opcode,
                 payload,
             );
         })
         .await;
+
+        unsafe {
+            let typ = MAC_802_15_4_CMD_BUFFER.as_ptr().read_volatile().cmdserial.ty;
+            let cmd_code = MAC_802_15_4_CMD_BUFFER.as_ptr().read_volatile().cmdserial.cmd.cmd_code;
+            let payload_len = MAC_802_15_4_CMD_BUFFER
+                .as_ptr()
+                .read_volatile()
+                .cmdserial
+                .cmd
+                .payload_len;
+            let payload = MAC_802_15_4_CMD_BUFFER.as_ptr().read_volatile().cmdserial.cmd.payload;
+
+            debug!(
+                "serial type {} cmd_code {} len {} payload {}",
+                typ, cmd_code, payload_len, payload
+            );
+        }
     }
 
-    pub async fn send_command<T>(&self, cmd: T) -> u8
+    pub async fn send_command<T>(&self, cmd: T) -> Result<MacStatus, ()>
     where
         T: MacCommand,
     {
@@ -91,7 +124,9 @@ impl Mac {
 
         debug!("sending {:#x}", payload[..T::SIZE]);
 
-        self.write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE]).await
+        let response = self.write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE]).await;
+
+        MacStatus::try_from(response)
     }
 }
 

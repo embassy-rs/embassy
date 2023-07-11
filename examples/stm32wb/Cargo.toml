@@ -36,7 +36,7 @@ name = "tl_mbox_mac"
 required-features = ["mac"]
 
 [[bin]] 
-name = "tl_mbox_mac_2"
+name = "mac_ffd"
 required-features = ["mac"]
 
 [[bin]] 

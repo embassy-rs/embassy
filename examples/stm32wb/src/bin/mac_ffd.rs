@@ -6,7 +6,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::sub::mac::commands::{AssociateRequest, MacAddress, ResetRequest, SetRequest};
+use embassy_stm32_wpan::sub::mac::commands::{ResetRequest, SetRequest, StartRequest};
+use embassy_stm32_wpan::sub::mac::typedefs::PibId;
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
@@ -72,13 +73,69 @@ async fn main(spawner: Spawner) {
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000001;
-    defmt::debug!("{}", &extended_address as *const _ as *const u8);
     let response = mbox
         .mac_subsystem
         .send_command(SetRequest {
             pib_attribute_ptr: &extended_address as *const _ as *const u8,
-            pib_attribute: 0x6F,
-            stuffing: [0; 3],
+            pib_attribute: PibId::ExtendedAddress,
+        })
+        .await;
+    info!("{}", response);
+
+    info!("setting short address");
+    let short_address: u16 = 0x1122;
+    let response = mbox
+        .mac_subsystem
+        .send_command(SetRequest {
+            pib_attribute_ptr: &short_address as *const _ as *const u8,
+            pib_attribute: PibId::ShortAddress,
+        })
+        .await;
+    info!("{}", response);
+
+    info!("setting association permit");
+    let association_permit: bool = true;
+    let response = mbox
+        .mac_subsystem
+        .send_command(SetRequest {
+            pib_attribute_ptr: &association_permit as *const _ as *const u8,
+            pib_attribute: PibId::AssociationPermit,
+        })
+        .await;
+    info!("{}", response);
+
+    info!("setting TX power");
+    let transmit_power: i8 = 2;
+    let response = mbox
+        .mac_subsystem
+        .send_command(SetRequest {
+            pib_attribute_ptr: &transmit_power as *const _ as *const u8,
+            pib_attribute: PibId::TransmitPower,
+        })
+        .await;
+    info!("{}", response);
+
+    info!("starting FFD device");
+    let response = mbox
+        .mac_subsystem
+        .send_command(StartRequest {
+            channel_number: 16,
+            beacon_order: 0x0F,
+            superframe_order: 0x0F,
+            pan_coordinator: true,
+            battery_life_extension: false,
+            ..Default::default()
+        })
+        .await;
+    info!("{}", response);
+
+    info!("setting RX on when idle");
+    let rx_on_while_idle: bool = true;
+    let response = mbox
+        .mac_subsystem
+        .send_command(SetRequest {
+            pib_attribute_ptr: &rx_on_while_idle as *const _ as *const u8,
+            pib_attribute: PibId::RxOnWhenIdle,
         })
         .await;
     info!("{}", response);
