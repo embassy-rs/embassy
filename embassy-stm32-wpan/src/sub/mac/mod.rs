@@ -16,8 +16,9 @@ use crate::evt::{EvtBox, EvtPacket};
 use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
 
-mod opcodes;
 pub mod commands;
+mod consts;
+mod opcodes;
 pub mod responses;
 pub mod typedefs;
 

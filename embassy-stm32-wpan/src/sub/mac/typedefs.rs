@@ -95,3 +95,30 @@ pub union MacAddress {
 pub struct GtsCharacteristics {
     pub fields: u8,
 }
+
+/// MAC PAN Descriptor which contains the network details of the device from
+/// which the beacon is received
+pub struct PanDescriptor {
+    /// PAN identifier of the coordinator
+    pub a_coord_pan_id: [u8; 2],
+    /// Coordinator addressing mode
+    pub coord_addr_mode: AddressMode,
+    /// The current logical channel occupied by the network
+    pub logical_channel: u8,
+    /// Coordinator address
+    pub coord_addr: MacAddress,
+    /// The current channel page occupied by the network
+    pub channel_page: u8,
+    /// PAN coordinator is accepting GTS requests or not
+    pub gts_permit: bool,
+    /// Superframe specification as specified in the received beacon frame
+    pub a_superframe_spec: [u8; 2],
+    /// The time at which the beacon frame was received, in symbols
+    pub a_time_stamp: [u8; 4],
+    /// The LQI at which the network beacon was received
+    pub link_quality: u8,
+    /// Security level purportedly used by the received beacon frame
+    pub security_level: u8,
+    /// Byte Stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 2],
+}

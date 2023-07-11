@@ -11,6 +11,7 @@ pub trait MacCommand {
 }
 
 /// MLME ASSOCIATE Request used to request an association
+#[repr(C)]
 pub struct AssociateRequest {
     /// the logical channel on which to attempt association
     pub channel_number: u8,
@@ -40,6 +41,7 @@ impl MacCommand for AssociateRequest {
 }
 
 /// MLME DISASSOCIATE Request sed to request a disassociation
+#[repr(C)]
 pub struct DisassociateRequest {
     /// device addressing mode used
     pub device_addr_mode: AddressMode,
@@ -67,6 +69,7 @@ impl MacCommand for DisassociateRequest {
 }
 
 /// MLME GET Request used to request a PIB value
+#[repr(C)]
 pub struct GetRequest {
     /// the name of the PIB attribute to read
     pub pib_attribute: PibId,
@@ -78,6 +81,7 @@ impl MacCommand for GetRequest {
 }
 
 /// MLME GTS Request used to request and maintain GTSs
+#[repr(C)]
 pub struct GtsRequest {
     /// the characteristics of the GTS
     pub characteristics: GtsCharacteristics,
@@ -96,6 +100,7 @@ impl MacCommand for GtsRequest {
     const SIZE: usize = 12;
 }
 
+#[repr(C)]
 pub struct ResetRequest {
     /// MAC PIB attributes are set to their default values or not during reset
     pub set_default_pib: bool,
@@ -108,6 +113,7 @@ impl MacCommand for ResetRequest {
 
 /// MLME RX ENABLE Request used to request that the receiver is either enabled
 /// for a finite period of time or disabled
+#[repr(C)]
 pub struct RxEnableRequest {
     /// the request operation can be deferred or not
     pub defer_permit: bool,
@@ -138,6 +144,7 @@ impl MacCommand for RxEnableRequest {
 }
 
 /// MLME SCAN Request used to initiate a channel scan over a given list of channels
+#[repr(C)]
 pub struct ScanRequest {
     /// the type of scan to be performed
     pub scan_type: u8,
@@ -179,6 +186,7 @@ impl MacCommand for SetRequest {
 /// MLME START Request used by the FFDs to intiate a new PAN or to begin using a new superframe
 /// configuration
 #[derive(Default)]
+#[repr(C)]
 pub struct StartRequest {
     /// PAN indentifier to used by the device
     pub pan_id: [u8; 2],
@@ -221,6 +229,7 @@ impl MacCommand for StartRequest {
 
 /// MLME SYNC Request used to synchronize with the coordinator by acquiring and, if
 /// specified, tracking its beacons
+#[repr(C)]
 pub struct SyncRequest {
     /// the channel number on which to attempt coordinator synchronization
     pub channel_number: u8,
@@ -239,6 +248,7 @@ impl MacCommand for SyncRequest {
 }
 
 /// MLME POLL Request propmts the device to request data from the coordinator
+#[repr(C)]
 pub struct PollRequest {
     /// addressing mode of the coordinator
     pub coord_addr_mode: AddressMode,
@@ -263,6 +273,7 @@ impl MacCommand for PollRequest {
 
 /// MLME DPS Request allows the next higher layer to request that the PHY utilize a
 /// given pair of preamble codes for a single use pending expiration of the DPSIndexDuration
+#[repr(C)]
 pub struct DpsRequest {
     /// the index value for the transmitter
     tx_dps_index: u8,
@@ -280,6 +291,7 @@ impl MacCommand for DpsRequest {
 
 /// MLME SOUNDING request primitive which is used by the next higher layer to request that
 /// the PHY respond with channel sounding information
+#[repr(C)]
 pub struct SoundingRequest;
 
 impl MacCommand for SoundingRequest {
@@ -289,6 +301,7 @@ impl MacCommand for SoundingRequest {
 
 /// MLME CALIBRATE request primitive which used  to obtain the results of a ranging
 /// calibration request from an RDEV
+#[repr(C)]
 pub struct CalibrateRequest;
 
 impl MacCommand for CalibrateRequest {
@@ -297,6 +310,7 @@ impl MacCommand for CalibrateRequest {
 }
 
 /// MCPS DATA Request used for MAC data related requests from the application
+#[repr(C)]
 pub struct DataRequest {
     /// the handle assocated with the MSDU to be transmitted
     pub msdu_ptr: *const u8,
@@ -344,6 +358,7 @@ impl MacCommand for DataRequest {
 }
 
 /// for MCPS PURGE Request used to purge an MSDU from the transaction queue
+#[repr(C)]
 pub struct PurgeRequest {
     /// the handle associated with the MSDU to be purged from the transaction
     /// queue
@@ -356,6 +371,7 @@ impl MacCommand for PurgeRequest {
 }
 
 /// MLME ASSOCIATE Response used to initiate a response to an MLME-ASSOCIATE.indication
+#[repr(C)]
 pub struct AssociateResponse {
     /// extended address of the device requesting association
     pub device_address: [u8; 8],
@@ -380,6 +396,7 @@ impl MacCommand for AssociateResponse {
 }
 
 /// MLME ORPHAN Response used to respond to the MLME ORPHAN Indication
+#[repr(C)]
 pub struct OrphanResponse {
     /// extended address of the orphaned device
     pub orphan_address: [u8; 8],
