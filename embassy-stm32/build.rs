@@ -82,6 +82,18 @@ fn main() {
     }
 
     // ========
+    // Handle low power.
+
+    let low_power = match env::vars()
+        .map(|(a, _)| a)
+        .filter(|x| x == "CARGO_FEATURE_LOW_POWER")
+        .get_one()
+    {
+        Ok(_) => true,
+        _ => false,
+    };
+
+    // ========
     // Handle time-driver-XXXX features.
 
     let time_driver = match env::vars()
@@ -340,6 +352,22 @@ fn main() {
                 TokenStream::new()
             };
 
+            let clock_refcount_add = if low_power {
+                quote! {
+                    crate::rcc::clock_refcount_add();
+                }
+            } else {
+                TokenStream::new()
+            };
+
+            let clock_refcount_sub = if low_power {
+                quote! {
+                    crate::rcc::clock_refcount_sub();
+                }
+            } else {
+                TokenStream::new()
+            };
+
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
@@ -352,6 +380,7 @@ fn main() {
                     }
                     fn enable() {
                         critical_section::with(|_| {
+                            #clock_refcount_add
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                             #after_enable
                         })
@@ -359,6 +388,7 @@ fn main() {
                     fn disable() {
                         critical_section::with(|_| {
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
+                            #clock_refcount_sub
                         })
                     }
                     fn reset() {

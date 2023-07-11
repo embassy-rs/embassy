@@ -24,6 +24,8 @@ use crate::time::Hertz;
 #[cfg_attr(any(rcc_h5, rcc_h50), path = "h5.rs")]
 mod _version;
 pub use _version::*;
+#[cfg(feature = "low-power")]
+use atomic_polyfill::{AtomicU32, Ordering};
 
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -71,6 +73,25 @@ pub struct Clocks {
 
     #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab))]
     pub adc: Option<Hertz>,
+}
+
+#[cfg(feature = "low-power")]
+static mut CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(feature = "low-power")]
+pub fn assert_low_power_ready() {
+    assert!(unsafe { CLOCK_REFCOUNT.load(Ordering::SeqCst) } == 0);
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn clock_refcount_add() {
+    // We don't check for overflow because constructing more than u32 peripherals is unlikely
+    unsafe { CLOCK_REFCOUNT.fetch_add(1, Ordering::Relaxed) };
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn clock_refcount_sub() {
+    assert!(unsafe { CLOCK_REFCOUNT.fetch_sub(1, Ordering::Relaxed) } != 0);
 }
 
 /// Frozen clock frequencies
