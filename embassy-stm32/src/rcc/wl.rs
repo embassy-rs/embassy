@@ -1,5 +1,4 @@
-use stm32_metapac::pwr::vals::Dbp;
-
+use crate::pac::pwr::vals::Dbp;
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
