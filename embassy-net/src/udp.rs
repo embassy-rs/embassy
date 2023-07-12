@@ -102,17 +102,18 @@ impl<'a> UdpSocket<'a> {
     ///
     /// Returns the number of bytes received and the remote endpoint.
     pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
-        poll_fn(move |cx| {
-            self.with_mut(|s, _| match s.recv_slice(buf) {
-                Ok((n, meta)) => Poll::Ready(Ok((n, meta.endpoint))),
-                // No data ready
-                Err(udp::RecvError::Exhausted) => {
-                    s.register_recv_waker(cx.waker());
-                    Poll::Pending
-                }
-            })
+        poll_fn(move |cx| self.poll_recv_from(buf, cx)).await
+    }
+
+    pub fn poll_recv_from(&self, buf: &mut[u8], cx: Context) -> Poll<Result<(usize, IpEndpoint), Error>> {
+        self.with_mut(|s, _| match s.recv_slice(buf) {
+            Ok((n, meta)) => Poll::Ready(Ok((n, meta.endpoint))),
+            // No data ready
+            Err(udp::RecvError::Exhausted) => {
+                s.register_recv_waker(cx.waker());
+                Poll::Pending
+            }
         })
-        .await
     }
 
     /// Send a datagram to the specified remote endpoint.
@@ -120,19 +121,23 @@ impl<'a> UdpSocket<'a> {
     where
         T: Into<IpEndpoint>,
     {
+        poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await
+    }
+
+    pub fn poll_send_to<T>(&self, buf: &[u8], remote_endpoint: T, cx: Context) -> Poll<Result<(), Error>>
+    where
+        T: Into<IpEndpoint>,
+    {
         let remote_endpoint = remote_endpoint.into();
-        poll_fn(move |cx| {
-            self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
-                // Entire datagram has been sent
-                Ok(()) => Poll::Ready(Ok(())),
-                Err(udp::SendError::BufferFull) => {
-                    s.register_send_waker(cx.waker());
-                    Poll::Pending
-                }
-                Err(udp::SendError::Unaddressable) => Poll::Ready(Err(Error::NoRoute)),
-            })
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
+            // Entire datagram has been sent
+            Ok(()) => Poll::Ready(Ok(())),
+            Err(udp::SendError::BufferFull) => {
+                s.register_send_waker(cx.waker());
+                Poll::Pending
+            }
+            Err(udp::SendError::Unaddressable) => Poll::Ready(Err(Error::NoRoute)),
         })
-        .await
     }
 
     /// Returns the local endpoint of the socket.
