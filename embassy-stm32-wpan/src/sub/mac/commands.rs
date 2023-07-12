@@ -1,5 +1,8 @@
 use super::opcodes::OpcodeM4ToM0;
-use super::typedefs::{AddressMode, GtsCharacteristics, MacAddress, PibId};
+use super::typedefs::{
+    AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, PibId,
+    ScanType, SecurityLevel,
+};
 
 pub trait MacCommand {
     const OPCODE: OpcodeM4ToM0;
@@ -14,19 +17,19 @@ pub trait MacCommand {
 #[repr(C)]
 pub struct AssociateRequest {
     /// the logical channel on which to attempt association
-    pub channel_number: u8,
+    pub channel_number: MacChannel,
     /// the channel page on which to attempt association
     pub channel_page: u8,
     /// coordinator addressing mode
     pub coord_addr_mode: AddressMode,
     /// operational capabilities of the associating device
-    pub capability_information: u8,
+    pub capability_information: Capabilities,
     /// the identifier of the PAN with which to associate
     pub coord_pan_id: [u8; 2],
     /// the security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// the mode used to identify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// the originator of the key to be used
     pub key_source: [u8; 8],
     /// Coordinator address
@@ -48,15 +51,15 @@ pub struct DisassociateRequest {
     /// the identifier of the PAN of the device
     pub device_pan_id: [u8; 2],
     /// the reason for the disassociation
-    pub disassociate_reason: u8,
+    pub disassociation_reason: DisassociationReason,
     /// device address
     pub device_address: MacAddress,
     /// `true` if the disassociation notification command is to be sent indirectly
     pub tx_indirect: bool,
     /// the security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// the mode to be used to indetify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
     /// the originator of the key to be used
@@ -86,9 +89,9 @@ pub struct GtsRequest {
     /// the characteristics of the GTS
     pub characteristics: GtsCharacteristics,
     /// the security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// the mode used to identify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
     /// the originator of the key to be used
@@ -147,19 +150,19 @@ impl MacCommand for RxEnableRequest {
 #[repr(C)]
 pub struct ScanRequest {
     /// the type of scan to be performed
-    pub scan_type: u8,
+    pub scan_type: ScanType,
     /// the time spent on scanning each channel
     pub scan_duration: u8,
     /// channel page on which to perform the scan
     pub channel_page: u8,
     /// security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// indicate which channels are to be scanned
     pub scan_channels: [u8; 4],
     /// originator the key to be used
     pub key_source: [u8; 8],
     /// mode used to identify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// index of the key to be used
     pub key_index: u8,
 }
@@ -191,7 +194,7 @@ pub struct StartRequest {
     /// PAN indentifier to used by the device
     pub pan_id: [u8; 2],
     /// logical channel on which to begin
-    pub channel_number: u8,
+    pub channel_number: MacChannel,
     /// channel page on which to begin
     pub channel_page: u8,
     /// time at which to begin transmitting beacons
@@ -207,15 +210,15 @@ pub struct StartRequest {
     /// indicated if the coordinator realignment command is to be trasmitted
     pub coord_realignment: u8,
     /// indicated if the coordinator realignment command is to be trasmitted
-    pub coord_realign_security_level: u8,
+    pub coord_realign_security_level: SecurityLevel,
     /// index of the key to be used
     pub coord_realign_key_id_index: u8,
     /// originator of the key to be used
     pub coord_realign_key_source: [u8; 8],
     /// security level to be used for beacon frames
-    pub beacon_security_level: u8,
+    pub beacon_security_level: SecurityLevel,
     /// mode used to identify the key to be used
-    pub beacon_key_id_mode: u8,
+    pub beacon_key_id_mode: KeyIdMode,
     /// index of the key to be used
     pub beacon_key_index: u8,
     /// originator of the key to be used
@@ -232,7 +235,7 @@ impl MacCommand for StartRequest {
 #[repr(C)]
 pub struct SyncRequest {
     /// the channel number on which to attempt coordinator synchronization
-    pub channel_number: u8,
+    pub channel_number: MacChannel,
     /// the channel page on which to attempt coordinator synchronization
     pub channel_page: u8,
     /// `true` if the MLME is to synchronize with the next beacon and attempts
@@ -253,9 +256,9 @@ pub struct PollRequest {
     /// addressing mode of the coordinator
     pub coord_addr_mode: AddressMode,
     /// security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// mode used to identify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// index of the key to be used
     pub key_index: u8,
     /// coordinator address
@@ -335,9 +338,9 @@ pub struct DataRequest {
     /// the pending bit transmission options for the MSDU
     pub indirect_tx: u8,
     /// the security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// the mode used to indentify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
     /// the originator of the key to be used
@@ -381,11 +384,11 @@ pub struct AssociateResponse {
     /// status of the association attempt
     pub status: u8,
     /// security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// the originator of the key to be used
     pub key_source: [u8; 8],
     /// the mode used to identify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
 }
@@ -405,11 +408,11 @@ pub struct OrphanResponse {
     /// if the orphaned device is associated with coordinator or not
     pub associated_member: bool,
     /// security level to be used
-    pub security_level: u8,
+    pub security_level: SecurityLevel,
     /// the originator of the key to be used
     pub key_source: [u8; 8],
     /// the mode used to identify the key to be used
-    pub key_id_mode: u8,
+    pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
 }

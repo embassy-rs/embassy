@@ -9,7 +9,8 @@ use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use self::commands::MacCommand;
-use self::typedefs::MacStatus;
+use self::event::MacEvent;
+use self::typedefs::MacError;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
@@ -18,7 +19,10 @@ use crate::{channels, evt};
 
 pub mod commands;
 mod consts;
+pub mod event;
+mod helpers;
 pub mod indications;
+mod macros;
 mod opcodes;
 pub mod responses;
 pub mod typedefs;
@@ -38,7 +42,7 @@ impl Mac {
     /// `HW_IPCC_MAC_802_15_4_EvtNot`
     ///
     /// This function will stall if the previous `EvtBox` has not been dropped
-    pub async fn read(&self) -> EvtBox<Self> {
+    pub async fn tl_read(&self) -> EvtBox<Self> {
         // Wait for the last event box to be dropped
         poll_fn(|cx| {
             MAC_WAKER.register(cx.waker());
@@ -62,33 +66,20 @@ impl Mac {
     }
 
     /// `HW_IPCC_MAC_802_15_4_CmdEvtNot`
-    pub async fn write_and_get_response(&self, opcode: u16, payload: &[u8]) -> u8 {
-        self.write(opcode, payload).await;
+    pub async fn tl_write_and_get_response(&self, opcode: u16, payload: &[u8]) -> u8 {
+        self.tl_write(opcode, payload).await;
         Ipcc::flush(channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL).await;
 
         unsafe {
             let p_event_packet = MAC_802_15_4_CMD_BUFFER.as_ptr() as *const EvtPacket;
             let p_mac_rsp_evt = &((*p_event_packet).evt_serial.evt.payload) as *const u8;
 
-            let evt_serial = (MAC_802_15_4_CMD_BUFFER.as_ptr() as *const EvtPacket)
-                .read_volatile()
-                .evt_serial;
-            let kind = (evt_serial).kind;
-            let evt_code = evt_serial.evt.evt_code;
-            let payload_len = evt_serial.evt.payload_len;
-            let payload = evt_serial.evt.payload;
-
-            debug!(
-                "evt kind {} evt_code {} len {} payload {}",
-                kind, evt_code, payload_len, payload
-            );
-
             ptr::read_volatile(p_mac_rsp_evt)
         }
     }
 
     /// `TL_MAC_802_15_4_SendCmd`
-    pub async fn write(&self, opcode: u16, payload: &[u8]) {
+    pub async fn tl_write(&self, opcode: u16, payload: &[u8]) {
         Ipcc::send(channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL, || unsafe {
             CmdPacket::write_into(
                 MAC_802_15_4_CMD_BUFFER.as_mut_ptr(),
@@ -98,37 +89,31 @@ impl Mac {
             );
         })
         .await;
-
-        unsafe {
-            let typ = MAC_802_15_4_CMD_BUFFER.as_ptr().read_volatile().cmdserial.ty;
-            let cmd_code = MAC_802_15_4_CMD_BUFFER.as_ptr().read_volatile().cmdserial.cmd.cmd_code;
-            let payload_len = MAC_802_15_4_CMD_BUFFER
-                .as_ptr()
-                .read_volatile()
-                .cmdserial
-                .cmd
-                .payload_len;
-            let payload = MAC_802_15_4_CMD_BUFFER.as_ptr().read_volatile().cmdserial.cmd.payload;
-
-            debug!(
-                "serial type {} cmd_code {} len {} payload {}",
-                typ, cmd_code, payload_len, payload
-            );
-        }
     }
 
-    pub async fn send_command<T>(&self, cmd: T) -> Result<MacStatus, ()>
+    pub async fn send_command<T>(&self, cmd: T) -> Result<(), MacError>
     where
         T: MacCommand,
     {
         let mut payload = [0u8; MAX_PACKET_SIZE];
         cmd.copy_into_slice(&mut payload);
 
-        debug!("sending {:#x}", payload[..T::SIZE]);
+        let response = self
+            .tl_write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE])
+            .await;
 
-        let response = self.write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE]).await;
+        if response == 0x00 {
+            Ok(())
+        } else {
+            Err(MacError::from(response))
+        }
+    }
 
-        MacStatus::try_from(response)
+    pub async fn read(&self) -> Result<MacEvent, ()> {
+        let evt_box = self.tl_read().await;
+        let payload = evt_box.payload();
+
+        MacEvent::try_from(payload)
     }
 }
 

@@ -25,3 +25,66 @@ pub enum OpcodeM4ToM0 {
     McpsDataReq = opcode(0x10),
     McpsPurgeReq = opcode(0x11),
 }
+
+pub enum OpcodeM0ToM4 {
+    MlmeAssociateCnf = 0x00,
+    MlmeDisassociateCnf,
+    MlmeGetCnf,
+    MlmeGtsCnf,
+    MlmeResetCnf,
+    MlmeRxEnableCnf,
+    MlmeScanCnf,
+    MlmeSetCnf,
+    MlmeStartCnf,
+    MlmePollCnf,
+    MlmeDpsCnf,
+    MlmeSoundingCnf,
+    MlmeCalibrateCnf,
+    McpsDataCnf,
+    McpsPurgeCnf,
+    MlmeAssociateInd,
+    MlmeDisassociateInd,
+    MlmeBeaconNotifyInd,
+    MlmeCommStatusInd,
+    MlmeGtsInd,
+    MlmeOrphanInd,
+    MlmeSyncLossInd,
+    MlmeDpsInd,
+    McpsDataInd,
+    MlmePollInd,
+}
+
+impl TryFrom<u16> for OpcodeM0ToM4 {
+    type Error = ();
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::MlmeAssociateCnf),
+            1 => Ok(Self::MlmeDisassociateCnf),
+            2 => Ok(Self::MlmeGetCnf),
+            3 => Ok(Self::MlmeGtsCnf),
+            4 => Ok(Self::MlmeResetCnf),
+            5 => Ok(Self::MlmeRxEnableCnf),
+            6 => Ok(Self::MlmeScanCnf),
+            7 => Ok(Self::MlmeSetCnf),
+            8 => Ok(Self::MlmeStartCnf),
+            9 => Ok(Self::MlmePollCnf),
+            10 => Ok(Self::MlmeDpsCnf),
+            11 => Ok(Self::MlmeSoundingCnf),
+            12 => Ok(Self::MlmeCalibrateCnf),
+            13 => Ok(Self::McpsDataCnf),
+            14 => Ok(Self::McpsPurgeCnf),
+            15 => Ok(Self::MlmeAssociateInd),
+            16 => Ok(Self::MlmeDisassociateInd),
+            17 => Ok(Self::MlmeBeaconNotifyInd),
+            18 => Ok(Self::MlmeCommStatusInd),
+            19 => Ok(Self::MlmeGtsInd),
+            20 => Ok(Self::MlmeOrphanInd),
+            21 => Ok(Self::MlmeSyncLossInd),
+            22 => Ok(Self::MlmeDpsInd),
+            23 => Ok(Self::McpsDataInd),
+            24 => Ok(Self::MlmePollInd),
+            _ => Err(()),
+        }
+    }
+}
