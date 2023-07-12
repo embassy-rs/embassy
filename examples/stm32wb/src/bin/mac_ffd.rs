@@ -66,7 +66,7 @@ async fn main(spawner: Spawner) {
 
     info!("resetting");
     mbox.mac_subsystem
-        .send_command(ResetRequest { set_default_pib: true })
+        .send_command(&ResetRequest { set_default_pib: true })
         .await
         .unwrap();
     let evt = mbox.mac_subsystem.read().await;
@@ -75,7 +75,7 @@ async fn main(spawner: Spawner) {
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000001;
     mbox.mac_subsystem
-        .send_command(SetRequest {
+        .send_command(&SetRequest {
             pib_attribute_ptr: &extended_address as *const _ as *const u8,
             pib_attribute: PibId::ExtendedAddress,
         })
@@ -87,7 +87,7 @@ async fn main(spawner: Spawner) {
     info!("setting short address");
     let short_address: u16 = 0x1122;
     mbox.mac_subsystem
-        .send_command(SetRequest {
+        .send_command(&SetRequest {
             pib_attribute_ptr: &short_address as *const _ as *const u8,
             pib_attribute: PibId::ShortAddress,
         })
@@ -99,7 +99,7 @@ async fn main(spawner: Spawner) {
     info!("setting association permit");
     let association_permit: bool = true;
     mbox.mac_subsystem
-        .send_command(SetRequest {
+        .send_command(&SetRequest {
             pib_attribute_ptr: &association_permit as *const _ as *const u8,
             pib_attribute: PibId::AssociationPermit,
         })
@@ -111,7 +111,7 @@ async fn main(spawner: Spawner) {
     info!("setting TX power");
     let transmit_power: i8 = 2;
     mbox.mac_subsystem
-        .send_command(SetRequest {
+        .send_command(&SetRequest {
             pib_attribute_ptr: &transmit_power as *const _ as *const u8,
             pib_attribute: PibId::TransmitPower,
         })
@@ -122,7 +122,8 @@ async fn main(spawner: Spawner) {
 
     info!("starting FFD device");
     mbox.mac_subsystem
-        .send_command(StartRequest {
+        .send_command(&StartRequest {
+            pan_id: [0xAA, 0x1A],
             channel_number: MacChannel::Channel16,
             beacon_order: 0x0F,
             superframe_order: 0x0F,
@@ -138,7 +139,7 @@ async fn main(spawner: Spawner) {
     info!("setting RX on when idle");
     let rx_on_while_idle: bool = true;
     mbox.mac_subsystem
-        .send_command(SetRequest {
+        .send_command(&SetRequest {
             pib_attribute_ptr: &rx_on_while_idle as *const _ as *const u8,
             pib_attribute: PibId::RxOnWhenIdle,
         })
@@ -151,7 +152,4 @@ async fn main(spawner: Spawner) {
         let evt = mbox.mac_subsystem.read().await;
         defmt::info!("{:#x}", evt);
     }
-
-    info!("Test OK");
-    cortex_m::asm::bkpt();
 }

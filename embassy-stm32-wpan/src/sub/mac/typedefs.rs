@@ -109,18 +109,32 @@ numeric_enum! {
 }
 
 #[derive(Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MacAddress {
-    Short([u8; 2]),
-    Extended([u8; 8]),
+pub union MacAddress {
+    pub short: [u8; 2],
+    pub extended: [u8; 8],
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for MacAddress {
+    fn format(&self, fmt: defmt::Formatter) {
+        unsafe {
+            defmt::write!(
+                fmt,
+                "MacAddress {{ short: {}, extended: {} }}",
+                self.short,
+                self.extended
+            )
+        }
+    }
 }
 
 impl Default for MacAddress {
     fn default() -> Self {
-        Self::Short([0, 0])
+        Self { short: [0, 0] }
     }
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GtsCharacteristics {
     pub fields: u8,
 }
@@ -163,12 +177,14 @@ impl TryFrom<&[u8]> for PanDescriptor {
 
         let coord_addr_mode = AddressMode::try_from(buf[2])?;
         let coord_addr = match coord_addr_mode {
-            AddressMode::NoAddress => MacAddress::Short([0, 0]),
-            AddressMode::Reserved => MacAddress::Short([0, 0]),
-            AddressMode::Short => MacAddress::Short([buf[4], buf[5]]),
-            AddressMode::Extended => {
-                MacAddress::Extended([buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]])
-            }
+            AddressMode::NoAddress => MacAddress { short: [0, 0] },
+            AddressMode::Reserved => MacAddress { short: [0, 0] },
+            AddressMode::Short => MacAddress {
+                short: [buf[4], buf[5]],
+            },
+            AddressMode::Extended => MacAddress {
+                extended: [buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]],
+            },
         };
 
         Ok(Self {
@@ -255,7 +271,7 @@ defmt::bitflags! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default)]
+    #[derive(Default, Clone, Copy)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum KeyIdMode {
         #[default]
@@ -285,6 +301,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
+    #[derive(Clone, Copy)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum DisassociationReason {
         /// The coordinator wishes the device to leave the PAN.
@@ -296,7 +313,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default)]
+    #[derive(Default, Clone, Copy)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum SecurityLevel {
         /// MAC Unsecured Mode Security

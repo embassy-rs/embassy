@@ -141,21 +141,25 @@ impl ParseableMacEvent for CommStatusIndication {
         let dst_addr_mode = AddressMode::try_from(buf[3])?;
 
         let src_address = match src_addr_mode {
-            AddressMode::NoAddress => MacAddress::Short([0, 0]),
-            AddressMode::Reserved => MacAddress::Short([0, 0]),
-            AddressMode::Short => MacAddress::Short([buf[4], buf[5]]),
-            AddressMode::Extended => {
-                MacAddress::Extended([buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]])
-            }
+            AddressMode::NoAddress => MacAddress { short: [0, 0] },
+            AddressMode::Reserved => MacAddress { short: [0, 0] },
+            AddressMode::Short => MacAddress {
+                short: [buf[4], buf[5]],
+            },
+            AddressMode::Extended => MacAddress {
+                extended: [buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]],
+            },
         };
 
         let dst_address = match dst_addr_mode {
-            AddressMode::NoAddress => MacAddress::Short([0, 0]),
-            AddressMode::Reserved => MacAddress::Short([0, 0]),
-            AddressMode::Short => MacAddress::Short([buf[12], buf[13]]),
-            AddressMode::Extended => {
-                MacAddress::Extended([buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19]])
-            }
+            AddressMode::NoAddress => MacAddress { short: [0, 0] },
+            AddressMode::Reserved => MacAddress { short: [0, 0] },
+            AddressMode::Short => MacAddress {
+                short: [buf[12], buf[13]],
+            },
+            AddressMode::Extended => MacAddress {
+                extended: [buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19]],
+            },
         };
 
         Ok(Self {
@@ -358,22 +362,26 @@ impl ParseableMacEvent for DataIndication {
 
         let src_addr_mode = AddressMode::try_from(buf[4])?;
         let src_address = match src_addr_mode {
-            AddressMode::NoAddress => MacAddress::Short([0, 0]),
-            AddressMode::Reserved => MacAddress::Short([0, 0]),
-            AddressMode::Short => MacAddress::Short([buf[7], buf[8]]),
-            AddressMode::Extended => {
-                MacAddress::Extended([buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14]])
-            }
+            AddressMode::NoAddress => MacAddress { short: [0, 0] },
+            AddressMode::Reserved => MacAddress { short: [0, 0] },
+            AddressMode::Short => MacAddress {
+                short: [buf[7], buf[8]],
+            },
+            AddressMode::Extended => MacAddress {
+                extended: [buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14]],
+            },
         };
 
         let dst_addr_mode = AddressMode::try_from(buf[15])?;
         let dst_address = match dst_addr_mode {
-            AddressMode::NoAddress => MacAddress::Short([0, 0]),
-            AddressMode::Reserved => MacAddress::Short([0, 0]),
-            AddressMode::Short => MacAddress::Short([buf[18], buf[19]]),
-            AddressMode::Extended => {
-                MacAddress::Extended([buf[18], buf[19], buf[20], buf[21], buf[22], buf[23], buf[24], buf[25]])
-            }
+            AddressMode::NoAddress => MacAddress { short: [0, 0] },
+            AddressMode::Reserved => MacAddress { short: [0, 0] },
+            AddressMode::Short => MacAddress {
+                short: [buf[18], buf[19]],
+            },
+            AddressMode::Extended => MacAddress {
+                extended: [buf[18], buf[19], buf[20], buf[21], buf[22], buf[23], buf[24], buf[25]],
+            },
         };
 
         Ok(Self {
@@ -424,12 +432,14 @@ impl ParseableMacEvent for PollIndication {
 
         let addr_mode = AddressMode::try_from(buf[0])?;
         let request_address = match addr_mode {
-            AddressMode::NoAddress => MacAddress::Short([0, 0]),
-            AddressMode::Reserved => MacAddress::Short([0, 0]),
-            AddressMode::Short => MacAddress::Short([buf[1], buf[2]]),
-            AddressMode::Extended => {
-                MacAddress::Extended([buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]])
-            }
+            AddressMode::NoAddress => MacAddress { short: [0, 0] },
+            AddressMode::Reserved => MacAddress { short: [0, 0] },
+            AddressMode::Short => MacAddress {
+                short: [buf[1], buf[2]],
+            },
+            AddressMode::Extended => MacAddress {
+                extended: [buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8]],
+            },
         };
 
         Ok(Self {

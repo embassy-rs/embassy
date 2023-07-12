@@ -9,12 +9,13 @@ pub trait MacCommand {
     const SIZE: usize;
 
     fn copy_into_slice(&self, buf: &mut [u8]) {
-        unsafe { core::ptr::copy(self as *const _ as *const u8, buf as *mut _ as *mut u8, 8) };
+        unsafe { core::ptr::copy(self as *const _ as *const u8, buf as *mut _ as *mut u8, Self::SIZE) };
     }
 }
 
 /// MLME ASSOCIATE Request used to request an association
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssociateRequest {
     /// the logical channel on which to attempt association
     pub channel_number: MacChannel,
@@ -45,6 +46,7 @@ impl MacCommand for AssociateRequest {
 
 /// MLME DISASSOCIATE Request sed to request a disassociation
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DisassociateRequest {
     /// device addressing mode used
     pub device_addr_mode: AddressMode,
@@ -73,6 +75,7 @@ impl MacCommand for DisassociateRequest {
 
 /// MLME GET Request used to request a PIB value
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GetRequest {
     /// the name of the PIB attribute to read
     pub pib_attribute: PibId,
@@ -85,6 +88,7 @@ impl MacCommand for GetRequest {
 
 /// MLME GTS Request used to request and maintain GTSs
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GtsRequest {
     /// the characteristics of the GTS
     pub characteristics: GtsCharacteristics,
@@ -104,6 +108,7 @@ impl MacCommand for GtsRequest {
 }
 
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResetRequest {
     /// MAC PIB attributes are set to their default values or not during reset
     pub set_default_pib: bool,
@@ -117,6 +122,7 @@ impl MacCommand for ResetRequest {
 /// MLME RX ENABLE Request used to request that the receiver is either enabled
 /// for a finite period of time or disabled
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxEnableRequest {
     /// the request operation can be deferred or not
     pub defer_permit: bool,
@@ -148,6 +154,7 @@ impl MacCommand for RxEnableRequest {
 
 /// MLME SCAN Request used to initiate a channel scan over a given list of channels
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScanRequest {
     /// the type of scan to be performed
     pub scan_type: ScanType,
@@ -174,6 +181,7 @@ impl MacCommand for ScanRequest {
 
 /// MLME SET Request used to attempt to write the given value to the indicated PIB attribute
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SetRequest {
     /// the pointer to the value of the PIB attribute to set
     pub pib_attribute_ptr: *const u8,
@@ -190,6 +198,7 @@ impl MacCommand for SetRequest {
 /// configuration
 #[derive(Default)]
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StartRequest {
     /// PAN indentifier to used by the device
     pub pan_id: [u8; 2],
@@ -233,6 +242,7 @@ impl MacCommand for StartRequest {
 /// MLME SYNC Request used to synchronize with the coordinator by acquiring and, if
 /// specified, tracking its beacons
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SyncRequest {
     /// the channel number on which to attempt coordinator synchronization
     pub channel_number: MacChannel,
@@ -252,6 +262,7 @@ impl MacCommand for SyncRequest {
 
 /// MLME POLL Request propmts the device to request data from the coordinator
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PollRequest {
     /// addressing mode of the coordinator
     pub coord_addr_mode: AddressMode,
@@ -277,6 +288,7 @@ impl MacCommand for PollRequest {
 /// MLME DPS Request allows the next higher layer to request that the PHY utilize a
 /// given pair of preamble codes for a single use pending expiration of the DPSIndexDuration
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DpsRequest {
     /// the index value for the transmitter
     tx_dps_index: u8,
@@ -295,6 +307,7 @@ impl MacCommand for DpsRequest {
 /// MLME SOUNDING request primitive which is used by the next higher layer to request that
 /// the PHY respond with channel sounding information
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SoundingRequest;
 
 impl MacCommand for SoundingRequest {
@@ -305,6 +318,7 @@ impl MacCommand for SoundingRequest {
 /// MLME CALIBRATE request primitive which used  to obtain the results of a ranging
 /// calibration request from an RDEV
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CalibrateRequest;
 
 impl MacCommand for CalibrateRequest {
@@ -314,6 +328,7 @@ impl MacCommand for CalibrateRequest {
 
 /// MCPS DATA Request used for MAC data related requests from the application
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DataRequest {
     /// the handle assocated with the MSDU to be transmitted
     pub msdu_ptr: *const u8,
@@ -362,6 +377,7 @@ impl MacCommand for DataRequest {
 
 /// for MCPS PURGE Request used to purge an MSDU from the transaction queue
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PurgeRequest {
     /// the handle associated with the MSDU to be purged from the transaction
     /// queue
@@ -375,6 +391,7 @@ impl MacCommand for PurgeRequest {
 
 /// MLME ASSOCIATE Response used to initiate a response to an MLME-ASSOCIATE.indication
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssociateResponse {
     /// extended address of the device requesting association
     pub device_address: [u8; 8],
@@ -400,6 +417,7 @@ impl MacCommand for AssociateResponse {
 
 /// MLME ORPHAN Response used to respond to the MLME ORPHAN Indication
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OrphanResponse {
     /// extended address of the orphaned device
     pub orphan_address: [u8; 8],

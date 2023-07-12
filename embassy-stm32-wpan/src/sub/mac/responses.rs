@@ -27,6 +27,8 @@ impl ParseableMacEvent for AssociateConfirm {
     const SIZE: usize = 16;
 
     fn try_parse(buf: &[u8]) -> Result<Self, ()> {
+        debug!("{}", buf);
+
         Self::validate(buf)?;
 
         Ok(Self {
@@ -61,12 +63,14 @@ impl ParseableMacEvent for DisassociateConfirm {
 
         let device_addr_mode = AddressMode::try_from(buf[1])?;
         let device_address = match device_addr_mode {
-            AddressMode::NoAddress => MacAddress::Short([0, 0]),
-            AddressMode::Reserved => MacAddress::Short([0, 0]),
-            AddressMode::Short => MacAddress::Short([buf[4], buf[5]]),
-            AddressMode::Extended => {
-                MacAddress::Extended([buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]])
-            }
+            AddressMode::NoAddress => MacAddress { short: [0, 0] },
+            AddressMode::Reserved => MacAddress { short: [0, 0] },
+            AddressMode::Short => MacAddress {
+                short: [buf[4], buf[5]],
+            },
+            AddressMode::Extended => MacAddress {
+                extended: [buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]],
+            },
         };
 
         Ok(Self {
@@ -238,7 +242,6 @@ impl ParseableMacEvent for StartConfirm {
 
     fn try_parse(buf: &[u8]) -> Result<Self, ()> {
         Self::validate(buf)?;
-        debug!("{:#x}", buf);
 
         Ok(Self {
             status: MacStatus::try_from(buf[0])?,
