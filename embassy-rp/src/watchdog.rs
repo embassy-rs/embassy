@@ -107,4 +107,36 @@ impl Watchdog {
             w.set_trigger(true);
         })
     }
+
+    /// Store data in scratch register
+    pub fn set_scratch(&mut self, index: usize, value: u32) {
+        let watchdog = pac::WATCHDOG;
+        match index {
+            0 => watchdog.scratch0().write(|w| *w = value),
+            1 => watchdog.scratch1().write(|w| *w = value),
+            2 => watchdog.scratch2().write(|w| *w = value),
+            3 => watchdog.scratch3().write(|w| *w = value),
+            4 => watchdog.scratch4().write(|w| *w = value),
+            5 => watchdog.scratch5().write(|w| *w = value),
+            6 => watchdog.scratch6().write(|w| *w = value),
+            7 => watchdog.scratch7().write(|w| *w = value),
+            _ => panic!("Invalid watchdog scratch index"),
+        }
+    }
+
+    /// Read data from scratch register
+    pub fn get_scratch(&mut self, index: usize) -> u32 {
+        let watchdog = pac::WATCHDOG;
+        match index {
+            0 => watchdog.scratch0().read(),
+            1 => watchdog.scratch1().read(),
+            2 => watchdog.scratch2().read(),
+            3 => watchdog.scratch3().read(),
+            4 => watchdog.scratch4().read(),
+            5 => watchdog.scratch5().read(),
+            6 => watchdog.scratch6().read(),
+            7 => watchdog.scratch7().read(),
+            _ => panic!("Invalid watchdog scratch index"),
+        }
+    }
 }
