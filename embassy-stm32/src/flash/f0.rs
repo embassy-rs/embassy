@@ -1,7 +1,6 @@
 use core::convert::TryInto;
 use core::ptr::write_volatile;
-
-use atomic_polyfill::{fence, Ordering};
+use core::sync::atomic::{fence, Ordering};
 
 use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
