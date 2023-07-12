@@ -1,9 +1,9 @@
+use core::sync::atomic::{AtomicU8, Ordering};
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::sync::{Mutex, Once};
 
-use atomic_polyfill::{AtomicU8, Ordering};
 use wasm_bindgen::prelude::*;
 use wasm_timer::Instant as StdInstant;
 
