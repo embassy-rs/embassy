@@ -41,6 +41,36 @@ impl<'d, T: Instance> Rtc<'d, T> {
         });
     }
 
+    /// Set the time from internal format
+    pub fn restore(&mut self, ymd: rp_pac::rtc::regs::Rtc1, hms: rp_pac::rtc::regs::Rtc0) {
+        // disable RTC while we configure it
+        self.inner.regs().ctrl().modify(|w| w.set_rtc_enable(false));
+        while self.inner.regs().ctrl().read().rtc_active() {
+            core::hint::spin_loop();
+        }
+
+        self.inner.regs().setup_0().write(|w| {
+            *w = rp_pac::rtc::regs::Setup0(ymd.0);
+        });
+        self.inner.regs().setup_1().write(|w| {
+            *w = rp_pac::rtc::regs::Setup1(hms.0);
+        });
+
+        // Load the new datetime and re-enable RTC
+        self.inner.regs().ctrl().write(|w| w.set_load(true));
+        self.inner.regs().ctrl().write(|w| w.set_rtc_enable(true));
+        while !self.inner.regs().ctrl().read().rtc_active() {
+            core::hint::spin_loop();
+        }
+    }
+
+    /// Get the time in internal format
+    pub fn save(&mut self) -> (rp_pac::rtc::regs::Rtc1, rp_pac::rtc::regs::Rtc0) {
+        let rtc_0: rp_pac::rtc::regs::Rtc0 = self.inner.regs().rtc_0().read();
+        let rtc_1 = self.inner.regs().rtc_1().read();
+        (rtc_1, rtc_0)
+    }
+
     /// Checks to see if this Rtc is running
     pub fn is_running(&self) -> bool {
         self.inner.regs().ctrl().read().rtc_active()
