@@ -165,6 +165,9 @@ impl<F: Future + 'static> TaskStorage<F> {
             Poll::Ready(_) => {
                 this.future.drop_in_place();
                 this.raw.state.fetch_and(!STATE_SPAWNED, Ordering::AcqRel);
+
+                #[cfg(feature = "integrated-timers")]
+                this.raw.expires_at.set(Instant::MAX);
             }
             Poll::Pending => {}
         }
