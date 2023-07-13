@@ -1,22 +1,7 @@
-use core::future::poll_fn;
-use core::marker::PhantomData;
-use core::ptr;
-use core::sync::atomic::{AtomicBool, Ordering};
-use core::task::Poll;
-
-use embassy_futures::poll_once;
-use embassy_stm32::ipcc::Ipcc;
-use embassy_sync::waitqueue::AtomicWaker;
-
 use self::commands::MacCommand;
 use self::event::MacEvent;
 use self::typedefs::MacError;
-use crate::cmd::CmdPacket;
-use crate::consts::TlPacketType;
-use crate::evt::{EvtBox, EvtPacket};
 use crate::sub::mac;
-use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
-use crate::{channels, evt};
 
 pub mod commands;
 mod consts;
@@ -27,9 +12,6 @@ mod macros;
 mod opcodes;
 pub mod responses;
 pub mod typedefs;
-
-static MAC_WAKER: AtomicWaker = AtomicWaker::new();
-static MAC_EVT_OUT: AtomicBool = AtomicBool::new(false);
 
 pub struct Mac {
     mac: mac::Mac,
