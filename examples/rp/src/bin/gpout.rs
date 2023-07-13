@@ -1,3 +1,7 @@
+//! This example shows how GPOUT (General purpose clock outputs) can toggle a output pin.
+//!
+//! The LED on the RP Pico W board is connected differently. Add a LED and resistor to another pin.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

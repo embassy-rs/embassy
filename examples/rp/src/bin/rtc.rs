@@ -1,3 +1,5 @@
+//! This example shows how to use RTC (Real Time Clock) in the RP2040 chip.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

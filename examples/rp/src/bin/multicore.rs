@@ -1,3 +1,7 @@
+//! This example shows how to send messages between the two cores in the RP2040 chip.
+//!
+//! The LED on the RP Pico W board is connected differently. See wifi_blinky.rs.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

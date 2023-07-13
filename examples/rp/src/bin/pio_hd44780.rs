@@ -1,3 +1,6 @@
+//! This example shows powerful PIO module in the RP2040 chip to communicate with a HD44780 display.
+//! See (https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
