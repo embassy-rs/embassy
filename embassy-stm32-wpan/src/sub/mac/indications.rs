@@ -3,7 +3,7 @@ use super::event::ParseableMacEvent;
 use super::helpers::to_u32;
 use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, KeyIdMode, MacAddress, MacChannel, MacStatus, PanDescriptor,
-    SecurityLevel,
+    PanId, SecurityLevel,
 };
 
 /// MLME ASSOCIATE Indication which will be used by the MAC
@@ -110,7 +110,7 @@ impl ParseableMacEvent for BeaconNotifyIndication {
 pub struct CommStatusIndication {
     /// The 16-bit PAN identifier of the device from which the frame
     /// was received or to which the frame was being sent
-    pub pan_id: [u8; 2],
+    pub pan_id: PanId,
     /// Source addressing mode
     pub src_addr_mode: AddressMode,
     /// Destination addressing mode
@@ -163,7 +163,7 @@ impl ParseableMacEvent for CommStatusIndication {
         };
 
         Ok(Self {
-            pan_id: [buf[0], buf[1]],
+            pan_id: PanId([buf[0], buf[1]]),
             src_addr_mode,
             dst_addr_mode,
             src_address,
@@ -251,7 +251,7 @@ impl ParseableMacEvent for OrphanIndication {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SyncLossIndication {
     /// The PAN identifier with which the device lost synchronization or to which it was realigned
-    pub pan_id: [u8; 2],
+    pub pan_id: PanId,
     /// The reason that synchronization was lost
     pub loss_reason: u8,
     /// The logical channel on which the device lost synchronization or to whi
@@ -275,7 +275,7 @@ impl ParseableMacEvent for SyncLossIndication {
         Self::validate(buf)?;
 
         Ok(Self {
-            pan_id: [buf[0], buf[1]],
+            pan_id: PanId([buf[0], buf[1]]),
             loss_reason: buf[2],
             channel_number: MacChannel::try_from(buf[3])?,
             channel_page: buf[4],
@@ -303,19 +303,20 @@ impl ParseableMacEvent for DpsIndication {
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C, align(8))]
 pub struct DataIndication {
     /// Pointer to the set of octets forming the MSDU being indicated  
     pub msdu_ptr: *const u8,
     /// Source addressing mode used  
     pub src_addr_mode: AddressMode,
     /// Source PAN ID   
-    pub src_pan_id: [u8; 2],
+    pub src_pan_id: PanId,
     /// Source address  
     pub src_address: MacAddress,
     /// Destination addressing mode used  
     pub dst_addr_mode: AddressMode,
     /// Destination PAN ID   
-    pub dst_pan_id: [u8; 2],
+    pub dst_pan_id: PanId,
     /// Destination address  
     pub dst_address: MacAddress,
     /// The number of octets contained in the MSDU being indicated  
@@ -355,7 +356,7 @@ pub struct DataIndication {
 }
 
 impl ParseableMacEvent for DataIndication {
-    const SIZE: usize = 72;
+    const SIZE: usize = 68;
 
     fn try_parse(buf: &[u8]) -> Result<Self, ()> {
         Self::validate(buf)?;
@@ -387,24 +388,24 @@ impl ParseableMacEvent for DataIndication {
         Ok(Self {
             msdu_ptr: to_u32(&buf[0..4]) as *const u8,
             src_addr_mode,
-            src_pan_id: [buf[5], buf[6]],
+            src_pan_id: PanId([buf[5], buf[6]]),
             src_address,
             dst_addr_mode,
-            dst_pan_id: [buf[16], buf[17]],
+            dst_pan_id: PanId([buf[16], buf[17]]),
             dst_address,
             msdu_length: buf[26],
             mpdu_link_quality: buf[27],
             dsn: buf[28],
             time_stamp: [buf[29], buf[30], buf[31], buf[32]],
-            security_level: SecurityLevel::try_from(buf[33])?,
-            key_id_mode: KeyIdMode::try_from(buf[34])?,
+            security_level: SecurityLevel::try_from(buf[33]).unwrap_or(SecurityLevel::Unsecure), // TODO: this is totaly wrong, but I'm too smol brain to fix it
+            key_id_mode: KeyIdMode::try_from(buf[34]).unwrap_or(KeyIdMode::Implicite), // TODO: this is totaly wrong, but I'm too smol brain to fix it
             key_source: [buf[35], buf[36], buf[37], buf[38], buf[39], buf[40], buf[41], buf[42]],
             key_index: buf[43],
             uwbprf: buf[44],
             uwn_preamble_symbol_repetitions: buf[45],
             datrate: buf[46],
             ranging_received: buf[47],
-            ranging_counter_start: to_u32(&buf[58..52]),
+            ranging_counter_start: to_u32(&buf[48..52]),
             ranging_counter_stop: to_u32(&buf[52..56]),
             ranging_tracking_interval: to_u32(&buf[56..60]),
             ranging_offset: to_u32(&buf[60..64]),

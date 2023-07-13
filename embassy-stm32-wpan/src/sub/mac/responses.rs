@@ -2,7 +2,8 @@ use super::consts::{MAX_ED_SCAN_RESULTS_SUPPORTED, MAX_PAN_DESC_SUPPORTED, MAX_S
 use super::event::ParseableMacEvent;
 use super::helpers::to_u32;
 use super::typedefs::{
-    AddressMode, AssociationStatus, KeyIdMode, MacAddress, MacStatus, PanDescriptor, PibId, ScanType, SecurityLevel,
+    AddressMode, AssociationStatus, KeyIdMode, MacAddress, MacStatus, PanDescriptor, PanId, PibId, ScanType,
+    SecurityLevel,
 };
 
 /// MLME ASSOCIATE Confirm used to inform of the initiating device whether
@@ -50,7 +51,7 @@ pub struct DisassociateConfirm {
     /// device addressing mode used
     pub device_addr_mode: AddressMode,
     /// the identifier of the PAN of the device
-    pub device_pan_id: [u8; 2],
+    pub device_pan_id: PanId,
     /// device address
     pub device_address: MacAddress,
 }
@@ -76,7 +77,7 @@ impl ParseableMacEvent for DisassociateConfirm {
         Ok(Self {
             status: MacStatus::try_from(buf[0])?,
             device_addr_mode,
-            device_pan_id: [buf[2], buf[3]],
+            device_pan_id: PanId([buf[2], buf[3]]),
             device_address,
         })
     }

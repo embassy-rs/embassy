@@ -25,15 +25,12 @@ impl From<u8> for MacError {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum MacStatus {
+        #[default]
         Success = 0x00,
-        Error = 0x01,
-        NotImplemented = 0x02,
-        NotSupported = 0x03,
-        HardwareNotSupported = 0x04,
-        Undefined = 0x05,
+        Failure = 0xFF
     }
 }
 
@@ -134,6 +131,10 @@ impl Default for MacAddress {
     }
 }
 
+impl MacAddress {
+    pub const BROADCAST: Self = Self { short: [0xFF, 0xFF] };
+}
+
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GtsCharacteristics {
     pub fields: u8,
@@ -145,7 +146,7 @@ pub struct GtsCharacteristics {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PanDescriptor {
     /// PAN identifier of the coordinator
-    pub coord_pan_id: [u8; 2],
+    pub coord_pan_id: PanId,
     /// Coordinator addressing mode
     pub coord_addr_mode: AddressMode,
     /// The current logical channel occupied by the network
@@ -188,7 +189,7 @@ impl TryFrom<&[u8]> for PanDescriptor {
         };
 
         Ok(Self {
-            coord_pan_id: [buf[0], buf[1]],
+            coord_pan_id: PanId([buf[0], buf[1]]),
             coord_addr_mode,
             logical_channel: MacChannel::try_from(buf[3])?,
             coord_addr,
@@ -335,4 +336,13 @@ numeric_enum! {
         Passive = 0x02,
         Orphan = 0x03
     }
+}
+
+/// newtype for Pan Id
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct PanId(pub [u8; 2]);
+
+impl PanId {
+    pub const BROADCAST: Self = Self([0xFF, 0xFF]);
 }

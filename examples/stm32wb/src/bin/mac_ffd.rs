@@ -6,8 +6,9 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::sub::mac::commands::{ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::sub::mac::typedefs::{MacChannel, PibId};
+use embassy_stm32_wpan::sub::mac::commands::{AssociateResponse, ResetRequest, SetRequest, StartRequest};
+use embassy_stm32_wpan::sub::mac::event::MacEvent;
+use embassy_stm32_wpan::sub::mac::typedefs::{MacChannel, MacStatus, PanId, PibId, SecurityLevel};
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
@@ -123,7 +124,7 @@ async fn main(spawner: Spawner) {
     info!("starting FFD device");
     mbox.mac_subsystem
         .send_command(&StartRequest {
-            pan_id: [0xAA, 0x1A],
+            pan_id: PanId([0x1A, 0xAA]),
             channel_number: MacChannel::Channel16,
             beacon_order: 0x0F,
             superframe_order: 0x0F,
@@ -151,5 +152,28 @@ async fn main(spawner: Spawner) {
     loop {
         let evt = mbox.mac_subsystem.read().await;
         defmt::info!("{:#x}", evt);
+
+        if let Ok(evt) = evt {
+            match evt {
+                MacEvent::MlmeAssociateInd(association) => mbox
+                    .mac_subsystem
+                    .send_command(&AssociateResponse {
+                        device_address: association.device_address,
+                        assoc_short_address: [0x33, 0x44],
+                        status: MacStatus::Success,
+                        security_level: SecurityLevel::Unsecure,
+                        ..Default::default()
+                    })
+                    .await
+                    .unwrap(),
+                MacEvent::McpsDataInd(data_ind) => {
+                    let data_addr = data_ind.msdu_ptr;
+                    let mut a = [0u8; 256];
+                    unsafe { data_addr.copy_to(&mut a as *mut _, data_ind.msdu_length as usize) }
+                    info!("{}", a[..data_ind.msdu_length as usize])
+                }
+                _ => {}
+            }
+        }
     }
 }

@@ -5,6 +5,7 @@ const fn opcode(ocf: u16) -> isize {
     ((ST_VENDOR_OGF << 9) | (MAC_802_15_4_CMD_OPCODE_OFFSET + ocf)) as isize
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OpcodeM4ToM0 {
     MlmeAssociateReq = opcode(0x00),
     MlmeAssociateRes = opcode(0x01),
@@ -26,6 +27,7 @@ pub enum OpcodeM4ToM0 {
     McpsPurgeReq = opcode(0x11),
 }
 
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OpcodeM0ToM4 {
     MlmeAssociateCnf = 0x00,
     MlmeDisassociateCnf,

@@ -1,7 +1,7 @@
 use super::opcodes::OpcodeM4ToM0;
 use super::typedefs::{
-    AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, PibId,
-    ScanType, SecurityLevel,
+    AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, MacStatus,
+    PanId, PibId, ScanType, SecurityLevel,
 };
 
 pub trait MacCommand {
@@ -26,7 +26,7 @@ pub struct AssociateRequest {
     /// operational capabilities of the associating device
     pub capability_information: Capabilities,
     /// the identifier of the PAN with which to associate
-    pub coord_pan_id: [u8; 2],
+    pub coord_pan_id: PanId,
     /// the security level to be used
     pub security_level: SecurityLevel,
     /// the mode used to identify the key to be used
@@ -51,7 +51,7 @@ pub struct DisassociateRequest {
     /// device addressing mode used
     pub device_addr_mode: AddressMode,
     /// the identifier of the PAN of the device
-    pub device_pan_id: [u8; 2],
+    pub device_pan_id: PanId,
     /// the reason for the disassociation
     pub disassociation_reason: DisassociationReason,
     /// device address
@@ -201,7 +201,7 @@ impl MacCommand for SetRequest {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StartRequest {
     /// PAN indentifier to used by the device
-    pub pan_id: [u8; 2],
+    pub pan_id: PanId,
     /// logical channel on which to begin
     pub channel_number: MacChannel,
     /// channel page on which to begin
@@ -277,7 +277,7 @@ pub struct PollRequest {
     /// originator of the key to be used
     pub key_source: [u8; 8],
     /// PAN identifier of the coordinator
-    pub coord_pan_id: [u8; 2],
+    pub coord_pan_id: PanId,
 }
 
 impl MacCommand for PollRequest {
@@ -337,7 +337,7 @@ pub struct DataRequest {
     /// destination addressing mode used
     pub dst_addr_mode: AddressMode,
     /// destination PAN Id
-    pub dst_pan_id: [u8; 2],
+    pub dst_pan_id: PanId,
     /// destination address
     pub dst_address: MacAddress,
     /// the number of octets contained in the MSDU
@@ -370,6 +370,31 @@ pub struct DataRequest {
     pub datrate: u8,
 }
 
+impl Default for DataRequest {
+    fn default() -> Self {
+        Self {
+            msdu_ptr: 0 as *const u8,
+            src_addr_mode: AddressMode::NoAddress,
+            dst_addr_mode: AddressMode::NoAddress,
+            dst_pan_id: PanId([0, 0]),
+            dst_address: MacAddress { short: [0, 0] },
+            msdu_length: 0,
+            msdu_handle: 0,
+            ack_tx: 0,
+            gts_tx: false,
+            indirect_tx: 0,
+            security_level: SecurityLevel::Unsecure,
+            key_id_mode: KeyIdMode::Implicite,
+            key_index: 0,
+            key_source: [0u8; 8],
+            uwbprf: 0,
+            ranging: 0,
+            uwb_preamble_symbol_repetitions: 0,
+            datrate: 0,
+        }
+    }
+}
+
 impl MacCommand for DataRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::McpsDataReq;
     const SIZE: usize = 40;
@@ -391,6 +416,7 @@ impl MacCommand for PurgeRequest {
 
 /// MLME ASSOCIATE Response used to initiate a response to an MLME-ASSOCIATE.indication
 #[repr(C)]
+#[derive(Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssociateResponse {
     /// extended address of the device requesting association
@@ -399,7 +425,7 @@ pub struct AssociateResponse {
     /// association
     pub assoc_short_address: [u8; 2],
     /// status of the association attempt
-    pub status: u8,
+    pub status: MacStatus,
     /// security level to be used
     pub security_level: SecurityLevel,
     /// the originator of the key to be used
