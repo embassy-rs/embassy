@@ -135,6 +135,21 @@ impl MacAddress {
     pub const BROADCAST: Self = Self { short: [0xFF, 0xFF] };
 }
 
+impl TryFrom<&[u8]> for MacAddress {
+    type Error = ();
+
+    fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
+        const SIZE: usize = 8;
+        if buf.len() < SIZE {
+            return Err(());
+        }
+
+        Ok(Self {
+            extended: [buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]],
+        })
+    }
+}
+
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GtsCharacteristics {
     pub fields: u8,
@@ -171,7 +186,7 @@ impl TryFrom<&[u8]> for PanDescriptor {
     type Error = ();
 
     fn try_from(buf: &[u8]) -> Result<Self, Self::Error> {
-        const SIZE: usize = 24;
+        const SIZE: usize = 22;
         if buf.len() < SIZE {
             return Err(());
         }

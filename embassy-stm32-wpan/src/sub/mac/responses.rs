@@ -199,12 +199,39 @@ pub struct ScanConfirm {
 }
 
 impl ParseableMacEvent for ScanConfirm {
-    const SIZE: usize = 9;
+    const SIZE: usize = 185;
 
     fn try_parse(buf: &[u8]) -> Result<Self, ()> {
+        // TODO: this is unchecked
+
         Self::validate(buf)?;
 
-        todo!()
+        let mut energy_detect_list = [0; MAX_ED_SCAN_RESULTS_SUPPORTED];
+        energy_detect_list.copy_from_slice(&buf[8..24]);
+
+        let pan_descriptor_list = [
+            PanDescriptor::try_from(&buf[24..46])?,
+            PanDescriptor::try_from(&buf[46..68])?,
+            PanDescriptor::try_from(&buf[68..90])?,
+            PanDescriptor::try_from(&buf[90..102])?,
+            PanDescriptor::try_from(&buf[102..124])?,
+            PanDescriptor::try_from(&buf[124..146])?,
+        ];
+
+        let mut uwb_energy_detect_list = [0; MAX_ED_SCAN_RESULTS_SUPPORTED];
+        uwb_energy_detect_list.copy_from_slice(&buf[147..163]);
+
+        Ok(Self {
+            status: MacStatus::try_from(buf[0])?,
+            scan_type: ScanType::try_from(buf[1])?,
+            channel_page: buf[2],
+            unscanned_channels: [buf[3], buf[4], buf[5], buf[6]],
+            result_list_size: buf[7],
+            energy_detect_list,
+            pan_descriptor_list,
+            detected_category: buf[146],
+            uwb_energy_detect_list,
+        })
     }
 }
 

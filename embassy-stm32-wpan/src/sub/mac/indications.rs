@@ -96,12 +96,31 @@ pub struct BeaconNotifyIndication {
 }
 
 impl ParseableMacEvent for BeaconNotifyIndication {
-    const SIZE: usize = 12;
+    const SIZE: usize = 88;
 
     fn try_parse(buf: &[u8]) -> Result<Self, ()> {
+        // TODO: this is unchecked
+
         Self::validate(buf)?;
 
-        todo!()
+        let addr_list = [
+            MacAddress::try_from(&buf[26..34])?,
+            MacAddress::try_from(&buf[34..42])?,
+            MacAddress::try_from(&buf[42..50])?,
+            MacAddress::try_from(&buf[50..58])?,
+            MacAddress::try_from(&buf[58..66])?,
+            MacAddress::try_from(&buf[66..74])?,
+            MacAddress::try_from(&buf[74..82])?,
+        ];
+
+        Ok(Self {
+            sdu_ptr: to_u32(&buf[0..4]) as *const u8,
+            pan_descriptor: PanDescriptor::try_from(&buf[4..26])?,
+            addr_list,
+            bsn: buf[82],
+            pend_addr_spec: buf[83],
+            sdu_length: buf[83],
+        })
     }
 }
 
