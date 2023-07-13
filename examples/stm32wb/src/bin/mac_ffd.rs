@@ -168,9 +168,13 @@ async fn main(spawner: Spawner) {
                     .unwrap(),
                 MacEvent::McpsDataInd(data_ind) => {
                     let data_addr = data_ind.msdu_ptr;
-                    let mut a = [0u8; 256];
-                    unsafe { data_addr.copy_to(&mut a as *mut _, data_ind.msdu_length as usize) }
-                    info!("{}", a[..data_ind.msdu_length as usize])
+                    let mut data = [0u8; 256];
+                    unsafe { data_addr.copy_to(&mut data as *mut _, data_ind.msdu_length as usize) }
+                    info!("{}", data[..data_ind.msdu_length as usize]);
+
+                    if &data[..data_ind.msdu_length as usize] == b"Hello from embassy!" {
+                        info!("success");
+                    }
                 }
                 _ => {}
             }

@@ -148,7 +148,7 @@ async fn main(spawner: Spawner) {
         .send_command(&DataRequest {
             src_addr_mode: AddressMode::Short,
             dst_addr_mode: AddressMode::Short,
-            dst_pan_id: PanId::BROADCAST,
+            dst_pan_id: PanId([0x1A, 0xAA]),
             dst_address: MacAddress::BROADCAST,
             msdu_handle: 0x02,
             ack_tx: 0x00,

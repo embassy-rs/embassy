@@ -28,8 +28,6 @@ impl ParseableMacEvent for AssociateConfirm {
     const SIZE: usize = 16;
 
     fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        debug!("{}", buf);
-
         Self::validate(buf)?;
 
         Ok(Self {
