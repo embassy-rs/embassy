@@ -38,7 +38,7 @@ pub fn riscv(args: &[NestedMeta]) -> TokenStream {
 
 pub fn cortex_m() -> TokenStream {
     quote! {
-        #[cortex_m_rt::entry]
+        #[embassy_executor::cortex_m_rt::entry]
         fn main() -> ! {
             let mut executor = ::embassy_executor::Executor::new();
             let executor = unsafe { __make_static(&mut executor) };

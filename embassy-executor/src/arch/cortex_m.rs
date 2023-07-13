@@ -5,6 +5,8 @@ mod thread {
     use core::arch::asm;
     use core::marker::PhantomData;
 
+    // Used from the `main` macro.
+    pub use cortex_m_rt;
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_cortex_m as main;
 
