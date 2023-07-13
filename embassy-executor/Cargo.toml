@@ -32,7 +32,7 @@ features = ["nightly", "defmt", "pender-callback", "arch-cortex-m", "executor-th
 # Architecture
 _arch = [] # some arch was picked
 arch-std = ["_arch", "critical-section/std"]
-arch-cortex-m = ["_arch", "dep:cortex-m"]
+arch-cortex-m = ["_arch", "dep:cortex-m", "dep:cortex-m-rt"]
 arch-xtensa = ["_arch"]
 arch-riscv32 = ["_arch"]
 arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
@@ -69,6 +69,7 @@ static_cell = "1.1"
 
 # arch-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }
+cortex-m-rt = { version = "0.7.3", optional = true }
 
 # arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
