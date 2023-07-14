@@ -1,3 +1,5 @@
+//! This example shows powerful PIO module in the RP2040 chip.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -54,7 +56,14 @@ fn setup_pio_task_sm1<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
     // Setupm sm1
 
     // Read 0b10101 repeatedly until ISR is full
-    let prg = pio_proc::pio_asm!(".origin 8", "set x, 0x15", ".wrap_target", "in x, 5 [31]", ".wrap",);
+    let prg = pio_proc::pio_asm!(
+        //
+        ".origin 8",
+        "set x, 0x15",
+        ".wrap_target",
+        "in x, 5 [31]",
+        ".wrap",
+    );
 
     let relocated = RelocatedProgram::new(&prg.program);
     let mut cfg = Config::default();

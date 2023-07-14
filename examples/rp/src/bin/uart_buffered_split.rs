@@ -1,3 +1,9 @@
+//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP2040 chip.
+//!
+//! No specific hardware is specified in this example. If you connect pin 0 and 1 you should get the same data back.
+//! The Raspberry Pi Debug Probe (https://www.raspberrypi.com/products/debug-probe/) could be used
+//! with its UART port.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
