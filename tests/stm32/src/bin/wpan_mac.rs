@@ -10,9 +10,9 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::sub::mac::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
-use embassy_stm32_wpan::sub::mac::event::MacEvent;
-use embassy_stm32_wpan::sub::mac::typedefs::{
+use embassy_stm32_wpan::mac::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
+use embassy_stm32_wpan::mac::event::MacEvent;
+use embassy_stm32_wpan::mac::typedefs::{
     AddressMode, Capabilities, KeyIdMode, MacAddress, MacChannel, PanId, PibId, SecurityLevel,
 };
 use embassy_stm32_wpan::sub::mm;

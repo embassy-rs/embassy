@@ -26,6 +26,9 @@ pub mod sub;
 pub mod tables;
 pub mod unsafe_linked_list;
 
+#[cfg(feature = "mac")]
+pub mod mac;
+
 #[cfg(feature = "ble")]
 pub use crate::sub::ble::hci;
 
