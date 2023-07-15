@@ -1,5 +1,9 @@
-//! test TX-only and RX-only UARTs. You need to connect GPIO0 to GPIO5 for
+//! This example shows how to use UART (Universal asynchronous receiver-transmitter) in the RP2040 chip.
+//!
+//! Test TX-only and RX-only on two different UARTs. You need to connect GPIO0 to GPIO5 for
 //! this to work
+//! The Raspberry Pi Debug Probe (https://www.raspberrypi.com/products/debug-probe/) could be used
+//! with its UART port.
 
 #![no_std]
 #![no_main]

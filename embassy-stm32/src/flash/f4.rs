@@ -1,8 +1,7 @@
 use core::convert::TryInto;
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{fence, AtomicBool, Ordering};
 
-use atomic_polyfill::AtomicBool;
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
 use pac::FLASH_SIZE;

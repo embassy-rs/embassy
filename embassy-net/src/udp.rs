@@ -3,7 +3,7 @@
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::mem;
-use core::task::Poll;
+use core::task::{Context, Poll};
 
 use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
@@ -102,37 +102,61 @@ impl<'a> UdpSocket<'a> {
     ///
     /// Returns the number of bytes received and the remote endpoint.
     pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), Error> {
-        poll_fn(move |cx| {
-            self.with_mut(|s, _| match s.recv_slice(buf) {
-                Ok((n, meta)) => Poll::Ready(Ok((n, meta.endpoint))),
-                // No data ready
-                Err(udp::RecvError::Exhausted) => {
-                    s.register_recv_waker(cx.waker());
-                    Poll::Pending
-                }
-            })
+        poll_fn(move |cx| self.poll_recv_from(buf, cx)).await
+    }
+
+    /// Receive a datagram.
+    ///
+    /// When no datagram is available, this method will return `Poll::Pending` and
+    /// register the current task to be notified when a datagram is received.
+    ///
+    /// When a datagram is received, this method will return `Poll::Ready` with the
+    /// number of bytes received and the remote endpoint.
+    pub fn poll_recv_from(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<(usize, IpEndpoint), Error>> {
+        self.with_mut(|s, _| match s.recv_slice(buf) {
+            Ok((n, meta)) => Poll::Ready(Ok((n, meta.endpoint))),
+            // No data ready
+            Err(udp::RecvError::Exhausted) => {
+                s.register_recv_waker(cx.waker());
+                Poll::Pending
+            }
         })
-        .await
     }
 
     /// Send a datagram to the specified remote endpoint.
+    ///
+    /// This method will wait until the datagram has been sent.
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(Error::NoRoute)`
     pub async fn send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), Error>
     where
         T: Into<IpEndpoint>,
     {
-        let remote_endpoint = remote_endpoint.into();
-        poll_fn(move |cx| {
-            self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
-                // Entire datagram has been sent
-                Ok(()) => Poll::Ready(Ok(())),
-                Err(udp::SendError::BufferFull) => {
-                    s.register_send_waker(cx.waker());
-                    Poll::Pending
-                }
-                Err(udp::SendError::Unaddressable) => Poll::Ready(Err(Error::NoRoute)),
-            })
+        let remote_endpoint: IpEndpoint = remote_endpoint.into();
+        poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await
+    }
+
+    /// Send a datagram to the specified remote endpoint.
+    ///
+    /// When the datagram has been sent, this method will return `Poll::Ready(Ok())`.
+    ///
+    /// When the socket's send buffer is full, this method will return `Poll::Pending`
+    /// and register the current task to be notified when the buffer has space available.
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Poll::Ready(Err(Error::NoRoute))`.
+    pub fn poll_send_to<T>(&self, buf: &[u8], remote_endpoint: T, cx: &mut Context<'_>) -> Poll<Result<(), Error>>
+    where
+        T: Into<IpEndpoint>,
+    {
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
+            // Entire datagram has been sent
+            Ok(()) => Poll::Ready(Ok(())),
+            Err(udp::SendError::BufferFull) => {
+                s.register_send_waker(cx.waker());
+                Poll::Pending
+            }
+            Err(udp::SendError::Unaddressable) => Poll::Ready(Err(Error::NoRoute)),
         })
-        .await
     }
 
     /// Returns the local endpoint of the socket.
