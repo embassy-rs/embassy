@@ -7,7 +7,7 @@ use super::responses::{
     AssociateConfirm, CalibrateConfirm, DataConfirm, DisassociateConfirm, DpsConfirm, GetConfirm, GtsConfirm,
     PollConfirm, PurgeConfirm, ResetConfirm, RxEnableConfirm, ScanConfirm, SetConfirm, SoundingConfirm, StartConfirm,
 };
-use crate::sub::mac::opcodes::OpcodeM0ToM4;
+use crate::mac::opcodes::OpcodeM0ToM4;
 
 pub trait ParseableMacEvent {
     const SIZE: usize;
