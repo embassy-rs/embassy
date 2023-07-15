@@ -6,8 +6,9 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::mac::commands::{ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::mac::typedefs::{MacChannel, PibId};
+use embassy_stm32_wpan::mac::commands::{AssociateResponse, ResetRequest, SetRequest, StartRequest};
+use embassy_stm32_wpan::mac::event::MacEvent;
+use embassy_stm32_wpan::mac::typedefs::{MacChannel, MacStatus, PanId, PibId, SecurityLevel};
 use embassy_stm32_wpan::mac::Mac;
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
@@ -157,8 +158,7 @@ async fn main(spawner: Spawner) {
 
         if let Ok(evt) = evt {
             match evt {
-                MacEvent::MlmeAssociateInd(association) => mbox
-                    .mac_subsystem
+                MacEvent::MlmeAssociateInd(association) => iface
                     .send_command(&AssociateResponse {
                         device_address: association.device_address,
                         assoc_short_address: [0x33, 0x44],
