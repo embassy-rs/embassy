@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
 
-    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    let _ = mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
 
     info!("resetting BLE...");
     mbox.ble_subsystem.reset().await;

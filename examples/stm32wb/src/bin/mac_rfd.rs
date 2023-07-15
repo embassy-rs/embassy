@@ -133,7 +133,6 @@ async fn main(spawner: Spawner) {
     };
 
     info!("setting short address");
-    let short: u64 = 0xACDE480000000002;
     iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &short_addr as *const _ as *const u8,
