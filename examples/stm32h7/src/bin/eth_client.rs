@@ -59,7 +59,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericSMI::new(Duration::from_millis(500)),
+        GenericSMI::new(),
         mac_addr,
         0,
     );

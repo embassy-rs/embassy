@@ -49,8 +49,10 @@ pub struct GenericSMI {
 
 impl GenericSMI {
     #[cfg(feature = "time")]
-    pub fn new(poll_interval: Duration) -> Self {
-        Self { poll_interval }
+    pub fn new() -> Self {
+        Self {
+            poll_interval: Duration::from_millis(500),
+        }
     }
 
     #[cfg(not(feature = "time"))]
@@ -100,6 +102,10 @@ unsafe impl PHY for GenericSMI {
 
 /// Public functions for the PHY
 impl GenericSMI {
+    pub fn set_poll_interval(&mut self, poll_interval: Duration) {
+        self.poll_interval = poll_interval
+    }
+
     // Writes a value to an extended PHY register in MMD address space
     fn smi_write_ext<S: StationManagement>(&mut self, sm: &mut S, reg_addr: u16, reg_data: u16) {
         sm.smi_write(PHY_REG_CTL, 0x0003); // set address
