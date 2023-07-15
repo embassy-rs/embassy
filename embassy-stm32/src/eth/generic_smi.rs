@@ -1,6 +1,10 @@
 //! Generic SMI Ethernet PHY
 
+#[cfg(feature = "time")]
+use embassy_time::{Duration, Timer};
 use futures::task::Context;
+#[cfg(feature = "time")]
+use futures::FutureExt;
 
 use super::{StationManagement, PHY};
 
@@ -38,7 +42,22 @@ mod phy_consts {
 use self::phy_consts::*;
 
 /// Generic SMI Ethernet PHY
-pub struct GenericSMI;
+pub struct GenericSMI {
+    #[cfg(feature = "time")]
+    poll_interval: Duration,
+}
+
+impl GenericSMI {
+    #[cfg(feature = "time")]
+    pub fn new(poll_interval: Duration) -> Self {
+        Self { poll_interval }
+    }
+
+    #[cfg(not(feature = "time"))]
+    pub fn new() -> Self {
+        Self {}
+    }
+}
 
 unsafe impl PHY for GenericSMI {
     /// Reset PHY and wait for it to come out of reset.
@@ -57,7 +76,11 @@ unsafe impl PHY for GenericSMI {
     }
 
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool {
+        #[cfg(not(feature = "time"))]
         cx.waker().wake_by_ref();
+
+        #[cfg(feature = "time")]
+        let _ = Timer::after(self.poll_interval).poll_unpin(cx);
 
         let bsr = sm.smi_read(PHY_REG_BSR);
 
