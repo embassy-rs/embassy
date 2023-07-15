@@ -23,7 +23,7 @@ heapless = { version = "0.7.5", default-features = false }
 
 
 [features]
-default = ["ble"]
+default = ["ble", "mac"]
 mac = ["embassy-stm32-wpan/mac"]
 ble = ["embassy-stm32-wpan/ble"]
 
@@ -33,6 +33,10 @@ required-features = ["ble"]
 
 [[bin]] 
 name = "tl_mbox_mac"
+required-features = ["mac"]
+
+[[bin]] 
+name = "mac_ffd"
 required-features = ["mac"]
 
 [[bin]] 

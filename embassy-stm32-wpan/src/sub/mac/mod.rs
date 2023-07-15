@@ -8,11 +8,24 @@ use embassy_futures::poll_once;
 use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use self::commands::MacCommand;
+use self::event::MacEvent;
+use self::typedefs::MacError;
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
 use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
+
+pub mod commands;
+mod consts;
+pub mod event;
+mod helpers;
+pub mod indications;
+mod macros;
+mod opcodes;
+pub mod responses;
+pub mod typedefs;
 
 static MAC_WAKER: AtomicWaker = AtomicWaker::new();
 static MAC_EVT_OUT: AtomicBool = AtomicBool::new(false);
@@ -29,7 +42,7 @@ impl Mac {
     /// `HW_IPCC_MAC_802_15_4_EvtNot`
     ///
     /// This function will stall if the previous `EvtBox` has not been dropped
-    pub async fn read(&self) -> EvtBox<Self> {
+    pub async fn tl_read(&self) -> EvtBox<Self> {
         // Wait for the last event box to be dropped
         poll_fn(|cx| {
             MAC_WAKER.register(cx.waker());
@@ -53,9 +66,9 @@ impl Mac {
     }
 
     /// `HW_IPCC_MAC_802_15_4_CmdEvtNot`
-    pub async fn write_and_get_response(&self, opcode: u16, payload: &[u8]) -> u8 {
-        self.write(opcode, payload).await;
-        Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
+    pub async fn tl_write_and_get_response(&self, opcode: u16, payload: &[u8]) -> u8 {
+        self.tl_write(opcode, payload).await;
+        Ipcc::flush(channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL).await;
 
         unsafe {
             let p_event_packet = MAC_802_15_4_CMD_BUFFER.as_ptr() as *const EvtPacket;
@@ -66,18 +79,45 @@ impl Mac {
     }
 
     /// `TL_MAC_802_15_4_SendCmd`
-    pub async fn write(&self, opcode: u16, payload: &[u8]) {
+    pub async fn tl_write(&self, opcode: u16, payload: &[u8]) {
         Ipcc::send(channels::cpu1::IPCC_MAC_802_15_4_CMD_RSP_CHANNEL, || unsafe {
             CmdPacket::write_into(
                 MAC_802_15_4_CMD_BUFFER.as_mut_ptr(),
-                TlPacketType::OtCmd,
+                TlPacketType::MacCmd,
                 opcode,
                 payload,
             );
         })
         .await;
     }
+
+    pub async fn send_command<T>(&self, cmd: &T) -> Result<(), MacError>
+    where
+        T: MacCommand,
+    {
+        let mut payload = [0u8; MAX_PACKET_SIZE];
+        cmd.copy_into_slice(&mut payload);
+
+        let response = self
+            .tl_write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE])
+            .await;
+
+        if response == 0x00 {
+            Ok(())
+        } else {
+            Err(MacError::from(response))
+        }
+    }
+
+    pub async fn read(&self) -> Result<MacEvent, ()> {
+        let evt_box = self.tl_read().await;
+        let payload = evt_box.payload();
+
+        MacEvent::try_from(payload)
+    }
 }
+
+const MAX_PACKET_SIZE: usize = 255;
 
 impl evt::MemoryManager for Mac {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB
