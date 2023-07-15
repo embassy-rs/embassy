@@ -50,7 +50,7 @@ unsafe impl PHY for GenericSMI {
     /// PHY initialisation.
     fn phy_init<S: StationManagement>(&mut self, sm: &mut S) {
         // Clear WU CSR
-        Self::smi_write_ext(sm, PHY_REG_WUCSR, 0);
+        self.smi_write_ext(sm, PHY_REG_WUCSR, 0);
 
         // Enable auto-negotiation
         sm.smi_write(PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M);
@@ -78,7 +78,7 @@ unsafe impl PHY for GenericSMI {
 /// Public functions for the PHY
 impl GenericSMI {
     // Writes a value to an extended PHY register in MMD address space
-    fn smi_write_ext<S: StationManagement>(sm: &mut S, reg_addr: u16, reg_data: u16) {
+    fn smi_write_ext<S: StationManagement>(&mut self, sm: &mut S, reg_addr: u16, reg_data: u16) {
         sm.smi_write(PHY_REG_CTL, 0x0003); // set address
         sm.smi_write(PHY_REG_ADDAR, reg_addr);
         sm.smi_write(PHY_REG_CTL, 0x4003); // set data
