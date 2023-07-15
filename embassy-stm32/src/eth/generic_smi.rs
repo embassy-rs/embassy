@@ -1,5 +1,7 @@
 //! Generic SMI Ethernet PHY
 
+use futures::task::Context;
+
 use super::{StationManagement, PHY};
 
 #[allow(dead_code)]
@@ -40,13 +42,13 @@ pub struct GenericSMI;
 
 unsafe impl PHY for GenericSMI {
     /// Reset PHY and wait for it to come out of reset.
-    fn phy_reset<S: StationManagement>(sm: &mut S) {
+    fn phy_reset<S: StationManagement>(&mut self, sm: &mut S) {
         sm.smi_write(PHY_REG_BCR, PHY_REG_BCR_RESET);
         while sm.smi_read(PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
     }
 
     /// PHY initialisation.
-    fn phy_init<S: StationManagement>(sm: &mut S) {
+    fn phy_init<S: StationManagement>(&mut self, sm: &mut S) {
         // Clear WU CSR
         Self::smi_write_ext(sm, PHY_REG_WUCSR, 0);
 
@@ -54,7 +56,9 @@ unsafe impl PHY for GenericSMI {
         sm.smi_write(PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M);
     }
 
-    fn poll_link<S: StationManagement>(sm: &mut S) -> bool {
+    fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool {
+        cx.waker().wake_by_ref();
+
         let bsr = sm.smi_read(PHY_REG_BSR);
 
         // No link without autonegotiate
