@@ -21,6 +21,8 @@ pub mod cmd;
 pub mod consts;
 pub mod evt;
 pub mod lhci;
+#[cfg(feature = "mac")]
+pub mod mac;
 pub mod shci;
 pub mod sub;
 pub mod tables;

@@ -6,8 +6,9 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::sub::mac::commands::{ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::sub::mac::typedefs::{MacChannel, PibId};
+use embassy_stm32_wpan::mac::commands::{ResetRequest, SetRequest, StartRequest};
+use embassy_stm32_wpan::mac::typedefs::{MacChannel, PibId};
+use embassy_stm32_wpan::mac::Mac;
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
@@ -64,64 +65,66 @@ async fn main(spawner: Spawner) {
     let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);
 
+    let iface = Mac::new(mbox.mac_subsystem);
+
     info!("resetting");
-    mbox.mac_subsystem
+    iface
         .send_command(&ResetRequest { set_default_pib: true })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     defmt::info!("{:#x}", evt);
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000001;
-    mbox.mac_subsystem
+    iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &extended_address as *const _ as *const u8,
             pib_attribute: PibId::ExtendedAddress,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     defmt::info!("{:#x}", evt);
 
     info!("setting short address");
     let short_address: u16 = 0x1122;
-    mbox.mac_subsystem
+    iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &short_address as *const _ as *const u8,
             pib_attribute: PibId::ShortAddress,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     defmt::info!("{:#x}", evt);
 
     info!("setting association permit");
     let association_permit: bool = true;
-    mbox.mac_subsystem
+    iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &association_permit as *const _ as *const u8,
             pib_attribute: PibId::AssociationPermit,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     defmt::info!("{:#x}", evt);
 
     info!("setting TX power");
     let transmit_power: i8 = 2;
-    mbox.mac_subsystem
+    iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &transmit_power as *const _ as *const u8,
             pib_attribute: PibId::TransmitPower,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     defmt::info!("{:#x}", evt);
 
     info!("starting FFD device");
-    mbox.mac_subsystem
+    iface
         .send_command(&StartRequest {
             pan_id: [0xAA, 0x1A],
             channel_number: MacChannel::Channel16,
@@ -133,23 +136,23 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     defmt::info!("{:#x}", evt);
 
     info!("setting RX on when idle");
     let rx_on_while_idle: bool = true;
-    mbox.mac_subsystem
+    iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &rx_on_while_idle as *const _ as *const u8,
             pib_attribute: PibId::RxOnWhenIdle,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     defmt::info!("{:#x}", evt);
 
     loop {
-        let evt = mbox.mac_subsystem.read().await;
+        let evt = iface.read().await;
         defmt::info!("{:#x}", evt);
     }
 }

@@ -6,11 +6,12 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::sub::mac::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
-use embassy_stm32_wpan::sub::mac::event::MacEvent;
-use embassy_stm32_wpan::sub::mac::typedefs::{
+use embassy_stm32_wpan::mac::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
+use embassy_stm32_wpan::mac::event::MacEvent;
+use embassy_stm32_wpan::mac::typedefs::{
     AddressMode, Capabilities, KeyIdMode, MacAddress, MacChannel, PibId, SecurityLevel,
 };
+use embassy_stm32_wpan::mac::Mac;
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
@@ -67,34 +68,36 @@ async fn main(spawner: Spawner) {
     let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);
 
+    let iface = Mac::new(mbox.mac_subsystem);
+
     info!("resetting");
-    mbox.mac_subsystem
+    iface
         .send_command(&ResetRequest { set_default_pib: true })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     info!("{:#x}", evt);
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
-    mbox.mac_subsystem
+    iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &extended_address as *const _ as *const u8,
             pib_attribute: PibId::ExtendedAddress,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     info!("{:#x}", evt);
 
     info!("getting extended address");
-    mbox.mac_subsystem
+    iface
         .send_command(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     info!("{:#x}", evt);
 
     if let Ok(MacEvent::MlmeGetCnf(evt)) = evt {
@@ -119,24 +122,24 @@ async fn main(spawner: Spawner) {
         key_index: 152,
     };
     info!("{}", a);
-    mbox.mac_subsystem.send_command(&a).await.unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    iface.send_command(&a).await.unwrap();
+    let evt = iface.read().await;
     info!("{:#x}", evt);
 
     info!("setting short address");
     let short: u64 = 0xACDE480000000002;
-    mbox.mac_subsystem
+    iface
         .send_command(&SetRequest {
             pib_attribute_ptr: &short as *const _ as *const u8,
             pib_attribute: PibId::ShortAddress,
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
+    let evt = iface.read().await;
     info!("{:#x}", evt);
 
     loop {
-        let evt = mbox.mac_subsystem.read().await;
+        let evt = iface.read().await;
         info!("{:#x}", evt);
     }
 }
