@@ -1,3 +1,8 @@
+//! This example shows how to use SPI (Serial Peripheral Interface) in the RP2040 chip.
+//!
+//! Example written for a display using the ST7789 chip. Possibly the Waveshare Pico-ResTouch
+//! (https://www.waveshare.com/wiki/Pico-ResTouch-LCD-2.8)
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

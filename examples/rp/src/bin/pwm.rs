@@ -1,3 +1,7 @@
+//! This example shows how to use PWM (Pulse Width Modulation) in the RP2040 chip.
+//!
+//! The LED on the RP Pico W board is connected differently. Add a LED and resistor to another pin.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

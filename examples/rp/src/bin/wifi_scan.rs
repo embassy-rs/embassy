@@ -1,3 +1,6 @@
+//! This example uses the RP Pico W board Wifi chip (cyw43).
+//! Scans Wifi for ssid names.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

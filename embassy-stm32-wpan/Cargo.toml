@@ -30,7 +30,8 @@ bitflags = { version = "2.3.3", optional = true }
 
 [features]
 default = ["mac", "ble", "defmt"]
-defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt"]
+defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "stm32wb-hci?/defmt"]
+stm32wb-hci = { version = "0.1.3", optional = true }
 
 ble = ["dep:stm32wb-hci"]
 mac = ["dep:bitflags"]
