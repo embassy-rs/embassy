@@ -21,6 +21,7 @@ chrono = ["embassy-stm32/chrono", "dep:chrono"]
 can = []
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/mac"]
+embassy-stm32-wpan = []
 not-gpdma = []
 
 [dependencies]
