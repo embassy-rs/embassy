@@ -36,6 +36,10 @@ name = "tl_mbox_mac"
 required-features = ["mac"]
 
 [[bin]] 
+name = "mac_rfd"
+required-features = ["mac"]
+
+[[bin]] 
 name = "mac_ffd"
 required-features = ["mac"]
 
