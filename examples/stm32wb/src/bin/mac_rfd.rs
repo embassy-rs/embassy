@@ -115,7 +115,7 @@ async fn main(spawner: Spawner) {
         coord_addr_mode: AddressMode::Short,
         coord_address: MacAddress { short: [34, 17] },
         capability_information: Capabilities::ALLOCATE_ADDRESS,
-        coord_pan_id: [0xAA, 0x1A],
+        coord_pan_id: PanId([0x1A, 0xAA]),
         security_level: SecurityLevel::Unsecure,
         key_id_mode: KeyIdMode::Implicite,
         key_source: [0; 8],
@@ -126,17 +126,44 @@ async fn main(spawner: Spawner) {
     let evt = iface.read().await;
     info!("{:#x}", evt);
 
+    let short_addr = if let Ok(MacEvent::MlmeAssociateCnf(conf)) = evt {
+        conf.assoc_short_address
+    } else {
+        defmt::panic!()
+    };
+
     info!("setting short address");
     let short: u64 = 0xACDE480000000002;
     iface
         .send_command(&SetRequest {
-            pib_attribute_ptr: &short as *const _ as *const u8,
+            pib_attribute_ptr: &short_addr as *const _ as *const u8,
             pib_attribute: PibId::ShortAddress,
         })
         .await
         .unwrap();
     let evt = iface.read().await;
     info!("{:#x}", evt);
+
+    info!("sending data");
+    let mut data_buffer = [0u8; 256];
+    let data = b"Hello from embassy!";
+    data_buffer[..data.len()].copy_from_slice(data);
+    iface
+        .send_command(&DataRequest {
+            src_addr_mode: AddressMode::Short,
+            dst_addr_mode: AddressMode::Short,
+            dst_pan_id: PanId([0x1A, 0xAA]),
+            dst_address: MacAddress::BROADCAST,
+            msdu_handle: 0x02,
+            ack_tx: 0x00,
+            gts_tx: false,
+            msdu_ptr: &data_buffer as *const _ as *const u8,
+            msdu_length: data.len() as u8,
+            security_level: SecurityLevel::Unsecure,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
 
     loop {
         let evt = iface.read().await;
