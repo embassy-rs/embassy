@@ -38,3 +38,7 @@ required-features = ["mac"]
 [[bin]] 
 name = "eddystone_beacon"
 required-features = ["ble"]
+
+[[bin]] 
+name = "gatt_server"
+required-features = ["ble"]
