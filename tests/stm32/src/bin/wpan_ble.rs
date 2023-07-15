@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
         version_major, version_minor, subversion, sram2a_size, sram2b_size
     );
 
-    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    let _ = mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
 
     info!("resetting BLE...");
     mbox.ble_subsystem.reset().await;
