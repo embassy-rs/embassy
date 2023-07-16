@@ -168,9 +168,10 @@ async fn main(spawner: Spawner) {
 
     loop {
         let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
-
         if let Ok(evt) = evt.mac_event() {
+            defmt::info!("parsed mac event");
+            defmt::info!("{:#x}", evt);
+
             match evt {
                 MacEvent::MlmeAssociateInd(association) => mbox
                     .mac_subsystem
@@ -184,17 +185,22 @@ async fn main(spawner: Spawner) {
                     .await
                     .unwrap(),
                 MacEvent::McpsDataInd(data_ind) => {
-                    let data_addr = data_ind.msdu_ptr;
-                    let mut data = [0u8; 256];
-                    unsafe { data_addr.copy_to(&mut data as *mut _, data_ind.msdu_length as usize) }
-                    info!("{}", data[..data_ind.msdu_length as usize]);
+                    let payload = data_ind.payload();
+                    let ref_payload = b"Hello from embassy!";
+                    info!("{}", payload);
 
-                    if &data[..data_ind.msdu_length as usize] == b"Hello from embassy!" {
+                    if payload == ref_payload {
                         info!("success");
+                    } else {
+                        info!("ref payload: {}", ref_payload);
                     }
                 }
-                _ => {}
+                _ => {
+                    defmt::info!("other mac event");
+                }
             }
+        } else {
+            defmt::info!("failed to parse mac event");
         }
     }
 }

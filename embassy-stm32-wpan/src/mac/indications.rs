@@ -1,3 +1,5 @@
+use core::slice;
+
 use super::consts::MAX_PENDING_ADDRESS;
 use super::event::ParseableMacEvent;
 use super::typedefs::{
@@ -232,6 +234,12 @@ pub struct DataIndication {
 }
 
 impl ParseableMacEvent for DataIndication {}
+
+impl DataIndication {
+    pub fn payload<'a>(&'a self) -> &'a [u8] {
+        unsafe { slice::from_raw_parts(self.msdu_ptr as *const _ as *const u8, self.msdu_length as usize) }
+    }
+}
 
 /// MLME POLL Indication which will be used for indicating the Data Request
 /// reception to upper layer as defined in Zigbee r22 - D.8.2
