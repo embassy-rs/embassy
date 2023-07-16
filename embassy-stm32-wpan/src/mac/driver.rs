@@ -1,25 +1,21 @@
-pub mod commands;
-mod consts;
-pub mod control;
-pub mod event;
-mod helpers;
-pub mod indications;
-mod macros;
-mod opcodes;
-pub mod responses;
-pub mod runner;
-pub mod typedefs;
+#![no_std]
+#![no_main]
+#![allow(incomplete_features)]
+#![feature(async_fn_in_trait, type_alias_impl_trait, concat_bytes)]
+#![deny(unused_must_use)]
 
 use core::slice;
 
 use embassy_net_driver_channel as ch;
+use embedded_hal_1::digital::OutputPin;
+use events::Events;
+use ioctl::IoctlState;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-pub use crate::mac::control::{Control, Error as ControlError};
+pub use crate::control::{Control, Error as ControlError};
 pub use crate::runner::Runner;
 pub use crate::structs::BssInfo;
-use crate::sub::mac::Mac;
 
 const MTU: usize = 1514;
 
@@ -78,9 +74,14 @@ pub type NetDriver<'a> = ch::Device<'a, MTU>;
 
 pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
-    mac_subsystem: Mac,
+    pwr: PWR,
+    spi: SPI,
     firmware: &[u8],
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>) {
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
+where
+    PWR: OutputPin,
+    SPI: SpiBusCyw43,
+{
     let (ch_runner, device) = ch::new(&mut state.ch, [0; 6]);
     let state_ch = ch_runner.state_runner();
 
