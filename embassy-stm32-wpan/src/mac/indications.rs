@@ -1,6 +1,5 @@
 use super::consts::MAX_PENDING_ADDRESS;
 use super::event::ParseableMacEvent;
-use super::helpers::to_u32;
 use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, KeyIdMode, MacAddress, MacChannel, MacStatus, PanDescriptor,
     PanId, SecurityLevel,
@@ -114,7 +113,7 @@ impl ParseableMacEvent for BeaconNotifyIndication {
         ];
 
         Ok(Self {
-            sdu_ptr: to_u32(&buf[0..4]) as *const u8,
+            sdu_ptr: u32::from_le_bytes(buf[0..4].try_into().unwrap()) as *const u8,
             pan_descriptor: PanDescriptor::try_from(&buf[4..26])?,
             addr_list,
             bsn: buf[82],
@@ -405,7 +404,7 @@ impl ParseableMacEvent for DataIndication {
         };
 
         Ok(Self {
-            msdu_ptr: to_u32(&buf[0..4]) as *const u8,
+            msdu_ptr: u32::from_le_bytes(buf[0..4].try_into().unwrap()) as *const u8,
             src_addr_mode,
             src_pan_id: PanId([buf[5], buf[6]]),
             src_address,
@@ -424,10 +423,10 @@ impl ParseableMacEvent for DataIndication {
             uwn_preamble_symbol_repetitions: buf[45],
             datrate: buf[46],
             ranging_received: buf[47],
-            ranging_counter_start: to_u32(&buf[48..52]),
-            ranging_counter_stop: to_u32(&buf[52..56]),
-            ranging_tracking_interval: to_u32(&buf[56..60]),
-            ranging_offset: to_u32(&buf[60..64]),
+            ranging_counter_start: u32::from_le_bytes(buf[48..52].try_into().unwrap()),
+            ranging_counter_stop: u32::from_le_bytes(buf[52..56].try_into().unwrap()),
+            ranging_tracking_interval: u32::from_le_bytes(buf[56..60].try_into().unwrap()),
+            ranging_offset: u32::from_le_bytes(buf[60..64].try_into().unwrap()),
             ranging_fom: buf[65],
             rssi: buf[66],
         })

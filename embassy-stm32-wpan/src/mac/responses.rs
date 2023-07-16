@@ -1,6 +1,5 @@
 use super::consts::{MAX_ED_SCAN_RESULTS_SUPPORTED, MAX_PAN_DESC_SUPPORTED, MAX_SOUNDING_LIST_SUPPORTED};
 use super::event::ParseableMacEvent;
-use super::helpers::to_u32;
 use super::typedefs::{
     AddressMode, AssociationStatus, KeyIdMode, MacAddress, MacStatus, PanDescriptor, PanId, PibId, ScanType,
     SecurityLevel,
@@ -100,7 +99,7 @@ impl ParseableMacEvent for GetConfirm {
     fn try_parse(buf: &[u8]) -> Result<Self, ()> {
         Self::validate(buf)?;
 
-        let address = to_u32(&buf[0..4]);
+        let address = u32::from_le_bytes(buf[0..4].try_into().unwrap());
 
         Ok(Self {
             pib_attribute_value_ptr: address as *const u8,
@@ -357,8 +356,8 @@ impl ParseableMacEvent for CalibrateConfirm {
         Ok(Self {
             status: MacStatus::try_from(buf[0])?,
             // 3 byte stuffing
-            cal_tx_rmaker_offset: to_u32(&buf[4..8]),
-            cal_rx_rmaker_offset: to_u32(&buf[8..12]),
+            cal_tx_rmaker_offset: u32::from_le_bytes(buf[4..8].try_into().unwrap()),
+            cal_rx_rmaker_offset: u32::from_le_bytes(buf[8..12].try_into().unwrap()),
         })
     }
 }
@@ -400,10 +399,10 @@ impl ParseableMacEvent for DataConfirm {
             time_stamp: [buf[1], buf[2], buf[3], buf[4]],
             ranging_received: buf[5],
             status: MacStatus::try_from(buf[6])?,
-            ranging_counter_start: to_u32(&buf[7..11]),
-            ranging_counter_stop: to_u32(&buf[11..15]),
-            ranging_tracking_interval: to_u32(&buf[15..19]),
-            ranging_offset: to_u32(&buf[19..23]),
+            ranging_counter_start: u32::from_le_bytes(buf[7..11].try_into().unwrap()),
+            ranging_counter_stop: u32::from_le_bytes(buf[11..15].try_into().unwrap()),
+            ranging_tracking_interval: u32::from_le_bytes(buf[15..19].try_into().unwrap()),
+            ranging_offset: u32::from_le_bytes(buf[19..23].try_into().unwrap()),
             ranging_fom: buf[24],
         })
     }

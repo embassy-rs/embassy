@@ -1,4 +1,3 @@
-use super::helpers::to_u16;
 use super::indications::{
     AssociateIndication, BeaconNotifyIndication, CommStatusIndication, DataIndication, DisassociateIndication,
     DpsIndication, GtsIndication, OrphanIndication, PollIndication, SyncLossIndication,
@@ -58,7 +57,8 @@ impl TryFrom<&[u8]> for MacEvent {
     type Error = ();
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let opcode = to_u16(&value[0..2]);
+        let opcode = u16::from_le_bytes(value[0..2].try_into().unwrap());
+
         let opcode = OpcodeM0ToM4::try_from(opcode)?;
 
         let buf = &value[2..];
