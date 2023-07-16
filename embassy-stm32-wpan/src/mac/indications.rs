@@ -7,6 +7,7 @@ use super::typedefs::{
 
 /// MLME ASSOCIATE Indication which will be used by the MAC
 /// to indicate the reception of an association request command
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssociateIndication {
     /// Extended address of the device requesting association
@@ -27,6 +28,7 @@ impl ParseableMacEvent for AssociateIndication {}
 
 /// MLME DISASSOCIATE indication which will be used to send
 /// disassociation indication to the application.
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DisassociateIndication {
     /// Extended address of the device requesting association
@@ -47,6 +49,7 @@ impl ParseableMacEvent for DisassociateIndication {}
 
 /// MLME BEACON NOTIIFY Indication which is used to send parameters contained
 /// within a beacon frame received by the MAC to the application
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct BeaconNotifyIndication {
     /// he set of octets comprising the beacon payload to be transferred
@@ -67,6 +70,7 @@ pub struct BeaconNotifyIndication {
 impl ParseableMacEvent for BeaconNotifyIndication {}
 
 /// MLME COMM STATUS Indication which is used by the MAC to indicate a communications status
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CommStatusIndication {
     /// The 16-bit PAN identifier of the device from which the frame
@@ -96,6 +100,7 @@ impl ParseableMacEvent for CommStatusIndication {}
 
 /// MLME GTS Indication indicates that a GTS has been allocated or that a
 /// previously allocated GTS has been deallocated
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GtsIndication {
     /// The short address of the device that has been allocated or deallocated a GTS
@@ -118,6 +123,7 @@ impl ParseableMacEvent for GtsIndication {}
 
 /// MLME ORPHAN Indication which is used by the coordinator to notify the
 /// application of the presence of an orphaned device
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OrphanIndication {
     /// Extended address of the orphaned device
@@ -138,6 +144,7 @@ impl ParseableMacEvent for OrphanIndication {}
 
 /// MLME SYNC LOSS Indication which is used by the MAC to indicate the loss
 /// of synchronization with the coordinator
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SyncLossIndication {
     /// The PAN identifier with which the device lost synchronization or to which it was realigned
@@ -162,6 +169,7 @@ impl ParseableMacEvent for SyncLossIndication {}
 
 /// MLME DPS Indication which indicates the expiration of the DPSIndexDuration
 ///  and the resetting of the DPS values in the PHY
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DpsIndication {
     /// byte stuffing to keep 32 bit alignment
@@ -170,8 +178,8 @@ pub struct DpsIndication {
 
 impl ParseableMacEvent for DpsIndication {}
 
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DataIndication {
     /// Pointer to the set of octets forming the MSDU being indicated  
     pub msdu_ptr: *const u8,
@@ -227,6 +235,7 @@ impl ParseableMacEvent for DataIndication {}
 
 /// MLME POLL Indication which will be used for indicating the Data Request
 /// reception to upper layer as defined in Zigbee r22 - D.8.2
+#[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PollIndication {
     /// addressing mode used
