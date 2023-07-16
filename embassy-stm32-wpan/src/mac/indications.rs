@@ -206,9 +206,9 @@ pub struct DataIndication {
     /// The time, in symbols, at which the data were received  
     pub time_stamp: [u8; 4],
     /// The security level purportedly used by the received data frame  
-    pub security_level: SecurityLevel,
+    security_level: SecurityLevel,
     /// Mode used to identify the key used by originator of received frame  
-    pub key_id_mode: KeyIdMode,
+    key_id_mode: KeyIdMode,
     /// The originator of the key  
     pub key_source: [u8; 8],
     /// The index of the key  
