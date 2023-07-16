@@ -237,7 +237,7 @@ impl ParseableMacEvent for DataIndication {}
 
 impl DataIndication {
     pub fn payload<'a>(&'a self) -> &'a [u8] {
-        unsafe { slice::from_raw_parts(self.msdu_ptr as *const _ as *const u8, self.msdu_length as usize) }
+        unsafe { slice::from_raw_parts(self.msdu_ptr, self.msdu_length as usize) }
     }
 }
 
