@@ -12,7 +12,7 @@ use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
 use crate::mac::commands::MacCommand;
-use crate::mac::event::MacEvent;
+use crate::mac::event::Event;
 use crate::mac::typedefs::MacError;
 use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
@@ -94,11 +94,8 @@ impl Mac {
         }
     }
 
-    pub async fn read(&self) -> Result<MacEvent, ()> {
-        let evt_box = self.tl_read().await;
-        let payload = evt_box.payload();
-
-        MacEvent::try_from(payload)
+    pub async fn read(&self) -> Event {
+        Event::new(self.tl_read().await)
     }
 }
 

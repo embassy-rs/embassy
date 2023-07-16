@@ -75,8 +75,10 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        defmt::info!("{:#x}", evt.mac_event());
+    }
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
@@ -87,8 +89,10 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        defmt::info!("{:#x}", evt.mac_event());
+    }
 
     info!("getting extended address");
     mbox.mac_subsystem
@@ -98,14 +102,17 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
 
-    if let Ok(MacEvent::MlmeGetCnf(evt)) = evt {
-        if evt.pib_attribute_value_len == 8 {
-            let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
 
-            info!("value {:#x}", value)
+        if let Ok(MacEvent::MlmeGetCnf(evt)) = evt.mac_event() {
+            if evt.pib_attribute_value_len == 8 {
+                let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+
+                info!("value {:#x}", value)
+            }
         }
     }
 
@@ -124,13 +131,15 @@ async fn main(spawner: Spawner) {
     };
     info!("{}", a);
     mbox.mac_subsystem.send_command(&a).await.unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    let short_addr = {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
 
-    let short_addr = if let Ok(MacEvent::MlmeAssociateCnf(conf)) = evt {
-        conf.assoc_short_address
-    } else {
-        defmt::panic!()
+        if let Ok(MacEvent::MlmeAssociateCnf(conf)) = evt.mac_event() {
+            conf.assoc_short_address
+        } else {
+            defmt::panic!()
+        }
     };
 
     info!("setting short address");
@@ -141,8 +150,10 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
+    }
 
     info!("sending data");
     let data = b"Hello from embassy!";
@@ -163,11 +174,13 @@ async fn main(spawner: Spawner) {
         )
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
+    }
 
     loop {
         let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt);
+        info!("{:#x}", evt.mac_event());
     }
 }
