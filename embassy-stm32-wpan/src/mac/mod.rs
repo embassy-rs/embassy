@@ -4,6 +4,7 @@ pub mod control;
 pub mod event;
 mod helpers;
 pub mod indications;
+mod ioctl;
 mod macros;
 mod opcodes;
 pub mod responses;
@@ -14,11 +15,10 @@ use core::slice;
 
 use embassy_net_driver_channel as ch;
 
-use crate::bus::Bus;
-pub use crate::bus::SpiBusCyw43;
 pub use crate::mac::control::{Control, Error as ControlError};
-pub use crate::runner::Runner;
-pub use crate::structs::BssInfo;
+use crate::mac::event::Events;
+use crate::mac::ioctl::IoctlState;
+pub use crate::mac::runner::Runner;
 use crate::sub::mac::Mac;
 
 const MTU: usize = 1514;
@@ -76,15 +76,15 @@ impl PowerManagementMode {
 
 pub type NetDriver<'a> = ch::Device<'a, MTU>;
 
-pub async fn new<'a, PWR, SPI>(
+pub async fn new<'a>(
     state: &'a mut State,
     mac_subsystem: Mac,
     firmware: &[u8],
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>) {
+) -> (NetDriver<'a>, Control<'a>, Runner<'a>) {
     let (ch_runner, device) = ch::new(&mut state.ch, [0; 6]);
     let state_ch = ch_runner.state_runner();
 
-    let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
+    let mut runner = Runner::new(ch_runner, mac_subsystem, &state.ioctl_state, &state.events);
 
     runner.init(firmware).await;
 

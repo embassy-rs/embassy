@@ -2,29 +2,12 @@ use embassy_futures::select::{select3, Either3};
 use embassy_net_driver_channel as ch;
 use embassy_sync::pubsub::PubSubBehavior;
 
+use crate::mac::event::Events;
+use crate::mac::ioctl::{IoctlState, PendingIoctl};
+use crate::mac::MTU;
 use crate::sub::mac::Mac;
 
-#[cfg(feature = "firmware-logs")]
-struct LogState {
-    addr: u32,
-    last_idx: usize,
-    buf: [u8; 256],
-    buf_count: usize,
-}
-
-#[cfg(feature = "firmware-logs")]
-impl Default for LogState {
-    fn default() -> Self {
-        Self {
-            addr: Default::default(),
-            last_idx: Default::default(),
-            buf: [0; 256],
-            buf_count: Default::default(),
-        }
-    }
-}
-
-pub struct Runner<'a, PWR, SPI> {
+pub struct Runner<'a> {
     ch: ch::Runner<'a, MTU>,
     mac: Mac,
 
@@ -34,32 +17,18 @@ pub struct Runner<'a, PWR, SPI> {
     sdpcm_seq_max: u8,
 
     events: &'a Events,
-
-    #[cfg(feature = "firmware-logs")]
-    log: LogState,
 }
 
-impl<'a, PWR, SPI> Runner<'a, PWR, SPI>
-where
-    PWR: OutputPin,
-    SPI: SpiBusCyw43,
-{
-    pub(crate) fn new(
-        ch: ch::Runner<'a, MTU>,
-        bus: Bus<PWR, SPI>,
-        ioctl_state: &'a IoctlState,
-        events: &'a Events,
-    ) -> Self {
+impl<'a> Runner<'a> {
+    pub(crate) fn new(ch: ch::Runner<'a, MTU>, mac: Mac, ioctl_state: &'a IoctlState, events: &'a Events) -> Self {
         Self {
             ch,
-            bus,
+            mac,
             ioctl_state,
             ioctl_id: 0,
             sdpcm_seq: 0,
             sdpcm_seq_max: 1,
             events,
-            #[cfg(feature = "firmware-logs")]
-            log: LogState::default(),
         }
     }
 
@@ -70,60 +39,6 @@ where
         self.log_init().await;
 
         debug!("wifi init done");
-    }
-
-    #[cfg(feature = "firmware-logs")]
-    async fn log_init(&mut self) {
-        // Initialize shared memory for logging.
-
-        let addr = CHIP.atcm_ram_base_address + CHIP.chip_ram_size - 4 - CHIP.socram_srmem_size;
-        let shared_addr = self.bus.bp_read32(addr).await;
-        debug!("shared_addr {:08x}", shared_addr);
-
-        let mut shared = [0; SharedMemData::SIZE];
-        self.bus.bp_read(shared_addr, &mut shared).await;
-        let shared = SharedMemData::from_bytes(&shared);
-
-        self.log.addr = shared.console_addr + 8;
-    }
-
-    #[cfg(feature = "firmware-logs")]
-    async fn log_read(&mut self) {
-        // Read log struct
-        let mut log = [0; SharedMemLog::SIZE];
-        self.bus.bp_read(self.log.addr, &mut log).await;
-        let log = SharedMemLog::from_bytes(&log);
-
-        let idx = log.idx as usize;
-
-        // If pointer hasn't moved, no need to do anything.
-        if idx == self.log.last_idx {
-            return;
-        }
-
-        // Read entire buf for now. We could read only what we need, but then we
-        // run into annoying alignment issues in `bp_read`.
-        let mut buf = [0; 0x400];
-        self.bus.bp_read(log.buf, &mut buf).await;
-
-        while self.log.last_idx != idx as usize {
-            let b = buf[self.log.last_idx];
-            if b == b'\r' || b == b'\n' {
-                if self.log.buf_count != 0 {
-                    let s = unsafe { core::str::from_utf8_unchecked(&self.log.buf[..self.log.buf_count]) };
-                    debug!("LOGS: {}", s);
-                    self.log.buf_count = 0;
-                }
-            } else if self.log.buf_count < self.log.buf.len() {
-                self.log.buf[self.log.buf_count] = b;
-                self.log.buf_count += 1;
-            }
-
-            self.log.last_idx += 1;
-            if self.log.last_idx == 0x400 {
-                self.log.last_idx = 0;
-            }
-        }
     }
 
     pub async fn run(mut self) -> ! {
@@ -423,67 +338,5 @@ where
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
         self.bus.wlan_write(&buf[..total_len / 4]).await;
-    }
-
-    async fn core_disable(&mut self, core: Core) {
-        let base = core.base_addr();
-
-        // Dummy read?
-        let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
-
-        // Check it isn't already reset
-        let r = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
-        if r & AI_RESETCTRL_BIT_RESET != 0 {
-            return;
-        }
-
-        self.bus.bp_write8(base + AI_IOCTRL_OFFSET, 0).await;
-        let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-
-        block_for(Duration::from_millis(1));
-
-        self.bus
-            .bp_write8(base + AI_RESETCTRL_OFFSET, AI_RESETCTRL_BIT_RESET)
-            .await;
-        let _ = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
-    }
-
-    async fn core_reset(&mut self, core: Core) {
-        self.core_disable(core).await;
-
-        let base = core.base_addr();
-        self.bus
-            .bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN)
-            .await;
-        let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-
-        self.bus.bp_write8(base + AI_RESETCTRL_OFFSET, 0).await;
-
-        Timer::after(Duration::from_millis(1)).await;
-
-        self.bus
-            .bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_CLOCK_EN)
-            .await;
-        let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-
-        Timer::after(Duration::from_millis(1)).await;
-    }
-
-    async fn core_is_up(&mut self, core: Core) -> bool {
-        let base = core.base_addr();
-
-        let io = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
-        if io & (AI_IOCTRL_BIT_FGC | AI_IOCTRL_BIT_CLOCK_EN) != AI_IOCTRL_BIT_CLOCK_EN {
-            debug!("core_is_up: returning false due to bad ioctrl {:02x}", io);
-            return false;
-        }
-
-        let r = self.bus.bp_read8(base + AI_RESETCTRL_OFFSET).await;
-        if r & (AI_RESETCTRL_BIT_RESET) != 0 {
-            debug!("core_is_up: returning false due to bad resetctrl {:02x}", r);
-            return false;
-        }
-
-        true
     }
 }
