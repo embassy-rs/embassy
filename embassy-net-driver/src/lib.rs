@@ -164,6 +164,9 @@ pub enum Medium {
     ///
     /// Examples of devices of this type are the Linux `tun`, PPP interfaces, VPNs in tun (layer 3) mode.
     Ip,
+
+    /// IEEE 802_15_4 medium
+    Ieee802154,
 }
 
 impl Default for Medium {

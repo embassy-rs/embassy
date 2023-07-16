@@ -24,9 +24,11 @@ use embassy_net_driver::{Driver, LinkState, Medium};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
+#[allow(unused_imports)]
 use heapless::Vec;
 #[cfg(feature = "igmp")]
 pub use smoltcp::iface::MulticastError;
+#[allow(unused_imports)]
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
@@ -34,6 +36,8 @@ use smoltcp::socket::dhcpv4::{self, RetryConfig};
 pub use smoltcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
+#[cfg(feature = "medium-ieee802154")]
+pub use smoltcp::wire::{HardwareAddress, Ieee802154Address};
 pub use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
 pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
@@ -232,7 +236,7 @@ impl<D: Driver + 'static> Stack<D> {
         resources: &'static mut StackResources<SOCK>,
         random_seed: u64,
     ) -> Self {
-        #[cfg(feature = "medium-ethernet")]
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         let medium = device.capabilities().medium;
 
         let hardware_addr = match medium {
@@ -240,6 +244,8 @@ impl<D: Driver + 'static> Stack<D> {
             Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())),
             #[cfg(feature = "medium-ip")]
             Medium::Ip => HardwareAddress::Ip,
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::Absent),
             #[allow(unreachable_patterns)]
             _ => panic!(
                 "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
@@ -262,6 +268,7 @@ impl<D: Driver + 'static> Stack<D> {
 
         let next_local_port = (random_seed % (LOCAL_PORT_MAX - LOCAL_PORT_MIN) as u64) as u16 + LOCAL_PORT_MIN;
 
+        #[cfg_attr(feature = "medium-ieee802154", allow(unused_mut))]
         let mut socket = SocketStack {
             sockets,
             iface,
@@ -269,6 +276,7 @@ impl<D: Driver + 'static> Stack<D> {
             next_local_port,
         };
 
+        #[cfg_attr(feature = "medium-ieee802154", allow(unused_mut))]
         let mut inner = Inner {
             device,
             link_up: false,
@@ -286,6 +294,9 @@ impl<D: Driver + 'static> Stack<D> {
             #[cfg(feature = "dns")]
             dns_waker: WakerRegistration::new(),
         };
+
+        #[cfg(feature = "medium-ieee802154")]
+        let _ = config;
 
         #[cfg(feature = "proto-ipv4")]
         match config.ipv4 {

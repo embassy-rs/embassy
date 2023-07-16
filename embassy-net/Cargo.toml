@@ -37,6 +37,7 @@ proto-ipv4 = ["smoltcp/proto-ipv4"]
 proto-ipv6 = ["smoltcp/proto-ipv6"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
+medium-ieee802154 = ["smoltcp/medium-ieee802154"]
 igmp = ["smoltcp/proto-igmp"]
 
 [dependencies]
