@@ -69,7 +69,10 @@ async fn main(spawner: Spawner) {
 
     info!("resetting");
     mbox.mac_subsystem
-        .send_command(&ResetRequest { set_default_pib: true })
+        .send_command(&ResetRequest {
+            set_default_pib: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
     let evt = mbox.mac_subsystem.read().await;
@@ -91,6 +94,7 @@ async fn main(spawner: Spawner) {
     mbox.mac_subsystem
         .send_command(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -141,23 +145,22 @@ async fn main(spawner: Spawner) {
     info!("{:#x}", evt);
 
     info!("sending data");
-    let mut data_buffer = [0u8; 256];
     let data = b"Hello from embassy!";
-    data_buffer[..data.len()].copy_from_slice(data);
     mbox.mac_subsystem
-        .send_command(&DataRequest {
-            src_addr_mode: AddressMode::Short,
-            dst_addr_mode: AddressMode::Short,
-            dst_pan_id: PanId([0x1A, 0xAA]),
-            dst_address: MacAddress::BROADCAST,
-            msdu_handle: 0x02,
-            ack_tx: 0x00,
-            gts_tx: false,
-            msdu_ptr: &data_buffer as *const _ as *const u8,
-            msdu_length: data.len() as u8,
-            security_level: SecurityLevel::Unsecure,
-            ..Default::default()
-        })
+        .send_command(
+            DataRequest {
+                src_addr_mode: AddressMode::Short,
+                dst_addr_mode: AddressMode::Short,
+                dst_pan_id: PanId([0x1A, 0xAA]),
+                dst_address: MacAddress::BROADCAST,
+                msdu_handle: 0x02,
+                ack_tx: 0x00,
+                gts_tx: false,
+                security_level: SecurityLevel::Unsecure,
+                ..Default::default()
+            }
+            .set_buffer(data),
+        )
         .await
         .unwrap();
     let evt = mbox.mac_subsystem.read().await;

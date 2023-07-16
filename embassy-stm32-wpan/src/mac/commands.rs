@@ -1,15 +1,16 @@
+use core::{mem, slice};
+
 use super::opcodes::OpcodeM4ToM0;
 use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, MacStatus,
     PanId, PibId, ScanType, SecurityLevel,
 };
 
-pub trait MacCommand {
+pub trait MacCommand: Sized {
     const OPCODE: OpcodeM4ToM0;
-    const SIZE: usize;
 
-    fn copy_into_slice(&self, buf: &mut [u8]) {
-        unsafe { core::ptr::copy(self as *const _ as *const u8, buf as *mut _ as *mut u8, Self::SIZE) };
+    fn payload<'a>(&'a self) -> &'a [u8] {
+        unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
     }
 }
 
@@ -41,7 +42,6 @@ pub struct AssociateRequest {
 
 impl MacCommand for AssociateRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeAssociateReq;
-    const SIZE: usize = 25;
 }
 
 /// MLME DISASSOCIATE Request sed to request a disassociation
@@ -70,20 +70,22 @@ pub struct DisassociateRequest {
 
 impl MacCommand for DisassociateRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeDisassociateReq;
-    const SIZE: usize = 24;
 }
 
 /// MLME GET Request used to request a PIB value
 #[repr(C)]
+#[derive(Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GetRequest {
     /// the name of the PIB attribute to read
     pub pib_attribute: PibId,
+
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 3],
 }
 
 impl MacCommand for GetRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeGetReq;
-    const SIZE: usize = 4;
 }
 
 /// MLME GTS Request used to request and maintain GTSs
@@ -104,19 +106,20 @@ pub struct GtsRequest {
 
 impl MacCommand for GtsRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeGetReq;
-    const SIZE: usize = 12;
 }
 
 #[repr(C)]
+#[derive(Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResetRequest {
     /// MAC PIB attributes are set to their default values or not during reset
     pub set_default_pib: bool,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 3],
 }
 
 impl MacCommand for ResetRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeResetReq;
-    const SIZE: usize = 4;
 }
 
 /// MLME RX ENABLE Request used to request that the receiver is either enabled
@@ -129,6 +132,8 @@ pub struct RxEnableRequest {
     /// configure the transceiver to RX with ranging for a value of
     /// RANGING_ON or to not enable ranging for RANGING_OFF
     pub ranging_rx_control: u8,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 2],
     /// number of symbols measured before the receiver is to be enabled or disabled
     pub rx_on_time: [u8; 4],
     /// number of symbols for which the receiver is to be enabled
@@ -137,19 +142,6 @@ pub struct RxEnableRequest {
 
 impl MacCommand for RxEnableRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeRxEnableReq;
-    const SIZE: usize = 12;
-
-    fn copy_into_slice(&self, buf: &mut [u8]) {
-        buf[0] = self.defer_permit as u8;
-        buf[1] = self.ranging_rx_control as u8;
-
-        // stuffing to keep 32bit alignment
-        buf[2] = 0;
-        buf[3] = 0;
-
-        buf[4..8].copy_from_slice(&self.rx_on_time);
-        buf[8..12].copy_from_slice(&self.rx_on_duration);
-    }
 }
 
 /// MLME SCAN Request used to initiate a channel scan over a given list of channels
@@ -172,11 +164,12 @@ pub struct ScanRequest {
     pub key_id_mode: KeyIdMode,
     /// index of the key to be used
     pub key_index: u8,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 2],
 }
 
 impl MacCommand for ScanRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeScanReq;
-    const SIZE: usize = 20;
 }
 
 /// MLME SET Request used to attempt to write the given value to the indicated PIB attribute
@@ -191,13 +184,12 @@ pub struct SetRequest {
 
 impl MacCommand for SetRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeSetReq;
-    const SIZE: usize = 8;
 }
 
 /// MLME START Request used by the FFDs to intiate a new PAN or to begin using a new superframe
 /// configuration
-#[derive(Default)]
 #[repr(C)]
+#[derive(Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StartRequest {
     /// PAN indentifier to used by the device
@@ -236,7 +228,6 @@ pub struct StartRequest {
 
 impl MacCommand for StartRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeStartReq;
-    const SIZE: usize = 35;
 }
 
 /// MLME SYNC Request used to synchronize with the coordinator by acquiring and, if
@@ -253,11 +244,12 @@ pub struct SyncRequest {
     ///
     /// `false` if the MLME is to synchronize with only the next beacon
     pub track_beacon: bool,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 1],
 }
 
 impl MacCommand for SyncRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeSyncReq;
-    const SIZE: usize = 4;
 }
 
 /// MLME POLL Request propmts the device to request data from the coordinator
@@ -278,11 +270,12 @@ pub struct PollRequest {
     pub key_source: [u8; 8],
     /// PAN identifier of the coordinator
     pub coord_pan_id: PanId,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 2],
 }
 
 impl MacCommand for PollRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmePollReq;
-    const SIZE: usize = 24;
 }
 
 /// MLME DPS Request allows the next higher layer to request that the PHY utilize a
@@ -297,33 +290,38 @@ pub struct DpsRequest {
     /// the number of symbols for which the transmitter and receiver will utilize the
     /// respective DPS indices
     dps_index_duration: u8,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 1],
 }
 
 impl MacCommand for DpsRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeDpsReq;
-    const SIZE: usize = 4;
 }
 
 /// MLME SOUNDING request primitive which is used by the next higher layer to request that
 /// the PHY respond with channel sounding information
 #[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct SoundingRequest;
+pub struct SoundingRequest {
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 4],
+}
 
 impl MacCommand for SoundingRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeSoundingReq;
-    const SIZE: usize = 4;
 }
 
 /// MLME CALIBRATE request primitive which used  to obtain the results of a ranging
 /// calibration request from an RDEV
 #[repr(C)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct CalibrateRequest;
+pub struct CalibrateRequest {
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 4],
+}
 
 impl MacCommand for CalibrateRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeCalibrateReq;
-    const SIZE: usize = 4;
 }
 
 /// MCPS DATA Request used for MAC data related requests from the application
@@ -370,6 +368,15 @@ pub struct DataRequest {
     pub datrate: u8,
 }
 
+impl DataRequest {
+    pub fn set_buffer<'a>(&'a mut self, buf: &'a [u8]) -> &mut Self {
+        self.msdu_ptr = &buf as *const _ as *const u8;
+        self.msdu_length = buf.len() as u8;
+
+        self
+    }
+}
+
 impl Default for DataRequest {
     fn default() -> Self {
         Self {
@@ -397,7 +404,6 @@ impl Default for DataRequest {
 
 impl MacCommand for DataRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::McpsDataReq;
-    const SIZE: usize = 40;
 }
 
 /// for MCPS PURGE Request used to purge an MSDU from the transaction queue
@@ -407,11 +413,12 @@ pub struct PurgeRequest {
     /// the handle associated with the MSDU to be purged from the transaction
     /// queue
     pub msdu_handle: u8,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 3],
 }
 
 impl MacCommand for PurgeRequest {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::McpsPurgeReq;
-    const SIZE: usize = 4;
 }
 
 /// MLME ASSOCIATE Response used to initiate a response to an MLME-ASSOCIATE.indication
@@ -434,11 +441,12 @@ pub struct AssociateResponse {
     pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 2],
 }
 
 impl MacCommand for AssociateResponse {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeAssociateRes;
-    const SIZE: usize = 24;
 }
 
 /// MLME ORPHAN Response used to respond to the MLME ORPHAN Indication
@@ -459,9 +467,10 @@ pub struct OrphanResponse {
     pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
+    /// byte stuffing to keep 32 bit alignment
+    pub a_stuffing: [u8; 2],
 }
 
 impl MacCommand for OrphanResponse {
     const OPCODE: OpcodeM4ToM0 = OpcodeM4ToM0::MlmeOrphanRes;
-    const SIZE: usize = 24;
 }

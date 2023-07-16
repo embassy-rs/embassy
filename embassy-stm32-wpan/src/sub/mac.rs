@@ -85,12 +85,7 @@ impl Mac {
     where
         T: MacCommand,
     {
-        let mut payload = [0u8; MAX_PACKET_SIZE];
-        cmd.copy_into_slice(&mut payload);
-
-        let response = self
-            .tl_write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE])
-            .await;
+        let response = self.tl_write_and_get_response(T::OPCODE as u16, cmd.payload()).await;
 
         if response == 0x00 {
             Ok(())
@@ -106,8 +101,6 @@ impl Mac {
         MacEvent::try_from(payload)
     }
 }
-
-const MAX_PACKET_SIZE: usize = 255;
 
 impl evt::MemoryManager for Mac {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB
