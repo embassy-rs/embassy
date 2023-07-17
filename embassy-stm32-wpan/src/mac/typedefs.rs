@@ -37,9 +37,11 @@ numeric_enum! {
 numeric_enum! {
     #[repr(u8)]
     /// this enum contains all the MAC PIB Ids
+    #[derive(Default)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum PibId {
         // PHY
+        #[default]
         CurrentChannel = 0x00,
         ChannelsSupported = 0x01,
         TransmitPower = 0x02,

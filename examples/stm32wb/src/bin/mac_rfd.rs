@@ -69,11 +69,16 @@ async fn main(spawner: Spawner) {
 
     info!("resetting");
     mbox.mac_subsystem
-        .send_command(&ResetRequest { set_default_pib: true })
+        .send_command(&ResetRequest {
+            set_default_pib: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        defmt::info!("{:#x}", evt.mac_event());
+    }
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
@@ -84,24 +89,30 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        defmt::info!("{:#x}", evt.mac_event());
+    }
 
     info!("getting extended address");
     mbox.mac_subsystem
         .send_command(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
+            ..Default::default()
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
 
-    if let Ok(MacEvent::MlmeGetCnf(evt)) = evt {
-        if evt.pib_attribute_value_len == 8 {
-            let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
 
-            info!("value {:#x}", value)
+        if let Ok(MacEvent::MlmeGetCnf(evt)) = evt.mac_event() {
+            if evt.pib_attribute_value_len == 8 {
+                let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+
+                info!("value {:#x}", value)
+            }
         }
     }
 
@@ -120,13 +131,15 @@ async fn main(spawner: Spawner) {
     };
     info!("{}", a);
     mbox.mac_subsystem.send_command(&a).await.unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    let short_addr = {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
 
-    let short_addr = if let Ok(MacEvent::MlmeAssociateCnf(conf)) = evt {
-        conf.assoc_short_address
-    } else {
-        defmt::panic!()
+        if let Ok(MacEvent::MlmeAssociateCnf(conf)) = evt.mac_event() {
+            conf.assoc_short_address
+        } else {
+            defmt::panic!()
+        }
     };
 
     info!("setting short address");
@@ -137,34 +150,37 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
+    }
 
     info!("sending data");
-    let mut data_buffer = [0u8; 256];
     let data = b"Hello from embassy!";
-    data_buffer[..data.len()].copy_from_slice(data);
     mbox.mac_subsystem
-        .send_command(&DataRequest {
-            src_addr_mode: AddressMode::Short,
-            dst_addr_mode: AddressMode::Short,
-            dst_pan_id: PanId([0x1A, 0xAA]),
-            dst_address: MacAddress::BROADCAST,
-            msdu_handle: 0x02,
-            ack_tx: 0x00,
-            gts_tx: false,
-            msdu_ptr: &data_buffer as *const _ as *const u8,
-            msdu_length: data.len() as u8,
-            security_level: SecurityLevel::Unsecure,
-            ..Default::default()
-        })
+        .send_command(
+            DataRequest {
+                src_addr_mode: AddressMode::Short,
+                dst_addr_mode: AddressMode::Short,
+                dst_pan_id: PanId([0x1A, 0xAA]),
+                dst_address: MacAddress::BROADCAST,
+                msdu_handle: 0x02,
+                ack_tx: 0x00,
+                gts_tx: false,
+                security_level: SecurityLevel::Unsecure,
+                ..Default::default()
+            }
+            .set_buffer(data),
+        )
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
+    }
 
     loop {
         let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt);
+        info!("{:#x}", evt.mac_event());
     }
 }

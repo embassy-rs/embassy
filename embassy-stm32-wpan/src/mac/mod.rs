@@ -2,7 +2,6 @@ pub mod commands;
 mod consts;
 pub mod control;
 pub mod event;
-mod helpers;
 pub mod indications;
 mod ioctl;
 mod macros;
