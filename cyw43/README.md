@@ -30,7 +30,7 @@ TODO:
 ### Example 2: Create an access point (IP and credentials in the code)
 - `cargo run --release --bin wifi_ap_tcp_server`
 ### Example 3: Connect to an existing network and create a server
-- `WIFI_NETWORK=MyWifiNetwork WIFI_PASSWORD=MyWifiPassword cargo run --release --bin wifi_tcp_server`
+- `cargo run --release --bin wifi_tcp_server`
 
 After a few seconds, you should see that DHCP picks up an IP address like this
 ```

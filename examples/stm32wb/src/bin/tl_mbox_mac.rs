@@ -6,6 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -14,8 +15,13 @@ bind_interrupts!(struct Irqs{
     IPCC_C1_TX => TransmitInterruptHandler;
 });
 
+#[embassy_executor::task]
+async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+    memory_manager.run_queue().await;
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     /*
         How to make this work:
 
@@ -46,8 +52,12 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
+    spawner.spawn(run_mm_queue(mbox.mm_subsystem)).unwrap();
+
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
+
+    core::mem::drop(sys_event);
 
     let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);

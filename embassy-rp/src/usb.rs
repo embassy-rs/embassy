@@ -361,6 +361,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
             let regs = T::regs();
             let siestatus = regs.sie_status().read();
+            let intrstatus = regs.intr().read();
 
             if siestatus.resume() {
                 regs.sie_status().write(|w| w.set_resume(true));
@@ -389,7 +390,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 return Poll::Ready(Event::Reset);
             }
 
-            if siestatus.suspended() {
+            if siestatus.suspended() && intrstatus.dev_suspend() {
                 regs.sie_status().write(|w| w.set_suspended(true));
                 return Poll::Ready(Event::Suspend);
             }

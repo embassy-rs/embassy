@@ -41,7 +41,7 @@ impl From<Level> for bool {
 }
 
 /// Represents a pull setting for an input.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Pull {
     None,
     Up,
@@ -566,13 +566,13 @@ impl<'d, T: Pin> Flex<'d, T> {
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        (self.pin.sio_out().value().read() & self.bit()) == 0
+        !self.is_set_low()
     }
 
     /// Is the output level low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        !self.is_set_high()
+        (self.pin.sio_out().value().read() & self.bit()) == 0
     }
 
     /// What level output is set to

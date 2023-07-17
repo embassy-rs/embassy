@@ -1,3 +1,8 @@
+//! This example shows how to use SPI (Serial Peripheral Interface) in the RP2040 chip.
+//!
+//! Example written for a display using the ST7789 chip. Possibly the Waveshare Pico-ResTouch
+//! (https://www.waveshare.com/wiki/Pico-ResTouch-LCD-2.8)
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -175,7 +180,7 @@ mod touch {
 mod my_display_interface {
     use display_interface::{DataFormat, DisplayError, WriteOnlyDataCommand};
     use embedded_hal_1::digital::OutputPin;
-    use embedded_hal_1::spi::SpiDeviceWrite;
+    use embedded_hal_1::spi::SpiDevice;
 
     /// SPI display interface.
     ///
@@ -187,7 +192,7 @@ mod my_display_interface {
 
     impl<SPI, DC> SPIDeviceInterface<SPI, DC>
     where
-        SPI: SpiDeviceWrite,
+        SPI: SpiDevice,
         DC: OutputPin,
     {
         /// Create new SPI interface for communciation with a display driver
@@ -198,7 +203,7 @@ mod my_display_interface {
 
     impl<SPI, DC> WriteOnlyDataCommand for SPIDeviceInterface<SPI, DC>
     where
-        SPI: SpiDeviceWrite,
+        SPI: SpiDevice,
         DC: OutputPin,
     {
         fn send_commands(&mut self, cmds: DataFormat<'_>) -> Result<(), DisplayError> {
@@ -218,7 +223,7 @@ mod my_display_interface {
         }
     }
 
-    fn send_u8<T: SpiDeviceWrite>(spi: &mut T, words: DataFormat<'_>) -> Result<(), T::Error> {
+    fn send_u8<T: SpiDevice>(spi: &mut T, words: DataFormat<'_>) -> Result<(), T::Error> {
         match words {
             DataFormat::U8(slice) => spi.write(slice),
             DataFormat::U16(slice) => {

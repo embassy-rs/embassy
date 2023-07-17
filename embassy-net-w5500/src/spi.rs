@@ -22,7 +22,11 @@ impl<SPI: SpiDevice> SpiInterface<SPI> {
         let address_phase = address.to_be_bytes();
         let control_phase = [(block as u8) << 3 | 0b0000_0100];
         let data_phase = data;
-        let operations = &[&address_phase[..], &control_phase, &data_phase];
-        self.0.write_transaction(operations).await
+        let operations = &mut [
+            Operation::Write(&address_phase[..]),
+            Operation::Write(&control_phase),
+            Operation::Write(&data_phase),
+        ];
+        self.0.transaction(operations).await
     }
 }

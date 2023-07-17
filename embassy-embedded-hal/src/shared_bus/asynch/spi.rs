@@ -56,62 +56,6 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<M, BUS, CS> spi::SpiDeviceRead for SpiDevice<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: spi::SpiBusRead,
-    CS: OutputPin,
-{
-    async fn read_transaction(&mut self, operations: &mut [&mut [u8]]) -> Result<(), Self::Error> {
-        let mut bus = self.bus.lock().await;
-        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-
-        let op_res: Result<(), BUS::Error> = try {
-            for buf in operations {
-                bus.read(buf).await?;
-            }
-        };
-
-        // On failure, it's important to still flush and deassert CS.
-        let flush_res = bus.flush().await;
-        let cs_res = self.cs.set_high();
-
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-        flush_res.map_err(SpiDeviceError::Spi)?;
-        cs_res.map_err(SpiDeviceError::Cs)?;
-
-        Ok(op_res)
-    }
-}
-
-impl<M, BUS, CS> spi::SpiDeviceWrite for SpiDevice<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: spi::SpiBusWrite,
-    CS: OutputPin,
-{
-    async fn write_transaction(&mut self, operations: &[&[u8]]) -> Result<(), Self::Error> {
-        let mut bus = self.bus.lock().await;
-        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-
-        let op_res: Result<(), BUS::Error> = try {
-            for buf in operations {
-                bus.write(buf).await?;
-            }
-        };
-
-        // On failure, it's important to still flush and deassert CS.
-        let flush_res = bus.flush().await;
-        let cs_res = self.cs.set_high();
-
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-        flush_res.map_err(SpiDeviceError::Spi)?;
-        cs_res.map_err(SpiDeviceError::Cs)?;
-
-        Ok(op_res)
-    }
-}
-
 impl<M, BUS, CS> spi::SpiDevice for SpiDevice<'_, M, BUS, CS>
 where
     M: RawMutex,
@@ -129,6 +73,12 @@ where
                     Operation::Write(buf) => bus.write(buf).await?,
                     Operation::Transfer(read, write) => bus.transfer(read, write).await?,
                     Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await?,
+                    #[cfg(not(feature = "time"))]
+                    Operation::DelayUs(_) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    #[cfg(feature = "time")]
+                    Operation::DelayUs(us) => {
+                        embassy_time::Timer::after(embassy_time::Duration::from_micros(*us as _)).await
+                    }
                 }
             }
         };
@@ -172,64 +122,6 @@ where
     type Error = SpiDeviceError<BUS::Error, CS::Error>;
 }
 
-impl<M, BUS, CS> spi::SpiDeviceWrite for SpiDeviceWithConfig<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: spi::SpiBusWrite + SetConfig,
-    CS: OutputPin,
-{
-    async fn write_transaction(&mut self, operations: &[&[u8]]) -> Result<(), Self::Error> {
-        let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
-        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-
-        let op_res: Result<(), BUS::Error> = try {
-            for buf in operations {
-                bus.write(buf).await?;
-            }
-        };
-
-        // On failure, it's important to still flush and deassert CS.
-        let flush_res = bus.flush().await;
-        let cs_res = self.cs.set_high();
-
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-        flush_res.map_err(SpiDeviceError::Spi)?;
-        cs_res.map_err(SpiDeviceError::Cs)?;
-
-        Ok(op_res)
-    }
-}
-
-impl<M, BUS, CS> spi::SpiDeviceRead for SpiDeviceWithConfig<'_, M, BUS, CS>
-where
-    M: RawMutex,
-    BUS: spi::SpiBusRead + SetConfig,
-    CS: OutputPin,
-{
-    async fn read_transaction(&mut self, operations: &mut [&mut [u8]]) -> Result<(), Self::Error> {
-        let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
-        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
-
-        let op_res: Result<(), BUS::Error> = try {
-            for buf in operations {
-                bus.read(buf).await?;
-            }
-        };
-
-        // On failure, it's important to still flush and deassert CS.
-        let flush_res = bus.flush().await;
-        let cs_res = self.cs.set_high();
-
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
-        flush_res.map_err(SpiDeviceError::Spi)?;
-        cs_res.map_err(SpiDeviceError::Cs)?;
-
-        Ok(op_res)
-    }
-}
-
 impl<M, BUS, CS> spi::SpiDevice for SpiDeviceWithConfig<'_, M, BUS, CS>
 where
     M: RawMutex,
@@ -248,6 +140,12 @@ where
                     Operation::Write(buf) => bus.write(buf).await?,
                     Operation::Transfer(read, write) => bus.transfer(read, write).await?,
                     Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await?,
+                    #[cfg(not(feature = "time"))]
+                    Operation::DelayUs(_) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    #[cfg(feature = "time")]
+                    Operation::DelayUs(us) => {
+                        embassy_time::Timer::after(embassy_time::Duration::from_micros(*us as _)).await
+                    }
                 }
             }
         };

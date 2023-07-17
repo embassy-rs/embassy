@@ -1,3 +1,6 @@
+//! This example shows powerful PIO module in the RP2040 chip to communicate with a HD44780 display.
+//! See (https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -7,12 +10,18 @@ use core::fmt::Write;
 use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{Config, Direction, FifoJoin, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine};
+use embassy_rp::pio::{
+    Config, Direction, FifoJoin, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine,
+};
 use embassy_rp::pwm::{self, Pwm};
 use embassy_rp::relocate::RelocatedProgram;
-use embassy_rp::{into_ref, Peripheral, PeripheralRef};
+use embassy_rp::{bind_interrupts, into_ref, Peripheral, PeripheralRef};
 use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(pub struct Irqs {
+    PIO0_IRQ_0 => InterruptHandler<PIO0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -37,7 +46,7 @@ async fn main(_spawner: Spawner) {
     });
 
     let mut hd = HD44780::new(
-        p.PIO0, p.DMA_CH3, p.PIN_0, p.PIN_1, p.PIN_2, p.PIN_3, p.PIN_4, p.PIN_5, p.PIN_6,
+        p.PIO0, Irqs, p.DMA_CH3, p.PIN_0, p.PIN_1, p.PIN_2, p.PIN_3, p.PIN_4, p.PIN_5, p.PIN_6,
     )
     .await;
 
@@ -72,6 +81,7 @@ pub struct HD44780<'l> {
 impl<'l> HD44780<'l> {
     pub async fn new(
         pio: impl Peripheral<P = PIO0> + 'l,
+        irq: Irqs,
         dma: impl Peripheral<P = impl Channel> + 'l,
         rs: impl PioPin,
         rw: impl PioPin,
@@ -88,7 +98,7 @@ impl<'l> HD44780<'l> {
             mut irq0,
             mut sm0,
             ..
-        } = Pio::new(pio);
+        } = Pio::new(pio, irq);
 
         // takes command words (<wait:24> <command:4> <0:4>)
         let prg = pio_proc::pio_asm!(

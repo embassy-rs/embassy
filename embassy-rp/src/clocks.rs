@@ -308,6 +308,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     // - QSPI (we're using it to run this code!)
     // - PLLs (it may be suicide if that's what's clocking us)
     // - USB, SYSCFG (breaks usb-to-swd on core1)
+    // - RTC (else there would be no more time...)
     let mut peris = reset::ALL_PERIPHERALS;
     peris.set_io_qspi(false);
     // peris.set_io_bank0(false); // might be suicide if we're clocked from gpin
@@ -317,6 +318,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     // TODO investigate if usb should be unreset here
     peris.set_usbctrl(false);
     peris.set_syscfg(false);
+    peris.set_rtc(false);
     reset::reset(peris);
 
     // Disable resus that may be enabled from previous software

@@ -1,15 +1,22 @@
+//! This example shows powerful PIO module in the RP2040 chip.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_rp::pio::{Config, Pio, ShiftConfig, ShiftDirection};
+use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
 use embassy_rp::relocate::RelocatedProgram;
-use embassy_rp::Peripheral;
+use embassy_rp::{bind_interrupts, Peripheral};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => InterruptHandler<PIO0>;
+});
 
 fn swap_nibbles(v: u32) -> u32 {
     let v = (v & 0x0f0f_0f0f) << 4 | (v & 0xf0f0_f0f0) >> 4;
@@ -25,7 +32,7 @@ async fn main(_spawner: Spawner) {
         mut common,
         sm0: mut sm,
         ..
-    } = Pio::new(pio);
+    } = Pio::new(pio, Irqs);
 
     let prg = pio_proc::pio_asm!(
         ".origin 0",

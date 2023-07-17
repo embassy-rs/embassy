@@ -1,3 +1,6 @@
+//! This example shows powerful PIO module in the RP2040 chip to communicate with WS2812 LED modules.
+//! See (https://www.sparkfun.com/categories/tags/ws2812)
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -5,14 +8,21 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::dma::{AnyChannel, Channel};
-use embassy_rp::pio::{Common, Config, FifoJoin, Instance, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine};
+use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::{
+    Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine,
+};
 use embassy_rp::relocate::RelocatedProgram;
-use embassy_rp::{clocks, into_ref, Peripheral, PeripheralRef};
+use embassy_rp::{bind_interrupts, clocks, into_ref, Peripheral, PeripheralRef};
 use embassy_time::{Duration, Timer};
 use fixed::types::U24F8;
 use fixed_macro::fixed;
 use smart_leds::RGB8;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => InterruptHandler<PIO0>;
+});
 
 pub struct Ws2812<'d, P: Instance, const S: usize, const N: usize> {
     dma: PeripheralRef<'d, AnyChannel>,
@@ -123,7 +133,7 @@ async fn main(_spawner: Spawner) {
     info!("Start");
     let p = embassy_rp::init(Default::default());
 
-    let Pio { mut common, sm0, .. } = Pio::new(p.PIO0);
+    let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
 
     // This is the number of leds in the string. Helpfully, the sparkfun thing plus and adafruit
     // feather boards for the 2040 both have one built in.

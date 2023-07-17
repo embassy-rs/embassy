@@ -1,10 +1,10 @@
+use core::sync::atomic::{AtomicU8, Ordering};
 use std::cell::{RefCell, UnsafeCell};
 use std::mem::MaybeUninit;
 use std::sync::{Condvar, Mutex, Once};
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 use std::{mem, ptr, thread};
 
-use atomic_polyfill::{AtomicU8, Ordering};
 use critical_section::Mutex as CsMutex;
 
 use crate::driver::{AlarmHandle, Driver};

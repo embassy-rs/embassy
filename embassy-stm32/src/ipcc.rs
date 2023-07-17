@@ -1,7 +1,6 @@
 use core::future::poll_fn;
+use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
-
-use atomic_polyfill::{compiler_fence, Ordering};
 
 use self::sealed::Instance;
 use crate::interrupt;

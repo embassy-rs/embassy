@@ -172,6 +172,7 @@ impl sealed::Instance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 32;
 
     fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
+        #[allow(clippy::if_same_then_else)]
         if register < Self::BACKUP_REGISTER_COUNT {
             //Some(rtc.bkpr()[register].read().bits())
             None // RTC3 backup registers come from the TAMP peripe=heral, not RTC. Not() even in the L412 PAC

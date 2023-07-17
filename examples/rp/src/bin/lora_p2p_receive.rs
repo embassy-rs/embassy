@@ -1,5 +1,6 @@
 //! This example runs on the Raspberry Pi Pico with a Waveshare board containing a Semtech Sx1262 radio.
 //! It demonstrates LORA P2P receive functionality in conjunction with the lora_p2p_send example.
+
 #![no_std]
 #![no_main]
 #![macro_use]

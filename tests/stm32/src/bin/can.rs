@@ -43,10 +43,13 @@ async fn main(_spawner: Spawner) {
 
     info!("Configuring can...");
 
-    can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
+    can.as_mut()
+        .modify_filters()
+        .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
     can.set_bitrate(1_000_000);
-    can.modify_config()
+    can.as_mut()
+        .modify_config()
         .set_loopback(true) // Receive own frames
         .set_silent(true)
         // .set_bit_timing(0x001c0003)

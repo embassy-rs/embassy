@@ -5,10 +5,6 @@ set -euo pipefail
 export RUSTFLAGS=-Dwarnings
 export DEFMT_LOG=trace,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
 
-# needed by wifi examples
-export WIFI_NETWORK=x
-export WIFI_PASSWORD=x
-
 TARGET=$(rustc -vV | sed -n 's|host: ||p')
 
 BUILD_EXTRA=""
