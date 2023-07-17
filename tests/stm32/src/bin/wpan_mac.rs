@@ -49,11 +49,16 @@ async fn main(spawner: Spawner) {
 
     info!("resetting");
     mbox.mac_subsystem
-        .send_command(&ResetRequest { set_default_pib: true })
+        .send_command(&ResetRequest {
+            set_default_pib: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
+    }
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
@@ -64,24 +69,29 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
+    }
 
     info!("getting extended address");
     mbox.mac_subsystem
         .send_command(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
+            ..Default::default()
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
 
-    if let Ok(MacEvent::MlmeGetCnf(evt)) = evt {
-        if evt.pib_attribute_value_len == 8 {
-            let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+        if let Ok(MacEvent::MlmeGetCnf(evt)) = evt.mac_event() {
+            if evt.pib_attribute_value_len == 8 {
+                let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
 
-            info!("value {:#x}", value)
+                info!("value {:#x}", value)
+            }
         }
     }
 
@@ -100,8 +110,10 @@ async fn main(spawner: Spawner) {
     };
     info!("{}", a);
     mbox.mac_subsystem.send_command(&a).await.unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await;
+        info!("{:#x}", evt.mac_event());
+    }
 
     info!("Test OK");
     cortex_m::asm::bkpt();
