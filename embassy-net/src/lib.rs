@@ -479,30 +479,78 @@ impl<D: Driver + 'static> Stack<D> {
 }
 
 #[cfg(feature = "igmp")]
-impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
+impl<D: Driver + 'static> Stack<D> {
     /// Join a multicast group.
-    pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    pub async fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    where
+        T: Into<IpAddress>,
+    {
+        let addr = addr.into();
+
+        poll_fn(move |cx| self.poll_join_multicast_group(addr, cx)).await
+    }
+
+    /// Join a multicast group.
+    ///
+    /// When the send queue is full, this method will return `Poll::Pending`
+    /// and register the current task to be notified when the queue has space available.
+    pub fn poll_join_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
     where
         T: Into<IpAddress>,
     {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
-            s.iface
-                .join_multicast_group(&mut i.device, addr, instant_to_smoltcp(Instant::now()))
+            let mut smoldev = DriverAdapter {
+                cx: Some(cx),
+                inner: &mut i.device,
+            };
+
+            match s
+                .iface
+                .join_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
+            {
+                Ok(announce_sent) => Poll::Ready(Ok(announce_sent)),
+                Err(MulticastError::Exhausted) => Poll::Pending,
+                Err(other) => Poll::Ready(Err(other)),
+            }
         })
     }
 
     /// Leave a multicast group.
-    pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    pub async fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    where
+        T: Into<IpAddress>,
+    {
+        let addr = addr.into();
+
+        poll_fn(move |cx| self.poll_leave_multicast_group(addr, cx)).await
+    }
+
+    /// Leave a multicast group.
+    ///
+    /// When the send queue is full, this method will return `Poll::Pending`
+    /// and register the current task to be notified when the queue has space available.
+    pub fn poll_leave_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
     where
         T: Into<IpAddress>,
     {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
-            s.iface
-                .leave_multicast_group(&mut i.device, addr, instant_to_smoltcp(Instant::now()))
+            let mut smoldev = DriverAdapter {
+                cx: Some(cx),
+                inner: &mut i.device,
+            };
+
+            match s
+                .iface
+                .leave_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
+            {
+                Ok(leave_sent) => Poll::Ready(Ok(leave_sent)),
+                Err(MulticastError::Exhausted) => Poll::Pending,
+                Err(other) => Poll::Ready(Err(other)),
+            }
         })
     }
 
@@ -531,11 +579,14 @@ impl<D: Driver + 'static> Inner<D> {
 
         debug!("   IP address:      {}", config.address);
         s.iface.update_ip_addrs(|addrs| {
-            if addrs.is_empty() {
-                addrs.push(IpCidr::Ipv4(config.address)).unwrap();
-            } else {
-                addrs[0] = IpCidr::Ipv4(config.address);
+            if let Some((index, _)) = addrs
+                .iter()
+                .enumerate()
+                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv4(_)))
+            {
+                addrs.remove(index);
             }
+            addrs.push(IpCidr::Ipv4(config.address)).unwrap();
         });
 
         #[cfg(feature = "medium-ethernet")]
@@ -570,11 +621,14 @@ impl<D: Driver + 'static> Inner<D> {
 
         debug!("   IP address:      {}", config.address);
         s.iface.update_ip_addrs(|addrs| {
-            if addrs.is_empty() {
-                addrs.push(IpCidr::Ipv6(config.address)).unwrap();
-            } else {
-                addrs[0] = IpCidr::Ipv6(config.address);
+            if let Some((index, _)) = addrs
+                .iter()
+                .enumerate()
+                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv6(_)))
+            {
+                addrs.remove(index);
             }
+            addrs.push(IpCidr::Ipv6(config.address)).unwrap();
         });
 
         #[cfg(feature = "medium-ethernet")]
@@ -642,13 +696,21 @@ impl<D: Driver + 'static> Inner<D> {
         socket.set_retry_config(config.retry_config);
     }
 
-    #[allow(unused)] // used only with dhcp
-    fn unapply_config(&mut self, s: &mut SocketStack) {
+    #[cfg(feature = "dhcpv4")]
+    fn unapply_config_v4(&mut self, s: &mut SocketStack) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
-
         debug!("Lost IP configuration");
-        s.iface.update_ip_addrs(|ip_addrs| ip_addrs.clear());
+        s.iface.update_ip_addrs(|ip_addrs| {
+            #[cfg(feature = "proto-ipv4")]
+            if let Some((index, _)) = ip_addrs
+                .iter()
+                .enumerate()
+                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv4(_)))
+            {
+                ip_addrs.remove(index);
+            }
+        });
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
             #[cfg(feature = "proto-ipv4")]
@@ -695,7 +757,7 @@ impl<D: Driver + 'static> Inner<D> {
             if self.link_up {
                 match socket.poll() {
                     None => {}
-                    Some(dhcpv4::Event::Deconfigured) => self.unapply_config(s),
+                    Some(dhcpv4::Event::Deconfigured) => self.unapply_config_v4(s),
                     Some(dhcpv4::Event::Configured(config)) => {
                         let config = StaticConfigV4 {
                             address: config.address,
@@ -707,7 +769,7 @@ impl<D: Driver + 'static> Inner<D> {
                 }
             } else if old_link_up {
                 socket.reset();
-                self.unapply_config(s);
+                self.unapply_config_v4(s);
             }
         }
         //if old_link_up || self.link_up {
