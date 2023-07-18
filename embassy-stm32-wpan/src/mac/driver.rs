@@ -4,16 +4,20 @@
 use core::task::Context;
 
 use embassy_net_driver::{Capabilities, LinkState, Medium};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 
+use super::event::MacEvent;
+use crate::mac::event::Event;
 use crate::mac::runner::Runner;
 use crate::mac::MTU;
 
 pub struct Driver<'d> {
-    runner: &'d Runner,
+    runner: &'d Runner<'d>,
 }
 
 impl<'d> Driver<'d> {
-    pub(crate) fn new(runner: &'d Runner) -> Self {
+    pub(crate) fn new(runner: &'d Runner<'d>) -> Self {
         Self { runner: runner }
     }
 }
@@ -21,33 +25,32 @@ impl<'d> Driver<'d> {
 impl<'d> embassy_net_driver::Driver for Driver<'d> {
     // type RxToken<'a> = RxToken<'a, 'd> where Self: 'a;
     // type TxToken<'a> = TxToken<'a, 'd> where Self: 'a;
-    type RxToken<'a> = RxToken where Self: 'a;
-    type TxToken<'a> = TxToken where Self: 'a;
+    type RxToken<'a> = RxToken<'d> where Self: 'a;
+    type TxToken<'a> = TxToken<'d> where Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        self.runner.rx_waker.register(cx.waker());
-
-        // WAKER.register(cx.waker());
-        //        if self.rx.available().is_some() && self.tx.available().is_some() {
-        //            Some((RxToken { rx: &mut self.rx }, TxToken { tx: &mut self.tx }))
-        //        } else {
-        //            None
-        //        }
-
-        None
+        if self.runner.rx_channel.poll_ready_to_receive(cx) && self.runner.tx_channel.poll_ready_to_receive(cx) {
+            Some((
+                RxToken {
+                    rx: &self.runner.rx_channel,
+                },
+                TxToken {
+                    tx: &self.runner.tx_channel,
+                },
+            ))
+        } else {
+            None
+        }
     }
 
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        self.runner.tx_waker.register(cx.waker());
-
-        // WAKER.register(cx.waker());
-        // /        if self.tx.available().is_some() {
-        // /            Some(TxToken { tx: &mut self.tx })
-        // /        } else {
-        // /            None
-        // /        }
-
-        None
+        if self.runner.tx_channel.poll_ready_to_receive(cx) {
+            Some(TxToken {
+                tx: &self.runner.tx_channel,
+            })
+        } else {
+            None
+        }
     }
 
     fn capabilities(&self) -> Capabilities {
@@ -76,30 +79,38 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     }
 }
 
-pub struct RxToken {
-    // rx: &'a mut RDesRing<'d>,
+pub struct RxToken<'d> {
+    rx: &'d Channel<CriticalSectionRawMutex, Event, 1>,
 }
 
-impl embassy_net_driver::RxToken for RxToken {
+impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        // let pkt = unwrap!(self.rx.available());
+        // Only valid data events should be put into the queue
+
+        let event = self.rx.try_recv().unwrap();
+        let mac_event = event.mac_event().unwrap();
+        let data_event = match mac_event {
+            MacEvent::McpsDataInd(data_event) => data_event,
+            _ => unreachable!(),
+        };
 
         let pkt = &mut [];
         let r = f(&mut pkt[0..]);
-        // self.rx.pop_packet();
+
+        // let r = f(&mut data_event.payload());
         r
     }
 }
 
-pub struct TxToken {
+pub struct TxToken<'d> {
+    tx: &'d Channel<CriticalSectionRawMutex, &'d [u8], 1>,
     // tx: &'a mut TDesRing<'d>,
 }
 
-impl embassy_net_driver::TxToken for TxToken {
+impl<'d> embassy_net_driver::TxToken for TxToken<'d> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

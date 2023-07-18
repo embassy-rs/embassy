@@ -25,7 +25,7 @@ async fn run_mm_queue(memory_manager: mm::MemoryManager) {
 }
 
 #[embassy_executor::task]
-async fn run_mac(runner: &'static Runner) {
+async fn run_mac(runner: &'static Runner<'static>) {
     runner.run().await;
 }
 

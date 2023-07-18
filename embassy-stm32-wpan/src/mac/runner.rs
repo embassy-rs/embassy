@@ -1,4 +1,6 @@
 use embassy_futures::select::{select3, Either3};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::mac::event::{Event, MacEvent};
@@ -44,22 +46,18 @@ impl TxRing {
     }
 }
 
-pub struct Runner {
+pub struct Runner<'a> {
     mac_subsystem: Mac,
-    pub(crate) rx_ring: Option<Event>,
-    pub(crate) tx_ring: TxRing,
-    pub(crate) rx_waker: AtomicWaker,
-    pub(crate) tx_waker: AtomicWaker,
+    pub(crate) rx_channel: Channel<CriticalSectionRawMutex, Event, 1>,
+    pub(crate) tx_channel: Channel<CriticalSectionRawMutex, &'a [u8], 1>,
 }
 
-impl Runner {
+impl<'a> Runner<'a> {
     pub fn new(mac: Mac) -> Self {
         Self {
             mac_subsystem: mac,
-            rx_ring: None,
-            tx_ring: TxRing::new(),
-            rx_waker: AtomicWaker::new(),
-            tx_waker: AtomicWaker::new(),
+            rx_channel: Channel::new(),
+            tx_channel: Channel::new(),
         }
     }
 
@@ -73,8 +71,7 @@ impl Runner {
             if let Ok(evt) = event.mac_event() {
                 match evt {
                     MacEvent::McpsDataInd(data_ind) => {
-                        // TODO: store mac_event in rx_ring
-                        self.rx_waker.wake();
+                        self.rx_channel.try_send(event);
                     }
                     _ => {}
                 }

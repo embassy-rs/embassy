@@ -18,7 +18,7 @@ pub use crate::mac::runner::Runner;
 
 const MTU: usize = 127;
 
-pub async fn new<'a>(runner: &'a Runner) -> (Control<'a>, Driver<'a>) {
+pub async fn new<'a>(runner: &'a Runner<'a>) -> (Control<'a>, Driver<'a>) {
     (Control::new(runner), Driver::new(runner))
 }
 
