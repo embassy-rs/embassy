@@ -479,30 +479,78 @@ impl<D: Driver + 'static> Stack<D> {
 }
 
 #[cfg(feature = "igmp")]
-impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
+impl<D: Driver + 'static> Stack<D> {
     /// Join a multicast group.
-    pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    pub async fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    where
+        T: Into<IpAddress>,
+    {
+        let addr = addr.into();
+
+        poll_fn(move |cx| self.poll_join_multicast_group(addr, cx)).await
+    }
+
+    /// Join a multicast group.
+    ///
+    /// When the send queue is full, this method will return `Poll::Pending`
+    /// and register the current task to be notified when the queue has space available.
+    pub fn poll_join_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
     where
         T: Into<IpAddress>,
     {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
-            s.iface
-                .join_multicast_group(&mut i.device, addr, instant_to_smoltcp(Instant::now()))
+            let mut smoldev = DriverAdapter {
+                cx: Some(cx),
+                inner: &mut i.device,
+            };
+
+            match s
+                .iface
+                .join_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
+            {
+                Ok(announce_sent) => Poll::Ready(Ok(announce_sent)),
+                Err(MulticastError::Exhausted) => Poll::Pending,
+                Err(other) => Poll::Ready(Err(other)),
+            }
         })
     }
 
     /// Leave a multicast group.
-    pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    pub async fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    where
+        T: Into<IpAddress>,
+    {
+        let addr = addr.into();
+
+        poll_fn(move |cx| self.poll_leave_multicast_group(addr, cx)).await
+    }
+
+    /// Leave a multicast group.
+    ///
+    /// When the send queue is full, this method will return `Poll::Pending`
+    /// and register the current task to be notified when the queue has space available.
+    pub fn poll_leave_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
     where
         T: Into<IpAddress>,
     {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
-            s.iface
-                .leave_multicast_group(&mut i.device, addr, instant_to_smoltcp(Instant::now()))
+            let mut smoldev = DriverAdapter {
+                cx: Some(cx),
+                inner: &mut i.device,
+            };
+
+            match s
+                .iface
+                .leave_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
+            {
+                Ok(leave_sent) => Poll::Ready(Ok(leave_sent)),
+                Err(MulticastError::Exhausted) => Poll::Pending,
+                Err(other) => Poll::Ready(Err(other)),
+            }
         })
     }
 
