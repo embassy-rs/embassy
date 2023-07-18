@@ -17,8 +17,15 @@ use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::pdm::mode::{EDGE_A, OPERATION_A};
 pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
-pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
 use crate::{interrupt, Peripheral};
+
+#[cfg(any(
+    feature = "nrf52840",
+    feature = "nrf52833",
+    feature = "_nrf5340-app",
+    feature = "_nrf9160",
+))]
+pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -111,6 +118,12 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
         // configure
         r.pdmclkctrl.write(|w| w.freq().variant(config.frequency));
+        #[cfg(any(
+            feature = "nrf52840",
+            feature = "nrf52833",
+            feature = "_nrf5340-app",
+            feature = "_nrf9160",
+        ))]
         r.ratio.write(|w| w.ratio().variant(config.ratio));
         r.mode.write(|w| {
             w.operation().variant(config.operation_mode.into());
@@ -294,14 +307,14 @@ impl<'d, T: Instance> Pdm<'d, T> {
         // wouldn't happen anyway.
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start.write(|w| w.tasks_start().set_bit());
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
 
         let mut current_buffer = 0;
 
         let mut done = false;
 
         let drop = OnDrop::new(|| {
-            r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
             // N.B. It would be better if this were async, but Drop only support sync code.
             while r.events_stopped.read().bits() != 0 {}
         });
@@ -324,7 +337,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
                         let next_buffer = 1 - current_buffer;
                         current_buffer = next_buffer;
                     } else {
-                        r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+                        r.tasks_stop.write(|w| unsafe { w.bits(1) });
                         done = true;
                     };
                 };
@@ -361,6 +374,12 @@ pub struct Config {
     /// Clock frequency
     pub frequency: Frequency,
     /// Clock ratio
+    #[cfg(any(
+        feature = "nrf52840",
+        feature = "nrf52833",
+        feature = "_nrf5340-app",
+        feature = "_nrf9160",
+    ))]
     pub ratio: Ratio,
     /// Gain left in dB
     pub gain_left: I7F1,
@@ -374,6 +393,12 @@ impl Default for Config {
             operation_mode: OperationMode::Mono,
             edge: Edge::LeftFalling,
             frequency: Frequency::DEFAULT,
+            #[cfg(any(
+                feature = "nrf52840",
+                feature = "nrf52833",
+                feature = "_nrf5340-app",
+                feature = "_nrf9160",
+            ))]
             ratio: Ratio::RATIO80,
             gain_left: I7F1::ZERO,
             gain_right: I7F1::ZERO,
