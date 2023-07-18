@@ -18,3 +18,9 @@ embedded-hal-async = { version = "=0.2.0-alpha.2" }
 noproto = { git="https://github.com/embassy-rs/noproto", default-features = false, features = ["derive"] }
 #noproto = { version = "0.1", path = "/home/dirbaio/noproto", default-features = false, features = ["derive"] }
 heapless = "0.7.16"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$VERSION/embassy-net-esp-hosted/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-esp-hosted/src/"
+target = "thumbv7em-none-eabi"
+features = ["defmt"]
