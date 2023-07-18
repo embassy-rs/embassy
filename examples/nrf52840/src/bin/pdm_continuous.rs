@@ -2,14 +2,15 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use defmt::info;
 use core::cmp::Ordering;
+
+use defmt::info;
 use embassy_executor::Spawner;
+use embassy_nrf::pdm::{self, Config, Frequency, OperationMode, Pdm, Ratio, SamplerState};
 use embassy_nrf::{bind_interrupts, peripherals};
-use embassy_nrf::pdm::{self, Config, OperationMode, Pdm, SamplerState, Frequency, Ratio};
 use fixed::types::I7F1;
-use num_integer::Roots;
 use microfft::real::rfft_1024;
+use num_integer::Roots;
 use {defmt_rtt as _, panic_probe as _};
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
@@ -31,34 +32,34 @@ async fn main(_p: Spawner) {
 
     let mut bufs = [[0; 1024]; 2];
 
-    pdm
-        .run_task_sampler(
-            &mut bufs,
-            move |buf| {
-                // NOTE: It is important that the time spent within this callback
-                // does not exceed the time taken to acquire the 1500 samples we
-                // have in this example, which would be 10us + 2us per
-                // sample * 1500 = 18ms. You need to measure the time taken here
-                // and set the sample buffer size accordingly. Exceeding this
-                // time can lead to the peripheral re-writing the other buffer.
-                let mean = (buf.iter().map(|v| i32::from(*v)).sum::<i32>() / buf.len() as i32) as i16;
-                let (peak_freq_index, peak_mag) = fft_peak_freq(&buf);
-                let peak_freq = peak_freq_index * 16000 / buf.len();
-                info!(
-                    "{} samples, min {=i16}, max {=i16}, mean {=i16}, AC RMS {=i16}, peak {} @ {} Hz",
-                    buf.len(),
-                    buf.iter().min().unwrap(),
-                    buf.iter().max().unwrap(),
-                    mean,
-                    (
-                        buf.iter().map(|v| i32::from(*v - mean).pow(2)).fold(0i32, |a,b| a.saturating_add(b))
-                    / buf.len() as i32).sqrt() as i16,
-                    peak_mag, peak_freq,
-                );
-                SamplerState::Sampled
-            },
-        )
-        .await.unwrap();
+    pdm.run_task_sampler(&mut bufs, move |buf| {
+        // NOTE: It is important that the time spent within this callback
+        // does not exceed the time taken to acquire the 1500 samples we
+        // have in this example, which would be 10us + 2us per
+        // sample * 1500 = 18ms. You need to measure the time taken here
+        // and set the sample buffer size accordingly. Exceeding this
+        // time can lead to the peripheral re-writing the other buffer.
+        let mean = (buf.iter().map(|v| i32::from(*v)).sum::<i32>() / buf.len() as i32) as i16;
+        let (peak_freq_index, peak_mag) = fft_peak_freq(&buf);
+        let peak_freq = peak_freq_index * 16000 / buf.len();
+        info!(
+            "{} samples, min {=i16}, max {=i16}, mean {=i16}, AC RMS {=i16}, peak {} @ {} Hz",
+            buf.len(),
+            buf.iter().min().unwrap(),
+            buf.iter().max().unwrap(),
+            mean,
+            (buf.iter()
+                .map(|v| i32::from(*v - mean).pow(2))
+                .fold(0i32, |a, b| a.saturating_add(b))
+                / buf.len() as i32)
+                .sqrt() as i16,
+            peak_mag,
+            peak_freq,
+        );
+        SamplerState::Sampled
+    })
+    .await
+    .unwrap();
 }
 
 fn fft_peak_freq(input: &[i16; 1024]) -> (usize, u32) {
@@ -75,6 +76,6 @@ fn fft_peak_freq(input: &[i16; 1024]) -> (usize, u32) {
         .map(|c| c.norm_sqr())
         .enumerate()
         .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
-        .map(|(i, v)| (i, ((v*32768.0) as u32).sqrt()))
+        .map(|(i, v)| (i, ((v * 32768.0) as u32).sqrt()))
         .unwrap()
 }

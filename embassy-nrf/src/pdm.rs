@@ -8,17 +8,17 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
-use futures::future::poll_fn;
 use fixed::types::I7F1;
+use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, Peripheral};
 use crate::pac::pdm::mode::{EDGE_A, OPERATION_A};
 pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
 pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
+use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -133,8 +133,14 @@ impl<'d, T: Instance> Pdm<'d, T> {
     }
 
     fn _set_gain(r: &crate::pac::pdm::RegisterBlock, gain_left: I7F1, gain_right: I7F1) {
-        let gain_left = gain_left.saturating_add(I7F1::from_bits(40)).saturating_to_num::<u8>().clamp(0, 0x50);
-        let gain_right = gain_right.saturating_add(I7F1::from_bits(40)).saturating_to_num::<u8>().clamp(0, 0x50);
+        let gain_left = gain_left
+            .saturating_add(I7F1::from_bits(40))
+            .saturating_to_num::<u8>()
+            .clamp(0, 0x50);
+        let gain_right = gain_right
+            .saturating_add(I7F1::from_bits(40))
+            .saturating_to_num::<u8>()
+            .clamp(0, 0x50);
 
         r.gainl.write(|w| unsafe { w.gainl().bits(gain_left) });
         r.gainr.write(|w| unsafe { w.gainr().bits(gain_right) });
@@ -258,7 +264,8 @@ impl<'d, T: Instance> Pdm<'d, T> {
         &mut self,
         bufs: &mut [[i16; N]; 2],
         mut sampler: S,
-    ) -> Result<(), Error> where
+    ) -> Result<(), Error>
+    where
         S: FnMut(&[i16; N]) -> SamplerState,
     {
         let r = T::regs();
@@ -267,7 +274,9 @@ impl<'d, T: Instance> Pdm<'d, T> {
             return Err(Error::AlreadyRunning);
         }
 
-        r.sample.ptr.write(|w| unsafe { w.sampleptr().bits(bufs[0].as_mut_ptr() as u32) });
+        r.sample
+            .ptr
+            .write(|w| unsafe { w.sampleptr().bits(bufs[0].as_mut_ptr() as u32) });
         r.sample.maxcnt.write(|w| unsafe { w.buffsize().bits(N as _) });
 
         // Reset and enable the events
@@ -285,7 +294,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
         // wouldn't happen anyway.
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start.write(|w| { w.tasks_start().set_bit() });
+        r.tasks_start.write(|w| w.tasks_start().set_bit());
 
         let mut current_buffer = 0;
 
@@ -309,7 +318,8 @@ impl<'d, T: Instance> Pdm<'d, T> {
                 r.events_end.reset();
                 r.intenset.write(|w| w.end().set());
 
-                if !done { // Discard the last buffer after the user requested a stop.
+                if !done {
+                    // Discard the last buffer after the user requested a stop.
                     if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
                         let next_buffer = 1 - current_buffer;
                         current_buffer = next_buffer;

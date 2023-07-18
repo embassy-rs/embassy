@@ -41,9 +41,11 @@ async fn main(_p: Spawner) {
                 buf.iter().min().unwrap(),
                 buf.iter().max().unwrap(),
                 mean,
-                (
-                    buf.iter().map(|v| i32::from(*v - mean).pow(2)).fold(0i32, |a,b| a.saturating_add(b))
-                / buf.len() as i32).sqrt() as i16,
+                (buf.iter()
+                    .map(|v| i32::from(*v - mean).pow(2))
+                    .fold(0i32, |a, b| a.saturating_add(b))
+                    / buf.len() as i32)
+                    .sqrt() as i16,
             );
 
             info!("samples: {:?}", &buf);
