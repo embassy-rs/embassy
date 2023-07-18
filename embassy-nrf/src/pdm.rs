@@ -17,8 +17,6 @@ use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::pdm::mode::{EDGE_A, OPERATION_A};
 pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
-use crate::{interrupt, Peripheral};
-
 #[cfg(any(
     feature = "nrf52840",
     feature = "nrf52833",
@@ -26,6 +24,7 @@ use crate::{interrupt, Peripheral};
     feature = "_nrf9160",
 ))]
 pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
+use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
