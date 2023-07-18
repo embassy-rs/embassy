@@ -15,16 +15,11 @@ use core::slice;
 pub use crate::mac::control::{Control, Error as ControlError};
 use crate::mac::driver::Driver;
 pub use crate::mac::runner::Runner;
-use crate::sub::mac::Mac;
 
 const MTU: usize = 127;
 
-pub async fn new<'a>(mac: Mac) -> (Runner, Control<'a>, Driver<'a>) {
-    let runner = Runner::new(mac);
-    let control = Control::new(&runner);
-    let driver = Driver::new(&runner);
-
-    (runner, control, driver)
+pub async fn new<'a>(runner: &'a Runner) -> (Control<'a>, Driver<'a>) {
+    (Control::new(runner), Driver::new(runner))
 }
 
 fn slice8_mut(x: &mut [u32]) -> &mut [u8] {

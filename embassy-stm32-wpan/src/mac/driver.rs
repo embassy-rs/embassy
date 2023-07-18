@@ -25,6 +25,8 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     type TxToken<'a> = TxToken where Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        self.runner.rx_waker.register(cx.waker());
+
         // WAKER.register(cx.waker());
         //        if self.rx.available().is_some() && self.tx.available().is_some() {
         //            Some((RxToken { rx: &mut self.rx }, TxToken { tx: &mut self.tx }))
@@ -36,6 +38,8 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     }
 
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
+        self.runner.tx_waker.register(cx.waker());
+
         // WAKER.register(cx.waker());
         // /        if self.tx.available().is_some() {
         // /            Some(TxToken { tx: &mut self.tx })
@@ -84,7 +88,7 @@ impl embassy_net_driver::RxToken for RxToken {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
         // let pkt = unwrap!(self.rx.available());
 
-        let pkt = &[];
+        let pkt = &mut [];
         let r = f(&mut pkt[0..]);
         // self.rx.pop_packet();
         r
@@ -102,7 +106,7 @@ impl embassy_net_driver::TxToken for TxToken {
     {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
         // let pkt = unwrap!(self.tx.available());
-        let pkt = &[];
+        let pkt = &mut [];
         let r = f(&mut pkt[..len]);
         // self.tx.transmit(len);
         r
