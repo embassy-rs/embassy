@@ -648,16 +648,17 @@ impl<D: Driver + 'static> Inner<D> {
         socket.set_retry_config(config.retry_config);
     }
 
-    #[allow(unused)] // used only with dhcp
+    #[cfg(feature = "dhcpv4")]
     fn unapply_config_v4(&mut self, s: &mut SocketStack) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
         debug!("Lost IP configuration");
         s.iface.update_ip_addrs(|ip_addrs| {
+            #[cfg(feature = "proto-ipv4")]
             if let Some((index, _)) = ip_addrs
                 .iter()
                 .enumerate()
-                .find(|(index, &addr)| matches!(addr, IpCidr::Ipv4(_)))
+                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv4(_)))
             {
                 ip_addrs.remove(index);
             }
