@@ -126,7 +126,7 @@ pub enum PllM {
 
 impl Into<Pllm> for PllM {
     fn into(self) -> Pllm {
-        Pllm(self as u8)
+        Pllm::from_bits(self as u8)
     }
 }
 
@@ -295,6 +295,7 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
+    pub hsi48: bool,
 }
 
 impl Default for Config {
@@ -305,6 +306,7 @@ impl Default for Config {
             apb1_pre: Default::default(),
             apb2_pre: Default::default(),
             apb3_pre: Default::default(),
+            hsi48: false,
         }
     }
 }
@@ -319,7 +321,6 @@ pub(crate) unsafe fn init(config: Config) {
             });
             RCC.cr().write(|w| {
                 w.set_msipllen(false);
-                w.set_msison(true);
                 w.set_msison(true);
             });
             while !RCC.cr().read().msisrdy() {}
@@ -340,9 +341,20 @@ pub(crate) unsafe fn init(config: Config) {
         }
         ClockSrc::PLL1R(src, m, n, div) => {
             let freq = match src {
-                PllSrc::MSI(_) => MSIRange::default().into(),
-                PllSrc::HSE(hertz) => hertz.0,
-                PllSrc::HSI16 => HSI_FREQ.0,
+                PllSrc::MSI(_) => {
+                    // TODO: enable MSI
+                    MSIRange::default().into()
+                }
+                PllSrc::HSE(hertz) => {
+                    // TODO: enable HSE
+                    hertz.0
+                }
+                PllSrc::HSI16 => {
+                    RCC.cr().write(|w| w.set_hsion(true));
+                    while !RCC.cr().read().hsirdy() {}
+
+                    HSI_FREQ.0
+                }
             };
 
             // disable
@@ -355,6 +367,7 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.pll1cfgr().write(|w| {
                 w.set_pllm(m.into());
                 w.set_pllsrc(src.into());
+                w.set_pllren(true);
             });
 
             RCC.pll1divr().modify(|w| {
@@ -365,14 +378,15 @@ pub(crate) unsafe fn init(config: Config) {
             // Enable PLL
             RCC.cr().modify(|w| w.set_pllon(0, true));
             while !RCC.cr().read().pllrdy(0) {}
-            RCC.pll1cfgr().modify(|w| w.set_pllren(true));
-
-            RCC.cr().write(|w| w.set_pllon(0, true));
-            while !RCC.cr().read().pllrdy(0) {}
 
             pll_ck
         }
     };
+
+    if config.hsi48 {
+        RCC.cr().modify(|w| w.set_hsi48on(true));
+        while !RCC.cr().read().hsi48rdy() {}
+    }
 
     // TODO make configurable
     let power_vos = VoltageScale::Range4;
@@ -467,7 +481,7 @@ pub(crate) unsafe fn init(config: Config) {
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
-            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
     };
@@ -477,7 +491,7 @@ pub(crate) unsafe fn init(config: Config) {
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
-            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
     };

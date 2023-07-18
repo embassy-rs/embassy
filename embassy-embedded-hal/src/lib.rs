@@ -1,11 +1,13 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections, try_blocks))]
 #![warn(missing_docs)]
 
 //! Utilities to use `embedded-hal` traits with Embassy.
 
 #[cfg(feature = "nightly")]
 pub mod adapter;
+
+pub mod flash;
 
 pub mod shared_bus;
 

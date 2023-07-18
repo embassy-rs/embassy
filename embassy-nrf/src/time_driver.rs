@@ -7,7 +7,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time::driver::{AlarmHandle, Driver};
 
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
 fn rtc() -> &'static pac::rtc0::RegisterBlock {
@@ -67,7 +67,7 @@ fn compare_n(n: usize) -> u32 {
     1 << (n + 16)
 }
 
-#[cfg(tests)]
+#[cfg(test)]
 mod test {
     use super::*;
 
@@ -142,9 +142,8 @@ impl RtcDriver {
         // Wait for clear
         while r.counter.read().bits() != 0 {}
 
-        let irq = unsafe { interrupt::RTC1::steal() };
-        irq.set_priority(irq_prio);
-        irq.enable();
+        interrupt::RTC1.set_priority(irq_prio);
+        unsafe { interrupt::RTC1.enable() };
     }
 
     fn on_interrupt(&self) {
@@ -243,21 +242,24 @@ impl Driver for RtcDriver {
         })
     }
 
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
+    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         critical_section::with(|cs| {
             let n = alarm.id() as _;
             let alarm = self.get_alarm(cs, alarm);
             alarm.timestamp.set(timestamp);
 
-            let t = self.now();
-
-            // If alarm timestamp has passed, trigger it instantly.
-            if timestamp <= t {
-                self.trigger_alarm(n, cs);
-                return;
-            }
-
             let r = rtc();
+
+            let t = self.now();
+            if timestamp <= t {
+                // If alarm timestamp has passed the alarm will not fire.
+                // Disarm the alarm and return `false` to indicate that.
+                r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
+
+                alarm.timestamp.set(u64::MAX);
+
+                return false;
+            }
 
             // If it hasn't triggered yet, setup it in the compare channel.
 
@@ -287,10 +289,13 @@ impl Driver for RtcDriver {
                 // It will be setup later by `next_period`.
                 r.intenclr.write(|w| unsafe { w.bits(compare_n(n)) });
             }
+
+            true
         })
     }
 }
 
+#[cfg(feature = "rt")]
 #[interrupt]
 fn RTC1() {
     DRIVER.on_interrupt()

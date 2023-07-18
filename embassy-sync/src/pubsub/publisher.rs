@@ -42,6 +42,14 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
     pub fn try_publish(&self, message: T) -> Result<(), T> {
         self.channel.publish_with_context(message, None)
     }
+
+    /// The amount of messages that can still be published without having to wait or without having to lag the subscribers
+    ///
+    /// *Note: In the time between checking this and a publish action, other publishers may have had time to publish something.
+    /// So checking doesn't give any guarantees.*
+    pub fn space(&self) -> usize {
+        self.channel.space()
+    }
 }
 
 impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Drop for Pub<'a, PSB, T> {
@@ -115,6 +123,14 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> ImmediatePub<'a, PSB, T> {
     pub fn try_publish(&self, message: T) -> Result<(), T> {
         self.channel.publish_with_context(message, None)
     }
+
+    /// The amount of messages that can still be published without having to wait or without having to lag the subscribers
+    ///
+    /// *Note: In the time between checking this and a publish action, other publishers may have had time to publish something.
+    /// So checking doesn't give any guarantees.*
+    pub fn space(&self) -> usize {
+        self.channel.space()
+    }
 }
 
 /// An immediate publisher that holds a dynamic reference to the channel
@@ -158,6 +174,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 }
 
 /// Future for the publisher wait action
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct PublisherWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     /// The message we need to publish
     message: Option<T>,

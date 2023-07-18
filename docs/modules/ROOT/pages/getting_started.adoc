@@ -45,11 +45,11 @@ You can run an example by opening a terminal and entering the following commands
 
 [source, bash]
 ----
-cd examples/nrf
+cd examples/nrf52840
 cargo run --bin blinky --release
 ----
 
-== Whats next?
+== What's next?
 
 Congratulations, you have your first Embassy application running! Here are some alternatives on where to go from here:
 

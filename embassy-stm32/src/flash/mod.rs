@@ -1,90 +1,79 @@
-use embassy_hal_common::{into_ref, PeripheralRef};
-use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
+use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
-pub use crate::pac::{ERASE_SIZE, ERASE_VALUE, FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
-use crate::peripherals::FLASH;
-use crate::Peripheral;
-const FLASH_END: usize = FLASH_BASE + FLASH_SIZE;
+#[cfg(flash_f4)]
+mod asynch;
+#[cfg(flash)]
+mod common;
 
-#[cfg_attr(any(flash_wl, flash_wb, flash_l0, flash_l1, flash_l4), path = "l.rs")]
+#[cfg(flash_f4)]
+pub use asynch::InterruptHandler;
+#[cfg(flash)]
+pub use common::*;
+
+pub use crate::_generated::flash_regions::*;
+pub use crate::_generated::MAX_ERASE_SIZE;
+pub use crate::pac::{FLASH_BASE, FLASH_SIZE, WRITE_SIZE};
+
+pub const READ_SIZE: usize = 1;
+
+pub struct Blocking;
+pub struct Async;
+
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FlashRegion {
+    pub bank: FlashBank,
+    pub base: u32,
+    pub size: u32,
+    pub erase_size: u32,
+    pub write_size: u32,
+    pub erase_value: u8,
+    pub(crate) _ensure_internal: (),
+}
+
+#[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct FlashSector {
+    pub bank: FlashBank,
+    pub index_in_bank: u8,
+    pub start: u32,
+    pub size: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FlashBank {
+    Bank1 = 0,
+    Bank2 = 1,
+    Otp,
+}
+
+impl FlashRegion {
+    pub const fn end(&self) -> u32 {
+        self.base + self.size
+    }
+
+    pub const fn sectors(&self) -> u8 {
+        (self.size / self.erase_size) as u8
+    }
+}
+
+#[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_wl, flash_wb), path = "l.rs")]
+#[cfg_attr(flash_f0, path = "f0.rs")]
 #[cfg_attr(flash_f3, path = "f3.rs")]
 #[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
 #[cfg_attr(flash_h7, path = "h7.rs")]
+#[cfg_attr(
+    not(any(
+        flash_l0, flash_l1, flash_l4, flash_wl, flash_wb, flash_f0, flash_f3, flash_f4, flash_f7, flash_h7
+    )),
+    path = "other.rs"
+)]
 mod family;
 
-pub struct Flash<'d> {
-    _inner: PeripheralRef<'d, FLASH>,
-}
-
-impl<'d> Flash<'d> {
-    pub fn new(p: impl Peripheral<P = FLASH> + 'd) -> Self {
-        into_ref!(p);
-        Self { _inner: p }
-    }
-
-    pub fn unlock(p: impl Peripheral<P = FLASH> + 'd) -> Self {
-        let flash = Self::new(p);
-
-        unsafe { family::unlock() };
-        flash
-    }
-
-    pub fn lock(&mut self) {
-        unsafe { family::lock() };
-    }
-
-    pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        let offset = FLASH_BASE as u32 + offset;
-        if offset as usize >= FLASH_END || offset as usize + bytes.len() > FLASH_END {
-            return Err(Error::Size);
-        }
-
-        let flash_data = unsafe { core::slice::from_raw_parts(offset as *const u8, bytes.len()) };
-        bytes.copy_from_slice(flash_data);
-        Ok(())
-    }
-
-    pub fn blocking_write(&mut self, offset: u32, buf: &[u8]) -> Result<(), Error> {
-        let offset = FLASH_BASE as u32 + offset;
-        if offset as usize + buf.len() > FLASH_END {
-            return Err(Error::Size);
-        }
-        if offset as usize % WRITE_SIZE != 0 || buf.len() as usize % WRITE_SIZE != 0 {
-            return Err(Error::Unaligned);
-        }
-        trace!("Writing {} bytes at 0x{:x}", buf.len(), offset);
-
-        self.clear_all_err();
-
-        unsafe { family::blocking_write(offset, buf) }
-    }
-
-    pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
-        let from = FLASH_BASE as u32 + from;
-        let to = FLASH_BASE as u32 + to;
-        if to < from || to as usize > FLASH_END {
-            return Err(Error::Size);
-        }
-        if (from as usize % ERASE_SIZE) != 0 || (to as usize % ERASE_SIZE) != 0 {
-            return Err(Error::Unaligned);
-        }
-
-        self.clear_all_err();
-
-        unsafe { family::blocking_erase(from, to) }
-    }
-
-    fn clear_all_err(&mut self) {
-        unsafe { family::clear_all_err() };
-    }
-}
-
-impl Drop for Flash<'_> {
-    fn drop(&mut self) {
-        self.lock();
-    }
-}
+#[allow(unused_imports)]
+pub use family::*;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -98,10 +87,6 @@ pub enum Error {
     Parallelism,
 }
 
-impl<'d> ErrorType for Flash<'d> {
-    type Error = Error;
-}
-
 impl NorFlashError for Error {
     fn kind(&self) -> NorFlashErrorKind {
         match self {
@@ -111,71 +96,3 @@ impl NorFlashError for Error {
         }
     }
 }
-
-impl<'d> ReadNorFlash for Flash<'d> {
-    const READ_SIZE: usize = WRITE_SIZE;
-
-    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(offset, bytes)
-    }
-
-    fn capacity(&self) -> usize {
-        FLASH_SIZE
-    }
-}
-
-impl<'d> NorFlash for Flash<'d> {
-    const WRITE_SIZE: usize = WRITE_SIZE;
-    const ERASE_SIZE: usize = ERASE_SIZE;
-
-    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.blocking_erase(from, to)
-    }
-
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(offset, bytes)
-    }
-}
-
-/*
-cfg_if::cfg_if! {
-    if #[cfg(feature = "nightly")]
-    {
-        use embedded_storage_async::nor_flash::{AsyncNorFlash, AsyncReadNorFlash};
-        use core::future::Future;
-
-        impl<'d> AsyncNorFlash for Flash<'d> {
-            const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
-            const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
-
-            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn write<'a>(&'a mut self, offset: u32, data: &'a [u8]) -> Self::WriteFuture<'a> {
-                async move {
-                    todo!()
-                }
-            }
-
-            type EraseFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn erase<'a>(&'a mut self, from: u32, to: u32) -> Self::EraseFuture<'a> {
-                async move {
-                    todo!()
-                }
-            }
-        }
-
-        impl<'d> AsyncReadNorFlash for Flash<'d> {
-            const READ_SIZE: usize = <Self as ReadNorFlash>::READ_SIZE;
-            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-            fn read<'a>(&'a mut self, address: u32, data: &'a mut [u8]) -> Self::ReadFuture<'a> {
-                async move {
-                    todo!()
-                }
-            }
-
-            fn capacity(&self) -> usize {
-                FLASH_SIZE
-            }
-        }
-    }
-}
-*/

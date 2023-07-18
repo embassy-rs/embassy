@@ -1,8 +1,8 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# replace STM32F429ZITx with your chip as listed in `probe-run --list-chips`
-#runner = "probe-run --chip STM32L475VGT6"
-#runner = "probe-run --chip STM32L475VG"
-runner = "probe-run --chip STM32L4S5VI"
+# replace STM32F429ZITx with your chip as listed in `probe-rs chip list`
+#runner = "probe-rs run --chip STM32L475VGT6"
+#runner = "probe-rs run --chip STM32L475VG"
+runner = "probe-rs run --chip STM32L4S5VI"
 
 [build]
 target = "thumbv7em-none-eabi"

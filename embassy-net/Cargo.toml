@@ -2,44 +2,57 @@
 name = "embassy-net"
 version = "0.1.0"
 edition = "2021"
-
+license = "MIT OR Apache-2.0"
+description = "Async TCP/IP network stack for embedded systems"
+repository = "https://github.com/embassy-rs/embassy"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = [ "pool-4", "defmt", "tcp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "embassy-time/tick-1mhz"]
+features = ["nightly", "unstable-traits", "defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "igmp"]
 target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["nightly", "unstable-traits", "defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "igmp"]
 
 [features]
 default = []
 std = []
 
-defmt = ["dep:defmt", "smoltcp/defmt"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt"]
+
+nightly = ["dep:embedded-io", "embedded-io?/async", "dep:embedded-nal-async"]
+unstable-traits = []
 
 udp = ["smoltcp/socket-udp"]
 tcp = ["smoltcp/socket-tcp"]
-dns = ["smoltcp/socket-dns"]
-dhcpv4 = ["medium-ethernet", "smoltcp/socket-dhcpv4"]
+dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
+dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
+proto-ipv4 = ["smoltcp/proto-ipv4"]
 proto-ipv6 = ["smoltcp/proto-ipv6"]
 medium-ethernet = ["smoltcp/medium-ethernet"]
 medium-ip = ["smoltcp/medium-ip"]
-
-pool-4 = []
-pool-8 = []
-pool-16 = []
-pool-32 = []
-pool-64 = []
-pool-128 = []
-unstable-traits = []
+igmp = ["smoltcp/proto-igmp"]
 
 [dependencies]
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-time = { version = "0.1.0", path = "../embassy-time" }
-embassy-sync = { version = "0.1.0", path = "../embassy-sync" }
-embedded-io = { version = "0.3.0", features = [ "async" ] }
+smoltcp = { version = "0.10.0", default-features = false, features = [
+  "socket",
+  "async",
+] }
+
+embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
+embassy-time = { version = "0.1.2", path = "../embassy-time" }
+embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
+embedded-io = { version = "0.4.0", optional = true }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.7.5", default-features = false }
@@ -48,16 +61,5 @@ generic-array = { version = "0.14.4", default-features = false }
 stable_deref_trait = { version = "1.2.0", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 atomic-pool = "1.0"
-atomic-polyfill = "1.0.1"
-embedded-nal-async = "0.2.0"
-
-[dependencies.smoltcp]
-version = "0.8.0"
-git = "https://github.com/smoltcp-rs/smoltcp"
-rev = "ed0cf16750a42f30e31fcaf5347915592924b1e3"
-default-features = false
-features = [
-  "proto-ipv4",
-  "socket",
-  "async",
-]
+embedded-nal-async = { version = "0.4.0", optional = true }
+atomic-polyfill = { version = "1.0" }

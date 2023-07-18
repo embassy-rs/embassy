@@ -24,10 +24,13 @@ pub struct Config {
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
     pub adcclk: Option<Hertz>,
+    pub pllxtpre: bool,
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0 / 2);
+    let pllxtpre_div = if config.pllxtpre { 2 } else { 1 };
+    let pllsrcclk = config.hse.map(|hse| hse.0 / pllxtpre_div).unwrap_or(HSI_FREQ.0 / 2);
+
     let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
     let pllmul = sysclk / pllsrcclk;
 
@@ -103,11 +106,11 @@ pub(crate) unsafe fn init(config: Config) {
     // Only needed for stm32f103?
     FLASH.acr().write(|w| {
         w.set_latency(if real_sysclk <= 24_000_000 {
-            Latency(0b000)
+            Latency::WS0
         } else if real_sysclk <= 48_000_000 {
-            Latency(0b001)
+            Latency::WS1
         } else {
-            Latency(0b010)
+            Latency::WS2
         });
     });
 
@@ -143,10 +146,14 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     if let Some(pllmul_bits) = pllmul_bits {
+        let pllctpre_flag: u8 = if config.pllxtpre { 1 } else { 0 };
+        RCC.cfgr()
+            .modify(|w| w.set_pllxtpre(Pllxtpre::from_bits(pllctpre_flag)));
+
         // enable PLL and wait for it to be ready
         RCC.cfgr().modify(|w| {
-            w.set_pllmul(Pllmul(pllmul_bits));
-            w.set_pllsrc(Pllsrc(config.hse.is_some() as u8));
+            w.set_pllmul(Pllmul::from_bits(pllmul_bits));
+            w.set_pllsrc(Pllsrc::from_bits(config.hse.is_some() as u8));
         });
 
         RCC.cr().modify(|w| w.set_pllon(true));
@@ -155,22 +162,19 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Only needed for stm32f103?
     RCC.cfgr().modify(|w| {
-        w.set_adcpre(Adcpre(apre_bits));
-        w.set_ppre2(Ppre1(ppre2_bits));
-        w.set_ppre1(Ppre1(ppre1_bits));
-        w.set_hpre(Hpre(hpre_bits));
+        w.set_adcpre(Adcpre::from_bits(apre_bits));
+        w.set_ppre2(Ppre1::from_bits(ppre2_bits));
+        w.set_ppre1(Ppre1::from_bits(ppre1_bits));
+        w.set_hpre(Hpre::from_bits(hpre_bits));
         #[cfg(not(rcc_f100))]
-        w.set_usbpre(Usbpre(usbpre as u8));
-        w.set_sw(Sw(if pllmul_bits.is_some() {
-            // PLL
-            0b10
+        w.set_usbpre(Usbpre::from_bits(usbpre as u8));
+        w.set_sw(if pllmul_bits.is_some() {
+            Sw::PLL
         } else if config.hse.is_some() {
-            // HSE
-            0b1
+            Sw::HSE
         } else {
-            // HSI
-            0b0
-        }));
+            Sw::HSI
+        });
     });
 
     set_freqs(Clocks {

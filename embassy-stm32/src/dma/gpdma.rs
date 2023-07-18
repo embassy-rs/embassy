@@ -1,13 +1,31 @@
-use core::sync::atomic::{fence, Ordering};
-use core::task::Waker;
+#![macro_use]
 
+use core::future::Future;
+use core::pin::Pin;
+use core::sync::atomic::{fence, Ordering};
+use core::task::{Context, Poll};
+
+use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::{Request, TransferOptions, Word, WordSize};
+use super::word::{Word, WordSize};
+use super::Dir;
 use crate::_generated::GPDMA_CHANNEL_COUNT;
-use crate::interrupt::{Interrupt, InterruptExt};
-use crate::pac::gpdma::{vals, Gpdma};
-use crate::{interrupt, pac};
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::Priority;
+use crate::pac;
+use crate::pac::gpdma::vals;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct TransferOptions {}
+
+impl Default for TransferOptions {
+    fn default() -> Self {
+        Self {}
+    }
+}
 
 impl From<WordSize> for vals::ChTr1Dw {
     fn from(raw: WordSize) -> Self {
@@ -19,27 +37,15 @@ impl From<WordSize> for vals::ChTr1Dw {
     }
 }
 
-struct ChannelState {
-    waker: AtomicWaker,
-}
-
-impl ChannelState {
-    const fn new() -> Self {
-        Self {
-            waker: AtomicWaker::new(),
-        }
-    }
-}
-
 struct State {
-    channels: [ChannelState; GPDMA_CHANNEL_COUNT],
+    ch_wakers: [AtomicWaker; GPDMA_CHANNEL_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
-        const CH: ChannelState = ChannelState::new();
+        const AW: AtomicWaker = AtomicWaker::new();
         Self {
-            channels: [CH; GPDMA_CHANNEL_COUNT],
+            ch_wakers: [AW; GPDMA_CHANNEL_COUNT],
         }
     }
 }
@@ -47,10 +53,11 @@ impl State {
 static STATE: State = State::new();
 
 /// safety: must be called only once
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn init(irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
-            interrupt::$irq::steal().enable();
+            crate::interrupt::typelevel::$irq::set_priority(irq_priority);
+            crate::interrupt::typelevel::$irq::enable();
         };
     }
     crate::_generated::init_gpdma();
@@ -58,118 +65,173 @@ pub(crate) unsafe fn init() {
 
 foreach_dma_channel! {
     ($channel_peri:ident, $dma_peri:ident, gpdma, $channel_num:expr, $index:expr, $dmamux:tt) => {
-        impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
-            unsafe fn start_write<W: Word>(&mut self, request: Request, buf: *const [W], reg_addr: *mut W, options: TransferOptions) {
-                let (ptr, len) = super::slice_ptr_parts(buf);
-                low_level_api::start_transfer(
-                    pac::$dma_peri,
-                    $channel_num,
-                    request,
-                    low_level_api::Dir::MemoryToPeripheral,
-                    reg_addr as *const u32,
-                    ptr as *mut u32,
-                    len,
-                    true,
-                    W::bits(),
-                    options,
-                )
+        impl sealed::Channel for crate::peripherals::$channel_peri {
+            fn regs(&self) -> pac::gpdma::Gpdma {
+                pac::$dma_peri
             }
-
-            unsafe fn start_write_repeated<W: Word>(&mut self, request: Request, repeated: W, count: usize, reg_addr: *mut W, options: TransferOptions) {
-                let buf = [repeated];
-                low_level_api::start_transfer(
-                    pac::$dma_peri,
-                    $channel_num,
-                    request,
-                    low_level_api::Dir::MemoryToPeripheral,
-                    reg_addr as *const u32,
-                    buf.as_ptr() as *mut u32,
-                    count,
-                    false,
-                    W::bits(),
-                    options,
-                )
+            fn num(&self) -> usize {
+                $channel_num
             }
-
-            unsafe fn start_read<W: Word>(&mut self, request: Request, reg_addr: *const W, buf: *mut [W], options: TransferOptions) {
-                let (ptr, len) = super::slice_ptr_parts_mut(buf);
-                low_level_api::start_transfer(
-                    pac::$dma_peri,
-                    $channel_num,
-                    request,
-                    low_level_api::Dir::PeripheralToMemory,
-                    reg_addr as *const u32,
-                    ptr as *mut u32,
-                    len,
-                    true,
-                    W::bits(),
-                    options,
-                );
+            fn index(&self) -> usize {
+                $index
             }
-
-            unsafe fn start_double_buffered_read<W: Word>(
-                &mut self,
-                _request: Request,
-                _reg_addr: *const W,
-                _buffer0: *mut W,
-                _buffer1: *mut W,
-                _buffer_len: usize,
-                _options: TransferOptions,
-            ) {
-                panic!("Unsafe double buffered mode is unavailable on GPBDMA");
-            }
-
-            unsafe fn set_buffer0<W: Word>(&mut self, _buffer: *mut W) {
-                panic!("Unsafe double buffered mode is unavailable on GPBDMA");
-            }
-
-            unsafe fn set_buffer1<W: Word>(&mut self, _buffer: *mut W) {
-                panic!("Unsafe double buffered mode is unavailable on GPBDMA");
-            }
-
-            unsafe fn is_buffer0_accessible(&mut self) -> bool {
-                panic!("Unsafe double buffered mode is unavailable on GPBDMA");
-            }
-
-            fn request_stop(&mut self) {
-                unsafe {low_level_api::request_stop(pac::$dma_peri, $channel_num);}
-            }
-
-            fn is_running(&self) -> bool {
-                unsafe {low_level_api::is_running(pac::$dma_peri, $channel_num)}
-            }
-
-            fn remaining_transfers(&mut self) -> u16 {
-                unsafe {low_level_api::get_remaining_transfers(pac::$dma_peri, $channel_num)}
-            }
-
-            fn set_waker(&mut self, waker: &Waker) {
-                unsafe {low_level_api::set_waker($index, waker )}
-            }
-
             fn on_irq() {
-                unsafe {
-                    low_level_api::on_irq_inner(pac::$dma_peri, $channel_num, $index);
-                }
+                unsafe { on_irq_inner(pac::$dma_peri, $channel_num, $index) }
             }
         }
-        impl crate::dma::Channel for crate::peripherals::$channel_peri { }
+
+        impl Channel for crate::peripherals::$channel_peri {}
     };
 }
 
-mod low_level_api {
-    use super::*;
+/// Safety: Must be called with a matching set of parameters for a valid dma channel
+pub(crate) unsafe fn on_irq_inner(dma: pac::gpdma::Gpdma, channel_num: usize, index: usize) {
+    let ch = dma.ch(channel_num);
+    let sr = ch.sr().read();
 
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum Dir {
-        MemoryToPeripheral,
-        PeripheralToMemory,
+    if sr.dtef() {
+        panic!(
+            "DMA: data transfer error on DMA@{:08x} channel {}",
+            dma.as_ptr() as u32,
+            channel_num
+        );
+    }
+    if sr.usef() {
+        panic!(
+            "DMA: user settings error on DMA@{:08x} channel {}",
+            dma.as_ptr() as u32,
+            channel_num
+        );
     }
 
-    pub unsafe fn start_transfer(
-        dma: Gpdma,
-        channel_number: u8,
+    if sr.suspf() || sr.tcf() {
+        // disable all xxIEs to prevent the irq from firing again.
+        ch.cr().write(|_| {});
+
+        // Wake the future. It'll look at tcf and see it's set.
+        STATE.ch_wakers[index].wake();
+    }
+}
+
+pub type Request = u8;
+
+#[cfg(dmamux)]
+pub trait Channel: sealed::Channel + Peripheral<P = Self> + 'static + super::dmamux::MuxChannel {}
+#[cfg(not(dmamux))]
+pub trait Channel: sealed::Channel + Peripheral<P = Self> + 'static {}
+
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait Channel {
+        fn regs(&self) -> pac::gpdma::Gpdma;
+        fn num(&self) -> usize;
+        fn index(&self) -> usize;
+        fn on_irq();
+    }
+}
+
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct Transfer<'a, C: Channel> {
+    channel: PeripheralRef<'a, C>,
+}
+
+impl<'a, C: Channel> Transfer<'a, C> {
+    pub unsafe fn new_read<W: Word>(
+        channel: impl Peripheral<P = C> + 'a,
+        request: Request,
+        peri_addr: *mut W,
+        buf: &'a mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_read_raw(channel, request, peri_addr, buf, options)
+    }
+
+    pub unsafe fn new_read_raw<W: Word>(
+        channel: impl Peripheral<P = C> + 'a,
+        request: Request,
+        peri_addr: *mut W,
+        buf: *mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        let (ptr, len) = super::slice_ptr_parts_mut(buf);
+        assert!(len > 0 && len <= 0xFFFF);
+
+        Self::new_inner(
+            channel,
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            ptr as *mut u32,
+            len,
+            true,
+            W::size(),
+            options,
+        )
+    }
+
+    pub unsafe fn new_write<W: Word>(
+        channel: impl Peripheral<P = C> + 'a,
+        request: Request,
+        buf: &'a [W],
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_write_raw(channel, request, buf, peri_addr, options)
+    }
+
+    pub unsafe fn new_write_raw<W: Word>(
+        channel: impl Peripheral<P = C> + 'a,
+        request: Request,
+        buf: *const [W],
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        let (ptr, len) = super::slice_ptr_parts(buf);
+        assert!(len > 0 && len <= 0xFFFF);
+
+        Self::new_inner(
+            channel,
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            ptr as *mut u32,
+            len,
+            true,
+            W::size(),
+            options,
+        )
+    }
+
+    pub unsafe fn new_write_repeated<W: Word>(
+        channel: impl Peripheral<P = C> + 'a,
+        request: Request,
+        repeated: &'a W,
+        count: usize,
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        Self::new_inner(
+            channel,
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            repeated as *const W as *mut u32,
+            count,
+            false,
+            W::size(),
+            options,
+        )
+    }
+
+    unsafe fn new_inner(
+        channel: PeripheralRef<'a, C>,
         request: Request,
         dir: Dir,
         peri_addr: *const u32,
@@ -178,11 +240,19 @@ mod low_level_api {
         incr_mem: bool,
         data_size: WordSize,
         _options: TransferOptions,
-    ) {
+    ) -> Self {
+        let ch = channel.regs().ch(channel.num());
+
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
-        let ch = dma.ch(channel_number as _);
+        let this = Self { channel };
+
+        #[cfg(dmamux)]
+        super::dmamux::configure_dmamux(&mut *this.channel, request);
+
+        ch.cr().write(|w| w.set_reset(true));
+        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
         ch.llr().write(|_| {}); // no linked list
         ch.tr1().write(|w| {
             w.set_sdw(data_size.into());
@@ -223,12 +293,12 @@ mod low_level_api {
             // Start it
             w.set_en(true);
         });
+
+        this
     }
 
-    /// Stops the DMA channel.
-    pub unsafe fn request_stop(dma: Gpdma, channel_number: u8) {
-        // get a handle on the channel itself
-        let ch = dma.ch(channel_number as _);
+    pub fn request_stop(&mut self) {
+        let ch = self.channel.regs().ch(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
         ch.cr().write(|w| {
@@ -236,56 +306,51 @@ mod low_level_api {
             w.set_useie(true);
             w.set_dteie(true);
             w.set_suspie(true);
-        });
-
-        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
-        fence(Ordering::SeqCst);
+        })
     }
 
-    /// Gets the running status of the channel
-    pub unsafe fn is_running(dma: Gpdma, ch: u8) -> bool {
-        let ch = dma.ch(ch as _);
-        !ch.sr().read().idlef()
+    pub fn is_running(&mut self) -> bool {
+        let ch = self.channel.regs().ch(self.channel.num());
+        !ch.sr().read().tcf()
     }
 
     /// Gets the total remaining transfers for the channel
     /// Note: this will be zero for transfers that completed without cancellation.
-    pub unsafe fn get_remaining_transfers(dma: Gpdma, ch: u8) -> u16 {
-        // get a handle on the channel itself
-        let ch = dma.ch(ch as _);
-        // read the remaining transfer count. If this is zero, the transfer completed fully.
+    pub fn get_remaining_transfers(&self) -> u16 {
+        let ch = self.channel.regs().ch(self.channel.num());
         ch.br1().read().bndt()
     }
 
-    /// Sets the waker for the specified DMA channel
-    pub unsafe fn set_waker(state_number: usize, waker: &Waker) {
-        STATE.channels[state_number].waker.register(waker);
+    pub fn blocking_wait(mut self) {
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+
+        core::mem::forget(self);
     }
+}
 
-    /// Safety: Must be called with a matching set of parameters for a valid dma channel
-    pub unsafe fn on_irq_inner(dma: Gpdma, channel_num: u8, state_index: u8) {
-        let channel_num = channel_num as usize;
-        let state_index = state_index as usize;
+impl<'a, C: Channel> Drop for Transfer<'a, C> {
+    fn drop(&mut self) {
+        self.request_stop();
+        while self.is_running() {}
 
-        let ch = dma.ch(channel_num);
-        let sr = ch.sr().read();
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+    }
+}
 
-        if sr.dtef() {
-            panic!(
-                "DMA: data transfer error on DMA@{:08x} channel {}",
-                dma.0 as u32, channel_num
-            );
-        }
-        if sr.usef() {
-            panic!(
-                "DMA: user settings error on DMA@{:08x} channel {}",
-                dma.0 as u32, channel_num
-            );
-        }
+impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
+impl<'a, C: Channel> Future for Transfer<'a, C> {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        STATE.ch_wakers[self.channel.index()].register(cx.waker());
 
-        if sr.suspf() || sr.tcf() {
-            ch.cr().write(|w| w.set_reset(true));
-            STATE.channels[state_index].waker.wake();
+        if self.is_running() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
         }
     }
 }

@@ -2,16 +2,25 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
-use cortex_m_rt::entry;
 use defmt::*;
+use embassy_executor::Spawner;
+use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::bxcan::filter::Mask32;
 use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
-use embassy_stm32::can::Can;
+use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
+use embassy_stm32::peripherals::CAN1;
 use {defmt_rtt as _, panic_probe as _};
 
-#[entry]
-fn main() -> ! {
+bind_interrupts!(struct Irqs {
+    CAN1_RX0 => Rx0InterruptHandler<CAN1>;
+    CAN1_RX1 => Rx1InterruptHandler<CAN1>;
+    CAN1_SCE => SceInterruptHandler<CAN1>;
+    CAN1_TX => TxInterruptHandler<CAN1>;
+});
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut p = embassy_stm32::init(Default::default());
@@ -23,11 +32,14 @@ fn main() -> ! {
     let rx_pin = Input::new(&mut p.PA11, Pull::Up);
     core::mem::forget(rx_pin);
 
-    let mut can = Can::new(p.CAN1, p.PA11, p.PA12);
+    let mut can = Can::new(p.CAN1, p.PA11, p.PA12, Irqs);
 
-    can.modify_filters().enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
+    can.as_mut()
+        .modify_filters()
+        .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
 
-    can.modify_config()
+    can.as_mut()
+        .modify_config()
         .set_bit_timing(0x001c0003) // http://www.bittiming.can-wiki.info/
         .set_loopback(true) // Receive own frames
         .set_silent(true)
@@ -36,9 +48,8 @@ fn main() -> ! {
     let mut i: u8 = 0;
     loop {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
-        unwrap!(nb::block!(can.transmit(&tx_frame)));
-        while !can.is_transmitter_idle() {}
-        let rx_frame = unwrap!(nb::block!(can.receive()));
+        can.write(&tx_frame).await;
+        let (_, rx_frame) = can.read().await.unwrap();
         info!("loopback frame {=u8}", unwrap!(rx_frame.data())[0]);
         i += 1;
     }

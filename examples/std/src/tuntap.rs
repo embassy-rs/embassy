@@ -1,8 +1,10 @@
 use std::io;
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::task::Context;
 
 use async_io::Async;
+use embassy_net_driver::{self, Capabilities, Driver, LinkState};
 use log::*;
 
 pub const SIOCGIFMTU: libc::c_ulong = 0x8921;
@@ -125,54 +127,35 @@ impl io::Write for TunTap {
 
 pub struct TunTapDevice {
     device: Async<TunTap>,
-    waker: Option<Waker>,
 }
 
 impl TunTapDevice {
     pub fn new(name: &str) -> io::Result<TunTapDevice> {
         Ok(Self {
             device: Async::new(TunTap::new(name)?)?,
-            waker: None,
         })
     }
 }
 
-use core::task::Waker;
-use std::task::Context;
+impl Driver for TunTapDevice {
+    type RxToken<'a> = RxToken where Self: 'a;
+    type TxToken<'a> = TxToken<'a> where Self: 'a;
 
-use embassy_net::{Device, DeviceCapabilities, LinkState, Packet, PacketBox, PacketBoxExt, PacketBuf};
-
-impl Device for TunTapDevice {
-    fn is_transmit_ready(&mut self) -> bool {
-        true
-    }
-
-    fn transmit(&mut self, pkt: PacketBuf) {
-        // todo handle WouldBlock
-        match self.device.get_mut().write(&pkt) {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                info!("transmit WouldBlock");
-            }
-            Err(e) => panic!("transmit error: {:?}", e),
-        }
-    }
-
-    fn receive(&mut self) -> Option<PacketBuf> {
-        let mut pkt = PacketBox::new(Packet::new()).unwrap();
+    fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        let mut buf = vec![0; self.device.get_ref().mtu];
         loop {
-            match self.device.get_mut().read(&mut pkt[..]) {
+            match self.device.get_mut().read(&mut buf) {
                 Ok(n) => {
-                    return Some(pkt.slice(0..n));
+                    buf.truncate(n);
+                    return Some((
+                        RxToken { buffer: buf },
+                        TxToken {
+                            device: &mut self.device,
+                        },
+                    ));
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    let ready = if let Some(w) = self.waker.as_ref() {
-                        let mut cx = Context::from_waker(w);
-                        self.device.poll_readable(&mut cx).is_ready()
-                    } else {
-                        false
-                    };
-                    if !ready {
+                    if !self.device.poll_readable(cx).is_ready() {
                         return None;
                     }
                 }
@@ -181,41 +164,61 @@ impl Device for TunTapDevice {
         }
     }
 
-    fn register_waker(&mut self, w: &Waker) {
-        match self.waker {
-            // Optimization: If both the old and new Wakers wake the same task, we can simply
-            // keep the old waker, skipping the clone. (In most executor implementations,
-            // cloning a waker is somewhat expensive, comparable to cloning an Arc).
-            Some(ref w2) if (w2.will_wake(w)) => {}
-            _ => {
-                // clone the new waker and store it
-                if let Some(old_waker) = core::mem::replace(&mut self.waker, Some(w.clone())) {
-                    // We had a waker registered for another task. Wake it, so the other task can
-                    // reregister itself if it's still interested.
-                    //
-                    // If two tasks are waiting on the same thing concurrently, this will cause them
-                    // to wake each other in a loop fighting over this WakerRegistration. This wastes
-                    // CPU but things will still work.
-                    //
-                    // If the user wants to have two tasks waiting on the same thing they should use
-                    // a more appropriate primitive that can store multiple wakers.
-                    old_waker.wake()
-                }
-            }
-        }
+    fn transmit(&mut self, _cx: &mut Context) -> Option<Self::TxToken<'_>> {
+        Some(TxToken {
+            device: &mut self.device,
+        })
     }
 
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
+    fn capabilities(&self) -> Capabilities {
+        let mut caps = Capabilities::default();
         caps.max_transmission_unit = self.device.get_ref().mtu;
         caps
     }
 
-    fn link_state(&mut self) -> LinkState {
+    fn link_state(&mut self, _cx: &mut Context) -> LinkState {
         LinkState::Up
     }
 
     fn ethernet_address(&self) -> [u8; 6] {
         [0x02, 0x03, 0x04, 0x05, 0x06, 0x07]
+    }
+}
+
+#[doc(hidden)]
+pub struct RxToken {
+    buffer: Vec<u8>,
+}
+
+impl embassy_net_driver::RxToken for RxToken {
+    fn consume<R, F>(mut self, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        f(&mut self.buffer)
+    }
+}
+
+#[doc(hidden)]
+pub struct TxToken<'a> {
+    device: &'a mut Async<TunTap>,
+}
+
+impl<'a> embassy_net_driver::TxToken for TxToken<'a> {
+    fn consume<R, F>(self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut buffer = vec![0; len];
+        let result = f(&mut buffer);
+
+        // todo handle WouldBlock with async
+        match self.device.get_mut().write(&buffer) {
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => info!("transmit WouldBlock"),
+            Err(e) => panic!("transmit error: {:?}", e),
+        }
+
+        result
     }
 }

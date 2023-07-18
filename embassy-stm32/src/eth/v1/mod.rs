@@ -1,52 +1,62 @@
 // The v1c ethernet driver was ported to embassy from the awesome stm32-eth project (https://github.com/stm32-rs/stm32-eth).
 
+mod rx_desc;
+mod tx_desc;
+
 use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
-use core::task::Waker;
 
-use embassy_cortex_m::peripheral::{PeripheralMutex, PeripheralState, StateStorage};
 use embassy_hal_common::{into_ref, PeripheralRef};
-use embassy_net::{Device, DeviceCapabilities, LinkState, PacketBuf, MTU};
-use embassy_sync::waitqueue::AtomicWaker;
+use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
 
+pub(crate) use self::rx_desc::{RDes, RDesRing};
+pub(crate) use self::tx_desc::{TDes, TDesRing};
+use super::*;
 use crate::gpio::sealed::{AFType, Pin as __GpioPin};
-use crate::gpio::{AnyPin, Speed};
+use crate::gpio::AnyPin;
+use crate::interrupt::InterruptExt;
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
 use crate::pac::{ETH, RCC};
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
 
-mod descriptors;
-mod rx_desc;
-mod tx_desc;
+/// Interrupt handler.
+pub struct InterruptHandler {}
 
-use descriptors::DescriptorRing;
-use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
+impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        WAKER.wake();
 
-use super::*;
+        // TODO: Check and clear more flags
+        let dma = ETH.ethernet_dma();
 
-pub struct State<'d, T: Instance, const TX: usize, const RX: usize>(StateStorage<Inner<'d, T, TX, RX>>);
-impl<'d, T: Instance, const TX: usize, const RX: usize> State<'d, T, TX, RX> {
-    pub fn new() -> Self {
-        Self(StateStorage::new())
+        dma.dmasr().modify(|w| {
+            w.set_ts(true);
+            w.set_rs(true);
+            w.set_nis(true);
+        });
+        // Delay two peripheral's clock
+        dma.dmasr().read();
+        dma.dmasr().read();
     }
 }
 
-pub struct Ethernet<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> {
-    state: PeripheralMutex<'d, Inner<'d, T, TX, RX>>,
+pub struct Ethernet<'d, T: Instance, P: PHY> {
+    _peri: PeripheralRef<'d, T>,
+    pub(crate) tx: TDesRing<'d>,
+    pub(crate) rx: RDesRing<'d>,
+
     pins: [PeripheralRef<'d, AnyPin>; 9],
-    _phy: P,
-    clock_range: Cr,
-    phy_addr: u8,
-    mac_addr: [u8; 6],
+    pub(crate) phy: P,
+    pub(crate) station_management: EthernetStationManagement<T>,
+    pub(crate) mac_addr: [u8; 6],
 }
 
 #[cfg(eth_v1a)]
 macro_rules! config_in_pins {
     ($($pin:ident),*) => {
-        // NOTE(unsafe) Exclusive access to the registers
         critical_section::with(|_| {
             $(
                 // TODO properly create a set_as_input function
@@ -59,7 +69,6 @@ macro_rules! config_in_pins {
 #[cfg(eth_v1a)]
 macro_rules! config_af_pins {
     ($($pin:ident),*) => {
-        // NOTE(unsafe) Exclusive access to the registers
         critical_section::with(|_| {
             $(
                 // We are lucky here, this configures to max speed (50MHz)
@@ -72,22 +81,21 @@ macro_rules! config_af_pins {
 #[cfg(any(eth_v1b, eth_v1c))]
 macro_rules! config_pins {
     ($($pin:ident),*) => {
-        // NOTE(unsafe) Exclusive access to the registers
         critical_section::with(|_| {
             $(
                 $pin.set_as_af($pin.af_num(), AFType::OutputPushPull);
-                $pin.set_speed(Speed::VeryHigh);
+                $pin.set_speed(crate::gpio::Speed::VeryHigh);
             )*
         })
     };
 }
 
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, P, TX, RX> {
+impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     /// safety: the returned instance is not leak-safe
-    pub unsafe fn new(
-        state: &'d mut State<'d, T, TX, RX>,
+    pub fn new<const TX: usize, const RX: usize>(
+        queue: &'d mut PacketQueue<TX, RX>,
         peri: impl Peripheral<P = T> + 'd,
-        interrupt: impl Peripheral<P = crate::interrupt::ETH> + 'd,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
         ref_clk: impl Peripheral<P = impl RefClkPin<T>> + 'd,
         mdio: impl Peripheral<P = impl MDIOPin<T>> + 'd,
         mdc: impl Peripheral<P = impl MDCPin<T>> + 'd,
@@ -101,10 +109,9 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
         mac_addr: [u8; 6],
         phy_addr: u8,
     ) -> Self {
-        into_ref!(interrupt, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+        into_ref!(peri, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         // Enable the necessary Clocks
-        // NOTE(unsafe) We have exclusive access to the registers
         #[cfg(eth_v1a)]
         critical_section::with(|_| {
             RCC.apb2enr().modify(|w| w.set_afioen(true));
@@ -142,10 +149,6 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
         #[cfg(any(eth_v1b, eth_v1c))]
         config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
-        // NOTE(unsafe) We are ourselves not leak-safe.
-        let state = PeripheralMutex::new(interrupt, &mut state.0, || Inner::new(peri));
-
-        // NOTE(unsafe) We have exclusive access to the registers
         let dma = ETH.ethernet_dma();
         let mac = ETH.ethernet_mac();
 
@@ -190,7 +193,7 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
         // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = crate::rcc::get_freqs().ahb1;
+        let hclk = unsafe { crate::rcc::get_freqs() }.ahb1;
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz
@@ -219,188 +222,109 @@ impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Ethernet<'d, T, 
         ];
 
         let mut this = Self {
-            state,
+            _peri: peri,
             pins,
-            _phy: phy,
-            clock_range,
-            phy_addr,
+            phy: phy,
+            station_management: EthernetStationManagement {
+                peri: PhantomData,
+                clock_range: clock_range,
+                phy_addr: phy_addr,
+            },
             mac_addr,
+            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
+            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
         };
 
-        this.state.with(|s| {
-            s.desc_ring.init();
+        fence(Ordering::SeqCst);
 
-            fence(Ordering::SeqCst);
+        let mac = ETH.ethernet_mac();
+        let dma = ETH.ethernet_dma();
 
-            let mac = ETH.ethernet_mac();
-            let dma = ETH.ethernet_dma();
-
-            mac.maccr().modify(|w| {
-                w.set_re(true);
-                w.set_te(true);
-            });
-            dma.dmaomr().modify(|w| {
-                w.set_ftf(Ftf::FLUSH); // flush transmit fifo (queue)
-                w.set_st(St::STARTED); // start transmitting channel
-                w.set_sr(DmaomrSr::STARTED); // start receiving channel
-            });
-
-            // Enable interrupts
-            dma.dmaier().modify(|w| {
-                w.set_nise(true);
-                w.set_rie(true);
-                w.set_tie(true);
-            });
+        mac.maccr().modify(|w| {
+            w.set_re(true);
+            w.set_te(true);
         });
-        P::phy_reset(&mut this);
-        P::phy_init(&mut this);
+        dma.dmaomr().modify(|w| {
+            w.set_ftf(Ftf::FLUSH); // flush transmit fifo (queue)
+            w.set_st(St::STARTED); // start transmitting channel
+            w.set_sr(DmaomrSr::STARTED); // start receiving channel
+        });
+
+        this.rx.demand_poll();
+
+        // Enable interrupts
+        dma.dmaier().modify(|w| {
+            w.set_nise(true);
+            w.set_rie(true);
+            w.set_tie(true);
+        });
+
+        this.phy.phy_reset(&mut this.station_management);
+        this.phy.phy_init(&mut this.station_management);
+
+        interrupt::ETH.unpend();
+        unsafe { interrupt::ETH.enable() };
 
         this
     }
 }
 
-unsafe impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> StationManagement
-    for Ethernet<'d, T, P, TX, RX>
-{
-    fn smi_read(&mut self, reg: u8) -> u16 {
-        // NOTE(unsafe) These registers aren't used in the interrupt and we have `&mut self`
-        unsafe {
-            let mac = ETH.ethernet_mac();
+pub struct EthernetStationManagement<T: Instance> {
+    peri: PhantomData<T>,
+    clock_range: Cr,
+    phy_addr: u8,
+}
 
-            mac.macmiiar().modify(|w| {
-                w.set_pa(self.phy_addr);
-                w.set_mr(reg);
-                w.set_mw(Mw::READ); // read operation
-                w.set_cr(self.clock_range);
-                w.set_mb(MbProgress::BUSY); // indicate that operation is in progress
-            });
-            while mac.macmiiar().read().mb() == MbProgress::BUSY {}
-            mac.macmiidr().read().md()
-        }
+unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
+    fn smi_read(&mut self, reg: u8) -> u16 {
+        let mac = ETH.ethernet_mac();
+
+        mac.macmiiar().modify(|w| {
+            w.set_pa(self.phy_addr);
+            w.set_mr(reg);
+            w.set_mw(Mw::READ); // read operation
+            w.set_cr(self.clock_range);
+            w.set_mb(MbProgress::BUSY); // indicate that operation is in progress
+        });
+        while mac.macmiiar().read().mb() == MbProgress::BUSY {}
+        mac.macmiidr().read().md()
     }
 
     fn smi_write(&mut self, reg: u8, val: u16) {
-        // NOTE(unsafe) These registers aren't used in the interrupt and we have `&mut self`
-        unsafe {
-            let mac = ETH.ethernet_mac();
+        let mac = ETH.ethernet_mac();
 
-            mac.macmiidr().write(|w| w.set_md(val));
-            mac.macmiiar().modify(|w| {
-                w.set_pa(self.phy_addr);
-                w.set_mr(reg);
-                w.set_mw(Mw::WRITE); // write
-                w.set_cr(self.clock_range);
-                w.set_mb(MbProgress::BUSY);
-            });
-            while mac.macmiiar().read().mb() == MbProgress::BUSY {}
-        }
+        mac.macmiidr().write(|w| w.set_md(val));
+        mac.macmiiar().modify(|w| {
+            w.set_pa(self.phy_addr);
+            w.set_mr(reg);
+            w.set_mw(Mw::WRITE); // write
+            w.set_cr(self.clock_range);
+            w.set_mb(MbProgress::BUSY);
+        });
+        while mac.macmiiar().read().mb() == MbProgress::BUSY {}
     }
 }
 
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Device for Ethernet<'d, T, P, TX, RX> {
-    fn is_transmit_ready(&mut self) -> bool {
-        self.state.with(|s| s.desc_ring.tx.available())
-    }
-
-    fn transmit(&mut self, pkt: PacketBuf) {
-        self.state.with(|s| unwrap!(s.desc_ring.tx.transmit(pkt)));
-    }
-
-    fn receive(&mut self) -> Option<PacketBuf> {
-        self.state.with(|s| s.desc_ring.rx.pop_packet())
-    }
-
-    fn register_waker(&mut self, waker: &Waker) {
-        WAKER.register(waker);
-    }
-
-    fn capabilities(&self) -> DeviceCapabilities {
-        let mut caps = DeviceCapabilities::default();
-        caps.max_transmission_unit = MTU;
-        caps.max_burst_size = Some(TX.min(RX));
-        caps
-    }
-
-    fn link_state(&mut self) -> LinkState {
-        if P::poll_link(self) {
-            LinkState::Up
-        } else {
-            LinkState::Down
-        }
-    }
-
-    fn ethernet_address(&self) -> [u8; 6] {
-        self.mac_addr
-    }
-}
-
-impl<'d, T: Instance, P: PHY, const TX: usize, const RX: usize> Drop for Ethernet<'d, T, P, TX, RX> {
+impl<'d, T: Instance, P: PHY> Drop for Ethernet<'d, T, P> {
     fn drop(&mut self) {
-        // NOTE(unsafe) We have `&mut self` and the interrupt doesn't use this registers
-        unsafe {
-            let dma = ETH.ethernet_dma();
-            let mac = ETH.ethernet_mac();
+        let dma = ETH.ethernet_dma();
+        let mac = ETH.ethernet_mac();
 
-            // Disable the TX DMA and wait for any previous transmissions to be completed
-            dma.dmaomr().modify(|w| w.set_st(St::STOPPED));
+        // Disable the TX DMA and wait for any previous transmissions to be completed
+        dma.dmaomr().modify(|w| w.set_st(St::STOPPED));
 
-            // Disable MAC transmitter and receiver
-            mac.maccr().modify(|w| {
-                w.set_re(false);
-                w.set_te(false);
-            });
+        // Disable MAC transmitter and receiver
+        mac.maccr().modify(|w| {
+            w.set_re(false);
+            w.set_te(false);
+        });
 
-            dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::STOPPED));
-        }
+        dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::STOPPED));
 
-        // NOTE(unsafe) Exclusive access to the regs
-        critical_section::with(|_| unsafe {
+        critical_section::with(|_| {
             for pin in self.pins.iter_mut() {
                 pin.set_as_disconnected();
             }
         })
     }
 }
-
-//----------------------------------------------------------------------
-
-struct Inner<'d, T: Instance, const TX: usize, const RX: usize> {
-    _peri: PhantomData<&'d mut T>,
-    desc_ring: DescriptorRing<TX, RX>,
-}
-
-impl<'d, T: Instance, const TX: usize, const RX: usize> Inner<'d, T, TX, RX> {
-    pub fn new(_peri: impl Peripheral<P = T> + 'd) -> Self {
-        Self {
-            _peri: PhantomData,
-            desc_ring: DescriptorRing::new(),
-        }
-    }
-}
-
-impl<'d, T: Instance, const TX: usize, const RX: usize> PeripheralState for Inner<'d, T, TX, RX> {
-    type Interrupt = crate::interrupt::ETH;
-
-    fn on_interrupt(&mut self) {
-        unwrap!(self.desc_ring.tx.on_interrupt());
-        self.desc_ring.rx.on_interrupt();
-
-        WAKER.wake();
-
-        // TODO: Check and clear more flags
-        unsafe {
-            let dma = ETH.ethernet_dma();
-
-            dma.dmasr().modify(|w| {
-                w.set_ts(true);
-                w.set_rs(true);
-                w.set_nis(true);
-            });
-            // Delay two peripheral's clock
-            dma.dmasr().read();
-            dma.dmasr().read();
-        }
-    }
-}
-
-static WAKER: AtomicWaker = AtomicWaker::new();

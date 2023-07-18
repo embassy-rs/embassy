@@ -1,49 +1,7 @@
-//! # Embassy nRF HAL
-//!
-//! HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed.
-//!
-//! The Embassy nRF HAL targets the Nordic Semiconductor nRF family of hardware. The HAL implements both blocking and async APIs
-//! for many peripherals. The benefit of using the async APIs is that the HAL takes care of waiting for peripherals to
-//! complete operations in low power mod and handling interrupts, so that applications can focus on more important matters.
-//!
-//! ## EasyDMA considerations
-//!
-//! On nRF chips, peripherals can use the so called EasyDMA feature to offload the task of interacting
-//! with peripherals. It takes care of sending/receiving data over a variety of bus protocols (TWI/I2C, UART, SPI).
-//! However, EasyDMA requires the buffers used to transmit and receive data to reside in RAM. Unfortunately, Rust
-//! slices will not always do so. The following example using the SPI peripheral shows a common situation where this might happen:
-//!
-//! ```no_run
-//! // As we pass a slice to the function whose contents will not ever change,
-//! // the compiler writes it into the flash and thus the pointer to it will
-//! // reference static memory. Since EasyDMA requires slices to reside in RAM,
-//! // this function call will fail.
-//! let result = spim.write_from_ram(&[1, 2, 3]);
-//! assert_eq!(result, Err(Error::DMABufferNotInDataMemory));
-//!
-//! // The data is still static and located in flash. However, since we are assigning
-//! // it to a variable, the compiler will load it into memory. Passing a reference to the
-//! // variable will yield a pointer that references dynamic memory, thus making EasyDMA happy.
-//! // This function call succeeds.
-//! let data = [1, 2, 3];
-//! let result = spim.write_from_ram(&data);
-//! assert!(result.is_ok());
-//! ```
-//!
-//! Each peripheral struct which uses EasyDMA ([`Spim`](spim::Spim), [`Uarte`](uarte::Uarte), [`Twim`](twim::Twim)) has two variants of their mutating functions:
-//! - Functions with the suffix (e.g. [`write_from_ram`](spim::Spim::write_from_ram), [`transfer_from_ram`](spim::Spim::transfer_from_ram)) will return an error if the passed slice does not reside in RAM.
-//! - Functions without the suffix (e.g. [`write`](spim::Spim::write), [`transfer`](spim::Spim::transfer)) will check whether the data is in RAM and copy it into memory prior to transmission.
-//!
-//! Since copying incurs a overhead, you are given the option to choose from `_from_ram` variants which will
-//! fail and notify you, or the more convenient versions without the suffix which are potentially a little bit
-//! more inefficient. Be aware that this overhead is not only in terms of instruction count but also in terms of memory usage
-//! as the methods without the suffix will be allocating a statically sized buffer (up to 512 bytes for the nRF52840).
-//!
-//! Note that the methods that read data like [`read`](spim::Spim::read) and [`transfer_in_place`](spim::Spim::transfer_in_place) do not have the corresponding `_from_ram` variants as
-//! mutable slices always reside in RAM.
-
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 #[cfg(not(any(
     feature = "nrf51",
@@ -62,6 +20,12 @@
 )))]
 compile_error!("No chip feature activated. You must activate exactly one of the following features: nrf52810, nrf52811, nrf52832, nrf52833, nrf52840");
 
+#[cfg(all(feature = "reset-pin-as-gpio", not(feature = "_nrf52")))]
+compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips.");
+
+#[cfg(all(feature = "nfc-pins-as-gpio", not(any(feature = "_nrf52", feature = "_nrf5340-app"))))]
+compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's application core.");
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 pub(crate) mod util;
@@ -69,29 +33,41 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
-#[cfg(feature = "nightly")]
 pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
-#[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+#[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
+pub mod i2s;
 pub mod nvmc;
+#[cfg(any(
+    feature = "nrf52810",
+    feature = "nrf52811",
+    feature = "nrf52832",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-app",
+    feature = "_nrf9160"
+))]
+pub mod pdm;
 pub mod ppi;
 #[cfg(not(any(feature = "nrf52805", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod pwm;
-#[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf5340")))]
+#[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf5340-net")))]
 pub mod qdec;
-#[cfg(feature = "nrf52840")]
+#[cfg(any(feature = "nrf52840", feature = "_nrf5340-app"))]
 pub mod qspi;
-#[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+#[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf9160")))]
 pub mod rng;
 #[cfg(not(any(feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
 pub mod spim;
+pub mod spis;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod temp;
 pub mod timer;
 pub mod twim;
+pub mod twis;
 pub mod uarte;
 #[cfg(any(
     feature = "_nrf5340-app",
@@ -103,14 +79,6 @@ pub mod uarte;
 pub mod usb;
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
-#[cfg(any(
-    feature = "nrf52810",
-    feature = "nrf52811",
-    feature = "nrf52832",
-    feature = "nrf52833",
-    feature = "nrf52840",
-))]
-pub mod pdm;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
 #[cfg_attr(feature = "nrf52805", path = "chips/nrf52805.rs")]
@@ -125,15 +93,32 @@ pub mod pdm;
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 mod chip;
 
-pub use chip::EASY_DMA_SIZE;
+/// Macro to bind interrupts to handlers.
+///
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+// developer note: this macro can't be in `embassy-hal-common` due to the use of `$crate`.
+#[macro_export]
+macro_rules! bind_interrupts {
+        ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+            $vis struct $name;
 
-pub mod interrupt {
-    //! nRF interrupts for cortex-m devices.
-    pub use cortex_m::interrupt::{CriticalSection, Mutex};
-    pub use embassy_cortex_m::interrupt::*;
+            $(
+                #[allow(non_snake_case)]
+                #[no_mangle]
+                unsafe extern "C" fn $irq() {
+                    $(
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                    )*
+                }
 
-    pub use crate::chip::irqs::*;
-}
+                $(
+                    unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+                )*
+            )*
+        };
+    }
 
 // Reexports
 
@@ -141,10 +126,11 @@ pub mod interrupt {
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals};
-pub use embassy_cortex_m::executor;
-pub use embassy_cortex_m::interrupt::_export::interrupt;
+pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
 pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+
+pub use crate::chip::interrupt;
+pub use crate::pac::NVIC_PRIO_BITS;
 
 pub mod config {
     //! Configuration options used when initializing the HAL.
@@ -174,6 +160,47 @@ pub mod config {
         ExternalFullSwing,
     }
 
+    /// SWD access port protection setting.
+    #[non_exhaustive]
+    pub enum Debug {
+        /// Debugging is allowed (APPROTECT is disabled). Default.
+        Allowed,
+        /// Debugging is not allowed (APPROTECT is enabled).
+        Disallowed,
+        /// APPROTECT is not configured (neither to enable it or disable it).
+        /// This can be useful if you're already doing it by other means and
+        /// you don't want embassy-nrf to touch UICR.
+        NotConfigured,
+    }
+
+    /// Settings for enabling the built in DCDC converters.
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+    pub struct DcdcConfig {
+        /// Config for the first stage DCDC (VDDH -> VDD), if disabled LDO will be used.
+        #[cfg(feature = "nrf52840")]
+        pub reg0: bool,
+        /// Config for the second stage DCDC (VDD -> DEC4), if disabled LDO will be used.
+        pub reg1: bool,
+    }
+
+    /// Settings for enabling the built in DCDC converters.
+    #[cfg(feature = "_nrf5340-app")]
+    pub struct DcdcConfig {
+        /// Config for the high voltage stage, if disabled LDO will be used.
+        pub regh: bool,
+        /// Config for the main rail, if disabled LDO will be used.
+        pub regmain: bool,
+        /// Config for the radio rail, if disabled LDO will be used.
+        pub regradio: bool,
+    }
+
+    /// Settings for enabling the built in DCDC converter.
+    #[cfg(feature = "_nrf9160")]
+    pub struct DcdcConfig {
+        /// Config for the main rail, if disabled LDO will be used.
+        pub regmain: bool,
+    }
+
     /// Configuration for peripherals. Default configuration should work on any nRF chip.
     #[non_exhaustive]
     pub struct Config {
@@ -181,12 +208,17 @@ pub mod config {
         pub hfclk_source: HfclkSource,
         /// Low frequency clock source.
         pub lfclk_source: LfclkSource,
+        #[cfg(not(feature = "_nrf5340-net"))]
+        /// DCDC configuration.
+        pub dcdc: DcdcConfig,
         /// GPIOTE interrupt priority. Should be lower priority than softdevice if used.
         #[cfg(feature = "gpiote")]
         pub gpiote_interrupt_priority: crate::interrupt::Priority,
         /// Time driver interrupt priority. Should be lower priority than softdevice if used.
         #[cfg(feature = "_time-driver")]
         pub time_interrupt_priority: crate::interrupt::Priority,
+        /// Enable or disable the debug port.
+        pub debug: Debug,
     }
 
     impl Default for Config {
@@ -197,13 +229,107 @@ pub mod config {
                 // xtals if they know they have them.
                 hfclk_source: HfclkSource::Internal,
                 lfclk_source: LfclkSource::InternalRC,
+                #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+                dcdc: DcdcConfig {
+                    #[cfg(feature = "nrf52840")]
+                    reg0: false,
+                    reg1: false,
+                },
+                #[cfg(feature = "_nrf5340-app")]
+                dcdc: DcdcConfig {
+                    regh: false,
+                    regmain: false,
+                    regradio: false,
+                },
+                #[cfg(feature = "_nrf9160")]
+                dcdc: DcdcConfig { regmain: false },
                 #[cfg(feature = "gpiote")]
                 gpiote_interrupt_priority: crate::interrupt::Priority::P0,
                 #[cfg(feature = "_time-driver")]
                 time_interrupt_priority: crate::interrupt::Priority::P0,
+
+                // In NS mode, default to NotConfigured, assuming the S firmware will do it.
+                #[cfg(feature = "_ns")]
+                debug: Debug::NotConfigured,
+                #[cfg(not(feature = "_ns"))]
+                debug: Debug::Allowed,
             }
         }
     }
+}
+
+#[cfg(feature = "_nrf9160")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
+    pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF802C as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+}
+
+#[cfg(feature = "_nrf5340-app")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
+    pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF801C as *mut u32;
+    pub const UICR_NFCPINS: *mut u32 = 0x00FF8028 as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    pub const APPROTECT_DISABLED: u32 = 0x50FA50FA;
+}
+
+#[cfg(feature = "_nrf5340-net")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_APPROTECT: *mut u32 = 0x01FF8000 as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    pub const APPROTECT_DISABLED: u32 = 0x50FA50FA;
+}
+
+#[cfg(feature = "_nrf52")]
+#[allow(unused)]
+mod consts {
+    pub const UICR_PSELRESET1: *mut u32 = 0x10001200 as *mut u32;
+    pub const UICR_PSELRESET2: *mut u32 = 0x10001204 as *mut u32;
+    pub const UICR_NFCPINS: *mut u32 = 0x1000120C as *mut u32;
+    pub const UICR_APPROTECT: *mut u32 = 0x10001208 as *mut u32;
+    pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum WriteResult {
+    /// Word was written successfully, needs reset.
+    Written,
+    /// Word was already set to the value we wanted to write, nothing was done.
+    Noop,
+    /// Word is already set to something else, we couldn't write the desired value.
+    Failed,
+}
+
+unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
+    uicr_write_masked(address, value, 0xFFFF_FFFF)
+}
+
+unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
+    let curr_val = address.read_volatile();
+    if curr_val & mask == value & mask {
+        return WriteResult::Noop;
+    }
+
+    // We can only change `1` bits to `0` bits.
+    if curr_val & value & mask != value & mask {
+        return WriteResult::Failed;
+    }
+
+    let nvmc = &*pac::NVMC::ptr();
+    nvmc.config.write(|w| w.wen().wen());
+    while nvmc.ready.read().ready().is_busy() {}
+    address.write_volatile(value | !mask);
+    while nvmc.ready.read().ready().is_busy() {}
+    nvmc.config.reset();
+    while nvmc.ready.read().ready().is_busy() {}
+
+    WriteResult::Written
 }
 
 /// Initialize peripherals with the provided configuration. This should only be called once at startup.
@@ -211,6 +337,109 @@ pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();
+
+    let mut needs_reset = false;
+
+    // Setup debug protection.
+    match config.debug {
+        config::Debug::Allowed => {
+            #[cfg(feature = "_nrf52")]
+            unsafe {
+                let variant = (0x1000_0104 as *mut u32).read_volatile();
+                // Get the letter for the build code (b'A' .. b'F')
+                let build_code = (variant >> 8) as u8;
+
+                if build_code >= b'F' {
+                    // Chips with build code F and higher (revision 3 and higher) have an
+                    // improved APPROTECT ("hardware and software controlled access port protection")
+                    // which needs explicit action by the firmware to keep it unlocked
+
+                    // UICR.APPROTECT = SwDisabled
+                    let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                    needs_reset |= res == WriteResult::Written;
+                    // APPROTECT.DISABLE = SwDisabled
+                    (0x4000_0558 as *mut u32).write_volatile(consts::APPROTECT_DISABLED);
+                } else {
+                    // nothing to do on older chips, debug is allowed by default.
+                }
+            }
+
+            #[cfg(feature = "_nrf5340")]
+            unsafe {
+                let p = &*pac::CTRLAP::ptr();
+
+                let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                needs_reset |= res == WriteResult::Written;
+                p.approtect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
+
+                #[cfg(feature = "_nrf5340-app")]
+                {
+                    let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
+                    needs_reset |= res == WriteResult::Written;
+                    p.secureapprotect.disable.write(|w| w.bits(consts::APPROTECT_DISABLED));
+                }
+            }
+
+            // nothing to do on the nrf9160, debug is allowed by default.
+        }
+        config::Debug::Disallowed => unsafe {
+            // UICR.APPROTECT = Enabled
+            let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_ENABLED);
+            needs_reset |= res == WriteResult::Written;
+            #[cfg(any(feature = "_nrf5340-app", feature = "_nrf9160"))]
+            {
+                let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
+                needs_reset |= res == WriteResult::Written;
+            }
+        },
+        config::Debug::NotConfigured => {}
+    }
+
+    #[cfg(feature = "_nrf52")]
+    unsafe {
+        let value = if cfg!(feature = "reset-pin-as-gpio") {
+            !0
+        } else {
+            chip::RESET_PIN
+        };
+        let res1 = uicr_write(consts::UICR_PSELRESET1, value);
+        let res2 = uicr_write(consts::UICR_PSELRESET2, value);
+        needs_reset |= res1 == WriteResult::Written || res2 == WriteResult::Written;
+        if res1 == WriteResult::Failed || res2 == WriteResult::Failed {
+            #[cfg(not(feature = "reset-pin-as-gpio"))]
+            warn!(
+                "You have requested enabling chip reset functionality on the reset pin, by not enabling the Cargo feature `reset-pin-as-gpio`.\n\
+                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+            );
+            #[cfg(feature = "reset-pin-as-gpio")]
+            warn!(
+                "You have requested using the reset pin as GPIO, by enabling the Cargo feature `reset-pin-as-gpio`.\n\
+                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+            );
+        }
+    }
+
+    #[cfg(any(feature = "_nrf52", feature = "_nrf5340-app"))]
+    unsafe {
+        let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { 1 };
+        let res = uicr_write_masked(consts::UICR_NFCPINS, value, 1);
+        needs_reset |= res == WriteResult::Written;
+        if res == WriteResult::Failed {
+            // with nfc-pins-as-gpio, this can never fail because we're writing all zero bits.
+            #[cfg(not(feature = "nfc-pins-as-gpio"))]
+            warn!(
+                "You have requested to use P0.09 and P0.10 pins for NFC, by not enabling the Cargo feature `nfc-pins-as-gpio`.\n\
+                However, UICR is already programmed to some other setting, and can't be changed without erasing it.\n\
+                To fix this, erase UICR manually, for example using `probe-rs erase` or `nrfjprog --eraseuicr`."
+            );
+        }
+    }
+
+    if needs_reset {
+        cortex_m::peripheral::SCB::sys_reset();
+    }
 
     let r = unsafe { &*pac::CLOCK::ptr() };
 
@@ -259,6 +488,41 @@ pub fn init(config: config::Config) -> Peripherals {
     r.tasks_lfclkstart.write(|w| unsafe { w.bits(1) });
     while r.events_lfclkstarted.read().bits() == 0 {}
 
+    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+    {
+        // Setup DCDCs.
+        let pwr = unsafe { &*pac::POWER::ptr() };
+        #[cfg(feature = "nrf52840")]
+        if config.dcdc.reg0 {
+            pwr.dcdcen0.write(|w| w.dcdcen().set_bit());
+        }
+        if config.dcdc.reg1 {
+            pwr.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+    }
+    #[cfg(feature = "_nrf9160")]
+    {
+        // Setup DCDC.
+        let reg = unsafe { &*pac::REGULATORS::ptr() };
+        if config.dcdc.regmain {
+            reg.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+    }
+    #[cfg(feature = "_nrf5340-app")]
+    {
+        // Setup DCDC.
+        let reg = unsafe { &*pac::REGULATORS::ptr() };
+        if config.dcdc.regh {
+            reg.vregh.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+        if config.dcdc.regmain {
+            reg.vregmain.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+        if config.dcdc.regradio {
+            reg.vregradio.dcdcen.write(|w| w.dcdcen().set_bit());
+        }
+    }
+
     // Init GPIOTE
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
@@ -266,6 +530,13 @@ pub fn init(config: config::Config) -> Peripherals {
     // init RTC time driver
     #[cfg(feature = "_time-driver")]
     time_driver::init(config.time_interrupt_priority);
+
+    // Disable UARTE (enabled by default for some reason)
+    #[cfg(feature = "_nrf9160")]
+    unsafe {
+        (*pac::UARTE0::ptr()).enable.write(|w| w.enable().disabled());
+        (*pac::UARTE1::ptr()).enable.write(|w| w.enable().disabled());
+    }
 
     peripherals
 }

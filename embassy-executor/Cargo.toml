@@ -1,37 +1,59 @@
 [package]
 name = "embassy-executor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-
+license = "MIT OR Apache-2.0"
+description = "async/await executor designed for embedded usage"
+repository = "https://github.com/embassy-rs/embassy"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor/src/"
-features = ["nightly", "defmt", "unstable-traits"]
+features = ["nightly", "defmt", "pender-callback"]
 flavors = [
-    { name = "std",                       target = "x86_64-unknown-linux-gnu",   features = ["std"] },
-    { name = "wasm",                      target = "wasm32-unknown-unknown",     features = ["wasm"] },
-    { name = "thumbv6m-none-eabi",        target = "thumbv6m-none-eabi",         features = [] },
-    { name = "thumbv7m-none-eabi",        target = "thumbv7m-none-eabi",         features = [] },
-    { name = "thumbv7em-none-eabi",       target = "thumbv7em-none-eabi",        features = [] },
-    { name = "thumbv7em-none-eabihf",     target = "thumbv7em-none-eabihf",      features = [] },
-    { name = "thumbv8m.base-none-eabi",   target = "thumbv8m.base-none-eabi",    features = [] },
-    { name = "thumbv8m.main-none-eabi",   target = "thumbv8m.main-none-eabi",    features = [] },
-    { name = "thumbv8m.main-none-eabihf", target = "thumbv8m.main-none-eabihf",  features = [] },
+    { name = "std",             target = "x86_64-unknown-linux-gnu",     features = ["arch-std", "executor-thread"] },
+    { name = "wasm",            target = "wasm32-unknown-unknown",       features = ["arch-wasm", "executor-thread"] },
+    { name = "cortex-m",        target = "thumbv7em-none-eabi",          features = ["arch-cortex-m", "executor-thread", "executor-interrupt"] },
+    { name = "riscv32",         target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"] },
 ]
 
+[package.metadata.docs.rs]
+default-target = "thumbv7em-none-eabi"
+targets = ["thumbv7em-none-eabi"]
+features = ["nightly", "defmt", "pender-callback", "arch-cortex-m", "executor-thread", "executor-interrupt"]
+
 [features]
-default = []
-std = ["embassy-macros/std"]
-wasm = ["dep:wasm-bindgen", "dep:js-sys", "embassy-macros/wasm"]
+
+# Architecture
+_arch = [] # some arch was picked
+arch-std = ["_arch", "critical-section/std"]
+arch-cortex-m = ["_arch", "dep:cortex-m"]
+arch-xtensa = ["_arch"]
+arch-riscv32 = ["_arch"]
+arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
+
+# Enable creating a `Pender` from an arbitrary function pointer callback.
+pender-callback = []
+
+# Enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded archs)
+executor-thread = []
+# Enable the interrupt-mode executor (available in Cortex-M only)
+executor-interrupt = []
 
 # Enable nightly-only features
 nightly = []
 
+turbowakers = []
+
 integrated-timers = ["dep:embassy-time"]
 
 # Trace interrupt invocations with rtos-trace.
-rtos-trace-interrupt = ["rtos-trace"]
+rtos-trace-interrupt = ["rtos-trace", "embassy-macros/rtos-trace-interrupt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
@@ -39,13 +61,15 @@ log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
 futures-util = { version = "0.3.17", default-features = false }
-embassy-macros  = { version = "0.1.0", path = "../embassy-macros"}
-embassy-time  = { version = "0.1.0", path = "../embassy-time", optional = true}
+embassy-macros = { version = "0.2.0", path = "../embassy-macros" }
+embassy-time = { version = "0.1.2", path = "../embassy-time", optional = true}
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
-cfg-if = "1.0.0"
-static_cell = "1.0"
+static_cell = "1.1"
 
-# WASM dependencies
+# arch-cortex-m dependencies
+cortex-m = { version = "0.7.6", optional = true }
+
+# arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }

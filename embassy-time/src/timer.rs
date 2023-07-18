@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
@@ -26,6 +26,7 @@ pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Out
 }
 
 /// A future that completes at a specified [Instant](struct.Instant.html).
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Timer {
     expires_at: Instant,
     yielded_once: bool,
@@ -108,7 +109,6 @@ impl Future for Timer {
 /// # #![feature(type_alias_impl_trait)]
 /// #
 /// use embassy_time::{Duration, Ticker};
-/// use futures::StreamExt;
 /// # fn foo(){}
 ///
 /// #[embassy_executor::task]
@@ -130,6 +130,20 @@ impl Ticker {
     pub fn every(duration: Duration) -> Self {
         let expires_at = Instant::now() + duration;
         Self { expires_at, duration }
+    }
+
+    /// Waits for the next tick
+    pub fn next(&mut self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| {
+            if self.expires_at <= Instant::now() {
+                let dur = self.duration;
+                self.expires_at += dur;
+                Poll::Ready(())
+            } else {
+                schedule_wake(self.expires_at, cx.waker());
+                Poll::Pending
+            }
+        })
     }
 }
 

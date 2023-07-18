@@ -1,88 +1,63 @@
 #![no_std]
-#![feature(generic_associated_types)]
-#![feature(type_alias_impl_trait)]
-#![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
-
+#![warn(missing_docs)]
+#![doc = include_str!("../README.md")]
 mod fmt;
 
-pub use embassy_boot::{FirmwareUpdater, FlashConfig, FlashProvider, Partition, SingleFlashProvider};
+#[cfg(feature = "nightly")]
+pub use embassy_boot::FirmwareUpdater;
+pub use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareUpdaterConfig};
 use embassy_nrf::nvmc::{Nvmc, PAGE_SIZE};
 use embassy_nrf::peripherals::WDT;
 use embassy_nrf::wdt;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
-pub struct BootLoader {
-    boot: embassy_boot::BootLoader<PAGE_SIZE>,
+/// A bootloader for nRF devices.
+pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize = PAGE_SIZE> {
+    boot: embassy_boot::BootLoader<ACTIVE, DFU, STATE>,
+    aligned_buf: AlignedBuffer<BUFFER_SIZE>,
 }
 
-impl BootLoader {
-    /// Create a new bootloader instance using parameters from linker script
-    pub fn default() -> Self {
-        extern "C" {
-            static __bootloader_state_start: u32;
-            static __bootloader_state_end: u32;
-            static __bootloader_active_start: u32;
-            static __bootloader_active_end: u32;
-            static __bootloader_dfu_start: u32;
-            static __bootloader_dfu_end: u32;
-        }
-
-        let active = unsafe {
-            Partition::new(
-                &__bootloader_active_start as *const u32 as usize,
-                &__bootloader_active_end as *const u32 as usize,
-            )
-        };
-        let dfu = unsafe {
-            Partition::new(
-                &__bootloader_dfu_start as *const u32 as usize,
-                &__bootloader_dfu_end as *const u32 as usize,
-            )
-        };
-        let state = unsafe {
-            Partition::new(
-                &__bootloader_state_start as *const u32 as usize,
-                &__bootloader_state_end as *const u32 as usize,
-            )
-        };
-
-        trace!("ACTIVE: 0x{:x} - 0x{:x}", active.from, active.to);
-        trace!("DFU: 0x{:x} - 0x{:x}", dfu.from, dfu.to);
-        trace!("STATE: 0x{:x} - 0x{:x}", state.from, state.to);
-
-        Self::new(active, dfu, state)
-    }
-
+impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>
+    BootLoader<ACTIVE, DFU, STATE, BUFFER_SIZE>
+{
     /// Create a new bootloader instance using the supplied partitions for active, dfu and state.
-    pub fn new(active: Partition, dfu: Partition, state: Partition) -> Self {
+    pub fn new(config: BootLoaderConfig<ACTIVE, DFU, STATE>) -> Self {
         Self {
-            boot: embassy_boot::BootLoader::new(active, dfu, state),
+            boot: embassy_boot::BootLoader::new(config),
+            aligned_buf: AlignedBuffer([0; BUFFER_SIZE]),
         }
     }
 
-    /// Boots the application without softdevice mechanisms
-    pub fn prepare<F: FlashProvider>(&mut self, flash: &mut F) -> usize
-    where
-        [(); <<F as FlashProvider>::STATE as FlashConfig>::FLASH::WRITE_SIZE]:,
-        [(); <<F as FlashProvider>::ACTIVE as FlashConfig>::FLASH::ERASE_SIZE]:,
-    {
-        match self.boot.prepare_boot(flash) {
-            Ok(_) => self.boot.boot_address(),
-            Err(_) => panic!("boot prepare error!"),
-        }
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping
+    /// firmware.
+    pub fn prepare(&mut self) {
+        self.boot
+            .prepare_boot(&mut self.aligned_buf.0)
+            .expect("Boot prepare error");
     }
 
+    /// Boots the application without softdevice mechanisms.
+    ///
+    /// # Safety
+    ///
+    /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
     #[cfg(not(feature = "softdevice"))]
-    pub unsafe fn load(&mut self, start: usize) -> ! {
+    pub unsafe fn load(self, start: u32) -> ! {
+        core::mem::drop(self.boot);
+
         let mut p = cortex_m::Peripherals::steal();
         p.SCB.invalidate_icache();
-        p.SCB.vtor.write(start as u32);
+        p.SCB.vtor.write(start);
         cortex_m::asm::bootload(start as *const u32)
     }
 
+    /// Boots the application assuming softdevice is present.
+    ///
+    /// # Safety
+    ///
+    /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
     #[cfg(feature = "softdevice")]
-    pub unsafe fn load(&mut self, _app: usize) -> ! {
+    pub unsafe fn load(&mut self, _app: u32) -> ! {
         use nrf_softdevice_mbr as mbr;
         const NRF_SUCCESS: u32 = 0;
 
@@ -137,11 +112,7 @@ pub struct WatchdogFlash<'d> {
 
 impl<'d> WatchdogFlash<'d> {
     /// Start a new watchdog with a given flash and WDT peripheral and a timeout
-    pub fn start(flash: Nvmc<'d>, wdt: WDT, timeout: u32) -> Self {
-        let mut config = wdt::Config::default();
-        config.timeout_ticks = 32768 * timeout; // timeout seconds
-        config.run_during_sleep = true;
-        config.run_during_debug_halt = false;
+    pub fn start(flash: Nvmc<'d>, wdt: WDT, config: wdt::Config) -> Self {
         let (_wdt, [wdt]) = match wdt::Watchdog::try_new(wdt, config) {
             Ok(x) => x,
             Err(_) => {

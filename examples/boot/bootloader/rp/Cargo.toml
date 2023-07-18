@@ -1,0 +1,33 @@
+[package]
+edition = "2021"
+name = "rp-bootloader-example"
+version = "0.1.0"
+description = "Example bootloader for RP2040 chips"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
+
+embassy-rp = { path = "../../../../embassy-rp", features = ["nightly"] }
+embassy-boot-rp = { path = "../../../../embassy-boot/rp" }
+embassy-sync = { path = "../../../../embassy-sync" }
+embassy-time = { path = "../../../../embassy-time", features = ["nightly"] }
+
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = { version = "0.7" }
+embedded-storage = "0.3.0"
+embedded-storage-async = "0.4.0"
+cfg-if = "1.0.0"
+
+[features]
+defmt = [
+    "dep:defmt",
+    "embassy-boot-rp/defmt",
+    "embassy-rp/defmt",
+]
+debug = ["defmt-rtt", "defmt"]
+
+[profile.release]
+debug = true
+opt-level = 's'

@@ -2,7 +2,7 @@
 
 Embassy is the next-generation framework for embedded applications. Write safe, correct and energy-efficient embedded code faster, using the Rust programming language, its async facilities, and the Embassy libraries.
 
-## <a href="https://embassy.dev/embassy/dev/index.html">Documentation</a> - <a href="https://docs.embassy.dev/">API reference</a> - <a href="https://embassy.dev/">Website</a> - <a href="https://matrix.to/#/#embassy-rs:matrix.org">Chat</a>
+## <a href="https://embassy.dev/dev/index.html">Documentation</a> - <a href="https://docs.embassy.dev/">API reference</a> - <a href="https://embassy.dev/">Website</a> - <a href="https://matrix.to/#/#embassy-rs:matrix.org">Chat</a>
 ## Rust + async ❤️ embedded
 
 The Rust programming language is blazingly fast and memory-efficient, with no runtime, garbage collector or OS. It catches a wide variety of bugs at compile time, thanks to its full memory- and thread-safety, and expressive type system. 
@@ -14,12 +14,16 @@ Rust's <a href="https://rust-lang.github.io/async-book/">async/await</a> allows 
 - **Hardware Abstraction Layers** - HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed. The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
   - <a href="https://docs.embassy.dev/embassy-stm32/">embassy-stm32</a>, for all STM32 microcontroller families.
   - <a href="https://docs.embassy.dev/embassy-nrf/">embassy-nrf</a>, for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
+  - <a href="https://docs.embassy.dev/embassy-rp/">embassy-rp</a>, for the Raspberry Pi RP2040 microcontroller.
+  - <a href="https://github.com/esp-rs">esp-rs</a>, for the Espressif Systems ESP32 series of chips.
+    - Embassy HAL support for Espressif chips is being developed in the [esp-rs/esp-hal](https://github.com/esp-rs/esp-hal) repository.
+    - Async WiFi, Bluetooth and ESP-NOW is being developed in the [esp-rs/esp-wifi](https://github.com/esp-rs/esp-wifi) repository.
 
 - **Time that Just Works** - 
 No more messing with hardware timers. <a href="https://docs.embassy.dev/embassy-time">embassy_time</a> provides Instant, Duration and Timer types that are globally available and never overflow.
 
 - **Real-time ready** - 
-Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities, so that higher priority tasks preempt lower priority ones. See the <a href="https://github.com/embassy-rs/embassy/blob/master/examples/nrf/src/bin/multiprio.rs">example</a>.
+Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities, so that higher priority tasks preempt lower priority ones. See the <a href="https://github.com/embassy-rs/embassy/blob/master/examples/nrf52840/src/bin/multiprio.rs">example</a>.
 
 - **Low-power ready** - 
 Easily build devices with years of battery life. The async executor automatically puts the core to sleep when there's no work to do. Tasks are woken by interrupts, there is no busy-loop polling while waiting.
@@ -31,7 +35,7 @@ The <a href="https://docs.embassy.dev/embassy-net/">embassy-net</a> network stac
 The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
 
 - **LoRa** - 
-<a href="https://docs.embassy.dev/embassy-lora/">embassy-lora</a> supports LoRa networking on STM32WL wireless microcontrollers and Semtech SX127x transceivers.
+<a href="https://docs.embassy.dev/embassy-lora/">embassy-lora</a> supports LoRa networking.
 
 - **USB** - 
 <a href="https://docs.embassy.dev/embassy-usb/">embassy-usb</a> implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
@@ -87,30 +91,24 @@ async fn main(spawner: Spawner) {
 
 Examples are found in the `examples/` folder seperated by the chip manufacturer they are designed to run on. For example:
 
-*   `examples/nrf` run on the `nrf52840-dk` board (PCA10056) but should be easily adaptable to other nRF52 chips and boards.
+*   `examples/nrf52840` run on the `nrf52840-dk` board (PCA10056) but should be easily adaptable to other nRF52 chips and boards.
+*   `examples/nrf5340` run on the `nrf5340-dk` board (PCA10095).
 *   `examples/stm32xx` for the various STM32 families.
 *   `examples/rp` are for the RP2040 chip.
 *   `examples/std` are designed to run locally on your PC.
 
 ### Running examples
 
-- Setup git submodules (needed for STM32 examples)
+- Install `probe-rs`.
 
 ```bash
-git submodule init
-git submodule update
-```
-
-- Install `probe-run` with defmt support.
-
-```bash
-cargo install probe-run
+cargo install probe-rs --features cli
 ```
 
 - Change directory to the sample's base directory. For example:
 
 ```bash
-cd examples/nrf
+cd examples/nrf52840
 ```
 
 - Run the example
@@ -118,7 +116,7 @@ cd examples/nrf
 For example:
 
 ```bash
-cargo run --bin blinky
+cargo run --release --bin blinky
 ```
 
 ## Developing Embassy with Rust Analyzer based editors

@@ -6,6 +6,8 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 512;
 
 pub const FLASH_SIZE: usize = 1024 * 1024;
 
+pub const RESET_PIN: u32 = 18;
+
 embassy_hal_common::peripherals! {
     // USB
     USBD,
@@ -117,7 +119,9 @@ embassy_hal_common::peripherals! {
     P0_06,
     P0_07,
     P0_08,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_09,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_10,
     P0_11,
     P0_12,
@@ -126,6 +130,7 @@ embassy_hal_common::peripherals! {
     P0_15,
     P0_16,
     P0_17,
+    #[cfg(feature="reset-pin-as-gpio")]
     P0_18,
     P0_19,
     P0_20,
@@ -164,6 +169,9 @@ embassy_hal_common::peripherals! {
 
     // PDM
     PDM,
+
+    // I2S
+    I2S,
 }
 
 #[cfg(feature = "nightly")]
@@ -177,8 +185,15 @@ impl_spim!(TWISPI1, SPIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
 impl_spim!(SPI2, SPIM2, SPIM2_SPIS2_SPI2);
 impl_spim!(SPI3, SPIM3, SPIM3);
 
+impl_spis!(TWISPI0, SPIS0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+impl_spis!(TWISPI1, SPIS1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+impl_spis!(SPI2, SPIS2, SPIM2_SPIS2_SPI2);
+
 impl_twim!(TWISPI0, TWIM0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
 impl_twim!(TWISPI1, TWIM1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
+
+impl_twis!(TWISPI0, TWIS0, SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
+impl_twis!(TWISPI1, TWIS1, SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
@@ -193,6 +208,12 @@ impl_timer!(TIMER4, TIMER4, TIMER4, extended);
 
 impl_qspi!(QSPI, QSPI, QSPI);
 
+impl_pdm!(PDM, PDM, PDM);
+
+impl_qdec!(QDEC, QDEC, QDEC);
+
+impl_rng!(RNG, RNG, RNG);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
 impl_pin!(P0_02, 0, 2);
@@ -202,7 +223,9 @@ impl_pin!(P0_05, 0, 5);
 impl_pin!(P0_06, 0, 6);
 impl_pin!(P0_07, 0, 7);
 impl_pin!(P0_08, 0, 8);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_09, 0, 9);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_10, 0, 10);
 impl_pin!(P0_11, 0, 11);
 impl_pin!(P0_12, 0, 12);
@@ -211,6 +234,7 @@ impl_pin!(P0_14, 0, 14);
 impl_pin!(P0_15, 0, 15);
 impl_pin!(P0_16, 0, 16);
 impl_pin!(P0_17, 0, 17);
+#[cfg(feature = "reset-pin-as-gpio")]
 impl_pin!(P0_18, 0, 18);
 impl_pin!(P0_19, 0, 19);
 impl_pin!(P0_20, 0, 20);
@@ -276,61 +300,59 @@ impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
 
-impl_saadc_input!(P0_02, ANALOGINPUT0);
-impl_saadc_input!(P0_03, ANALOGINPUT1);
-impl_saadc_input!(P0_04, ANALOGINPUT2);
-impl_saadc_input!(P0_05, ANALOGINPUT3);
-impl_saadc_input!(P0_28, ANALOGINPUT4);
-impl_saadc_input!(P0_29, ANALOGINPUT5);
-impl_saadc_input!(P0_30, ANALOGINPUT6);
-impl_saadc_input!(P0_31, ANALOGINPUT7);
+impl_saadc_input!(P0_02, ANALOG_INPUT0);
+impl_saadc_input!(P0_03, ANALOG_INPUT1);
+impl_saadc_input!(P0_04, ANALOG_INPUT2);
+impl_saadc_input!(P0_05, ANALOG_INPUT3);
+impl_saadc_input!(P0_28, ANALOG_INPUT4);
+impl_saadc_input!(P0_29, ANALOG_INPUT5);
+impl_saadc_input!(P0_30, ANALOG_INPUT6);
+impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
+impl_i2s!(I2S, I2S, I2S);
 
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(POWER_CLOCK);
-    declare!(RADIO);
-    declare!(UARTE0_UART0);
-    declare!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-    declare!(SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1);
-    declare!(NFCT);
-    declare!(GPIOTE);
-    declare!(SAADC);
-    declare!(TIMER0);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(RTC0);
-    declare!(TEMP);
-    declare!(RNG);
-    declare!(ECB);
-    declare!(CCM_AAR);
-    declare!(WDT);
-    declare!(RTC1);
-    declare!(QDEC);
-    declare!(COMP_LPCOMP);
-    declare!(SWI0_EGU0);
-    declare!(SWI1_EGU1);
-    declare!(SWI2_EGU2);
-    declare!(SWI3_EGU3);
-    declare!(SWI4_EGU4);
-    declare!(SWI5_EGU5);
-    declare!(TIMER3);
-    declare!(TIMER4);
-    declare!(PWM0);
-    declare!(PDM);
-    declare!(MWU);
-    declare!(PWM1);
-    declare!(PWM2);
-    declare!(SPIM2_SPIS2_SPI2);
-    declare!(RTC2);
-    declare!(I2S);
-    declare!(FPU);
-    declare!(USBD);
-    declare!(UARTE1);
-    declare!(QSPI);
-    declare!(CRYPTOCELL);
-    declare!(PWM3);
-    declare!(SPIM3);
-}
+embassy_hal_common::interrupt_mod!(
+    POWER_CLOCK,
+    RADIO,
+    UARTE0_UART0,
+    SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0,
+    SPIM1_SPIS1_TWIM1_TWIS1_SPI1_TWI1,
+    NFCT,
+    GPIOTE,
+    SAADC,
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    RTC0,
+    TEMP,
+    RNG,
+    ECB,
+    CCM_AAR,
+    WDT,
+    RTC1,
+    QDEC,
+    COMP_LPCOMP,
+    SWI0_EGU0,
+    SWI1_EGU1,
+    SWI2_EGU2,
+    SWI3_EGU3,
+    SWI4_EGU4,
+    SWI5_EGU5,
+    TIMER3,
+    TIMER4,
+    PWM0,
+    PDM,
+    MWU,
+    PWM1,
+    PWM2,
+    SPIM2_SPIS2_SPI2,
+    RTC2,
+    FPU,
+    USBD,
+    UARTE1,
+    QSPI,
+    CRYPTOCELL,
+    PWM3,
+    SPIM3,
+    I2S,
+);

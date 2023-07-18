@@ -1,21 +1,23 @@
 #![no_std]
 #![no_main]
-#![feature(generic_associated_types)]
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::rcc::*;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{interrupt, Config, Peripherals};
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_time::{Duration, Timer};
+use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
-use embassy_usb_hid::{HidWriter, ReportId, RequestHandler, State};
-use futures::future::join;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    USB_FS => usb::InterruptHandler<peripherals::USB>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -25,8 +27,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let irq = interrupt::take!(USB_FS);
-    let driver = Driver::new(p.USB, irq, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -53,11 +54,10 @@ async fn main(_spawner: Spawner) {
         &mut config_descriptor,
         &mut bos_descriptor,
         &mut control_buf,
-        None,
     );
 
     // Create classes on the builder.
-    let config = embassy_usb_hid::Config {
+    let config = embassy_usb::class::hid::Config {
         report_descriptor: MouseReport::desc(),
         request_handler: Some(&request_handler),
         poll_ms: 60,
@@ -111,11 +111,11 @@ impl RequestHandler for MyRequestHandler {
         OutResponse::Accepted
     }
 
-    fn set_idle(&self, id: Option<ReportId>, dur: Duration) {
+    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
         info!("Set idle rate for {:?} to {:?}", id, dur);
     }
 
-    fn get_idle(&self, id: Option<ReportId>) -> Option<Duration> {
+    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
         info!("Get idle rate for {:?}", id);
         None
     }

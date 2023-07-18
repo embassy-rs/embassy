@@ -1,11 +1,14 @@
+//! Successive Approximation Analog-to-Digital Converter (SAADC) driver.
+
 #![macro_use]
 
+use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 use pac::{saadc, SAADC};
 use saadc::ch::config::{GAIN_A, REFSEL_A, RESP_A, TACQ_A};
 // We treat the positive and negative channels with the same enum values to keep our type tidy and given they are the same
@@ -19,14 +22,36 @@ use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::{interrupt, pac, peripherals, Peripheral};
 
+/// SAADC error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {}
 
-/// One-shot and continuous SAADC.
-pub struct Saadc<'d, const N: usize> {
-    _p: PeripheralRef<'d, peripherals::SAADC>,
+/// Interrupt handler.
+pub struct InterruptHandler {
+    _private: (),
+}
+
+impl interrupt::typelevel::Handler<interrupt::typelevel::SAADC> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        let r = unsafe { &*SAADC::ptr() };
+
+        if r.events_calibratedone.read().bits() != 0 {
+            r.intenclr.write(|w| w.calibratedone().clear());
+            WAKER.wake();
+        }
+
+        if r.events_end.read().bits() != 0 {
+            r.intenclr.write(|w| w.end().clear());
+            WAKER.wake();
+        }
+
+        if r.events_started.read().bits() != 0 {
+            r.intenclr.write(|w| w.started().clear());
+            WAKER.wake();
+        }
+    }
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -101,24 +126,29 @@ impl<'d> ChannelConfig<'d> {
     }
 }
 
-/// The state of a continuously running sampler. While it reflects
-/// the progress of a sampler, it also signals what should be done
-/// next. For example, if the sampler has stopped then the Saadc implementation
-/// can then tear down its infrastructure.
+/// Value returned by the SAADC callback, deciding what happens next.
 #[derive(PartialEq)]
-pub enum SamplerState {
-    Sampled,
-    Stopped,
+pub enum CallbackResult {
+    /// The SAADC should keep sampling and calling the callback.
+    Continue,
+    /// The SAADC should stop sampling, and return.
+    Stop,
+}
+
+/// One-shot and continuous SAADC.
+pub struct Saadc<'d, const N: usize> {
+    _p: PeripheralRef<'d, peripherals::SAADC>,
 }
 
 impl<'d, const N: usize> Saadc<'d, N> {
+    /// Create a new SAADC driver.
     pub fn new(
         saadc: impl Peripheral<P = peripherals::SAADC> + 'd,
-        irq: impl Peripheral<P = interrupt::SAADC> + 'd,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::SAADC, InterruptHandler> + 'd,
         config: Config,
         channel_configs: [ChannelConfig; N],
     ) -> Self {
-        into_ref!(saadc, irq);
+        into_ref!(saadc);
 
         let r = unsafe { &*SAADC::ptr() };
 
@@ -159,30 +189,10 @@ impl<'d, const N: usize> Saadc<'d, N> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        interrupt::SAADC.unpend();
+        unsafe { interrupt::SAADC.enable() };
 
         Self { _p: saadc }
-    }
-
-    fn on_interrupt(_ctx: *mut ()) {
-        let r = Self::regs();
-
-        if r.events_calibratedone.read().bits() != 0 {
-            r.intenclr.write(|w| w.calibratedone().clear());
-            WAKER.wake();
-        }
-
-        if r.events_end.read().bits() != 0 {
-            r.intenclr.write(|w| w.end().clear());
-            WAKER.wake();
-        }
-
-        if r.events_started.read().bits() != 0 {
-            r.intenclr.write(|w| w.started().clear());
-            WAKER.wake();
-        }
     }
 
     fn regs() -> &'static saadc::RegisterBlock {
@@ -219,7 +229,13 @@ impl<'d, const N: usize> Saadc<'d, N> {
     }
 
     /// One shot sampling. The buffer must be the same size as the number of channels configured.
+    /// The sampling is stopped prior to returning in order to reduce power consumption (power
+    /// consumption remains higher if sampling is not stopped explicitly). Cancellation will
+    /// also cause the sampling to be stopped.
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
+        // In case the future is dropped, stop the task and wait for it to end.
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
+
         let r = Self::regs();
 
         // Set up the DMA
@@ -251,6 +267,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Poll::Pending
         })
         .await;
+
+        drop(on_drop);
     }
 
     /// Continuous sampling with double buffers.
@@ -270,7 +288,13 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// taken to acquire the samples into a single buffer. You should measure the
     /// time taken by the callback and set the sample buffer size accordingly.
     /// Exceeding this time can lead to samples becoming dropped.
-    pub async fn run_task_sampler<S, T: TimerInstance, const N0: usize>(
+    ///
+    /// The sampling is stopped prior to returning in order to reduce power consumption (power
+    /// consumption remains higher if sampling is not stopped explicitly), and to
+    /// free the buffers from being used by the peripheral. Cancellation will
+    /// also cause the sampling to be stopped.
+
+    pub async fn run_task_sampler<F, T: TimerInstance, const N0: usize>(
         &mut self,
         timer: &mut T,
         ppi_ch1: &mut impl ConfigurableChannel,
@@ -278,9 +302,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
         frequency: Frequency,
         sample_counter: u32,
         bufs: &mut [[[i16; N]; N0]; 2],
-        sampler: S,
+        callback: F,
     ) where
-        S: FnMut(&[[i16; N]]) -> SamplerState,
+        F: FnMut(&[[i16; N]]) -> CallbackResult,
     {
         let r = Self::regs();
 
@@ -291,12 +315,14 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Ppi::new_one_to_one(ppi_ch1, Event::from_reg(&r.events_end), Task::from_reg(&r.tasks_start));
         start_ppi.enable();
 
-        let mut timer = Timer::new(timer);
+        let timer = Timer::new(timer);
         timer.set_frequency(frequency);
         timer.cc(0).write(sample_counter);
         timer.cc(0).short_compare_clear();
 
-        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer.cc(0).event_compare(), Task::from_reg(&r.tasks_sample));
+        let timer_cc = timer.cc(0);
+
+        let mut sample_ppi = Ppi::new_one_to_one(ppi_ch2, timer_cc.event_compare(), Task::from_reg(&r.tasks_sample));
 
         timer.start();
 
@@ -306,21 +332,24 @@ impl<'d, const N: usize> Saadc<'d, N> {
             || {
                 sample_ppi.enable();
             },
-            sampler,
+            callback,
         )
         .await;
     }
 
-    async fn run_sampler<I, S, const N0: usize>(
+    async fn run_sampler<I, F, const N0: usize>(
         &mut self,
         bufs: &mut [[[i16; N]; N0]; 2],
         sample_rate_divisor: Option<u16>,
         mut init: I,
-        mut sampler: S,
+        mut callback: F,
     ) where
         I: FnMut(),
-        S: FnMut(&[[i16; N]]) -> SamplerState,
+        F: FnMut(&[[i16; N]]) -> CallbackResult,
     {
+        // In case the future is dropped, stop the task and wait for it to end.
+        let on_drop = OnDrop::new(Self::stop_sampling_immediately);
+
         let r = Self::regs();
 
         // Establish mode and sample rate
@@ -366,7 +395,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
         let mut current_buffer = 0;
 
         // Wait for events and complete when the sampler indicates it has had enough.
-        poll_fn(|cx| {
+        let r = poll_fn(|cx| {
             let r = Self::regs();
 
             WAKER.register(cx.waker());
@@ -377,12 +406,15 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 r.events_end.reset();
                 r.intenset.write(|w| w.end().set());
 
-                if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
-                    let next_buffer = 1 - current_buffer;
-                    current_buffer = next_buffer;
-                } else {
-                    return Poll::Ready(());
-                };
+                match callback(&bufs[current_buffer]) {
+                    CallbackResult::Continue => {
+                        let next_buffer = 1 - current_buffer;
+                        current_buffer = next_buffer;
+                    }
+                    CallbackResult::Stop => {
+                        return Poll::Ready(());
+                    }
+                }
             }
 
             if r.events_started.read().bits() != 0 {
@@ -403,6 +435,23 @@ impl<'d, const N: usize> Saadc<'d, N> {
             Poll::Pending
         })
         .await;
+
+        drop(on_drop);
+
+        r
+    }
+
+    // Stop sampling and wait for it to stop in a blocking fashion
+    fn stop_sampling_immediately() {
+        let r = Self::regs();
+
+        compiler_fence(Ordering::SeqCst);
+
+        r.events_stopped.reset();
+        r.tasks_stop.write(|w| unsafe { w.bits(1) });
+
+        while r.events_stopped.read().bits() == 0 {}
+        r.events_stopped.reset();
     }
 }
 
@@ -423,7 +472,7 @@ impl<'d> Saadc<'d, 1> {
         sample_rate_divisor: u16,
         sampler: S,
     ) where
-        S: FnMut(&[[i16; 1]]) -> SamplerState,
+        S: FnMut(&[[i16; 1]]) -> CallbackResult,
     {
         self.run_sampler(bufs, Some(sample_rate_divisor), || {}, sampler).await;
     }
@@ -623,6 +672,10 @@ pub(crate) mod sealed {
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
 pub trait Input: sealed::Input + Into<AnyInput> + Peripheral<P = Self> + Sized + 'static {
+    /// Convert this SAADC input to a type-erased `AnyInput`.
+    ///
+    /// This allows using several inputs  in situations that might require
+    /// them to be the same type, like putting them in an array.
     fn degrade_saadc(self) -> AnyInput {
         AnyInput {
             channel: self.channel(),
@@ -630,6 +683,10 @@ pub trait Input: sealed::Input + Into<AnyInput> + Peripheral<P = Self> + Sized +
     }
 }
 
+/// A type-erased SAADC input.
+///
+/// This allows using several inputs  in situations that might require
+/// them to be the same type, like putting them in an array.
 pub struct AnyInput {
     channel: InputChannel,
 }

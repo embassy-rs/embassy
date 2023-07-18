@@ -1,6 +1,0 @@
-[alias]
-xtask    = "run --package xtask --"
-ci       = "run --package xtask -- ci"
-core     = "run --package xtask -- core"
-examples = "run --package xtask -- examples"
-fmt      = "run --package xtask -- fmt"

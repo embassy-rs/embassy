@@ -1,15 +1,15 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#[path = "../common.rs"]
+mod common;
 
-#[path = "../example_common.rs"]
-mod example_common;
+use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
-use example_common::*;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -17,22 +17,26 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     #[cfg(feature = "stm32f103c8")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32f429zi")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32h755zi")]
-    let (sck, mosi, miso) = (p.PA5, p.PB5, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PB5, p.PA6);
     #[cfg(feature = "stm32g491re")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32g071rb")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32wb55rg")]
-    let (sck, mosi, miso) = (p.PA5, p.PA7, p.PA6);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
     #[cfg(feature = "stm32u585ai")]
-    let (sck, mosi, miso) = (p.PE13, p.PE15, p.PE14);
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PE13, p.PE15, p.PE14);
+    #[cfg(feature = "stm32h563zi")]
+    let (spi, sck, mosi, miso) = (p.SPI4, p.PE12, p.PE14, p.PE13);
+    #[cfg(feature = "stm32c031c6")]
+    let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
 
     let mut spi = Spi::new(
-        p.SPI1,
+        spi,
         sck,  // Arduino D13
         mosi, // Arduino D11
         miso, // Arduino D12
@@ -46,7 +50,7 @@ async fn main(_spawner: Spawner) {
 
     // Arduino pins D11 and D12 (MOSI-MISO) are connected together with a 1K resistor.
     // so we should get the data we sent back.
-    let mut buf = data;
+    let mut buf = [0; 9];
     spi.blocking_transfer(&mut buf, &data).unwrap();
     assert_eq!(buf, data);
 

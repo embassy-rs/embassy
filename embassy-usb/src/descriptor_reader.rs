@@ -1,5 +1,6 @@
 use crate::descriptor::descriptor_type;
-use crate::types::EndpointAddress;
+use crate::driver::EndpointAddress;
+use crate::types::InterfaceNumber;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -75,7 +76,7 @@ impl<'a, 'b> Iterator for DescriptorIter<'a, 'b> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct EndpointInfo {
     pub configuration: u8,
-    pub interface: u8,
+    pub interface: InterfaceNumber,
     pub interface_alt: u8,
     pub ep_address: EndpointAddress,
 }
@@ -83,7 +84,7 @@ pub struct EndpointInfo {
 pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<(), ReadError> {
     let mut ep = EndpointInfo {
         configuration: 0,
-        interface: 0,
+        interface: InterfaceNumber(0),
         interface_alt: 0,
         ep_address: EndpointAddress::from(0),
     };
@@ -96,7 +97,7 @@ pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<
                 ep.configuration = r.read_u8()?;
             }
             descriptor_type::INTERFACE => {
-                ep.interface = r.read_u8()?;
+                ep.interface = InterfaceNumber(r.read_u8()?);
                 ep.interface_alt = r.read_u8()?;
             }
             descriptor_type::ENDPOINT => {

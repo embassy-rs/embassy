@@ -1,129 +1,106 @@
-use core::task::Waker;
+use core::task::Context;
 
-use smoltcp::phy::{Device as SmolDevice, DeviceCapabilities};
-use smoltcp::time::Instant as SmolInstant;
+use embassy_net_driver::{Capabilities, Checksum, Driver, Medium, RxToken, TxToken};
+use smoltcp::phy;
+use smoltcp::time::Instant;
 
-use crate::packet_pool::PacketBoxExt;
-use crate::{Packet, PacketBox, PacketBuf};
-
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum LinkState {
-    Down,
-    Up,
+pub(crate) struct DriverAdapter<'d, 'c, T>
+where
+    T: Driver,
+{
+    // must be Some when actually using this to rx/tx
+    pub cx: Option<&'d mut Context<'c>>,
+    pub inner: &'d mut T,
 }
 
-// 'static required due to the "fake GAT" in smoltcp::phy::Device.
-// https://github.com/smoltcp-rs/smoltcp/pull/572
-pub trait Device {
-    fn is_transmit_ready(&mut self) -> bool;
-    fn transmit(&mut self, pkt: PacketBuf);
-    fn receive(&mut self) -> Option<PacketBuf>;
+impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
+where
+    T: Driver,
+{
+    type RxToken<'a> = RxTokenAdapter<T::RxToken<'a>> where Self: 'a;
+    type TxToken<'a> = TxTokenAdapter<T::TxToken<'a>> where Self: 'a;
 
-    fn register_waker(&mut self, waker: &Waker);
-    fn capabilities(&self) -> DeviceCapabilities;
-    fn link_state(&mut self) -> LinkState;
-    fn ethernet_address(&self) -> [u8; 6];
-}
-
-impl<T: ?Sized + Device> Device for &'static mut T {
-    fn is_transmit_ready(&mut self) -> bool {
-        T::is_transmit_ready(self)
-    }
-    fn transmit(&mut self, pkt: PacketBuf) {
-        T::transmit(self, pkt)
-    }
-    fn receive(&mut self) -> Option<PacketBuf> {
-        T::receive(self)
-    }
-    fn register_waker(&mut self, waker: &Waker) {
-        T::register_waker(self, waker)
-    }
-    fn capabilities(&self) -> DeviceCapabilities {
-        T::capabilities(self)
-    }
-    fn link_state(&mut self) -> LinkState {
-        T::link_state(self)
-    }
-    fn ethernet_address(&self) -> [u8; 6] {
-        T::ethernet_address(self)
-    }
-}
-
-pub struct DeviceAdapter<D: Device> {
-    pub device: D,
-    caps: DeviceCapabilities,
-}
-
-impl<D: Device> DeviceAdapter<D> {
-    pub(crate) fn new(device: D) -> Self {
-        Self {
-            caps: device.capabilities(),
-            device,
-        }
-    }
-}
-
-impl<'a, D: Device + 'static> SmolDevice<'a> for DeviceAdapter<D> {
-    type RxToken = RxToken;
-    type TxToken = TxToken<'a, D>;
-
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let tx_pkt = PacketBox::new(Packet::new())?;
-        let rx_pkt = self.device.receive()?;
-        let rx_token = RxToken { pkt: rx_pkt };
-        let tx_token = TxToken {
-            device: &mut self.device,
-            pkt: tx_pkt,
-        };
-
-        Some((rx_token, tx_token))
+    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        self.inner
+            .receive(self.cx.as_deref_mut().unwrap())
+            .map(|(rx, tx)| (RxTokenAdapter(rx), TxTokenAdapter(tx)))
     }
 
     /// Construct a transmit token.
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
-        if !self.device.is_transmit_ready() {
-            return None;
-        }
-
-        let tx_pkt = PacketBox::new(Packet::new())?;
-        Some(TxToken {
-            device: &mut self.device,
-            pkt: tx_pkt,
-        })
+    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+        self.inner.transmit(self.cx.as_deref_mut().unwrap()).map(TxTokenAdapter)
     }
 
     /// Get a description of device capabilities.
-    fn capabilities(&self) -> DeviceCapabilities {
-        self.caps.clone()
+    fn capabilities(&self) -> phy::DeviceCapabilities {
+        fn convert(c: Checksum) -> phy::Checksum {
+            match c {
+                Checksum::Both => phy::Checksum::Both,
+                Checksum::Tx => phy::Checksum::Tx,
+                Checksum::Rx => phy::Checksum::Rx,
+                Checksum::None => phy::Checksum::None,
+            }
+        }
+        let caps: Capabilities = self.inner.capabilities();
+        let mut smolcaps = phy::DeviceCapabilities::default();
+
+        smolcaps.max_transmission_unit = caps.max_transmission_unit;
+        smolcaps.max_burst_size = caps.max_burst_size;
+        smolcaps.medium = match caps.medium {
+            #[cfg(feature = "medium-ethernet")]
+            Medium::Ethernet => phy::Medium::Ethernet,
+            #[cfg(feature = "medium-ip")]
+            Medium::Ip => phy::Medium::Ip,
+            #[allow(unreachable_patterns)]
+            _ => panic!(
+                "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
+                caps.medium
+            ),
+        };
+        smolcaps.checksum.ipv4 = convert(caps.checksum.ipv4);
+        smolcaps.checksum.tcp = convert(caps.checksum.tcp);
+        smolcaps.checksum.udp = convert(caps.checksum.udp);
+        #[cfg(feature = "proto-ipv4")]
+        {
+            smolcaps.checksum.icmpv4 = convert(caps.checksum.icmpv4);
+        }
+        #[cfg(feature = "proto-ipv6")]
+        {
+            smolcaps.checksum.icmpv6 = convert(caps.checksum.icmpv6);
+        }
+
+        smolcaps
     }
 }
 
-pub struct RxToken {
-    pkt: PacketBuf,
-}
+pub(crate) struct RxTokenAdapter<T>(T)
+where
+    T: RxToken;
 
-impl smoltcp::phy::RxToken for RxToken {
-    fn consume<R, F>(mut self, _timestamp: SmolInstant, f: F) -> smoltcp::Result<R>
+impl<T> phy::RxToken for RxTokenAdapter<T>
+where
+    T: RxToken,
+{
+    fn consume<R, F>(self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut self.pkt)
+        self.0.consume(|buf| f(buf))
     }
 }
 
-pub struct TxToken<'a, D: Device> {
-    device: &'a mut D,
-    pkt: PacketBox,
-}
+pub(crate) struct TxTokenAdapter<T>(T)
+where
+    T: TxToken;
 
-impl<'a, D: Device> smoltcp::phy::TxToken for TxToken<'a, D> {
-    fn consume<R, F>(self, _timestamp: SmolInstant, len: usize, f: F) -> smoltcp::Result<R>
+impl<T> phy::TxToken for TxTokenAdapter<T>
+where
+    T: TxToken,
+{
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
-        let mut buf = self.pkt.slice(0..len);
-        let r = f(&mut buf)?;
-        self.device.transmit(buf);
-        Ok(r)
+        self.0.consume(len, |buf| f(buf))
     }
 }

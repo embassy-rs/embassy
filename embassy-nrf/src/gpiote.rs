@@ -1,40 +1,50 @@
+//! GPIO task/event (GPIOTE) driver.
+
 use core::convert::Infallible;
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
-use embassy_hal_common::{impl_peripheral, Peripheral, PeripheralRef};
+use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin};
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::InterruptExt;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
 
-pub const CHANNEL_COUNT: usize = 8;
+/// Amount of GPIOTE channels in the chip.
+const CHANNEL_COUNT: usize = 8;
 
 #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
-pub const PIN_COUNT: usize = 48;
+const PIN_COUNT: usize = 48;
 #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
-pub const PIN_COUNT: usize = 32;
+const PIN_COUNT: usize = 32;
 
 #[allow(clippy::declare_interior_mutable_const)]
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [NEW_AW; CHANNEL_COUNT];
 static PORT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
 
+/// Polarity for listening to events for GPIOTE input channels.
 pub enum InputChannelPolarity {
+    /// Don't listen for any pin changes.
     None,
+    /// Listen for high to low changes.
     HiToLo,
+    /// Listen for low to high changes.
     LoToHi,
+    /// Listen for any change, either low to high or high to low.
     Toggle,
 }
 
-/// Polarity of the `task out` operation.
+/// Polarity of the OUT task operation for GPIOTE output channels.
 pub enum OutputChannelPolarity {
+    /// Set the pin high.
     Set,
+    /// Set the pin low.
     Clear,
+    /// Toggle the pin.
     Toggle,
 }
 
@@ -64,42 +74,41 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     }
 
     // Enable interrupts
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
-            let irq = unsafe { interrupt::GPIOTE0::steal() };
-        } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
-            let irq = unsafe { interrupt::GPIOTE1::steal() };
-        } else {
-            let irq = unsafe { interrupt::GPIOTE::steal() };
-        }
-    }
+    #[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+    let irq = interrupt::GPIOTE0;
+    #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+    let irq = interrupt::GPIOTE1;
+    #[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+    let irq = interrupt::GPIOTE;
 
     irq.unpend();
     irq.set_priority(irq_prio);
-    irq.enable();
+    unsafe { irq.enable() };
 
     let g = regs();
     g.events_port.write(|w| w);
     g.intenset.write(|w| w.port().set());
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(any(feature="nrf5340-app-s", feature="nrf9160-s"))] {
-        #[interrupt]
-        fn GPIOTE0() {
-            unsafe { handle_gpiote_interrupt() };
-        }
-    } else if #[cfg(any(feature="nrf5340-app-ns", feature="nrf9160-ns"))] {
-        #[interrupt]
-        fn GPIOTE1() {
-            unsafe { handle_gpiote_interrupt() };
-        }
-    } else {
-        #[interrupt]
-        fn GPIOTE() {
-            unsafe { handle_gpiote_interrupt() };
-        }
-    }
+#[cfg(any(feature = "nrf5340-app-s", feature = "nrf9160-s"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE0() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+#[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE1() {
+    unsafe { handle_gpiote_interrupt() };
+}
+
+#[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+#[cfg(feature = "rt")]
+#[interrupt]
+fn GPIOTE() {
+    unsafe { handle_gpiote_interrupt() };
 }
 
 unsafe fn handle_gpiote_interrupt() {
@@ -149,7 +158,7 @@ impl Iterator for BitIter {
 
 /// GPIOTE channel driver in input mode
 pub struct InputChannel<'d, C: Channel, T: GpioPin> {
-    ch: C,
+    ch: PeripheralRef<'d, C>,
     pin: Input<'d, T>,
 }
 
@@ -163,7 +172,10 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
-    pub fn new(ch: C, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+    /// Create a new GPIOTE input channel driver.
+    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+        into_ref!(ch);
+
         let g = regs();
         let num = ch.number();
 
@@ -187,6 +199,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
         InputChannel { ch, pin }
     }
 
+    /// Asynchronously wait for an event in this channel.
     pub async fn wait(&self) {
         let g = regs();
         let num = self.ch.number();
@@ -208,7 +221,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
     }
 
     /// Returns the IN event, for use with PPI.
-    pub fn event_in(&self) -> Event {
+    pub fn event_in(&self) -> Event<'d> {
         let g = regs();
         Event::from_reg(&g.events_in[self.ch.number()])
     }
@@ -216,7 +229,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
 /// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
-    ch: C,
+    ch: PeripheralRef<'d, C>,
     _pin: Output<'d, T>,
 }
 
@@ -230,7 +243,9 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
 }
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
-    pub fn new(ch: C, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+    /// Create a new GPIOTE output channel driver.
+    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+        into_ref!(ch);
         let g = regs();
         let num = ch.number();
 
@@ -256,20 +271,20 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
         OutputChannel { ch, _pin: pin }
     }
 
-    /// Triggers `task out` (as configured with task_out_polarity, defaults to Toggle).
+    /// Triggers the OUT task (does the action as configured with task_out_polarity, defaults to Toggle).
     pub fn out(&self) {
         let g = regs();
         g.tasks_out[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
-    /// Triggers `task set` (set associated pin high).
+    /// Triggers the SET task (set associated pin high).
     #[cfg(not(feature = "nrf51"))]
     pub fn set(&self) {
         let g = regs();
         g.tasks_set[self.ch.number()].write(|w| unsafe { w.bits(1) });
     }
 
-    /// Triggers `task clear` (set associated pin low).
+    /// Triggers the CLEAR task (set associated pin low).
     #[cfg(not(feature = "nrf51"))]
     pub fn clear(&self) {
         let g = regs();
@@ -277,21 +292,21 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     }
 
     /// Returns the OUT task, for use with PPI.
-    pub fn task_out(&self) -> Task {
+    pub fn task_out(&self) -> Task<'d> {
         let g = regs();
         Task::from_reg(&g.tasks_out[self.ch.number()])
     }
 
     /// Returns the CLR task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
-    pub fn task_clr(&self) -> Task {
+    pub fn task_clr(&self) -> Task<'d> {
         let g = regs();
         Task::from_reg(&g.tasks_clr[self.ch.number()])
     }
 
     /// Returns the SET task, for use with PPI.
     #[cfg(not(feature = "nrf51"))]
-    pub fn task_set(&self) -> Task {
+    pub fn task_set(&self) -> Task<'d> {
         let g = regs();
         Task::from_reg(&g.tasks_set[self.ch.number()])
     }
@@ -299,6 +314,7 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
 
 // =======================
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub(crate) struct PortInputFuture<'a> {
     pin: PeripheralRef<'a, AnyPin>,
 }
@@ -334,48 +350,58 @@ impl<'a> Future for PortInputFuture<'a> {
 }
 
 impl<'d, T: GpioPin> Input<'d, T> {
+    /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await
     }
 
+    /// Wait until the pin is low. If it is already low, return immediately.
     pub async fn wait_for_low(&mut self) {
         self.pin.wait_for_low().await
     }
 
+    /// Wait for the pin to undergo a transition from low to high.
     pub async fn wait_for_rising_edge(&mut self) {
         self.pin.wait_for_rising_edge().await
     }
 
+    /// Wait for the pin to undergo a transition from high to low.
     pub async fn wait_for_falling_edge(&mut self) {
         self.pin.wait_for_falling_edge().await
     }
 
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await
     }
 }
 
 impl<'d, T: GpioPin> Flex<'d, T> {
+    /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().high());
         PortInputFuture::new(&mut self.pin).await
     }
 
+    /// Wait until the pin is low. If it is already low, return immediately.
     pub async fn wait_for_low(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().low());
         PortInputFuture::new(&mut self.pin).await
     }
 
+    /// Wait for the pin to undergo a transition from low to high.
     pub async fn wait_for_rising_edge(&mut self) {
         self.wait_for_low().await;
         self.wait_for_high().await;
     }
 
+    /// Wait for the pin to undergo a transition from high to low.
     pub async fn wait_for_falling_edge(&mut self) {
         self.wait_for_high().await;
         self.wait_for_low().await;
     }
 
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     pub async fn wait_for_any_edge(&mut self) {
         if self.is_high() {
             self.pin.conf().modify(|_, w| w.sense().low());
@@ -392,8 +418,17 @@ mod sealed {
     pub trait Channel {}
 }
 
+/// GPIOTE channel trait.
+///
+/// Implemented by all GPIOTE channels.
 pub trait Channel: sealed::Channel + Sized {
+    /// Get the channel number.
     fn number(&self) -> usize;
+
+    /// Convert this channel to a type-erased `AnyChannel`.
+    ///
+    /// This allows using several channels in situations that might require
+    /// them to be the same type, like putting them in an array.
     fn degrade(self) -> AnyChannel {
         AnyChannel {
             number: self.number() as u8,
@@ -401,6 +436,12 @@ pub trait Channel: sealed::Channel + Sized {
     }
 }
 
+/// Type-erased channel.
+///
+/// Obtained by calling `Channel::degrade`.
+///
+/// This allows using several channels in situations that might require
+/// them to be the same type, like putting them in an array.
 pub struct AnyChannel {
     number: u8,
 }
@@ -458,7 +499,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::blocking::InputPin for InputChannel<'d, C, T> {
+    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChannel<'d, C, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.pin.is_high())
         }
@@ -469,72 +510,51 @@ mod eh1 {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
-        use futures::FutureExt;
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eha {
+    use super::*;
 
-        impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
-            type WaitForHighFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
-                self.wait_for_high().map(Ok)
-            }
-
-            type WaitForLowFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
-                self.wait_for_low().map(Ok)
-            }
-
-            type WaitForRisingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
-                self.wait_for_rising_edge().map(Ok)
-            }
-
-            type WaitForFallingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
-                self.wait_for_falling_edge().map(Ok)
-            }
-
-            type WaitForAnyEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
-                self.wait_for_any_edge().map(Ok)
-            }
+    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_high().await)
         }
 
-        impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
-            type WaitForHighFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_low().await)
+        }
 
-            fn wait_for_high<'a>(&'a mut self) -> Self::WaitForHighFuture<'a> {
-                self.wait_for_high().map(Ok)
-            }
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_rising_edge().await)
+        }
 
-            type WaitForLowFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_falling_edge().await)
+        }
 
-            fn wait_for_low<'a>(&'a mut self) -> Self::WaitForLowFuture<'a> {
-                self.wait_for_low().map(Ok)
-            }
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_any_edge().await)
+        }
+    }
 
-            type WaitForRisingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
+        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_high().await)
+        }
 
-            fn wait_for_rising_edge<'a>(&'a mut self) -> Self::WaitForRisingEdgeFuture<'a> {
-                self.wait_for_rising_edge().map(Ok)
-            }
+        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_low().await)
+        }
 
-            type WaitForFallingEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_rising_edge().await)
+        }
 
-            fn wait_for_falling_edge<'a>(&'a mut self) -> Self::WaitForFallingEdgeFuture<'a> {
-                self.wait_for_falling_edge().map(Ok)
-            }
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_falling_edge().await)
+        }
 
-            type WaitForAnyEdgeFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn wait_for_any_edge<'a>(&'a mut self) -> Self::WaitForAnyEdgeFuture<'a> {
-                self.wait_for_any_edge().map(Ok)
-            }
+        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+            Ok(self.wait_for_any_edge().await)
         }
     }
 }

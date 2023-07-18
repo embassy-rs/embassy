@@ -4,7 +4,7 @@
 
 use core::cell::RefCell;
 use core::fmt::Debug;
-use core::task::{Context, Poll, Waker};
+use core::task::{Context, Poll};
 
 use heapless::Deque;
 
@@ -179,7 +179,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 // No, so we need to reregister our waker and sleep again
                 None => {
                     if let Some(cx) = cx {
-                        s.register_subscriber_waker(cx.waker());
+                        s.subscriber_wakers.register(cx.waker());
                     }
                     Poll::Pending
                 }
@@ -192,6 +192,10 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
         })
     }
 
+    fn available(&self, next_message_id: u64) -> u64 {
+        self.inner.lock(|s| s.borrow().next_message_id - next_message_id)
+    }
+
     fn publish_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), T> {
         self.inner.lock(|s| {
             let mut s = s.borrow_mut();
@@ -202,7 +206,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
                 // The queue is full, so we need to reregister our waker and go to sleep
                 Err(message) => {
                     if let Some(cx) = cx {
-                        s.register_publisher_waker(cx.waker());
+                        s.publisher_wakers.register(cx.waker());
                     }
                     Err(message)
                 }
@@ -214,6 +218,13 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
         self.inner.lock(|s| {
             let mut s = s.borrow_mut();
             s.publish_immediate(message)
+        })
+    }
+
+    fn space(&self) -> usize {
+        self.inner.lock(|s| {
+            let s = s.borrow();
+            s.queue.capacity() - s.queue.len()
         })
     }
 
@@ -311,42 +322,17 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
 
         // We're reading this item, so decrement the counter
         queue_item.1 -= 1;
-        let message = queue_item.0.clone();
 
-        if current_message_index == 0 && queue_item.1 == 0 {
-            self.queue.pop_front();
+        let message = if current_message_index == 0 && queue_item.1 == 0 {
+            let (message, _) = self.queue.pop_front().unwrap();
             self.publisher_wakers.wake();
-        }
+            // Return pop'd message without clone
+            message
+        } else {
+            queue_item.0.clone()
+        };
 
         Some(WaitResult::Message(message))
-    }
-
-    fn register_subscriber_waker(&mut self, waker: &Waker) {
-        match self.subscriber_wakers.register(waker) {
-            Ok(()) => {}
-            Err(_) => {
-                // All waker slots were full. This can only happen when there was a subscriber that now has dropped.
-                // We need to throw it away. It's a bit inefficient, but we can wake everything.
-                // Any future that is still active will simply reregister.
-                // This won't happen a lot, so it's ok.
-                self.subscriber_wakers.wake();
-                self.subscriber_wakers.register(waker).unwrap();
-            }
-        }
-    }
-
-    fn register_publisher_waker(&mut self, waker: &Waker) {
-        match self.publisher_wakers.register(waker) {
-            Ok(()) => {}
-            Err(_) => {
-                // All waker slots were full. This can only happen when there was a publisher that now has dropped.
-                // We need to throw it away. It's a bit inefficient, but we can wake everything.
-                // Any future that is still active will simply reregister.
-                // This won't happen a lot, so it's ok.
-                self.publisher_wakers.wake();
-                self.publisher_wakers.register(waker).unwrap();
-            }
-        }
     }
 
     fn unregister_subscriber(&mut self, subscriber_next_message_id: u64) {
@@ -360,6 +346,20 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
                 .iter_mut()
                 .skip(current_message_index)
                 .for_each(|(_, counter)| *counter -= 1);
+
+            let mut wake_publishers = false;
+            while let Some((_, count)) = self.queue.front() {
+                if *count == 0 {
+                    self.queue.pop_front().unwrap();
+                    wake_publishers = true;
+                } else {
+                    break;
+                }
+            }
+
+            if wake_publishers {
+                self.publisher_wakers.wake();
+            }
         }
     }
 
@@ -388,6 +388,10 @@ pub trait PubSubBehavior<T> {
     /// If the message is not yet present and a context is given, then its waker is registered in the subsriber wakers.
     fn get_message_with_context(&self, next_message_id: &mut u64, cx: Option<&mut Context<'_>>) -> Poll<WaitResult<T>>;
 
+    /// Get the amount of messages that are between the given the next_message_id and the most recent message.
+    /// This is not necessarily the amount of messages a subscriber can still received as it may have lagged.
+    fn available(&self, next_message_id: u64) -> u64;
+
     /// Try to publish a message to the queue.
     ///
     /// If the queue is full and a context is given, then its waker is registered in the publisher wakers.
@@ -395,6 +399,9 @@ pub trait PubSubBehavior<T> {
 
     /// Publish a message immediately
     fn publish_immediate(&self, message: T);
+
+    /// The amount of messages that can still be published without having to wait or without having to lag the subscribers
+    fn space(&self) -> usize;
 
     /// Let the channel know that a subscriber has dropped
     fn unregister_subscriber(&self, subscriber_next_message_id: u64);
@@ -538,5 +545,114 @@ mod tests {
         assert_eq!(pub0.try_publish(0), Err(0));
 
         drop(sub0);
+    }
+
+    #[futures_test::test]
+    async fn correct_available() {
+        let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+
+        let sub0 = channel.subscriber().unwrap();
+        let mut sub1 = channel.subscriber().unwrap();
+        let pub0 = channel.publisher().unwrap();
+
+        assert_eq!(sub0.available(), 0);
+        assert_eq!(sub1.available(), 0);
+
+        pub0.publish(42).await;
+
+        assert_eq!(sub0.available(), 1);
+        assert_eq!(sub1.available(), 1);
+
+        sub1.next_message().await;
+
+        assert_eq!(sub1.available(), 0);
+
+        pub0.publish(42).await;
+
+        assert_eq!(sub0.available(), 2);
+        assert_eq!(sub1.available(), 1);
+    }
+
+    #[futures_test::test]
+    async fn correct_space() {
+        let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+
+        let mut sub0 = channel.subscriber().unwrap();
+        let mut sub1 = channel.subscriber().unwrap();
+        let pub0 = channel.publisher().unwrap();
+
+        assert_eq!(pub0.space(), 4);
+
+        pub0.publish(42).await;
+
+        assert_eq!(pub0.space(), 3);
+
+        pub0.publish(42).await;
+
+        assert_eq!(pub0.space(), 2);
+
+        sub0.next_message().await;
+        sub0.next_message().await;
+
+        assert_eq!(pub0.space(), 2);
+
+        sub1.next_message().await;
+        assert_eq!(pub0.space(), 3);
+        sub1.next_message().await;
+        assert_eq!(pub0.space(), 4);
+    }
+
+    #[futures_test::test]
+    async fn empty_channel_when_last_subscriber_is_dropped() {
+        let channel = PubSubChannel::<NoopRawMutex, u32, 4, 4, 4>::new();
+
+        let pub0 = channel.publisher().unwrap();
+        let mut sub0 = channel.subscriber().unwrap();
+        let mut sub1 = channel.subscriber().unwrap();
+
+        assert_eq!(4, pub0.space());
+
+        pub0.publish(1).await;
+        pub0.publish(2).await;
+
+        assert_eq!(2, channel.space());
+
+        assert_eq!(1, sub0.try_next_message_pure().unwrap());
+        assert_eq!(2, sub0.try_next_message_pure().unwrap());
+
+        assert_eq!(2, channel.space());
+
+        drop(sub0);
+
+        assert_eq!(2, channel.space());
+
+        assert_eq!(1, sub1.try_next_message_pure().unwrap());
+
+        assert_eq!(3, channel.space());
+
+        drop(sub1);
+
+        assert_eq!(4, channel.space());
+    }
+
+    struct CloneCallCounter(usize);
+
+    impl Clone for CloneCallCounter {
+        fn clone(&self) -> Self {
+            Self(self.0 + 1)
+        }
+    }
+
+    #[futures_test::test]
+    async fn skip_clone_for_last_message() {
+        let channel = PubSubChannel::<NoopRawMutex, CloneCallCounter, 1, 2, 1>::new();
+        let pub0 = channel.publisher().unwrap();
+        let mut sub0 = channel.subscriber().unwrap();
+        let mut sub1 = channel.subscriber().unwrap();
+
+        pub0.publish(CloneCallCounter(0)).await;
+
+        assert_eq!(1, sub0.try_next_message_pure().unwrap().0);
+        assert_eq!(0, sub1.try_next_message_pure().unwrap().0);
     }
 }

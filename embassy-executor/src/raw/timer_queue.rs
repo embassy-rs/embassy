@@ -1,45 +1,43 @@
-use core::cell::Cell;
 use core::cmp::min;
-use core::ptr;
-use core::ptr::NonNull;
 
 use atomic_polyfill::Ordering;
 use embassy_time::Instant;
 
-use super::{TaskHeader, STATE_TIMER_QUEUED};
+use super::{TaskRef, STATE_TIMER_QUEUED};
+use crate::raw::util::SyncUnsafeCell;
 
 pub(crate) struct TimerQueueItem {
-    next: Cell<*mut TaskHeader>,
+    next: SyncUnsafeCell<Option<TaskRef>>,
 }
 
 impl TimerQueueItem {
     pub const fn new() -> Self {
         Self {
-            next: Cell::new(ptr::null_mut()),
+            next: SyncUnsafeCell::new(None),
         }
     }
 }
 
 pub(crate) struct TimerQueue {
-    head: Cell<*mut TaskHeader>,
+    head: SyncUnsafeCell<Option<TaskRef>>,
 }
 
 impl TimerQueue {
     pub const fn new() -> Self {
         Self {
-            head: Cell::new(ptr::null_mut()),
+            head: SyncUnsafeCell::new(None),
         }
     }
 
-    pub(crate) unsafe fn update(&self, p: NonNull<TaskHeader>) {
-        let task = p.as_ref();
+    pub(crate) unsafe fn update(&self, p: TaskRef) {
+        let task = p.header();
         if task.expires_at.get() != Instant::MAX {
             let old_state = task.state.fetch_or(STATE_TIMER_QUEUED, Ordering::AcqRel);
             let is_new = old_state & STATE_TIMER_QUEUED == 0;
 
             if is_new {
                 task.timer_queue_item.next.set(self.head.get());
-                self.head.set(p.as_ptr());
+                self.head.set(Some(p));
             }
         }
     }
@@ -47,7 +45,7 @@ impl TimerQueue {
     pub(crate) unsafe fn next_expiration(&self) -> Instant {
         let mut res = Instant::MAX;
         self.retain(|p| {
-            let task = p.as_ref();
+            let task = p.header();
             let expires = task.expires_at.get();
             res = min(res, expires);
             expires != Instant::MAX
@@ -55,9 +53,9 @@ impl TimerQueue {
         res
     }
 
-    pub(crate) unsafe fn dequeue_expired(&self, now: Instant, on_task: impl Fn(NonNull<TaskHeader>)) {
+    pub(crate) unsafe fn dequeue_expired(&self, now: Instant, on_task: impl Fn(TaskRef)) {
         self.retain(|p| {
-            let task = p.as_ref();
+            let task = p.header();
             if task.expires_at.get() <= now {
                 on_task(p);
                 false
@@ -67,11 +65,10 @@ impl TimerQueue {
         });
     }
 
-    pub(crate) unsafe fn retain(&self, mut f: impl FnMut(NonNull<TaskHeader>) -> bool) {
+    pub(crate) unsafe fn retain(&self, mut f: impl FnMut(TaskRef) -> bool) {
         let mut prev = &self.head;
-        while !prev.get().is_null() {
-            let p = NonNull::new_unchecked(prev.get());
-            let task = &*p.as_ptr();
+        while let Some(p) = prev.get() {
+            let task = p.header();
             if f(p) {
                 // Skip to next
                 prev = &task.timer_queue_item.next;

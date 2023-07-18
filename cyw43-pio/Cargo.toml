@@ -1,0 +1,22 @@
+[package]
+name = "cyw43-pio"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+# If disabled, SPI runs at 31.25MHz
+# If enabled, SPI runs at 62.5MHz, which is 25% higher than 50Mhz which is the maximum according to the CYW43439 datasheet.
+overclock = []
+
+[dependencies]
+cyw43 = { version = "0.1.0", path = "../cyw43" }
+embassy-rp = { version = "0.1.0", path = "../embassy-rp" }
+pio-proc = "0.2"
+pio = "0.2.1"
+fixed = "1.23.1"
+defmt = { version = "0.3", optional = true }
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-pio-v$VERSION/cyw43-pio/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/cyw43-pio/src/"
+target = "thumbv6m-none-eabi"

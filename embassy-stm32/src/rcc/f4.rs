@@ -1,8 +1,16 @@
+use core::marker::PhantomData;
+
+use embassy_hal_common::into_ref;
+use stm32_metapac::rcc::vals::{Mco1, Mco2, Mcopre};
+
 use super::sealed::RccPeripheral;
+use crate::gpio::sealed::AFType;
+use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
+use crate::{peripherals, Peripheral};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
@@ -21,20 +29,71 @@ pub struct Config {
     pub pclk1: Option<Hertz>,
     pub pclk2: Option<Hertz>,
 
+    #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+    pub plli2s: Option<Hertz>,
+
     pub pll48: bool,
 }
 
-unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bool) -> PllResults {
+#[cfg(stm32f410)]
+fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
+    None
+}
+
+// Not currently implemented, but will be in the future
+#[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
+fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
+    None
+}
+
+#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+    let min_div = 2;
+    let max_div = 7;
+    let target = match plli2s {
+        Some(target) => target,
+        None => return None,
+    };
+
+    // We loop through the possible divider values to find the best configuration. Looping
+    // through all possible "N" values would result in more iterations.
+    let (n, outdiv, output, _error) = (min_div..=max_div)
+        .filter_map(|outdiv| {
+            let target_vco_out = match target.checked_mul(outdiv) {
+                Some(x) => x,
+                None => return None,
+            };
+            let n = (target_vco_out + (vco_in >> 1)) / vco_in;
+            let vco_out = vco_in * n;
+            if !(100_000_000..=432_000_000).contains(&vco_out) {
+                return None;
+            }
+            let output = vco_out / outdiv;
+            let error = (output as i32 - target as i32).unsigned_abs();
+            Some((n, outdiv, output, error))
+        })
+        .min_by_key(|(_, _, _, error)| *error)?;
+
+    RCC.plli2scfgr().modify(|w| {
+        w.set_plli2sn(n as u16);
+        w.set_plli2sr(outdiv as u8);
+    });
+
+    Some(output)
+}
+
+fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Option<u32>, pll48clk: bool) -> PllResults {
     use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
     if pllsysclk.is_none() && !pll48clk {
-        RCC.pllcfgr().modify(|w| w.set_pllsrc(Pllsrc(use_hse as u8)));
+        RCC.pllcfgr().modify(|w| w.set_pllsrc(Pllsrc::from_bits(use_hse as u8)));
 
         return PllResults {
             use_pll: false,
             pllsysclk: None,
             pll48clk: None,
+            plli2sclk: None,
         };
     }
     // Input divisor from PLL source clock, must result to frequency in
@@ -82,9 +141,9 @@ unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48
     RCC.pllcfgr().modify(|w| {
         w.set_pllm(pllm as u8);
         w.set_plln(plln as u16);
-        w.set_pllp(Pllp(pllp as u8));
+        w.set_pllp(Pllp::from_bits(pllp as u8));
         w.set_pllq(pllq as u8);
-        w.set_pllsrc(Pllsrc(use_hse as u8));
+        w.set_pllsrc(Pllsrc::from_bits(use_hse as u8));
     });
 
     let real_pllsysclk = vco_in * plln / sysclk_div;
@@ -93,10 +152,169 @@ unsafe fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48
         use_pll: true,
         pllsysclk: Some(real_pllsysclk),
         pll48clk: if pll48clk { Some(real_pll48clk) } else { None },
+        plli2sclk: setup_i2s_pll(vco_in, plli2s),
     }
 }
 
-unsafe fn flash_setup(sysclk: u32) {
+pub enum McoClock {
+    DIV1,
+    DIV2,
+    DIV3,
+    DIV4,
+    DIV5,
+}
+
+impl McoClock {
+    fn into_raw(&self) -> Mcopre {
+        match self {
+            McoClock::DIV1 => Mcopre::DIV1,
+            McoClock::DIV2 => Mcopre::DIV2,
+            McoClock::DIV3 => Mcopre::DIV3,
+            McoClock::DIV4 => Mcopre::DIV4,
+            McoClock::DIV5 => Mcopre::DIV5,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum Mco1Source {
+    Hsi,
+    Lse,
+    Hse,
+    Pll,
+}
+
+impl Default for Mco1Source {
+    fn default() -> Self {
+        Self::Hsi
+    }
+}
+
+pub trait McoSource {
+    type Raw;
+
+    fn into_raw(&self) -> Self::Raw;
+}
+
+impl McoSource for Mco1Source {
+    type Raw = Mco1;
+    fn into_raw(&self) -> Self::Raw {
+        match self {
+            Mco1Source::Hsi => Mco1::HSI,
+            Mco1Source::Lse => Mco1::LSE,
+            Mco1Source::Hse => Mco1::HSE,
+            Mco1Source::Pll => Mco1::PLL,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum Mco2Source {
+    SysClk,
+    Plli2s,
+    Hse,
+    Pll,
+}
+
+impl Default for Mco2Source {
+    fn default() -> Self {
+        Self::SysClk
+    }
+}
+
+impl McoSource for Mco2Source {
+    type Raw = Mco2;
+    fn into_raw(&self) -> Self::Raw {
+        match self {
+            Mco2Source::SysClk => Mco2::SYSCLK,
+            Mco2Source::Plli2s => Mco2::PLLI2S,
+            Mco2Source::Hse => Mco2::HSE,
+            Mco2Source::Pll => Mco2::PLL,
+        }
+    }
+}
+
+pub(crate) mod sealed {
+    use stm32_metapac::rcc::vals::Mcopre;
+    pub trait McoInstance {
+        type Source;
+        unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre);
+    }
+}
+
+pub trait McoInstance: sealed::McoInstance + 'static {}
+
+pin_trait!(McoPin, McoInstance);
+
+impl sealed::McoInstance for peripherals::MCO1 {
+    type Source = Mco1;
+    unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre) {
+        RCC.cfgr().modify(|w| {
+            w.set_mco1(source);
+            w.set_mco1pre(prescaler);
+        });
+        match source {
+            Mco1::PLL => {
+                RCC.cr().modify(|w| w.set_pllon(true));
+                while !RCC.cr().read().pllrdy() {}
+            }
+            Mco1::HSI => {
+                RCC.cr().modify(|w| w.set_hsion(true));
+                while !RCC.cr().read().hsirdy() {}
+            }
+            _ => {}
+        }
+    }
+}
+impl McoInstance for peripherals::MCO1 {}
+
+impl sealed::McoInstance for peripherals::MCO2 {
+    type Source = Mco2;
+    unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre) {
+        RCC.cfgr().modify(|w| {
+            w.set_mco2(source);
+            w.set_mco2pre(prescaler);
+        });
+        match source {
+            Mco2::PLL => {
+                RCC.cr().modify(|w| w.set_pllon(true));
+                while !RCC.cr().read().pllrdy() {}
+            }
+            #[cfg(not(stm32f410))]
+            Mco2::PLLI2S => {
+                RCC.cr().modify(|w| w.set_plli2son(true));
+                while !RCC.cr().read().plli2srdy() {}
+            }
+            _ => {}
+        }
+    }
+}
+impl McoInstance for peripherals::MCO2 {}
+
+pub struct Mco<'d, T: McoInstance> {
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: McoInstance> Mco<'d, T> {
+    pub fn new(
+        _peri: impl Peripheral<P = T> + 'd,
+        pin: impl Peripheral<P = impl McoPin<T>> + 'd,
+        source: impl McoSource<Raw = T::Source>,
+        prescaler: McoClock,
+    ) -> Self {
+        into_ref!(pin);
+
+        critical_section::with(|_| unsafe {
+            T::apply_clock_settings(source.into_raw(), prescaler.into_raw());
+            pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
+            pin.set_speed(Speed::VeryHigh);
+        });
+
+        Self { phantom: PhantomData }
+    }
+}
+
+fn flash_setup(sysclk: u32) {
     use crate::pac::flash::vals::Latency;
 
     // Be conservative with voltage ranges
@@ -105,7 +323,7 @@ unsafe fn flash_setup(sysclk: u32) {
     critical_section::with(|_| {
         FLASH
             .acr()
-            .modify(|w| w.set_latency(Latency(((sysclk - 1) / FLASH_LATENCY_STEP) as u8)));
+            .modify(|w| w.set_latency(Latency::from_bits(((sysclk - 1) / FLASH_LATENCY_STEP) as u8)));
     });
 }
 
@@ -120,6 +338,10 @@ pub(crate) unsafe fn init(config: Config) {
         pllsrcclk,
         config.hse.is_some(),
         if sysclk_on_pll { Some(sysclk) } else { None },
+        #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+        config.plli2s.map(|i2s| i2s.0),
+        #[cfg(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
+        None,
         config.pll48,
     );
 
@@ -210,9 +432,16 @@ pub(crate) unsafe fn init(config: Config) {
         while !RCC.cr().read().pllrdy() {}
     }
 
+    #[cfg(not(stm32f410))]
+    if plls.plli2sclk.is_some() {
+        RCC.cr().modify(|w| w.set_plli2son(true));
+
+        while !RCC.cr().read().plli2srdy() {}
+    }
+
     RCC.cfgr().modify(|w| {
-        w.set_ppre2(Ppre(ppre2_bits));
-        w.set_ppre1(Ppre(ppre1_bits));
+        w.set_ppre2(Ppre::from_bits(ppre2_bits));
+        w.set_ppre1(Ppre::from_bits(ppre1_bits));
         w.set_hpre(hpre_bits);
     });
 
@@ -243,6 +472,12 @@ pub(crate) unsafe fn init(config: Config) {
         ahb3: Hertz(hclk),
 
         pll48: plls.pll48clk.map(Hertz),
+
+        #[cfg(not(stm32f410))]
+        plli2s: plls.plli2sclk.map(Hertz),
+
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        pllsai: None,
     });
 }
 
@@ -250,6 +485,8 @@ struct PllResults {
     use_pll: bool,
     pllsysclk: Option<u32>,
     pll48clk: Option<u32>,
+    #[allow(dead_code)]
+    plli2sclk: Option<u32>,
 }
 
 mod max {

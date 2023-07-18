@@ -1,10 +1,11 @@
-use std::cell::UnsafeCell;
+use core::sync::atomic::{AtomicU8, Ordering};
+use std::cell::{RefCell, UnsafeCell};
 use std::mem::MaybeUninit;
 use std::sync::{Condvar, Mutex, Once};
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 use std::{mem, ptr, thread};
 
-use atomic_polyfill::{AtomicU8, Ordering};
+use critical_section::Mutex as CsMutex;
 
 use crate::driver::{AlarmHandle, Driver};
 
@@ -35,7 +36,10 @@ struct TimeDriver {
     alarm_count: AtomicU8,
 
     once: Once,
-    alarms: UninitCell<Mutex<[AlarmState; ALARM_COUNT]>>,
+    // The STD Driver implementation requires the alarms' mutex to be reentrant, which the STD Mutex isn't
+    // Fortunately, mutexes based on the `critical-section` crate are reentrant, because the critical sections
+    // themselves are reentrant
+    alarms: UninitCell<CsMutex<RefCell<[AlarmState; ALARM_COUNT]>>>,
     zero_instant: UninitCell<StdInstant>,
     signaler: UninitCell<Signaler>,
 }
@@ -53,7 +57,7 @@ crate::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
 impl TimeDriver {
     fn init(&self) {
         self.once.call_once(|| unsafe {
-            self.alarms.write(Mutex::new([ALARM_NEW; ALARM_COUNT]));
+            self.alarms.write(CsMutex::new(RefCell::new([ALARM_NEW; ALARM_COUNT])));
             self.zero_instant.write(StdInstant::now());
             self.signaler.write(Signaler::new());
 
@@ -66,25 +70,38 @@ impl TimeDriver {
         loop {
             let now = DRIVER.now();
 
-            let mut next_alarm = u64::MAX;
-            {
-                let alarms = &mut *unsafe { DRIVER.alarms.as_ref() }.lock().unwrap();
-                for alarm in alarms {
-                    if alarm.timestamp <= now {
-                        alarm.timestamp = u64::MAX;
+            let next_alarm = critical_section::with(|cs| {
+                let alarms = unsafe { DRIVER.alarms.as_ref() }.borrow(cs);
+                loop {
+                    let pending = alarms
+                        .borrow_mut()
+                        .iter_mut()
+                        .find(|alarm| alarm.timestamp <= now)
+                        .map(|alarm| {
+                            alarm.timestamp = u64::MAX;
 
-                        // Call after clearing alarm, so the callback can set another alarm.
+                            (alarm.callback, alarm.ctx)
+                        });
 
+                    if let Some((callback, ctx)) = pending {
                         // safety:
                         // - we can ignore the possiblity of `f` being unset (null) because of the safety contract of `allocate_alarm`.
                         // - other than that we only store valid function pointers into alarm.callback
-                        let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback) };
-                        f(alarm.ctx);
+                        let f: fn(*mut ()) = unsafe { mem::transmute(callback) };
+                        f(ctx);
                     } else {
-                        next_alarm = next_alarm.min(alarm.timestamp);
+                        // No alarm due
+                        break;
                     }
                 }
-            }
+
+                alarms
+                    .borrow()
+                    .iter()
+                    .map(|alarm| alarm.timestamp)
+                    .min()
+                    .unwrap_or(u64::MAX)
+            });
 
             // Ensure we don't overflow
             let until = zero
@@ -121,18 +138,24 @@ impl Driver for TimeDriver {
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
         self.init();
-        let mut alarms = unsafe { self.alarms.as_ref() }.lock().unwrap();
-        let alarm = &mut alarms[alarm.id() as usize];
-        alarm.callback = callback as *const ();
-        alarm.ctx = ctx;
+        critical_section::with(|cs| {
+            let mut alarms = unsafe { self.alarms.as_ref() }.borrow_ref_mut(cs);
+            let alarm = &mut alarms[alarm.id() as usize];
+            alarm.callback = callback as *const ();
+            alarm.ctx = ctx;
+        });
     }
 
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
+    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         self.init();
-        let mut alarms = unsafe { self.alarms.as_ref() }.lock().unwrap();
-        let alarm = &mut alarms[alarm.id() as usize];
-        alarm.timestamp = timestamp;
-        unsafe { self.signaler.as_ref() }.signal();
+        critical_section::with(|cs| {
+            let mut alarms = unsafe { self.alarms.as_ref() }.borrow_ref_mut(cs);
+            let alarm = &mut alarms[alarm.id() as usize];
+            alarm.timestamp = timestamp;
+            unsafe { self.signaler.as_ref() }.signal();
+        });
+
+        true
     }
 }
 

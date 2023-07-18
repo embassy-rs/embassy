@@ -3,17 +3,19 @@ edition = "2021"
 name = "stm32-bootloader-example"
 version = "0.1.0"
 description = "Example bootloader for STM32 chips"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.3", optional = true }
+defmt-rtt = { version = "0.4", optional = true }
 
-embassy-stm32 = { path = "../../../../embassy-stm32", default-features = false, features = ["nightly"] }
-embassy-boot-stm32 = { path = "../../../../embassy-boot/stm32", default-features = false }
-cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+embassy-stm32 = { path = "../../../../embassy-stm32", features = ["nightly"] }
+embassy-boot-stm32 = { path = "../../../../embassy-boot/stm32" }
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+embassy-sync = { path = "../../../../embassy-sync" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
-embedded-storage-async = "0.3.0"
+embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
 
 [features]

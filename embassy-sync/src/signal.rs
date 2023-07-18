@@ -1,8 +1,10 @@
 //! A synchronization primitive for passing the latest value to a task.
-use core::cell::UnsafeCell;
-use core::future::Future;
-use core::mem;
+use core::cell::Cell;
+use core::future::{poll_fn, Future};
 use core::task::{Context, Poll, Waker};
+
+use crate::blocking_mutex::raw::RawMutex;
+use crate::blocking_mutex::Mutex;
 
 /// Single-slot signaling primitive.
 ///
@@ -20,16 +22,20 @@ use core::task::{Context, Poll, Waker};
 ///
 /// ```
 /// use embassy_sync::signal::Signal;
+/// use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 ///
 /// enum SomeCommand {
 ///   On,
 ///   Off,
 /// }
 ///
-/// static SOME_SIGNAL: Signal<SomeCommand> = Signal::new();
+/// static SOME_SIGNAL: Signal<CriticalSectionRawMutex, SomeCommand> = Signal::new();
 /// ```
-pub struct Signal<T> {
-    state: UnsafeCell<State<T>>,
+pub struct Signal<M, T>
+where
+    M: RawMutex,
+{
+    state: Mutex<M, Cell<State<T>>>,
 }
 
 enum State<T> {
@@ -38,24 +44,36 @@ enum State<T> {
     Signaled(T),
 }
 
-unsafe impl<T: Send> Send for Signal<T> {}
-unsafe impl<T: Send> Sync for Signal<T> {}
-
-impl<T> Signal<T> {
+impl<M, T> Signal<M, T>
+where
+    M: RawMutex,
+{
     /// Create a new `Signal`.
     pub const fn new() -> Self {
         Self {
-            state: UnsafeCell::new(State::None),
+            state: Mutex::new(Cell::new(State::None)),
         }
     }
 }
 
-impl<T: Send> Signal<T> {
+impl<M, T> Default for Signal<M, T>
+where
+    M: RawMutex,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<M, T: Send> Signal<M, T>
+where
+    M: RawMutex,
+{
     /// Mark this Signal as signaled.
     pub fn signal(&self, val: T) {
-        critical_section::with(|_| unsafe {
-            let state = &mut *self.state.get();
-            if let State::Waiting(waker) = mem::replace(state, State::Signaled(val)) {
+        self.state.lock(|cell| {
+            let state = cell.replace(State::Signaled(val));
+            if let State::Waiting(waker) = state {
                 waker.wake();
             }
         })
@@ -63,38 +81,46 @@ impl<T: Send> Signal<T> {
 
     /// Remove the queued value in this `Signal`, if any.
     pub fn reset(&self) {
-        critical_section::with(|_| unsafe {
-            let state = &mut *self.state.get();
-            *state = State::None
-        })
+        self.state.lock(|cell| cell.set(State::None));
     }
 
-    /// Manually poll the Signal future.
-    pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
-        critical_section::with(|_| unsafe {
-            let state = &mut *self.state.get();
+    fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
+        self.state.lock(|cell| {
+            let state = cell.replace(State::None);
             match state {
                 State::None => {
-                    *state = State::Waiting(cx.waker().clone());
+                    cell.set(State::Waiting(cx.waker().clone()));
                     Poll::Pending
                 }
-                State::Waiting(w) if w.will_wake(cx.waker()) => Poll::Pending,
-                State::Waiting(_) => panic!("waker overflow"),
-                State::Signaled(_) => match mem::replace(state, State::None) {
-                    State::Signaled(res) => Poll::Ready(res),
-                    _ => unreachable!(),
-                },
+                State::Waiting(w) if w.will_wake(cx.waker()) => {
+                    cell.set(State::Waiting(w));
+                    Poll::Pending
+                }
+                State::Waiting(w) => {
+                    cell.set(State::Waiting(cx.waker().clone()));
+                    w.wake();
+                    Poll::Pending
+                }
+                State::Signaled(res) => Poll::Ready(res),
             }
         })
     }
 
     /// Future that completes when this Signal has been signaled.
     pub fn wait(&self) -> impl Future<Output = T> + '_ {
-        futures_util::future::poll_fn(move |cx| self.poll_wait(cx))
+        poll_fn(move |cx| self.poll_wait(cx))
     }
 
     /// non-blocking method to check whether this signal has been signaled.
     pub fn signaled(&self) -> bool {
-        critical_section::with(|_| matches!(unsafe { &*self.state.get() }, State::Signaled(_)))
+        self.state.lock(|cell| {
+            let state = cell.replace(State::None);
+
+            let res = matches!(state, State::Signaled(_));
+
+            cell.set(state);
+
+            res
+        })
     }
 }

@@ -1,12 +1,9 @@
+//! I2C-compatible Two Wire Interface in master mode (TWIM) driver.
+
 #![macro_use]
 
-//! HAL interface to the TWIM peripheral.
-//!
-//! See product specification:
-//!
-//! - nRF52832: Section 33
-//! - nRF52840: Section 6.31
-use core::future::Future;
+use core::future::{poll_fn, Future};
+use core::marker::PhantomData;
 use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
@@ -16,30 +13,46 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
-use futures::future::poll_fn;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
-use crate::interrupt::{Interrupt, InterruptExt};
+use crate::interrupt::typelevel::Interrupt;
 use crate::util::{slice_in_ram, slice_in_ram_or};
-use crate::{gpio, pac, Peripheral};
+use crate::{gpio, interrupt, pac, Peripheral};
 
+/// TWI frequency
 #[derive(Clone, Copy)]
 pub enum Frequency {
-    #[doc = "26738688: 100 kbps"]
+    /// 100 kbps
     K100 = 26738688,
-    #[doc = "67108864: 250 kbps"]
+    /// 250 kbps
     K250 = 67108864,
-    #[doc = "104857600: 400 kbps"]
+    /// 400 kbps
     K400 = 104857600,
 }
 
+/// TWIM config.
 #[non_exhaustive]
 pub struct Config {
+    /// Frequency
     pub frequency: Frequency,
+
+    /// Enable high drive for the SDA line.
     pub sda_high_drive: bool,
+
+    /// Enable internal pullup for the SDA line.
+    ///
+    /// Note that using external pullups is recommended for I2C, and
+    /// most boards already have them.
     pub sda_pullup: bool,
+
+    /// Enable high drive for the SCL line.
     pub scl_high_drive: bool,
+
+    /// Enable internal pullup for the SCL line.
+    ///
+    /// Note that using external pullups is recommended for I2C, and
+    /// most boards already have them.
     pub scl_pullup: bool,
 }
 
@@ -55,37 +68,67 @@ impl Default for Config {
     }
 }
 
+/// TWI error.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// TX buffer was too long.
     TxBufferTooLong,
+    /// RX buffer was too long.
     RxBufferTooLong,
+    /// Data transmit failed.
     Transmit,
+    /// Data reception failed.
     Receive,
-    DMABufferNotInDataMemory,
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
+    /// Didn't receive an ACK bit after the address byte. Address might be wrong, or the i2c device chip might not be connected properly.
     AddressNack,
+    /// Didn't receive an ACK bit after a data byte.
     DataNack,
+    /// Overrun error.
     Overrun,
+    /// Timeout error.
     Timeout,
 }
 
-/// Interface to a TWIM instance using EasyDMA to offload the transmission and reception workload.
-///
-/// For more details about EasyDMA, consult the module documentation.
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let r = T::regs();
+        let s = T::state();
+
+        if r.events_stopped.read().bits() != 0 {
+            s.end_waker.wake();
+            r.intenclr.write(|w| w.stopped().clear());
+        }
+        if r.events_error.read().bits() != 0 {
+            s.end_waker.wake();
+            r.intenclr.write(|w| w.error().clear());
+        }
+    }
+}
+
+/// TWI driver.
 pub struct Twim<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Twim<'d, T> {
+    /// Create a new TWI driver.
     pub fn new(
         twim: impl Peripheral<P = T> + 'd,
-        irq: impl Peripheral<P = T::Interrupt> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sda: impl Peripheral<P = impl GpioPin> + 'd,
         scl: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(twim, irq, sda, scl);
+        into_ref!(twim, sda, scl);
 
         let r = T::regs();
 
@@ -131,30 +174,15 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
 
-        irq.set_handler(Self::on_interrupt);
-        irq.unpend();
-        irq.enable();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self { _p: twim }
     }
 
-    fn on_interrupt(_: *mut ()) {
-        let r = T::regs();
-        let s = T::state();
-
-        if r.events_stopped.read().bits() != 0 {
-            s.end_waker.wake();
-            r.intenclr.write(|w| w.stopped().clear());
-        }
-        if r.events_error.read().bits() != 0 {
-            s.end_waker.wake();
-            r.intenclr.write(|w| w.error().clear());
-        }
-    }
-
     /// Set TX buffer, checking that it is in RAM and has suitable length.
     unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        slice_in_ram_or(buffer, Error::DMABufferNotInDataMemory)?;
+        slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
 
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
@@ -234,7 +262,7 @@ impl<'d, T: Instance> Twim<'d, T> {
             return Err(Error::DataNack);
         }
         if err.overrun().is_received() {
-            return Err(Error::DataNack);
+            return Err(Error::Overrun);
         }
         Ok(())
     }
@@ -308,7 +336,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 return Poll::Ready(());
             }
 
-            // stop if an error occured
+            // stop if an error occurred
             if r.events_error.read().bits() != 0 {
                 r.events_error.reset();
                 r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -436,7 +464,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     ) -> Result<(), Error> {
         match self.setup_write_read_from_ram(address, wr_buffer, rd_buffer, inten) {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
@@ -449,7 +477,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     fn setup_write(&mut self, address: u8, wr_buffer: &[u8], inten: bool) -> Result<(), Error> {
         match self.setup_write_from_ram(address, wr_buffer, inten) {
             Ok(_) => Ok(()),
-            Err(Error::DMABufferNotInDataMemory) => {
+            Err(Error::BufferNotInRAM) => {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
@@ -613,6 +641,10 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     // ===========================================
 
+    /// Read from an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         self.setup_read(address, buffer, true)?;
         self.async_wait().await;
@@ -622,6 +654,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Write to an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
     pub async fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
         self.setup_write(address, buffer, true)?;
         self.async_wait().await;
@@ -641,6 +677,11 @@ impl<'d, T: Instance> Twim<'d, T> {
         Ok(())
     }
 
+    /// Write data to an I2C slave, then read data from the slave without
+    /// triggering a stop condition between the two.
+    ///
+    /// The buffers must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
     pub async fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
         self.setup_write_read(address, wr_buffer, rd_buffer, true)?;
         self.async_wait().await;
@@ -706,8 +747,10 @@ pub(crate) mod sealed {
     }
 }
 
+/// TWIM peripheral instance.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static {
-    type Interrupt: Interrupt;
+    /// Interrupt for this peripheral.
+    type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 macro_rules! impl_twim {
@@ -722,7 +765,7 @@ macro_rules! impl_twim {
             }
         }
         impl crate::twim::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
 }
@@ -777,7 +820,7 @@ mod eh1 {
                 Self::RxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Transmit => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Receive => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::DMABufferNotInDataMemory => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::BufferNotInRAM => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::AddressNack => {
                     embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
                 }
@@ -794,27 +837,13 @@ mod eh1 {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::i2c::blocking::I2c for Twim<'d, T> {
+    impl<'d, T: Instance> embedded_hal_1::i2c::I2c for Twim<'d, T> {
         fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_read(address, buffer)
         }
 
         fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Self::Error> {
             self.blocking_write(address, buffer)
-        }
-
-        fn write_iter<B>(&mut self, _address: u8, _bytes: B) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            todo!();
-        }
-
-        fn write_iter_read<B>(&mut self, _address: u8, _bytes: B, _buffer: &mut [u8]) -> Result<(), Self::Error>
-        where
-            B: IntoIterator<Item = u8>,
-        {
-            todo!();
         }
 
         fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -824,57 +853,36 @@ mod eh1 {
         fn transaction<'a>(
             &mut self,
             _address: u8,
-            _operations: &mut [embedded_hal_1::i2c::blocking::Operation<'a>],
+            _operations: &mut [embedded_hal_1::i2c::Operation<'a>],
         ) -> Result<(), Self::Error> {
-            todo!();
-        }
-
-        fn transaction_iter<'a, O>(&mut self, _address: u8, _operations: O) -> Result<(), Self::Error>
-        where
-            O: IntoIterator<Item = embedded_hal_1::i2c::blocking::Operation<'a>>,
-        {
             todo!();
         }
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
-        impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
-            type ReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eha {
+    use super::*;
+    impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
+        async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+            self.read(address, read).await
+        }
 
-            fn read<'a>(&'a mut self, address: u8, buffer: &'a mut [u8]) -> Self::ReadFuture<'a> {
-                self.read(address, buffer)
-            }
+        async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+            self.write(address, write).await
+        }
+        async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+            self.write_read(address, write, read).await
+        }
 
-            type WriteFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn write<'a>(&'a mut self, address: u8, bytes: &'a [u8]) -> Self::WriteFuture<'a> {
-                self.write(address, bytes)
-            }
-
-            type WriteReadFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn write_read<'a>(
-                &'a mut self,
-                address: u8,
-                wr_buffer: &'a [u8],
-                rd_buffer: &'a mut [u8],
-            ) -> Self::WriteReadFuture<'a> {
-                self.write_read(address, wr_buffer, rd_buffer)
-            }
-
-            type TransactionFuture<'a, 'b> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a, 'b: 'a;
-
-            fn transaction<'a, 'b>(
-                &'a mut self,
-                address: u8,
-                operations: &'a mut [embedded_hal_async::i2c::Operation<'b>],
-            ) -> Self::TransactionFuture<'a, 'b> {
-                let _ = address;
-                let _ = operations;
-                async move { todo!() }
-            }
+        async fn transaction(
+            &mut self,
+            address: u8,
+            operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            let _ = address;
+            let _ = operations;
+            todo!()
         }
     }
 }

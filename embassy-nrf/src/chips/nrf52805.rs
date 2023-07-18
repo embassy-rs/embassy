@@ -6,6 +6,8 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 256;
 
 pub const FLASH_SIZE: usize = 192 * 1024;
 
+pub const RESET_PIN: u32 = 21;
+
 embassy_hal_common::peripherals! {
     // RTC
     RTC0,
@@ -108,6 +110,7 @@ embassy_hal_common::peripherals! {
     P0_18,
     P0_19,
     P0_20,
+    #[cfg(feature="reset-pin-as-gpio")]
     P0_21,
     P0_22,
     P0_23,
@@ -131,7 +134,15 @@ impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
 
 impl_spim!(SPI0, SPIM0, SPIM0_SPIS0_SPI0);
 
+impl_spis!(SPI0, SPIS0, SPIM0_SPIS0_SPI0);
+
 impl_twim!(TWI0, TWIM0, TWIM0_TWIS0_TWI0);
+
+impl_twis!(TWI0, TWIS0, TWIM0_TWIS0_TWI0);
+
+impl_qdec!(QDEC, QDEC, QDEC);
+
+impl_rng!(RNG, RNG, RNG);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
@@ -158,6 +169,7 @@ impl_pin!(P0_17, 0, 17);
 impl_pin!(P0_18, 0, 18);
 impl_pin!(P0_19, 0, 19);
 impl_pin!(P0_20, 0, 20);
+#[cfg(feature = "reset-pin-as-gpio")]
 impl_pin!(P0_21, 0, 21);
 impl_pin!(P0_22, 0, 22);
 impl_pin!(P0_23, 0, 23);
@@ -193,36 +205,32 @@ impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
 
-impl_saadc_input!(P0_04, ANALOGINPUT2);
-impl_saadc_input!(P0_05, ANALOGINPUT3);
+impl_saadc_input!(P0_04, ANALOG_INPUT2);
+impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(POWER_CLOCK);
-    declare!(RADIO);
-    declare!(UARTE0_UART0);
-    declare!(TWIM0_TWIS0_TWI0);
-    declare!(SPIM0_SPIS0_SPI0);
-    declare!(GPIOTE);
-    declare!(SAADC);
-    declare!(TIMER0);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(RTC0);
-    declare!(TEMP);
-    declare!(RNG);
-    declare!(ECB);
-    declare!(CCM_AAR);
-    declare!(WDT);
-    declare!(RTC1);
-    declare!(QDEC);
-    declare!(SWI0_EGU0);
-    declare!(SWI1_EGU1);
-    declare!(SWI2);
-    declare!(SWI3);
-    declare!(SWI4);
-    declare!(SWI5);
-}
+embassy_hal_common::interrupt_mod!(
+    POWER_CLOCK,
+    RADIO,
+    UARTE0_UART0,
+    TWIM0_TWIS0_TWI0,
+    SPIM0_SPIS0_SPI0,
+    GPIOTE,
+    SAADC,
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    RTC0,
+    TEMP,
+    RNG,
+    ECB,
+    CCM_AAR,
+    WDT,
+    RTC1,
+    QDEC,
+    SWI0_EGU0,
+    SWI1_EGU1,
+    SWI2,
+    SWI3,
+    SWI4,
+    SWI5,
+);

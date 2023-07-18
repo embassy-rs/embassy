@@ -1,4 +1,5 @@
-use crate::pac::{FLASH, RCC};
+use crate::pac::pwr::vals::Dbp;
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -158,7 +159,7 @@ impl Into<u8> for APBPrescaler {
 impl Into<u8> for AHBPrescaler {
     fn into(self) -> u8 {
         match self {
-            AHBPrescaler::NotDivided => 1,
+            AHBPrescaler::NotDivided => 0x0,
             AHBPrescaler::Div2 => 0x08,
             AHBPrescaler::Div3 => 0x01,
             AHBPrescaler::Div4 => 0x09,
@@ -184,6 +185,8 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub enable_lsi: bool,
+    pub enable_rtc_apb: bool,
+    pub rtc_mux: RtcClockSource,
 }
 
 impl Default for Config {
@@ -196,59 +199,31 @@ impl Default for Config {
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
             enable_lsi: false,
+            enable_rtc_apb: false,
+            rtc_mux: RtcClockSource::LSI32,
         }
     }
 }
 
+pub enum RtcClockSource {
+    LSE32,
+    LSI32,
+}
+
+#[repr(u8)]
+pub enum Lsedrv {
+    Low = 0,
+    MediumLow = 1,
+    MediumHigh = 2,
+    High = 3,
+}
+
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
-        ClockSrc::HSI16 => {
-            // Enable HSI16
-            RCC.cr().write(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-
-            (HSI_FREQ.0, 0x01, VoltageScale::Range2)
-        }
-        ClockSrc::HSE32 => {
-            // Enable HSE32
-            RCC.cr().write(|w| {
-                w.set_hsebyppwr(true);
-                w.set_hseon(true);
-            });
-            while !RCC.cr().read().hserdy() {}
-
-            (HSE32_FREQ.0, 0x02, VoltageScale::Range1)
-        }
-        ClockSrc::MSI(range) => {
-            RCC.cr().write(|w| {
-                w.set_msirange(range.into());
-                w.set_msion(true);
-            });
-
-            while !RCC.cr().read().msirdy() {}
-
-            (range.freq(), 0x00, range.vos())
-        }
+        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::Range2),
+        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::Range1),
+        ClockSrc::MSI(range) => (range.freq(), 0x00, range.vos()),
     };
-
-    RCC.cfgr().modify(|w| {
-        w.set_sw(sw.into());
-        if config.ahb_pre == AHBPrescaler::NotDivided {
-            w.set_hpre(0);
-        } else {
-            w.set_hpre(config.ahb_pre.into());
-        }
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
-    });
-
-    RCC.extcfgr().modify(|w| {
-        if config.shd_ahb_pre == AHBPrescaler::NotDivided {
-            w.set_shdhpre(0);
-        } else {
-            w.set_shdhpre(config.shd_ahb_pre.into());
-        }
-    });
 
     let ahb_freq: u32 = match config.ahb_pre {
         AHBPrescaler::NotDivided => sys_clk,
@@ -283,20 +258,10 @@ pub(crate) unsafe fn init(config: Config) {
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
-            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
     };
-
-    let apb3_freq = shd_ahb_freq;
-
-    if config.enable_lsi {
-        let csr = RCC.csr().read();
-        if !csr.lsion() {
-            RCC.csr().modify(|w| w.set_lsion(true));
-            while !RCC.csr().read().lsirdy() {}
-        }
-    }
 
     // Adjust flash latency
     let flash_clk_src_freq: u32 = shd_ahb_freq;
@@ -319,6 +284,102 @@ pub(crate) unsafe fn init(config: Config) {
 
     while FLASH.acr().read().latency() != ws {}
 
+    match config.rtc_mux {
+        RtcClockSource::LSE32 => {
+            // 1. Unlock the backup domain
+            PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
+
+            // 2. Setup the LSE
+            RCC.bdcr().modify(|w| {
+                // Enable LSE
+                w.set_lseon(true);
+                // Max drive strength
+                // TODO: should probably be settable
+                w.set_lsedrv(Lsedrv::High as u8); //---// PAM - should not be commented
+            });
+
+            // Wait until LSE is running
+            while !RCC.bdcr().read().lserdy() {}
+        }
+        RtcClockSource::LSI32 => {
+            // Turn on the internal 32 kHz LSI oscillator
+            RCC.csr().modify(|w| w.set_lsion(true));
+
+            // Wait until LSI is running
+            while !RCC.csr().read().lsirdy() {}
+        }
+    }
+
+    match config.mux {
+        ClockSrc::HSI16 => {
+            // Enable HSI16
+            RCC.cr().write(|w| w.set_hsion(true));
+            while !RCC.cr().read().hsirdy() {}
+        }
+        ClockSrc::HSE32 => {
+            // Enable HSE32
+            RCC.cr().write(|w| {
+                w.set_hsebyppwr(true);
+                w.set_hseon(true);
+            });
+            while !RCC.cr().read().hserdy() {}
+        }
+        ClockSrc::MSI(range) => {
+            let cr = RCC.cr().read();
+            assert!(!cr.msion() || cr.msirdy());
+            RCC.cr().write(|w| {
+                w.set_msirgsel(true);
+                w.set_msirange(range.into());
+                w.set_msion(true);
+
+                if let RtcClockSource::LSE32 = config.rtc_mux {
+                    // If LSE is enabled, enable calibration of MSI
+                    w.set_msipllen(true);
+                } else {
+                    w.set_msipllen(false);
+                }
+            });
+            while !RCC.cr().read().msirdy() {}
+        }
+    }
+
+    if config.enable_rtc_apb {
+        // enable peripheral clock for communication
+        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+
+        // read to allow the pwr clock to enable
+        crate::pac::PWR.cr1().read();
+    }
+
+    RCC.extcfgr().modify(|w| {
+        if config.shd_ahb_pre == AHBPrescaler::NotDivided {
+            w.set_shdhpre(0);
+        } else {
+            w.set_shdhpre(config.shd_ahb_pre.into());
+        }
+    });
+
+    RCC.cfgr().modify(|w| {
+        w.set_sw(sw.into());
+        if config.ahb_pre == AHBPrescaler::NotDivided {
+            w.set_hpre(0);
+        } else {
+            w.set_hpre(config.ahb_pre.into());
+        }
+        w.set_ppre1(config.apb1_pre.into());
+        w.set_ppre2(config.apb2_pre.into());
+    });
+
+    // TODO: switch voltage range
+
+    if config.enable_lsi {
+        let csr = RCC.csr().read();
+        if !csr.lsion() {
+            RCC.csr().modify(|w| w.set_lsion(true));
+            while !RCC.csr().read().lsirdy() {}
+        }
+    }
+
     set_freqs(Clocks {
         sys: Hertz(sys_clk),
         ahb1: Hertz(ahb_freq),
@@ -326,7 +387,7 @@ pub(crate) unsafe fn init(config: Config) {
         ahb3: Hertz(shd_ahb_freq),
         apb1: Hertz(apb1_freq),
         apb2: Hertz(apb2_freq),
-        apb3: Hertz(apb3_freq),
+        apb3: Hertz(shd_ahb_freq),
         apb1_tim: Hertz(apb1_tim_freq),
         apb2_tim: Hertz(apb2_tim_freq),
     });

@@ -1,10 +1,10 @@
 #![macro_use]
 
+use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use futures::future::poll_fn;
 use rand_core::{CryptoRng, RngCore};
 
 use crate::{pac, peripherals, Peripheral};
@@ -32,37 +32,36 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 
     pub fn reset(&mut self) {
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_rngen(true);
-                reg.set_ie(true);
-            });
-            T::regs().sr().modify(|reg| {
-                reg.set_seis(false);
-                reg.set_ceis(false);
-            });
+        // rng_v2 locks up on seed error, needs reset
+        #[cfg(rng_v2)]
+        if T::regs().sr().read().seis() {
+            T::reset();
         }
+        T::regs().cr().modify(|reg| {
+            reg.set_rngen(true);
+            reg.set_ie(true);
+        });
+        T::regs().sr().modify(|reg| {
+            reg.set_seis(false);
+            reg.set_ceis(false);
+        });
         // Reference manual says to discard the first.
         let _ = self.next_u32();
     }
 
     pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        unsafe {
-            T::regs().cr().modify(|reg| {
-                reg.set_rngen(true);
-            })
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_rngen(true);
+        });
 
         for chunk in dest.chunks_mut(4) {
             poll_fn(|cx| {
                 RNG_WAKER.register(cx.waker());
-                unsafe {
-                    T::regs().cr().modify(|reg| {
-                        reg.set_ie(true);
-                    });
-                }
+                T::regs().cr().modify(|reg| {
+                    reg.set_ie(true);
+                });
 
-                let bits = unsafe { T::regs().sr().read() };
+                let bits = T::regs().sr().read();
 
                 if bits.drdy() {
                     Poll::Ready(Ok(()))
@@ -77,7 +76,7 @@ impl<'d, T: Instance> Rng<'d, T> {
                 }
             })
             .await?;
-            let random_bytes = unsafe { T::regs().dr().read() }.to_be_bytes();
+            let random_bytes = T::regs().dr().read().to_be_bytes();
             for (dest, src) in chunk.iter_mut().zip(random_bytes.iter()) {
                 *dest = *src
             }
@@ -90,9 +89,11 @@ impl<'d, T: Instance> Rng<'d, T> {
 impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
         loop {
-            let bits = unsafe { T::regs().sr().read() };
-            if bits.drdy() {
-                return unsafe { T::regs().dr().read() };
+            let sr = T::regs().sr().read();
+            if sr.seis() | sr.ceis() {
+                self.reset();
+            } else if sr.drdy() {
+                return T::regs().dr().read();
             }
         }
     }
@@ -142,6 +143,7 @@ foreach_peripheral!(
     };
 );
 
+#[cfg(feature = "rt")]
 macro_rules! irq {
     ($irq:ident) => {
         mod rng_irq {
@@ -159,6 +161,7 @@ macro_rules! irq {
     };
 }
 
+#[cfg(feature = "rt")]
 foreach_interrupt!(
     (RNG) => {
         irq!(RNG);

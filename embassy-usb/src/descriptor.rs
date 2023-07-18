@@ -1,6 +1,9 @@
-use super::builder::Config;
-use super::types::*;
-use super::CONFIGURATION_VALUE;
+//! Utilities for writing USB descriptors.
+
+use crate::builder::Config;
+use crate::driver::EndpointInfo;
+use crate::types::*;
+use crate::CONFIGURATION_VALUE;
 
 /// Standard descriptor types
 #[allow(missing_docs)]
@@ -235,7 +238,7 @@ impl<'a> DescriptorWriter<'a> {
                 endpoint.ep_type as u8, // bmAttributes
                 endpoint.max_packet_size as u8,
                 (endpoint.max_packet_size >> 8) as u8, // wMaxPacketSize
-                endpoint.interval,                     // bInterval
+                endpoint.interval_ms,                  // bInterval
             ],
         );
     }

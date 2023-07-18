@@ -1,9 +1,9 @@
+use core::sync::atomic::{AtomicU8, Ordering};
 use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::ptr;
 use std::sync::{Mutex, Once};
 
-use atomic_polyfill::{AtomicU8, Ordering};
 use wasm_bindgen::prelude::*;
 use wasm_timer::Instant as StdInstant;
 
@@ -90,15 +90,23 @@ impl Driver for TimeDriver {
         }));
     }
 
-    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) {
+    fn set_alarm(&self, alarm: AlarmHandle, timestamp: u64) -> bool {
         self.init();
         let mut alarms = unsafe { self.alarms.as_ref() }.lock().unwrap();
         let alarm = &mut alarms[alarm.id() as usize];
-        let timeout = (timestamp - self.now()) as u32;
         if let Some(token) = alarm.token {
             clearTimeout(token);
         }
-        alarm.token = Some(setTimeout(alarm.closure.as_ref().unwrap(), timeout / 1000));
+
+        let now = self.now();
+        if timestamp <= now {
+            false
+        } else {
+            let timeout = (timestamp - now) as u32;
+            alarm.token = Some(setTimeout(alarm.closure.as_ref().unwrap(), timeout / 1000));
+
+            true
+        }
     }
 }
 

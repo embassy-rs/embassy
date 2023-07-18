@@ -5,8 +5,11 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-mod select;
+mod block_on;
 mod yield_now;
 
-pub use select::*;
+pub mod join;
+pub mod select;
+
+pub use block_on::*;
 pub use yield_now::*;

@@ -3,16 +3,17 @@ use core::ops::{Deref, DerefMut};
 
 /// An exclusive reference to a peripheral.
 ///
-/// This is functionally the same as a `&'a mut T`. The reason for having a
-/// dedicated struct is memory efficiency:
+/// This is functionally the same as a `&'a mut T`. There's a few advantages in having
+/// a dedicated struct instead:
 ///
-/// Peripheral singletons are typically either zero-sized (for concrete peripehrals
-/// like `PA9` or `Spi4`) or very small (for example `AnyPin` which is 1 byte).
-/// However `&mut T` is always 4 bytes for 32-bit targets, even if T is zero-sized.
-/// PeripheralRef stores a copy of `T` instead, so it's the same size.
-///
-/// but it is the size of `T` not the size
-/// of a pointer. This is useful if T is a zero sized type.
+/// - Memory efficiency: Peripheral singletons are typically either zero-sized (for concrete
+///   peripherals like `PA9` or `SPI4`) or very small (for example `AnyPin`, which is 1 byte).
+///   However `&mut T` is always 4 bytes for 32-bit targets, even if T is zero-sized.
+///   PeripheralRef stores a copy of `T` instead, so it's the same size.
+/// - Code size efficiency. If the user uses the same driver with both `SPI4` and `&mut SPI4`,
+///   the driver code would be monomorphized two times. With PeripheralRef, the driver is generic
+///   over a lifetime only. `SPI4` becomes `PeripheralRef<'static, SPI4>`, and `&mut SPI4` becomes
+///   `PeripheralRef<'a, SPI4>`. Lifetimes don't cause monomorphization.
 pub struct PeripheralRef<'a, T> {
     inner: T,
     _lifetime: PhantomData<&'a mut T>,
@@ -38,7 +39,7 @@ impl<'a, T> PeripheralRef<'a, T> {
     /// You should strongly prefer using `reborrow()` instead. It returns a
     /// `PeripheralRef` that borrows `self`, which allows the borrow checker
     /// to enforce this at compile time.
-    pub unsafe fn clone_unchecked(&mut self) -> PeripheralRef<'a, T>
+    pub unsafe fn clone_unchecked(&self) -> PeripheralRef<'a, T>
     where
         T: Peripheral<P = T>,
     {
@@ -145,14 +146,14 @@ pub trait Peripheral: Sized {
     ///
     /// You should strongly prefer using `into_ref()` instead. It returns a
     /// `PeripheralRef`, which allows the borrow checker to enforce this at compile time.
-    unsafe fn clone_unchecked(&mut self) -> Self::P;
+    unsafe fn clone_unchecked(&self) -> Self::P;
 
     /// Convert a value into a `PeripheralRef`.
     ///
     /// When called on an owned `T`, yields a `PeripheralRef<'static, T>`.
     /// When called on an `&'a mut T`, yields a `PeripheralRef<'a, T>`.
     #[inline]
-    fn into_ref<'a>(mut self) -> PeripheralRef<'a, Self::P>
+    fn into_ref<'a>(self) -> PeripheralRef<'a, Self::P>
     where
         Self: 'a,
     {
@@ -167,7 +168,7 @@ where
     type P = <T::Target as Peripheral>::P;
 
     #[inline]
-    unsafe fn clone_unchecked(&mut self) -> Self::P {
-        self.deref_mut().clone_unchecked()
+    unsafe fn clone_unchecked(&self) -> Self::P {
+        self.deref().clone_unchecked()
     }
 }

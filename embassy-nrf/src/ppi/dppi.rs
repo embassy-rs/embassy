@@ -6,18 +6,20 @@ use crate::{pac, Peripheral};
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
 
-fn regs() -> &'static pac::dppic::RegisterBlock {
+pub(crate) fn regs() -> &'static pac::dppic::RegisterBlock {
     unsafe { &*pac::DPPIC::ptr() }
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
-    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event, task: Task) -> Self {
+    /// Configure PPI channel to trigger `task` on `event`.
+    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task: Task<'d>) -> Self {
         Ppi::new_many_to_many(ch, [event], [task])
     }
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
-    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
+    /// Configure PPI channel to trigger both `task1` and `task2` on `event`.
+    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task1: Task<'d>, task2: Task<'d>) -> Self {
         Ppi::new_many_to_many(ch, [event], [task1, task2])
     }
 }
@@ -25,10 +27,11 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
 impl<'d, C: ConfigurableChannel, const EVENT_COUNT: usize, const TASK_COUNT: usize>
     Ppi<'d, C, EVENT_COUNT, TASK_COUNT>
 {
+    /// Configure a DPPI channel to trigger all `tasks` when any of the `events` fires.
     pub fn new_many_to_many(
         ch: impl Peripheral<P = C> + 'd,
-        events: [Event; EVENT_COUNT],
-        tasks: [Task; TASK_COUNT],
+        events: [Event<'d>; EVENT_COUNT],
+        tasks: [Task<'d>; TASK_COUNT],
     ) -> Self {
         into_ref!(ch);
 

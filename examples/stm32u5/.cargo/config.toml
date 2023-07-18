@@ -1,6 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# replace STM32U585AIIx with your chip as listed in `probe-run --list-chips`
-runner = "probe-run --chip STM32U585AIIx"
+# replace STM32U585AIIx with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip STM32U585AIIx"
 
 [build]
 target = "thumbv8m.main-none-eabihf"

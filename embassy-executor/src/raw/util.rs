@@ -26,8 +26,31 @@ impl<T> UninitCell<T> {
     }
 }
 
-impl<T: Copy> UninitCell<T> {
-    pub unsafe fn read(&self) -> T {
-        ptr::read(self.as_mut_ptr())
+unsafe impl<T> Sync for UninitCell<T> {}
+
+#[repr(transparent)]
+pub struct SyncUnsafeCell<T> {
+    value: UnsafeCell<T>,
+}
+
+unsafe impl<T: Sync> Sync for SyncUnsafeCell<T> {}
+
+impl<T> SyncUnsafeCell<T> {
+    #[inline]
+    pub const fn new(value: T) -> Self {
+        Self {
+            value: UnsafeCell::new(value),
+        }
+    }
+
+    pub unsafe fn set(&self, value: T) {
+        *self.value.get() = value;
+    }
+
+    pub unsafe fn get(&self) -> T
+    where
+        T: Copy,
+    {
+        *self.value.get()
     }
 }

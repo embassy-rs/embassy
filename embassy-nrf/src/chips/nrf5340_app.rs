@@ -1,9 +1,12 @@
+/// Peripheral Access Crate
 #[allow(unused_imports)]
 #[rustfmt::skip]
 pub mod pac {
     // The nRF5340 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
 
+    pub use nrf5340_app_pac::NVIC_PRIO_BITS;
+    
     #[doc(no_inline)]
     pub use nrf5340_app_pac::{
         interrupt,
@@ -33,10 +36,10 @@ pub mod pac {
         nvmc_ns as nvmc,
         oscillators_ns as oscillators,
         p0_ns as p0,
-        pdm0_ns as pdm0,
+        pdm0_ns as pdm,
         power_ns as power,
         pwm0_ns as pwm0,
-        qdec0_ns as qdec0,
+        qdec0_ns as qdec,
         qspi_ns as qspi,
         regulators_ns as regulators,
         reset_ns as reset,
@@ -213,6 +216,8 @@ pub mod pac {
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
+pub const FLASH_SIZE: usize = 1024 * 1024;
+
 embassy_hal_common::peripherals! {
     // USB
     USBD,
@@ -224,11 +229,14 @@ embassy_hal_common::peripherals! {
     // WDT
     WDT,
 
+    // NVMC
+    NVMC,
+
     // UARTE, TWI & SPI
-    UARTETWISPI0,
-    UARTETWISPI1,
-    UARTETWISPI2,
-    UARTETWISPI3,
+    SERIAL0,
+    SERIAL1,
+    SERIAL2,
+    SERIAL3,
 
     // SAADC
     SAADC,
@@ -243,6 +251,16 @@ embassy_hal_common::peripherals! {
     TIMER0,
     TIMER1,
     TIMER2,
+
+    // QSPI
+    QSPI,
+
+    // PDM
+    PDM0,
+
+    // QDEC
+    QDEC0,
+    QDEC1,
 
     // GPIOTE
     GPIOTE_CH0,
@@ -298,7 +316,9 @@ embassy_hal_common::peripherals! {
     // GPIO port 0
     P0_00,
     P0_01,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_02,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P0_03,
     P0_04,
     P0_05,
@@ -351,20 +371,30 @@ embassy_hal_common::peripherals! {
 #[cfg(feature = "nightly")]
 impl_usb!(USBD, USBD, USBD);
 
-impl_uarte!(UARTETWISPI0, UARTE0, SERIAL0);
-impl_uarte!(UARTETWISPI1, UARTE1, SERIAL1);
-impl_uarte!(UARTETWISPI2, UARTE2, SERIAL2);
-impl_uarte!(UARTETWISPI3, UARTE3, SERIAL3);
+impl_uarte!(SERIAL0, UARTE0, SERIAL0);
+impl_uarte!(SERIAL1, UARTE1, SERIAL1);
+impl_uarte!(SERIAL2, UARTE2, SERIAL2);
+impl_uarte!(SERIAL3, UARTE3, SERIAL3);
 
-impl_spim!(UARTETWISPI0, SPIM0, SERIAL0);
-impl_spim!(UARTETWISPI1, SPIM1, SERIAL1);
-impl_spim!(UARTETWISPI2, SPIM2, SERIAL2);
-impl_spim!(UARTETWISPI3, SPIM3, SERIAL3);
+impl_spim!(SERIAL0, SPIM0, SERIAL0);
+impl_spim!(SERIAL1, SPIM1, SERIAL1);
+impl_spim!(SERIAL2, SPIM2, SERIAL2);
+impl_spim!(SERIAL3, SPIM3, SERIAL3);
 
-impl_twim!(UARTETWISPI0, TWIM0, SERIAL0);
-impl_twim!(UARTETWISPI1, TWIM1, SERIAL1);
-impl_twim!(UARTETWISPI2, TWIM2, SERIAL2);
-impl_twim!(UARTETWISPI3, TWIM3, SERIAL3);
+impl_spis!(SERIAL0, SPIS0, SERIAL0);
+impl_spis!(SERIAL1, SPIS1, SERIAL1);
+impl_spis!(SERIAL2, SPIS2, SERIAL2);
+impl_spis!(SERIAL3, SPIS3, SERIAL3);
+
+impl_twim!(SERIAL0, TWIM0, SERIAL0);
+impl_twim!(SERIAL1, TWIM1, SERIAL1);
+impl_twim!(SERIAL2, TWIM2, SERIAL2);
+impl_twim!(SERIAL3, TWIM3, SERIAL3);
+
+impl_twis!(SERIAL0, TWIS0, SERIAL0);
+impl_twis!(SERIAL1, TWIS1, SERIAL1);
+impl_twis!(SERIAL2, TWIS2, SERIAL2);
+impl_twis!(SERIAL3, TWIS3, SERIAL3);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
@@ -375,9 +405,18 @@ impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
 
+impl_qspi!(QSPI, QSPI, QSPI);
+
+impl_pdm!(PDM0, PDM0, PDM0);
+
+impl_qdec!(QDEC0, QDEC0, QDEC0);
+impl_qdec!(QDEC1, QDEC1, QDEC1);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_02, 0, 2);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_03, 0, 3);
 impl_pin!(P0_04, 0, 4);
 impl_pin!(P0_05, 0, 5);
@@ -458,59 +497,55 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-impl_saadc_input!(P0_13, ANALOGINPUT0);
-impl_saadc_input!(P0_14, ANALOGINPUT1);
-impl_saadc_input!(P0_15, ANALOGINPUT2);
-impl_saadc_input!(P0_16, ANALOGINPUT3);
-impl_saadc_input!(P0_17, ANALOGINPUT4);
-impl_saadc_input!(P0_18, ANALOGINPUT5);
-impl_saadc_input!(P0_19, ANALOGINPUT6);
-impl_saadc_input!(P0_20, ANALOGINPUT7);
+impl_saadc_input!(P0_13, ANALOG_INPUT0);
+impl_saadc_input!(P0_14, ANALOG_INPUT1);
+impl_saadc_input!(P0_15, ANALOG_INPUT2);
+impl_saadc_input!(P0_16, ANALOG_INPUT3);
+impl_saadc_input!(P0_17, ANALOG_INPUT4);
+impl_saadc_input!(P0_18, ANALOG_INPUT5);
+impl_saadc_input!(P0_19, ANALOG_INPUT6);
+impl_saadc_input!(P0_20, ANALOG_INPUT7);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(FPU);
-    declare!(CACHE);
-    declare!(SPU);
-    declare!(CLOCK_POWER);
-    declare!(SERIAL0);
-    declare!(SERIAL1);
-    declare!(SPIM4);
-    declare!(SERIAL2);
-    declare!(SERIAL3);
-    declare!(GPIOTE0);
-    declare!(SAADC);
-    declare!(TIMER0);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(RTC0);
-    declare!(RTC1);
-    declare!(WDT0);
-    declare!(WDT1);
-    declare!(COMP_LPCOMP);
-    declare!(EGU0);
-    declare!(EGU1);
-    declare!(EGU2);
-    declare!(EGU3);
-    declare!(EGU4);
-    declare!(EGU5);
-    declare!(PWM0);
-    declare!(PWM1);
-    declare!(PWM2);
-    declare!(PWM3);
-    declare!(PDM0);
-    declare!(I2S0);
-    declare!(IPC);
-    declare!(QSPI);
-    declare!(NFCT);
-    declare!(GPIOTE1);
-    declare!(QDEC0);
-    declare!(QDEC1);
-    declare!(USBD);
-    declare!(USBREGULATOR);
-    declare!(KMU);
-    declare!(CRYPTOCELL);
-}
+embassy_hal_common::interrupt_mod!(
+    FPU,
+    CACHE,
+    SPU,
+    CLOCK_POWER,
+    SERIAL0,
+    SERIAL1,
+    SPIM4,
+    SERIAL2,
+    SERIAL3,
+    GPIOTE0,
+    SAADC,
+    TIMER0,
+    TIMER1,
+    TIMER2,
+    RTC0,
+    RTC1,
+    WDT0,
+    WDT1,
+    COMP_LPCOMP,
+    EGU0,
+    EGU1,
+    EGU2,
+    EGU3,
+    EGU4,
+    EGU5,
+    PWM0,
+    PWM1,
+    PWM2,
+    PWM3,
+    PDM0,
+    I2S0,
+    IPC,
+    QSPI,
+    NFCT,
+    GPIOTE1,
+    QDEC0,
+    QDEC1,
+    USBD,
+    USBREGULATOR,
+    KMU,
+    CRYPTOCELL,
+);

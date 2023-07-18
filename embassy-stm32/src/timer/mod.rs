@@ -1,6 +1,6 @@
 use stm32_metapac::timer::vals;
 
-use crate::interrupt::Interrupt;
+use crate::interrupt;
 use crate::rcc::sealed::RccPeripheral as __RccPeri;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
@@ -13,7 +13,7 @@ pub mod low_level {
 pub(crate) mod sealed {
     use super::*;
     pub trait Basic16bitInstance: RccPeripheral {
-        type Interrupt: Interrupt;
+        type Interrupt: interrupt::typelevel::Interrupt;
 
         fn regs() -> crate::pac::timer::TimBasic;
 
@@ -57,28 +57,22 @@ pub trait Basic16bitInstance: sealed::Basic16bitInstance + 'static {}
 macro_rules! impl_basic_16bit_timer {
     ($inst:ident, $irq:ident) => {
         impl sealed::Basic16bitInstance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::$irq;
+            type Interrupt = crate::interrupt::typelevel::$irq;
 
             fn regs() -> crate::pac::timer::TimBasic {
-                crate::pac::timer::TimBasic(crate::pac::$inst.0)
+                unsafe { crate::pac::timer::TimBasic::from_ptr(crate::pac::$inst.as_ptr()) }
             }
 
             fn start(&mut self) {
-                unsafe {
-                    Self::regs().cr1().modify(|r| r.set_cen(true));
-                }
+                Self::regs().cr1().modify(|r| r.set_cen(true));
             }
 
             fn stop(&mut self) {
-                unsafe {
-                    Self::regs().cr1().modify(|r| r.set_cen(false));
-                }
+                Self::regs().cr1().modify(|r| r.set_cen(false));
             }
 
             fn reset(&mut self) {
-                unsafe {
-                    Self::regs().cnt().write(|r| r.set_cnt(0));
-                }
+                Self::regs().cnt().write(|r| r.set_cnt(0));
             }
 
             fn set_frequency(&mut self, frequency: Hertz) {
@@ -90,35 +84,29 @@ macro_rules! impl_basic_16bit_timer {
                 let arr: u16 = unwrap!((pclk_ticks_per_timer_period / (u32::from(psc) + 1)).try_into());
 
                 let regs = Self::regs();
-                unsafe {
-                    regs.psc().write(|r| r.set_psc(psc));
-                    regs.arr().write(|r| r.set_arr(arr));
+                regs.psc().write(|r| r.set_psc(psc));
+                regs.arr().write(|r| r.set_arr(arr));
 
-                    regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
-                    regs.egr().write(|r| r.set_ug(true));
-                    regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
-                }
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
+                regs.egr().write(|r| r.set_ug(true));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
             }
 
             fn clear_update_interrupt(&mut self) -> bool {
                 let regs = Self::regs();
-                unsafe {
-                    let sr = regs.sr().read();
-                    if sr.uif() {
-                        regs.sr().modify(|r| {
-                            r.set_uif(false);
-                        });
-                        true
-                    } else {
-                        false
-                    }
+                let sr = regs.sr().read();
+                if sr.uif() {
+                    regs.sr().modify(|r| {
+                        r.set_uif(false);
+                    });
+                    true
+                } else {
+                    false
                 }
             }
 
             fn enable_update_interrupt(&mut self, enable: bool) {
-                unsafe {
-                    Self::regs().dier().write(|r| r.set_uie(enable));
-                }
+                Self::regs().dier().write(|r| r.set_uie(enable));
             }
         }
     };
@@ -141,14 +129,12 @@ macro_rules! impl_32bit_timer {
                 let arr: u32 = unwrap!(((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into()));
 
                 let regs = Self::regs_gp32();
-                unsafe {
-                    regs.psc().write(|r| r.set_psc(psc));
-                    regs.arr().write(|r| r.set_arr(arr));
+                regs.psc().write(|r| r.set_psc(psc));
+                regs.arr().write(|r| r.set_arr(arr));
 
-                    regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
-                    regs.egr().write(|r| r.set_ug(true));
-                    regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
-                }
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
+                regs.egr().write(|r| r.set_ug(true));
+                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
             }
         }
     };
@@ -185,7 +171,7 @@ foreach_interrupt! {
 
         impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
             fn regs_gp16() -> crate::pac::timer::TimGp16 {
-                crate::pac::timer::TimGp16(crate::pac::$inst.0)
+                unsafe { crate::pac::timer::TimGp16::from_ptr(crate::pac::$inst.as_ptr()) }
             }
         }
 
@@ -206,7 +192,7 @@ foreach_interrupt! {
 
         impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
             fn regs_gp16() -> crate::pac::timer::TimGp16 {
-                crate::pac::timer::TimGp16(crate::pac::$inst.0)
+                unsafe { crate::pac::timer::TimGp16::from_ptr(crate::pac::$inst.as_ptr()) }
             }
         }
 

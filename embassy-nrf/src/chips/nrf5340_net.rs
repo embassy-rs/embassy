@@ -1,8 +1,11 @@
+/// Peripheral Access Crate
 #[allow(unused_imports)]
 #[rustfmt::skip]
 pub mod pac {
     // The nRF5340 has a secure and non-secure (NS) mode.
     // To avoid cfg spam, we remove _ns or _s suffixes here.
+
+    pub use nrf5340_net_pac::NVIC_PRIO_BITS;
 
     #[doc(no_inline)]
     pub use nrf5340_net_pac::{
@@ -104,6 +107,8 @@ pub mod pac {
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
+pub const FLASH_SIZE: usize = 256 * 1024;
+
 embassy_hal_common::peripherals! {
     // RTC
     RTC0,
@@ -112,14 +117,20 @@ embassy_hal_common::peripherals! {
     // WDT
     WDT,
 
+    // NVMC
+    NVMC,
+
     // UARTE, TWI & SPI
-    UARTETWISPI0,
-    UARTETWISPI1,
-    UARTETWISPI2,
-    UARTETWISPI3,
+    SERIAL0,
+    SERIAL1,
+    SERIAL2,
+    SERIAL3,
 
     // SAADC
     SAADC,
+
+    // RNG
+    RNG,
 
     // PWM
     PWM0,
@@ -236,13 +247,17 @@ embassy_hal_common::peripherals! {
     P1_15,
 }
 
-impl_uarte!(UARTETWISPI0, UARTE0, SERIAL0);
-impl_spim!(UARTETWISPI0, SPIM0, SERIAL0);
-impl_twim!(UARTETWISPI0, TWIM0, SERIAL0);
+impl_uarte!(SERIAL0, UARTE0, SERIAL0);
+impl_spim!(SERIAL0, SPIM0, SERIAL0);
+impl_spis!(SERIAL0, SPIS0, SERIAL0);
+impl_twim!(SERIAL0, TWIM0, SERIAL0);
+impl_twis!(SERIAL0, TWIS0, SERIAL0);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
+
+impl_rng!(RNG, RNG, RNG);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
@@ -327,29 +342,25 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-pub mod irqs {
-    use embassy_cortex_m::interrupt::_export::declare;
-
-    use crate::pac::Interrupt as InterruptEnum;
-
-    declare!(CLOCK_POWER);
-    declare!(RADIO);
-    declare!(RNG);
-    declare!(GPIOTE);
-    declare!(WDT);
-    declare!(TIMER0);
-    declare!(ECB);
-    declare!(AAR_CCM);
-    declare!(TEMP);
-    declare!(RTC0);
-    declare!(IPC);
-    declare!(SERIAL0);
-    declare!(EGU0);
-    declare!(RTC1);
-    declare!(TIMER1);
-    declare!(TIMER2);
-    declare!(SWI0);
-    declare!(SWI1);
-    declare!(SWI2);
-    declare!(SWI3);
-}
+embassy_hal_common::interrupt_mod!(
+    CLOCK_POWER,
+    RADIO,
+    RNG,
+    GPIOTE,
+    WDT,
+    TIMER0,
+    ECB,
+    AAR_CCM,
+    TEMP,
+    RTC0,
+    IPC,
+    SERIAL0,
+    EGU0,
+    RTC1,
+    TIMER1,
+    TIMER2,
+    SWI0,
+    SWI1,
+    SWI2,
+    SWI3,
+);

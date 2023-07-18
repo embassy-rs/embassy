@@ -59,9 +59,9 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::executor::{Executor, InterruptExecutor};
+use embassy_executor::{Executor, InterruptExecutor};
 use embassy_stm32::interrupt;
-use embassy_stm32::interrupt::InterruptExt;
+use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_time::{Duration, Instant, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -108,9 +108,19 @@ async fn run_low() {
     }
 }
 
-static EXECUTOR_HIGH: StaticCell<InterruptExecutor<interrupt::UART4>> = StaticCell::new();
-static EXECUTOR_MED: StaticCell<InterruptExecutor<interrupt::UART5>> = StaticCell::new();
+static EXECUTOR_HIGH: InterruptExecutor = InterruptExecutor::new();
+static EXECUTOR_MED: InterruptExecutor = InterruptExecutor::new();
 static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
+
+#[interrupt]
+unsafe fn UART4() {
+    EXECUTOR_HIGH.on_interrupt()
+}
+
+#[interrupt]
+unsafe fn UART5() {
+    EXECUTOR_MED.on_interrupt()
+}
 
 #[entry]
 fn main() -> ! {
@@ -118,18 +128,14 @@ fn main() -> ! {
 
     let _p = embassy_stm32::init(Default::default());
 
-    // High-priority executor: SWI1_EGU1, priority level 6
-    let irq = interrupt::take!(UART4);
-    irq.set_priority(interrupt::Priority::P6);
-    let executor = EXECUTOR_HIGH.init(InterruptExecutor::new(irq));
-    let spawner = executor.start();
+    // High-priority executor: UART4, priority level 6
+    interrupt::UART4.set_priority(Priority::P6);
+    let spawner = EXECUTOR_HIGH.start(interrupt::UART4);
     unwrap!(spawner.spawn(run_high()));
 
-    // Medium-priority executor: SWI0_EGU0, priority level 7
-    let irq = interrupt::take!(UART5);
-    irq.set_priority(interrupt::Priority::P7);
-    let executor = EXECUTOR_MED.init(InterruptExecutor::new(irq));
-    let spawner = executor.start();
+    // Medium-priority executor: UART5, priority level 7
+    interrupt::UART5.set_priority(Priority::P7);
+    let spawner = EXECUTOR_MED.start(interrupt::UART5);
     unwrap!(spawner.spawn(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV

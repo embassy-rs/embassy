@@ -1,24 +1,39 @@
-use core::cell::UnsafeCell;
-use core::future::Future;
+//! TCP sockets.
+//!
+//! # Listening
+//!
+//! `embassy-net` does not have a `TcpListener`. Instead, individual `TcpSocket`s can be put into
+//! listening mode by calling [`TcpSocket::accept`].
+//!
+//! Incoming connections when no socket is listening are rejected. To accept many incoming
+//! connections, create many sockets and put them all into listening mode.
+
+use core::cell::RefCell;
+use core::future::poll_fn;
 use core::mem;
 use core::task::Poll;
 
-use futures::future::poll_fn;
+use embassy_net_driver::Driver;
+use embassy_time::Duration;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::tcp;
-use smoltcp::time::Duration;
+pub use smoltcp::socket::tcp::State;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use super::stack::Stack;
-use crate::stack::SocketStack;
-use crate::Device;
+use crate::time::duration_to_smoltcp;
+use crate::{SocketStack, Stack};
 
+/// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// The connection was reset.
+    ///
+    /// This can happen on receiving a RST packet, or on timeout.
     ConnectionReset,
 }
 
+/// Error returned by [`TcpSocket::connect`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConnectError {
@@ -32,6 +47,7 @@ pub enum ConnectError {
     NoRoute,
 }
 
+/// Error returned by [`TcpSocket::accept`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AcceptError {
@@ -43,22 +59,53 @@ pub enum AcceptError {
     ConnectionReset,
 }
 
+/// A TCP socket.
 pub struct TcpSocket<'a> {
     io: TcpIo<'a>,
 }
 
+/// The reader half of a TCP socket.
 pub struct TcpReader<'a> {
     io: TcpIo<'a>,
 }
 
+/// The writer half of a TCP socket.
 pub struct TcpWriter<'a> {
     io: TcpIo<'a>,
 }
 
+impl<'a> TcpReader<'a> {
+    /// Read data from the socket.
+    ///
+    /// Returns how many bytes were read, or an error. If no data is available, it waits
+    /// until there is at least one byte available.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.io.read(buf).await
+    }
+}
+
+impl<'a> TcpWriter<'a> {
+    /// Write data to the socket.
+    ///
+    /// Returns how many bytes were written, or an error. If the socket is not ready to
+    /// accept data, it waits until it is.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.io.write(buf).await
+    }
+
+    /// Flushes the written data to the socket.
+    ///
+    /// This waits until all data has been sent, and ACKed by the remote host. For a connection
+    /// closed with [`abort()`](TcpSocket::abort) it will wait for the TCP RST packet to be sent.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.io.flush().await
+    }
+}
+
 impl<'a> TcpSocket<'a> {
-    pub fn new<D: Device>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *stack.socket.get() };
+    /// Create a new TCP socket on the given stack, with the given buffers.
+    pub fn new<D: Driver>(stack: &'a Stack<D>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
+        let s = &mut *stack.socket.borrow_mut();
         let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
         let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
         let handle = s.sockets.add(tcp::Socket::new(
@@ -74,25 +121,28 @@ impl<'a> TcpSocket<'a> {
         }
     }
 
+    /// Split the socket into reader and a writer halves.
     pub fn split(&mut self) -> (TcpReader<'_>, TcpWriter<'_>) {
         (TcpReader { io: self.io }, TcpWriter { io: self.io })
     }
 
+    /// Connect to a remote host.
     pub async fn connect<T>(&mut self, remote_endpoint: T) -> Result<(), ConnectError>
     where
         T: Into<IpEndpoint>,
     {
-        // safety: not accessed reentrantly.
-        let local_port = unsafe { &mut *self.io.stack.get() }.get_local_port();
+        let local_port = self.io.stack.borrow_mut().get_local_port();
 
-        // safety: not accessed reentrantly.
-        match unsafe { self.io.with_mut(|s, i| s.connect(i, remote_endpoint, local_port)) } {
+        match {
+            self.io
+                .with_mut(|s, i| s.connect(i.context(), remote_endpoint, local_port))
+        } {
             Ok(()) => {}
             Err(tcp::ConnectError::InvalidState) => return Err(ConnectError::InvalidState),
             Err(tcp::ConnectError::Unaddressable) => return Err(ConnectError::NoRoute),
         }
 
-        futures::future::poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(ConnectError::ConnectionReset)),
                 tcp::State::Listen => unreachable!(),
@@ -106,18 +156,20 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
+    /// Accept a connection from a remote host.
+    ///
+    /// This function puts the socket in listening mode, and waits until a connection is received.
     pub async fn accept<T>(&mut self, local_endpoint: T) -> Result<(), AcceptError>
     where
         T: Into<IpListenEndpoint>,
     {
-        // safety: not accessed reentrantly.
-        match unsafe { self.io.with_mut(|s, _| s.listen(local_endpoint)) } {
+        match self.io.with_mut(|s, _| s.listen(local_endpoint)) {
             Ok(()) => {}
             Err(tcp::ListenError::InvalidState) => return Err(AcceptError::InvalidState),
             Err(tcp::ListenError::Unaddressable) => return Err(AcceptError::InvalidPort),
         }
 
-        futures::future::poll_fn(|cx| unsafe {
+        poll_fn(|cx| {
             self.io.with_mut(|s, _| match s.state() {
                 tcp::State::Listen | tcp::State::SynSent | tcp::State::SynReceived => {
                     s.register_send_waker(cx.waker());
@@ -129,52 +181,120 @@ impl<'a> TcpSocket<'a> {
         .await
     }
 
+    /// Read data from the socket.
+    ///
+    /// Returns how many bytes were read, or an error. If no data is available, it waits
+    /// until there is at least one byte available.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+        self.io.read(buf).await
+    }
+
+    /// Write data to the socket.
+    ///
+    /// Returns how many bytes were written, or an error. If the socket is not ready to
+    /// accept data, it waits until it is.
+    pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
+        self.io.write(buf).await
+    }
+
+    /// Flushes the written data to the socket.
+    ///
+    /// This waits until all data has been sent, and ACKed by the remote host. For a connection
+    /// closed with [`abort()`](TcpSocket::abort) it will wait for the TCP RST packet to be sent.
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        self.io.flush().await
+    }
+
+    /// Set the timeout for the socket.
+    ///
+    /// If the timeout is set, the socket will be closed if no data is received for the
+    /// specified duration.
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
-        unsafe { self.io.with_mut(|s, _| s.set_timeout(duration)) }
+        self.io
+            .with_mut(|s, _| s.set_timeout(duration.map(duration_to_smoltcp)))
     }
 
+    /// Set the keep-alive interval for the socket.
+    ///
+    /// If the keep-alive interval is set, the socket will send keep-alive packets after
+    /// the specified duration of inactivity.
+    ///
+    /// If not set, the socket will not send keep-alive packets.
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
-        unsafe { self.io.with_mut(|s, _| s.set_keep_alive(interval)) }
+        self.io
+            .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_smoltcp)))
     }
 
+    /// Set the hop limit field in the IP header of sent packets.
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
-        unsafe { self.io.with_mut(|s, _| s.set_hop_limit(hop_limit)) }
+        self.io.with_mut(|s, _| s.set_hop_limit(hop_limit))
     }
 
+    /// Get the local endpoint of the socket.
+    ///
+    /// Returns `None` if the socket is not bound (listening) or not connected.
     pub fn local_endpoint(&self) -> Option<IpEndpoint> {
-        unsafe { self.io.with(|s, _| s.local_endpoint()) }
+        self.io.with(|s, _| s.local_endpoint())
     }
 
+    /// Get the remote endpoint of the socket.
+    ///
+    /// Returns `None` if the socket is not connected.
     pub fn remote_endpoint(&self) -> Option<IpEndpoint> {
-        unsafe { self.io.with(|s, _| s.remote_endpoint()) }
+        self.io.with(|s, _| s.remote_endpoint())
     }
 
-    pub fn state(&self) -> tcp::State {
-        unsafe { self.io.with(|s, _| s.state()) }
+    /// Get the state of the socket.
+    pub fn state(&self) -> State {
+        self.io.with(|s, _| s.state())
     }
 
+    /// Close the write half of the socket.
+    ///
+    /// This closes only the write half of the socket. The read half side remains open, the
+    /// socket can still receive data.
+    ///
+    /// Data that has been written to the socket and not yet sent (or not yet ACKed) will still
+    /// still sent. The last segment of the pending to send data is sent with the FIN flag set.
     pub fn close(&mut self) {
-        unsafe { self.io.with_mut(|s, _| s.close()) }
+        self.io.with_mut(|s, _| s.close())
     }
 
+    /// Forcibly close the socket.
+    ///
+    /// This instantly closes both the read and write halves of the socket. Any pending data
+    /// that has not been sent will be lost.
+    ///
+    /// Note that the TCP RST packet is not sent immediately - if the `TcpSocket` is dropped too soon
+    /// the remote host may not know the connection has been closed.
+    /// `abort()` callers should wait for a [`flush()`](TcpSocket::flush) call to complete before
+    /// dropping or reusing the socket.
     pub fn abort(&mut self) {
-        unsafe { self.io.with_mut(|s, _| s.abort()) }
+        self.io.with_mut(|s, _| s.abort())
     }
 
+    /// Get whether the socket is ready to send data, i.e. whether there is space in the send buffer.
     pub fn may_send(&self) -> bool {
-        unsafe { self.io.with(|s, _| s.may_send()) }
+        self.io.with(|s, _| s.may_send())
     }
 
+    /// return whether the recieve half of the full-duplex connection is open.
+    /// This function returns true if it’s possible to receive data from the remote endpoint.
+    /// It will return true while there is data in the receive buffer, and if there isn’t,
+    /// as long as the remote endpoint has not closed the connection.
     pub fn may_recv(&self) -> bool {
-        unsafe { self.io.with(|s, _| s.may_recv()) }
+        self.io.with(|s, _| s.may_recv())
+    }
+
+    /// Get whether the socket is ready to receive data, i.e. whether there is some pending data in the receive buffer.
+    pub fn can_recv(&self) -> bool {
+        self.io.with(|s, _| s.can_recv())
     }
 }
 
 impl<'a> Drop for TcpSocket<'a> {
     fn drop(&mut self) {
-        // safety: not accessed reentrantly.
-        let s = unsafe { &mut *self.io.stack.get() };
-        s.sockets.remove(self.io.handle);
+        self.io.stack.borrow_mut().sockets.remove(self.io.handle);
     }
 }
 
@@ -182,21 +302,19 @@ impl<'a> Drop for TcpSocket<'a> {
 
 #[derive(Copy, Clone)]
 struct TcpIo<'a> {
-    stack: &'a UnsafeCell<SocketStack>,
+    stack: &'a RefCell<SocketStack>,
     handle: SocketHandle,
 }
 
 impl<'d> TcpIo<'d> {
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
-        let s = &*self.stack.get();
+    fn with<R>(&self, f: impl FnOnce(&tcp::Socket, &Interface) -> R) -> R {
+        let s = &*self.stack.borrow();
         let socket = s.sockets.get::<tcp::Socket>(self.handle);
         f(socket, &s.iface)
     }
 
-    /// SAFETY: must not call reentrantly.
-    unsafe fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
-        let s = &mut *self.stack.get();
+    fn with_mut<R>(&mut self, f: impl FnOnce(&mut tcp::Socket, &mut Interface) -> R) -> R {
+        let s = &mut *self.stack.borrow_mut();
         let socket = s.sockets.get_mut::<tcp::Socket>(self.handle);
         let res = f(socket, &mut s.iface);
         s.waker.wake();
@@ -204,7 +322,7 @@ impl<'d> TcpIo<'d> {
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             // CAUTION: smoltcp semantics around EOF are different to what you'd expect
             // from posix-like IO, so we have to tweak things here.
             self.with_mut(|s, _| match s.recv_slice(buf) {
@@ -225,7 +343,7 @@ impl<'d> TcpIo<'d> {
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
-        poll_fn(move |cx| unsafe {
+        poll_fn(move |cx| {
             self.with_mut(|s, _| match s.send_slice(buf) {
                 // Not ready to send (no space in the tx buffer)
                 Ok(0) => {
@@ -242,95 +360,89 @@ impl<'d> TcpIo<'d> {
     }
 
     async fn flush(&mut self) -> Result<(), Error> {
-        poll_fn(move |_| {
-            Poll::Ready(Ok(())) // TODO: Is there a better implementation for this?
+        poll_fn(move |cx| {
+            self.with_mut(|s, _| {
+                let waiting_close = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
+                // If there are outstanding send operations, register for wake up and wait
+                // smoltcp issues wake-ups when octets are dequeued from the send buffer
+                if s.send_queue() > 0 || waiting_close {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                // No outstanding sends, socket is flushed
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            })
         })
         .await
     }
 }
 
-impl embedded_io::Error for ConnectError {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
+#[cfg(feature = "nightly")]
+mod embedded_io_impls {
+    use super::*;
+
+    impl embedded_io::Error for ConnectError {
+        fn kind(&self) -> embedded_io::ErrorKind {
+            embedded_io::ErrorKind::Other
+        }
+    }
+
+    impl embedded_io::Error for Error {
+        fn kind(&self) -> embedded_io::ErrorKind {
+            embedded_io::ErrorKind::Other
+        }
+    }
+
+    impl<'d> embedded_io::Io for TcpSocket<'d> {
+        type Error = Error;
+    }
+
+    impl<'d> embedded_io::asynch::Read for TcpSocket<'d> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.io.read(buf).await
+        }
+    }
+
+    impl<'d> embedded_io::asynch::Write for TcpSocket<'d> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.io.write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.io.flush().await
+        }
+    }
+
+    impl<'d> embedded_io::Io for TcpReader<'d> {
+        type Error = Error;
+    }
+
+    impl<'d> embedded_io::asynch::Read for TcpReader<'d> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.io.read(buf).await
+        }
+    }
+
+    impl<'d> embedded_io::Io for TcpWriter<'d> {
+        type Error = Error;
+    }
+
+    impl<'d> embedded_io::asynch::Write for TcpWriter<'d> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.io.write(buf).await
+        }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.io.flush().await
+        }
     }
 }
 
-impl embedded_io::Error for Error {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
-    }
-}
-
-impl<'d> embedded_io::Io for TcpSocket<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_io::asynch::Read for TcpSocket<'d> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.io.read(buf)
-    }
-}
-
-impl<'d> embedded_io::asynch::Write for TcpSocket<'d> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.io.write(buf)
-    }
-
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-    where
-        Self: 'a;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.io.flush()
-    }
-}
-
-impl<'d> embedded_io::Io for TcpReader<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_io::asynch::Read for TcpReader<'d> {
-    type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-        self.io.read(buf)
-    }
-}
-
-impl<'d> embedded_io::Io for TcpWriter<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_io::asynch::Write for TcpWriter<'d> {
-    type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-    fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-        self.io.write(buf)
-    }
-
-    type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-    where
-        Self: 'a;
-
-    fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-        self.io.flush()
-    }
-}
-
-#[cfg(feature = "unstable-traits")]
+/// TCP client compatible with `embedded-nal-async` traits.
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 pub mod client {
+    use core::cell::UnsafeCell;
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
 
@@ -339,49 +451,56 @@ pub mod client {
 
     use super::*;
 
-    /// TCP client capable of creating up to N multiple connections with tx and rx buffers according to TX_SZ and RX_SZ.
-    pub struct TcpClient<'d, D: Device, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
+    /// TCP client connection pool compatible with `embedded-nal-async` traits.
+    ///
+    /// The pool is capable of managing up to N concurrent connections with tx and rx buffers according to TX_SZ and RX_SZ.
+    pub struct TcpClient<'d, D: Driver, const N: usize, const TX_SZ: usize = 1024, const RX_SZ: usize = 1024> {
         stack: &'d Stack<D>,
         state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
     }
 
-    impl<'d, D: Device, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, D, N, TX_SZ, RX_SZ> {
-        /// Create a new TcpClient
+    impl<'d, D: Driver, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClient<'d, D, N, TX_SZ, RX_SZ> {
+        /// Create a new `TcpClient`.
         pub fn new(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Self {
             Self { stack, state }
         }
     }
 
-    impl<'d, D: Device, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_nal_async::TcpConnect
+    impl<'d, D: Driver, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_nal_async::TcpConnect
         for TcpClient<'d, D, N, TX_SZ, RX_SZ>
     {
         type Error = Error;
         type Connection<'m> = TcpConnection<'m, N, TX_SZ, RX_SZ> where Self: 'm;
-        type ConnectFuture<'m> = impl Future<Output = Result<Self::Connection<'m>, Self::Error>> + 'm
-    where
-        Self: 'm;
 
-        fn connect<'m>(&'m self, remote: embedded_nal_async::SocketAddr) -> Self::ConnectFuture<'m> {
-            async move {
-                let addr: crate::IpAddress = match remote.ip() {
-                    IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
-                    #[cfg(feature = "proto-ipv6")]
-                    IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
-                    #[cfg(not(feature = "proto-ipv6"))]
-                    IpAddr::V6(_) => panic!("ipv6 support not enabled"),
-                };
-                let remote_endpoint = (addr, remote.port());
-                let mut socket = TcpConnection::new(&self.stack, self.state)?;
-                socket
-                    .socket
-                    .connect(remote_endpoint)
-                    .await
-                    .map_err(|_| Error::ConnectionReset)?;
-                Ok(socket)
-            }
+        async fn connect<'a>(
+            &'a self,
+            remote: embedded_nal_async::SocketAddr,
+        ) -> Result<Self::Connection<'a>, Self::Error>
+        where
+            Self: 'a,
+        {
+            let addr: crate::IpAddress = match remote.ip() {
+                #[cfg(feature = "proto-ipv4")]
+                IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),
+                #[cfg(not(feature = "proto-ipv4"))]
+                IpAddr::V4(_) => panic!("ipv4 support not enabled"),
+                #[cfg(feature = "proto-ipv6")]
+                IpAddr::V6(addr) => crate::IpAddress::Ipv6(crate::Ipv6Address::from_bytes(&addr.octets())),
+                #[cfg(not(feature = "proto-ipv6"))]
+                IpAddr::V6(_) => panic!("ipv6 support not enabled"),
+            };
+            let remote_endpoint = (addr, remote.port());
+            let mut socket = TcpConnection::new(&self.stack, self.state)?;
+            socket
+                .socket
+                .connect(remote_endpoint)
+                .await
+                .map_err(|_| Error::ConnectionReset)?;
+            Ok(socket)
         }
     }
 
+    /// Opened TCP connection in a [`TcpClient`].
     pub struct TcpConnection<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> {
         socket: TcpSocket<'d>,
         state: &'d TcpClientState<N, TX_SZ, RX_SZ>,
@@ -389,10 +508,10 @@ pub mod client {
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'d, N, TX_SZ, RX_SZ> {
-        fn new<D: Device>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
+        fn new<D: Driver>(stack: &'d Stack<D>, state: &'d TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
             Ok(Self {
-                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().0, &mut bufs.as_mut().1) },
+                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) },
                 state,
                 bufs,
             })
@@ -417,32 +536,20 @@ pub mod client {
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Read
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            self.socket.read(buf)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.socket.read(buf).await
         }
     }
 
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io::asynch::Write
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-    where
-        Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            self.socket.write(buf)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.socket.write(buf).await
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-    where
-        Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            self.socket.flush()
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            self.socket.flush().await
         }
     }
 
@@ -452,6 +559,7 @@ pub mod client {
     }
 
     impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpClientState<N, TX_SZ, RX_SZ> {
+        /// Create a new `TcpClientState`.
         pub const fn new() -> Self {
             Self { pool: Pool::new() }
         }

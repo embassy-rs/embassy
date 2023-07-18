@@ -18,39 +18,29 @@ pub struct Delay;
 mod eh1 {
     use super::*;
 
-    impl embedded_hal_1::delay::blocking::DelayUs for Delay {
-        type Error = core::convert::Infallible;
-
-        fn delay_us(&mut self, us: u32) -> Result<(), Self::Error> {
-            Ok(block_for(Duration::from_micros(us as u64)))
+    impl embedded_hal_1::delay::DelayUs for Delay {
+        fn delay_us(&mut self, us: u32) {
+            block_for(Duration::from_micros(us as u64))
         }
 
-        fn delay_ms(&mut self, ms: u32) -> Result<(), Self::Error> {
-            Ok(block_for(Duration::from_millis(ms as u64)))
+        fn delay_ms(&mut self, ms: u32) {
+            block_for(Duration::from_millis(ms as u64))
         }
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(feature = "unstable-traits", feature = "nightly"))] {
-        use crate::Timer;
-        use core::future::Future;
-        use futures_util::FutureExt;
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eha {
+    use super::*;
+    use crate::Timer;
 
-        impl embedded_hal_async::delay::DelayUs for Delay {
-            type Error = core::convert::Infallible;
+    impl embedded_hal_async::delay::DelayUs for Delay {
+        async fn delay_us(&mut self, micros: u32) {
+            Timer::after(Duration::from_micros(micros as _)).await
+        }
 
-            type DelayUsFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn delay_us(&mut self, micros: u32) -> Self::DelayUsFuture<'_> {
-                Timer::after(Duration::from_micros(micros as _)).map(Ok)
-            }
-
-            type DelayMsFuture<'a> = impl Future<Output = Result<(), Self::Error>> + 'a where Self: 'a;
-
-            fn delay_ms(&mut self, millis: u32) -> Self::DelayMsFuture<'_> {
-                Timer::after(Duration::from_millis(millis as _)).map(Ok)
-            }
+        async fn delay_ms(&mut self, millis: u32) {
+            Timer::after(Duration::from_millis(millis as _)).await
         }
     }
 }

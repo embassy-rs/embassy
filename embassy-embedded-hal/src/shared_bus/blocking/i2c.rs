@@ -2,13 +2,12 @@
 //!
 //! # Example (nrf52)
 //!
-//! ```rust
+//! ```rust,ignore
 //! use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 //! use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
 //!
 //! static I2C_BUS: StaticCell<NoopMutex<RefCell<Twim<TWISPI0>>>> = StaticCell::new();
-//! let irq = interrupt::take!(SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0);
-//! let i2c = Twim::new(p.TWISPI0, irq, p.P0_03, p.P0_04, Config::default());
+//! let i2c = Twim::new(p.TWISPI0, Irqs, p.P0_03, p.P0_04, Config::default());
 //! let i2c_bus = NoopMutex::new(RefCell::new(i2c));
 //! let i2c_bus = I2C_BUS.init(i2c_bus);
 //!
@@ -20,8 +19,7 @@ use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embedded_hal_1::i2c::blocking::{I2c, Operation};
-use embedded_hal_1::i2c::ErrorType;
+use embedded_hal_1::i2c::{ErrorType, I2c, Operation};
 
 use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
@@ -69,34 +67,6 @@ where
     }
 
     fn transaction<'a>(&mut self, address: u8, operations: &mut [Operation<'a>]) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
-    }
-
-    fn write_iter<B: IntoIterator<Item = u8>>(&mut self, addr: u8, bytes: B) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        todo!()
-    }
-
-    fn write_iter_read<B: IntoIterator<Item = u8>>(
-        &mut self,
-        addr: u8,
-        bytes: B,
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        let _ = buffer;
-        todo!()
-    }
-
-    fn transaction_iter<'a, O: IntoIterator<Item = Operation<'a>>>(
-        &mut self,
-        address: u8,
-        operations: O,
-    ) -> Result<(), Self::Error> {
         let _ = address;
         let _ = operations;
         todo!()
@@ -201,34 +171,6 @@ where
     }
 
     fn transaction<'a>(&mut self, address: u8, operations: &mut [Operation<'a>]) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
-    }
-
-    fn write_iter<B: IntoIterator<Item = u8>>(&mut self, addr: u8, bytes: B) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        todo!()
-    }
-
-    fn write_iter_read<B: IntoIterator<Item = u8>>(
-        &mut self,
-        addr: u8,
-        bytes: B,
-        buffer: &mut [u8],
-    ) -> Result<(), Self::Error> {
-        let _ = addr;
-        let _ = bytes;
-        let _ = buffer;
-        todo!()
-    }
-
-    fn transaction_iter<'a, O: IntoIterator<Item = Operation<'a>>>(
-        &mut self,
-        address: u8,
-        operations: O,
-    ) -> Result<(), Self::Error> {
         let _ = address;
         let _ = operations;
         todo!()

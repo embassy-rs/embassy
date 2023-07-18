@@ -2,10 +2,9 @@
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
+use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
-
-use futures_util::future::poll_fn;
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
@@ -110,6 +109,22 @@ where
         })?;
 
         Ok(MutexGuard { mutex: self })
+    }
+
+    /// Consumes this mutex, returning the underlying data.
+    pub fn into_inner(self) -> T
+    where
+        T: Sized,
+    {
+        self.inner.into_inner()
+    }
+
+    /// Returns a mutable reference to the underlying data.
+    ///
+    /// Since this call borrows the Mutex mutably, no actual locking needs to
+    /// take place -- the mutable borrow statically guarantees no locks exist.
+    pub fn get_mut(&mut self) -> &mut T {
+        self.inner.get_mut()
     }
 }
 

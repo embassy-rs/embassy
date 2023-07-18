@@ -1,3 +1,7 @@
+//! This example shows how to use SPI (Serial Peripheral Interface) in the RP2040 chip.
+//!
+//! Example for resistive touch sensor in Waveshare Pico-ResTouch
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -24,7 +28,7 @@ async fn main(_spawner: Spawner) {
     // create SPI
     let mut config = spi::Config::default();
     config.frequency = 2_000_000;
-    let mut spi = Spi::new(p.SPI1, clk, mosi, miso, config);
+    let mut spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, config);
 
     // Configure CS
     let mut cs = Output::new(touch_cs, Level::Low);

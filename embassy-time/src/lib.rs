@@ -1,5 +1,5 @@
-#![cfg_attr(not(any(feature = "std", feature = "wasm")), no_std)]
-#![cfg_attr(feature = "nightly", feature(generic_associated_types, type_alias_impl_trait))]
+#![cfg_attr(not(any(feature = "std", feature = "wasm", test)), no_std)]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]
@@ -11,29 +11,21 @@ mod delay;
 pub mod driver;
 mod duration;
 mod instant;
+pub mod queue;
+mod tick;
 mod timer;
 
 #[cfg(feature = "std")]
 mod driver_std;
 #[cfg(feature = "wasm")]
 mod driver_wasm;
+#[cfg(feature = "generic-queue")]
+mod queue_generic;
 
 pub use delay::{block_for, Delay};
 pub use duration::Duration;
 pub use instant::Instant;
 pub use timer::{with_timeout, Ticker, TimeoutError, Timer};
-
-#[cfg(feature = "tick-1000hz")]
-const TPS: u64 = 1_000;
-
-#[cfg(feature = "tick-32768hz")]
-const TPS: u64 = 32_768;
-
-#[cfg(feature = "tick-1mhz")]
-const TPS: u64 = 1_000_000;
-
-#[cfg(feature = "tick-16mhz")]
-const TPS: u64 = 16_000_000;
 
 /// Ticks per second of the global timebase.
 ///
@@ -41,7 +33,7 @@ const TPS: u64 = 16_000_000;
 /// should be set by the time driver. Some drivers support a fixed tick rate, others
 /// allow you to choose a tick rate with Cargo features of their own. You should not
 /// set the `tick-*` features for embassy yourself as an end user.
-pub const TICKS_PER_SECOND: u64 = TPS;
+pub const TICK_HZ: u64 = tick::TICK_HZ;
 
 const fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 {
@@ -51,8 +43,8 @@ const fn gcd(a: u64, b: u64) -> u64 {
     }
 }
 
-pub(crate) const GCD_1K: u64 = gcd(TICKS_PER_SECOND, 1_000);
-pub(crate) const GCD_1M: u64 = gcd(TICKS_PER_SECOND, 1_000_000);
+pub(crate) const GCD_1K: u64 = gcd(TICK_HZ, 1_000);
+pub(crate) const GCD_1M: u64 = gcd(TICK_HZ, 1_000_000);
 
 #[cfg(feature = "defmt-timestamp-uptime")]
 defmt::timestamp! {"{=u64:us}", Instant::now().as_micros() }

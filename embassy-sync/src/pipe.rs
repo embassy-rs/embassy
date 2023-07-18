@@ -32,22 +32,23 @@ impl<'p, M, const N: usize> Writer<'p, M, N>
 where
     M: RawMutex,
 {
-    /// Writes a value.
+    /// Write some bytes to the pipe.
     ///
     /// See [`Pipe::write()`]
     pub fn write<'a>(&'a self, buf: &'a [u8]) -> WriteFuture<'a, M, N> {
         self.pipe.write(buf)
     }
 
-    /// Attempt to immediately write a message.
+    /// Attempt to immediately write some bytes to the pipe.
     ///
-    /// See [`Pipe::write()`]
+    /// See [`Pipe::try_write()`]
     pub fn try_write(&self, buf: &[u8]) -> Result<usize, TryWriteError> {
         self.pipe.try_write(buf)
     }
 }
 
 /// Future returned by [`Pipe::write`] and  [`Writer::write`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct WriteFuture<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -94,22 +95,23 @@ impl<'p, M, const N: usize> Reader<'p, M, N>
 where
     M: RawMutex,
 {
-    /// Reads a value.
+    /// Read some bytes from the pipe.
     ///
     /// See [`Pipe::read()`]
     pub fn read<'a>(&'a self, buf: &'a mut [u8]) -> ReadFuture<'a, M, N> {
         self.pipe.read(buf)
     }
 
-    /// Attempt to immediately read a message.
+    /// Attempt to immediately read some bytes from the pipe.
     ///
-    /// See [`Pipe::read()`]
+    /// See [`Pipe::try_read()`]
     pub fn try_read(&self, buf: &mut [u8]) -> Result<usize, TryReadError> {
         self.pipe.try_read(buf)
     }
 }
 
 /// Future returned by [`Pipe::read`] and  [`Reader::read`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct ReadFuture<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -219,12 +221,11 @@ impl<const N: usize> PipeState<N> {
     }
 }
 
-/// A bounded pipe for communicating between asynchronous tasks
+/// A bounded byte-oriented pipe for communicating between asynchronous tasks
 /// with backpressure.
 ///
-/// The pipe will buffer up to the provided number of messages.  Once the
-/// buffer is full, attempts to `write` new messages will wait until a message is
-/// read from the pipe.
+/// The pipe will buffer up to the provided number of bytes. Once the
+/// buffer is full, attempts to `write` new bytes will wait until buffer space is freed up.
 ///
 /// All data written will become available in the same order as it was written.
 pub struct Pipe<M, const N: usize>
@@ -275,40 +276,66 @@ where
         Reader { pipe: self }
     }
 
-    /// Write a value, waiting until there is capacity.
+    /// Write some bytes to the pipe.
     ///
-    /// Writeing completes when the value has been pushed to the pipe's queue.
-    /// This doesn't mean the value has been read yet.
+    /// This method writes a nonzero amount of bytes from `buf` into the pipe, and
+    /// returns the amount of bytes written.
+    ///
+    /// If it is not possible to write a nonzero amount of bytes because the pipe's buffer is full,
+    /// this method will wait until it isn't. See [`try_write`](Self::try_write) for a variant that
+    /// returns an error instead of waiting.
+    ///
+    /// It is not guaranteed that all bytes in the buffer are written, even if there's enough
+    /// free space in the pipe buffer for all. In other words, it is possible for `write` to return
+    /// without writing all of `buf` (returning a number less than `buf.len()`) and still leave
+    /// free space in the pipe buffer. You should always `write` in a loop, or use helpers like
+    /// `write_all` from the `embedded-io` crate.
     pub fn write<'a>(&'a self, buf: &'a [u8]) -> WriteFuture<'a, M, N> {
         WriteFuture { pipe: self, buf }
     }
 
-    /// Attempt to immediately write a message.
+    /// Write all bytes to the pipe.
     ///
-    /// This method differs from [`write`](Pipe::write) by returning immediately if the pipe's
-    /// buffer is full, instead of waiting.
+    /// This method writes all bytes from `buf` into the pipe
+    pub async fn write_all(&self, mut buf: &[u8]) {
+        while !buf.is_empty() {
+            let n = self.write(buf).await;
+            buf = &buf[n..];
+        }
+    }
+
+    /// Attempt to immediately write some bytes to the pipe.
     ///
-    /// # Errors
-    ///
-    /// If the pipe capacity has been reached, i.e., the pipe has `n`
-    /// buffered values where `n` is the argument passed to [`Pipe`], then an
-    /// error is returned.
+    /// This method will either write a nonzero amount of bytes to the pipe immediately,
+    /// or return an error if the pipe is empty. See [`write`](Self::write) for a variant
+    /// that waits instead of returning an error.
     pub fn try_write(&self, buf: &[u8]) -> Result<usize, TryWriteError> {
         self.lock(|c| c.try_write(buf))
     }
 
-    /// Receive the next value.
+    /// Read some bytes from the pipe.
     ///
-    /// If there are no messages in the pipe's buffer, this method will
-    /// wait until a message is written.
+    /// This method reads a nonzero amount of bytes from the pipe into `buf` and
+    /// returns the amount of bytes read.
+    ///
+    /// If it is not possible to read a nonzero amount of bytes because the pipe's buffer is empty,
+    /// this method will wait until it isn't. See [`try_read`](Self::try_read) for a variant that
+    /// returns an error instead of waiting.
+    ///
+    /// It is not guaranteed that all bytes in the buffer are read, even if there's enough
+    /// space in `buf` for all. In other words, it is possible for `read` to return
+    /// without filling `buf` (returning a number less than `buf.len()`) and still leave bytes
+    /// in the pipe buffer. You should always `read` in a loop, or use helpers like
+    /// `read_exact` from the `embedded-io` crate.
     pub fn read<'a>(&'a self, buf: &'a mut [u8]) -> ReadFuture<'a, M, N> {
         ReadFuture { pipe: self, buf }
     }
 
-    /// Attempt to immediately read a message.
+    /// Attempt to immediately read some bytes from the pipe.
     ///
-    /// This method will either read a message from the pipe immediately or return an error
-    /// if the pipe is empty.
+    /// This method will either read a nonzero amount of bytes from the pipe immediately,
+    /// or return an error if the pipe is empty. See [`read`](Self::read) for a variant
+    /// that waits instead of returning an error.
     pub fn try_read(&self, buf: &mut [u8]) -> Result<usize, TryReadError> {
         self.lock(|c| c.try_read(buf))
     }
@@ -352,8 +379,6 @@ where
 mod io_impls {
     use core::convert::Infallible;
 
-    use futures_util::FutureExt;
-
     use super::*;
 
     impl<M: RawMutex, const N: usize> embedded_io::Io for Pipe<M, N> {
@@ -361,30 +386,18 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Pipe<M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-        where
-            Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            Pipe::read(self, buf).map(Ok)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::read(self, buf).await)
         }
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Pipe<M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-        where
-            Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            Pipe::write(self, buf).map(Ok)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::write(self, buf).await)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-        where
-            Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            futures_util::future::ready(Ok(()))
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 
@@ -393,30 +406,18 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for &Pipe<M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-        where
-            Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            Pipe::read(self, buf).map(Ok)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::read(self, buf).await)
         }
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for &Pipe<M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-        where
-            Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            Pipe::write(self, buf).map(Ok)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            Ok(Pipe::write(self, buf).await)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-        where
-            Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            futures_util::future::ready(Ok(()))
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 
@@ -425,12 +426,8 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Reader<'_, M, N> {
-        type ReadFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-        where
-            Self: 'a;
-
-        fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Self::ReadFuture<'a> {
-            Reader::read(self, buf).map(Ok)
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            Ok(Reader::read(self, buf).await)
         }
     }
 
@@ -439,20 +436,12 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Writer<'_, M, N> {
-        type WriteFuture<'a> = impl Future<Output = Result<usize, Self::Error>>
-        where
-            Self: 'a;
-
-        fn write<'a>(&'a mut self, buf: &'a [u8]) -> Self::WriteFuture<'a> {
-            Writer::write(self, buf).map(Ok)
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            Ok(Writer::write(self, buf).await)
         }
 
-        type FlushFuture<'a> = impl Future<Output = Result<(), Self::Error>>
-        where
-            Self: 'a;
-
-        fn flush<'a>(&'a mut self) -> Self::FlushFuture<'a> {
-            futures_util::future::ready(Ok(()))
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 }

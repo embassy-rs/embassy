@@ -1,4 +1,4 @@
-//! Non-Volatile Memory Controller (NVMC) module.
+//! Non-Volatile Memory Controller (NVMC, AKA internal flash) driver.
 
 use core::{ptr, slice};
 
@@ -10,8 +10,12 @@ use embedded_storage::nor_flash::{
 use crate::peripherals::NVMC;
 use crate::{pac, Peripheral};
 
+#[cfg(not(feature = "_nrf5340-net"))]
 /// Erase size of NVMC flash in bytes.
 pub const PAGE_SIZE: usize = 4096;
+#[cfg(feature = "_nrf5340-net")]
+/// Erase size of NVMC flash in bytes.
+pub const PAGE_SIZE: usize = 2048;
 
 /// Size of NVMC flash in bytes.
 pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
@@ -20,7 +24,7 @@ pub const FLASH_SIZE: usize = crate::chip::FLASH_SIZE;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
-    /// Opration using a location not in flash.
+    /// Operation using a location not in flash.
     OutOfBounds,
     /// Unaligned operation or using unaligned buffers.
     Unaligned,
@@ -54,6 +58,51 @@ impl<'d> Nvmc<'d> {
     fn wait_ready(&mut self) {
         let p = Self::regs();
         while p.ready.read().ready().is_busy() {}
+    }
+
+    #[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340")))]
+    fn wait_ready_write(&mut self) {
+        self.wait_ready();
+    }
+
+    #[cfg(any(feature = "_nrf9160", feature = "_nrf5340"))]
+    fn wait_ready_write(&mut self) {
+        let p = Self::regs();
+        while p.readynext.read().readynext().is_busy() {}
+    }
+
+    #[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340")))]
+    fn erase_page(&mut self, page_addr: u32) {
+        Self::regs().erasepage().write(|w| unsafe { w.bits(page_addr) });
+    }
+
+    #[cfg(any(feature = "_nrf9160", feature = "_nrf5340"))]
+    fn erase_page(&mut self, page_addr: u32) {
+        let first_page_word = page_addr as *mut u32;
+        unsafe {
+            first_page_word.write_volatile(0xFFFF_FFFF);
+        }
+    }
+
+    fn enable_erase(&self) {
+        #[cfg(not(feature = "_ns"))]
+        Self::regs().config.write(|w| w.wen().een());
+        #[cfg(feature = "_ns")]
+        Self::regs().configns.write(|w| w.wen().een());
+    }
+
+    fn enable_read(&self) {
+        #[cfg(not(feature = "_ns"))]
+        Self::regs().config.write(|w| w.wen().ren());
+        #[cfg(feature = "_ns")]
+        Self::regs().configns.write(|w| w.wen().ren());
+    }
+
+    fn enable_write(&self) {
+        #[cfg(not(feature = "_ns"))]
+        Self::regs().config.write(|w| w.wen().wen());
+        #[cfg(feature = "_ns")]
+        Self::regs().configns.write(|w| w.wen().wen());
     }
 }
 
@@ -93,17 +142,15 @@ impl<'d> NorFlash for Nvmc<'d> {
             return Err(Error::Unaligned);
         }
 
-        let p = Self::regs();
-
-        p.config.write(|w| w.wen().een());
+        self.enable_erase();
         self.wait_ready();
 
-        for page in (from..to).step_by(PAGE_SIZE) {
-            p.erasepage().write(|w| unsafe { w.bits(page) });
+        for page_addr in (from..to).step_by(PAGE_SIZE) {
+            self.erase_page(page_addr);
             self.wait_ready();
         }
 
-        p.config.reset();
+        self.enable_read();
         self.wait_ready();
 
         Ok(())
@@ -117,9 +164,7 @@ impl<'d> NorFlash for Nvmc<'d> {
             return Err(Error::Unaligned);
         }
 
-        let p = Self::regs();
-
-        p.config.write(|w| w.wen().wen());
+        self.enable_write();
         self.wait_ready();
 
         unsafe {
@@ -129,11 +174,11 @@ impl<'d> NorFlash for Nvmc<'d> {
             for i in 0..words {
                 let w = ptr::read_unaligned(p_src.add(i));
                 ptr::write_volatile(p_dst.add(i), w);
-                self.wait_ready();
+                self.wait_ready_write();
             }
         }
 
-        p.config.reset();
+        self.enable_read();
         self.wait_ready();
 
         Ok(())

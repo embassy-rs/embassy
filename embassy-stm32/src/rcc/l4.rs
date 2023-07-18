@@ -1,7 +1,16 @@
+use core::marker::PhantomData;
+
+use embassy_hal_common::into_ref;
+use stm32_metapac::rcc::regs::Cfgr;
+use stm32_metapac::rcc::vals::{Lsedrv, Mcopre, Mcosel};
+
+use crate::gpio::sealed::AFType;
+use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
-use crate::pac::{FLASH, RCC};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
+use crate::{peripherals, Peripheral};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
@@ -281,6 +290,7 @@ pub struct Config {
     )>,
     #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
     pub hsi48: bool,
+    pub rtc_mux: RtcClockSource,
 }
 
 impl Default for Config {
@@ -294,20 +304,203 @@ impl Default for Config {
             pllsai1: None,
             #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
             hsi48: false,
+            rtc_mux: RtcClockSource::LSI32,
         }
     }
 }
 
+pub enum RtcClockSource {
+    LSE32,
+    LSI32,
+}
+
+pub enum McoClock {
+    DIV1,
+    DIV2,
+    DIV4,
+    DIV8,
+    DIV16,
+}
+
+impl McoClock {
+    fn into_raw(&self) -> Mcopre {
+        match self {
+            McoClock::DIV1 => Mcopre::DIV1,
+            McoClock::DIV2 => Mcopre::DIV2,
+            McoClock::DIV4 => Mcopre::DIV4,
+            McoClock::DIV8 => Mcopre::DIV8,
+            McoClock::DIV16 => Mcopre::DIV16,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum Mco1Source {
+    Disabled,
+    Lse,
+    Lsi,
+    Hse,
+    Hsi16,
+    PllClk,
+    SysClk,
+    Msi,
+    #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
+    Hsi48,
+}
+
+impl Default for Mco1Source {
+    fn default() -> Self {
+        Self::Hsi16
+    }
+}
+
+pub trait McoSource {
+    type Raw;
+
+    fn into_raw(&self) -> Self::Raw;
+}
+
+impl McoSource for Mco1Source {
+    type Raw = Mcosel;
+    fn into_raw(&self) -> Self::Raw {
+        match self {
+            Mco1Source::Disabled => Mcosel::NOCLOCK,
+            Mco1Source::Lse => Mcosel::LSE,
+            Mco1Source::Lsi => Mcosel::LSI,
+            Mco1Source::Hse => Mcosel::HSE,
+            Mco1Source::Hsi16 => Mcosel::HSI16,
+            Mco1Source::PllClk => Mcosel::PLL,
+            Mco1Source::SysClk => Mcosel::SYSCLK,
+            Mco1Source::Msi => Mcosel::MSI,
+            #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
+            Mco1Source::Hsi48 => Mcosel::HSI48,
+        }
+    }
+}
+
+pub(crate) mod sealed {
+    use stm32_metapac::rcc::vals::Mcopre;
+    pub trait McoInstance {
+        type Source;
+        unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre);
+    }
+}
+
+pub trait McoInstance: sealed::McoInstance + 'static {}
+
+pin_trait!(McoPin, McoInstance);
+
+impl sealed::McoInstance for peripherals::MCO {
+    type Source = Mcosel;
+
+    unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre) {
+        RCC.cfgr().modify(|w| {
+            w.set_mcosel(source);
+            w.set_mcopre(prescaler);
+        });
+
+        match source {
+            Mcosel::HSI16 => {
+                RCC.cr().modify(|w| w.set_hsion(true));
+                while !RCC.cr().read().hsirdy() {}
+            }
+            #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
+            Mcosel::HSI48 => {
+                RCC.crrcr().modify(|w| w.set_hsi48on(true));
+                while !RCC.crrcr().read().hsi48rdy() {}
+            }
+            _ => {}
+        }
+    }
+}
+
+impl McoInstance for peripherals::MCO {}
+
+pub struct Mco<'d, T: McoInstance> {
+    phantom: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: McoInstance> Mco<'d, T> {
+    pub fn new(
+        _peri: impl Peripheral<P = T> + 'd,
+        pin: impl Peripheral<P = impl McoPin<T>> + 'd,
+        source: impl McoSource<Raw = T::Source>,
+        prescaler: McoClock,
+    ) -> Self {
+        into_ref!(pin);
+
+        critical_section::with(|_| unsafe {
+            T::apply_clock_settings(source.into_raw(), prescaler.into_raw());
+            pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
+            pin.set_speed(Speed::VeryHigh);
+        });
+
+        Self { phantom: PhantomData }
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
+    // Switch to MSI to prevent problems with PLL configuration.
+    if !RCC.cr().read().msion() {
+        // Turn on MSI and configure it to 4MHz.
+        RCC.cr().modify(|w| {
+            w.set_msirgsel(true); // MSI Range is provided by MSIRANGE[3:0].
+            w.set_msirange(MSIRange::default().into());
+            w.set_msipllen(false);
+            w.set_msion(true)
+        });
+
+        // Wait until MSI is running
+        while !RCC.cr().read().msirdy() {}
+    }
+    if RCC.cfgr().read().sws() != Sw::MSI {
+        // Set MSI as a clock source, reset prescalers.
+        RCC.cfgr().write_value(Cfgr::default());
+        // Wait for clock switch status bits to change.
+        while RCC.cfgr().read().sws() != Sw::MSI {}
+    }
+
+    match config.rtc_mux {
+        RtcClockSource::LSE32 => {
+            // 1. Unlock the backup domain
+            PWR.cr1().modify(|w| w.set_dbp(true));
+
+            // 2. Setup the LSE
+            RCC.bdcr().modify(|w| {
+                // Enable LSE
+                w.set_lseon(true);
+                // Max drive strength
+                // TODO: should probably be settable
+                w.set_lsedrv(Lsedrv::HIGH);
+            });
+
+            // Wait until LSE is running
+            while !RCC.bdcr().read().lserdy() {}
+        }
+        RtcClockSource::LSI32 => {
+            // Turn on the internal 32 kHz LSI oscillator
+            RCC.csr().modify(|w| w.set_lsion(true));
+
+            // Wait until LSI is running
+            while !RCC.csr().read().lsirdy() {}
+        }
+    }
+
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
             // Enable MSI
             RCC.cr().write(|w| {
                 let bits: Msirange = range.into();
                 w.set_msirange(bits);
-                w.set_msipllen(false);
                 w.set_msirgsel(true);
                 w.set_msion(true);
+
+                if let RtcClockSource::LSE32 = config.rtc_mux {
+                    // If LSE is enabled, enable calibration of MSI
+                    w.set_msipllen(true);
+                } else {
+                    w.set_msipllen(false);
+                }
             });
             while !RCC.cr().read().msirdy() {}
 
@@ -463,7 +656,7 @@ pub(crate) unsafe fn init(config: Config) {
         AHBPrescaler::NotDivided => sys_clk,
         pre => {
             let pre: Hpre = pre.into();
-            let pre = 1 << (pre.0 as u32 - 7);
+            let pre = 1 << (pre.to_bits() as u32 - 7);
             sys_clk / pre
         }
     };
@@ -472,7 +665,7 @@ pub(crate) unsafe fn init(config: Config) {
         APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
-            let pre: u8 = 1 << (pre.0 - 3);
+            let pre: u8 = 1 << (pre.to_bits() - 3);
             let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
@@ -482,11 +675,13 @@ pub(crate) unsafe fn init(config: Config) {
         APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
-            let pre: u8 = 1 << (pre.0 - 3);
-            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            let pre: u8 = 1 << (pre.to_bits() - 3);
+            let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
     };
+
+    RCC.apb1enr1().modify(|w| w.set_pwren(true));
 
     set_freqs(Clocks {
         sys: Hertz(sys_clk),

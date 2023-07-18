@@ -64,7 +64,7 @@ impl Into<u8> for APBPrescaler {
 impl Into<u8> for AHBPrescaler {
     fn into(self) -> u8 {
         match self {
-            AHBPrescaler::NotDivided => 1,
+            AHBPrescaler::NotDivided => 0x0,
             AHBPrescaler::Div2 => 0x08,
             AHBPrescaler::Div3 => 0x01,
             AHBPrescaler::Div4 => 0x09,
@@ -151,7 +151,7 @@ pub(crate) unsafe fn init(config: Config) {
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
-            let freq = ahb_freq / (1 << (pre as u8 - 3));
+            let freq = ahb_freq / pre as u32;
             (freq, freq * 2)
         }
     };

@@ -2,31 +2,36 @@
 edition = "2021"
 name = "embassy-stm32l0-examples"
 version = "0.1.0"
+license = "MIT OR Apache-2.0"
 
 [features]
 default = ["nightly"]
-nightly = ["embassy-stm32/nightly", "embassy-lora", "lorawan-device", "lorawan", "embedded-io/async"]
+nightly = ["embassy-stm32/nightly", "embassy-time/nightly", "embassy-time/unstable-traits", "embassy-executor/nightly",
+           "embassy-lora", "lora-phy", "lorawan-device", "lorawan", "embedded-io/async"]
 
 [dependencies]
-embassy-sync = { version = "0.1.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.1.0", path = "../../embassy-executor", features = ["defmt", "integrated-timers"] }
-embassy-time = { version = "0.1.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-32768hz"] }
+embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.1.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32l072cz", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
-embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["sx127x", "time", "defmt"], optional = true}
-
-lorawan-device = { version = "0.7.1", default-features = false, features = ["async"], optional = true }
-lorawan = { version = "0.7.1", default-features = false, features = ["default-crypto"], optional = true }
+embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"], optional = true }
+lora-phy = { version = "1", optional = true }
+lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
+lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"], optional = true }
 
 defmt = "0.3"
-defmt-rtt = "0.3"
+defmt-rtt = "0.4"
 
 embedded-storage = "0.3.0"
-embedded-io = "0.3.0"
+embedded-io = "0.4.0"
 
-cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
 embedded-hal = "0.2.6"
-static_cell = "1.0"
+static_cell = "1.1"
+
+[patch.crates-io]
+lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }

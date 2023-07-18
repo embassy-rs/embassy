@@ -1,4 +1,4 @@
-//! General purpose input/output for nRF.
+//! General purpose input/output (GPIO) driver.
 #![macro_use]
 
 use core::convert::Infallible;
@@ -70,7 +70,7 @@ impl<'d, T: Pin> Input<'d, T> {
 }
 
 /// Digital input or output level.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     /// Logical low.
@@ -88,9 +88,9 @@ impl From<bool> for Level {
     }
 }
 
-impl Into<bool> for Level {
-    fn into(self) -> bool {
-        match self {
+impl From<Level> for bool {
+    fn from(level: Level) -> bool {
+        match level {
             Level::Low => false,
             Level::High => true,
         }
@@ -574,7 +574,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::InputPin for Input<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_high())
         }
@@ -588,7 +588,7 @@ mod eh1 {
         type Error = Infallible;
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::OutputPin for Output<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
         fn set_high(&mut self) -> Result<(), Self::Error> {
             Ok(self.set_high())
         }
@@ -598,7 +598,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::StatefulOutputPin for Output<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -615,7 +615,7 @@ mod eh1 {
     /// Implement [`InputPin`] for [`Flex`];
     ///
     /// If the pin is not in input mode the result is unspecified.
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::InputPin for Flex<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
         fn is_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_high())
         }
@@ -625,7 +625,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::OutputPin for Flex<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
         fn set_high(&mut self) -> Result<(), Self::Error> {
             Ok(self.set_high())
         }
@@ -635,7 +635,7 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::blocking::StatefulOutputPin for Flex<'d, T> {
+    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }

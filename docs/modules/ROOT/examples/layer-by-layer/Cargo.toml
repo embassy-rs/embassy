@@ -10,7 +10,6 @@ members = [
 [patch.crates-io]
 embassy-executor = { path = "../../../../../embassy-executor" }
 embassy-stm32 = { path = "../../../../../embassy-stm32" }
-stm32-metapac = { path = "../../../../../stm32-metapac" }
 
 [profile.release]
 codegen-units = 1

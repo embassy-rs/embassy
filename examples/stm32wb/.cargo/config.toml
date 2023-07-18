@@ -1,6 +1,7 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# replace STM32WB55CCUx with your chip as listed in `probe-run --list-chips`
-runner = "probe-run --chip STM32WB55CCUx --speed 1000 --connect-under-reset"
+# replace STM32WB55CCUx with your chip as listed in `probe-rs chip list`
+# runner = "probe-run --chip STM32WB55RGVx --speed 1000 --connect-under-reset"
+runner = "teleprobe local run --chip STM32WB55RG --elf"
 
 [build]
 target = "thumbv7em-none-eabihf"

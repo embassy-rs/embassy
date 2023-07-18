@@ -1,13 +1,21 @@
 use core::convert::TryInto;
 use core::ptr::write_volatile;
+use core::sync::atomic::{fence, Ordering};
 
+use super::{FlashRegion, FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-const SECOND_BANK_OFFSET: usize = 0x0010_0000;
+pub const fn is_default_layout() -> bool {
+    true
+}
 
 const fn is_dual_bank() -> bool {
-    super::FLASH_SIZE / 2 > super::ERASE_SIZE
+    FLASH_REGIONS.len() == 2
+}
+
+pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
+    &FLASH_REGIONS
 }
 
 pub(crate) unsafe fn lock() {
@@ -20,87 +28,64 @@ pub(crate) unsafe fn lock() {
 pub(crate) unsafe fn unlock() {
     pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0x4567_0123));
     pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
-
     if is_dual_bank() {
         pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0x4567_0123));
         pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
     }
 }
 
-pub(crate) unsafe fn blocking_write(offset: u32, buf: &[u8]) -> Result<(), Error> {
-    let bank = if !is_dual_bank() || (offset - super::FLASH_BASE as u32) < SECOND_BANK_OFFSET as u32 {
+pub(crate) unsafe fn enable_blocking_write() {
+    assert_eq!(0, WRITE_SIZE % 4);
+}
+
+pub(crate) unsafe fn disable_blocking_write() {}
+
+pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    // We cannot have the write setup sequence in begin_write as it depends on the address
+    let bank = if start_address < BANK1_REGION.end() {
         pac::FLASH.bank(0)
     } else {
         pac::FLASH.bank(1)
     };
-
     bank.cr().write(|w| {
         w.set_pg(true);
         w.set_psize(2); // 32 bits at once
     });
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
 
-    let ret = {
-        let mut ret: Result<(), Error> = Ok(());
-        let mut offset = offset;
-        'outer: for chunk in buf.chunks(super::WRITE_SIZE) {
-            for val in chunk.chunks(4) {
-                trace!("Writing at {:x}", offset);
-                write_volatile(offset as *mut u32, u32::from_le_bytes(val[0..4].try_into().unwrap()));
-                offset += val.len() as u32;
+    let mut res = None;
+    let mut address = start_address;
+    for val in buf.chunks(4) {
+        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        address += val.len() as u32;
 
-                ret = blocking_wait_ready(bank);
-                bank.sr().modify(|w| {
-                    if w.eop() {
-                        w.set_eop(true);
-                    }
-                });
-                if ret.is_err() {
-                    break 'outer;
-                }
+        res = Some(blocking_wait_ready(bank));
+        bank.sr().modify(|w| {
+            if w.eop() {
+                w.set_eop(true);
             }
-        }
-        ret
-    };
-
-    bank.cr().write(|w| w.set_pg(false));
-
-    ret
-}
-
-pub(crate) unsafe fn blocking_erase(from: u32, to: u32) -> Result<(), Error> {
-    let from = from - super::FLASH_BASE as u32;
-    let to = to - super::FLASH_BASE as u32;
-
-    let bank_size = (super::FLASH_SIZE / 2) as u32;
-
-    let (bank, start, end) = if to <= bank_size {
-        let start_sector = from / super::ERASE_SIZE as u32;
-        let end_sector = to / super::ERASE_SIZE as u32;
-        (0, start_sector, end_sector)
-    } else if from >= SECOND_BANK_OFFSET as u32 && to <= (SECOND_BANK_OFFSET as u32 + bank_size) {
-        let start_sector = (from - SECOND_BANK_OFFSET as u32) / super::ERASE_SIZE as u32;
-        let end_sector = (to - SECOND_BANK_OFFSET as u32) / super::ERASE_SIZE as u32;
-        (1, start_sector, end_sector)
-    } else {
-        error!("Attempting to write outside of defined sectors");
-        return Err(Error::Unaligned);
-    };
-
-    trace!("Erasing bank {}, sectors from {} to {}", bank, start, end);
-    for sector in start..end {
-        let ret = erase_sector(pac::FLASH.bank(bank), sector as u8);
-        if ret.is_err() {
-            return ret;
+        });
+        if res.unwrap().is_err() {
+            break;
         }
     }
 
-    Ok(())
+    bank.cr().write(|w| w.set_pg(false));
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
+
+    res.unwrap()
 }
 
-unsafe fn erase_sector(bank: pac::flash::Bank, sector: u8) -> Result<(), Error> {
+pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    let bank = pac::FLASH.bank(sector.bank as usize);
     bank.cr().modify(|w| {
         w.set_ser(true);
-        w.set_snb(sector)
+        w.set_snb(sector.index_in_bank)
     });
 
     bank.cr().modify(|w| {
@@ -108,11 +93,8 @@ unsafe fn erase_sector(bank: pac::flash::Bank, sector: u8) -> Result<(), Error> 
     });
 
     let ret: Result<(), Error> = blocking_wait_ready(bank);
-
     bank.cr().modify(|w| w.set_ser(false));
-
     bank_clear_all_err(bank);
-
     ret
 }
 
@@ -157,7 +139,7 @@ unsafe fn bank_clear_all_err(bank: pac::flash::Bank) {
     });
 }
 
-pub(crate) unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
+unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
     loop {
         let sr = bank.sr().read();
 

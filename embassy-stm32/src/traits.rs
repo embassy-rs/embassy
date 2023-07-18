@@ -34,7 +34,7 @@ macro_rules! dma_trait_impl {
     (crate::$mod:ident::$trait:ident, $instance:ident, {dmamux: $dmamux:ident}, $request:expr) => {
         impl<T> crate::$mod::$trait<crate::peripherals::$instance> for T
         where
-            T: crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
+            T: crate::dma::Channel + crate::dma::MuxChannel<Mux = crate::dma::$dmamux>,
         {
             fn request(&self) -> crate::dma::Request {
                 $request
