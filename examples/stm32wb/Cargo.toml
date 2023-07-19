@@ -21,7 +21,7 @@ embedded-hal = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
-
+static_cell = { version = "1.1", features = ["nightly"]}
 
 [features]
 default = ["ble", "mac"]
@@ -38,6 +38,10 @@ required-features = ["mac"]
 
 [[bin]] 
 name = "mac_ffd"
+required-features = ["mac"]
+
+[[bin]] 
+name = "mac_ffd_net"
 required-features = ["mac"]
 
 [[bin]] 

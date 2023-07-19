@@ -29,13 +29,14 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     type TxToken<'a> = TxToken<'d> where Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        if self.runner.rx_channel.poll_ready_to_receive(cx) && self.runner.tx_channel.poll_ready_to_receive(cx) {
+        if self.runner.rx_channel.poll_ready_to_receive(cx) && self.runner.tx_buf_channel.poll_ready_to_receive(cx) {
             Some((
                 RxToken {
                     rx: &self.runner.rx_channel,
                 },
                 TxToken {
                     tx: &self.runner.tx_channel,
+                    tx_buf: &self.runner.tx_buf_channel,
                 },
             ))
         } else {
@@ -44,9 +45,10 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     }
 
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        if self.runner.tx_channel.poll_ready_to_receive(cx) {
+        if self.runner.tx_buf_channel.poll_ready_to_receive(cx) {
             Some(TxToken {
                 tx: &self.runner.tx_channel,
+                tx_buf: &self.runner.tx_buf_channel,
             })
         } else {
             None
@@ -106,8 +108,8 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
 }
 
 pub struct TxToken<'d> {
-    tx: &'d Channel<CriticalSectionRawMutex, &'d [u8], 1>,
-    // tx: &'a mut TDesRing<'d>,
+    tx: &'d Channel<CriticalSectionRawMutex, &'d mut [u8], 5>,
+    tx_buf: &'d Channel<CriticalSectionRawMutex, &'d mut [u8], 5>,
 }
 
 impl<'d> embassy_net_driver::TxToken for TxToken<'d> {
@@ -115,11 +117,13 @@ impl<'d> embassy_net_driver::TxToken for TxToken<'d> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        // let pkt = unwrap!(self.tx.available());
-        let pkt = &mut [];
-        let r = f(&mut pkt[..len]);
-        // self.tx.transmit(len);
+        // Only valid tx buffers should be put into the queue
+        let buf = self.tx_buf.try_recv().unwrap();
+        let r = f(&mut buf[..len]);
+
+        // The tx channel should always be of equal capacity to the tx_buf channel
+        self.tx.try_send(buf).unwrap();
+
         r
     }
 }

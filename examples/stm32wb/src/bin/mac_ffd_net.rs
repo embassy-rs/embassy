@@ -172,7 +172,15 @@ async fn main(spawner: Spawner) {
         defmt::info!("{:#x}", evt.mac_event());
     }
 
-    let runner = make_static!(Runner::new(mbox.mac_subsystem));
+    let tx_queue = [
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+    ];
+
+    let runner = make_static!(Runner::new(mbox.mac_subsystem, tx_queue));
 
     spawner.spawn(run_mac(runner)).unwrap();
 
