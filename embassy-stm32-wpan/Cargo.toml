@@ -17,7 +17,6 @@ embassy-time = { version = "0.1.2", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-common = { version = "0.1.0", path = "../embassy-hal-common" }
 embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel", optional=true }
 embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver", optional=true }
 
 defmt = { version = "0.3", optional = true }
@@ -35,7 +34,7 @@ bitflags = { version = "2.3.3", optional = true }
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "stm32wb-hci?/defmt"]
 
 ble = ["dep:stm32wb-hci"]
-mac = ["dep:bitflags", "dep:embassy-net-driver-channel", "dep:embassy-net-driver"]
+mac = ["dep:bitflags", "dep:embassy-net-driver" ]
 
 stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]
 stm32wb15cc = [ "embassy-stm32/stm32wb15cc" ]

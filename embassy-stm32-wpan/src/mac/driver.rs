@@ -7,8 +7,7 @@ use embassy_net_driver::{Capabilities, LinkState, Medium};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
-use super::event::MacEvent;
-use crate::mac::event::Event;
+use crate::mac::event::{Event, MacEvent};
 use crate::mac::runner::Runner;
 use crate::mac::MTU;
 
@@ -64,7 +63,7 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
         caps
     }
 
-    fn link_state(&mut self, cx: &mut Context) -> LinkState {
+    fn link_state(&mut self, _cx: &mut Context) -> LinkState {
         //        if self.phy.poll_link(&mut self.station_management, cx) {
         //            LinkState::Up
         //        } else {
@@ -82,7 +81,7 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
 }
 
 pub struct RxToken<'d> {
-    rx: &'d Channel<CriticalSectionRawMutex, Event, 1>,
+    rx: &'d Channel<CriticalSectionRawMutex, Event<'d>, 1>,
 }
 
 impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
@@ -92,24 +91,18 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
     {
         // Only valid data events should be put into the queue
 
-        let event = self.rx.try_recv().unwrap();
-        let mac_event = event.mac_event().unwrap();
-        let data_event = match mac_event {
+        let data_event = match *self.rx.try_recv().unwrap() {
             MacEvent::McpsDataInd(data_event) => data_event,
             _ => unreachable!(),
         };
 
-        let pkt = &mut [];
-        let r = f(&mut pkt[0..]);
-
-        // let r = f(&mut data_event.payload());
-        r
+        f(&mut data_event.payload())
     }
 }
 
 pub struct TxToken<'d> {
-    tx: &'d Channel<CriticalSectionRawMutex, &'d mut [u8], 5>,
-    tx_buf: &'d Channel<CriticalSectionRawMutex, &'d mut [u8], 5>,
+    tx: &'d Channel<CriticalSectionRawMutex, (&'d mut [u8; MTU], usize), 5>,
+    tx_buf: &'d Channel<CriticalSectionRawMutex, &'d mut [u8; MTU], 5>,
 }
 
 impl<'d> embassy_net_driver::TxToken for TxToken<'d> {
@@ -122,7 +115,7 @@ impl<'d> embassy_net_driver::TxToken for TxToken<'d> {
         let r = f(&mut buf[..len]);
 
         // The tx channel should always be of equal capacity to the tx_buf channel
-        self.tx.try_send(buf).unwrap();
+        self.tx.try_send((buf, len)).unwrap();
 
         r
     }

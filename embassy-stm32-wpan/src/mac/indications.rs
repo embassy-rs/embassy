@@ -236,8 +236,8 @@ pub struct DataIndication {
 impl ParseableMacEvent for DataIndication {}
 
 impl DataIndication {
-    pub fn payload<'a>(&'a self) -> &'a [u8] {
-        unsafe { slice::from_raw_parts(self.msdu_ptr, self.msdu_length as usize) }
+    pub fn payload<'a>(&'a self) -> &'a mut [u8] {
+        unsafe { slice::from_raw_parts_mut(self.msdu_ptr as *mut _, self.msdu_length as usize) }
     }
 }
 

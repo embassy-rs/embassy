@@ -6,6 +6,7 @@ pub struct Error {
 }
 
 pub struct Control<'a> {
+    #[allow(dead_code)]
     runner: &'a Runner<'a>,
 }
 

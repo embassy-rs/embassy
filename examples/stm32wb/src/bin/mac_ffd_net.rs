@@ -80,8 +80,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        defmt::info!("{:#x}", *evt);
     }
 
     info!("setting extended address");
@@ -94,8 +94,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        defmt::info!("{:#x}", *evt);
     }
 
     info!("setting short address");
@@ -108,8 +108,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        defmt::info!("{:#x}", *evt);
     }
 
     info!("setting association permit");
@@ -122,8 +122,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        defmt::info!("{:#x}", *evt);
     }
 
     info!("setting TX power");
@@ -136,8 +136,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        defmt::info!("{:#x}", *evt);
     }
 
     info!("starting FFD device");
@@ -154,8 +154,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        defmt::info!("{:#x}", *evt);
     }
 
     info!("setting RX on when idle");
@@ -168,8 +168,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        defmt::info!("{:#x}", *evt);
     }
 
     let tx_queue = [

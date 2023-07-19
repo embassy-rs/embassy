@@ -56,8 +56,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", *evt);
     }
 
     info!("setting extended address");
@@ -70,8 +70,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", *evt);
     }
 
     info!("getting extended address");
@@ -82,11 +82,12 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
 
-        if let Ok(MacEvent::MlmeGetCnf(evt)) = evt.mac_event() {
+    {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", *evt);
+
+        if let MacEvent::MlmeGetCnf(evt) = *evt {
             if evt.pib_attribute_value_len == 8 {
                 let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
 
@@ -110,10 +111,18 @@ async fn main(spawner: Spawner) {
     };
     info!("{}", a);
     mbox.mac_subsystem.send_command(&a).await.unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
-    }
+    let short_addr = {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", *evt);
+
+        if let MacEvent::MlmeAssociateCnf(conf) = *evt {
+            conf.assoc_short_address
+        } else {
+            defmt::panic!()
+        }
+    };
+
+    _ = short_addr;
 
     info!("Test OK");
     cortex_m::asm::bkpt();

@@ -94,7 +94,7 @@ impl Mac {
         }
     }
 
-    pub async fn read(&self) -> Event {
+    pub async fn read(&self) -> Result<Event<'_>, ()> {
         Event::new(self.tl_read().await)
     }
 }

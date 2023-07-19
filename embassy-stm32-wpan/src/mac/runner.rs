@@ -10,9 +10,9 @@ use crate::sub::mac::Mac;
 
 pub struct Runner<'a> {
     mac_subsystem: Mac,
-    pub(crate) rx_channel: Channel<CriticalSectionRawMutex, Event, 1>,
-    pub(crate) tx_channel: Channel<CriticalSectionRawMutex, &'a mut [u8], 5>,
-    pub(crate) tx_buf_channel: Channel<CriticalSectionRawMutex, &'a mut [u8], 5>,
+    pub(crate) rx_channel: Channel<CriticalSectionRawMutex, Event<'a>, 1>,
+    pub(crate) tx_channel: Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), 5>,
+    pub(crate) tx_buf_channel: Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], 5>,
 }
 
 impl<'a> Runner<'a> {
@@ -31,15 +31,14 @@ impl<'a> Runner<'a> {
         this
     }
 
-    pub async fn run(&self) -> ! {
+    pub async fn run(&'a self) -> ! {
         join::join(
             async {
                 loop {
-                    let event = self.mac_subsystem.read().await;
-                    if let Ok(evt) = event.mac_event() {
-                        match evt {
+                    if let Ok(mac_event) = self.mac_subsystem.read().await {
+                        match *mac_event {
                             MacEvent::McpsDataInd(_) => {
-                                self.rx_channel.send(event).await;
+                                self.rx_channel.send(mac_event).await;
                             }
                             _ => {}
                         }
@@ -48,7 +47,7 @@ impl<'a> Runner<'a> {
             },
             async {
                 loop {
-                    let buf = self.tx_channel.recv().await;
+                    let (buf, len) = self.tx_channel.recv().await;
 
                     self.mac_subsystem
                         .send_command(
@@ -63,7 +62,7 @@ impl<'a> Runner<'a> {
                                 security_level: SecurityLevel::Unsecure,
                                 ..Default::default()
                             }
-                            .set_buffer(&buf),
+                            .set_buffer(&buf[..len]),
                         )
                         .await
                         .unwrap();

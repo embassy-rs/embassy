@@ -1,4 +1,4 @@
-use core::mem;
+use core::{mem, ops};
 
 use super::indications::{
     AssociateIndication, BeaconNotifyIndication, CommStatusIndication, DataIndication, DisassociateIndication,
@@ -22,55 +22,104 @@ pub(crate) trait ParseableMacEvent: Sized {
     }
 }
 
-pub struct Event {
+pub struct Event<'a> {
+    #[allow(dead_code)]
     event_box: EvtBox<Mac>,
+    mac_event: MacEvent<'a>,
 }
 
-impl Event {
-    pub(crate) fn new(event_box: EvtBox<Mac>) -> Self {
-        Self { event_box }
-    }
-
-    pub fn mac_event<'a>(&'a self) -> Result<MacEvent<'a>, ()> {
-        let payload = self.event_box.payload();
+impl<'a> Event<'a> {
+    pub(crate) fn new(event_box: EvtBox<Mac>) -> Result<Self, ()> {
+        let payload = event_box.payload();
         let opcode = u16::from_le_bytes(payload[0..2].try_into().unwrap());
 
         let opcode = OpcodeM0ToM4::try_from(opcode)?;
         let buf = &payload[2..];
 
-        match opcode {
-            OpcodeM0ToM4::MlmeAssociateCnf => Ok(MacEvent::MlmeAssociateCnf(AssociateConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeDisassociateCnf => {
-                Ok(MacEvent::MlmeDisassociateCnf(DisassociateConfirm::from_buffer(buf)?))
+        // To avoid re-parsing the opcode, we store the result of the parse
+        // this requires use of unsafe because rust cannot assume that a reference will become
+        // invalid when the underlying result is moved. However, because we refer to a "heap"
+        // allocation, the underlying reference will not move until the struct is dropped.
+
+        let mac_event = match opcode {
+            OpcodeM0ToM4::MlmeAssociateCnf => {
+                MacEvent::MlmeAssociateCnf(unsafe { &*(AssociateConfirm::from_buffer(buf)? as *const _) })
             }
-            OpcodeM0ToM4::MlmeGetCnf => Ok(MacEvent::MlmeGetCnf(GetConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeGtsCnf => Ok(MacEvent::MlmeGtsCnf(GtsConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeResetCnf => Ok(MacEvent::MlmeResetCnf(ResetConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeRxEnableCnf => Ok(MacEvent::MlmeRxEnableCnf(RxEnableConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeScanCnf => Ok(MacEvent::MlmeScanCnf(ScanConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeSetCnf => Ok(MacEvent::MlmeSetCnf(SetConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeStartCnf => Ok(MacEvent::MlmeStartCnf(StartConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmePollCnf => Ok(MacEvent::MlmePollCnf(PollConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeDpsCnf => Ok(MacEvent::MlmeDpsCnf(DpsConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeSoundingCnf => Ok(MacEvent::MlmeSoundingCnf(SoundingConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeCalibrateCnf => Ok(MacEvent::MlmeCalibrateCnf(CalibrateConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::McpsDataCnf => Ok(MacEvent::McpsDataCnf(DataConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::McpsPurgeCnf => Ok(MacEvent::McpsPurgeCnf(PurgeConfirm::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeAssociateInd => Ok(MacEvent::MlmeAssociateInd(AssociateIndication::from_buffer(buf)?)),
+            OpcodeM0ToM4::MlmeDisassociateCnf => {
+                MacEvent::MlmeDisassociateCnf(unsafe { &*(DisassociateConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeGetCnf => MacEvent::MlmeGetCnf(unsafe { &*(GetConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeGtsCnf => MacEvent::MlmeGtsCnf(unsafe { &*(GtsConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeResetCnf => {
+                MacEvent::MlmeResetCnf(unsafe { &*(ResetConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeRxEnableCnf => {
+                MacEvent::MlmeRxEnableCnf(unsafe { &*(RxEnableConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeScanCnf => {
+                MacEvent::MlmeScanCnf(unsafe { &*(ScanConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeSetCnf => MacEvent::MlmeSetCnf(unsafe { &*(SetConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeStartCnf => {
+                MacEvent::MlmeStartCnf(unsafe { &*(StartConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmePollCnf => {
+                MacEvent::MlmePollCnf(unsafe { &*(PollConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeDpsCnf => MacEvent::MlmeDpsCnf(unsafe { &*(DpsConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeSoundingCnf => {
+                MacEvent::MlmeSoundingCnf(unsafe { &*(SoundingConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeCalibrateCnf => {
+                MacEvent::MlmeCalibrateCnf(unsafe { &*(CalibrateConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::McpsDataCnf => {
+                MacEvent::McpsDataCnf(unsafe { &*(DataConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::McpsPurgeCnf => {
+                MacEvent::McpsPurgeCnf(unsafe { &*(PurgeConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeAssociateInd => {
+                MacEvent::MlmeAssociateInd(unsafe { &*(AssociateIndication::from_buffer(buf)? as *const _) })
+            }
             OpcodeM0ToM4::MlmeDisassociateInd => {
-                Ok(MacEvent::MlmeDisassociateInd(DisassociateIndication::from_buffer(buf)?))
+                MacEvent::MlmeDisassociateInd(unsafe { &*(DisassociateIndication::from_buffer(buf)? as *const _) })
             }
             OpcodeM0ToM4::MlmeBeaconNotifyInd => {
-                Ok(MacEvent::MlmeBeaconNotifyInd(BeaconNotifyIndication::from_buffer(buf)?))
+                MacEvent::MlmeBeaconNotifyInd(unsafe { &*(BeaconNotifyIndication::from_buffer(buf)? as *const _) })
             }
-            OpcodeM0ToM4::MlmeCommStatusInd => Ok(MacEvent::MlmeCommStatusInd(CommStatusIndication::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeGtsInd => Ok(MacEvent::MlmeGtsInd(GtsIndication::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeOrphanInd => Ok(MacEvent::MlmeOrphanInd(OrphanIndication::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeSyncLossInd => Ok(MacEvent::MlmeSyncLossInd(SyncLossIndication::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmeDpsInd => Ok(MacEvent::MlmeDpsInd(DpsIndication::from_buffer(buf)?)),
-            OpcodeM0ToM4::McpsDataInd => Ok(MacEvent::McpsDataInd(DataIndication::from_buffer(buf)?)),
-            OpcodeM0ToM4::MlmePollInd => Ok(MacEvent::MlmePollInd(PollIndication::from_buffer(buf)?)),
-        }
+            OpcodeM0ToM4::MlmeCommStatusInd => {
+                MacEvent::MlmeCommStatusInd(unsafe { &*(CommStatusIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeGtsInd => {
+                MacEvent::MlmeGtsInd(unsafe { &*(GtsIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeOrphanInd => {
+                MacEvent::MlmeOrphanInd(unsafe { &*(OrphanIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeSyncLossInd => {
+                MacEvent::MlmeSyncLossInd(unsafe { &*(SyncLossIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeDpsInd => {
+                MacEvent::MlmeDpsInd(unsafe { &*(DpsIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::McpsDataInd => {
+                MacEvent::McpsDataInd(unsafe { &*(DataIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmePollInd => {
+                MacEvent::MlmePollInd(unsafe { &*(PollIndication::from_buffer(buf)? as *const _) })
+            }
+        };
+
+        Ok(Self { event_box, mac_event })
+    }
+}
+
+impl<'a> ops::Deref for Event<'a> {
+    type Target = MacEvent<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.mac_event
     }
 }
 
