@@ -8,12 +8,22 @@ use core::task::Poll;
 
 use embassy_hal_common::drop::OnDrop;
 use embassy_hal_common::{into_ref, PeripheralRef};
+use fixed::types::I7F1;
 use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::pdm::mode::{EDGE_A, OPERATION_A};
+pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
+#[cfg(any(
+    feature = "nrf52840",
+    feature = "nrf52833",
+    feature = "_nrf5340-app",
+    feature = "_nrf9160",
+))]
+pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -23,7 +33,20 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        T::regs().intenclr.write(|w| w.end().clear());
+        let r = T::regs();
+
+        if r.events_end.read().bits() != 0 {
+            r.intenclr.write(|w| w.end().clear());
+        }
+
+        if r.events_started.read().bits() != 0 {
+            r.intenclr.write(|w| w.started().clear());
+        }
+
+        if r.events_stopped.read().bits() != 0 {
+            r.intenclr.write(|w| w.stopped().clear());
+        }
+
         T::state().waker.wake();
     }
 }
@@ -44,9 +67,23 @@ pub enum Error {
     BufferZeroLength,
     /// PDM is not running
     NotRunning,
+    /// PDM is already running
+    AlreadyRunning,
 }
 
 static DUMMY_BUFFER: [i16; 1] = [0; 1];
+
+/// The state of a continuously running sampler. While it reflects
+/// the progress of a sampler, it also signals what should be done
+/// next. For example, if the sampler has stopped then the Pdm implementation
+/// can then tear down its infrastructure.
+#[derive(PartialEq)]
+pub enum SamplerState {
+    /// The sampler processed the samples and is ready for more.
+    Sampled,
+    /// The sampler is done processing samples.
+    Stopped,
+}
 
 impl<'d, T: Instance> Pdm<'d, T> {
     /// Create PDM driver
@@ -79,18 +116,24 @@ impl<'d, T: Instance> Pdm<'d, T> {
         r.psel.clk.write(|w| unsafe { w.bits(clk.psel_bits()) });
 
         // configure
-        // use default for
-        // - gain right
-        // - gain left
-        // - clk
-        // - ratio
+        r.pdmclkctrl.write(|w| w.freq().variant(config.frequency));
+        #[cfg(any(
+            feature = "nrf52840",
+            feature = "nrf52833",
+            feature = "_nrf5340-app",
+            feature = "_nrf9160",
+        ))]
+        r.ratio.write(|w| w.ratio().variant(config.ratio));
         r.mode.write(|w| {
-            w.edge().bit(config.edge == Edge::LeftRising);
-            w.operation().bit(config.operation_mode == OperationMode::Mono);
+            w.operation().variant(config.operation_mode.into());
+            w.edge().variant(config.edge.into());
             w
         });
-        r.gainl.write(|w| w.gainl().default_gain());
-        r.gainr.write(|w| w.gainr().default_gain());
+
+        Self::_set_gain(r, config.gain_left, config.gain_right);
+
+        // Disable all events interrupts
+        r.intenclr.write(|w| unsafe { w.bits(0x003F_FFFF) });
 
         // IRQ
         T::Interrupt::unpend();
@@ -99,6 +142,25 @@ impl<'d, T: Instance> Pdm<'d, T> {
         r.enable.write(|w| w.enable().set_bit());
 
         Self { _peri: pdm }
+    }
+
+    fn _set_gain(r: &crate::pac::pdm::RegisterBlock, gain_left: I7F1, gain_right: I7F1) {
+        let gain_left = gain_left
+            .saturating_add(I7F1::from_bits(40))
+            .saturating_to_num::<u8>()
+            .clamp(0, 0x50);
+        let gain_right = gain_right
+            .saturating_add(I7F1::from_bits(40))
+            .saturating_to_num::<u8>()
+            .clamp(0, 0x50);
+
+        r.gainl.write(|w| unsafe { w.gainl().bits(gain_left) });
+        r.gainr.write(|w| unsafe { w.gainr().bits(gain_right) });
+    }
+
+    /// Adjust the gain of the PDM microphone on the fly
+    pub fn set_gain(&mut self, gain_left: I7F1, gain_right: I7F1) {
+        Self::_set_gain(T::regs(), gain_left, gain_right)
     }
 
     /// Start sampling microphon data into a dummy buffer
@@ -198,6 +260,108 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
         compiler_fence(Ordering::SeqCst);
     }
+
+    /// Continuous sampling with double buffers.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples, noting
+    /// that the size of this buffer can be less than the original buffer's size.
+    /// A command is return from the closure that indicates whether the sampling
+    /// should continue or stop.
+    ///
+    /// NOTE: The time spent within the callback supplied should not exceed the time
+    /// taken to acquire the samples into a single buffer. You should measure the
+    /// time taken by the callback and set the sample buffer size accordingly.
+    /// Exceeding this time can lead to samples becoming dropped.
+    pub async fn run_task_sampler<S, const N: usize>(
+        &mut self,
+        bufs: &mut [[i16; N]; 2],
+        mut sampler: S,
+    ) -> Result<(), Error>
+    where
+        S: FnMut(&[i16; N]) -> SamplerState,
+    {
+        let r = T::regs();
+
+        if r.events_started.read().bits() != 0 {
+            return Err(Error::AlreadyRunning);
+        }
+
+        r.sample
+            .ptr
+            .write(|w| unsafe { w.sampleptr().bits(bufs[0].as_mut_ptr() as u32) });
+        r.sample.maxcnt.write(|w| unsafe { w.buffsize().bits(N as _) });
+
+        // Reset and enable the events
+        r.events_end.reset();
+        r.events_started.reset();
+        r.events_stopped.reset();
+        r.intenset.write(|w| {
+            w.end().set();
+            w.started().set();
+            w.stopped().set();
+            w
+        });
+
+        // Don't reorder the start event before the previous writes. Hopefully self
+        // wouldn't happen anyway.
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        let mut current_buffer = 0;
+
+        let mut done = false;
+
+        let drop = OnDrop::new(|| {
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            // N.B. It would be better if this were async, but Drop only support sync code.
+            while r.events_stopped.read().bits() != 0 {}
+        });
+
+        // Wait for events and complete when the sampler indicates it has had enough.
+        poll_fn(|cx| {
+            let r = T::regs();
+
+            T::state().waker.register(cx.waker());
+
+            if r.events_end.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
+
+                r.events_end.reset();
+                r.intenset.write(|w| w.end().set());
+
+                if !done {
+                    // Discard the last buffer after the user requested a stop.
+                    if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
+                        let next_buffer = 1 - current_buffer;
+                        current_buffer = next_buffer;
+                    } else {
+                        r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                        done = true;
+                    };
+                };
+            }
+
+            if r.events_started.read().bits() != 0 {
+                r.events_started.reset();
+                r.intenset.write(|w| w.started().set());
+
+                let next_buffer = 1 - current_buffer;
+                r.sample
+                    .ptr
+                    .write(|w| unsafe { w.sampleptr().bits(bufs[next_buffer].as_mut_ptr() as u32) });
+            }
+
+            if r.events_stopped.read().bits() != 0 {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+        drop.defuse();
+        Ok(())
+    }
 }
 
 /// PDM microphone driver Config
@@ -206,6 +370,20 @@ pub struct Config {
     pub operation_mode: OperationMode,
     /// On which edge the left channel should be samples
     pub edge: Edge,
+    /// Clock frequency
+    pub frequency: Frequency,
+    /// Clock ratio
+    #[cfg(any(
+        feature = "nrf52840",
+        feature = "nrf52833",
+        feature = "_nrf5340-app",
+        feature = "_nrf9160",
+    ))]
+    pub ratio: Ratio,
+    /// Gain left in dB
+    pub gain_left: I7F1,
+    /// Gain right in dB
+    pub gain_right: I7F1,
 }
 
 impl Default for Config {
@@ -213,6 +391,16 @@ impl Default for Config {
         Self {
             operation_mode: OperationMode::Mono,
             edge: Edge::LeftFalling,
+            frequency: Frequency::DEFAULT,
+            #[cfg(any(
+                feature = "nrf52840",
+                feature = "nrf52833",
+                feature = "_nrf5340-app",
+                feature = "_nrf9160",
+            ))]
+            ratio: Ratio::RATIO80,
+            gain_left: I7F1::ZERO,
+            gain_right: I7F1::ZERO,
         }
     }
 }
@@ -226,6 +414,15 @@ pub enum OperationMode {
     Stereo,
 }
 
+impl From<OperationMode> for OPERATION_A {
+    fn from(mode: OperationMode) -> Self {
+        match mode {
+            OperationMode::Mono => OPERATION_A::MONO,
+            OperationMode::Stereo => OPERATION_A::STEREO,
+        }
+    }
+}
+
 /// PDM edge polarity
 #[derive(PartialEq)]
 pub enum Edge {
@@ -233,6 +430,15 @@ pub enum Edge {
     LeftRising,
     /// Left edge is falling
     LeftFalling,
+}
+
+impl From<Edge> for EDGE_A {
+    fn from(edge: Edge) -> Self {
+        match edge {
+            Edge::LeftRising => EDGE_A::LEFT_RISING,
+            Edge::LeftFalling => EDGE_A::LEFT_FALLING,
+        }
+    }
 }
 
 impl<'d, T: Instance> Drop for Pdm<'d, T> {
