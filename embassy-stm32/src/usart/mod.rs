@@ -694,19 +694,21 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         let r = T::regs();
 
-        #[allow(unused_variables)]
-        let swap_rx_tx = false;
-
-        #[cfg(any(usart_v3, usart_v4))]
-        let swap_rx_tx = config.swap_rx_tx;
-
-        if swap_rx_tx {
-            let (rx, tx) = (tx, rx);
-            rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-        } else {
-            rx.set_as_af(rx.af_num(), AFType::Input);
-            tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        // Some chips do not have swap_rx_tx bit
+        cfg_if::cfg_if! {
+            if #[cfg(any(usart_v3, usart_v4))] {
+                if config.swap_rx_tx {
+                    let (rx, tx) = (tx, rx);
+                    rx.set_as_af(rx.af_num(), AFType::Input);
+                    tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+                } else {
+                    rx.set_as_af(rx.af_num(), AFType::Input);
+                    tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+                }
+            } else {
+                rx.set_as_af(rx.af_num(), AFType::Input);
+                tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+            }
         }
 
         configure(r, &config, T::frequency(), T::KIND, true, true);
