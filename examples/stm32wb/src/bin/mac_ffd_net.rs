@@ -6,8 +6,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::mac::commands::{AssociateResponse, ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::mac::typedefs::{MacChannel, MacStatus, PanId, PibId, SecurityLevel};
+use embassy_stm32_wpan::mac::commands::{ResetRequest, SetRequest, StartRequest};
+use embassy_stm32_wpan::mac::typedefs::{MacChannel, PanId, PibId};
 use embassy_stm32_wpan::mac::{self, Runner};
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
@@ -185,4 +185,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(run_mac(runner)).unwrap();
 
     let (driver, control) = mac::new(runner).await;
+
+    let _ = driver;
+    let _ = control;
 }
