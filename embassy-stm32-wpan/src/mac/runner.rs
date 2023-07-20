@@ -46,6 +46,8 @@ impl<'a> Runner<'a> {
                 }
             },
             async {
+                let mut msdu_handle = 0x02;
+
                 loop {
                     let (buf, len) = self.tx_channel.recv().await;
 
@@ -56,7 +58,7 @@ impl<'a> Runner<'a> {
                                 dst_addr_mode: AddressMode::Short,
                                 dst_pan_id: PanId([0x1A, 0xAA]),
                                 dst_address: MacAddress::BROADCAST,
-                                msdu_handle: 0x02,
+                                msdu_handle: msdu_handle,
                                 ack_tx: 0x00,
                                 gts_tx: false,
                                 security_level: SecurityLevel::Unsecure,
@@ -66,6 +68,8 @@ impl<'a> Runner<'a> {
                         )
                         .await
                         .unwrap();
+
+                    msdu_handle += 1;
 
                     // The tx channel should always be of equal capacity to the tx_buf channel
                     self.tx_buf_channel.try_send(buf).unwrap();
