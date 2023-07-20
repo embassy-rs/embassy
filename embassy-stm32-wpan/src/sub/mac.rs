@@ -12,7 +12,7 @@ use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{EvtBox, EvtPacket};
 use crate::mac::commands::MacCommand;
-use crate::mac::event::Event;
+use crate::mac::event::MacEvent;
 use crate::mac::typedefs::MacError;
 use crate::tables::{MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER};
 use crate::{channels, evt};
@@ -94,14 +94,16 @@ impl Mac {
         }
     }
 
-    pub async fn read(&self) -> Result<Event<'_>, ()> {
-        Event::new(self.tl_read().await)
+    pub async fn read(&self) -> Result<MacEvent<'_>, ()> {
+        MacEvent::new(self.tl_read().await)
     }
 }
 
 impl evt::MemoryManager for Mac {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB
     unsafe fn drop_event_packet(_: *mut EvtPacket) {
+        trace!("mac drop event");
+
         // Write the ack
         CmdPacket::write_into(
             MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _,
@@ -111,7 +113,7 @@ impl evt::MemoryManager for Mac {
         );
 
         // Clear the rx flag
-        let _ = poll_once(Ipcc::receive::<bool>(
+        let _ = poll_once(Ipcc::receive::<()>(
             channels::cpu2::IPCC_MAC_802_15_4_NOTIFICATION_ACK_CHANNEL,
             || None,
         ));

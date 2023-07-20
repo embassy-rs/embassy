@@ -1,4 +1,4 @@
-use core::{mem, ops};
+use core::{mem, ptr};
 
 use super::indications::{
     AssociateIndication, BeaconNotifyIndication, CommStatusIndication, DataIndication, DisassociateIndication,
@@ -8,9 +8,9 @@ use super::responses::{
     AssociateConfirm, CalibrateConfirm, DataConfirm, DisassociateConfirm, DpsConfirm, GetConfirm, GtsConfirm,
     PollConfirm, PurgeConfirm, ResetConfirm, RxEnableConfirm, ScanConfirm, SetConfirm, SoundingConfirm, StartConfirm,
 };
-use crate::evt::EvtBox;
+use crate::evt::{EvtBox, MemoryManager};
 use crate::mac::opcodes::OpcodeM0ToM4;
-use crate::sub::mac::Mac;
+use crate::sub::mac::{self, Mac};
 
 pub(crate) trait ParseableMacEvent: Sized {
     fn from_buffer<'a>(buf: &'a [u8]) -> Result<&'a Self, ()> {
@@ -22,13 +22,36 @@ pub(crate) trait ParseableMacEvent: Sized {
     }
 }
 
-pub struct Event<'a> {
-    #[allow(dead_code)]
-    event_box: EvtBox<Mac>,
-    mac_event: MacEvent<'a>,
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum MacEvent<'a> {
+    MlmeAssociateCnf(&'a AssociateConfirm),
+    MlmeDisassociateCnf(&'a DisassociateConfirm),
+    MlmeGetCnf(&'a GetConfirm),
+    MlmeGtsCnf(&'a GtsConfirm),
+    MlmeResetCnf(&'a ResetConfirm),
+    MlmeRxEnableCnf(&'a RxEnableConfirm),
+    MlmeScanCnf(&'a ScanConfirm),
+    MlmeSetCnf(&'a SetConfirm),
+    MlmeStartCnf(&'a StartConfirm),
+    MlmePollCnf(&'a PollConfirm),
+    MlmeDpsCnf(&'a DpsConfirm),
+    MlmeSoundingCnf(&'a SoundingConfirm),
+    MlmeCalibrateCnf(&'a CalibrateConfirm),
+    McpsDataCnf(&'a DataConfirm),
+    McpsPurgeCnf(&'a PurgeConfirm),
+    MlmeAssociateInd(&'a AssociateIndication),
+    MlmeDisassociateInd(&'a DisassociateIndication),
+    MlmeBeaconNotifyInd(&'a BeaconNotifyIndication),
+    MlmeCommStatusInd(&'a CommStatusIndication),
+    MlmeGtsInd(&'a GtsIndication),
+    MlmeOrphanInd(&'a OrphanIndication),
+    MlmeSyncLossInd(&'a SyncLossIndication),
+    MlmeDpsInd(&'a DpsIndication),
+    McpsDataInd(&'a DataIndication),
+    MlmePollInd(&'a PollIndication),
 }
 
-impl<'a> Event<'a> {
+impl<'a> MacEvent<'a> {
     pub(crate) fn new(event_box: EvtBox<Mac>) -> Result<Self, ()> {
         let payload = event_box.payload();
         let opcode = u16::from_le_bytes(payload[0..2].try_into().unwrap());
@@ -111,43 +134,17 @@ impl<'a> Event<'a> {
             }
         };
 
-        Ok(Self { event_box, mac_event })
+        // Forget the event box so that drop isn't called
+        // We want to handle the lifetime ourselves
+
+        mem::forget(event_box);
+
+        Ok(mac_event)
     }
 }
 
-impl<'a> ops::Deref for Event<'a> {
-    type Target = MacEvent<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.mac_event
+impl<'a> Drop for MacEvent<'a> {
+    fn drop(&mut self) {
+        unsafe { mac::Mac::drop_event_packet(ptr::null_mut()) };
     }
-}
-
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MacEvent<'a> {
-    MlmeAssociateCnf(&'a AssociateConfirm),
-    MlmeDisassociateCnf(&'a DisassociateConfirm),
-    MlmeGetCnf(&'a GetConfirm),
-    MlmeGtsCnf(&'a GtsConfirm),
-    MlmeResetCnf(&'a ResetConfirm),
-    MlmeRxEnableCnf(&'a RxEnableConfirm),
-    MlmeScanCnf(&'a ScanConfirm),
-    MlmeSetCnf(&'a SetConfirm),
-    MlmeStartCnf(&'a StartConfirm),
-    MlmePollCnf(&'a PollConfirm),
-    MlmeDpsCnf(&'a DpsConfirm),
-    MlmeSoundingCnf(&'a SoundingConfirm),
-    MlmeCalibrateCnf(&'a CalibrateConfirm),
-    McpsDataCnf(&'a DataConfirm),
-    McpsPurgeCnf(&'a PurgeConfirm),
-    MlmeAssociateInd(&'a AssociateIndication),
-    MlmeDisassociateInd(&'a DisassociateIndication),
-    MlmeBeaconNotifyInd(&'a BeaconNotifyIndication),
-    MlmeCommStatusInd(&'a CommStatusIndication),
-    MlmeGtsInd(&'a GtsIndication),
-    MlmeOrphanInd(&'a OrphanIndication),
-    MlmeSyncLossInd(&'a SyncLossIndication),
-    MlmeDpsInd(&'a DpsIndication),
-    McpsDataInd(&'a DataIndication),
-    MlmePollInd(&'a PollIndication),
 }

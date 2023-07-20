@@ -3,14 +3,14 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
 use crate::mac::commands::DataRequest;
-use crate::mac::event::{Event, MacEvent};
+use crate::mac::event::MacEvent;
 use crate::mac::typedefs::{AddressMode, MacAddress, PanId, SecurityLevel};
 use crate::mac::MTU;
 use crate::sub::mac::Mac;
 
 pub struct Runner<'a> {
     mac_subsystem: Mac,
-    pub(crate) rx_channel: Channel<CriticalSectionRawMutex, Event<'a>, 1>,
+    pub(crate) rx_channel: Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
     pub(crate) tx_channel: Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), 5>,
     pub(crate) tx_buf_channel: Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], 5>,
 }
@@ -36,7 +36,7 @@ impl<'a> Runner<'a> {
             async {
                 loop {
                     if let Ok(mac_event) = self.mac_subsystem.read().await {
-                        match *mac_event {
+                        match mac_event {
                             MacEvent::McpsDataInd(_) => {
                                 self.rx_channel.send(mac_event).await;
                             }

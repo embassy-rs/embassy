@@ -7,7 +7,7 @@ use embassy_net_driver::{Capabilities, LinkState, Medium};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
-use crate::mac::event::{Event, MacEvent};
+use crate::mac::event::MacEvent;
 use crate::mac::runner::Runner;
 use crate::mac::MTU;
 
@@ -81,7 +81,7 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
 }
 
 pub struct RxToken<'d> {
-    rx: &'d Channel<CriticalSectionRawMutex, Event<'d>, 1>,
+    rx: &'d Channel<CriticalSectionRawMutex, MacEvent<'d>, 1>,
 }
 
 impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
@@ -91,7 +91,7 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
     {
         // Only valid data events should be put into the queue
 
-        let data_event = match *self.rx.try_recv().unwrap() {
+        let data_event = match self.rx.try_recv().unwrap() {
             MacEvent::McpsDataInd(data_event) => data_event,
             _ => unreachable!(),
         };

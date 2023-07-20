@@ -79,10 +79,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
-        defmt::info!("{:#x}", *evt);
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000001;
@@ -93,10 +90,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
-        defmt::info!("{:#x}", *evt);
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("setting short address");
     let short_address: u16 = 0x1122;
@@ -107,10 +101,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
-        defmt::info!("{:#x}", *evt);
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("setting association permit");
     let association_permit: bool = true;
@@ -121,10 +112,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
-        defmt::info!("{:#x}", *evt);
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("setting TX power");
     let transmit_power: i8 = 2;
@@ -135,10 +123,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
-        defmt::info!("{:#x}", *evt);
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("starting FFD device");
     mbox.mac_subsystem
@@ -153,10 +138,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
-        defmt::info!("{:#x}", *evt);
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("setting RX on when idle");
     let rx_on_while_idle: bool = true;
@@ -167,10 +149,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
-        defmt::info!("{:#x}", *evt);
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     let tx_queue = [
         make_static!([0u8; 127]),
