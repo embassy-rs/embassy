@@ -81,6 +81,16 @@ pub struct Adc<'d, M: Mode> {
     phantom: PhantomData<(&'d ADC, M)>,
 }
 
+impl<'d, M: Mode> Drop for Adc<'d, M> {
+    fn drop(&mut self) {
+        let r = Self::regs();
+        // disable ADC. leaving it enabled comes with a ~150µA static
+        // current draw. the temperature sensor has already been disabled
+        // by the temperature-reading methods, so we don't need to touch that.
+        r.cs().write(|w| w.set_en(false));
+    }
+}
+
 impl<'d, M: Mode> Adc<'d, M> {
     #[inline]
     fn regs() -> pac::adc::Adc {
