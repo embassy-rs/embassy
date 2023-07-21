@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::numeric_enum;
 
 #[derive(Debug)]
@@ -37,7 +39,7 @@ numeric_enum! {
 numeric_enum! {
     #[repr(u8)]
     /// this enum contains all the MAC PIB Ids
-    #[derive(Default)]
+    #[derive(Default, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum PibId {
         // PHY
@@ -96,7 +98,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy)]
+    #[derive(Default, Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AddressMode {
         #[default]
@@ -111,6 +113,18 @@ numeric_enum! {
 pub union MacAddress {
     pub short: [u8; 2],
     pub extended: [u8; 8],
+}
+
+impl Debug for MacAddress {
+    fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        unsafe {
+            write!(
+                fmt,
+                "MacAddress {{ short: {:?}, extended: {:?} }}",
+                self.short, self.extended
+            )
+        }
+    }
 }
 
 #[cfg(feature = "defmt")]
@@ -159,7 +173,7 @@ pub struct GtsCharacteristics {
 
 /// MAC PAN Descriptor which contains the network details of the device from
 /// which the beacon is received
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PanDescriptor {
     /// PAN identifier of the coordinator
@@ -223,7 +237,7 @@ impl TryFrom<&[u8]> for PanDescriptor {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy)]
+    #[derive(Default, Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     /// Building wireless applications with STM32WB series MCUs - Application note 13.10.3
     pub enum MacChannel {
@@ -289,7 +303,7 @@ defmt::bitflags! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy)]
+    #[derive(Default, Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum KeyIdMode {
         #[default]
@@ -306,6 +320,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
+    #[derive(Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AssociationStatus {
         /// Association successful
@@ -319,7 +334,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum DisassociationReason {
         /// The coordinator wishes the device to leave the PAN.
@@ -331,7 +346,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy)]
+    #[derive(Default, Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum SecurityLevel {
         /// MAC Unsecured Mode Security
@@ -346,6 +361,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
+    #[derive(Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum ScanType {
         EdScan = 0x00,
@@ -356,7 +372,7 @@ numeric_enum! {
 }
 
 /// newtype for Pan Id
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PanId(pub [u8; 2]);
 

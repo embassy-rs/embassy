@@ -23,6 +23,7 @@ pub(crate) trait ParseableMacEvent: Sized {
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug)]
 pub enum MacEvent<'a> {
     MlmeAssociateCnf(&'a AssociateConfirm),
     MlmeDisassociateCnf(&'a DisassociateConfirm),
