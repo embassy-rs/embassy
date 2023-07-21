@@ -10,8 +10,8 @@ use crate::gpio::sealed::Pin as GpioPin;
 use crate::gpio::{self, AnyPin, Pull};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::InterruptExt;
-use crate::peripherals::ADC;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
+use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -24,12 +24,15 @@ impl Default for Config {
     }
 }
 
-pub struct Pin<'p> {
-    pin: PeripheralRef<'p, AnyPin>,
+enum Source<'p> {
+    Pin(PeripheralRef<'p, AnyPin>),
+    TempSensor(PeripheralRef<'p, ADC_TEMP_SENSOR>),
 }
 
-impl<'p> Pin<'p> {
-    pub fn new(pin: impl Peripheral<P = impl AdcPin + 'p> + 'p, pull: Pull) -> Self {
+pub struct Channel<'p>(Source<'p>);
+
+impl<'p> Channel<'p> {
+    pub fn new_pin(pin: impl Peripheral<P = impl AdcPin + 'p> + 'p, pull: Pull) -> Self {
         into_ref!(pin);
         pin.pad_ctrl().modify(|w| {
             // manual says:
@@ -42,24 +45,40 @@ impl<'p> Pin<'p> {
             w.set_pue(pull == Pull::Up);
             w.set_pde(pull == Pull::Down);
         });
-        Self { pin: pin.map_into() }
+        Self(Source::Pin(pin.map_into()))
+    }
+
+    pub fn new_sensor(s: impl Peripheral<P = ADC_TEMP_SENSOR> + 'p) -> Self {
+        let r = pac::ADC;
+        r.cs().write_set(|w| w.set_ts_en(true));
+        Self(Source::TempSensor(s.into_ref()))
     }
 
     fn channel(&self) -> u8 {
-        // this requires adc pins to be sequential and matching the adc channels,
-        // which is the case for rp2040
-        self.pin._pin() - 26
+        match &self.0 {
+            // this requires adc pins to be sequential and matching the adc channels,
+            // which is the case for rp2040
+            Source::Pin(p) => p._pin() - 26,
+            Source::TempSensor(_) => 4,
+        }
     }
 }
 
-impl<'d> Drop for Pin<'d> {
+impl<'p> Drop for Source<'p> {
     fn drop(&mut self) {
-        self.pin.pad_ctrl().modify(|w| {
-            w.set_ie(true);
-            w.set_od(false);
-            w.set_pue(false);
-            w.set_pde(true);
-        });
+        match self {
+            Source::Pin(p) => {
+                p.pad_ctrl().modify(|w| {
+                    w.set_ie(true);
+                    w.set_od(false);
+                    w.set_pue(false);
+                    w.set_pde(true);
+                });
+            }
+            Source::TempSensor(_) => {
+                pac::ADC.cs().write_clear(|w| w.set_ts_en(true));
+            }
+        }
     }
 }
 
@@ -115,10 +134,10 @@ impl<'d, M: Mode> Adc<'d, M> {
         while !r.cs().read().ready() {}
     }
 
-    fn sample_blocking(channel: u8) -> Result<u16, Error> {
+    pub fn blocking_read(&mut self, ch: &mut Channel) -> Result<u16, Error> {
         let r = Self::regs();
         r.cs().modify(|w| {
-            w.set_ainsel(channel);
+            w.set_ainsel(ch.channel());
             w.set_start_once(true);
             w.set_err(true);
         });
@@ -127,19 +146,6 @@ impl<'d, M: Mode> Adc<'d, M> {
             true => Err(Error::ConversionFailed),
             false => Ok(r.result().read().result().into()),
         }
-    }
-
-    pub fn blocking_read(&mut self, pin: &mut Pin) -> Result<u16, Error> {
-        Self::sample_blocking(pin.channel())
-    }
-
-    pub fn blocking_read_temperature(&mut self) -> Result<u16, Error> {
-        let r = Self::regs();
-        r.cs().modify(|w| w.set_ts_en(true));
-        while !r.cs().read().ready() {}
-        let result = Self::sample_blocking(4);
-        r.cs().modify(|w| w.set_ts_en(false));
-        result
     }
 }
 
@@ -172,10 +178,10 @@ impl<'d> Adc<'d, Async> {
         .await;
     }
 
-    async fn sample_async(channel: u8) -> Result<u16, Error> {
+    pub async fn read(&mut self, ch: &mut Channel<'_>) -> Result<u16, Error> {
         let r = Self::regs();
         r.cs().modify(|w| {
-            w.set_ainsel(channel);
+            w.set_ainsel(ch.channel());
             w.set_start_once(true);
             w.set_err(true);
         });
@@ -184,21 +190,6 @@ impl<'d> Adc<'d, Async> {
             true => Err(Error::ConversionFailed),
             false => Ok(r.result().read().result().into()),
         }
-    }
-
-    pub async fn read(&mut self, pin: &mut Pin<'_>) -> Result<u16, Error> {
-        Self::sample_async(pin.channel()).await
-    }
-
-    pub async fn read_temperature(&mut self) -> Result<u16, Error> {
-        let r = Self::regs();
-        r.cs().modify(|w| w.set_ts_en(true));
-        if !r.cs().read().ready() {
-            Self::wait_for_ready().await;
-        }
-        let result = Self::sample_async(4).await;
-        r.cs().modify(|w| w.set_ts_en(false));
-        result
     }
 }
 
@@ -230,14 +221,17 @@ pub trait AdcChannel: sealed::AdcChannel {}
 pub trait AdcPin: AdcChannel + gpio::Pin {}
 
 macro_rules! impl_pin {
-    ($pin:ident) => {
+    ($pin:ident, $channel:expr) => {
         impl sealed::AdcChannel for peripherals::$pin {}
         impl AdcChannel for peripherals::$pin {}
         impl AdcPin for peripherals::$pin {}
     };
 }
 
-impl_pin!(PIN_26);
-impl_pin!(PIN_27);
-impl_pin!(PIN_28);
-impl_pin!(PIN_29);
+impl_pin!(PIN_26, 0);
+impl_pin!(PIN_27, 1);
+impl_pin!(PIN_28, 2);
+impl_pin!(PIN_29, 3);
+
+impl sealed::AdcChannel for peripherals::ADC_TEMP_SENSOR {}
+impl AdcChannel for peripherals::ADC_TEMP_SENSOR {}

@@ -6,7 +6,7 @@ mod common;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::adc::{Adc, Config, InterruptHandler, Pin};
+use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Pull;
 use {defmt_rtt as _, panic_probe as _};
@@ -22,12 +22,12 @@ async fn main(_spawner: Spawner) {
 
     {
         {
-            let mut p = Pin::new(&mut p.PIN_26, Pull::Down);
+            let mut p = Channel::new_pin(&mut p.PIN_26, Pull::Down);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() < 0b01_0000_0000);
             defmt::assert!(adc.read(&mut p).await.unwrap() < 0b01_0000_0000);
         }
         {
-            let mut p = Pin::new(&mut p.PIN_26, Pull::Up);
+            let mut p = Channel::new_pin(&mut p.PIN_26, Pull::Up);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() > 0b11_0000_0000);
             defmt::assert!(adc.read(&mut p).await.unwrap() > 0b11_0000_0000);
         }
@@ -35,21 +35,21 @@ async fn main(_spawner: Spawner) {
     // not bothering with async reads from now on
     {
         {
-            let mut p = Pin::new(&mut p.PIN_27, Pull::Down);
+            let mut p = Channel::new_pin(&mut p.PIN_27, Pull::Down);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() < 0b01_0000_0000);
         }
         {
-            let mut p = Pin::new(&mut p.PIN_27, Pull::Up);
+            let mut p = Channel::new_pin(&mut p.PIN_27, Pull::Up);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() > 0b11_0000_0000);
         }
     }
     {
         {
-            let mut p = Pin::new(&mut p.PIN_28, Pull::Down);
+            let mut p = Channel::new_pin(&mut p.PIN_28, Pull::Down);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() < 0b01_0000_0000);
         }
         {
-            let mut p = Pin::new(&mut p.PIN_28, Pull::Up);
+            let mut p = Channel::new_pin(&mut p.PIN_28, Pull::Up);
             defmt::assert!(adc.blocking_read(&mut p).unwrap() > 0b11_0000_0000);
         }
     }
@@ -57,22 +57,22 @@ async fn main(_spawner: Spawner) {
         // gp29 is connected to vsys through a 200k/100k divider,
         // adding pulls should change the value
         let low = {
-            let mut p = Pin::new(&mut p.PIN_29, Pull::Down);
+            let mut p = Channel::new_pin(&mut p.PIN_29, Pull::Down);
             adc.blocking_read(&mut p).unwrap()
         };
         let none = {
-            let mut p = Pin::new(&mut p.PIN_29, Pull::None);
+            let mut p = Channel::new_pin(&mut p.PIN_29, Pull::None);
             adc.blocking_read(&mut p).unwrap()
         };
         let up = {
-            let mut p = Pin::new(&mut p.PIN_29, Pull::Up);
+            let mut p = Channel::new_pin(&mut p.PIN_29, Pull::Up);
             adc.blocking_read(&mut p).unwrap()
         };
         defmt::assert!(low < none);
         defmt::assert!(none < up);
     }
 
-    let temp = convert_to_celsius(adc.read_temperature().await.unwrap());
+    let temp = convert_to_celsius(adc.read(&mut Channel::new_sensor(p.ADC_TEMP_SENSOR)).await.unwrap());
     defmt::assert!(temp > 0.0);
     defmt::assert!(temp < 60.0);
 

@@ -183,6 +183,7 @@ embassy_hal_internal::peripherals! {
     FLASH,
 
     ADC,
+    ADC_TEMP_SENSOR,
 
     CORE1,
 
