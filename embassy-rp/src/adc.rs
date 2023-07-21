@@ -1,5 +1,6 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -11,7 +12,7 @@ use crate::gpio::{self, AnyPin, Pull};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::InterruptExt;
 use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{dma, interrupt, pac, peripherals, Peripheral, RegExt};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -48,7 +49,7 @@ impl<'p> Channel<'p> {
         Self(Source::Pin(pin.map_into()))
     }
 
-    pub fn new_sensor(s: impl Peripheral<P = ADC_TEMP_SENSOR> + 'p) -> Self {
+    pub fn new_temp_sensor(s: impl Peripheral<P = ADC_TEMP_SENSOR> + 'p) -> Self {
         let r = pac::ADC;
         r.cs().write_set(|w| w.set_ts_en(true));
         Self(Source::TempSensor(s.into_ref()))
@@ -79,6 +80,21 @@ impl<'p> Drop for Source<'p> {
                 pac::ADC.cs().write_clear(|w| w.set_ts_en(true));
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(transparent)]
+pub struct Sample(u16);
+
+impl Sample {
+    pub fn good(&self) -> bool {
+        self.0 < 0x8000
+    }
+
+    pub fn value(&self) -> u16 {
+        self.0 & !0x8000
     }
 }
 
@@ -191,6 +207,91 @@ impl<'d> Adc<'d, Async> {
             false => Ok(r.result().read().result().into()),
         }
     }
+
+    async fn read_many_inner<W: dma::Word>(
+        &mut self,
+        ch: &mut Channel<'_>,
+        buf: &mut [W],
+        fcs_err: bool,
+        dma: impl Peripheral<P = impl dma::Channel>,
+    ) -> Result<(), Error> {
+        let r = Self::regs();
+        // clear previous errors and set channel
+        r.cs().modify(|w| {
+            w.set_ainsel(ch.channel());
+            w.set_err_sticky(true); // clear previous errors
+            w.set_start_many(false);
+        });
+        // wait for previous conversions and drain fifo. an earlier batch read may have
+        // been cancelled, leaving the adc running.
+        while !r.cs().read().ready() {}
+        while !r.fcs().read().empty() {
+            r.fifo().read();
+        }
+
+        // set up fifo for dma
+        r.fcs().write(|w| {
+            w.set_thresh(1);
+            w.set_dreq_en(true);
+            w.set_shift(mem::size_of::<W>() == 1);
+            w.set_en(true);
+            w.set_err(fcs_err);
+        });
+
+        // reset dma config on drop, regardless of whether it was a future being cancelled
+        // or the method returning normally.
+        struct ResetDmaConfig;
+        impl Drop for ResetDmaConfig {
+            fn drop(&mut self) {
+                pac::ADC.cs().write_clear(|w| w.set_start_many(true));
+                while !pac::ADC.cs().read().ready() {}
+                pac::ADC.fcs().write_clear(|w| {
+                    w.set_dreq_en(true);
+                    w.set_shift(true);
+                    w.set_en(true);
+                });
+            }
+        }
+        let auto_reset = ResetDmaConfig;
+
+        let dma = unsafe { dma::read(dma, r.fifo().as_ptr() as *const W, buf as *mut [W], 36) };
+        // start conversions and wait for dma to finish. we can't report errors early
+        // because there's no interrupt to signal them, and inspecting every element
+        // of the fifo is too costly to do here.
+        r.cs().write_set(|w| w.set_start_many(true));
+        dma.await;
+        mem::drop(auto_reset);
+        // we can't report errors before the conversions have ended since no interrupt
+        // exists to report them early, and since they're exceedingly rare we probably don't
+        // want to anyway.
+        match r.cs().read().err_sticky() {
+            false => Ok(()),
+            true => Err(Error::ConversionFailed),
+        }
+    }
+
+    #[inline]
+    pub async fn read_many<S: AdcSample>(
+        &mut self,
+        ch: &mut Channel<'_>,
+        buf: &mut [S],
+        dma: impl Peripheral<P = impl dma::Channel>,
+    ) -> Result<(), Error> {
+        self.read_many_inner(ch, buf, false, dma).await
+    }
+
+    #[inline]
+    pub async fn read_many_raw(
+        &mut self,
+        ch: &mut Channel<'_>,
+        buf: &mut [Sample],
+        dma: impl Peripheral<P = impl dma::Channel>,
+    ) {
+        // errors are reported in individual samples
+        let _ = self
+            .read_many_inner(ch, unsafe { mem::transmute::<_, &mut [u16]>(buf) }, true, dma)
+            .await;
+    }
 }
 
 impl<'d> Adc<'d, Blocking> {
@@ -214,8 +315,18 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ADC_IRQ_FIFO> for Inter
 }
 
 mod sealed {
+    pub trait AdcSample: crate::dma::Word {}
+
     pub trait AdcChannel {}
 }
+
+pub trait AdcSample: sealed::AdcSample {}
+
+impl sealed::AdcSample for u16 {}
+impl AdcSample for u16 {}
+
+impl sealed::AdcSample for u8 {}
+impl AdcSample for u8 {}
 
 pub trait AdcChannel: sealed::AdcChannel {}
 pub trait AdcPin: AdcChannel + gpio::Pin {}

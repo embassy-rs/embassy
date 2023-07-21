@@ -6,7 +6,7 @@ mod common;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
+use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler, Sample};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Pull;
 use {defmt_rtt as _, panic_probe as _};
@@ -71,10 +71,57 @@ async fn main(_spawner: Spawner) {
         defmt::assert!(low < none);
         defmt::assert!(none < up);
     }
+    {
+        let temp = convert_to_celsius(
+            adc.read(&mut Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR))
+                .await
+                .unwrap(),
+        );
+        defmt::assert!(temp > 0.0);
+        defmt::assert!(temp < 60.0);
+    }
 
-    let temp = convert_to_celsius(adc.read(&mut Channel::new_sensor(p.ADC_TEMP_SENSOR)).await.unwrap());
-    defmt::assert!(temp > 0.0);
-    defmt::assert!(temp < 60.0);
+    // run a bunch of conversions. we'll only check gp29 and the temp
+    // sensor here for brevity, if those two work the rest will too.
+    {
+        // gp29 is connected to vsys through a 200k/100k divider,
+        // adding pulls should change the value
+        let mut low = [0u16; 16];
+        let mut none = [0u8; 16];
+        let mut up = [Sample::default(); 16];
+        adc.read_many(
+            &mut Channel::new_pin(&mut p.PIN_29, Pull::Down),
+            &mut low,
+            &mut p.DMA_CH0,
+        )
+        .await
+        .unwrap();
+        adc.read_many(
+            &mut Channel::new_pin(&mut p.PIN_29, Pull::None),
+            &mut none,
+            &mut p.DMA_CH0,
+        )
+        .await
+        .unwrap();
+        adc.read_many_raw(&mut Channel::new_pin(&mut p.PIN_29, Pull::Up), &mut up, &mut p.DMA_CH0)
+            .await;
+        defmt::assert!(low.iter().zip(none.iter()).all(|(l, n)| *l >> 4 < *n as u16));
+        defmt::assert!(up.iter().all(|s| s.good()));
+        defmt::assert!(none.iter().zip(up.iter()).all(|(n, u)| (*n as u16) < u.value()));
+    }
+    {
+        let mut temp = [0u16; 16];
+        adc.read_many(
+            &mut Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR),
+            &mut temp,
+            &mut p.DMA_CH0,
+        )
+        .await
+        .unwrap();
+        let temp = temp.map(convert_to_celsius);
+        defmt::assert!(temp.iter().all(|t| *t > 0.0));
+        defmt::assert!(temp.iter().all(|t| *t < 60.0));
+    }
 
     info!("Test OK");
     cortex_m::asm::bkpt();
