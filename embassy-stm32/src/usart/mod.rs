@@ -116,6 +116,10 @@ pub struct Config {
     /// but will effectively disable noise detection.
     #[cfg(not(usart_v1))]
     pub assume_noise_free: bool,
+
+    /// Set this to true to swap the RX and TX pins.
+    #[cfg(any(usart_v3, usart_v4))]
+    pub swap_rx_tx: bool,
 }
 
 impl Default for Config {
@@ -129,6 +133,8 @@ impl Default for Config {
             detect_previous_overrun: false,
             #[cfg(not(usart_v1))]
             assume_noise_free: false,
+            #[cfg(any(usart_v3, usart_v4))]
+            swap_rx_tx: false,
         }
     }
 }
@@ -688,8 +694,22 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
 
         let r = T::regs();
 
-        rx.set_as_af(rx.af_num(), AFType::Input);
-        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+        // Some chips do not have swap_rx_tx bit
+        cfg_if::cfg_if! {
+            if #[cfg(any(usart_v3, usart_v4))] {
+                if config.swap_rx_tx {
+                    let (rx, tx) = (tx, rx);
+                    rx.set_as_af(rx.af_num(), AFType::Input);
+                    tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+                } else {
+                    rx.set_as_af(rx.af_num(), AFType::Input);
+                    tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+                }
+            } else {
+                rx.set_as_af(rx.af_num(), AFType::Input);
+                tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+            }
+        }
 
         configure(r, &config, T::frequency(), T::KIND, true, true);
 
@@ -847,6 +867,9 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
             StopBits::STOP1P5 => vals::Stop::STOP1P5,
             StopBits::STOP2 => vals::Stop::STOP2,
         });
+
+        #[cfg(any(usart_v3, usart_v4))]
+        w.set_swap(config.swap_rx_tx);
     });
     r.cr1().write(|w| {
         // enable uart

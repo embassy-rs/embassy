@@ -716,6 +716,9 @@ mod nightly {
         async fn transaction(&mut self, address: A, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
+            if operations.len() > 0 {
+                Self::setup(addr)?;
+            }
             let mut iterator = operations.iter_mut();
 
             while let Some(op) = iterator.next() {
@@ -723,11 +726,9 @@ mod nightly {
 
                 match op {
                     Operation::Read(buffer) => {
-                        Self::setup(addr)?;
                         self.read_async_internal(buffer, false, last).await?;
                     }
                     Operation::Write(buffer) => {
-                        Self::setup(addr)?;
                         self.write_async_internal(buffer.into_iter().cloned(), last).await?;
                     }
                 }
