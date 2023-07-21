@@ -1,6 +1,11 @@
+use core::cell::RefCell;
+
 use embassy_futures::join;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::channel::Channel;
+use embassy_sync::mutex::Mutex;
+use embassy_sync::signal::Signal;
 
 use crate::mac::commands::DataRequest;
 use crate::mac::event::MacEvent;
@@ -9,7 +14,13 @@ use crate::mac::MTU;
 use crate::sub::mac::Mac;
 
 pub struct Runner<'a> {
-    mac_subsystem: Mac,
+    pub(crate) mac_subsystem: Mac,
+
+    // rx event backpressure is already provided through the MacEvent drop mechanism
+    pub(crate) rx_event_channel:
+        blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<Option<Signal<NoopRawMutex, MacEvent<'a>>>>>,
+    pub(crate) read_mutex: Mutex<CriticalSectionRawMutex, ()>,
+    pub(crate) write_mutex: Mutex<CriticalSectionRawMutex, ()>,
     pub(crate) rx_channel: Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
     pub(crate) tx_channel: Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), 5>,
     pub(crate) tx_buf_channel: Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], 5>,
@@ -19,6 +30,9 @@ impl<'a> Runner<'a> {
     pub fn new(mac: Mac, tx_buf_queue: [&'a mut [u8; MTU]; 5]) -> Self {
         let this = Self {
             mac_subsystem: mac,
+            rx_event_channel: blocking_mutex::Mutex::new(RefCell::new(None)),
+            read_mutex: Mutex::new(()),
+            write_mutex: Mutex::new(()),
             rx_channel: Channel::new(),
             tx_channel: Channel::new(),
             tx_buf_channel: Channel::new(),
@@ -40,7 +54,16 @@ impl<'a> Runner<'a> {
                             MacEvent::McpsDataInd(_) => {
                                 self.rx_channel.send(mac_event).await;
                             }
-                            _ => {}
+                            _ => {
+                                self.rx_event_channel.lock(|s| {
+                                    match &*s.borrow() {
+                                        Some(signal) => {
+                                            signal.signal(mac_event);
+                                        }
+                                        None => {}
+                                    };
+                                });
+                            }
                         }
                     }
                 }
@@ -50,7 +73,9 @@ impl<'a> Runner<'a> {
 
                 loop {
                     let (buf, len) = self.tx_channel.recv().await;
+                    let _wm = self.write_mutex.lock().await;
 
+                    // The mutex should be dropped on the next loop iteration
                     self.mac_subsystem
                         .send_command(
                             DataRequest {

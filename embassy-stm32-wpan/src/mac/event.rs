@@ -144,6 +144,8 @@ impl<'a> MacEvent<'a> {
     }
 }
 
+unsafe impl<'a> Send for MacEvent<'a> {}
+
 impl<'a> Drop for MacEvent<'a> {
     fn drop(&mut self) {
         unsafe { mac::Mac::drop_event_packet(ptr::null_mut()) };

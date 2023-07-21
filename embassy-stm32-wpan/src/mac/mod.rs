@@ -10,7 +10,7 @@ pub mod responses;
 pub mod runner;
 pub mod typedefs;
 
-pub use crate::mac::control::{Control, Error as ControlError};
+pub use crate::mac::control::Control;
 use crate::mac::driver::Driver;
 pub use crate::mac::runner::Runner;
 
