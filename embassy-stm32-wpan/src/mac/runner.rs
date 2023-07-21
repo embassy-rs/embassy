@@ -13,12 +13,13 @@ use crate::mac::typedefs::{AddressMode, MacAddress, PanId, SecurityLevel};
 use crate::mac::MTU;
 use crate::sub::mac::Mac;
 
+type ZeroCopyPubSub<M, T> = blocking_mutex::Mutex<M, RefCell<Option<Signal<NoopRawMutex, T>>>>;
+
 pub struct Runner<'a> {
     pub(crate) mac_subsystem: Mac,
-
     // rx event backpressure is already provided through the MacEvent drop mechanism
-    pub(crate) rx_event_channel:
-        blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<Option<Signal<NoopRawMutex, MacEvent<'a>>>>>,
+    // therefore, we don't need to worry about overwriting events
+    pub(crate) rx_event_channel: ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
     pub(crate) read_mutex: Mutex<CriticalSectionRawMutex, ()>,
     pub(crate) write_mutex: Mutex<CriticalSectionRawMutex, ()>,
     pub(crate) rx_channel: Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,

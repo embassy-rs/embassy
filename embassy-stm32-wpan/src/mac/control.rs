@@ -1,5 +1,6 @@
 use core::future::Future;
 use core::task;
+use core::task::Poll;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::MutexGuard;
@@ -7,6 +8,7 @@ use embassy_sync::signal::Signal;
 use futures::FutureExt;
 
 use super::commands::MacCommand;
+use super::event::MacEvent;
 use super::typedefs::MacError;
 use crate::mac::runner::Runner;
 
@@ -62,10 +64,9 @@ impl<'a> EventToken<'a> {
 }
 
 impl<'a> Future for EventToken<'a> {
-    // TODO: output something
-    type Output = ();
+    type Output = MacEvent<'a>;
 
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
         self.get_mut().runner.rx_event_channel.lock(|s| {
             let signal = s.borrow_mut();
             let signal = match &*signal {
@@ -73,10 +74,13 @@ impl<'a> Future for EventToken<'a> {
                 _ => unreachable!(),
             };
 
-            let _ = signal.wait().poll_unpin(cx);
-        });
+            let result = match signal.wait().poll_unpin(cx) {
+                Poll::Ready(mac_event) => Poll::Ready(mac_event),
+                Poll::Pending => Poll::Pending,
+            };
 
-        todo!()
+            result
+        })
     }
 }
 
