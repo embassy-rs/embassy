@@ -6,11 +6,12 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32_wpan::mac::commands::{AssociateResponse, ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::mac::event::MacEvent;
-use embassy_stm32_wpan::mac::typedefs::{MacChannel, MacStatus, PanId, PibId, SecurityLevel};
+use embassy_stm32_wpan::mac::commands::{ResetRequest, SetRequest, StartRequest};
+use embassy_stm32_wpan::mac::typedefs::{MacChannel, PanId, PibId};
+use embassy_stm32_wpan::mac::{self, Runner};
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
+use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -21,6 +22,11 @@ bind_interrupts!(struct Irqs{
 #[embassy_executor::task]
 async fn run_mm_queue(memory_manager: mm::MemoryManager) {
     memory_manager.run_queue().await;
+}
+
+#[embassy_executor::task]
+async fn run_mac(runner: &'static Runner<'static>) {
+    runner.run().await;
 }
 
 #[embassy_executor::main]
@@ -145,41 +151,20 @@ async fn main(spawner: Spawner) {
         .unwrap();
     defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
-    loop {
-        let evt = mbox.mac_subsystem.read().await;
-        if let Ok(evt) = evt {
-            defmt::info!("parsed mac event");
-            defmt::info!("{:#x}", evt);
+    let tx_queue = [
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+        make_static!([0u8; 127]),
+    ];
 
-            match evt {
-                MacEvent::MlmeAssociateInd(association) => mbox
-                    .mac_subsystem
-                    .send_command(&AssociateResponse {
-                        device_address: association.device_address,
-                        assoc_short_address: [0x33, 0x44],
-                        status: MacStatus::Success,
-                        security_level: SecurityLevel::Unsecure,
-                        ..Default::default()
-                    })
-                    .await
-                    .unwrap(),
-                MacEvent::McpsDataInd(data_ind) => {
-                    let payload = data_ind.payload();
-                    let ref_payload = b"Hello from embassy!";
-                    info!("{}", payload);
+    let runner = make_static!(Runner::new(mbox.mac_subsystem, tx_queue));
 
-                    if payload == ref_payload {
-                        info!("success");
-                    } else {
-                        info!("ref payload: {}", ref_payload);
-                    }
-                }
-                _ => {
-                    defmt::info!("other mac event");
-                }
-            }
-        } else {
-            defmt::info!("failed to parse mac event");
-        }
-    }
+    spawner.spawn(run_mac(runner)).unwrap();
+
+    let (driver, control) = mac::new(runner).await;
+
+    let _ = driver;
+    let _ = control;
 }

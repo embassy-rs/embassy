@@ -75,10 +75,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
@@ -89,10 +86,7 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    {
-        let evt = mbox.mac_subsystem.read().await;
-        defmt::info!("{:#x}", evt.mac_event());
-    }
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("getting extended address");
     mbox.mac_subsystem
@@ -104,10 +98,10 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
 
-        if let Ok(MacEvent::MlmeGetCnf(evt)) = evt.mac_event() {
+        if let MacEvent::MlmeGetCnf(evt) = evt {
             if evt.pib_attribute_value_len == 8 {
                 let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
 
@@ -132,10 +126,10 @@ async fn main(spawner: Spawner) {
     info!("{}", a);
     mbox.mac_subsystem.send_command(&a).await.unwrap();
     let short_addr = {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
 
-        if let Ok(MacEvent::MlmeAssociateCnf(conf)) = evt.mac_event() {
+        if let MacEvent::MlmeAssociateCnf(conf) = evt {
             conf.assoc_short_address
         } else {
             defmt::panic!()
@@ -151,8 +145,8 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
     }
 
     info!("sending data");
@@ -175,12 +169,14 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
     }
 
     loop {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt.mac_event());
+        match mbox.mac_subsystem.read().await {
+            Ok(evt) => info!("{:#x}", evt),
+            _ => continue,
+        };
     }
 }

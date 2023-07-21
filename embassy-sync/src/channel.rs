@@ -335,6 +335,12 @@ impl<T, const N: usize> ChannelState<T, N> {
         }
     }
 
+    fn poll_ready_to_receive(&mut self, cx: &mut Context<'_>) -> bool {
+        self.receiver_waker.register(cx.waker());
+
+        !self.queue.is_empty()
+    }
+
     fn try_send(&mut self, message: T) -> Result<(), TrySendError<T>> {
         self.try_send_with_context(message, None)
     }
@@ -352,6 +358,12 @@ impl<T, const N: usize> ChannelState<T, N> {
                 Err(TrySendError::Full(message))
             }
         }
+    }
+
+    fn poll_ready_to_send(&mut self, cx: &mut Context<'_>) -> bool {
+        self.senders_waker.register(cx.waker());
+
+        !self.queue.is_full()
     }
 }
 
@@ -399,6 +411,16 @@ where
 
     fn try_send_with_context(&self, m: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
         self.lock(|c| c.try_send_with_context(m, cx))
+    }
+
+    /// Allows a poll_fn to poll until the channel is ready to receive
+    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+        self.lock(|c| c.poll_ready_to_receive(cx))
+    }
+
+    /// Allows a poll_fn to poll until the channel is ready to send
+    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+        self.lock(|c| c.poll_ready_to_send(cx))
     }
 
     /// Get a sender for this channel.

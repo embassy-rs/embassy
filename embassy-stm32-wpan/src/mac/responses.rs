@@ -8,6 +8,7 @@ use super::typedefs::{
 /// MLME ASSOCIATE Confirm used to inform of the initiating device whether
 /// its request to associate was successful or unsuccessful
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssociateConfirm {
     /// short address allocated by the coordinator on successful association
@@ -30,6 +31,7 @@ impl ParseableMacEvent for AssociateConfirm {}
 
 /// MLME DISASSOCIATE Confirm used to send disassociation Confirmation to the application.
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DisassociateConfirm {
     /// status of the disassociation attempt
@@ -46,6 +48,7 @@ impl ParseableMacEvent for DisassociateConfirm {}
 
 ///  MLME GET Confirm which requests information about a given PIB attribute
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GetConfirm {
     /// The pointer to the value of the PIB attribute attempted to read
@@ -65,6 +68,7 @@ impl ParseableMacEvent for GetConfirm {}
 /// MLME GTS Confirm which eports the results of a request to allocate a new GTS
 /// or to deallocate an existing GTS
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GtsConfirm {
     /// The characteristics of the GTS
@@ -79,10 +83,11 @@ impl ParseableMacEvent for GtsConfirm {}
 
 /// MLME RESET Confirm which is used to report the results of the reset operation
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResetConfirm {
     /// The result of the reset operation
-    status: MacStatus,
+    pub status: MacStatus,
     /// byte stuffing to keep 32 bit alignment
     a_stuffing: [u8; 3],
 }
@@ -92,10 +97,11 @@ impl ParseableMacEvent for ResetConfirm {}
 /// MLME RX ENABLE Confirm which is used to report the results of the attempt
 /// to enable or disable the receiver
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxEnableConfirm {
     /// Result of the request to enable or disable the receiver
-    status: MacStatus,
+    pub status: MacStatus,
     /// byte stuffing to keep 32 bit alignment
     a_stuffing: [u8; 3],
 }
@@ -104,6 +110,7 @@ impl ParseableMacEvent for RxEnableConfirm {}
 
 /// MLME SCAN Confirm which is used to report the result of the channel scan request
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScanConfirm {
     /// Status of the scan request
@@ -130,6 +137,7 @@ impl ParseableMacEvent for ScanConfirm {}
 
 /// MLME SET Confirm which reports the result of an attempt to write a value to a PIB attribute
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SetConfirm {
     /// The result of the set operation
@@ -145,6 +153,7 @@ impl ParseableMacEvent for SetConfirm {}
 /// MLME START Confirm which is used to report the results of the attempt to
 /// start using a new superframe configuration
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StartConfirm {
     /// Result of the attempt to start using an updated superframe configuration
@@ -157,6 +166,7 @@ impl ParseableMacEvent for StartConfirm {}
 
 /// MLME POLL Confirm which is used to report the result of a request to poll the coordinator for data
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PollConfirm {
     /// The status of the data request
@@ -169,6 +179,7 @@ impl ParseableMacEvent for PollConfirm {}
 
 /// MLME DPS Confirm which  reports the results of the attempt to enable or disable the DPS
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DpsConfirm {
     /// The status of the DPS request
@@ -182,10 +193,11 @@ impl ParseableMacEvent for DpsConfirm {}
 /// MLME SOUNDING Confirm which  reports the result of a request to the PHY to provide
 /// channel sounding information
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SoundingConfirm {
     /// Results of the sounding measurement
-    sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
+    pub sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
 
     status: u8,
 }
@@ -195,6 +207,7 @@ impl ParseableMacEvent for SoundingConfirm {}
 /// MLME CALIBRATE Confirm which reports the result of a request to the PHY
 /// to provide internal propagation path information
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CalibrateConfirm {
     /// The status of the attempt to return sounding data
@@ -214,6 +227,7 @@ impl ParseableMacEvent for CalibrateConfirm {}
 /// MCPS DATA Confirm which will be used for reporting the results of
 /// MAC data related requests from the application
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DataConfirm {
     /// The handle associated with the MSDU being confirmed
@@ -245,6 +259,7 @@ impl ParseableMacEvent for DataConfirm {}
 /// MCPS PURGE Confirm which will be used by the  MAC to notify the application of
 /// the status of its request to purge an MSDU from the transaction queue
 #[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PurgeConfirm {
     /// Handle associated with the MSDU requested to be purged from the transaction queue
