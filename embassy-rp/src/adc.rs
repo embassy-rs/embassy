@@ -223,28 +223,21 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ADC_IRQ_FIFO> for Inter
 }
 
 mod sealed {
-    pub trait AdcChannel {
-        fn channel(&mut self) -> u8;
-    }
+    pub trait AdcChannel {}
 }
 
 pub trait AdcChannel: sealed::AdcChannel {}
 pub trait AdcPin: AdcChannel + gpio::Pin {}
 
 macro_rules! impl_pin {
-    ($pin:ident, $channel:expr) => {
-        impl sealed::AdcChannel for peripherals::$pin {
-            fn channel(&mut self) -> u8 {
-                $channel
-            }
-        }
-
+    ($pin:ident) => {
+        impl sealed::AdcChannel for peripherals::$pin {}
         impl AdcChannel for peripherals::$pin {}
         impl AdcPin for peripherals::$pin {}
     };
 }
 
-impl_pin!(PIN_26, 0);
-impl_pin!(PIN_27, 1);
-impl_pin!(PIN_28, 2);
-impl_pin!(PIN_29, 3);
+impl_pin!(PIN_26);
+impl_pin!(PIN_27);
+impl_pin!(PIN_28);
+impl_pin!(PIN_29);
