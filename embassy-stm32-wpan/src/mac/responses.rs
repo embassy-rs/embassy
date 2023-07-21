@@ -87,7 +87,7 @@ impl ParseableMacEvent for GtsConfirm {}
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResetConfirm {
     /// The result of the reset operation
-    status: MacStatus,
+    pub status: MacStatus,
     /// byte stuffing to keep 32 bit alignment
     a_stuffing: [u8; 3],
 }
@@ -101,7 +101,7 @@ impl ParseableMacEvent for ResetConfirm {}
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxEnableConfirm {
     /// Result of the request to enable or disable the receiver
-    status: MacStatus,
+    pub status: MacStatus,
     /// byte stuffing to keep 32 bit alignment
     a_stuffing: [u8; 3],
 }
@@ -197,7 +197,7 @@ impl ParseableMacEvent for DpsConfirm {}
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SoundingConfirm {
     /// Results of the sounding measurement
-    sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
+    pub sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
 
     status: u8,
 }

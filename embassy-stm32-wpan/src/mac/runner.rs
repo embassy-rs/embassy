@@ -95,7 +95,7 @@ impl<'a> Runner<'a> {
                         .await
                         .unwrap();
 
-                    msdu_handle += 1;
+                    msdu_handle = msdu_handle.wrapping_add(1);
 
                     // The tx channel should always be of equal capacity to the tx_buf channel
                     self.tx_buf_channel.try_send(buf).unwrap();

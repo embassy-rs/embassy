@@ -34,8 +34,8 @@ impl<'a> Control<'a> {
     where
         T: MacCommand,
     {
-        let _wm = self.runner.write_mutex.lock().await;
         let rm = self.runner.read_mutex.lock().await;
+        let _wm = self.runner.write_mutex.lock().await;
         let token = EventToken::new(self.runner, rm);
 
         self.runner.mac_subsystem.send_command(cmd).await?;
