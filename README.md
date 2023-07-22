@@ -111,6 +111,12 @@ cargo install probe-rs --features cli
 cd examples/nrf52840
 ```
 
+- Ensure `Cargo.toml` sets the right feature for the name of the chip you are programming.
+  If this name is incorrect, the example may fail to run or immediately crash
+  after being programmed.
+
+- Ensure `.cargo/config.toml` contains the name of the chip you are programming.
+
 - Run the example
 
 For example:
