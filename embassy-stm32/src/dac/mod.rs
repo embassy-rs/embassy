@@ -41,7 +41,7 @@ pub enum Ch1Trigger {
     #[cfg(dac_v3)]
     Tim1,
     Tim2,
-    #[cfg(not(dac_v2))]
+    #[cfg(not(dac_v3))]
     Tim3,
     #[cfg(dac_v3)]
     Tim4,
@@ -72,7 +72,7 @@ impl Ch1Trigger {
             #[cfg(dac_v3)]
             Ch1Trigger::Tim1 => dac::vals::Tsel1::TIM1_TRGO,
             Ch1Trigger::Tim2 => dac::vals::Tsel1::TIM2_TRGO,
-            #[cfg(dac_v2)]
+            #[cfg(not(dac_v3))]
             Ch1Trigger::Tim3 => dac::vals::Tsel1::TIM3_TRGO,
             #[cfg(dac_v3)]
             Ch1Trigger::Tim4 => dac::vals::Tsel1::TIM4_TRGO,
