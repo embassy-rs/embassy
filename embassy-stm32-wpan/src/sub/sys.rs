@@ -50,7 +50,7 @@ impl Sys {
     }
 
     /// `HW_IPCC_SYS_CmdEvtNot`
-    pub async fn write_and_get_response(&self, opcode: ShciOpcode, payload: &[u8]) -> SchiCommandStatus {
+    pub async fn write_and_get_response(&self, opcode: ShciOpcode, payload: &[u8]) -> Result<SchiCommandStatus, ()> {
         self.write(opcode, payload).await;
         Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
 
@@ -59,17 +59,36 @@ impl Sys {
             let p_command_event = &((*p_event_packet).evt_serial.evt.payload) as *const _ as *const CcEvt;
             let p_payload = &((*p_command_event).payload) as *const u8;
 
-            ptr::read_volatile(p_payload).try_into().unwrap()
+            ptr::read_volatile(p_payload).try_into()
         }
     }
 
     #[cfg(feature = "mac")]
-    pub async fn shci_c2_mac_802_15_4_init(&self) -> SchiCommandStatus {
+    pub async fn shci_c2_mac_802_15_4_init(&self) -> Result<SchiCommandStatus, ()> {
+        use crate::tables::{
+            Mac802_15_4Table, TracesTable, MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER,
+            TL_MAC_802_15_4_TABLE, TL_TRACES_TABLE, TRACES_EVT_QUEUE,
+        };
+
+        unsafe {
+            LinkedListNode::init_head(TRACES_EVT_QUEUE.as_mut_ptr() as *mut _);
+
+            TL_TRACES_TABLE.as_mut_ptr().write_volatile(TracesTable {
+                traces_queue: TRACES_EVT_QUEUE.as_ptr() as *const _,
+            });
+
+            TL_MAC_802_15_4_TABLE.as_mut_ptr().write_volatile(Mac802_15_4Table {
+                p_cmdrsp_buffer: MAC_802_15_4_CMD_BUFFER.as_mut_ptr().cast(),
+                p_notack_buffer: MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr().cast(),
+                evt_queue: core::ptr::null_mut(),
+            });
+        };
+
         self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
     }
 
     #[cfg(feature = "ble")]
-    pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) -> SchiCommandStatus {
+    pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }
 

@@ -740,7 +740,7 @@ mod pll {
             }
         };
 
-        let vco_ck = output + pll_x_p;
+        let vco_ck = output * pll_x_p;
 
         assert!(pll_x_p < 128);
         assert!(vco_ck >= VCO_MIN);

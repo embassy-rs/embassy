@@ -1,5 +1,6 @@
 #![no_std]
-#![cfg_attr(feature = "ble", feature(async_fn_in_trait))]
+#![cfg_attr(any(feature = "ble", feature = "mac"), feature(async_fn_in_trait))]
+#![cfg_attr(feature = "mac", feature(type_alias_impl_trait, concat_bytes))]
 
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
@@ -25,6 +26,9 @@ pub mod shci;
 pub mod sub;
 pub mod tables;
 pub mod unsafe_linked_list;
+
+#[cfg(feature = "mac")]
+pub mod mac;
 
 #[cfg(feature = "ble")]
 pub use crate::sub::ble::hci;
@@ -60,9 +64,9 @@ impl<'d> TlMbox<'d> {
                 mem_manager_table: TL_MEM_MANAGER_TABLE.as_ptr(),
                 traces_table: TL_TRACES_TABLE.as_ptr(),
                 mac_802_15_4_table: TL_MAC_802_15_4_TABLE.as_ptr(),
-                // zigbee_table: TL_ZIGBEE_TABLE.as_ptr(),
-                // lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
-                // ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
+                zigbee_table: TL_ZIGBEE_TABLE.as_ptr(),
+                lld_tests_table: TL_LLD_TESTS_TABLE.as_ptr(),
+                ble_lld_table: TL_BLE_LLD_TABLE.as_ptr(),
             });
 
             TL_SYS_TABLE
@@ -87,15 +91,15 @@ impl<'d> TlMbox<'d> {
             TL_MAC_802_15_4_TABLE
                 .as_mut_ptr()
                 .write_volatile(MaybeUninit::zeroed().assume_init());
-            //            TL_ZIGBEE_TABLE
-            //                .as_mut_ptr()
-            //                .write_volatile(MaybeUninit::zeroed().assume_init());
-            //            TL_LLD_TESTS_TABLE
-            //                .as_mut_ptr()
-            //                .write_volatile(MaybeUninit::zeroed().assume_init());
-            //            TL_BLE_LLD_TABLE
-            //                .as_mut_ptr()
-            //                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_ZIGBEE_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_LLD_TESTS_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
+            TL_BLE_LLD_TABLE
+                .as_mut_ptr()
+                .write_volatile(MaybeUninit::zeroed().assume_init());
 
             EVT_POOL
                 .as_mut_ptr()
@@ -103,18 +107,30 @@ impl<'d> TlMbox<'d> {
             SYS_SPARE_EVT_BUF
                 .as_mut_ptr()
                 .write_volatile(MaybeUninit::zeroed().assume_init());
-            BLE_SPARE_EVT_BUF
+            CS_BUFFER
                 .as_mut_ptr()
                 .write_volatile(MaybeUninit::zeroed().assume_init());
 
+            #[cfg(feature = "ble")]
             {
+                BLE_SPARE_EVT_BUF
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+
                 BLE_CMD_BUFFER
                     .as_mut_ptr()
                     .write_volatile(MaybeUninit::zeroed().assume_init());
                 HCI_ACL_DATA_BUFFER
                     .as_mut_ptr()
                     .write_volatile(MaybeUninit::zeroed().assume_init());
-                CS_BUFFER
+            }
+
+            #[cfg(feature = "mac")]
+            {
+                MAC_802_15_4_CMD_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                MAC_802_15_4_NOTIF_RSP_EVT_BUFFER
                     .as_mut_ptr()
                     .write_volatile(MaybeUninit::zeroed().assume_init());
             }

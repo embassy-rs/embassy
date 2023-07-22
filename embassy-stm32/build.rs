@@ -348,9 +348,7 @@ fn main() {
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
-                        critical_section::with(|_| unsafe {
-                            crate::rcc::get_freqs().#clk
-                        })
+                        unsafe { crate::rcc::get_freqs().#clk }
                     }
                     fn enable() {
                         critical_section::with(|_| {

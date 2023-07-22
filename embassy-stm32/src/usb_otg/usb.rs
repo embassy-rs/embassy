@@ -1,8 +1,8 @@
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicBool, AtomicU16, Ordering};
 use embassy_hal_common::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
@@ -648,7 +648,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         let r = T::regs();
         let core_id = r.cid().read().0;
-        info!("Core id {:08x}", core_id);
+        trace!("Core id {:08x}", core_id);
 
         // Wait for AHB ready.
         while !r.grstctl().read().ahbidl() {}
@@ -1154,14 +1154,22 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointOut for Endpoint<'d, T, Out> {
         trace!("read start len={}", buf.len());
 
         poll_fn(|cx| {
+            let r = T::regs();
             let index = self.info.addr.index();
             let state = T::state();
 
             state.ep_out_wakers[index].register(cx.waker());
 
+            let doepctl = r.doepctl(index).read();
+            trace!("read ep={:?}: doepctl {:08x}", self.info.addr, doepctl.0,);
+            if !doepctl.usbaep() {
+                trace!("read ep={:?} error disabled", self.info.addr);
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+
             let len = state.ep_out_size[index].load(Ordering::Relaxed);
             if len != EP_OUT_BUFFER_EMPTY {
-                trace!("read done len={}", len);
+                trace!("read ep={:?} done len={}", self.info.addr, len);
 
                 if len as usize > buf.len() {
                     return Poll::Ready(Err(EndpointError::BufferOverflow));
@@ -1214,7 +1222,12 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
 
             let diepctl = r.diepctl(index).read();
             let dtxfsts = r.dtxfsts(index).read();
-            info!("diepctl {:08x} ftxfsts {:08x}", diepctl.0, dtxfsts.0);
+            trace!(
+                "write ep={:?}: diepctl {:08x} ftxfsts {:08x}",
+                self.info.addr,
+                diepctl.0,
+                dtxfsts.0
+            );
             if !diepctl.usbaep() {
                 trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
                 Poll::Ready(Err(EndpointError::Disabled))

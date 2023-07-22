@@ -473,11 +473,11 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_divm(0);
         });
 
-        return PllOutput{
+        return PllOutput {
             p: None,
             q: None,
             r: None,
-        }
+        };
     };
 
     assert!(1 <= config.prediv && config.prediv <= 63);

@@ -30,11 +30,14 @@ where
 /// Error returned by SPI device implementations in this crate.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum SpiDeviceError<BUS, CS> {
     /// An operation on the inner SPI bus failed.
     Spi(BUS),
     /// Setting the value of the Chip Select (CS) pin failed.
     Cs(CS),
+    /// DelayUs operations are not supported when the `time` Cargo feature is not enabled.
+    DelayUsNotSupported,
 }
 
 impl<BUS, CS> spi::Error for SpiDeviceError<BUS, CS>
@@ -46,6 +49,7 @@ where
         match self {
             Self::Spi(e) => e.kind(),
             Self::Cs(_) => spi::ErrorKind::Other,
+            Self::DelayUsNotSupported => spi::ErrorKind::Other,
         }
     }
 }

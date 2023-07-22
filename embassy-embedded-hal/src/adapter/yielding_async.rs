@@ -69,51 +69,36 @@ where
     type Error = T::Error;
 }
 
-impl<T> embedded_hal_async::spi::SpiBus<u8> for YieldingAsync<T>
+impl<T, Word: 'static + Copy> embedded_hal_async::spi::SpiBus<Word> for YieldingAsync<T>
 where
-    T: embedded_hal_async::spi::SpiBus,
-{
-    async fn transfer<'a>(&'a mut self, read: &'a mut [u8], write: &'a [u8]) -> Result<(), Self::Error> {
-        self.wrapped.transfer(read, write).await?;
-        yield_now().await;
-        Ok(())
-    }
-
-    async fn transfer_in_place<'a>(&'a mut self, words: &'a mut [u8]) -> Result<(), Self::Error> {
-        self.wrapped.transfer_in_place(words).await?;
-        yield_now().await;
-        Ok(())
-    }
-}
-
-impl<T> embedded_hal_async::spi::SpiBusFlush for YieldingAsync<T>
-where
-    T: embedded_hal_async::spi::SpiBusFlush,
+    T: embedded_hal_async::spi::SpiBus<Word>,
 {
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.wrapped.flush().await?;
         yield_now().await;
         Ok(())
     }
-}
 
-impl<T> embedded_hal_async::spi::SpiBusWrite<u8> for YieldingAsync<T>
-where
-    T: embedded_hal_async::spi::SpiBusWrite<u8>,
-{
-    async fn write(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+    async fn write(&mut self, data: &[Word]) -> Result<(), Self::Error> {
         self.wrapped.write(data).await?;
         yield_now().await;
         Ok(())
     }
-}
 
-impl<T> embedded_hal_async::spi::SpiBusRead<u8> for YieldingAsync<T>
-where
-    T: embedded_hal_async::spi::SpiBusRead<u8>,
-{
-    async fn read(&mut self, data: &mut [u8]) -> Result<(), Self::Error> {
+    async fn read(&mut self, data: &mut [Word]) -> Result<(), Self::Error> {
         self.wrapped.read(data).await?;
+        yield_now().await;
+        Ok(())
+    }
+
+    async fn transfer(&mut self, read: &mut [Word], write: &[Word]) -> Result<(), Self::Error> {
+        self.wrapped.transfer(read, write).await?;
+        yield_now().await;
+        Ok(())
+    }
+
+    async fn transfer_in_place(&mut self, words: &mut [Word]) -> Result<(), Self::Error> {
+        self.wrapped.transfer_in_place(words).await?;
         yield_now().await;
         Ok(())
     }

@@ -1,3 +1,8 @@
+//! This example shows how to communicate using i2c with external chips.
+//!
+//! Example written for the [`MCP23017 16-Bit I2C I/O Expander with Serial Interface`] chip.
+//! (https://www.microchip.com/en-us/product/mcp23017)
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

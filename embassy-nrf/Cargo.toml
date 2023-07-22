@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nrf-v$VERSION/embassy-nrf/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nrf/src/"
 
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "gpiote", "time-driver-rtc1"]
+features = ["nightly", "time", "defmt", "unstable-pac", "unstable-traits", "gpiote", "time-driver-rtc1"]
 flavors = [
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
     { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
@@ -91,22 +91,22 @@ _dppi = []
 _gpio-p1 = []
 
 [dependencies]
-embassy-time = { version = "0.1.0", path = "../embassy-time", optional = true }
+embassy-time = { version = "0.1.2", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
 embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional=true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.10", optional = true}
-embedded-hal-async = { version = "=0.2.0-alpha.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11", optional = true}
+embedded-hal-async = { version = "=0.2.0-alpha.2", optional = true}
 embedded-io = { version = "0.4.0", features = ["async"], optional = true }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
-futures     = { version = "0.3.17", default-features = false }
+futures = { version = "0.3.17", default-features = false }
 critical-section = "1.1"
 rand_core = "0.6.3"
 fixed = "1.10.0"
@@ -114,13 +114,13 @@ embedded-storage = "0.3.0"
 embedded-storage-async = { version = "0.4.0", optional = true }
 cfg-if = "1.0.0"
 
-nrf52805-pac  = { version = "0.12.0", optional = true }
-nrf52810-pac  = { version = "0.12.0", optional = true }
-nrf52811-pac  = { version = "0.12.0", optional = true }
-nrf52820-pac  = { version = "0.12.0", optional = true }
-nrf52832-pac  = { version = "0.12.0", optional = true }
-nrf52833-pac  = { version = "0.12.0", optional = true }
-nrf52840-pac  = { version = "0.12.0", optional = true }
+nrf52805-pac = { version = "0.12.0", optional = true }
+nrf52810-pac = { version = "0.12.0", optional = true }
+nrf52811-pac = { version = "0.12.0", optional = true }
+nrf52820-pac = { version = "0.12.0", optional = true }
+nrf52832-pac = { version = "0.12.0", optional = true }
+nrf52833-pac = { version = "0.12.0", optional = true }
+nrf52840-pac = { version = "0.12.0", optional = true }
 nrf5340-app-pac = { version = "0.12.0", optional = true }
 nrf5340-net-pac = { version = "0.12.0", optional = true }
 nrf9160-pac = { version = "0.12.0", optional = true }

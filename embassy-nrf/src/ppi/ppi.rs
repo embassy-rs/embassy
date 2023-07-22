@@ -3,12 +3,12 @@ use embassy_hal_common::into_ref;
 use super::{Channel, ConfigurableChannel, Event, Ppi, StaticChannel, Task};
 use crate::{pac, Peripheral};
 
-impl Task {
+impl<'d> Task<'d> {
     fn reg_val(&self) -> u32 {
         self.0.as_ptr() as _
     }
 }
-impl Event {
+impl<'d> Event<'d> {
     fn reg_val(&self) -> u32 {
         self.0.as_ptr() as _
     }
@@ -34,7 +34,7 @@ impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
     /// Configure PPI channel to trigger `task` on `event`.
-    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event, task: Task) -> Self {
+    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task: Task<'d>) -> Self {
         into_ref!(ch);
 
         let r = regs();
@@ -49,7 +49,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
 #[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
     /// Configure PPI channel to trigger both `task1` and `task2` on `event`.
-    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event, task1: Task, task2: Task) -> Self {
+    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task1: Task<'d>, task2: Task<'d>) -> Self {
         into_ref!(ch);
 
         let r = regs();

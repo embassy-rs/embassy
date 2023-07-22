@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_common::into_ref;
+use stm32_metapac::rcc::regs::Cfgr;
 use stm32_metapac::rcc::vals::{Lsedrv, Mcopre, Mcosel};
 
 use crate::gpio::sealed::AFType;
@@ -439,6 +440,26 @@ impl<'d, T: McoInstance> Mco<'d, T> {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Switch to MSI to prevent problems with PLL configuration.
+    if !RCC.cr().read().msion() {
+        // Turn on MSI and configure it to 4MHz.
+        RCC.cr().modify(|w| {
+            w.set_msirgsel(true); // MSI Range is provided by MSIRANGE[3:0].
+            w.set_msirange(MSIRange::default().into());
+            w.set_msipllen(false);
+            w.set_msion(true)
+        });
+
+        // Wait until MSI is running
+        while !RCC.cr().read().msirdy() {}
+    }
+    if RCC.cfgr().read().sws() != Sw::MSI {
+        // Set MSI as a clock source, reset prescalers.
+        RCC.cfgr().write_value(Cfgr::default());
+        // Wait for clock switch status bits to change.
+        while RCC.cfgr().read().sws() != Sw::MSI {}
+    }
+
     match config.rtc_mux {
         RtcClockSource::LSE32 => {
             // 1. Unlock the backup domain
@@ -659,6 +680,8 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, freq * 2)
         }
     };
+
+    RCC.apb1enr1().modify(|w| w.set_pwren(true));
 
     set_freqs(Clocks {
         sys: Hertz(sys_clk),

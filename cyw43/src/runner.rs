@@ -345,7 +345,9 @@ where
     }
 
     fn rx(&mut self, packet: &mut [u8]) {
-        let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else { return };
+        let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else {
+            return;
+        };
 
         self.update_credit(&sdpcm_header);
 
@@ -353,7 +355,9 @@ where
 
         match channel {
             CHANNEL_TYPE_CONTROL => {
-                let Some((cdc_header, response)) = CdcHeader::parse(payload) else { return; };
+                let Some((cdc_header, response)) = CdcHeader::parse(payload) else {
+                    return;
+                };
                 trace!("    {:?}", cdc_header);
 
                 if cdc_header.id == self.ioctl_id {
@@ -417,8 +421,12 @@ where
                     let status = event_packet.msg.status;
                     let event_payload = match evt_type {
                         Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
-                            let Some((_, bss_info)) = ScanResults::parse(evt_data) else { return };
-                            let Some(bss_info) = BssInfo::parse(bss_info) else { return };
+                            let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
+                                return;
+                            };
+                            let Some(bss_info) = BssInfo::parse(bss_info) else {
+                                return;
+                            };
                             events::Payload::BssInfo(*bss_info)
                         }
                         Event::ESCAN_RESULT => events::Payload::None,
@@ -439,7 +447,9 @@ where
                 }
             }
             CHANNEL_TYPE_DATA => {
-                let Some((_, packet)) = BdcHeader::parse(payload) else { return };
+                let Some((_, packet)) = BdcHeader::parse(payload) else {
+                    return;
+                };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                 match self.ch.try_rx_buf() {
