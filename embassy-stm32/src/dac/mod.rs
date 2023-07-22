@@ -164,7 +164,7 @@ pub trait DacChannel<T: Instance, Tx> {
     }
 
     /// Set mode register of the given channel
-    #[cfg(dac_v2)]
+    #[cfg(any(dac_v2, dac_v3))]
     fn set_channel_mode(&mut self, val: u8) -> Result<(), Error> {
         T::regs().mcr().modify(|reg| {
             reg.set_mode(Self::CHANNEL.index(), val);
@@ -262,7 +262,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(dac_v2)]
+        #[cfg(any(dac_v2, dac_v3))]
         dac.set_channel_mode(0).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
@@ -288,7 +288,6 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 1 has to be configured for the DAC instance!
-    #[cfg(all(bdma, not(dma)))] // It currently only works with BDMA-only chips (DMA should theoretically work though)
     pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: DmaCh1<T>,
@@ -377,7 +376,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(dac_v2)]
+        #[cfg(any(dac_v2, dac_v3))]
         dac.set_channel_mode(0).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
@@ -499,7 +498,7 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(dac_v2)]
+        #[cfg(any(dac_v2, dac_v3))]
         dac_ch1.set_channel_mode(0).unwrap();
         dac_ch1.enable_channel().unwrap();
         dac_ch1.set_trigger_enable(true).unwrap();
