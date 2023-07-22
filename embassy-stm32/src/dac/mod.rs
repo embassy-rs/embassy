@@ -213,8 +213,9 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Tx> + 'd,
-        _pin: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, 1>> + crate::gpio::sealed::Pin + 'd,
     ) -> Self {
+        pin.set_as_analog();
         into_ref!(peri, dma);
         T::enable();
         T::reset();
@@ -324,8 +325,9 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Tx> + 'd,
-        _pin: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, 2>> + crate::gpio::sealed::Pin + 'd,
     ) -> Self {
+        pin.set_as_analog();
         into_ref!(_peri, dma);
         T::enable();
         T::reset();
@@ -439,9 +441,11 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
         peri: impl Peripheral<P = T> + 'd,
         dma_ch1: impl Peripheral<P = TxCh1> + 'd,
         dma_ch2: impl Peripheral<P = TxCh2> + 'd,
-        _pin_ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
-        _pin_ch2: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
+        pin_ch1: impl Peripheral<P = impl DacPin<T, 1>> + crate::gpio::sealed::Pin + 'd,
+        pin_ch2: impl Peripheral<P = impl DacPin<T, 2>> + crate::gpio::sealed::Pin + 'd,
     ) -> Self {
+        pin_ch1.set_as_analog();
+        pin_ch2.set_as_analog();
         into_ref!(peri, dma_ch1, dma_ch2);
         T::enable();
         T::reset();
