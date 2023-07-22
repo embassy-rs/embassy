@@ -51,7 +51,10 @@ impl Ch1Trigger {
     fn tsel(&self) -> dac::vals::Tsel1 {
         match self {
             Ch1Trigger::Tim6 => dac::vals::Tsel1::TIM6_TRGO,
+            #[cfg(not(dac_v3))]
             Ch1Trigger::Tim3 => dac::vals::Tsel1::TIM3_TRGO,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Tim3 => dac::vals::Tsel1::TIM1_TRGO,
             Ch1Trigger::Tim7 => dac::vals::Tsel1::TIM7_TRGO,
             Ch1Trigger::Tim15 => dac::vals::Tsel1::TIM15_TRGO,
             Ch1Trigger::Tim2 => dac::vals::Tsel1::TIM2_TRGO,
