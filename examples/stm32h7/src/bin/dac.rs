@@ -21,11 +21,11 @@ fn main() -> ! {
     let p = embassy_stm32::init(config);
 
     let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
+    unwrap!(dac.set_trigger_enable(false));
 
     loop {
         for v in 0..=255 {
             unwrap!(dac.set(Value::Bit8(to_sine_wave(v))));
-            dac.trigger();
         }
     }
 }
