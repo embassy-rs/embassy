@@ -161,6 +161,18 @@ impl<'d, T: Instance> Can<'d, T> {
             .leave_disabled();
     }
 
+    /// Enables the peripheral and synchronizes with the bus.
+    ///
+    /// This will wait for 11 consecutive recessive bits (bus idle state).
+    /// Contrary to enable method from bxcan library, this will not freeze the executor while waiting.
+    pub async fn enable(&mut self) {
+        while self.borrow_mut().enable_non_blocking().is_err() {
+            // SCE interrupt is only generated for entering sleep mode, but not leaving.
+            // Yield to allow other tasks to execute while can bus is initializing.
+            embassy_futures::yield_now().await;
+        }
+    }
+
     /// Queues the message to be sent but exerts backpressure
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
