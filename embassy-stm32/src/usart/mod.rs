@@ -857,7 +857,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
         "Using {} oversampling, desired baudrate: {}, actual baudrate: {}",
         oversampling,
         config.baudrate,
-        pclk_freq.0 / div
+        (pclk_freq.0 * mul as u32) / div
     );
 
     r.cr2().write(|w| {
