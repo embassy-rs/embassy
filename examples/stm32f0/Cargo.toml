@@ -7,6 +7,8 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# Change stm32f091rc to your chip name, if necessary.
+embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "memory-x", "stm32f091rc", "time-driver-any", "exti", "unstable-pac"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 defmt = "0.3"
@@ -15,5 +17,4 @@ panic-probe = "0.3"
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["nightly", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "memory-x", "stm32f091rc", "time-driver-any", "exti", "unstable-pac"] }
 static_cell = { version = "1.1", features = ["nightly"]}
