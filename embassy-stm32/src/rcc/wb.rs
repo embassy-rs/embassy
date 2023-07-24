@@ -191,7 +191,7 @@ impl Default for Config {
                 prediv: HsePrescaler::NotDivided,
             }),
             lse: Some(khz(32)),
-            sys: Sysclk::HSI,
+            sys: Sysclk::Pll,
             mux: Some(PllMux {
                 source: PllSource::Hse,
                 prediv: 2,
@@ -363,7 +363,7 @@ pub(crate) fn configure_clocks(config: &Config) {
     match &config.pll {
         Some(pll) => {
             rcc.pllcfgr().modify(|w| {
-                w.set_plln((pll.mul - 1) as u8);
+                w.set_plln(pll.mul as u8);
                 pll.divp.map(|divp| {
                     w.set_pllpen(true);
                     w.set_pllp((divp - 1) as u8)
@@ -372,7 +372,10 @@ pub(crate) fn configure_clocks(config: &Config) {
                     w.set_pllqen(true);
                     w.set_pllq((divq - 1) as u8)
                 });
-                pll.divr.map(|divr| w.set_pllr((divr - 1) as u8));
+                pll.divr.map(|divr| {
+                    // w.set_pllren(true);
+                    w.set_pllr((divr - 1) as u8);
+                });
             });
 
             rcc.cr().modify(|w| w.set_pllon(true));
@@ -385,9 +388,6 @@ pub(crate) fn configure_clocks(config: &Config) {
     rcc.cfgr().modify(|w| {
         w.set_sw(config.sys.into());
         w.set_hpre(config.ahb1_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
-
         w.set_ppre1(config.apb1_pre.into());
         w.set_ppre2(config.apb2_pre.into());
     });
