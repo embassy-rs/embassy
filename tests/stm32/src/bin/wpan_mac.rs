@@ -10,6 +10,7 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::mac::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
 use embassy_stm32_wpan::mac::event::MacEvent;
 use embassy_stm32_wpan::mac::typedefs::{
@@ -31,7 +32,10 @@ async fn run_mm_queue(memory_manager: mm::MemoryManager) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let mut config = config();
+    config.rcc = WPAN_DEFAULT;
+
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();

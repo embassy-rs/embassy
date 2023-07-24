@@ -182,32 +182,48 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
 }
 
+pub const WPAN_DEFAULT: Config = Config {
+    hse: Some(Hse {
+        frequency: mhz(32),
+        prediv: HsePrescaler::NotDivided,
+    }),
+    lse: Some(khz(32)),
+    sys: Sysclk::Pll,
+    mux: Some(PllMux {
+        source: PllSource::Hse,
+        prediv: 2,
+    }),
+    pll48: None,
+
+    pll: Some(Pll {
+        mul: 12,
+        divp: Some(3),
+        divq: Some(4),
+        divr: Some(3),
+    }),
+    pllsai: None,
+
+    ahb1_pre: AHBPrescaler::NotDivided,
+    ahb2_pre: AHBPrescaler::Div2,
+    ahb3_pre: AHBPrescaler::NotDivided,
+    apb1_pre: APBPrescaler::NotDivided,
+    apb2_pre: APBPrescaler::NotDivided,
+};
+
 impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            hse: Some(Hse {
-                frequency: mhz(32),
-                prediv: HsePrescaler::NotDivided,
-            }),
-            lse: Some(khz(32)),
-            sys: Sysclk::Pll,
-            mux: Some(PllMux {
-                source: PllSource::Hse,
-                prediv: 2,
-            }),
+            hse: None,
+            lse: None,
+            sys: Sysclk::HSI,
+            mux: None,
             pll48: None,
-
-            pll: Some(Pll {
-                mul: 12,
-                divp: Some(3),
-                divq: Some(4),
-                divr: Some(3),
-            }),
+            pll: None,
             pllsai: None,
 
             ahb1_pre: AHBPrescaler::NotDivided,
-            ahb2_pre: AHBPrescaler::Div2,
+            ahb2_pre: AHBPrescaler::NotDivided,
             ahb3_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
