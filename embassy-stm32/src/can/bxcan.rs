@@ -16,6 +16,17 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
 
+/// Contains CAN frame and additional metadata.
+///
+/// Timestamp is available if `time` feature is enabled.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Envelope {
+    #[cfg(feature = "time")]
+    pub ts: embassy_time::Instant,
+    pub frame: bxcan::Frame,
+}
+
 /// Interrupt handler.
 pub struct TxInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
@@ -199,11 +210,11 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Returns a tuple of the time the message was received and the message frame
-    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
-            if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
-                return Poll::Ready(Ok((time, frame)));
+            if let Poll::Ready(envelope) = T::state().rx_queue.recv().poll_unpin(cx) {
+                return Poll::Ready(Ok(envelope));
             } else if let Some(err) = self.curr_error() {
                 return Poll::Ready(Err(err));
             }
@@ -228,6 +239,10 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     unsafe fn receive_fifo(fifo: RxFifo) {
+        // Generate timestamp as early as possible
+        #[cfg(feature = "time")]
+        let ts = embassy_time::Instant::now();
+
         let state = T::state();
         let regs = T::regs();
         let fifo_idx = match fifo {
@@ -257,15 +272,19 @@ impl<'d, T: Instance> Can<'d, T> {
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-            let time = fifo.rdtr().read().time();
             let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
+            let envelope = Envelope {
+                #[cfg(feature = "time")]
+                ts,
+                frame,
+            };
 
             rfr.modify(|v| v.set_rfom(true));
 
             /*
                 NOTE: consensus was reached that if rx_queue is full, packets should be dropped
             */
-            let _ = state.rx_queue.try_send((time, frame));
+            let _ = state.rx_queue.try_send(envelope);
         }
     }
 
@@ -405,11 +424,11 @@ pub struct CanRx<'c, 'd, T: Instance> {
 }
 
 impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
-    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
-            if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
-                return Poll::Ready(Ok((time, frame)));
+            if let Poll::Ready(envelope) = T::state().rx_queue.recv().poll_unpin(cx) {
+                return Poll::Ready(Ok(envelope));
             } else if let Some(err) = self.curr_error() {
                 return Poll::Ready(Err(err));
             }
@@ -467,10 +486,12 @@ pub(crate) mod sealed {
     use embassy_sync::channel::Channel;
     use embassy_sync::waitqueue::AtomicWaker;
 
+    use super::Envelope;
+
     pub struct State {
         pub tx_waker: AtomicWaker,
         pub err_waker: AtomicWaker,
-        pub rx_queue: Channel<CriticalSectionRawMutex, (u16, bxcan::Frame), 32>,
+        pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
     }
 
     impl State {
