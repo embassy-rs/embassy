@@ -1,17 +1,25 @@
-//! Interrupt handling for cortex-m devices.
-use core::mem;
-use core::sync::atomic::{compiler_fence, Ordering};
+#[cfg(feature = "cortex-m")]
+use {
+    core::mem,
+    core::sync::atomic::{compiler_fence, Ordering},
+    cortex_m::peripheral::NVIC,
+};
 
-use cortex_m::interrupt::InterruptNumber;
-use cortex_m::peripheral::NVIC;
-
-/// Generate a standard `mod interrupt` for a HAL.
+/// Generate a standard `mod interrupt` for a cortex-m HAL.
+#[cfg(feature = "cortex-m")]
 #[macro_export]
 macro_rules! interrupt_mod {
     ($($irqs:ident),* $(,)?) => {
         #[cfg(feature = "rt")]
         pub use cortex_m_rt::interrupt;
+        $crate::interrupt_mod_core!($($irqs),*);
+    }
+}
 
+/// Generate a standard `mod interrupt` for a HAL.
+#[macro_export]
+macro_rules! interrupt_mod_core {
+    ($($irqs:ident),* $(,)?) => {
         /// Interrupt definitions.
         pub mod interrupt {
             pub use $crate::interrupt::{InterruptExt, Priority};
@@ -140,99 +148,137 @@ macro_rules! interrupt_mod {
 
 /// Represents an interrupt type that can be configured by embassy to handle
 /// interrupts.
-pub unsafe trait InterruptExt: InterruptNumber + Copy {
+#[cfg(any(
+    feature = "prio-bits-0",
+    feature = "prio-bits-1",
+    feature = "prio-bits-2",
+    feature = "prio-bits-3",
+    feature = "prio-bits-4",
+    feature = "prio-bits-5",
+    feature = "prio-bits-6",
+    feature = "prio-bits-7",
+    feature = "prio-bits-8"
+))]
+pub unsafe trait InterruptExt: Copy {
     /// Enable the interrupt.
+    unsafe fn enable(self);
+    /// Disable the interrupt.
+    fn disable(self);
+    /// Check if interrupt is being handled.
+    #[cfg(all(not(armv6m), not(feature = "riscv-plic")))]
+    fn is_active(self) -> bool;
+    /// Check if interrupt is enabled.
+    fn is_enabled(self) -> bool;
+    /// Check if interrupt is pending.
+    fn is_pending(self) -> bool;
+    /// Set interrupt pending.
+    fn pend(self);
+    /// Unset interrupt pending.
+    fn unpend(self);
+    /// Get the priority of the interrupt.
+    fn get_priority(self) -> Priority;
+    /// Set the interrupt priority.
+    fn set_priority(self, prio: Priority);
+}
+
+#[cfg(all(
+    feature = "cortex-m",
+    any(
+        feature = "prio-bits-0",
+        feature = "prio-bits-1",
+        feature = "prio-bits-2",
+        feature = "prio-bits-3",
+        feature = "prio-bits-4",
+        feature = "prio-bits-5",
+        feature = "prio-bits-6",
+        feature = "prio-bits-7",
+        feature = "prio-bits-8"
+    )
+))]
+unsafe impl<T: cortex_m::interrupt::InterruptNumber> InterruptExt for T {
     #[inline]
     unsafe fn enable(self) {
         compiler_fence(Ordering::SeqCst);
         NVIC::unmask(self)
     }
 
-    /// Disable the interrupt.
     #[inline]
     fn disable(self) {
         NVIC::mask(self);
         compiler_fence(Ordering::SeqCst);
     }
 
-    /// Check if interrupt is being handled.
     #[inline]
     #[cfg(not(armv6m))]
     fn is_active(self) -> bool {
         NVIC::is_active(self)
     }
 
-    /// Check if interrupt is enabled.
     #[inline]
     fn is_enabled(self) -> bool {
         NVIC::is_enabled(self)
     }
 
-    /// Check if interrupt is pending.
     #[inline]
     fn is_pending(self) -> bool {
         NVIC::is_pending(self)
     }
 
-    /// Set interrupt pending.
     #[inline]
     fn pend(self) {
         NVIC::pend(self)
     }
 
-    /// Unset interrupt pending.
     #[inline]
     fn unpend(self) {
         NVIC::unpend(self)
     }
 
-    /// Get the priority of the interrupt.
     #[inline]
     fn get_priority(self) -> Priority {
         Priority::from(NVIC::get_priority(self))
     }
 
-    /// Set the interrupt priority.
     #[inline]
     fn set_priority(self, prio: Priority) {
         critical_section::with(|_| unsafe {
-            let mut nvic: cortex_m::peripheral::NVIC = mem::transmute(());
+            let mut nvic: NVIC = mem::transmute(());
             nvic.set_priority(self, prio.into())
         })
     }
 }
 
-unsafe impl<T: InterruptNumber + Copy> InterruptExt for T {}
-
+#[cfg(feature = "cortex-m")]
 impl From<u8> for Priority {
     fn from(priority: u8) -> Self {
         unsafe { mem::transmute(priority & PRIO_MASK) }
     }
 }
 
+#[cfg(feature = "cortex-m")]
 impl From<Priority> for u8 {
     fn from(p: Priority) -> Self {
         p as u8
     }
 }
 
-#[cfg(feature = "prio-bits-0")]
+#[cfg(all(feature = "prio-bits-0", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0x00;
-#[cfg(feature = "prio-bits-1")]
+#[cfg(all(feature = "prio-bits-1", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0x80;
-#[cfg(feature = "prio-bits-2")]
+#[cfg(all(feature = "prio-bits-2", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0xc0;
-#[cfg(feature = "prio-bits-3")]
+#[cfg(all(feature = "prio-bits-3", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0xe0;
-#[cfg(feature = "prio-bits-4")]
+#[cfg(all(feature = "prio-bits-4", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0xf0;
-#[cfg(feature = "prio-bits-5")]
+#[cfg(all(feature = "prio-bits-5", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0xf8;
-#[cfg(feature = "prio-bits-6")]
+#[cfg(all(feature = "prio-bits-6", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0xfc;
-#[cfg(feature = "prio-bits-7")]
+#[cfg(all(feature = "prio-bits-7", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0xfe;
-#[cfg(feature = "prio-bits-8")]
+#[cfg(all(feature = "prio-bits-8", feature = "cortex-m"))]
 const PRIO_MASK: u8 = 0xff;
 
 /// The interrupt priority level.
@@ -843,4 +889,62 @@ pub enum Priority {
     P253 = 0xfd,
     P254 = 0xfe,
     P255 = 0xff,
+}
+
+#[cfg(feature = "riscv-plic")]
+mod riscv_plic {
+    use riscv::peripheral::plic::PriorityNumber;
+
+    use super::Priority;
+
+    // PLIC priorities are inverted from the NVIC.  The priority value 0 is reserved to mean
+    // “never interrupt”, and interrupt priority increases with increasing integer values.
+    unsafe impl PriorityNumber for Priority {
+        const MAX_PRIORITY_NUMBER: u8 = 3;
+
+        fn number(self) -> u8 {
+            match self {
+                Priority::P0 => 3,
+                Priority::P1 => 2,
+                Priority::P2 => 1,
+                Priority::P3 => 0,
+            }
+        }
+
+        fn try_from(value: u8) -> Result<Self, u8> {
+            match value {
+                0 => Ok(Priority::P3),
+                1 => Ok(Priority::P2),
+                2 => Ok(Priority::P1),
+                3 => Ok(Priority::P0),
+                e => Err(e),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use riscv::peripheral::plic::PriorityNumber;
+        use rstest::rstest;
+        use crate::interrupt::Priority;
+
+        #[rstest]
+        #[case(Priority::P0, 3)]
+        #[case(Priority::P1, 2)]
+        #[case(Priority::P2, 1)]
+        #[case(Priority::P3, 0)]
+        fn test_riscv_priority_number(#[case] subject: Priority, #[case] expectation: u8) {
+            assert_eq!(subject.number(), expectation);
+        }
+
+        #[rstest]
+        #[case(0, Ok(Priority::P3))]
+        #[case(1, Ok(Priority::P2))]
+        #[case(2, Ok(Priority::P1))]
+        #[case(3, Ok(Priority::P0))]
+        #[case(4, Err(4))]
+        fn test_riscv_priority_try_from(#[case] subject: u8, #[case] expectation: Result<Priority, u8>) {
+            assert_eq!(<Priority as PriorityNumber>::try_from(subject), expectation);
+        }
+    }
 }

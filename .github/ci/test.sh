@@ -11,9 +11,9 @@ export CARGO_TARGET_DIR=/ci/cache/target
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-cargo test --manifest-path ./embassy-sync/Cargo.toml 
-cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml 
-cargo test --manifest-path ./embassy-hal-common/Cargo.toml 
+cargo test --manifest-path ./embassy-sync/Cargo.toml
+cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml
+cargo test --manifest-path ./embassy-hal-common/Cargo.toml --features riscv-plic
 cargo test --manifest-path ./embassy-time/Cargo.toml --features generic-queue
 
 cargo test --manifest-path ./embassy-boot/boot/Cargo.toml
