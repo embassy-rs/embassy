@@ -1,11 +1,15 @@
+use core::future::Future;
 use core::marker::PhantomData;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
-use embassy_hal_internal::Peripheral;
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embedded_storage::nor_flash::{
     check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
     ReadNorFlash,
 };
 
+use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::pac;
 use crate::peripherals::FLASH;
 
@@ -24,6 +28,7 @@ pub const PAGE_SIZE: usize = 256;
 pub const WRITE_SIZE: usize = 1;
 pub const READ_SIZE: usize = 1;
 pub const ERASE_SIZE: usize = 4096;
+pub const ASYNC_READ_SIZE: usize = 4;
 
 /// Error type for NVMC operations.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -57,13 +62,46 @@ impl NorFlashError for Error {
     }
 }
 
-pub struct Flash<'d, T: Instance, const FLASH_SIZE: usize>(PhantomData<&'d mut T>);
+/// Future that waits for completion of a background read
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct BackgroundRead<'a, 'd, T: Instance, const FLASH_SIZE: usize> {
+    flash: PhantomData<&'a mut Flash<'d, T, Async, FLASH_SIZE>>,
+    transfer: Transfer<'a, AnyChannel>,
+}
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
-    pub fn new(_flash: impl Peripheral<P = T> + 'd) -> Self {
-        Self(PhantomData)
+impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Future for BackgroundRead<'a, 'd, T, FLASH_SIZE> {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.transfer).poll(cx)
     }
+}
 
+impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, 'd, T, FLASH_SIZE> {
+    fn drop(&mut self) {
+        if pac::XIP_CTRL.stream_ctr().read().0 == 0 {
+            return;
+        }
+        pac::XIP_CTRL
+            .stream_ctr()
+            .write_value(pac::xip_ctrl::regs::StreamCtr(0));
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+        // Errata RP2040-E8: Perform an uncached read to make sure there's not a transfer in
+        // flight that might effect an address written to start a new transfer.  This stalls
+        // until after any transfer is complete, so the address will not change anymore.
+        const XIP_NOCACHE_NOALLOC_BASE: *const u32 = 0x13000000 as *const _;
+        unsafe {
+            core::ptr::read_volatile(XIP_NOCACHE_NOALLOC_BASE);
+        }
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
+    dma: Option<PeripheralRef<'d, AnyChannel>>,
+    phantom: PhantomData<(&'d mut T, M)>,
+}
+
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SIZE> {
     pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         trace!(
             "Reading from 0x{:x} to 0x{:x}",
@@ -182,6 +220,8 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
                 let ch = crate::pac::DMA.ch(n);
                 while ch.read_addr().read() < SRAM_LOWER && ch.ctrl_trig().read().busy() {}
             }
+            // Wait for completion of any background reads
+            while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
 
             // Run our flash operation in RAM
             operation();
@@ -210,11 +250,73 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, FLASH_SIZE> {
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE> {
+    pub fn new(_flash: impl Peripheral<P = T> + 'd) -> Self {
+        Self {
+            dma: None,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
+    pub fn new(_flash: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = impl Channel> + 'd) -> Self {
+        into_ref!(dma);
+        Self {
+            dma: Some(dma.map_into()),
+            phantom: PhantomData,
+        }
+    }
+
+    pub fn background_read<'a>(
+        &'a mut self,
+        offset: u32,
+        data: &'a mut [u32],
+    ) -> Result<BackgroundRead<'a, 'd, T, FLASH_SIZE>, Error> {
+        trace!(
+            "Reading in background from 0x{:x} to 0x{:x}",
+            FLASH_BASE as u32 + offset,
+            FLASH_BASE as u32 + offset + (data.len() * 4) as u32
+        );
+        // Can't use check_read because we need to enforce 4-byte alignment
+        let offset = offset as usize;
+        let length = data.len() * 4;
+        if length > self.capacity() || offset > self.capacity() - length {
+            return Err(Error::OutOfBounds);
+        }
+        if offset % 4 != 0 {
+            return Err(Error::Unaligned);
+        }
+
+        while !pac::XIP_CTRL.stat().read().fifo_empty() {
+            pac::XIP_CTRL.stream_fifo().read();
+        }
+
+        pac::XIP_CTRL
+            .stream_addr()
+            .write_value(pac::xip_ctrl::regs::StreamAddr(FLASH_BASE as u32 + offset as u32));
+        pac::XIP_CTRL
+            .stream_ctr()
+            .write_value(pac::xip_ctrl::regs::StreamCtr(data.len() as u32));
+
+        // Use the XIP AUX bus port, rather than the FIFO register access (e.x.
+        // pac::XIP_CTRL.stream_fifo().as_ptr()) to avoid DMA stalling on
+        // general XIP access.
+        const XIP_AUX_BASE: *const u32 = 0x50400000 as *const _;
+        let transfer = unsafe { crate::dma::read(self.dma.as_mut().unwrap(), XIP_AUX_BASE, data, 37) };
+
+        Ok(BackgroundRead {
+            flash: PhantomData,
+            transfer,
+        })
+    }
+}
+
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, M, FLASH_SIZE> {
     type Error = Error;
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, M, FLASH_SIZE> {
     const READ_SIZE: usize = READ_SIZE;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -226,9 +328,9 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, FLA
     }
 }
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, FLASH_SIZE> {}
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, M, FLASH_SIZE> {}
 
-impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_SIZE> {
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, M, FLASH_SIZE> {
     const WRITE_SIZE: usize = WRITE_SIZE;
 
     const ERASE_SIZE: usize = ERASE_SIZE;
@@ -238,6 +340,74 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, FLASH_S
     }
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.write(offset, bytes)
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::ReadNorFlash
+    for Flash<'d, T, Async, FLASH_SIZE>
+{
+    const READ_SIZE: usize = ASYNC_READ_SIZE;
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        use core::mem::MaybeUninit;
+
+        // Checked early to simplify address validity checks
+        if bytes.len() % 4 != 0 {
+            return Err(Error::Unaligned);
+        }
+
+        // If the destination address is already aligned, then we can just DMA directly
+        if (bytes.as_ptr() as u32) % 4 == 0 {
+            // Safety: alignment and size have been checked for compatibility
+            let mut buf: &mut [u32] =
+                unsafe { core::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut u32, bytes.len() / 4) };
+            self.background_read(offset, &mut buf)?.await;
+            return Ok(());
+        }
+
+        // Destination address is unaligned, so use an intermediate buffer
+        const REALIGN_CHUNK: usize = PAGE_SIZE;
+        // Safety: MaybeUninit requires no initialization
+        let mut buf: [MaybeUninit<u32>; REALIGN_CHUNK / 4] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut chunk_offset: usize = 0;
+        while chunk_offset < bytes.len() {
+            let chunk_size = (bytes.len() - chunk_offset).min(REALIGN_CHUNK);
+            let buf = &mut buf[..(chunk_size / 4)];
+
+            // Safety: this is written to completely by DMA before any reads
+            let buf = unsafe { &mut *(buf as *mut [MaybeUninit<u32>] as *mut [u32]) };
+            self.background_read(offset + chunk_offset as u32, buf)?.await;
+
+            // Safety: [u8] has more relaxed alignment and size requirements than [u32], so this is just aliasing
+            let buf = unsafe { core::slice::from_raw_parts(buf.as_ptr() as *const _, buf.len() * 4) };
+            bytes[chunk_offset..(chunk_offset + chunk_size)].copy_from_slice(&buf[..chunk_size]);
+
+            chunk_offset += chunk_size;
+        }
+
+        Ok(())
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity()
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::NorFlash
+    for Flash<'d, T, Async, FLASH_SIZE>
+{
+    const WRITE_SIZE: usize = WRITE_SIZE;
+
+    const ERASE_SIZE: usize = ERASE_SIZE;
+
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.erase(from, to)
+    }
+
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
         self.write(offset, bytes)
     }
 }
@@ -699,9 +869,24 @@ mod ram_helpers {
 
 mod sealed {
     pub trait Instance {}
+    pub trait Mode {}
 }
 
 pub trait Instance: sealed::Instance {}
+pub trait Mode: sealed::Mode {}
 
 impl sealed::Instance for FLASH {}
 impl Instance for FLASH {}
+
+macro_rules! impl_mode {
+    ($name:ident) => {
+        impl sealed::Mode for $name {}
+        impl Mode for $name {}
+    };
+}
+
+pub struct Blocking;
+pub struct Async;
+
+impl_mode!(Blocking);
+impl_mode!(Async);

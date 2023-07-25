@@ -48,7 +48,7 @@ boot2-w25x10cl = []
 run-from-ram = []
 
 # Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
+nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "embassy-embedded-hal/nightly", "dep:embassy-usb-driver", "dep:embedded-io"]
 
 # Implement embedded-hal 1.0 alpha traits.
 # Implement embedded-hal-async traits if `nightly` is set as well.
@@ -73,6 +73,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 chrono = { version = "0.4", default-features = false, optional = true }
 embedded-io = { version = "0.4.0", features = ["async"], optional = true }
 embedded-storage = { version = "0.3" }
+embedded-storage-async = { version = "0.4.0", optional = true }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 
