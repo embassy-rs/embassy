@@ -4,8 +4,6 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dac::{DacChannel, ValueArray};
 use embassy_stm32::pac::timer::vals::{Mms, Opm};
 use embassy_stm32::peripherals::{TIM6, TIM7};
@@ -23,8 +21,8 @@ pub type Dac2Type =
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(100));
+    let mut config = embassy_stm32::Config::default();
+    config.rcc.sys_ck = Some(mhz(400));
     config.rcc.hclk = Some(mhz(100));
     config.rcc.pll1.q_ck = Some(mhz(100));
 
@@ -34,28 +32,8 @@ async fn main(spawner: Spawner) {
     // Obtain two independent channels (p.DAC1 can only be consumed once, though!)
     let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, p.PA4, p.PA5).split();
 
-    let mut adc = Adc::new(p.ADC1, &mut Delay);
-
-    adc.set_sample_time(SampleTime::Cycles32_5);
-
-    let mut vrefint_channel = adc.enable_vrefint();
-
-    loop {
-        let vrefint = adc.read_internal(&mut vrefint_channel);
-        info!("vrefint: {}", vrefint);
-        let measured = adc.read(&mut p.PC0);
-        info!("measured: {}", measured);
-        Timer::after(Duration::from_millis(500)).await;
-    }
-
     spawner.spawn(dac_task1(dac_ch1)).ok();
     spawner.spawn(dac_task2(dac_ch2)).ok();
-}
-
-#[embassy_executor::task]
-async fn adc_task(mut adc: Adc1Type) {
-
-
 }
 
 #[embassy_executor::task]

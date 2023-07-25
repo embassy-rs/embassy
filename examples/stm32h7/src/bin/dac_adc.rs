@@ -9,8 +9,8 @@ use embassy_stm32::dac::{DacCh1, DacChannel, Value};
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::pac::timer::vals::{Mms, Opm};
 use embassy_stm32::peripherals::{TIM6, TIM7};
-use embassy_stm32::rcc::AdcClockSource;
 use embassy_stm32::rcc::low_level::RccPeripheral;
+use embassy_stm32::rcc::AdcClockSource;
 use embassy_stm32::time::{mhz, Hertz};
 use embassy_stm32::timer::low_level::Basic16bitInstance;
 use embassy_stm32::Config;
@@ -23,13 +23,12 @@ pub type Dac1Type =
 pub type Dac2Type =
     embassy_stm32::dac::DacCh2<'static, embassy_stm32::peripherals::DAC1, embassy_stm32::peripherals::DMA1_CH4>;
 
-pub type Adc1Type =
-    embassy_stm32::adc::Adc<'static, embassy_stm32::peripherals::ADC1>;
+pub type Adc1Type = embassy_stm32::adc::Adc<'static, embassy_stm32::peripherals::ADC1>;
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(100));
+    config.rcc.sys_ck = Some(mhz(400));
     config.rcc.hclk = Some(mhz(100));
     config.rcc.pll1.q_ck = Some(mhz(100));
     config.rcc.adc_clock_source = AdcClockSource::PerCk;
@@ -51,14 +50,16 @@ async fn main(spawner: Spawner) {
             unwrap!(dac.set(Value::Bit8(to_sine_wave(v))));
             Timer::after(Duration::from_millis(50)).await;
             let vrefint = adc.read_internal(&mut vrefint_channel);
-            let measured = adc.read(&mut unsafe {embassy_stm32::Peripherals::steal()}.PA4);
-            info!("value / measured: {} / {}", to_sine_wave(v), measured.saturating_sub(vrefint)/255);
+            let measured = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
+            info!(
+                "value / measured: {} / {}",
+                to_sine_wave(v),
+                measured.saturating_sub(vrefint) / 255
+            );
             Timer::after(Duration::from_millis(50)).await;
         }
     }
 }
-
-
 
 use micromath::F32Ext;
 
