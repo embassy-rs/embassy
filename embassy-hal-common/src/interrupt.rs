@@ -926,6 +926,7 @@ mod riscv_plic {
     mod tests {
         use riscv::peripheral::plic::PriorityNumber;
         use rstest::rstest;
+        
         use crate::interrupt::Priority;
 
         #[rstest]
