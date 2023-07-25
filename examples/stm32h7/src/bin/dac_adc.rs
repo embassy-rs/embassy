@@ -7,12 +7,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dac::{DacCh1, DacChannel, Value};
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::pac::timer::vals::{Mms, Opm};
-use embassy_stm32::peripherals::{TIM6, TIM7};
-use embassy_stm32::rcc::low_level::RccPeripheral;
 use embassy_stm32::rcc::AdcClockSource;
-use embassy_stm32::time::{mhz, Hertz};
-use embassy_stm32::timer::low_level::Basic16bitInstance;
+use embassy_stm32::time::mhz;
 use embassy_stm32::Config;
 use embassy_time::{Delay, Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -34,7 +30,7 @@ async fn main(_spawner: Spawner) {
     config.rcc.adc_clock_source = AdcClockSource::PerCk;
 
     // Initialize the board and obtain a Peripherals instance
-    let mut p: embassy_stm32::Peripherals = embassy_stm32::init(config);
+    let p: embassy_stm32::Peripherals = embassy_stm32::init(config);
 
     let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
     unwrap!(dac.set_trigger_enable(false));
