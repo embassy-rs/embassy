@@ -34,7 +34,7 @@ embedded-storage = "0.3.0"
 static_cell = { version = "1.1", features = ["nightly"]}
 
 [patch.crates-io]
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated.git"}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated.git", rev = "7c1edaa2e25a5fac221bda8c70ee8b0fb1545904"}
 
 # cargo build/run
 [profile.dev]
