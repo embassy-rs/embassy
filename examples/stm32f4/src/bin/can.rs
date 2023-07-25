@@ -40,10 +40,13 @@ async fn main(_spawner: Spawner) {
 
     can.as_mut()
         .modify_config()
-        .set_bit_timing(0x001c0003) // http://www.bittiming.can-wiki.info/
         .set_loopback(true) // Receive own frames
         .set_silent(true)
-        .enable();
+        .leave_disabled();
+
+    can.set_bitrate(1_000_000);
+
+    can.enable().await;
 
     let mut i: u8 = 0;
     loop {
