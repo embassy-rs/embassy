@@ -8,7 +8,7 @@ use embassy_stm32::dac::{DacChannel, ValueArray};
 use embassy_stm32::pac::timer::vals::{Mms, Opm};
 use embassy_stm32::peripherals::{TIM6, TIM7};
 use embassy_stm32::rcc::low_level::RccPeripheral;
-use embassy_stm32::time::{Hertz, mhz};
+use embassy_stm32::time::{mhz, Hertz};
 use embassy_stm32::timer::low_level::Basic16bitInstance;
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
