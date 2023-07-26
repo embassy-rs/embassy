@@ -9,7 +9,7 @@ mod common;
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::Adc;
 use embassy_stm32::dac::{DacCh1, DacChannel, Value};
 use embassy_stm32::dma::NoDma;
 use embassy_time::{Delay, Duration, Timer};
@@ -20,14 +20,26 @@ async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = embassy_stm32::init(config());
 
-    let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
+    #[cfg(feature = "stm32f429zi")]
+    let dac_peripheral = p.DAC;
+
+    #[cfg(any(feature = "stm32h755zi", feature = "stm32g071rb"))]
+    let dac_peripheral = p.DAC1;
+
+    let mut dac: DacCh1<'_, _, NoDma> = DacCh1::new(dac_peripheral, NoDma, p.PA4);
     unwrap!(dac.set_trigger_enable(false));
 
     let mut adc = Adc::new(p.ADC1, &mut Delay);
 
-    adc.set_sample_time(SampleTime::Cycles32_5);
+    #[cfg(feature = "stm32h755zi")]
+    let normalization_factor = 256;
+    #[cfg(any(feature = "stm32f429zi", feature = "stm32g071rb"))]
+    let normalization_factor: i32 = 16;
 
-    let mut vrefint_channel = adc.enable_vrefint();
+    unwrap!(dac.set(Value::Bit8(0)));
+    // Now wait a little to obtain a stable value
+    Timer::after(Duration::from_millis(30)).await;
+    let offset = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
 
     for v in 0..=255 {
         // First set the DAC output value
@@ -35,14 +47,12 @@ async fn main(_spawner: Spawner) {
         unwrap!(dac.set(Value::Bit8(dac_output_val)));
 
         // Now wait a little to obtain a stable value
-        Timer::after(Duration::from_millis(20)).await;
+        Timer::after(Duration::from_millis(30)).await;
 
-        // Read reference voltage
-        let vrefint = adc.read_internal(&mut vrefint_channel);
         // Need to steal the peripherals here because PA4 is obviously in use already
         let measured = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
         // Calibrate and normalize the measurement to get close to the dac_output_val
-        let measured_normalized = ((measured as i32 - vrefint as i32) / 255) as i16;
+        let measured_normalized = ((measured as i32 - offset as i32) / normalization_factor) as i16;
 
         info!("value / measured: {} / {}", dac_output_val, measured_normalized);
 
