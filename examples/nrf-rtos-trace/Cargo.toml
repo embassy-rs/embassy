@@ -34,3 +34,6 @@ log = { version = "0.4.17", optional = true }
 [[bin]]
 name = "rtos_trace"
 required-features = ["nightly"]
+
+[profile.release]
+debug = 2

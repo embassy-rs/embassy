@@ -59,3 +59,6 @@ microfft = "0.5.0"
 
 [patch.crates-io]
 lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }
+
+[profile.release]
+debug = 2
