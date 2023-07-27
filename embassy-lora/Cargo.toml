@@ -12,7 +12,7 @@ target = "thumbv7em-none-eabi"
 
 [features]
 stm32wl = ["dep:embassy-stm32"]
-time = ["dep:embassy-time", "dep:lorawan-device"]
+time = ["embassy-time", "lorawan-device"]
 defmt = ["dep:defmt", "lorawan-device/defmt"]
 
 [dependencies]
