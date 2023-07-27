@@ -28,3 +28,6 @@ rand_core = "0.6.3"
 critical-section = "1.1"
 embedded-storage = "0.3.0"
 static_cell = { version = "1.1", features = ["nightly"]}
+
+[profile.release]
+debug = 2
