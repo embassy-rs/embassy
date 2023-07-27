@@ -26,3 +26,6 @@ nb = "1.0.0"
 
 [profile.dev]
 opt-level = "s"
+
+[profile.release]
+debug = 2

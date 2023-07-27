@@ -21,3 +21,6 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
 nb = "1.0.0"
+
+[profile.release]
+debug = 2
