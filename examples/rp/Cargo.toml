@@ -54,6 +54,3 @@ rand = { version = "0.8.5", default-features = false }
 
 [profile.release]
 debug = true
-
-[patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }

@@ -33,6 +33,3 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 heapless = { version = "0.7.5", default-features = false }
 embedded-hal = "0.2.6"
 static_cell = "1.1"
-
-[patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }
