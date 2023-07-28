@@ -6,11 +6,11 @@ mod common;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::flash::{ERASE_SIZE, FLASH_BASE};
+use embassy_rp::flash::{Async, ERASE_SIZE, FLASH_BASE};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-const ADDR_OFFSET: u32 = 0x4000;
+const ADDR_OFFSET: u32 = 0x8000;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
     // https://github.com/knurling-rs/defmt/pull/683
     Timer::after(Duration::from_millis(10)).await;
 
-    let mut flash = embassy_rp::flash::Flash::<_, { 2 * 1024 * 1024 }>::new(p.FLASH);
+    let mut flash = embassy_rp::flash::Flash::<_, Async, { 2 * 1024 * 1024 }>::new(p.FLASH, p.DMA_CH0);
 
     // Get JEDEC id
     let jedec = defmt::unwrap!(flash.jedec_id());
@@ -57,6 +57,14 @@ async fn main(_spawner: Spawner) {
     defmt::unwrap!(flash.read(ADDR_OFFSET, &mut buf));
     info!("Contents after write starts with {=[u8]}", buf[0..4]);
     if buf.iter().any(|x| *x != 0xDA) {
+        defmt::panic!("unexpected");
+    }
+
+    let mut buf = [0u32; ERASE_SIZE / 4];
+
+    defmt::unwrap!(flash.background_read(ADDR_OFFSET, &mut buf)).await;
+    info!("Contents after write starts with {=u32:x}", buf[0]);
+    if buf.iter().any(|x| *x != 0xDADADADA) {
         defmt::panic!("unexpected");
     }
 
