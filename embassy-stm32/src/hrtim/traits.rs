@@ -1,3 +1,4 @@
+use crate::rcc::sealed::RccPeripheral;
 use crate::time::Hertz;
 
 #[derive(Clone, Copy)]
@@ -92,7 +93,9 @@ impl HighResolutionControlPrescaler {
 pub(crate) mod sealed {
     use super::*;
 
-    pub trait HighResolutionCaptureCompare16bitInstance: crate::timer::sealed::HighResolutionControlInstance {
+    pub trait HighResolutionCaptureCompare16bitInstance: RccPeripheral {
+        fn regs() -> crate::pac::hrtim::Hrtim;
+
         fn set_master_frequency(frequency: Hertz);
 
         fn set_channel_frequency(channnel: usize, frequency: Hertz);
@@ -114,9 +117,12 @@ pub trait HighResolutionCaptureCompare16bitInstance:
 foreach_interrupt! {
     ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {
         impl sealed::HighResolutionCaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn regs() -> crate::pac::hrtim::Hrtim {
+                crate::pac::$inst
+            }
+
             fn set_master_frequency(frequency: Hertz) {
                 use crate::rcc::sealed::RccPeripheral;
-                use crate::timer::sealed::HighResolutionControlInstance;
 
                 let f = frequency.0;
                 let timer_f = Self::frequency().0;
@@ -139,7 +145,6 @@ foreach_interrupt! {
 
             fn set_channel_frequency(channel: usize, frequency: Hertz) {
                 use crate::rcc::sealed::RccPeripheral;
-                use crate::timer::sealed::HighResolutionControlInstance;
 
                 let f = frequency.0;
                 let timer_f = Self::frequency().0;
@@ -161,7 +166,6 @@ foreach_interrupt! {
             }
 
             fn set_channel_dead_time(channel: usize, dead_time: u16) {
-                use crate::timer::sealed::HighResolutionControlInstance;
 
                 let regs = Self::regs();
 

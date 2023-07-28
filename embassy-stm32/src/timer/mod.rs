@@ -429,17 +429,4 @@ foreach_interrupt! {
 
 
     };
-
-    ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {
-        impl sealed::HighResolutionControlInstance for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-
-            fn regs() -> crate::pac::hrtim::Hrtim {
-                crate::pac::$inst
-            }
-        }
-
-        impl HighResolutionControlInstance for crate::peripherals::$inst {
-        }
-    };
 }
