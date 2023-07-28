@@ -7,6 +7,7 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
+use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::bxcan::filter::Mask32;
@@ -14,7 +15,7 @@ use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
 use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -68,13 +69,18 @@ async fn main(_spawner: Spawner) {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
 
         info!("Transmitting frame...");
+        let tx_ts = Instant::now();
         can.write(&tx_frame).await;
 
         info!("Receiving frame...");
-        let (time, rx_frame) = can.read().await.unwrap();
+        let envelope = can.read().await.unwrap();
 
-        info!("loopback time {}", time);
-        info!("loopback frame {=u8}", rx_frame.data().unwrap()[0]);
+        info!("loopback time {}", envelope.time);
+        info!("loopback frame {=u8}", envelope.frame.data().unwrap()[0]);
+
+        // Theoretical minimum latency is 55us, actual is usually ~80us
+        let latency = envelope.time.saturating_duration_since(tx_ts);
+        assert!(Duration::from_micros(50) < latency && latency < Duration::from_micros(100));
 
         i += 1;
         if i > 10 {

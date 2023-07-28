@@ -18,6 +18,17 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
 
+/// Contains CAN frame and additional metadata.
+///
+/// Timestamp is available if `time` feature is enabled.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Envelope {
+    #[cfg(feature = "time")]
+    pub time: embassy_time::Instant,
+    pub frame: bxcan::Frame,
+}
+
 /// Interrupt handler.
 pub struct TxInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
@@ -234,14 +245,14 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Returns a tuple of the time the message was received and the message frame
-    pub async fn read(&mut self) -> Result<(Instant, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         CanRx { can: &self.can }.read().await
     }
 
     /// Attempts to read a can frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
-    pub fn try_read(&mut self) -> Result<(Instant, bxcan::Frame), TryReadError> {
+    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
         CanRx { can: &self.can }.try_read()
     }
 
@@ -293,6 +304,11 @@ impl<'d, T: Instance> Can<'d, T> {
             };
             let time = Instant::from_ticks(time);
             let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
+            let envelope = Envelope {
+                #[cfg(feature = "time")]
+                time,
+                frame,
+            };
 
             trace!("now: {}", now.as_ticks());
             trace!("now (time): {}", time.as_ticks());
@@ -302,7 +318,7 @@ impl<'d, T: Instance> Can<'d, T> {
             /*
                 NOTE: consensus was reached that if rx_queue is full, packets should be dropped
             */
-            let _ = state.rx_queue.try_send((time, frame));
+            let _ = state.rx_queue.try_send(envelope);
         }
     }
 
@@ -486,11 +502,11 @@ pub struct CanRx<'c, 'd, T: Instance> {
 }
 
 impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
-    pub async fn read(&mut self) -> Result<(Instant, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
-            if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
-                return Poll::Ready(Ok((time, frame)));
+            if let Poll::Ready(envelope) = T::state().rx_queue.recv().poll_unpin(cx) {
+                return Poll::Ready(Ok(envelope));
             } else if let Some(err) = self.curr_error() {
                 return Poll::Ready(Err(err));
             }
@@ -503,7 +519,7 @@ impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
-    pub fn try_read(&mut self) -> Result<(Instant, bxcan::Frame), TryReadError> {
+    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
         if let Ok(envelope) = T::state().rx_queue.try_recv() {
             return Ok(envelope);
         }
@@ -575,12 +591,13 @@ pub(crate) mod sealed {
     use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::waitqueue::AtomicWaker;
-    use embassy_time::Instant;
+
+    use super::Envelope;
 
     pub struct State {
         pub tx_waker: AtomicWaker,
         pub err_waker: AtomicWaker,
-        pub rx_queue: Channel<CriticalSectionRawMutex, (Instant, bxcan::Frame), 32>,
+        pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
         pub t_overflow: AtomicU16,
         pub t_offset: AtomicU16,
     }
