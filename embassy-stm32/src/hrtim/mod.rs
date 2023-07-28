@@ -3,11 +3,11 @@ mod traits;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+pub use traits::Instance;
 
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::AnyPin;
-use crate::hrtim::traits::Instance;
 use crate::time::Hertz;
 use crate::Peripheral;
 
