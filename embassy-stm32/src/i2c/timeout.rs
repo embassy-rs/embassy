@@ -6,8 +6,8 @@ use super::{Error, I2c, Instance};
 ///
 /// This is useful for recovering from a shorted bus or a device stuck in a clock stretching state.
 /// A regular [I2c] would freeze until condition is removed.
-pub struct TimeoutI2c<'d, T: Instance, TXDMA, RXDMA> {
-    i2c: &'d mut I2c<'d, T, TXDMA, RXDMA>,
+pub struct TimeoutI2c<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> {
+    i2c: &'a mut I2c<'d, T, TXDMA, RXDMA>,
     timeout: Duration,
 }
 
@@ -22,8 +22,8 @@ fn timeout_fn(timeout: Duration) -> impl Fn() -> Result<(), Error> {
     }
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> TimeoutI2c<'d, T, TXDMA, RXDMA> {
-    pub fn new(i2c: &'d mut I2c<'d, T, TXDMA, RXDMA>, timeout: Duration) -> Self {
+impl<'a, 'd, T: Instance, TXDMA, RXDMA> TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
+    pub fn new(i2c: &'a mut I2c<'d, T, TXDMA, RXDMA>, timeout: Duration) -> Self {
         Self { i2c, timeout }
     }
 
@@ -65,7 +65,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> TimeoutI2c<'d, T, TXDMA, RXDMA> {
     }
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Read for TimeoutI2c<'d, T, TXDMA, RXDMA> {
+impl<'a, 'd, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Read for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
     type Error = Error;
 
     fn read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Self::Error> {
@@ -73,7 +73,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Read for Tim
     }
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Write for TimeoutI2c<'d, T, TXDMA, RXDMA> {
+impl<'a, 'd, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Write for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
     type Error = Error;
 
     fn write(&mut self, addr: u8, write: &[u8]) -> Result<(), Self::Error> {
@@ -81,7 +81,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Write for Ti
     }
 }
 
-impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::WriteRead for TimeoutI2c<'d, T, TXDMA, RXDMA> {
+impl<'a, 'd, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::WriteRead
+    for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA>
+{
     type Error = Error;
 
     fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
@@ -93,11 +95,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::WriteRead fo
 mod eh1 {
     use super::*;
 
-    impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::ErrorType for TimeoutI2c<'d, T, TXDMA, RXDMA> {
+    impl<'a, 'd, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::ErrorType for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::I2c for TimeoutI2c<'d, T, TXDMA, RXDMA> {
+    impl<'a, 'd, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::I2c for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
         fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_read(address, read)
         }
