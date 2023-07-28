@@ -33,7 +33,7 @@ pub mod watchdog;
 // TODO: move `pio_instr_util` and `relocate` to inside `pio`
 pub mod pio;
 pub mod pio_instr_util;
-pub mod relocate;
+pub(crate) mod relocate;
 
 // Reexports
 pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
