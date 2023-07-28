@@ -46,8 +46,7 @@ async fn main(_spawner: Spawner) {
         .leave_disabled();
 
     can.set_bitrate(1_000_000);
-
-    can.enable().await;
+    can.enable().unwrap();
 
     let mut i: u8 = 0;
     loop {
@@ -61,7 +60,7 @@ async fn main(_spawner: Spawner) {
         // Our frame is ~55 bits long (exlcuding bit stuffing), so at 1mbps loopback delay is at least 55 us.
         // When measured with `tick-hz-1_000_000` actual latency is 80~83 us, giving a combined hardware and software
         // overhead of ~25 us. Note that CPU frequency can greatly affect the result.
-        let latency = envelope.ts.saturating_duration_since(tx_ts);
+        let latency = envelope.time.saturating_duration_since(tx_ts);
 
         info!(
             "loopback frame {=u8}, latency: {} us",
