@@ -53,6 +53,9 @@ pub trait Driver {
 
     /// Get the device's Ethernet address.
     fn ethernet_address(&self) -> [u8; 6];
+
+    /// Get the device's IEEE 802.15.4 address.
+    fn ieee802154_address(&self) -> [u8; 8];
 }
 
 impl<T: ?Sized + Driver> Driver for &mut T {
@@ -77,6 +80,9 @@ impl<T: ?Sized + Driver> Driver for &mut T {
     }
     fn ethernet_address(&self) -> [u8; 6] {
         T::ethernet_address(self)
+    }
+    fn ieee802154_address(&self) -> [u8; 8] {
+        T::ieee802154_address(self)
     }
 }
 

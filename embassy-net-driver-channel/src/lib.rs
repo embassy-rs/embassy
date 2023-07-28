@@ -43,6 +43,7 @@ struct Shared {
     link_state: LinkState,
     waker: WakerRegistration,
     ethernet_address: [u8; 6],
+    ieee802154_address: [u8; 8],
 }
 
 pub struct Runner<'d, const MTU: usize> {
@@ -89,6 +90,14 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
         self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
             s.ethernet_address = address;
+            s.waker.wake();
+        });
+    }
+
+    pub fn set_ieee802154_address(&mut self, address: [u8; 8]) {
+        self.shared.lock(|s| {
+            let s = &mut *s.borrow_mut();
+            s.ieee802154_address = address;
             s.waker.wake();
         });
     }
@@ -207,6 +216,7 @@ impl<'d, const MTU: usize> TxRunner<'d, MTU> {
 pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
     state: &'d mut State<MTU, N_RX, N_TX>,
     ethernet_address: [u8; 6],
+    ieee802154_address: [u8; 8],
 ) -> (Runner<'d, MTU>, Device<'d, MTU>) {
     let mut caps = Capabilities::default();
     caps.max_transmission_unit = MTU;
@@ -223,6 +233,7 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
         shared: Mutex::new(RefCell::new(Shared {
             link_state: LinkState::Down,
             ethernet_address,
+            ieee802154_address,
             waker: WakerRegistration::new(),
         })),
     });
@@ -291,6 +302,10 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
 
     fn ethernet_address(&self) -> [u8; 6] {
         self.shared.lock(|s| s.borrow().ethernet_address)
+    }
+
+    fn ieee802154_address(&self) -> [u8; 8] {
+        self.shared.lock(|s| s.borrow().ieee802154_address)
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
