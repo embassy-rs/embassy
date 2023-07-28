@@ -26,7 +26,7 @@ aligned = "0.4.1"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.1.3", optional = true }
+stm32wb-hci = { version = "0.1.4", optional = true }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 bitflags = { version = "2.3.3", optional = true }
 

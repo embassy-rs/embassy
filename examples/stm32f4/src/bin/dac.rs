@@ -14,11 +14,11 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Hello World, dude!");
 
     let mut dac = DacCh1::new(p.DAC, NoDma, p.PA4);
+    unwrap!(dac.set_trigger_enable(false));
 
     loop {
         for v in 0..=255 {
             unwrap!(dac.set(Value::Bit8(to_sine_wave(v))));
-            dac.trigger();
         }
     }
 }
