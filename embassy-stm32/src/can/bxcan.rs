@@ -8,6 +8,7 @@ use atomic_polyfill::Ordering;
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
 use embassy_hal_internal::{into_ref, PeripheralRef};
+#[cfg(feature = "time")]
 use embassy_time::{Duration, Instant, TICK_HZ};
 use futures::FutureExt;
 
@@ -191,9 +192,10 @@ impl<'d, T: Instance> Can<'d, T> {
             .leave_disabled();
 
         let overflow = (TICK_HZ as u64 * u16::MAX as u64) / bitrate as u64;
-        T::state().t_overflow.store(overflow as u16, Ordering::Relaxed);
+        T::state().t_overflow.store(overflow as u16, Ordering::Release);
     }
 
+    #[cfg(feature = "time")]
     /// Enables the peripheral and synchronizes with the bus.
     ///
     /// This will wait for 11 consecutive recessive bits (bus idle state).
@@ -201,9 +203,12 @@ impl<'d, T: Instance> Can<'d, T> {
     pub fn enable(&mut self) -> Result<(), ()> {
         let mut now = Instant::now();
         let timeout = now.add(Duration::from_millis(20));
-        while self.borrow_mut().enable_non_blocking().is_err() && now < timeout {
-            now = Instant::now();
-        }
+
+        critical_section::with(|_| {
+            while self.borrow_mut().enable_non_blocking().is_err() && now < timeout {
+                now = Instant::now();
+            }
+        });
 
         if self.borrow_mut().enable_non_blocking().is_err() {
             Err(())
@@ -211,7 +216,7 @@ impl<'d, T: Instance> Can<'d, T> {
             let overflow = T::state().t_overflow.load(Ordering::Relaxed);
             let offset = now.as_ticks() % overflow as u64;
 
-            T::state().t_offset.store(offset as u16, Ordering::Relaxed);
+            T::state().t_offset.store(offset as u16, Ordering::Release);
 
             Ok(())
         }
@@ -265,7 +270,11 @@ impl<'d, T: Instance> Can<'d, T> {
         let now = Instant::now();
         let overflow = T::state().t_overflow.load(Ordering::Relaxed);
         let offset = T::state().t_offset.load(Ordering::Relaxed);
-        let last_overflow = (now.as_ticks() - (now.as_ticks() % overflow as u64)) + offset as u64;
+        let last_overflow = if overflow != 0 {
+            (now.as_ticks() - (now.as_ticks() % overflow as u64)) + offset as u64
+        } else {
+            0
+        };
 
         let state = T::state();
         let regs = T::regs();
@@ -296,13 +305,20 @@ impl<'d, T: Instance> Can<'d, T> {
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-            let time = last_overflow + (fifo.rdtr().read().time() as u32 * overflow as u32 / u16::MAX as u32) as u64;
-            let time = if time > now.as_ticks() {
-                time - overflow as u64
+            let time = if overflow != 0 {
+                let time =
+                    last_overflow + (fifo.rdtr().read().time() as u32 * overflow as u32 / u16::MAX as u32) as u64;
+                let time = if time > now.as_ticks() {
+                    time - overflow as u64
+                } else {
+                    time
+                };
+
+                Instant::from_ticks(time)
             } else {
-                time
+                Instant::from_ticks(0)
             };
-            let time = Instant::from_ticks(time);
+
             let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
             let envelope = Envelope {
                 #[cfg(feature = "time")]
@@ -418,6 +434,9 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     pub fn as_mut(&self) -> RefMut<'_, bxcan::Can<BxcanInstance<'d, T>>> {
+        T::state().t_overflow.store(0, Ordering::Release);
+        T::state().t_offset.store(0, Ordering::Release);
+
         self.can.borrow_mut()
     }
 }
