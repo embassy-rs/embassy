@@ -1,6 +1,7 @@
 use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
+#[allow(unused_imports)]
 use core::ops::{Add, Deref, DerefMut};
 use core::task::Poll;
 
@@ -335,8 +336,11 @@ impl<'d, T: Instance> Can<'d, T> {
                 frame,
             };
 
-            trace!("now: {}", now.as_ticks());
-            trace!("now (time): {}", time.as_ticks());
+            #[cfg(feature = "time")]
+            {
+                trace!("now: {}", now.as_ticks());
+                trace!("now (time): {}", time.as_ticks());
+            }
 
             rfr.modify(|v| v.set_rfom(true));
 
