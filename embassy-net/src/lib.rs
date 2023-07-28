@@ -247,7 +247,7 @@ impl<D: Driver + 'static> Stack<D> {
             #[cfg(feature = "medium-ip")]
             Medium::Ip => HardwareAddress::Ip,
             #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::Absent),
+            Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::Extended(device.ieee802154_address())),
             #[allow(unreachable_patterns)]
             _ => panic!(
                 "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
@@ -744,6 +744,13 @@ impl<D: Driver + 'static> Inner<D> {
         if self.device.capabilities().medium == Medium::Ethernet {
             s.iface.set_hardware_addr(HardwareAddress::Ethernet(EthernetAddress(
                 self.device.ethernet_address(),
+            )));
+        }
+
+        #[cfg(feature = "medium-ieee802154")]
+        if self.device.capabilities().medium == Medium::Ieee802154 {
+            s.iface.set_hardware_addr(HardwareAddress::Ieee802154(Ieee802154Address::Extended(
+                self.device.ieee802154_address(),
             )));
         }
 
