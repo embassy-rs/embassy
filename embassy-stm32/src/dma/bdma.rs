@@ -6,7 +6,7 @@ use core::sync::atomic::{fence, Ordering};
 use core::task::{Context, Poll, Waker};
 
 use atomic_polyfill::AtomicUsize;
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};

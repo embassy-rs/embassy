@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU32, AtomicU8};
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::extra::U8;
 use fixed::FixedU32;

@@ -36,7 +36,7 @@ pub mod pio_instr_util;
 pub mod relocate;
 
 // Reexports
-pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
 pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
@@ -45,7 +45,7 @@ pub(crate) use rp_pac as pac;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
 
-embassy_hal_common::interrupt_mod!(
+embassy_hal_internal::interrupt_mod!(
     TIMER_IRQ_0,
     TIMER_IRQ_1,
     TIMER_IRQ_2,
@@ -85,7 +85,7 @@ embassy_hal_common::interrupt_mod!(
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
 /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
-// developer note: this macro can't be in `embassy-hal-common` due to the use of `$crate`.
+// developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
     ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
@@ -107,7 +107,7 @@ macro_rules! bind_interrupts {
     };
 }
 
-embassy_hal_common::peripherals! {
+embassy_hal_internal::peripherals! {
     PIN_0,
     PIN_1,
     PIN_2,

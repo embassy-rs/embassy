@@ -3,7 +3,7 @@ mod descriptors;
 use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;

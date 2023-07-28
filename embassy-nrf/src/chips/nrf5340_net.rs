@@ -109,7 +109,7 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 pub const FLASH_SIZE: usize = 256 * 1024;
 
-embassy_hal_common::peripherals! {
+embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
     RTC1,
@@ -342,7 +342,7 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-embassy_hal_common::interrupt_mod!(
+embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,
     RADIO,
     RNG,

@@ -138,7 +138,7 @@ fn main() {
     let singleton_tokens: Vec<_> = singletons.iter().map(|s| format_ident!("{}", s)).collect();
 
     g.extend(quote! {
-        embassy_hal_common::peripherals_definition!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_definition!(#(#singleton_tokens),*);
     });
 
     let singleton_tokens: Vec<_> = singletons
@@ -148,7 +148,7 @@ fn main() {
         .collect();
 
     g.extend(quote! {
-        embassy_hal_common::peripherals_struct!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_struct!(#(#singleton_tokens),*);
     });
 
     // ========
@@ -160,7 +160,7 @@ fn main() {
     }
 
     g.extend(quote! {
-        embassy_hal_common::interrupt_mod!(
+        embassy_hal_internal::interrupt_mod!(
             #(
                 #irqs,
             )*
@@ -211,7 +211,7 @@ fn main() {
         let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
+            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
         });
     }
 
@@ -243,7 +243,7 @@ fn main() {
 
         #[cfg(flash)]
         impl<'d, MODE> FlashLayout<'d, MODE> {
-            pub(crate) fn new(p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
+            pub(crate) fn new(p: embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
                     #(#inits),*,
                     _mode: core::marker::PhantomData,

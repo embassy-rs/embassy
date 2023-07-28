@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::*;
 #[allow(unused_imports)]

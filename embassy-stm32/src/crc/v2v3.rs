@@ -1,4 +1,4 @@
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;

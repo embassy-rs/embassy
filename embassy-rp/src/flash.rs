@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::Peripheral;
+use embassy_hal_internal::Peripheral;
 use embedded_storage::nor_flash::{
     check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
     ReadNorFlash,

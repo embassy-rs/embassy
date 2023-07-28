@@ -2,7 +2,7 @@ use core::future::poll_fn;
 use core::slice;
 use core::task::Poll;
 
-use embassy_hal_common::atomic_ring_buffer::RingBuffer;
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;

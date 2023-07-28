@@ -4,7 +4,7 @@ use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{select, Either};
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Timer};
 use pac::uart::regs::Uartris;

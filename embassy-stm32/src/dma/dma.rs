@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};

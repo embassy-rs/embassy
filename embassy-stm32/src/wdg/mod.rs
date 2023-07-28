@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::{into_ref, Peripheral};
+use embassy_hal_internal::{into_ref, Peripheral};
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
 use crate::rcc::LSI_FREQ;

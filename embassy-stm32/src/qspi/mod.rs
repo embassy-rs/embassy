@@ -2,7 +2,7 @@
 
 pub mod enums;
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
 
 use crate::dma::Transfer;
