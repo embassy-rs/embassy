@@ -19,7 +19,7 @@ use embassy_rp::peripherals::{PIO0, USB};
 use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
@@ -30,11 +30,8 @@ use crate::uart::PioUart;
 use crate::uart_rx::PioUartRx;
 use crate::uart_tx::PioUartTx;
 
-bind_interrupts!(struct UsbIrqs {
+bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
-});
-
-bind_interrupts!(struct PioIrqs {
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
 });
 
@@ -45,7 +42,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USB, UsbIrqs);
+    let driver = Driver::new(p.USB, Irqs);
 
     // Create embassy-usb Config
     let mut config = Config::new(0xc0de, 0xcafe);
@@ -90,17 +87,17 @@ async fn main(_spawner: Spawner) {
     let usb_fut = usb.run();
 
     // PIO UART setup
-    let uart = PioUart::new(9600, p.PIO0, p.PIN_4, p.PIN_5).await;
+    let uart = PioUart::new(9600, p.PIO0, p.PIN_4, p.PIN_5);
     let (mut uart_tx, mut uart_rx) = uart.split();
 
-    // Channels setup
-    static USB_CHANNEL_TX: Channel<ThreadModeRawMutex, u8, 20> = Channel::<ThreadModeRawMutex, u8, 20>::new();
-    let mut usb_channel_tx_send = USB_CHANNEL_TX.sender();
-    let mut usb_channel_tx_recv = USB_CHANNEL_TX.receiver();
+    // Pipe setup
+    static USB_PIPE: Pipe<ThreadModeRawMutex, 20> = Pipe::new();
+    let mut usb_pipe_writer = USB_PIPE.writer();
+    let mut usb_pipe_reader = USB_PIPE.reader();
 
-    static UART_CHANNEL_TX: Channel<ThreadModeRawMutex, u8, 20> = Channel::<ThreadModeRawMutex, u8, 20>::new();
-    let mut uart_channel_tx_send = UART_CHANNEL_TX.sender();
-    let mut uart_channel_tx_recv = UART_CHANNEL_TX.receiver();
+    static UART_PIPE: Pipe<ThreadModeRawMutex, 20> = Pipe::new();
+    let mut uart_pipe_writer = UART_PIPE.writer();
+    let mut uart_pipe_reader = UART_PIPE.reader();
 
     let (mut usb_tx, mut usb_rx) = class.split();
 
@@ -111,8 +108,8 @@ async fn main(_spawner: Spawner) {
             usb_rx.wait_connection().await;
             info!("Connected");
             let _ = join(
-                usb_read(&mut usb_rx, &mut uart_channel_tx_send),
-                usb_write(&mut usb_tx, &mut usb_channel_tx_recv),
+                usb_read(&mut usb_rx, &mut uart_pipe_writer),
+                usb_write(&mut usb_tx, &mut usb_pipe_reader),
             )
             .await;
             info!("Disconnected");
@@ -120,15 +117,10 @@ async fn main(_spawner: Spawner) {
     };
 
     // Read + write from UART
-    let uart_future = async {
-        loop {
-            let _ = join(
-                uart_read(&mut uart_rx, &mut usb_channel_tx_send),
-                uart_write(&mut uart_tx, &mut uart_channel_tx_recv),
-            )
-            .await;
-        }
-    };
+    let uart_future = join(
+        uart_read(&mut uart_rx, &mut usb_pipe_writer),
+        uart_write(&mut uart_tx, &mut uart_pipe_reader),
+    );
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
@@ -146,75 +138,73 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-/// Read from the USB and write it to the UART TX send channel
+/// Read from the USB and write it to the UART TX pipe
 async fn usb_read<'d, T: Instance + 'd>(
     usb_rx: &mut Receiver<'d, Driver<'d, T>>,
-    uart_tx_send: &mut embassy_sync::channel::Sender<'d, ThreadModeRawMutex, u8, 20>,
+    uart_pipe_writer: &mut embassy_sync::pipe::Writer<'static, ThreadModeRawMutex, 20>,
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = usb_rx.read_packet(&mut buf).await?;
         let data = &buf[..n];
         trace!("USB IN: {:x}", data);
-        for byte in data {
-            uart_tx_send.send(*byte).await;
-        }
+        uart_pipe_writer.write(data).await;
     }
 }
 
-/// Read from the USB TX receive channel and write it to the USB
+/// Read from the USB TX pipe and write it to the USB
 async fn usb_write<'d, T: Instance + 'd>(
     usb_tx: &mut Sender<'d, Driver<'d, T>>,
-    usb_tx_recv: &mut embassy_sync::channel::Receiver<'d, ThreadModeRawMutex, u8, 20>,
+    usb_pipe_reader: &mut embassy_sync::pipe::Reader<'d, ThreadModeRawMutex, 20>,
 ) -> Result<(), Disconnected> {
+    let mut buf = [0; 64];
     loop {
-        let n = usb_tx_recv.recv().await;
-        let data = [n];
+        let n = usb_pipe_reader.read(&mut buf).await;
+        let data = &buf[..n];
         trace!("USB OUT: {:x}", data);
         usb_tx.write_packet(&data).await?;
     }
 }
 
-/// Read from the UART and write it to the USB TX send channel
+/// Read from the UART and write it to the USB TX pipe
 async fn uart_read<'a>(
     uart_rx: &mut PioUartRx<'a>,
-    usb_tx_send: &mut embassy_sync::channel::Sender<'a, ThreadModeRawMutex, u8, 20>,
-) -> Result<(), Disconnected> {
-    let mut buf = [0; 1];
+    usb_pipe_writer: &mut embassy_sync::pipe::Writer<'static, ThreadModeRawMutex, 20>,
+) -> ! {
+    let mut buf = [0; 64];
     loop {
         let n = uart_rx.read(&mut buf).await.expect("UART read error");
         if n == 0 {
             continue;
         }
+        let data = &buf[..n];
         trace!("UART IN: {:x}", buf);
-        usb_tx_send.send(buf[0]).await;
+        usb_pipe_writer.write(data).await;
     }
 }
 
-/// Read from the UART TX receive channel and write it to the UART
+/// Read from the UART TX pipe and write it to the UART
 async fn uart_write<'a>(
     uart_tx: &mut PioUartTx<'a>,
-    uart_rx_recv: &mut embassy_sync::channel::Receiver<'a, ThreadModeRawMutex, u8, 20>,
-) -> Result<(), Disconnected> {
+    uart_pipe_reader: &mut embassy_sync::pipe::Reader<'a, ThreadModeRawMutex, 20>,
+) -> ! {
+    let mut buf = [0; 64];
     loop {
-        let n = uart_rx_recv.recv().await;
-        let data = [n];
+        let n = uart_pipe_reader.read(&mut buf).await;
+        let data = &buf[..n];
         trace!("UART OUT: {:x}", data);
         let _ = uart_tx.write(&data).await;
     }
 }
 
 mod uart {
-    use core::fmt::Debug;
-
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Pio, PioPin};
     use embassy_rp::Peripheral;
-    use embedded_io::ErrorKind;
 
     use crate::uart_rx::PioUartRx;
     use crate::uart_tx::PioUartTx;
-    use crate::PioIrqs;
+    use crate::Irqs;
 
     pub struct PioUart<'a> {
         tx: PioUartTx<'a>,
@@ -222,7 +212,7 @@ mod uart {
     }
 
     impl<'a> PioUart<'a> {
-        pub async fn new(
+        pub fn new(
             baud: u64,
             pio: impl Peripheral<P = PIO0> + 'a,
             tx_pin: impl PioPin,
@@ -230,7 +220,7 @@ mod uart {
         ) -> PioUart<'a> {
             let Pio {
                 mut common, sm0, sm1, ..
-            } = Pio::new(pio, PioIrqs);
+            } = Pio::new(pio, Irqs);
 
             let (tx, origin) = PioUartTx::new(&mut common, sm0, tx_pin, baud, None);
             let (rx, _) = PioUartRx::new(&mut common, sm1, rx_pin, baud, Some(origin));
@@ -242,17 +232,11 @@ mod uart {
             (self.tx, self.rx)
         }
     }
-    #[derive(defmt::Format, Debug)]
-    pub struct PioUartError {}
-
-    impl embedded_io::Error for PioUartError {
-        fn kind(&self) -> ErrorKind {
-            ErrorKind::Other
-        }
-    }
 }
 
 mod uart_tx {
+    use core::convert::Infallible;
+
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
@@ -261,8 +245,6 @@ mod uart_tx {
     use embedded_io::Io;
     use fixed::traits::ToFixed;
     use fixed_macro::types::U56F8;
-
-    use crate::uart::PioUartError;
 
     pub struct PioUartTx<'a> {
         sm_tx: StateMachine<'a, PIO0, 0>,
@@ -328,11 +310,11 @@ mod uart_tx {
     }
 
     impl Io for PioUartTx<'_> {
-        type Error = PioUartError;
+        type Error = Infallible;
     }
 
     impl Write for PioUartTx<'_> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, PioUartError> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Infallible> {
             for byte in buf {
                 self.write_u8(*byte).await;
             }
@@ -342,6 +324,8 @@ mod uart_tx {
 }
 
 mod uart_rx {
+    use core::convert::Infallible;
+
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
@@ -350,8 +334,6 @@ mod uart_rx {
     use embedded_io::Io;
     use fixed::traits::ToFixed;
     use fixed_macro::types::U56F8;
-
-    use crate::uart::PioUartError;
 
     pub struct PioUartRx<'a> {
         sm_rx: StateMachine<'a, PIO0, 1>,
@@ -415,11 +397,11 @@ mod uart_rx {
     }
 
     impl Io for PioUartRx<'_> {
-        type Error = PioUartError;
+        type Error = Infallible;
     }
 
     impl Read for PioUartRx<'_> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, PioUartError> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Infallible> {
             let mut i = 0;
             while i < buf.len() {
                 buf[i] = self.read_u8().await;
