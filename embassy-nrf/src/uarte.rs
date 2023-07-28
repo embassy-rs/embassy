@@ -18,8 +18,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::uarte0::RegisterBlock;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};

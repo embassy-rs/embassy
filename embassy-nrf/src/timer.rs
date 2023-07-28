@@ -6,7 +6,7 @@
 
 #![macro_use]
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::ppi::{Event, Task};
 use crate::{pac, Peripheral};

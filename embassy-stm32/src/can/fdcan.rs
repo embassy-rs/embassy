@@ -1,5 +1,5 @@
 pub use bxcan;
-use embassy_hal_common::PeripheralRef;
+use embassy_hal_internal::PeripheralRef;
 
 use crate::peripherals;
 

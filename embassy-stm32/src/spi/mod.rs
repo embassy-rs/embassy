@@ -4,7 +4,7 @@ use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 
 use crate::dma::{slice_ptr_parts, word, Transfer};

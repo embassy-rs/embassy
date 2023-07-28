@@ -15,8 +15,8 @@ use core::slice;
 use core::sync::atomic::{compiler_fence, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::atomic_ring_buffer::RingBuffer;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};

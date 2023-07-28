@@ -2,7 +2,7 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::PeripheralRef;
+use embassy_hal_internal::PeripheralRef;
 use futures::future::{select, Either};
 
 use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};

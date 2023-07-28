@@ -8,7 +8,7 @@ use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
 use core::task::Poll;
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};

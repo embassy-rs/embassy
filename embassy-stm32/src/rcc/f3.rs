@@ -264,6 +264,7 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
 }
 
 #[inline]
+#[allow(unused_variables)]
 fn get_usb_pre(config: &Config, sysclk: u32, pclk1: u32, pll_config: &Option<PllConfig>) -> Usbpre {
     cfg_if::cfg_if! {
         // Some chips do not have USB

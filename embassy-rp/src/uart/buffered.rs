@@ -3,7 +3,7 @@ use core::slice;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU8, Ordering};
-use embassy_hal_common::atomic_ring_buffer::RingBuffer;
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Timer};
 
