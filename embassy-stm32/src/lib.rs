@@ -26,6 +26,8 @@ pub mod timer;
 pub mod adc;
 #[cfg(can)]
 pub mod can;
+#[cfg(crc)]
+pub mod crc;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
@@ -34,14 +36,13 @@ pub mod dcmi;
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;
+pub mod flash;
 #[cfg(fmc)]
 pub mod fmc;
+#[cfg(hrtim_v1)]
+pub mod hrtim;
 #[cfg(i2c)]
 pub mod i2c;
-
-#[cfg(crc)]
-pub mod crc;
-pub mod flash;
 #[cfg(all(spi_v1, rcc_f4))]
 pub mod i2s;
 #[cfg(stm32wb)]
