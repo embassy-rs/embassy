@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::into_ref;
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::{Pull, Speed};

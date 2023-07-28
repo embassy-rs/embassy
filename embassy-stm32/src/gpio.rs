@@ -1,7 +1,7 @@
 #![macro_use]
 use core::convert::Infallible;
 
-use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
 use crate::{pac, peripherals, Peripheral};

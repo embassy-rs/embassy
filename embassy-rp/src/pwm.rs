@@ -1,6 +1,6 @@
 //! Pulse Width Modulation (PWM)
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};

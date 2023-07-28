@@ -6,7 +6,7 @@ use core::task::Poll;
 
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::FutureExt;
 
 use crate::gpio::sealed::AFType;

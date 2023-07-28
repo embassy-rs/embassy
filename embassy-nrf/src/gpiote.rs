@@ -4,7 +4,7 @@ use core::convert::Infallible;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
-use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::sealed::Pin as _;

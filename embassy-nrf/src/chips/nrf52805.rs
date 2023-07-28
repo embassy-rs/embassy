@@ -8,7 +8,7 @@ pub const FLASH_SIZE: usize = 192 * 1024;
 
 pub const RESET_PIN: u32 = 21;
 
-embassy_hal_common::peripherals! {
+embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
     RTC1,
@@ -208,7 +208,7 @@ impl_ppi_channel!(PPI_CH31, 31 => static);
 impl_saadc_input!(P0_04, ANALOG_INPUT2);
 impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
-embassy_hal_common::interrupt_mod!(
+embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,
     RADIO,
     UARTE0_UART0,

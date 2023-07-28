@@ -26,5 +26,6 @@ embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features
 embedded-hal-async = { version = "=0.2.0-alpha.2" }
 embedded-hal = { version = "0.2", features = ["unproven"] }
 
+futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 lora-phy = { version = "1" }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async"], optional = true }

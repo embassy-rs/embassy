@@ -1,6 +1,6 @@
 mod filter;
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 pub use self::filter::DateTimeFilter;
 

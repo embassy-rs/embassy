@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 

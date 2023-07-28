@@ -18,7 +18,7 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::{peripherals, Peripheral};
 
