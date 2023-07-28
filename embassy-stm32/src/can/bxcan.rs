@@ -1,12 +1,14 @@
 use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
+use core::ops::{Add, Deref, DerefMut};
 use core::task::Poll;
 
+use atomic_polyfill::Ordering;
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
 use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_time::{Duration, Instant, TICK_HZ};
 use futures::FutureExt;
 
 use crate::gpio::sealed::AFType;
@@ -117,10 +119,10 @@ impl<'d, T: Instance> Can<'d, T> {
             T::regs().ier().write(|w| {
                 // TODO: fix metapac
 
-                w.set_errie(Errie::from_bits(1));
-                w.set_fmpie(0, Fmpie::from_bits(1));
-                w.set_fmpie(1, Fmpie::from_bits(1));
-                w.set_tmeie(Tmeie::from_bits(1));
+                w.set_errie(Errie::ENABLED);
+                w.set_fmpie(0, Fmpie::ENABLED);
+                w.set_fmpie(1, Fmpie::ENABLED);
+                w.set_tmeie(Tmeie::ENABLED);
             });
 
             T::regs().mcr().write(|w| {
@@ -159,17 +161,31 @@ impl<'d, T: Instance> Can<'d, T> {
             .modify_config()
             .set_bit_timing(bit_timing)
             .leave_disabled();
+
+        let overflow = (TICK_HZ as u64 * u16::MAX as u64) / bitrate as u64;
+        T::state().t_overflow.store(overflow as u16, Ordering::Relaxed);
     }
 
     /// Enables the peripheral and synchronizes with the bus.
     ///
     /// This will wait for 11 consecutive recessive bits (bus idle state).
     /// Contrary to enable method from bxcan library, this will not freeze the executor while waiting.
-    pub async fn enable(&mut self) {
-        while self.borrow_mut().enable_non_blocking().is_err() {
-            // SCE interrupt is only generated for entering sleep mode, but not leaving.
-            // Yield to allow other tasks to execute while can bus is initializing.
-            embassy_futures::yield_now().await;
+    pub fn enable(&mut self) -> Result<(), ()> {
+        let mut now = Instant::now();
+        let timeout = now.add(Duration::from_millis(20));
+        while self.borrow_mut().enable_non_blocking().is_err() && now < timeout {
+            now = Instant::now();
+        }
+
+        if self.borrow_mut().enable_non_blocking().is_err() {
+            Err(())
+        } else {
+            let overflow = T::state().t_overflow.load(Ordering::Relaxed);
+            let offset = now.as_ticks() % overflow as u64;
+
+            T::state().t_offset.store(offset as u16, Ordering::Relaxed);
+
+            Ok(())
         }
     }
 
@@ -199,7 +215,7 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Returns a tuple of the time the message was received and the message frame
-    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<(Instant, bxcan::Frame), BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
             if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
@@ -228,6 +244,11 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     unsafe fn receive_fifo(fifo: RxFifo) {
+        let now = Instant::now();
+        let overflow = T::state().t_overflow.load(Ordering::Relaxed);
+        let offset = T::state().t_offset.load(Ordering::Relaxed);
+        let last_overflow = (now.as_ticks() - (now.as_ticks() % overflow as u64)) + offset as u64;
+
         let state = T::state();
         let regs = T::regs();
         let fifo_idx = match fifo {
@@ -257,8 +278,17 @@ impl<'d, T: Instance> Can<'d, T> {
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-            let time = fifo.rdtr().read().time();
+            let time = last_overflow + (fifo.rdtr().read().time() as u32 * overflow as u32 / u16::MAX as u32) as u64;
+            let time = if time > now.as_ticks() {
+                time - offset as u64
+            } else {
+                time
+            };
+            let time = Instant::from_ticks(time);
             let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
+
+            trace!("now: {}", now.as_ticks());
+            trace!("now (time): {}", time.as_ticks());
 
             rfr.modify(|v| v.set_rfom(true));
 
@@ -405,7 +435,7 @@ pub struct CanRx<'c, 'd, T: Instance> {
 }
 
 impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
-    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<(Instant, bxcan::Frame), BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
             if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
@@ -463,14 +493,18 @@ impl<'d, T: Instance> DerefMut for Can<'d, T> {
 }
 
 pub(crate) mod sealed {
+    use atomic_polyfill::AtomicU16;
     use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
     use embassy_sync::channel::Channel;
     use embassy_sync::waitqueue::AtomicWaker;
+    use embassy_time::Instant;
 
     pub struct State {
         pub tx_waker: AtomicWaker,
         pub err_waker: AtomicWaker,
-        pub rx_queue: Channel<CriticalSectionRawMutex, (u16, bxcan::Frame), 32>,
+        pub rx_queue: Channel<CriticalSectionRawMutex, (Instant, bxcan::Frame), 32>,
+        pub t_overflow: AtomicU16,
+        pub t_offset: AtomicU16,
     }
 
     impl State {
@@ -479,6 +513,8 @@ pub(crate) mod sealed {
                 tx_waker: AtomicWaker::new(),
                 err_waker: AtomicWaker::new(),
                 rx_queue: Channel::new(),
+                t_overflow: AtomicU16::new(0),
+                t_offset: AtomicU16::new(0),
             }
         }
     }

@@ -14,6 +14,7 @@ use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
 use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -52,10 +53,15 @@ async fn main(_spawner: Spawner) {
         .modify_config()
         .set_loopback(true) // Receive own frames
         .set_silent(true)
-        // .set_bit_timing(0x001c0003)
-        .enable();
+        .leave_disabled();
+
+    Timer::after(Duration::from_millis(10)).await;
+
+    can.enable().unwrap();
 
     info!("Can configured");
+
+    Timer::after(Duration::from_millis(10)).await;
 
     let mut i: u8 = 0;
     loop {
