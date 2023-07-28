@@ -222,8 +222,8 @@ mod uart {
                 mut common, sm0, sm1, ..
             } = Pio::new(pio, Irqs);
 
-            let (tx, origin) = PioUartTx::new(&mut common, sm0, tx_pin, baud, None);
-            let (rx, _) = PioUartRx::new(&mut common, sm1, rx_pin, baud, Some(origin));
+            let tx = PioUartTx::new(&mut common, sm0, tx_pin, baud);
+            let rx = PioUartRx::new(&mut common, sm1, rx_pin, baud);
 
             PioUart { tx, rx }
         }
@@ -240,7 +240,6 @@ mod uart_tx {
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
-    use embassy_rp::relocate::RelocatedProgram;
     use embedded_io::asynch::Write;
     use embedded_io::Io;
     use fixed::traits::ToFixed;
@@ -256,9 +255,8 @@ mod uart_tx {
             mut sm_tx: StateMachine<'a, PIO0, 0>,
             tx_pin: impl PioPin,
             baud: u64,
-            origin: Option<u8>,
-        ) -> (Self, u8) {
-            let mut prg = pio_proc::pio_asm!(
+        ) -> Self {
+            let prg = pio_proc::pio_asm!(
                 r#"
                 .side_set 1 opt
 
@@ -272,17 +270,14 @@ mod uart_tx {
                     jmp x-- bitloop   [6]  ; Each loop iteration is 8 cycles.
             "#
             );
-            prg.program.origin = origin;
             let tx_pin = common.make_pio_pin(tx_pin);
             sm_tx.set_pins(Level::High, &[&tx_pin]);
             sm_tx.set_pin_dirs(Direction::Out, &[&tx_pin]);
 
-            let relocated = RelocatedProgram::new(&prg.program);
-
             let mut cfg = Config::default();
 
             cfg.set_out_pins(&[&tx_pin]);
-            cfg.use_program(&common.load_program(&relocated), &[&tx_pin]);
+            cfg.use_program(&common.load_program(&prg.program), &[&tx_pin]);
             cfg.shift_out.auto_fill = false;
             cfg.shift_out.direction = ShiftDirection::Right;
             cfg.fifo_join = FifoJoin::TxOnly;
@@ -290,18 +285,7 @@ mod uart_tx {
             sm_tx.set_config(&cfg);
             sm_tx.set_enable(true);
 
-            // The 4 state machines of the PIO each have their own program counter that starts taking
-            // instructions at an offset (origin) of the 32 instruction "space" the PIO device has.
-            // It is up to the programmer to sort out where to place these instructions.
-            // From the pio_asm! macro you get a ProgramWithDefines which has a field .program.origin
-            // which takes an Option<u8>.
-            //
-            // When you load more than one RelocatedProgram into the PIO,
-            // you load your first program at origin = 0.
-            // The RelocatedProgram has .code().count() which returns a usize,
-            // for which you can then use as your next program's origin.
-            let offset = relocated.code().count() as u8 + origin.unwrap_or_default();
-            (Self { sm_tx }, offset)
+            Self { sm_tx }
         }
 
         pub async fn write_u8(&mut self, data: u8) {
@@ -329,7 +313,6 @@ mod uart_rx {
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
-    use embassy_rp::relocate::RelocatedProgram;
     use embedded_io::asynch::Read;
     use embedded_io::Io;
     use fixed::traits::ToFixed;
@@ -345,9 +328,8 @@ mod uart_rx {
             mut sm_rx: StateMachine<'a, PIO0, 1>,
             rx_pin: impl PioPin,
             baud: u64,
-            origin: Option<u8>,
-        ) -> (Self, u8) {
-            let mut prg = pio_proc::pio_asm!(
+        ) -> Self {
+            let prg = pio_proc::pio_asm!(
                 r#"
                 ; Slightly more fleshed-out 8n1 UART receiver which handles framing errors and
                 ; break conditions more gracefully.
@@ -369,10 +351,8 @@ mod uart_rx {
                     push                ; important in case the TX clock is slightly too fast.
             "#
             );
-            prg.program.origin = origin;
-            let relocated = RelocatedProgram::new(&prg.program);
             let mut cfg = Config::default();
-            cfg.use_program(&common.load_program(&relocated), &[]);
+            cfg.use_program(&common.load_program(&prg.program), &[]);
 
             let rx_pin = common.make_pio_pin(rx_pin);
             sm_rx.set_pins(Level::High, &[&rx_pin]);
@@ -387,8 +367,7 @@ mod uart_rx {
             sm_rx.set_config(&cfg);
             sm_rx.set_enable(true);
 
-            let offset = relocated.code().count() as u8 + origin.unwrap_or_default();
-            (Self { sm_rx }, offset)
+            Self { sm_rx }
         }
 
         pub async fn read_u8(&mut self) -> u8 {
