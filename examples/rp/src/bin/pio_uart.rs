@@ -1,22 +1,34 @@
-//! This example shows how to use USB (Universal Serial Bus) in the RP2040 chip.
+//! This example shows how to use the PIO module in the RP2040 chip to implement a duplex UART.
+//! The PIO module is a very powerful peripheral that can be used to implement many different
+//! protocols. It is a very flexible state machine that can be programmed to do almost anything.
 //!
-//! This creates a USB serial port that echos.
+//! This example opens up a USB device that implements a CDC ACM serial port. It then uses the
+//! PIO module to implement a UART that is connected to the USB serial port. This allows you to
+//! communicate with a device connected to the RP2040 over USB serial.
 
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+#![feature(async_fn_in_trait)]
 
-use defmt::{info, panic};
+use defmt::{info, panic, trace};
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
+use embassy_futures::join::{join, join3};
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{PIO0, USB};
+use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
-use embassy_rp::pio::{InterruptHandler as PioInterruptHandler};
+use embedded_io::asynch::{Read, Write};
 use {defmt_rtt as _, panic_probe as _};
+
+use crate::uart::PioUart;
+use crate::uart_rx::PioUartRx;
+use crate::uart_tx::PioUartTx;
 
 bind_interrupts!(struct UsbIrqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
@@ -69,7 +81,7 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+    let class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -77,19 +89,50 @@ async fn main(_spawner: Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
-    // Do stuff with the class!
-    let echo_fut = async {
+    // PIO UART setup
+    let uart = PioUart::new(9600, p.PIO0, p.PIN_4, p.PIN_5).await;
+    let (mut uart_tx, mut uart_rx) = uart.split();
+
+    // Channels setup
+    static USB_CHANNEL_TX: Channel<ThreadModeRawMutex, u8, 20> = Channel::<ThreadModeRawMutex, u8, 20>::new();
+    let mut usb_channel_tx_send = USB_CHANNEL_TX.sender();
+    let mut usb_channel_tx_recv = USB_CHANNEL_TX.receiver();
+
+    static UART_CHANNEL_TX: Channel<ThreadModeRawMutex, u8, 20> = Channel::<ThreadModeRawMutex, u8, 20>::new();
+    let mut uart_channel_tx_send = UART_CHANNEL_TX.sender();
+    let mut uart_channel_tx_recv = UART_CHANNEL_TX.receiver();
+
+    let (mut usb_tx, mut usb_rx) = class.split();
+
+    // Read + write from USB
+    let usb_future = async {
         loop {
-            class.wait_connection().await;
+            info!("Wait for USB connection");
+            usb_rx.wait_connection().await;
             info!("Connected");
-            let _ = echo(&mut class).await;
+            let _ = join(
+                usb_read(&mut usb_rx, &mut uart_channel_tx_send),
+                usb_write(&mut usb_tx, &mut usb_channel_tx_recv),
+            )
+            .await;
             info!("Disconnected");
+        }
+    };
+
+    // Read + write from UART
+    let uart_future = async {
+        loop {
+            let _ = join(
+                uart_read(&mut uart_rx, &mut usb_channel_tx_send),
+                uart_write(&mut uart_tx, &mut uart_channel_tx_recv),
+            )
+            .await;
         }
     };
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
-    join(usb_fut, echo_fut).await;
+    join3(usb_fut, usb_future, uart_future).await;
 }
 
 struct Disconnected {}
@@ -103,28 +146,79 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
+/// Read from the USB and write it to the UART TX send channel
+async fn usb_read<'d, T: Instance + 'd>(
+    usb_rx: &mut Receiver<'d, Driver<'d, T>>,
+    uart_tx_send: &mut embassy_sync::channel::Sender<'d, ThreadModeRawMutex, u8, 20>,
+) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
-        let n = class.read_packet(&mut buf).await?;
+        let n = usb_rx.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        info!("data: {:x}", data);
-        class.write_packet(data).await?;
+        trace!("USB IN: {:x}", data);
+        for byte in data {
+            uart_tx_send.send(*byte).await;
+        }
+    }
+}
+
+/// Read from the USB TX receive channel and write it to the USB
+async fn usb_write<'d, T: Instance + 'd>(
+    usb_tx: &mut Sender<'d, Driver<'d, T>>,
+    usb_tx_recv: &mut embassy_sync::channel::Receiver<'d, ThreadModeRawMutex, u8, 20>,
+) -> Result<(), Disconnected> {
+    loop {
+        let n = usb_tx_recv.recv().await;
+        let data = [n];
+        trace!("USB OUT: {:x}", data);
+        usb_tx.write_packet(&data).await?;
+    }
+}
+
+/// Read from the UART and write it to the USB TX send channel
+async fn uart_read<'a>(
+    uart_rx: &mut PioUartRx<'a>,
+    usb_tx_send: &mut embassy_sync::channel::Sender<'a, ThreadModeRawMutex, u8, 20>,
+) -> Result<(), Disconnected> {
+    let mut buf = [0; 1];
+    loop {
+        let n = uart_rx.read(&mut buf).await.expect("UART read error");
+        if n == 0 {
+            continue;
+        }
+        trace!("UART IN: {:x}", buf);
+        usb_tx_send.send(buf[0]).await;
+    }
+}
+
+/// Read from the UART TX receive channel and write it to the UART
+async fn uart_write<'a>(
+    uart_tx: &mut PioUartTx<'a>,
+    uart_rx_recv: &mut embassy_sync::channel::Receiver<'a, ThreadModeRawMutex, u8, 20>,
+) -> Result<(), Disconnected> {
+    loop {
+        let n = uart_rx_recv.recv().await;
+        let data = [n];
+        trace!("UART OUT: {:x}", data);
+        let _ = uart_tx.write(&data).await;
     }
 }
 
 mod uart {
-    use embassy_rp::peripherals::PIO0;
-    use embassy_rp::pio::{Common, Pio, PioPin, StateMachine};
-    use embassy_rp::Peripheral;
+    use core::fmt::Debug;
 
+    use embassy_rp::peripherals::PIO0;
+    use embassy_rp::pio::{Pio, PioPin};
+    use embassy_rp::Peripheral;
+    use embedded_io::ErrorKind;
+
+    use crate::uart_rx::PioUartRx;
+    use crate::uart_tx::PioUartTx;
     use crate::PioIrqs;
 
     pub struct PioUart<'a> {
-        baud: u64,
-        pio: Common<'a, PIO0>,
-        sm0: StateMachine<'a, PIO0, 0>,
-        sm1: StateMachine<'a, PIO0, 1>,
+        tx: PioUartTx<'a>,
+        rx: PioUartRx<'a>,
     }
 
     impl<'a> PioUart<'a> {
@@ -135,21 +229,25 @@ mod uart {
             rx_pin: impl PioPin,
         ) -> PioUart<'a> {
             let Pio {
-                mut common,
-                mut sm0,
-                mut sm1,
-                ..
+                mut common, sm0, sm1, ..
             } = Pio::new(pio, PioIrqs);
 
-            crate::uart_tx::setup_uart_tx_on_sm0(&mut common, &mut sm0, tx_pin, baud);
-            crate::uart_rx::setup_uart_rx_on_sm1(&mut common, &mut sm1, rx_pin, baud);
+            let (tx, origin) = PioUartTx::new(&mut common, sm0, tx_pin, baud, None);
+            let (rx, _) = PioUartRx::new(&mut common, sm1, rx_pin, baud, Some(origin));
 
-            PioUart {
-                baud,
-                pio: common,
-                sm0,
-                sm1,
-            }
+            PioUart { tx, rx }
+        }
+
+        pub fn split(self) -> (PioUartTx<'a>, PioUartRx<'a>) {
+            (self.tx, self.rx)
+        }
+    }
+    #[derive(defmt::Format, Debug)]
+    pub struct PioUartError {}
+
+    impl embedded_io::Error for PioUartError {
+        fn kind(&self) -> ErrorKind {
+            ErrorKind::Other
         }
     }
 }
@@ -159,18 +257,27 @@ mod uart_tx {
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
     use embassy_rp::relocate::RelocatedProgram;
+    use embedded_io::asynch::Write;
+    use embedded_io::Io;
     use fixed::traits::ToFixed;
     use fixed_macro::types::U56F8;
 
-    pub fn setup_uart_tx_on_sm0<'a>(
-        common: &mut Common<'a, PIO0>,
-        sm_tx: &mut StateMachine<'a, PIO0, 0>,
-        tx_pin: impl PioPin,
-        baud: u64,
-    ) {
-        let prg = pio_proc::pio_asm!(
-            r#"
-                ;.program uart_tx
+    use crate::uart::PioUartError;
+
+    pub struct PioUartTx<'a> {
+        sm_tx: StateMachine<'a, PIO0, 0>,
+    }
+
+    impl<'a> PioUartTx<'a> {
+        pub fn new(
+            common: &mut Common<'a, PIO0>,
+            mut sm_tx: StateMachine<'a, PIO0, 0>,
+            tx_pin: impl PioPin,
+            baud: u64,
+            origin: Option<u8>,
+        ) -> (Self, u8) {
+            let mut prg = pio_proc::pio_asm!(
+                r#"
                 .side_set 1 opt
 
                 ; An 8n1 UART transmit program.
@@ -182,23 +289,55 @@ mod uart_tx {
                     out pins, 1            ; Shift 1 bit from OSR to the first OUT pin
                     jmp x-- bitloop   [6]  ; Each loop iteration is 8 cycles.
             "#
-        );
-        let tx_pin = common.make_pio_pin(tx_pin);
-        sm_tx.set_pins(Level::High, &[&tx_pin]);
-        sm_tx.set_pin_dirs(Direction::Out, &[&tx_pin]);
+            );
+            prg.program.origin = origin;
+            let tx_pin = common.make_pio_pin(tx_pin);
+            sm_tx.set_pins(Level::High, &[&tx_pin]);
+            sm_tx.set_pin_dirs(Direction::Out, &[&tx_pin]);
 
-        let relocated = RelocatedProgram::new(&prg.program);
-        let mut cfg = Config::default();
+            let relocated = RelocatedProgram::new(&prg.program);
 
-        cfg.use_program(&common.load_program(&relocated), &[&tx_pin]);
-        cfg.clock_divider = (U56F8!(125_000_000) / (8 * baud)).to_fixed();
-        cfg.shift_out.auto_fill = false;
-        cfg.shift_out.direction = ShiftDirection::Right;
-        cfg.fifo_join = FifoJoin::TxOnly;
-        cfg.set_out_pins(&[&tx_pin]);
-        cfg.set_set_pins(&[&tx_pin]);
-        sm_tx.set_config(&cfg);
-        sm_tx.set_enable(true)
+            let mut cfg = Config::default();
+
+            cfg.set_out_pins(&[&tx_pin]);
+            cfg.use_program(&common.load_program(&relocated), &[&tx_pin]);
+            cfg.shift_out.auto_fill = false;
+            cfg.shift_out.direction = ShiftDirection::Right;
+            cfg.fifo_join = FifoJoin::TxOnly;
+            cfg.clock_divider = (U56F8!(125_000_000) / (8 * baud)).to_fixed();
+            sm_tx.set_config(&cfg);
+            sm_tx.set_enable(true);
+
+            // The 4 state machines of the PIO each have their own program counter that starts taking
+            // instructions at an offset (origin) of the 32 instruction "space" the PIO device has.
+            // It is up to the programmer to sort out where to place these instructions.
+            // From the pio_asm! macro you get a ProgramWithDefines which has a field .program.origin
+            // which takes an Option<u8>.
+            //
+            // When you load more than one RelocatedProgram into the PIO,
+            // you load your first program at origin = 0.
+            // The RelocatedProgram has .code().count() which returns a usize,
+            // for which you can then use as your next program's origin.
+            let offset = relocated.code().count() as u8 + origin.unwrap_or_default();
+            (Self { sm_tx }, offset)
+        }
+
+        pub async fn write_u8(&mut self, data: u8) {
+            self.sm_tx.tx().wait_push(data as u32).await;
+        }
+    }
+
+    impl Io for PioUartTx<'_> {
+        type Error = PioUartError;
+    }
+
+    impl Write for PioUartTx<'_> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, PioUartError> {
+            for byte in buf {
+                self.write_u8(*byte).await;
+            }
+            Ok(buf.len())
+        }
     }
 }
 
@@ -207,19 +346,27 @@ mod uart_rx {
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
     use embassy_rp::relocate::RelocatedProgram;
+    use embedded_io::asynch::Read;
+    use embedded_io::Io;
     use fixed::traits::ToFixed;
     use fixed_macro::types::U56F8;
 
-    pub fn setup_uart_rx_on_sm1<'a>(
-        common: &mut Common<'a, PIO0>,
-        sm_rx: &mut StateMachine<'a, PIO0, 1>,
-        rx_pin: impl PioPin,
-        baud: u64,
-    ) {
-        let prg = pio_proc::pio_asm!(
-            r#"
-                ;.program uart_rx
+    use crate::uart::PioUartError;
 
+    pub struct PioUartRx<'a> {
+        sm_rx: StateMachine<'a, PIO0, 1>,
+    }
+
+    impl<'a> PioUartRx<'a> {
+        pub fn new(
+            common: &mut Common<'a, PIO0>,
+            mut sm_rx: StateMachine<'a, PIO0, 1>,
+            rx_pin: impl PioPin,
+            baud: u64,
+            origin: Option<u8>,
+        ) -> (Self, u8) {
+            let mut prg = pio_proc::pio_asm!(
+                r#"
                 ; Slightly more fleshed-out 8n1 UART receiver which handles framing errors and
                 ; break conditions more gracefully.
                 ; IN pin 0 and JMP pin are both mapped to the GPIO used as UART RX.
@@ -227,36 +374,58 @@ mod uart_rx {
                 start:
                     wait 0 pin 0        ; Stall until start bit is asserted
                     set x, 7    [10]    ; Preload bit counter, then delay until halfway through
-                bitloop:                ; the first data bit (12 cycles incl wait, set).
+                rx_bitloop:                ; the first data bit (12 cycles incl wait, set).
                     in pins, 1          ; Shift data bit into ISR
-                    jmp x-- bitloop [6] ; Loop 8 times, each loop iteration is 8 cycles
-                    jmp pin good_stop   ; Check stop bit (should be high)
+                    jmp x-- rx_bitloop [6] ; Loop 8 times, each loop iteration is 8 cycles
+                    jmp pin good_rx_stop   ; Check stop bit (should be high)
 
                     irq 4 rel           ; Either a framing error or a break. Set a sticky flag,
                     wait 1 pin 0        ; and wait for line to return to idle state.
                     jmp start           ; Don't push data if we didn't see good framing.
 
-                good_stop:              ; No delay before returning to start; a little slack is
+                good_rx_stop:              ; No delay before returning to start; a little slack is
                     push                ; important in case the TX clock is slightly too fast.
             "#
-        );
+            );
+            prg.program.origin = origin;
+            let relocated = RelocatedProgram::new(&prg.program);
+            let mut cfg = Config::default();
+            cfg.use_program(&common.load_program(&relocated), &[]);
 
-        let rx_pin = common.make_pio_pin(rx_pin);
-        sm_rx.set_pins(Level::High, &[&rx_pin]);
-        sm_rx.set_pin_dirs(Direction::In, &[&rx_pin]);
+            let rx_pin = common.make_pio_pin(rx_pin);
+            sm_rx.set_pins(Level::High, &[&rx_pin]);
+            cfg.set_in_pins(&[&rx_pin]);
+            cfg.set_jmp_pin(&rx_pin);
+            sm_rx.set_pin_dirs(Direction::In, &[&rx_pin]);
 
-        let relocated = RelocatedProgram::new(&prg.program);
-        let mut cfg = Config::default();
+            cfg.clock_divider = (U56F8!(125_000_000) / (8 * baud)).to_fixed();
+            cfg.shift_out.auto_fill = false;
+            cfg.shift_out.direction = ShiftDirection::Right;
+            cfg.fifo_join = FifoJoin::RxOnly;
+            sm_rx.set_config(&cfg);
+            sm_rx.set_enable(true);
 
-        cfg.use_program(&common.load_program(&relocated), &[&rx_pin]);
-        cfg.clock_divider = (U56F8!(125_000_000) / (8 * baud)).to_fixed();
-        cfg.shift_out.auto_fill = false;
-        cfg.shift_out.direction = ShiftDirection::Right;
-        cfg.fifo_join = FifoJoin::RxOnly;
-        cfg.set_in_pins(&[&rx_pin]);
-        cfg.set_jmp_pin(&rx_pin);
-        // cfg.set_set_pins(&[&rx_pin]);
-        sm_rx.set_config(&cfg);
-        sm_rx.set_enable(true)
+            let offset = relocated.code().count() as u8 + origin.unwrap_or_default();
+            (Self { sm_rx }, offset)
+        }
+
+        pub async fn read_u8(&mut self) -> u8 {
+            self.sm_rx.rx().wait_pull().await as u8
+        }
+    }
+
+    impl Io for PioUartRx<'_> {
+        type Error = PioUartError;
+    }
+
+    impl Read for PioUartRx<'_> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, PioUartError> {
+            let mut i = 0;
+            while i < buf.len() {
+                buf[i] = self.read_u8().await;
+                i += 1;
+            }
+            Ok(i)
+        }
     }
 }
