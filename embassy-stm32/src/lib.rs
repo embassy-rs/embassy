@@ -1,6 +1,9 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
 
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
