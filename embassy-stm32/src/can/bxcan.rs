@@ -287,7 +287,7 @@ impl<'d, T: Instance> Can<'d, T> {
 
             let time = last_overflow + (fifo.rdtr().read().time() as u32 * overflow as u32 / u16::MAX as u32) as u64;
             let time = if time > now.as_ticks() {
-                time - offset as u64
+                time - overflow as u64
             } else {
                 time
             };
