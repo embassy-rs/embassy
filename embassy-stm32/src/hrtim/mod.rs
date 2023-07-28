@@ -1,3 +1,5 @@
+mod traits;
+
 use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
@@ -5,7 +7,7 @@ use embassy_hal_common::{into_ref, PeripheralRef};
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::AnyPin;
-use crate::pwm::HighResolutionCaptureCompare16bitInstance;
+use crate::hrtim::traits::HighResolutionCaptureCompare16bitInstance;
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -41,7 +43,7 @@ pub struct ChE<T: HighResolutionCaptureCompare16bitInstance> {
 }
 
 mod sealed {
-    use crate::pwm::HighResolutionCaptureCompare16bitInstance;
+    use super::HighResolutionCaptureCompare16bitInstance;
 
     pub trait AdvancedChannel<T: HighResolutionCaptureCompare16bitInstance> {
         fn raw() -> usize;
