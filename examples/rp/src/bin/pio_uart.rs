@@ -18,7 +18,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{PIO0, USB};
 use embassy_rp::pio::InterruptHandler as PioInterruptHandler;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
@@ -91,13 +91,13 @@ async fn main(_spawner: Spawner) {
     let (mut uart_tx, mut uart_rx) = uart.split();
 
     // Pipe setup
-    static USB_PIPE: Pipe<ThreadModeRawMutex, 20> = Pipe::new();
-    let mut usb_pipe_writer = USB_PIPE.writer();
-    let mut usb_pipe_reader = USB_PIPE.reader();
+    let usb_pipe: Pipe<NoopRawMutex, 20> = Pipe::new();
+    let mut usb_pipe_writer = usb_pipe.writer();
+    let mut usb_pipe_reader = usb_pipe.reader();
 
-    static UART_PIPE: Pipe<ThreadModeRawMutex, 20> = Pipe::new();
-    let mut uart_pipe_writer = UART_PIPE.writer();
-    let mut uart_pipe_reader = UART_PIPE.reader();
+    let uart_pipe: Pipe<NoopRawMutex, 20> = Pipe::new();
+    let mut uart_pipe_writer = uart_pipe.writer();
+    let mut uart_pipe_reader = uart_pipe.reader();
 
     let (mut usb_tx, mut usb_rx) = class.split();
 
@@ -141,7 +141,7 @@ impl From<EndpointError> for Disconnected {
 /// Read from the USB and write it to the UART TX pipe
 async fn usb_read<'d, T: Instance + 'd>(
     usb_rx: &mut Receiver<'d, Driver<'d, T>>,
-    uart_pipe_writer: &mut embassy_sync::pipe::Writer<'static, ThreadModeRawMutex, 20>,
+    uart_pipe_writer: &mut embassy_sync::pipe::Writer<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
@@ -155,7 +155,7 @@ async fn usb_read<'d, T: Instance + 'd>(
 /// Read from the USB TX pipe and write it to the USB
 async fn usb_write<'d, T: Instance + 'd>(
     usb_tx: &mut Sender<'d, Driver<'d, T>>,
-    usb_pipe_reader: &mut embassy_sync::pipe::Reader<'d, ThreadModeRawMutex, 20>,
+    usb_pipe_reader: &mut embassy_sync::pipe::Reader<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
@@ -167,9 +167,9 @@ async fn usb_write<'d, T: Instance + 'd>(
 }
 
 /// Read from the UART and write it to the USB TX pipe
-async fn uart_read<'a>(
-    uart_rx: &mut PioUartRx<'a>,
-    usb_pipe_writer: &mut embassy_sync::pipe::Writer<'static, ThreadModeRawMutex, 20>,
+async fn uart_read(
+    uart_rx: &mut PioUartRx<'_>,
+    usb_pipe_writer: &mut embassy_sync::pipe::Writer<'_, NoopRawMutex, 20>,
 ) -> ! {
     let mut buf = [0; 64];
     loop {
@@ -184,9 +184,9 @@ async fn uart_read<'a>(
 }
 
 /// Read from the UART TX pipe and write it to the UART
-async fn uart_write<'a>(
-    uart_tx: &mut PioUartTx<'a>,
-    uart_pipe_reader: &mut embassy_sync::pipe::Reader<'a, ThreadModeRawMutex, 20>,
+async fn uart_write(
+    uart_tx: &mut PioUartTx<'_>,
+    uart_pipe_reader: &mut embassy_sync::pipe::Reader<'_, NoopRawMutex, 20>,
 ) -> ! {
     let mut buf = [0; 64];
     loop {
