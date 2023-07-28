@@ -2,10 +2,10 @@ use core::marker::PhantomData;
 
 use embassy_hal_common::{into_ref, PeripheralRef};
 
-use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::AnyPin;
+use crate::pwm::HighResolutionCaptureCompare16bitInstance;
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -394,3 +394,14 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Resona
         self.max_period
     }
 }
+
+pin_trait!(ChannelAPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelAComplementaryPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelBPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelBComplementaryPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelCPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelCComplementaryPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelDPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelDComplementaryPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelEPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelEComplementaryPin, HighResolutionCaptureCompare16bitInstance);

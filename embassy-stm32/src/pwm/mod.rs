@@ -1,5 +1,3 @@
-#[cfg(hrtim_v1)]
-pub mod advanced_pwm;
 pub mod complementary_pwm;
 pub mod simple_pwm;
 
@@ -468,22 +466,3 @@ pin_trait!(BreakInputComparator2Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Comparator1Pin, CaptureCompare16bitInstance);
 pin_trait!(BreakInput2Comparator2Pin, CaptureCompare16bitInstance);
-
-#[cfg(hrtim_v1)]
-mod hrtim_pins {
-    use super::*;
-
-    pin_trait!(ChannelAPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelAComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelBPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelBComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelCPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelCComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelDPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelDComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelEPin, HighResolutionCaptureCompare16bitInstance);
-    pin_trait!(ChannelEComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-}
-
-#[cfg(hrtim_v1)]
-pub use hrtim_pins::*;
