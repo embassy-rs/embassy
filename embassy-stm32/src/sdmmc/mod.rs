@@ -6,8 +6,8 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
-use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CID, CSD, OCR, SCR};
 
@@ -225,6 +225,9 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     mburst: crate::dma::Burst::Incr4,
     flow_ctrl: crate::dma::FlowControl::Peripheral,
     fifo_threshold: Some(crate::dma::FifoThreshold::Full),
+    circular: false,
+    half_transfer_ir: false,
+    complete_transfer_ir: true,
 };
 #[cfg(all(sdmmc_v1, not(dma)))]
 const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {

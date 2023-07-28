@@ -14,7 +14,6 @@ use embassy_rp::pio::{
     Config, Direction, FifoJoin, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
 use embassy_rp::pwm::{self, Pwm};
-use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{bind_interrupts, into_ref, Peripheral, PeripheralRef};
 use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -127,9 +126,8 @@ impl<'l> HD44780<'l> {
 
         sm0.set_pin_dirs(Direction::Out, &[&rs, &rw, &e, &db4, &db5, &db6, &db7]);
 
-        let relocated = RelocatedProgram::new(&prg.program);
         let mut cfg = Config::default();
-        cfg.use_program(&common.load_program(&relocated), &[&e]);
+        cfg.use_program(&common.load_program(&prg.program), &[&e]);
         cfg.clock_divider = 125u8.into();
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);
         cfg.shift_out = ShiftConfig {
@@ -201,9 +199,8 @@ impl<'l> HD44780<'l> {
             "#
         );
 
-        let relocated = RelocatedProgram::new(&prg.program);
         let mut cfg = Config::default();
-        cfg.use_program(&common.load_program(&relocated), &[&e]);
+        cfg.use_program(&common.load_program(&prg.program), &[&e]);
         cfg.clock_divider = 8u8.into(); // ~64ns/insn
         cfg.set_jmp_pin(&db7);
         cfg.set_set_pins(&[&rs, &rw]);

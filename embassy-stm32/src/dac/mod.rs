@@ -3,7 +3,7 @@
 //! Provide access to the STM32 digital-to-analog converter (DAC).
 use core::marker::PhantomData;
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::pac::dac;
 use crate::rcc::RccPeripheral;
@@ -38,11 +38,30 @@ impl Channel {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Trigger sources for CH1
 pub enum Ch1Trigger {
-    Tim6,
-    Tim3,
-    Tim7,
-    Tim15,
+    #[cfg(dac_v3)]
+    Tim1,
     Tim2,
+    #[cfg(not(dac_v3))]
+    Tim3,
+    #[cfg(dac_v3)]
+    Tim4,
+    #[cfg(dac_v3)]
+    Tim5,
+    Tim6,
+    Tim7,
+    #[cfg(dac_v3)]
+    Tim8,
+    Tim15,
+    #[cfg(dac_v3)]
+    Hrtim1Dactrg1,
+    #[cfg(dac_v3)]
+    Hrtim1Dactrg2,
+    #[cfg(dac_v3)]
+    Lptim1,
+    #[cfg(dac_v3)]
+    Lptim2,
+    #[cfg(dac_v3)]
+    Lptim3,
     Exti9,
     Software,
 }
@@ -50,14 +69,30 @@ pub enum Ch1Trigger {
 impl Ch1Trigger {
     fn tsel(&self) -> dac::vals::Tsel1 {
         match self {
-            Ch1Trigger::Tim6 => dac::vals::Tsel1::TIM6_TRGO,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Tim1 => dac::vals::Tsel1::TIM1_TRGO,
+            Ch1Trigger::Tim2 => dac::vals::Tsel1::TIM2_TRGO,
             #[cfg(not(dac_v3))]
             Ch1Trigger::Tim3 => dac::vals::Tsel1::TIM3_TRGO,
             #[cfg(dac_v3)]
-            Ch1Trigger::Tim3 => dac::vals::Tsel1::TIM1_TRGO,
+            Ch1Trigger::Tim4 => dac::vals::Tsel1::TIM4_TRGO,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Tim5 => dac::vals::Tsel1::TIM5_TRGO,
+            Ch1Trigger::Tim6 => dac::vals::Tsel1::TIM6_TRGO,
             Ch1Trigger::Tim7 => dac::vals::Tsel1::TIM7_TRGO,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Tim8 => dac::vals::Tsel1::TIM8_TRGO,
             Ch1Trigger::Tim15 => dac::vals::Tsel1::TIM15_TRGO,
-            Ch1Trigger::Tim2 => dac::vals::Tsel1::TIM2_TRGO,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Hrtim1Dactrg1 => dac::vals::Tsel1::HRTIM1_DACTRG1,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Hrtim1Dactrg2 => dac::vals::Tsel1::HRTIM1_DACTRG2,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Lptim1 => dac::vals::Tsel1::LPTIM1_OUT,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Lptim2 => dac::vals::Tsel1::LPTIM2_OUT,
+            #[cfg(dac_v3)]
+            Ch1Trigger::Lptim3 => dac::vals::Tsel1::LPTIM3_OUT,
             Ch1Trigger::Exti9 => dac::vals::Tsel1::EXTI9,
             Ch1Trigger::Software => dac::vals::Tsel1::SOFTWARE,
         }
@@ -129,7 +164,7 @@ pub trait DacChannel<T: Instance, Tx> {
     }
 
     /// Set mode register of the given channel
-    #[cfg(dac_v2)]
+    #[cfg(any(dac_v2, dac_v3))]
     fn set_channel_mode(&mut self, val: u8) -> Result<(), Error> {
         T::regs().mcr().modify(|reg| {
             reg.set_mode(Self::CHANNEL.index(), val);
@@ -216,8 +251,9 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Tx> + 'd,
-        _pin: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, 1>> + crate::gpio::sealed::Pin + 'd,
     ) -> Self {
+        pin.set_as_analog();
         into_ref!(peri, dma);
         T::enable();
         T::reset();
@@ -226,7 +262,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(dac_v2)]
+        #[cfg(any(dac_v2, dac_v3))]
         dac.set_channel_mode(0).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
@@ -252,7 +288,6 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 1 has to be configured for the DAC instance!
-    #[cfg(all(bdma, not(dma)))] // It currently only works with BDMA-only chips (DMA should theoretically work though)
     pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: DmaCh1<T>,
@@ -327,8 +362,9 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Tx> + 'd,
-        _pin: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
+        pin: impl Peripheral<P = impl DacPin<T, 2>> + crate::gpio::sealed::Pin + 'd,
     ) -> Self {
+        pin.set_as_analog();
         into_ref!(_peri, dma);
         T::enable();
         T::reset();
@@ -340,7 +376,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(dac_v2)]
+        #[cfg(any(dac_v2, dac_v3))]
         dac.set_channel_mode(0).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
@@ -364,7 +400,6 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 2 has to be configured for the DAC instance!
-    #[cfg(all(bdma, not(dma)))] // It currently only works with BDMA-only chips (DMA should theoretically work though)
     pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: DmaCh2<T>,
@@ -442,9 +477,11 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
         peri: impl Peripheral<P = T> + 'd,
         dma_ch1: impl Peripheral<P = TxCh1> + 'd,
         dma_ch2: impl Peripheral<P = TxCh2> + 'd,
-        _pin_ch1: impl Peripheral<P = impl DacPin<T, 1>> + 'd,
-        _pin_ch2: impl Peripheral<P = impl DacPin<T, 2>> + 'd,
+        pin_ch1: impl Peripheral<P = impl DacPin<T, 1>> + crate::gpio::sealed::Pin + 'd,
+        pin_ch2: impl Peripheral<P = impl DacPin<T, 2>> + crate::gpio::sealed::Pin + 'd,
     ) -> Self {
+        pin_ch1.set_as_analog();
+        pin_ch2.set_as_analog();
         into_ref!(peri, dma_ch1, dma_ch2);
         T::enable();
         T::reset();
@@ -461,12 +498,12 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(dac_v2)]
+        #[cfg(any(dac_v2, dac_v3))]
         dac_ch1.set_channel_mode(0).unwrap();
         dac_ch1.enable_channel().unwrap();
         dac_ch1.set_trigger_enable(true).unwrap();
 
-        #[cfg(dac_v2)]
+        #[cfg(any(dac_v2, dac_v3))]
         dac_ch2.set_channel_mode(0).unwrap();
         dac_ch2.enable_channel().unwrap();
         dac_ch2.set_trigger_enable(true).unwrap();

@@ -138,7 +138,7 @@ fn main() {
     let singleton_tokens: Vec<_> = singletons.iter().map(|s| format_ident!("{}", s)).collect();
 
     g.extend(quote! {
-        embassy_hal_common::peripherals_definition!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_definition!(#(#singleton_tokens),*);
     });
 
     let singleton_tokens: Vec<_> = singletons
@@ -148,7 +148,7 @@ fn main() {
         .collect();
 
     g.extend(quote! {
-        embassy_hal_common::peripherals_struct!(#(#singleton_tokens),*);
+        embassy_hal_internal::peripherals_struct!(#(#singleton_tokens),*);
     });
 
     // ========
@@ -160,7 +160,7 @@ fn main() {
     }
 
     g.extend(quote! {
-        embassy_hal_common::interrupt_mod!(
+        embassy_hal_internal::interrupt_mod!(
             #(
                 #irqs,
             )*
@@ -211,7 +211,7 @@ fn main() {
         let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
+            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
         });
     }
 
@@ -243,7 +243,7 @@ fn main() {
 
         #[cfg(flash)]
         impl<'d, MODE> FlashLayout<'d, MODE> {
-            pub(crate) fn new(p: embassy_hal_common::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
+            pub(crate) fn new(p: embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
                 Self {
                     #(#inits),*,
                     _mode: core::marker::PhantomData,
@@ -572,21 +572,21 @@ fn main() {
         (("fmc", "Clk"), quote!(crate::fmc::ClkPin)),
         (("fmc", "BA0"), quote!(crate::fmc::BA0Pin)),
         (("fmc", "BA1"), quote!(crate::fmc::BA1Pin)),
-        (("timer", "CH1"), quote!(crate::pwm::Channel1Pin)),
-        (("timer", "CH1N"), quote!(crate::pwm::Channel1ComplementaryPin)),
-        (("timer", "CH2"), quote!(crate::pwm::Channel2Pin)),
-        (("timer", "CH2N"), quote!(crate::pwm::Channel2ComplementaryPin)),
-        (("timer", "CH3"), quote!(crate::pwm::Channel3Pin)),
-        (("timer", "CH3N"), quote!(crate::pwm::Channel3ComplementaryPin)),
-        (("timer", "CH4"), quote!(crate::pwm::Channel4Pin)),
-        (("timer", "CH4N"), quote!(crate::pwm::Channel4ComplementaryPin)),
-        (("timer", "ETR"), quote!(crate::pwm::ExternalTriggerPin)),
-        (("timer", "BKIN"), quote!(crate::pwm::BreakInputPin)),
-        (("timer", "BKIN_COMP1"), quote!(crate::pwm::BreakInputComparator1Pin)),
-        (("timer", "BKIN_COMP2"), quote!(crate::pwm::BreakInputComparator2Pin)),
-        (("timer", "BKIN2"), quote!(crate::pwm::BreakInput2Pin)),
-        (("timer", "BKIN2_COMP1"), quote!(crate::pwm::BreakInput2Comparator1Pin)),
-        (("timer", "BKIN2_COMP2"), quote!(crate::pwm::BreakInput2Comparator2Pin)),
+        (("timer", "CH1"), quote!(crate::timer::Channel1Pin)),
+        (("timer", "CH1N"), quote!(crate::timer::Channel1ComplementaryPin)),
+        (("timer", "CH2"), quote!(crate::timer::Channel2Pin)),
+        (("timer", "CH2N"), quote!(crate::timer::Channel2ComplementaryPin)),
+        (("timer", "CH3"), quote!(crate::timer::Channel3Pin)),
+        (("timer", "CH3N"), quote!(crate::timer::Channel3ComplementaryPin)),
+        (("timer", "CH4"), quote!(crate::timer::Channel4Pin)),
+        (("timer", "CH4N"), quote!(crate::timer::Channel4ComplementaryPin)),
+        (("timer", "ETR"), quote!(crate::timer::ExternalTriggerPin)),
+        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin)),
+        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin)),
+        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin)),
+        (("timer", "BKIN2"), quote!(crate::timer::BreakInput2Pin)),
+        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInput2Comparator1Pin)),
+        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInput2Comparator2Pin)),
         (("hrtim", "CHA1"), quote!(crate::hrtim::ChannelAPin)),
         (("hrtim", "CHA2"), quote!(crate::hrtim::ChannelAComplementaryPin)),
         (("hrtim", "CHB1"), quote!(crate::hrtim::ChannelBPin)),

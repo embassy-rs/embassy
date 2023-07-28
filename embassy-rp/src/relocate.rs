@@ -41,11 +41,6 @@ pub struct RelocatedProgram<'a, const PROGRAM_SIZE: usize> {
 }
 
 impl<'a, const PROGRAM_SIZE: usize> RelocatedProgram<'a, PROGRAM_SIZE> {
-    pub fn new(program: &Program<PROGRAM_SIZE>) -> RelocatedProgram<PROGRAM_SIZE> {
-        let origin = program.origin.unwrap_or(0);
-        RelocatedProgram { program, origin }
-    }
-
     pub fn new_with_origin(program: &Program<PROGRAM_SIZE>, origin: u8) -> RelocatedProgram<PROGRAM_SIZE> {
         RelocatedProgram { program, origin }
     }

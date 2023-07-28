@@ -15,7 +15,7 @@ pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 #[cfg_attr(any(rtc_v3, rtc_v3u5), path = "v3.rs")]
 mod _version;
 pub use _version::*;
-use embassy_hal_common::Peripheral;
+use embassy_hal_internal::Peripheral;
 
 /// Errors that can occur on methods on [RtcClock]
 #[derive(Clone, Debug, PartialEq, Eq)]

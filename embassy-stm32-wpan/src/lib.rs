@@ -8,7 +8,7 @@ pub mod fmt;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;

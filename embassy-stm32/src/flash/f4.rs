@@ -14,7 +14,7 @@ use crate::pac;
 mod alt_regions {
     use core::marker::PhantomData;
 
-    use embassy_hal_common::PeripheralRef;
+    use embassy_hal_internal::PeripheralRef;
     use stm32_metapac::FLASH_SIZE;
 
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};

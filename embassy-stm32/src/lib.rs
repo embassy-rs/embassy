@@ -1,6 +1,9 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
 
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
@@ -44,7 +47,6 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
-pub mod pwm;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
@@ -80,7 +82,7 @@ pub use crate::_generated::interrupt;
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
 /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
-// developer note: this macro can't be in `embassy-hal-common` due to the use of `$crate`.
+// developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
     ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
@@ -104,7 +106,7 @@ macro_rules! bind_interrupts {
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
-pub use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]

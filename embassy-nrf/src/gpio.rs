@@ -5,7 +5,7 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use self::sealed::Pin as _;
 use crate::pac::p0 as gpio;

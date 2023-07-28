@@ -34,7 +34,7 @@ flavors = [
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
 embassy-time = { version = "0.1.2", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-hal-common = {version = "0.1.0", path = "../embassy-hal-common", features = ["cortex-m", "prio-bits-4"] }
+embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
@@ -67,6 +67,7 @@ cfg-if = "1.0.0"
 embedded-io = { version = "0.4.0", features = ["async"], optional = true }
 chrono = { version = "^0.4", default-features = false, optional = true}
 bit_field = "0.10.2"
+document-features = "0.2.7"
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
@@ -78,40 +79,63 @@ stm32-metapac = { version = "13", default-features = false, features = ["metadat
 
 [features]
 default = ["rt"]
+
+## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]
 
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-common/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt"]
-memory-x = ["stm32-metapac/memory-x"]
+## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt"]
+
 exti = []
 
-# Enables additional driver features that depend on embassy-time
+## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
+memory-x = ["stm32-metapac/memory-x"]
+
+## Enable nightly-only features
+nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
+
+## Re-export stm32-metapac at `embassy_stm32::pac`.
+## This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
+## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+## There are no plans to make this stable.
+unstable-pac = []
+
+## Implement embedded-hal 1.0 alpha traits.
+## Implement embedded-hal-async traits if `nightly` is set as well.
+unstable-traits = ["embedded-hal-1", "dep:embedded-hal-nb"]
+
+#! ## Time
+
+## Enables additional driver features that depend on embassy-time
 time = ["dep:embassy-time"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 _time-driver = ["time"]
+
+## Use any time driver
 time-driver-any = ["_time-driver"]
+## Use TIM2 as time driver
 time-driver-tim2 = ["_time-driver"]
+## Use TIM3 as time driver
 time-driver-tim3 = ["_time-driver"]
+## Use TIM4 as time driver
 time-driver-tim4 = ["_time-driver"]
+## Use TIM5 as time driver
 time-driver-tim5 = ["_time-driver"]
+## Use TIM12 as time driver
 time-driver-tim12 = ["_time-driver"]
+## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
 
-# Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
 
-# Reexport stm32-metapac at `embassy_stm32::pac`.
-# This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
-# If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
-# There are no plans to make this stable.
-unstable-pac = []
+#! ## Chip-selection features
+#! Select your chip by specifying the model as a feature, e.g. `stm32c011d6`.
+#! Check the `Cargo.toml` for the latest list of supported chips.
+#!
+#! **Important:** Do not forget to adapt the target chip in your toolchain,
+#! e.g. in `.cargo/config.toml`.
 
-# Implement embedded-hal 1.0 alpha traits.
-# Implement embedded-hal-async traits if `nightly` is set as well.
-unstable-traits = ["embedded-hal-1", "dep:embedded-hal-nb"]
-
-# Chip-selection features
 stm32c011d6 = [ "stm32-metapac/stm32c011d6" ]
 stm32c011f4 = [ "stm32-metapac/stm32c011f4" ]
 stm32c011f6 = [ "stm32-metapac/stm32c011f6" ]

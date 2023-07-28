@@ -1,4 +1,4 @@
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};

@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};
@@ -28,6 +28,12 @@ pub struct TransferOptions {
     pub flow_ctrl: FlowControl,
     /// FIFO threshold for DMA FIFO mode. If none, direct mode is used.
     pub fifo_threshold: Option<FifoThreshold>,
+    /// Enable circular DMA
+    pub circular: bool,
+    /// Enable half transfer interrupt
+    pub half_transfer_ir: bool,
+    /// Enable transfer complete interrupt
+    pub complete_transfer_ir: bool,
 }
 
 impl Default for TransferOptions {
@@ -37,6 +43,9 @@ impl Default for TransferOptions {
             mburst: Burst::Single,
             flow_ctrl: FlowControl::Dma,
             fifo_threshold: None,
+            circular: false,
+            half_transfer_ir: false,
+            complete_transfer_ir: true,
         }
     }
 }
@@ -365,7 +374,13 @@ impl<'a, C: Channel> Transfer<'a, C> {
             });
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
-            w.set_tcie(true);
+            w.set_tcie(options.complete_transfer_ir);
+            if options.circular {
+                w.set_circ(vals::Circ::ENABLED);
+                debug!("Setting circular mode");
+            } else {
+                w.set_circ(vals::Circ::DISABLED);
+            }
             #[cfg(dma_v1)]
             w.set_trbuff(true);
 
@@ -646,7 +661,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         w.set_minc(vals::Inc::INCREMENTED);
         w.set_pinc(vals::Inc::FIXED);
         w.set_teie(true);
-        w.set_htie(true);
+        w.set_htie(options.half_transfer_ir);
         w.set_tcie(true);
         w.set_circ(vals::Circ::ENABLED);
         #[cfg(dma_v1)]
@@ -696,13 +711,51 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         self.ringbuf.clear(DmaCtrlImpl(self.channel.reborrow()));
     }
 
-    /// Read bytes from the ring buffer
+    /// Read elements from the ring buffer
     /// Return a tuple of the length read and the length remaining in the buffer
-    /// If not all of the bytes were read, then there will be some bytes in the buffer remaining
-    /// The length remaining is the capacity, ring_buf.len(), less the bytes remaining after the read
+    /// If not all of the elements were read, then there will be some elements in the buffer remaining
+    /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
         self.ringbuf.read(DmaCtrlImpl(self.channel.reborrow()), buf)
+    }
+
+    /// Read an exact number of elements from the ringbuffer.
+    ///
+    /// Returns the remaining number of elements available for immediate reading.
+    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
+    ///
+    /// Async/Wake Behavior:
+    /// The underlying DMA peripheral only can wake us when its buffer pointer has reached the halfway point,
+    /// and when it wraps around. This means that when called with a buffer of length 'M', when this
+    /// ring buffer was created with a buffer of size 'N':
+    /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
+    /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
+    pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, OverrunError> {
+        use core::future::poll_fn;
+        use core::sync::atomic::compiler_fence;
+
+        let mut read_data = 0;
+        let buffer_len = buffer.len();
+
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            match self.read(&mut buffer[read_data..buffer_len]) {
+                Ok((len, remaining)) => {
+                    read_data += len;
+                    if read_data == buffer_len {
+                        Poll::Ready(Ok(remaining))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
     }
 
     // The capacity of the ringbuffer

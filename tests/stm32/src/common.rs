@@ -33,6 +33,7 @@ pub fn config() -> Config {
     {
         config.rcc.sys_ck = Some(Hertz(400_000_000));
         config.rcc.pll1.q_ck = Some(Hertz(100_000_000));
+        config.rcc.adc_clock_source = embassy_stm32::rcc::AdcClockSource::PerCk;
     }
 
     #[cfg(feature = "stm32u585ai")]

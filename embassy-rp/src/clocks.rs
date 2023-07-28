@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
 
 use crate::gpio::sealed::Pin;

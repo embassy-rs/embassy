@@ -4,7 +4,7 @@ use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
-use embassy_hal_common::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::vals::DataSize;
 

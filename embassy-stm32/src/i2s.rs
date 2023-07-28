@@ -1,4 +1,4 @@
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::into_ref;
 
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
