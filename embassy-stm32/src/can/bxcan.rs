@@ -191,8 +191,11 @@ impl<'d, T: Instance> Can<'d, T> {
             .set_bit_timing(bit_timing)
             .leave_disabled();
 
-        let overflow = (TICK_HZ as u64 * u16::MAX as u64) / bitrate as u64;
-        T::state().t_overflow.store(overflow as u16, Ordering::Release);
+        #[cfg(feature = "time")]
+        {
+            let overflow = (TICK_HZ as u64 * u16::MAX as u64) / bitrate as u64;
+            T::state().t_overflow.store(overflow as u16, Ordering::Release);
+        }
     }
 
     #[cfg(feature = "time")]
@@ -267,13 +270,18 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     unsafe fn receive_fifo(fifo: RxFifo) {
-        let now = Instant::now();
-        let overflow = T::state().t_overflow.load(Ordering::Relaxed);
-        let offset = T::state().t_offset.load(Ordering::Relaxed);
-        let last_overflow = if overflow != 0 {
-            (now.as_ticks() - (now.as_ticks() % overflow as u64)) + offset as u64
-        } else {
-            0
+        #[cfg(feature = "time")]
+        let (now, overflow, last_overflow) = {
+            let now = Instant::now();
+            let overflow = T::state().t_overflow.load(Ordering::Relaxed);
+            let offset = T::state().t_offset.load(Ordering::Relaxed);
+            let last_overflow = if overflow != 0 {
+                (now.as_ticks() - (now.as_ticks() % overflow as u64)) + offset as u64
+            } else {
+                0
+            };
+
+            (now, overflow, last_overflow)
         };
 
         let state = T::state();
@@ -305,6 +313,7 @@ impl<'d, T: Instance> Can<'d, T> {
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
+            #[cfg(feature = "time")]
             let time = if overflow != 0 {
                 let time =
                     last_overflow + (fifo.rdtr().read().time() as u32 * overflow as u32 / u16::MAX as u32) as u64;
