@@ -234,14 +234,14 @@ impl<'d, T: Instance> Can<'d, T> {
     }
 
     /// Returns a tuple of the time the message was received and the message frame
-    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<(Instant, bxcan::Frame), BusError> {
         CanRx { can: &self.can }.read().await
     }
 
     /// Attempts to read a can frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
-    pub fn try_read(&mut self) -> Result<(u16, bxcan::Frame), TryReadError> {
+    pub fn try_read(&mut self) -> Result<(Instant, bxcan::Frame), TryReadError> {
         CanRx { can: &self.can }.try_read()
     }
 
@@ -503,7 +503,7 @@ impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
-    pub fn try_read(&mut self) -> Result<(u16, bxcan::Frame), TryReadError> {
+    pub fn try_read(&mut self) -> Result<(Instant, bxcan::Frame), TryReadError> {
         if let Ok(envelope) = T::state().rx_queue.try_recv() {
             return Ok(envelope);
         }
