@@ -43,7 +43,6 @@ pub mod flash;
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
-pub mod pwm;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]

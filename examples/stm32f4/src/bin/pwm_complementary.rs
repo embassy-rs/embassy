@@ -4,10 +4,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::pwm::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
-use embassy_stm32::pwm::simple_pwm::PwmPin;
-use embassy_stm32::pwm::Channel;
 use embassy_stm32::time::khz;
+use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
+use embassy_stm32::timer::simple_pwm::PwmPin;
+use embassy_stm32::timer::Channel;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
