@@ -7,7 +7,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::AnyPin;
-use crate::hrtim::traits::HighResolutionCaptureCompare16bitInstance;
+use crate::hrtim::traits::Instance;
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -20,37 +20,37 @@ pub enum Source {
     ChE,
 }
 
-pub struct BurstController<T: HighResolutionCaptureCompare16bitInstance> {
+pub struct BurstController<T: Instance> {
     phantom: PhantomData<T>,
 }
-pub struct Master<T: HighResolutionCaptureCompare16bitInstance> {
+pub struct Master<T: Instance> {
     phantom: PhantomData<T>,
 }
-pub struct ChA<T: HighResolutionCaptureCompare16bitInstance> {
+pub struct ChA<T: Instance> {
     phantom: PhantomData<T>,
 }
-pub struct ChB<T: HighResolutionCaptureCompare16bitInstance> {
+pub struct ChB<T: Instance> {
     phantom: PhantomData<T>,
 }
-pub struct ChC<T: HighResolutionCaptureCompare16bitInstance> {
+pub struct ChC<T: Instance> {
     phantom: PhantomData<T>,
 }
-pub struct ChD<T: HighResolutionCaptureCompare16bitInstance> {
+pub struct ChD<T: Instance> {
     phantom: PhantomData<T>,
 }
-pub struct ChE<T: HighResolutionCaptureCompare16bitInstance> {
+pub struct ChE<T: Instance> {
     phantom: PhantomData<T>,
 }
 
 mod sealed {
-    use super::HighResolutionCaptureCompare16bitInstance;
+    use super::Instance;
 
-    pub trait AdvancedChannel<T: HighResolutionCaptureCompare16bitInstance> {
+    pub trait AdvancedChannel<T: Instance> {
         fn raw() -> usize;
     }
 }
 
-pub trait AdvancedChannel<T: HighResolutionCaptureCompare16bitInstance>: sealed::AdvancedChannel<T> {}
+pub trait AdvancedChannel<T: Instance>: sealed::AdvancedChannel<T> {}
 
 pub struct PwmPin<'d, Perip, Channel> {
     _pin: PeripheralRef<'d, AnyPin>,
@@ -64,7 +64,7 @@ pub struct ComplementaryPwmPin<'d, Perip, Channel> {
 
 macro_rules! advanced_channel_impl {
     ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
-        impl<'d, Perip: HighResolutionCaptureCompare16bitInstance> PwmPin<'d, Perip, $channel<Perip>> {
+        impl<'d, Perip: Instance> PwmPin<'d, Perip, $channel<Perip>> {
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
@@ -80,7 +80,7 @@ macro_rules! advanced_channel_impl {
             }
         }
 
-        impl<'d, Perip: HighResolutionCaptureCompare16bitInstance> ComplementaryPwmPin<'d, Perip, $channel<Perip>> {
+        impl<'d, Perip: Instance> ComplementaryPwmPin<'d, Perip, $channel<Perip>> {
             pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<Perip>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
@@ -96,12 +96,12 @@ macro_rules! advanced_channel_impl {
             }
         }
 
-        impl<T: HighResolutionCaptureCompare16bitInstance> sealed::AdvancedChannel<T> for $channel<T> {
+        impl<T: Instance> sealed::AdvancedChannel<T> for $channel<T> {
             fn raw() -> usize {
                 $ch_num
             }
         }
-        impl<T: HighResolutionCaptureCompare16bitInstance> AdvancedChannel<T> for $channel<T> {}
+        impl<T: Instance> AdvancedChannel<T> for $channel<T> {}
     };
 }
 
@@ -112,7 +112,7 @@ advanced_channel_impl!(new_chd, ChD, 3, ChannelDPin, ChannelDComplementaryPin);
 advanced_channel_impl!(new_che, ChE, 4, ChannelEPin, ChannelEComplementaryPin);
 
 /// Struct used to divide a high resolution timer into multiple channels
-pub struct AdvancedPwm<'d, T: HighResolutionCaptureCompare16bitInstance> {
+pub struct AdvancedPwm<'d, T: Instance> {
     _inner: PeripheralRef<'d, T>,
     pub master: Master<T>,
     pub burst_controller: BurstController<T>,
@@ -123,7 +123,7 @@ pub struct AdvancedPwm<'d, T: HighResolutionCaptureCompare16bitInstance> {
     pub ch_e: ChE<T>,
 }
 
-impl<'d, T: HighResolutionCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
+impl<'d, T: Instance> AdvancedPwm<'d, T> {
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         _cha: Option<PwmPin<'d, T, ChA<T>>>,
@@ -171,7 +171,7 @@ impl<'d, T: HighResolutionCaptureCompare16bitInstance> AdvancedPwm<'d, T> {
     }
 }
 
-impl<T: HighResolutionCaptureCompare16bitInstance> BurstController<T> {
+impl<T: Instance> BurstController<T> {
     pub fn set_source(&mut self, _source: Source) {
         todo!("burst mode control registers not implemented")
     }
@@ -186,7 +186,7 @@ impl<T: HighResolutionCaptureCompare16bitInstance> BurstController<T> {
 /// It is important to remember that in synchronous topologies, energy can flow in reverse during
 /// light loading conditions, and that the low-side switch must be active for a short time to drive
 /// a bootstrapped high-side switch.
-pub struct BridgeConverter<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> {
+pub struct BridgeConverter<T: Instance, C: AdvancedChannel<T>> {
     timer: PhantomData<T>,
     channel: PhantomData<C>,
     dead_time: u16,
@@ -195,7 +195,7 @@ pub struct BridgeConverter<T: HighResolutionCaptureCompare16bitInstance, C: Adva
     max_secondary_duty: u16,
 }
 
-impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
+impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
     pub fn new(_channel: C, frequency: Hertz) -> Self {
         use crate::pac::hrtim::vals::{Activeeffect, Inactiveeffect};
 
@@ -333,14 +333,14 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Bridge
 /// This implementation of a resonsant converter is appropriate for a half or full bridge,
 /// but does not include secondary rectification, which is appropriate for applications
 /// with a low-voltage on the secondary side.
-pub struct ResonantConverter<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> {
+pub struct ResonantConverter<T: Instance, C: AdvancedChannel<T>> {
     timer: PhantomData<T>,
     channel: PhantomData<C>,
     min_period: u16,
     max_period: u16,
 }
 
-impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
+impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
     pub fn new(_channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
         T::set_channel_frequency(C::raw(), min_frequency);
 
@@ -397,13 +397,13 @@ impl<T: HighResolutionCaptureCompare16bitInstance, C: AdvancedChannel<T>> Resona
     }
 }
 
-pin_trait!(ChannelAPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelAComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelBPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelBComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelCPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelCComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelDPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelDComplementaryPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelEPin, HighResolutionCaptureCompare16bitInstance);
-pin_trait!(ChannelEComplementaryPin, HighResolutionCaptureCompare16bitInstance);
+pin_trait!(ChannelAPin, Instance);
+pin_trait!(ChannelAComplementaryPin, Instance);
+pin_trait!(ChannelBPin, Instance);
+pin_trait!(ChannelBComplementaryPin, Instance);
+pin_trait!(ChannelCPin, Instance);
+pin_trait!(ChannelCComplementaryPin, Instance);
+pin_trait!(ChannelDPin, Instance);
+pin_trait!(ChannelDComplementaryPin, Instance);
+pin_trait!(ChannelEPin, Instance);
+pin_trait!(ChannelEComplementaryPin, Instance);
