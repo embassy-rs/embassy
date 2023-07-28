@@ -4,6 +4,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::Context;
 
 use async_io::Async;
+use embassy_net::HardwareAddress;
 use embassy_net_driver::{self, Capabilities, Driver, LinkState};
 use log::*;
 
@@ -180,8 +181,8 @@ impl Driver for TunTapDevice {
         LinkState::Up
     }
 
-    fn ethernet_address(&self) -> [u8; 6] {
-        [0x02, 0x03, 0x04, 0x05, 0x06, 0x07]
+    fn hardware_address(&self) -> HardwareAddress {
+        HardwareAddress::Ethernet(EthernetAddress([0x02, 0x03, 0x04, 0x05, 0x06, 0x07]))
     }
 }
 

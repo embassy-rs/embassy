@@ -42,8 +42,7 @@ struct StateInner<'d, const MTU: usize> {
 struct Shared {
     link_state: LinkState,
     waker: WakerRegistration,
-    ethernet_address: [u8; 6],
-    ieee802154_address: [u8; 8],
+    hardware_address: HardwareAddress,
 }
 
 pub struct Runner<'d, const MTU: usize> {
@@ -86,18 +85,10 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
         });
     }
 
-    pub fn set_ethernet_address(&mut self, address: [u8; 6]) {
+    pub fn set_hardware_address(&mut self, address: HardwareAddress) {
         self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
-            s.ethernet_address = address;
-            s.waker.wake();
-        });
-    }
-
-    pub fn set_ieee802154_address(&mut self, address: [u8; 8]) {
-        self.shared.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            s.ieee802154_address = address;
+            s.hardware_address = address;
             s.waker.wake();
         });
     }
@@ -300,12 +291,8 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
         self.caps.clone()
     }
 
-    fn ethernet_address(&self) -> [u8; 6] {
-        self.shared.lock(|s| s.borrow().ethernet_address)
-    }
-
-    fn ieee802154_address(&self) -> [u8; 8] {
-        self.shared.lock(|s| s.borrow().ieee802154_address)
+    fn hardware_address(&self) -> HardwareAddress {
+        self.shared.lock(|s| s.borrow().hardware_address)
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {

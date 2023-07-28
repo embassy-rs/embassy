@@ -73,10 +73,10 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
         LinkState::Down
     }
 
-    fn ethernet_address(&self) -> [u8; 6] {
+    fn hardware_address(&self) -> HardwareAddress {
         // self.mac_addr
 
-        [0; 6]
+        HardwareAddress::Ethernet(EthernetAddress([0; 6]))
     }
 }
 

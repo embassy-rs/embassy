@@ -4,6 +4,8 @@
 
 use core::task::Context;
 
+use smoltcp::wire::HardwareAddress;
+
 /// Main `embassy-net` driver API.
 ///
 /// This is essentially an interface for sending and receiving raw network frames.
@@ -51,11 +53,8 @@ pub trait Driver {
     /// Get a description of device capabilities.
     fn capabilities(&self) -> Capabilities;
 
-    /// Get the device's Ethernet address.
-    fn ethernet_address(&self) -> [u8; 6];
-
-    /// Get the device's IEEE 802.15.4 address.
-    fn ieee802154_address(&self) -> [u8; 8];
+    /// Get the device's hardware address.
+    fn hardware_address(&self) -> HardwareAddress;
 }
 
 impl<T: ?Sized + Driver> Driver for &mut T {
@@ -78,11 +77,8 @@ impl<T: ?Sized + Driver> Driver for &mut T {
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
         T::link_state(self, cx)
     }
-    fn ethernet_address(&self) -> [u8; 6] {
-        T::ethernet_address(self)
-    }
-    fn ieee802154_address(&self) -> [u8; 8] {
-        T::ieee802154_address(self)
+    fn hardware_address(&self) -> HardwareAddress {
+        T::hardware_address(self)
     }
 }
 

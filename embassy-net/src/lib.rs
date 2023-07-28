@@ -243,11 +243,11 @@ impl<D: Driver + 'static> Stack<D> {
 
         let hardware_addr = match medium {
             #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())),
+            Medium::Ethernet => device.hardware_address(),
             #[cfg(feature = "medium-ip")]
             Medium::Ip => HardwareAddress::Ip,
             #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::Extended(device.ieee802154_address())),
+            Medium::Ieee802154 => device.hardware_address(),
             #[allow(unreachable_patterns)]
             _ => panic!(
                 "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
@@ -336,9 +336,9 @@ impl<D: Driver + 'static> Stack<D> {
         f(&mut *self.socket.borrow_mut(), &mut *self.inner.borrow_mut())
     }
 
-    /// Get the MAC address of the network interface.
-    pub fn ethernet_address(&self) -> [u8; 6] {
-        self.with(|_s, i| i.device.ethernet_address())
+    /// Get the hardware address of the network interface.
+    pub fn hardware_address(&self) -> HardwareAddress {
+        self.with(|_s, i| i.device.hardware_address())
     }
 
     /// Get whether the link is up.
@@ -740,18 +740,11 @@ impl<D: Driver + 'static> Inner<D> {
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
         s.waker.register(cx.waker());
 
-        #[cfg(feature = "medium-ethernet")]
-        if self.device.capabilities().medium == Medium::Ethernet {
-            s.iface.set_hardware_addr(HardwareAddress::Ethernet(EthernetAddress(
-                self.device.ethernet_address(),
-            )));
-        }
-
-        #[cfg(feature = "medium-ieee802154")]
-        if self.device.capabilities().medium == Medium::Ieee802154 {
-            s.iface.set_hardware_addr(HardwareAddress::Ieee802154(Ieee802154Address::Extended(
-                self.device.ieee802154_address(),
-            )));
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+        if self.device.capabilities().medium == Medium::Ethernet
+            || self.device.capabilities().medium == Medium::Ieee802154
+        {
+            s.iface.set_hardware_addr(self.device.hardware_address());
         }
 
         let timestamp = instant_to_smoltcp(Instant::now());
