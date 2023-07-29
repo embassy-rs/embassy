@@ -4,6 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::timer::Channel;
@@ -15,7 +16,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let ch1 = PwmPin::new_ch1(p.PE9);
+    let ch1 = PwmPin::new_ch1(p.PE9, OutputType::PushPull);
     let mut pwm = SimplePwm::new(p.TIM1, Some(ch1), None, None, None, khz(10));
     let max = pwm.get_max_duty();
     pwm.enable(Channel::Ch1);

@@ -5,7 +5,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -22,11 +22,11 @@ pub struct PwmPin<'d, Perip, Channel> {
 macro_rules! channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, Perip: CaptureCompare16bitInstance> PwmPin<'d, Perip, $channel> {
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
+            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd, output_type: OutputType) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
+                    pin.set_as_af(pin.af_num(), output_type.into());
                     #[cfg(gpio_v2)]
                     pin.set_speed(crate::gpio::Speed::VeryHigh);
                 });

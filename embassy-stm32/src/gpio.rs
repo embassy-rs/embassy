@@ -4,6 +4,7 @@ use core::convert::Infallible;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
+use crate::usb_otg::Out;
 use crate::{pac, peripherals, Peripheral};
 
 /// GPIO flexible pin.
@@ -499,6 +500,20 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
     pub fn toggle(&mut self) {
         self.pin.toggle()
+    }
+}
+
+pub enum OutputType {
+    PushPull,
+    OpenDrain,
+}
+
+impl From<OutputType> for sealed::AFType {
+    fn from(value: OutputType) -> Self {
+        match value {
+            OutputType::OpenDrain => sealed::AFType::OutputOpenDrain,
+            OutputType::PushPull => sealed::AFType::OutputPushPull,
+        }
     }
 }
 
