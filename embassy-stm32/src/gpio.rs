@@ -4,7 +4,6 @@ use core::convert::Infallible;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
-use crate::usb_otg::Out;
 use crate::{pac, peripherals, Peripheral};
 
 /// GPIO flexible pin.
