@@ -11,14 +11,16 @@ use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{bind_interrupts, eth, Config};
+use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
 use embassy_time::{Duration, Timer};
 use embedded_io::asynch::Write;
 use rand_core::RngCore;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
+
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
+    RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
 type Device = Ethernet<'static, ETH, GenericSMI>;
@@ -38,7 +40,7 @@ async fn main(spawner: Spawner) -> ! {
     info!("Hello World!");
 
     // Generate random seed.
-    let mut rng = Rng::new(p.RNG);
+    let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
     rng.fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);

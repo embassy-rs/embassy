@@ -12,8 +12,8 @@ use embassy_lora::LoraTimer;
 use embassy_stm32::exti::{Channel, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::rng::Rng;
-use embassy_stm32::spi;
 use embassy_stm32::time::khz;
+use embassy_stm32::{bind_interrupts, peripherals, rng, spi};
 use embassy_time::Delay;
 use lora_phy::mod_params::*;
 use lora_phy::sx1276_7_8_9::SX1276_7_8_9;
@@ -22,6 +22,10 @@ use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::lora_radio::LoRaRadio;
 use lorawan_device::async_device::{region, Device, JoinMode};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    RNG_LPUART1 => rng::InterruptHandler<peripherals::RNG>;
+});
 
 const LORAWAN_REGION: region::Region = region::Region::EU868; // warning: set this appropriately for the region
 
@@ -60,7 +64,7 @@ async fn main(_spawner: Spawner) {
 
     let radio = LoRaRadio::new(lora);
     let region: region::Configuration = region::Configuration::new(LORAWAN_REGION);
-    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer::new(), Rng::new(p.RNG));
+    let mut device: Device<_, Crypto, _, _> = Device::new(region, radio, LoraTimer::new(), Rng::new(p.RNG, Irqs));
 
     defmt::info!("Joining LoRaWAN network");
 
