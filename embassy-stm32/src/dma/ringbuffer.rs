@@ -197,6 +197,99 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         length
     }
 }
+
+pub struct WritableDmaRingBuffer<'a, W: Word> {
+    pub(crate) dma_buf: &'a mut [W],
+    end: usize,
+}
+
+impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
+    pub fn new(dma_buf: &'a mut [W]) -> Self {
+        Self { dma_buf, end: 0 }
+    }
+
+    /// Reset the ring buffer to its initial state
+    pub fn clear(&mut self, mut dma: impl DmaCtrl) {
+        self.end = 0;
+        dma.reset_complete_count();
+    }
+
+    /// The capacity of the ringbuffer
+    pub const fn cap(&self) -> usize {
+        self.dma_buf.len()
+    }
+
+    /// The current position of the ringbuffer
+    fn pos(&self, remaining_transfers: usize) -> usize {
+        self.cap() - remaining_transfers
+    }
+
+    /// Write elements from the ring buffer
+    /// Return a tuple of the length written and the capacity remaining to be written in the buffer
+    pub fn write(&mut self, mut dma: impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        let start = self.pos(dma.get_remaining_transfers());
+        if start < self.end && self.end + buf.len() < self.cap() {
+            // The available, unwritten portion in the ring buffer DOES NOT wrap
+            // and copying elements into the buffer will not cause it to
+
+            // Copy into the dma buffer
+            let len = self.copy_from(buf, self.end..self.cap());
+
+            compiler_fence(Ordering::SeqCst);
+
+            // Confirm that the DMA is not inside data we could have written
+            let pos = self.pos(dma.get_remaining_transfers());
+            if pos > self.end || pos <= start || dma.get_complete_count() > 1 {
+                Err(OverrunError)
+            } else {
+                self.end = (self.end + len) % self.cap();
+
+                Ok((len, self.cap() - (self.end - start)))
+            }
+        } else if self.end > start {
+            // The available, unwritten portion in the ring buffer DOES wrap
+            let len = self.copy_from(buf, self.end..start);
+
+            compiler_fence(Ordering::SeqCst);
+
+            dma.get_complete_count();
+
+            todo!()
+        } else if start < self.end && self.end + buf.len() >= self.cap() {
+            // The available, unwritten portion in the ring buffer DOES NOT wrap
+            // and copying elements into the buffer will cause it to
+
+            let tail = self.copy_from(buf, self.end..self.cap());
+            let head = self.copy_from(&buf[tail..], 0..start);
+
+            compiler_fence(Ordering::SeqCst);
+
+            dma.reset_complete_count();
+
+            todo!()
+        } else {
+            todo!()
+        }
+    }
+    /// Copy into the dma buffer at `data_range` from `buf`
+    fn copy_from(&mut self, buf: &[W], data_range: Range<usize>) -> usize {
+        // Limit the number of elements that can be copied
+        let length = usize::min(data_range.len(), buf.len());
+
+        // Copy into dma buffer from read buffer
+        // We need to do it like this instead of a simple copy_from_slice() because
+        // reading from a part of memory that may be simultaneously written to is unsafe
+        unsafe {
+            let dma_buf = self.dma_buf.as_mut_ptr();
+
+            for i in 0..length {
+                core::ptr::write_volatile(dma_buf.offset((data_range.start + i) as isize), buf[i]);
+            }
+        }
+
+        length
+    }
+}
 #[cfg(test)]
 mod tests {
     use core::array;
