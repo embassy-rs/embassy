@@ -8,6 +8,7 @@ use core::str::from_utf8;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::spi::{Config, Spi};
+use embassy_stm32::time::Hertz;
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,7 +17,10 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut spi = Spi::new(p.SPI1, p.PB3, p.PB5, p.PB4, p.DMA2_CH3, p.DMA2_CH2, Config::default());
+    let mut spi_config = Config::default();
+    spi_config.frequency = Hertz(1_000_000);
+
+    let mut spi = Spi::new(p.SPI1, p.PB3, p.PB5, p.PB4, p.DMA2_CH3, p.DMA2_CH2, spi_config);
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();

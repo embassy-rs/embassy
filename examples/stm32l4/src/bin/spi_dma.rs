@@ -6,6 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::spi::{Config, Spi};
+use embassy_stm32::time::Hertz;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -13,15 +14,10 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut spi = Spi::new(
-        p.SPI3,
-        p.PC10,
-        p.PC12,
-        p.PC11,
-        p.DMA1_CH1,
-        p.DMA1_CH2,
-        Config::default(),
-    );
+    let mut spi_config = Config::default();
+    spi_config.frequency = Hertz(1_000_000);
+
+    let mut spi = Spi::new(p.SPI3, p.PC10, p.PC12, p.PC11, p.DMA1_CH1, p.DMA1_CH2, spi_config);
 
     // These are the pins for the Inventek eS-Wifi SPI Wifi Adapter.
 

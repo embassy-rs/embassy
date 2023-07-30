@@ -9,6 +9,7 @@ use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{self, Spi};
+use embassy_stm32::time::Hertz;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -34,14 +35,14 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "stm32c031c6")]
     let (spi, sck, mosi, miso) = (p.SPI1, p.PA5, p.PA7, p.PA6);
 
+    let mut spi_config = spi::Config::default();
+    spi_config.frequency = Hertz(1_000_000);
+
     let mut spi = Spi::new(
-        spi,
-        sck,  // Arduino D13
+        spi, sck,  // Arduino D13
         mosi, // Arduino D11
         miso, // Arduino D12
-        NoDma,
-        NoDma,
-        spi::Config::default(),
+        NoDma, NoDma, spi_config,
     );
 
     let data: [u8; 9] = [0x00, 0xFF, 0xAA, 0x55, 0xC0, 0xFF, 0xEE, 0xC0, 0xDE];
