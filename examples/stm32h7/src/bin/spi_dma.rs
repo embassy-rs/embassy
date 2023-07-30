@@ -42,15 +42,7 @@ fn main() -> ! {
     let mut spi_config = spi::Config::default();
     spi_config.frequency = mhz(1);
 
-    let spi = spi::Spi::new(
-        p.SPI3,
-        p.PB3,
-        p.PB5,
-        p.PB4,
-        p.DMA1_CH3,
-        p.DMA1_CH4,
-        spi_config,
-    );
+    let spi = spi::Spi::new(p.SPI3, p.PB3, p.PB5, p.PB4, p.DMA1_CH3, p.DMA1_CH4, spi_config);
 
     let executor = EXECUTOR.init(Executor::new());
 

@@ -36,15 +36,7 @@ async fn main(_spawner: Spawner) {
     spi_config.frequency = khz(200);
 
     // SPI for sx1276
-    let spi = spi::Spi::new(
-        p.SPI1,
-        p.PB3,
-        p.PA7,
-        p.PA6,
-        p.DMA1_CH3,
-        p.DMA1_CH2,
-        spi_config,
-    );
+    let spi = spi::Spi::new(p.SPI1, p.PB3, p.PA7, p.PA6, p.DMA1_CH3, p.DMA1_CH2, spi_config);
 
     let nss = Output::new(p.PA15.degrade(), Level::High, Speed::Low);
     let reset = Output::new(p.PC0.degrade(), Level::High, Speed::Low);
