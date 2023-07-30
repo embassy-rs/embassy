@@ -631,9 +631,9 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         self.ringbuf.clear(DmaCtrlImpl(self.channel.reborrow()));
     }
 
-    /// Write elements from the ring buffer
+    /// Write elements to the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
-    pub fn read(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
         self.ringbuf.write(DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
@@ -650,7 +650,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
 
             compiler_fence(Ordering::SeqCst);
 
-            match self.read(&buffer[written_data..buffer_len]) {
+            match self.write(&buffer[written_data..buffer_len]) {
                 Ok((len, remaining)) => {
                     written_data += len;
                     if written_data == buffer_len {
