@@ -41,7 +41,6 @@ async fn main(_spawner: Spawner) {
         miso, // Arduino D12
         tx_dma,
         rx_dma,
-        Hertz(1_000_000),
         spi::Config::default(),
     );
 

@@ -32,6 +32,9 @@ async fn main(_spawner: Spawner) {
     config.rcc.enable_hsi48 = true;
     let p = embassy_stm32::init(config);
 
+    let mut spi_config = spi::Config::default();
+    spi_config.frequency = khz(200);
+
     // SPI for sx1276
     let spi = spi::Spi::new(
         p.SPI1,
@@ -40,8 +43,7 @@ async fn main(_spawner: Spawner) {
         p.PA6,
         p.DMA1_CH3,
         p.DMA1_CH2,
-        khz(200),
-        spi::Config::default(),
+        spi_config,
     );
 
     let nss = Output::new(p.PA15.degrade(), Level::High, Speed::Low);
