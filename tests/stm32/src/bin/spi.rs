@@ -9,7 +9,6 @@ use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{self, Spi};
-use embassy_stm32::time::Hertz;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
