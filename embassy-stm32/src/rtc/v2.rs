@@ -39,9 +39,8 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
         let rtcsel = reg.rtcsel().to_bits();
 
         if !reg.rtcen() || rtcsel != clock_config {
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+            #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
             crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
-
             #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
             let cr = crate::pac::RCC.bdcr();
             #[cfg(any(rtc_v2l0, rtc_v2l1))]
@@ -200,6 +199,11 @@ impl sealed::Instance for crate::peripherals::RTC {
 
             // read to allow the pwr clock to enable
             crate::pac::PWR.cr1().read();
+        }
+        #[cfg(any(rtc_v2f2))]
+        {
+            crate::pac::RCC.apb1enr().modify(|w| w.set_pwren(true));
+            crate::pac::PWR.cr().read();
         }
     }
 
