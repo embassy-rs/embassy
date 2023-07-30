@@ -75,6 +75,15 @@ pub enum Bank {
     Qspi = 1,
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DormantWakeConfig {
+    pub edge_high: bool,
+    pub edge_low: bool,
+    pub level_high: bool,
+    pub level_low: bool,
+}
+
 pub struct Input<'d, T: Pin> {
     pin: Flex<'d, T>,
 }
@@ -127,6 +136,11 @@ impl<'d, T: Pin> Input<'d, T> {
     #[inline]
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await;
+    }
+
+    #[inline]
+    pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<T> {
+        self.pin.dormant_wake(cfg)
     }
 }
 
@@ -639,14 +653,61 @@ impl<'d, T: Pin> Flex<'d, T> {
     pub async fn wait_for_any_edge(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::AnyEdge).await;
     }
+
+    #[inline]
+    pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<T> {
+        let idx = self.pin._pin() as usize;
+        self.pin.io().intr(idx / 8).write(|w| {
+            w.set_edge_high(idx % 8, cfg.edge_high);
+            w.set_edge_low(idx % 8, cfg.edge_low);
+        });
+        self.pin.io().int_dormant_wake().inte(idx / 8).write_set(|w| {
+            w.set_edge_high(idx % 8, cfg.edge_high);
+            w.set_edge_low(idx % 8, cfg.edge_low);
+            w.set_level_high(idx % 8, cfg.level_high);
+            w.set_level_low(idx % 8, cfg.level_low);
+        });
+        DormantWake {
+            pin: self.pin.reborrow(),
+            cfg,
+        }
+    }
 }
 
 impl<'d, T: Pin> Drop for Flex<'d, T> {
     #[inline]
     fn drop(&mut self) {
+        let idx = self.pin._pin() as usize;
         self.pin.pad_ctrl().write(|_| {});
         self.pin.gpio().ctrl().write(|w| {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _);
+        });
+        self.pin.io().int_dormant_wake().inte(idx / 8).write_clear(|w| {
+            w.set_edge_high(idx % 8, true);
+            w.set_edge_low(idx % 8, true);
+            w.set_level_high(idx % 8, true);
+            w.set_level_low(idx % 8, true);
+        });
+    }
+}
+
+pub struct DormantWake<'w, T: Pin> {
+    pin: PeripheralRef<'w, T>,
+    cfg: DormantWakeConfig,
+}
+
+impl<'w, T: Pin> Drop for DormantWake<'w, T> {
+    fn drop(&mut self) {
+        let idx = self.pin._pin() as usize;
+        self.pin.io().intr(idx / 8).write(|w| {
+            w.set_edge_high(idx % 8, self.cfg.edge_high);
+            w.set_edge_low(idx % 8, self.cfg.edge_low);
+        });
+        self.pin.io().int_dormant_wake().inte(idx / 8).write_clear(|w| {
+            w.set_edge_high(idx % 8, true);
+            w.set_edge_low(idx % 8, true);
+            w.set_level_high(idx % 8, true);
+            w.set_level_low(idx % 8, true);
         });
     }
 }
