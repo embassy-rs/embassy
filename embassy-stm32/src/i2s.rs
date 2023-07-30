@@ -165,7 +165,9 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         mck.set_as_af(mck.af_num(), AFType::OutputPushPull);
         mck.set_speed(crate::gpio::Speed::VeryHigh);
 
-        let spi = Spi::new_internal(peri, txdma, rxdma, freq, SpiConfig::default());
+        let mut spi_cfg = SpiConfig::default();
+        spi_cfg.frequency = freq;
+        let spi = Spi::new_internal(peri, txdma, rxdma, spi_cfg);
 
         #[cfg(all(rcc_f4, not(stm32f410)))]
         let pclk = unsafe { get_freqs() }.plli2s.unwrap();
