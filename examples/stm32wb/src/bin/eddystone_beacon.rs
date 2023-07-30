@@ -8,6 +8,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::hci::host::uart::UartHci;
 use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
 use embassy_stm32_wpan::hci::types::AdvertisingType;
@@ -54,7 +55,9 @@ async fn main(_spawner: Spawner) {
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
     */
 
-    let p = embassy_stm32::init(Default::default());
+    let mut config = embassy_stm32::Config::default();
+    config.rcc = WPAN_DEFAULT;
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
