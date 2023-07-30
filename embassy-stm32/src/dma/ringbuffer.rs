@@ -236,7 +236,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
 
             // Confirm that the DMA is not inside data we could have written
             let pos = self.pos(dma.get_remaining_transfers());
-            if (pos > self.end && pos <= start) || dma.get_complete_count() > 1 {
+            if (pos > self.end && pos <= start) || dma.get_complete_count() > 0 {
                 Err(OverrunError)
             } else {
                 self.end = (self.end + len) % self.cap();
