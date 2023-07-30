@@ -9,9 +9,9 @@ use atomic_polyfill::AtomicUsize;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::ringbuffer::{DmaCtrl, DmaRingBuffer, OverrunError};
 use super::word::{Word, WordSize};
 use super::Dir;
+use super::ringbuffer::{DmaCtrl, OverrunError, ReadableDmaReadableRingBuffer};
 use crate::_generated::BDMA_CHANNEL_COUNT;
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::Priority;
@@ -395,13 +395,13 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     }
 }
 
-pub struct RingBuffer<'a, C: Channel, W: Word> {
+pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
     cr: regs::Cr,
     channel: PeripheralRef<'a, C>,
-    ringbuf: DmaRingBuffer<'a, W>,
+    ringbuf: ReadableDmaReadableRingBuffer<'a, W>,
 }
 
-impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
+impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     pub unsafe fn new_read(
         channel: impl Peripheral<P = C> + 'a,
         _request: Request,
@@ -442,7 +442,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         let mut this = Self {
             channel,
             cr: w,
-            ringbuf: DmaRingBuffer::new(buffer),
+            ringbuf: ReadableDmaReadableRingBuffer::new(buffer),
         };
         this.clear_irqs();
 
@@ -475,7 +475,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         self.ringbuf.read(DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
-    /// Read an exact number of elements from the ringbuffer.
+    /// Read an exact number of elements from the ReadableRingBuffer.
     ///
     /// Returns the remaining number of elements available for immediate reading.
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
@@ -513,7 +513,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
         .await
     }
 
-    /// The capacity of the ringbuffer
+    /// The capacity of the ReadableRingBuffer
     pub fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
@@ -550,7 +550,7 @@ impl<'a, C: Channel, W: Word> RingBuffer<'a, C, W> {
     }
 }
 
-impl<'a, C: Channel, W: Word> Drop for RingBuffer<'a, C, W> {
+impl<'a, C: Channel, W: Word> Drop for ReadableRingBuffer<'a, C, W> {
     fn drop(&mut self) {
         self.request_stop();
         while self.is_running() {}

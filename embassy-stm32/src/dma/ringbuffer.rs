@@ -29,7 +29,7 @@ use super::word::Word;
 ///  |                          |                    |                        |
 ///  +- end --------------------+                    +- start ----------------+
 /// ```
-pub struct DmaRingBuffer<'a, W: Word> {
+pub struct ReadableDmaReadableRingBuffer<'a, W: Word> {
     pub(crate) dma_buf: &'a mut [W],
     start: usize,
 }
@@ -51,7 +51,7 @@ pub trait DmaCtrl {
     fn reset_complete_count(&mut self) -> usize;
 }
 
-impl<'a, W: Word> DmaRingBuffer<'a, W> {
+impl<'a, W: Word> ReadableDmaReadableRingBuffer<'a, W> {
     pub fn new(dma_buf: &'a mut [W]) -> Self {
         Self { dma_buf, start: 0 }
     }
@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn empty_and_read_not_started() {
         let mut dma_buf = [0u8; 16];
-        let ringbuf = DmaRingBuffer::new(&mut dma_buf);
+        let ringbuf = ReadableDmaReadableRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
     }
@@ -273,7 +273,7 @@ mod tests {
         let mut dma = TestCircularTransfer::new(16);
 
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
+        let mut ringbuf = ReadableDmaReadableRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
         assert_eq!(16, ringbuf.cap());
@@ -314,7 +314,7 @@ mod tests {
         let mut dma = TestCircularTransfer::new(16);
 
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
+        let mut ringbuf = ReadableDmaReadableRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
         assert_eq!(16, ringbuf.cap());
@@ -349,7 +349,7 @@ mod tests {
         let mut dma = TestCircularTransfer::new(16);
 
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
+        let mut ringbuf = ReadableDmaReadableRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
         assert_eq!(16, ringbuf.cap());
@@ -384,7 +384,7 @@ mod tests {
         let mut dma = TestCircularTransfer::new(16);
 
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
+        let mut ringbuf = ReadableDmaReadableRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
         assert_eq!(16, ringbuf.cap());
@@ -420,7 +420,7 @@ mod tests {
         let mut dma = TestCircularTransfer::new(16);
 
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
+        let mut ringbuf = ReadableDmaReadableRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
         assert_eq!(16, ringbuf.cap());
@@ -454,7 +454,7 @@ mod tests {
         let mut dma = TestCircularTransfer::new(16);
 
         let mut dma_buf: [u8; 16] = array::from_fn(|idx| idx as u8); // 0, 1, ..., 15
-        let mut ringbuf = DmaRingBuffer::new(&mut dma_buf);
+        let mut ringbuf = ReadableDmaReadableRingBuffer::new(&mut dma_buf);
 
         assert_eq!(0, ringbuf.start);
         assert_eq!(16, ringbuf.cap());
