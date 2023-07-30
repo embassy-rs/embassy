@@ -243,6 +243,8 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
 
                 Ok((len, self.cap() - (start - self.end)))
             }
+        } else if start == self.end && dma.get_complete_count() == 0 {
+            Ok((0, 0))
         } else if start <= self.end && self.end + buf.len() < self.cap() {
             // The occupied portion in the ring buffer DOES NOT wrap
             // and copying elements into the buffer WILL NOT cause it to
