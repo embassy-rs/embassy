@@ -16,15 +16,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut spi = Spi::new(
-        p.SPI1,
-        p.PB3,
-        p.PB5,
-        p.PB4,
-        p.DMA2_CH3,
-        p.DMA2_CH2,
-        Config::default(),
-    );
+    let mut spi = Spi::new(p.SPI1, p.PB3, p.PB5, p.PB4, p.DMA2_CH3, p.DMA2_CH2, Config::default());
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();

@@ -16,15 +16,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let spi = Spi::new(
-        p.SPI3,
-        p.PC10,
-        p.PC12,
-        p.PC11,
-        NoDma,
-        NoDma,
-        Config::default(),
-    );
+    let spi = Spi::new(p.SPI3, p.PC10, p.PC12, p.PC11, NoDma, NoDma, Config::default());
 
     let mut spi = BlockingAsync::new(spi);
 
