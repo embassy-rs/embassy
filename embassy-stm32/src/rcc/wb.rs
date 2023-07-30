@@ -1,7 +1,6 @@
 pub use super::common::{AHBPrescaler, APBPrescaler};
-use crate::pac::RCC;
-use crate::rcc::{set_freqs, Clocks, Clocks};
-use crate::time::{khz, mhz, Hertz, Hertz};
+use crate::rcc::Clocks;
+use crate::time::{khz, mhz, Hertz};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
 /// and with the addition of the init function to configure a system clock.

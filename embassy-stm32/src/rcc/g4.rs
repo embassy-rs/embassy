@@ -22,8 +22,15 @@ pub enum ClockSrc {
     PLL,
 }
 
-impl Into<u8> for APBPrescaler {
-    fn into(self) -> u8 {
+/// PLL clock input source
+#[derive(Clone, Copy, Debug)]
+pub enum PllSrc {
+    HSI16,
+    HSE(Hertz),
+}
+
+impl Into<Pllsrc> for PllSrc {
+    fn into(self) -> Pllsrc {
         match self {
             PllSrc::HSE(..) => Pllsrc::HSE,
             PllSrc::HSI16 => Pllsrc::HSI16,

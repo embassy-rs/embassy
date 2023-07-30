@@ -142,7 +142,7 @@ impl Div<APBPrescaler> for Hertz {
     }
 }
 
-#[cfg(not(any(rcc_f1, rcc_g4, rcc_h7, rcc_wb, rcc_wl5, rcc_wle)))]
+#[cfg(not(any(rcc_f1, rcc_f100, rcc_f1cl, rcc_g4, rcc_h7, rcc_h7ab, rcc_wb, rcc_wl5, rcc_wle)))]
 impl From<APBPrescaler> for rcc::vals::Ppre {
     fn from(val: APBPrescaler) -> rcc::vals::Ppre {
         use rcc::vals::Ppre;

@@ -380,7 +380,7 @@ pub(crate) unsafe fn init(config: Config) {
         APBPrescaler::NotDivided => (ahb_freq.0, ahb_freq.0),
         pre => {
             let pre: Ppre = pre.into();
-            let pre: u8 = 1 << (pre.0 - 3);
+            let pre: u8 = 1 << (pre.to_bits() - 3);
             let freq = ahb_freq.0 / pre as u32;
             (freq, freq * 2)
         }

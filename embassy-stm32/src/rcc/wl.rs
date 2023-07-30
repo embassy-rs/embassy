@@ -1,6 +1,6 @@
 pub use super::common::{AHBPrescaler, APBPrescaler, VoltageScale};
 use crate::pac::pwr::vals::Dbp;
-use crate::pac::{FLASH, FLASH, PWR, RCC, RCC};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
