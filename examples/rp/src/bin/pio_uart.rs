@@ -239,7 +239,7 @@ mod uart_tx {
 
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
-    use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, StateMachine};
+    use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
     use embedded_io::asynch::Write;
     use embedded_io::Io;
     use fixed::traits::ToFixed;
@@ -312,7 +312,7 @@ mod uart_rx {
 
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
-    use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
+    use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, StateMachine};
     use embedded_io::asynch::Read;
     use embedded_io::Io;
     use fixed::traits::ToFixed;
