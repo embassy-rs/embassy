@@ -814,7 +814,7 @@ pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
 }
 
 impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
-    pub unsafe fn new_read(
+    pub unsafe fn new_write(
         channel: impl Peripheral<P = C> + 'a,
         _request: Request,
         peri_addr: *mut W,
@@ -899,7 +899,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         self.ringbuf.write(DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
-    /// Write an exact number of elements from the ringbuffer.
+    /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, OverrunError> {
         use core::future::poll_fn;
         use core::sync::atomic::compiler_fence;
