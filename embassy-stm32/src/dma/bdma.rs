@@ -475,7 +475,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         self.ringbuf.read(DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
-    /// Read an exact number of elements from the ReadableRingBuffer.
+    /// Read an exact number of elements from the ringbuffer.
     ///
     /// Returns the remaining number of elements available for immediate reading.
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
@@ -513,7 +513,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         .await
     }
 
-    /// The capacity of the ReadableRingBuffer
+    /// The capacity of the ringbuffer.
     pub fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
