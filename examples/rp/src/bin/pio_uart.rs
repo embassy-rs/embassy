@@ -338,7 +338,7 @@ mod uart_rx {
                 start:
                     wait 0 pin 0        ; Stall until start bit is asserted
                     set x, 7    [10]    ; Preload bit counter, then delay until halfway through
-                rx_bitloop:                ; the first data bit (12 cycles incl wait, set).
+                rx_bitloop:             ; the first data bit (12 cycles incl wait, set).
                     in pins, 1          ; Shift data bit into ISR
                     jmp x-- rx_bitloop [6] ; Loop 8 times, each loop iteration is 8 cycles
                     jmp pin good_rx_stop   ; Check stop bit (should be high)
@@ -347,7 +347,8 @@ mod uart_rx {
                     wait 1 pin 0        ; and wait for line to return to idle state.
                     jmp start           ; Don't push data if we didn't see good framing.
 
-                good_rx_stop:              ; No delay before returning to start; a little slack is
+                good_rx_stop:           ; No delay before returning to start; a little slack is
+                    in null 24
                     push                ; important in case the TX clock is slightly too fast.
             "#
             );
@@ -361,8 +362,9 @@ mod uart_rx {
             sm_rx.set_pin_dirs(Direction::In, &[&rx_pin]);
 
             cfg.clock_divider = (U56F8!(125_000_000) / (8 * baud)).to_fixed();
-            cfg.shift_out.auto_fill = false;
-            cfg.shift_out.direction = ShiftDirection::Right;
+            cfg.shift_in.auto_fill = false;
+            cfg.shift_in.direction = ShiftDirection::Right;
+            cfg.shift_in.threshold = 32;
             cfg.fifo_join = FifoJoin::RxOnly;
             sm_rx.set_config(&cfg);
             sm_rx.set_enable(true);
