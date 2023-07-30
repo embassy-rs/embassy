@@ -1,16 +1,17 @@
 #![macro_use]
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use rand_core::{CryptoRng, RngCore};
 
+use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac, peripherals, Peripheral};
 
-pub(crate) static RNG_WAKER: AtomicWaker = AtomicWaker::new();
+static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -18,20 +19,38 @@ pub enum Error {
     ClockError,
 }
 
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let bits = T::regs().sr().read();
+        if bits.drdy() || bits.seis() || bits.ceis() {
+            T::regs().cr().modify(|reg| reg.set_ie(false));
+            RNG_WAKER.wake();
+        }
+    }
+}
+
 pub struct Rng<'d, T: Instance> {
     _inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: Instance> Rng<'d, T> {
-    pub fn new(inner: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new(
+        inner: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
         T::enable();
         T::reset();
         into_ref!(inner);
         let mut random = Self { _inner: inner };
         random.reset();
-        unsafe {
-            interrupt::RNG.enable();
-        }
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
         random
     }
 
@@ -189,57 +208,20 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Instance: sealed::Instance + crate::rcc::RccPeripheral {}
+pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
-foreach_peripheral!(
-    (rng, $inst:ident) => {
-        impl Instance for peripherals::$inst {}
+foreach_interrupt!(
+    ($inst:ident, rng, RNG, GLOBAL, $irq:ident) => {
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
 
         impl sealed::Instance for peripherals::$inst {
             fn regs() -> crate::pac::rng::Rng {
-                crate::pac::RNG
+                crate::pac::$inst
             }
         }
-    };
-);
-
-#[cfg(feature = "rt")]
-macro_rules! irq {
-    ($irq:ident) => {
-        mod rng_irq {
-            use crate::interrupt;
-
-            #[interrupt]
-            unsafe fn $irq() {
-                let bits = $crate::pac::RNG.sr().read();
-                if bits.drdy() || bits.seis() || bits.ceis() {
-                    $crate::pac::RNG.cr().modify(|reg| reg.set_ie(false));
-                    $crate::rng::RNG_WAKER.wake();
-                }
-            }
-        }
-    };
-}
-
-#[cfg(feature = "rt")]
-foreach_interrupt!(
-    (RNG) => {
-        irq!(RNG);
-    };
-
-    (RNG_LPUART1) => {
-        irq!(RNG_LPUART1);
-    };
-
-    (AES_RNG_LPUART1) => {
-        irq!(AES_RNG_LPUART1);
-    };
-
-    (AES_RNG) => {
-        irq!(AES_RNG);
-    };
-
-    (HASH_RNG) => {
-        irq!(HASH_RNG);
     };
 );
