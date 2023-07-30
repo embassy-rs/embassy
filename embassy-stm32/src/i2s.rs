@@ -166,7 +166,7 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         mck.set_speed(crate::gpio::Speed::VeryHigh);
 
         let mut spi_cfg = SpiConfig::default();
-        spi_cfg.freq = freq;
+        spi_cfg.frequency = freq;
         let spi = Spi::new_internal(peri, txdma, rxdma, spi_cfg);
 
         #[cfg(all(rcc_f4, not(stm32f410)))]
