@@ -58,7 +58,7 @@ impl Default for PLLConfig {
 impl PLLConfig {
     pub fn clocks(&self, src_freq: Hertz) -> PLLClocks {
         let in_freq = src_freq / self.pre_div;
-        let vco_freq = src_freq * self.mul / self.pre_div;
+        let vco_freq = Hertz((src_freq.0 as u64 * self.mul.0 as u64 / self.pre_div.0 as u64) as u32);
         let main_freq = vco_freq / self.main_div;
         let pll48_freq = vco_freq / self.pll48_div;
         PLLClocks {
