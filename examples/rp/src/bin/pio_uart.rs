@@ -239,7 +239,7 @@ mod uart_tx {
 
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
-    use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
+    use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, StateMachine};
     use embedded_io::asynch::Write;
     use embedded_io::Io;
     use fixed::traits::ToFixed;
@@ -362,9 +362,6 @@ mod uart_rx {
             sm_rx.set_pin_dirs(Direction::In, &[&rx_pin]);
 
             cfg.clock_divider = (U56F8!(125_000_000) / (8 * baud)).to_fixed();
-            cfg.shift_in.auto_fill = false;
-            cfg.shift_in.direction = ShiftDirection::Right;
-            cfg.shift_in.threshold = 32;
             cfg.fifo_join = FifoJoin::RxOnly;
             sm_rx.set_config(&cfg);
             sm_rx.set_enable(true);
