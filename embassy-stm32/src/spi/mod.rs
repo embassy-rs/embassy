@@ -36,6 +36,7 @@ pub enum BitOrder {
 pub struct Config {
     pub mode: Mode,
     pub bit_order: BitOrder,
+    pub frequency: Hertz,
 }
 
 impl Default for Config {
@@ -43,6 +44,7 @@ impl Default for Config {
         Self {
             mode: MODE_0,
             bit_order: BitOrder::MsbFirst,
+            frequency: Hertz(1_000_000),
         }
     }
 }
@@ -88,7 +90,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         into_ref!(peri, sck, mosi, miso);
@@ -112,7 +113,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             Some(miso.map_into()),
             txdma,
             rxdma,
-            freq,
             config,
         )
     }
@@ -123,7 +123,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd, // TODO remove
         rxdma: impl Peripheral<P = Rx> + 'd,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         into_ref!(sck, miso);
@@ -139,7 +138,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             Some(miso.map_into()),
             txdma,
             rxdma,
-            freq,
             config,
         )
     }
@@ -150,7 +148,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd, // TODO remove
-        freq: Hertz,
         config: Config,
     ) -> Self {
         into_ref!(sck, mosi);
@@ -166,7 +163,6 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             None,
             txdma,
             rxdma,
-            freq,
             config,
         )
     }
@@ -176,14 +172,13 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd, // TODO: remove
-        freq: Hertz,
         config: Config,
     ) -> Self {
         into_ref!(mosi);
         mosi.set_as_af_pull(mosi.af_num(), AFType::OutputPushPull, Pull::Down);
         mosi.set_speed(crate::gpio::Speed::Medium);
 
-        Self::new_inner(peri, None, Some(mosi.map_into()), None, txdma, rxdma, freq, config)
+        Self::new_inner(peri, None, Some(mosi.map_into()), None, txdma, rxdma, config)
     }
 
     #[cfg(stm32wl)]
@@ -201,7 +196,8 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let mut config = Config::default();
         config.mode = MODE_0;
         config.bit_order = BitOrder::MsbFirst;
-        Self::new_inner(peri, None, None, None, txdma, rxdma, freq, config)
+        config.frequency = freq;
+        Self::new_inner(peri, None, None, None, txdma, rxdma, config)
     }
 
     #[allow(dead_code)]
@@ -209,10 +205,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         peri: impl Peripheral<P = T> + 'd,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd,
-        freq: Hertz,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, None, None, None, txdma, rxdma, freq, config)
+        Self::new_inner(peri, None, None, None, txdma, rxdma, config)
     }
 
     fn new_inner(
@@ -222,12 +217,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         miso: Option<PeripheralRef<'d, AnyPin>>,
         txdma: impl Peripheral<P = Tx> + 'd,
         rxdma: impl Peripheral<P = Rx> + 'd,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         into_ref!(peri, txdma, rxdma);
 
         let pclk = T::frequency();
+        let freq = config.frequency;
         let br = compute_baud_rate(pclk, freq.into());
 
         let cpha = config.raw_phase();
@@ -334,19 +329,29 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let lsbfirst = config.raw_byte_order();
 
+        let pclk = T::frequency();
+        let freq = config.frequency;
+        let br = compute_baud_rate(pclk, freq.into());
+
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         T::REGS.cr1().modify(|w| {
             w.set_cpha(cpha);
             w.set_cpol(cpol);
+            w.set_br(br);
             w.set_lsbfirst(lsbfirst);
         });
 
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
-        T::REGS.cfg2().modify(|w| {
-            w.set_cpha(cpha);
-            w.set_cpol(cpol);
-            w.set_lsbfirst(lsbfirst);
-        });
+        {
+            T::REGS.cfg2().modify(|w| {
+                w.set_cpha(cpha);
+                w.set_cpol(cpol);
+                w.set_lsbfirst(lsbfirst);
+            });
+            T::REGS.cfg1().modify(|w| {
+                w.set_mbr(br);
+            });
+        }
     }
 
     pub fn get_current_config(&self) -> Config {
@@ -354,6 +359,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         let cfg = T::REGS.cr1().read();
         #[cfg(any(spi_v3, spi_v4, spi_v5))]
         let cfg = T::REGS.cfg2().read();
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        let cfg1 = T::REGS.cfg1().read();
+
         let polarity = if cfg.cpol() == vals::Cpol::IDLELOW {
             Polarity::IdleLow
         } else {
@@ -371,9 +379,18 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             BitOrder::MsbFirst
         };
 
+        #[cfg(any(spi_v1, spi_f1, spi_v2))]
+        let br = cfg.br();
+        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        let br = cfg1.mbr();
+
+        let pclk = T::frequency();
+        let frequency = compute_frequency(pclk, br);
+
         Config {
             mode: Mode { polarity, phase },
             bit_order,
+            frequency,
         }
     }
 
@@ -651,6 +668,21 @@ fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> Br {
     };
 
     Br::from_bits(val)
+}
+
+fn compute_frequency(clocks: Hertz, br: Br) -> Hertz {
+    let div: u16 = match br {
+        Br::DIV2 => 2,
+        Br::DIV4 => 4,
+        Br::DIV8 => 8,
+        Br::DIV16 => 16,
+        Br::DIV32 => 32,
+        Br::DIV64 => 64,
+        Br::DIV128 => 128,
+        Br::DIV256 => 256,
+    };
+
+    clocks / div
 }
 
 trait RegsExt {
