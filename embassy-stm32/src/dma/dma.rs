@@ -7,7 +7,7 @@ use core::task::{Context, Poll, Waker};
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::ringbuffer::{DmaCtrl, OverrunError, ReadableDmaRingBuffer};
+use super::ringbuffer::{DmaCtrl, OverrunError, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
 use super::Dir;
 use crate::_generated::DMA_CHANNEL_COUNT;
@@ -798,6 +798,175 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
 }
 
 impl<'a, C: Channel, W: Word> Drop for ReadableRingBuffer<'a, C, W> {
+    fn drop(&mut self) {
+        self.request_stop();
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+    }
+}
+
+pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
+    cr: regs::Cr,
+    channel: PeripheralRef<'a, C>,
+    ringbuf: WritableDmaRingBuffer<'a, W>,
+}
+
+impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
+    pub unsafe fn new_read(
+        channel: impl Peripheral<P = C> + 'a,
+        _request: Request,
+        peri_addr: *mut W,
+        buffer: &'a mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        let len = buffer.len();
+        assert!(len > 0 && len <= 0xFFFF);
+
+        let dir = Dir::MemoryToPeripheral;
+        let data_size = W::size();
+
+        let channel_number = channel.num();
+        let dma = channel.regs();
+
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        let mut w = regs::Cr(0);
+        w.set_dir(dir.into());
+        w.set_msize(data_size.into());
+        w.set_psize(data_size.into());
+        w.set_pl(vals::Pl::VERYHIGH);
+        w.set_minc(vals::Inc::INCREMENTED);
+        w.set_pinc(vals::Inc::FIXED);
+        w.set_teie(true);
+        w.set_htie(options.half_transfer_ir);
+        w.set_tcie(true);
+        w.set_circ(vals::Circ::ENABLED);
+        #[cfg(dma_v1)]
+        w.set_trbuff(true);
+        #[cfg(dma_v2)]
+        w.set_chsel(_request);
+        w.set_pburst(options.pburst.into());
+        w.set_mburst(options.mburst.into());
+        w.set_pfctrl(options.flow_ctrl.into());
+        w.set_en(true);
+
+        let buffer_ptr = buffer.as_mut_ptr();
+        let mut this = Self {
+            channel,
+            cr: w,
+            ringbuf: WritableDmaRingBuffer::new(buffer),
+        };
+        this.clear_irqs();
+
+        #[cfg(dmamux)]
+        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+
+        let ch = dma.st(channel_number);
+        ch.par().write_value(peri_addr as u32);
+        ch.m0ar().write_value(buffer_ptr as u32);
+        ch.ndtr().write_value(regs::Ndtr(len as _));
+        ch.fcr().write(|w| {
+            if let Some(fth) = options.fifo_threshold {
+                // FIFO mode
+                w.set_dmdis(vals::Dmdis::DISABLED);
+                w.set_fth(fth.into());
+            } else {
+                // Direct mode
+                w.set_dmdis(vals::Dmdis::ENABLED);
+            }
+        });
+
+        this
+    }
+
+    pub fn start(&mut self) {
+        let ch = self.channel.regs().st(self.channel.num());
+        ch.cr().write_value(self.cr);
+    }
+
+    pub fn clear(&mut self) {
+        self.ringbuf.clear(DmaCtrlImpl(self.channel.reborrow()));
+    }
+
+    /// Write elements from the ring buffer
+    /// Return a tuple of the length written and the length remaining in the buffer
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        self.ringbuf.write(DmaCtrlImpl(self.channel.reborrow()), buf)
+    }
+
+    /// Write an exact number of elements from the ringbuffer.
+    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, OverrunError> {
+        use core::future::poll_fn;
+        use core::sync::atomic::compiler_fence;
+
+        let mut written_data = 0;
+        let buffer_len = buffer.len();
+
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            match self.write(&buffer[written_data..buffer_len]) {
+                Ok((len, remaining)) => {
+                    written_data += len;
+                    if written_data == buffer_len {
+                        Poll::Ready(Ok(remaining))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
+    }
+
+    // The capacity of the ringbuffer
+    pub fn cap(&self) -> usize {
+        self.ringbuf.cap()
+    }
+
+    pub fn set_waker(&mut self, waker: &Waker) {
+        STATE.ch_wakers[self.channel.index()].register(waker);
+    }
+
+    fn clear_irqs(&mut self) {
+        let channel_number = self.channel.num();
+        let dma = self.channel.regs();
+        let isrn = channel_number / 4;
+        let isrbit = channel_number % 4;
+
+        dma.ifcr(isrn).write(|w| {
+            w.set_htif(isrbit, true);
+            w.set_tcif(isrbit, true);
+            w.set_teif(isrbit, true);
+        });
+    }
+
+    pub fn request_stop(&mut self) {
+        let ch = self.channel.regs().st(self.channel.num());
+
+        // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        ch.cr().write(|w| {
+            w.set_teie(true);
+            w.set_htie(true);
+            w.set_tcie(true);
+        });
+    }
+
+    pub fn is_running(&mut self) -> bool {
+        let ch = self.channel.regs().st(self.channel.num());
+        ch.cr().read().en()
+    }
+}
+
+impl<'a, C: Channel, W: Word> Drop for WritableRingBuffer<'a, C, W> {
     fn drop(&mut self) {
         self.request_stop();
         while self.is_running() {}
