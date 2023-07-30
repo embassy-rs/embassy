@@ -502,6 +502,20 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     }
 }
 
+pub enum OutputType {
+    PushPull,
+    OpenDrain,
+}
+
+impl From<OutputType> for sealed::AFType {
+    fn from(value: OutputType) -> Self {
+        match value {
+            OutputType::OpenDrain => sealed::AFType::OutputOpenDrain,
+            OutputType::PushPull => sealed::AFType::OutputPushPull,
+        }
+    }
+}
+
 pub(crate) mod sealed {
     use super::*;
 
