@@ -7,7 +7,6 @@ use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
-use embassy_stm32::time::Hertz;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -22,7 +21,6 @@ async fn main(_spawner: Spawner) {
         p.PA6,
         NoDma,
         NoDma,
-        Hertz(1_000_000),
         Config::default(),
     );
 

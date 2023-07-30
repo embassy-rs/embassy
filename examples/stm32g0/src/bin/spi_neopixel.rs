@@ -76,7 +76,9 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Start test using spi as neopixel driver");
 
-    let mut spi = Spi::new_txonly_nosck(p.SPI1, p.PB5, p.DMA1_CH3, NoDma, Hertz(4_000_000), Config::default());
+    let mut config = Config::default();
+    config.frequency = Hertz(4_000_000);
+    let mut spi = Spi::new_txonly_nosck(p.SPI1, p.PB5, p.DMA1_CH3, NoDma, config);
 
     let mut neopixels = Ws2812::new();
 
