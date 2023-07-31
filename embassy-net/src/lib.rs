@@ -236,6 +236,8 @@ fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress
         driver::HardwareAddress::Ethernet(eth) => HardwareAddress::Ethernet(EthernetAddress(eth)),
         #[cfg(feature = "medium-ieee802154")]
         driver::HardwareAddress::Ieee802154(ieee) => HardwareAddress::Ieee802154(Ieee802154Address::Extended(ieee)),
+        #[cfg(feature = "medium-ip")]
+        driver::HardwareAddress::Ip => HardwareAddress::Ip,
 
         #[allow(unreachable_patterns)]
         _ => panic!("Unsupported address {:?}. Make sure to enable medium-ethernet or medium-ieee802154 in embassy-net's Cargo features.", addr),

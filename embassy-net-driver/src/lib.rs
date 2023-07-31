@@ -12,6 +12,8 @@ pub enum HardwareAddress {
     Ethernet([u8; 6]),
     /// An eight-octet IEEE802.15.4 address
     Ieee802154([u8; 8]),
+    /// Indicates that a Driver is IP-native, and has no hardware address
+    Ip,
 }
 
 /// Main `embassy-net` driver API.
