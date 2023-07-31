@@ -22,4 +22,3 @@ features = ["defmt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }
-smoltcp = { version = "0.10", default-features = false }

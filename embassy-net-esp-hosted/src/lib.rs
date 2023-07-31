@@ -124,7 +124,7 @@ where
     IN: InputPin + Wait,
     OUT: OutputPin,
 {
-    let (ch_runner, device) = ch::new(&mut state.ch, [0; 6]);
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner {

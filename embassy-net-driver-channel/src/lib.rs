@@ -42,7 +42,7 @@ struct StateInner<'d, const MTU: usize> {
 struct Shared {
     link_state: LinkState,
     waker: WakerRegistration,
-    hardware_address: HardwareAddress,
+    hardware_address: driver::HardwareAddress,
 }
 
 pub struct Runner<'d, const MTU: usize> {
@@ -85,7 +85,7 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
         });
     }
 
-    pub fn set_hardware_address(&mut self, address: HardwareAddress) {
+    pub fn set_hardware_address(&mut self, address: driver::HardwareAddress) {
         self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
             s.hardware_address = address;
@@ -150,7 +150,15 @@ impl<'d> StateRunner<'d> {
     pub fn set_ethernet_address(&self, address: [u8; 6]) {
         self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
-            s.ethernet_address = address;
+            s.hardware_address = driver::HardwareAddress::Ethernet(address);
+            s.waker.wake();
+        });
+    }
+
+    pub fn set_ieee802154_address(&self, address: [u8; 8]) {
+        self.shared.lock(|s| {
+            let s = &mut *s.borrow_mut();
+            s.hardware_address = driver::HardwareAddress::Ieee802154(address);
             s.waker.wake();
         });
     }
@@ -206,8 +214,7 @@ impl<'d, const MTU: usize> TxRunner<'d, MTU> {
 
 pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
     state: &'d mut State<MTU, N_RX, N_TX>,
-    ethernet_address: [u8; 6],
-    ieee802154_address: [u8; 8],
+    hardware_address: driver::HardwareAddress,
 ) -> (Runner<'d, MTU>, Device<'d, MTU>) {
     let mut caps = Capabilities::default();
     caps.max_transmission_unit = MTU;
@@ -223,8 +230,7 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
         tx: zerocopy_channel::Channel::new(&mut state.tx[..]),
         shared: Mutex::new(RefCell::new(Shared {
             link_state: LinkState::Down,
-            ethernet_address,
-            ieee802154_address,
+            hardware_address,
             waker: WakerRegistration::new(),
         })),
     });
@@ -291,7 +297,7 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
         self.caps.clone()
     }
 
-    fn hardware_address(&self) -> HardwareAddress {
+    fn hardware_address(&self) -> driver::HardwareAddress {
         self.shared.lock(|s| s.borrow().hardware_address)
     }
 

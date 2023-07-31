@@ -4,7 +4,15 @@
 
 use core::task::Context;
 
-use smoltcp::wire::HardwareAddress;
+/// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum HardwareAddress {
+    /// A six-octet Ethernet address
+    Ethernet([u8; 6]),
+    /// An eight-octet IEEE802.15.4 address
+    Ieee802154([u8; 8]),
+}
 
 /// Main `embassy-net` driver API.
 ///

@@ -4,8 +4,7 @@ use std::os::unix::io::{AsRawFd, RawFd};
 use std::task::Context;
 
 use async_io::Async;
-use embassy_net::HardwareAddress;
-use embassy_net_driver::{self, Capabilities, Driver, LinkState};
+use embassy_net_driver::{self, Capabilities, Driver, HardwareAddress, LinkState};
 use log::*;
 
 pub const SIOCGIFMTU: libc::c_ulong = 0x8921;
@@ -182,7 +181,7 @@ impl Driver for TunTapDevice {
     }
 
     fn hardware_address(&self) -> HardwareAddress {
-        HardwareAddress::Ethernet(EthernetAddress([0x02, 0x03, 0x04, 0x05, 0x06, 0x07]))
+        HardwareAddress::Ethernet([0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
     }
 }
 
