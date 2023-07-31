@@ -27,6 +27,80 @@ impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> 
         Self { i2c, timeout }
     }
 
+    // =========================
+    //  Async public API
+
+    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        self.write_timeout(address, write, self.timeout).await
+    }
+
+    pub async fn write_timeout(&mut self, address: u8, write: &[u8], timeout: Duration) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        self.i2c.write_timeout(address, write, timeout_fn(timeout)).await
+    }
+
+    pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        self.write_vectored_timeout(address, write, self.timeout).await
+    }
+
+    pub async fn write_vectored_timeout(&mut self, address: u8, write: &[&[u8]], timeout: Duration) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        self.i2c
+            .write_vectored_timeout(address, write, timeout_fn(timeout))
+            .await
+    }
+
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        self.read_timeout(address, buffer, self.timeout).await
+    }
+
+    pub async fn read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        self.i2c.read_timeout(address, buffer, timeout_fn(timeout)).await
+    }
+
+    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
+    where
+        TXDMA: super::TxDma<T>,
+        RXDMA: super::RxDma<T>,
+    {
+        self.write_read_timeout(address, write, read, self.timeout).await
+    }
+
+    pub async fn write_read_timeout(
+        &mut self,
+        address: u8,
+        write: &[u8],
+        read: &mut [u8],
+        timeout: Duration,
+    ) -> Result<(), Error>
+    where
+        TXDMA: super::TxDma<T>,
+        RXDMA: super::RxDma<T>,
+    {
+        self.i2c
+            .write_read_timeout(address, write, read, timeout_fn(timeout))
+            .await
+    }
+
+    // =========================
+    //  Blocking public API
+
     /// Blocking read with a custom timeout
     pub fn blocking_read_timeout(&mut self, addr: u8, read: &mut [u8], timeout: Duration) -> Result<(), Error> {
         self.i2c.blocking_read_timeout(addr, read, timeout_fn(timeout))
