@@ -19,7 +19,7 @@ use crate::{interrupt, peripherals, Peripheral};
 /// Contains CAN frame and additional metadata.
 ///
 /// Timestamp is available if `time` feature is enabled.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Envelope {
     #[cfg(feature = "time")]
