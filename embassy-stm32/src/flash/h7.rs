@@ -104,39 +104,9 @@ pub(crate) unsafe fn clear_all_err() {
 }
 
 unsafe fn bank_clear_all_err(bank: pac::flash::Bank) {
-    bank.sr().modify(|w| {
-        if w.wrperr() {
-            w.set_wrperr(true);
-        }
-        if w.pgserr() {
-            w.set_pgserr(true);
-        }
-        if w.strberr() {
-            // single address was written multiple times, can be ignored
-            w.set_strberr(true);
-        }
-        if w.incerr() {
-            // writing to a different address when programming 256 bit word was not finished
-            w.set_incerr(true);
-        }
-        if w.operr() {
-            w.set_operr(true);
-        }
-        if w.sneccerr1() {
-            // single ECC error
-            w.set_sneccerr1(true);
-        }
-        if w.dbeccerr() {
-            // double ECC error
-            w.set_dbeccerr(true);
-        }
-        if w.rdperr() {
-            w.set_rdperr(true);
-        }
-        if w.rdserr() {
-            w.set_rdserr(true);
-        }
-    });
+    // read and write back the same value.
+    // This clears all "write 0 to clear" bits.
+    bank.sr().modify(|_| {});
 }
 
 unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
