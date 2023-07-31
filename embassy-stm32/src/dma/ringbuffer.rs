@@ -229,6 +229,13 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     pub fn write(&mut self, mut dma: impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
         let start = self.pos(dma.get_remaining_transfers());
         if start > self.end {
+            trace!(
+                "[1]: start, end, complete_count: {}, {}, {}",
+                start,
+                self.end,
+                dma.get_complete_count()
+            );
+
             // The occupied portion in the ring buffer DOES wrap
             let len = self.copy_from(buf, self.end..start);
 
@@ -244,8 +251,22 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
                 Ok((len, self.cap() - (start - self.end)))
             }
         } else if start == self.end && dma.get_complete_count() == 0 {
+            trace!(
+                "[2]: start, end, complete_count: {}, {}, {}",
+                start,
+                self.end,
+                dma.get_complete_count()
+            );
+
             Ok((0, 0))
         } else if start <= self.end && self.end + buf.len() < self.cap() {
+            trace!(
+                "[3]: start, end, complete_count: {}, {}, {}",
+                start,
+                self.end,
+                dma.get_complete_count()
+            );
+
             // The occupied portion in the ring buffer DOES NOT wrap
             // and copying elements into the buffer WILL NOT cause it to
 
@@ -264,6 +285,13 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
                 Ok((len, self.cap() - (self.end - start)))
             }
         } else {
+            trace!(
+                "[4]: start, end, complete_count: {}, {}, {}",
+                start,
+                self.end,
+                dma.get_complete_count()
+            );
+
             // The occupied portion in the ring buffer DOES NOT wrap
             // and copying elements into the buffer WILL cause it to
 
