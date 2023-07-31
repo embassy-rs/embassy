@@ -42,6 +42,10 @@ boot2-ram-memcpy = []
 boot2-w25q080 = []
 boot2-w25x10cl = []
 
+# Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash lives there)
+# and would add both code and memory overhead when enabled needlessly.
+qspi-as-gpio = []
+
 # Indicate code is running from RAM.
 # Set this if all code is in RAM, and the cores never access memory-mapped flash memory through XIP.
 # This allows the flash driver to not force pausing execution on both cores when doing flash operations.

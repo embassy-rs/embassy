@@ -67,6 +67,7 @@ pub enum SlewRate {
 #[derive(Debug, Eq, PartialEq)]
 pub enum Bank {
     Bank0 = 0,
+    #[cfg(feature = "qspi-as-gpio")]
     Qspi = 1,
 }
 
@@ -636,16 +637,17 @@ pub(crate) mod sealed {
 
         #[inline]
         fn _bank(&self) -> Bank {
-            if self.pin_bank() & 0x20 == 0 {
-                Bank::Bank0
-            } else {
-                Bank::Qspi
+            match self.pin_bank() & 0x20 {
+                #[cfg(feature = "qspi-as-gpio")]
+                1 => Bank::Qspi,
+                _ => Bank::Bank0,
             }
         }
 
         fn io(&self) -> pac::io::Io {
             match self._bank() {
                 Bank::Bank0 => crate::pac::IO_BANK0,
+                #[cfg(feature = "qspi-as-gpio")]
                 Bank::Qspi => crate::pac::IO_QSPI,
             }
         }
@@ -657,6 +659,7 @@ pub(crate) mod sealed {
         fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
             let block = match self._bank() {
                 Bank::Bank0 => crate::pac::PADS_BANK0,
+                #[cfg(feature = "qspi-as-gpio")]
                 Bank::Qspi => crate::pac::PADS_QSPI,
             };
             block.gpio(self._pin() as _)
@@ -766,11 +769,17 @@ impl_pin!(PIN_27, Bank::Bank0, 27);
 impl_pin!(PIN_28, Bank::Bank0, 28);
 impl_pin!(PIN_29, Bank::Bank0, 29);
 
+#[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SCLK, Bank::Qspi, 0);
+#[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SS, Bank::Qspi, 1);
+#[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SD0, Bank::Qspi, 2);
+#[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SD1, Bank::Qspi, 3);
+#[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SD2, Bank::Qspi, 4);
+#[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SD3, Bank::Qspi, 5);
 
 // ====================
