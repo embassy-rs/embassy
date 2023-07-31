@@ -583,9 +583,6 @@ impl SocketStack {
 impl<D: Driver + 'static> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
     fn apply_config_v4(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
-        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        let medium = self.device.capabilities().medium;
-
         debug!("Acquired IP configuration:");
 
         debug!("   IP address:      {}", config.address);
@@ -600,8 +597,12 @@ impl<D: Driver + 'static> Inner<D> {
             addrs.push(IpCidr::Ipv4(config.address)).unwrap();
         });
 
-        #[cfg(feature = "medium-ethernet")]
-        if medium == Medium::Ethernet {
+        #[cfg(feature = "medium-ip")]
+        let skip_gateway = self.device.capabilities().medium != Medium::Ip;
+        #[cfg(not(feature = "medium-ip"))]
+        let skip_gateway = false;
+
+        if !skip_gateway {
             if let Some(gateway) = config.gateway {
                 debug!("   Default gateway: {}", gateway);
                 s.iface.routes_mut().add_default_ipv4_route(gateway).unwrap();
