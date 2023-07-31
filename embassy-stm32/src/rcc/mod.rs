@@ -1,5 +1,7 @@
 #![macro_use]
 
+pub mod common;
+
 use core::mem::MaybeUninit;
 
 use crate::time::Hertz;

@@ -52,41 +52,20 @@ use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
-use crate::{gpio, interrupt, pac};
+use crate::{gpio, install_stack_guard, interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
 
 #[inline(always)]
-fn install_stack_guard(stack_bottom: *mut usize) {
-    let core = unsafe { cortex_m::Peripherals::steal() };
-
-    // Trap if MPU is already configured
-    if core.MPU.ctrl.read() != 0 {
+fn core1_setup(stack_bottom: *mut usize) {
+    if let Err(_) = install_stack_guard(stack_bottom) {
+        // currently only happens if the MPU was already set up, which
+        // would indicate that the core is already in use from outside
+        // embassy, somehow. trap if so since we can't deal with that.
         cortex_m::asm::udf();
     }
-
-    // The minimum we can protect is 32 bytes on a 32 byte boundary, so round up which will
-    // just shorten the valid stack range a tad.
-    let addr = (stack_bottom as u32 + 31) & !31;
-    // Mask is 1 bit per 32 bytes of the 256 byte range... clear the bit for the segment we want
-    let subregion_select = 0xff ^ (1 << ((addr >> 5) & 7));
-    unsafe {
-        core.MPU.ctrl.write(5); // enable mpu with background default map
-        core.MPU.rbar.write((addr & !0xff) | 0x8);
-        core.MPU.rasr.write(
-            1 // enable region
-               | (0x7 << 1) // size 2^(7 + 1) = 256
-               | (subregion_select << 8)
-               | 0x10000000, // XN = disable instruction fetch; no other bits means no permissions
-        );
-    }
-}
-
-#[inline(always)]
-fn core1_setup(stack_bottom: *mut usize) {
-    install_stack_guard(stack_bottom);
     unsafe {
         gpio::init();
     }

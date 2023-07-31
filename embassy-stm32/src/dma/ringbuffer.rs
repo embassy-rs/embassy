@@ -72,10 +72,10 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
         self.cap() - remaining_transfers
     }
 
-    /// Read bytes from the ring buffer
+    /// Read elements from the ring buffer
     /// Return a tuple of the length read and the length remaining in the buffer
-    /// If not all of the bytes were read, then there will be some bytes in the buffer remaining
-    /// The length remaining is the capacity, ring_buf.len(), less the bytes remaining after the read
+    /// If not all of the elements were read, then there will be some elements in the buffer remaining
+    /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, mut dma: impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
         /*
@@ -95,11 +95,11 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
         */
         let end = self.pos(dma.get_remaining_transfers());
         if self.start == end && dma.get_complete_count() == 0 {
-            // No bytes are available in the buffer
+            // No elements are available in the buffer
             Ok((0, self.cap()))
         } else if self.start < end {
             // The available, unread portion in the ring buffer DOES NOT wrap
-            // Copy out the bytes from the dma buffer
+            // Copy out the elements from the dma buffer
             let len = self.copy_to(buf, self.start..end);
 
             compiler_fence(Ordering::SeqCst);
@@ -128,7 +128,7 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
             // The DMA writer has wrapped since we last read and is currently
             // writing (or the next byte added will be) in the beginning of the ring buffer.
 
-            // The provided read buffer is not large enough to include all bytes from the tail of the dma buffer.
+            // The provided read buffer is not large enough to include all elements from the tail of the dma buffer.
 
             // Copy out from the dma buffer
             let len = self.copy_to(buf, self.start..self.cap());
@@ -154,8 +154,8 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
             // The DMA writer has wrapped since we last read and is currently
             // writing (or the next byte added will be) in the beginning of the ring buffer.
 
-            // The provided read buffer is large enough to include all bytes from the tail of the dma buffer,
-            // so the next read will not have any unread tail bytes in the ring buffer.
+            // The provided read buffer is large enough to include all elements from the tail of the dma buffer,
+            // so the next read will not have any unread tail elements in the ring buffer.
 
             // Copy out from the dma buffer
             let tail = self.copy_to(buf, self.start..self.cap());
@@ -180,7 +180,7 @@ impl<'a, W: Word> DmaRingBuffer<'a, W> {
     }
     /// Copy from the dma buffer at `data_range` into `buf`
     fn copy_to(&mut self, buf: &mut [W], data_range: Range<usize>) -> usize {
-        // Limit the number of bytes that can be copied
+        // Limit the number of elements that can be copied
         let length = usize::min(data_range.len(), buf.len());
 
         // Copy from dma buffer into read buffer

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::into_ref;
 pub use pll::PllConfig;
 use stm32_metapac::rcc::vals::{Mco1, Mco2};
 
@@ -24,21 +24,7 @@ pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-/// Voltage Scale
-///
-/// Represents the voltage range feeding the CPU core. The maximum core
-/// clock frequency depends on this value.
-#[derive(Copy, Clone, PartialEq)]
-pub enum VoltageScale {
-    /// VOS 0 range VCORE 1.26V - 1.40V
-    Scale0,
-    /// VOS 1 range VCORE 1.15V - 1.26V
-    Scale1,
-    /// VOS 2 range VCORE 1.05V - 1.15V
-    Scale2,
-    /// VOS 3 range VCORE 0.95V - 1.05V
-    Scale3,
-}
+pub use super::common::VoltageScale;
 
 #[derive(Clone, Copy)]
 pub enum AdcClockSource {

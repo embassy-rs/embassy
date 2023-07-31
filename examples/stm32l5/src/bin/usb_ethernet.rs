@@ -9,7 +9,7 @@ use embassy_net::{Stack, StackResources};
 use embassy_stm32::rcc::*;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{bind_interrupts, peripherals, rng, usb, Config};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
@@ -24,6 +24,7 @@ const MTU: usize = 1514;
 
 bind_interrupts!(struct Irqs {
     USB_FS => usb::InterruptHandler<peripherals::USB>;
+    RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
 #[embassy_executor::task]
@@ -99,7 +100,7 @@ async fn main(spawner: Spawner) {
     //});
 
     // Generate random seed
-    let mut rng = Rng::new(p.RNG);
+    let mut rng = Rng::new(p.RNG, Irqs);
     let seed = rng.next_u64();
 
     // Init network stack

@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use stm32_metapac::timer::vals::Ckd;
 
 use super::simple_pwm::*;
 use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -17,13 +17,13 @@ pub struct ComplementaryPwmPin<'d, Perip, Channel> {
 }
 
 macro_rules! complementary_channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident, $complementary_pin_trait:ident) => {
+    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
         impl<'d, Perip: CaptureCompare16bitInstance> ComplementaryPwmPin<'d, Perip, $channel> {
-            pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<Perip>> + 'd) -> Self {
+            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd, output_type: OutputType) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
+                    pin.set_as_af(pin.af_num(), output_type.into());
                     #[cfg(gpio_v2)]
                     pin.set_speed(crate::gpio::Speed::VeryHigh);
                 });
@@ -36,10 +36,10 @@ macro_rules! complementary_channel_impl {
     };
 }
 
-complementary_channel_impl!(new_ch1, Ch1, Channel1Pin, Channel1ComplementaryPin);
-complementary_channel_impl!(new_ch2, Ch2, Channel2Pin, Channel2ComplementaryPin);
-complementary_channel_impl!(new_ch3, Ch3, Channel3Pin, Channel3ComplementaryPin);
-complementary_channel_impl!(new_ch4, Ch4, Channel4Pin, Channel4ComplementaryPin);
+complementary_channel_impl!(new_ch1, Ch1, Channel1ComplementaryPin);
+complementary_channel_impl!(new_ch2, Ch2, Channel2ComplementaryPin);
+complementary_channel_impl!(new_ch3, Ch3, Channel3ComplementaryPin);
+complementary_channel_impl!(new_ch4, Ch4, Channel4ComplementaryPin);
 
 pub struct ComplementaryPwm<'d, T> {
     inner: PeripheralRef<'d, T>,

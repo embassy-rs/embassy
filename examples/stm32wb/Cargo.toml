@@ -52,3 +52,6 @@ required-features = ["ble"]
 [[bin]] 
 name = "gatt_server"
 required-features = ["ble"]
+
+[profile.release]
+debug = 2

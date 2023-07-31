@@ -1,8 +1,9 @@
 use core::convert::TryFrom;
 use core::ops::{Div, Mul};
 
+pub use super::common::{AHBPrescaler, APBPrescaler};
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{Hpre, Pllp, Pllsrc, Ppre, Sw};
+use crate::pac::rcc::vals::{Pllp, Pllsrc, Sw};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -58,7 +59,7 @@ impl Default for PLLConfig {
 impl PLLConfig {
     pub fn clocks(&self, src_freq: Hertz) -> PLLClocks {
         let in_freq = src_freq / self.pre_div;
-        let vco_freq = src_freq * self.mul / self.pre_div;
+        let vco_freq = Hertz((src_freq.0 as u64 * self.mul.0 as u64 / self.pre_div.0 as u64) as u32);
         let main_freq = vco_freq / self.main_div;
         let pll48_freq = vco_freq / self.pll48_div;
         PLLClocks {
@@ -200,114 +201,15 @@ pub struct PLLClocks {
     pub pll48_freq: Hertz,
 }
 
-/// AHB prescaler
-#[derive(Clone, Copy, PartialEq)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
+pub use super::common::VoltageScale;
 
-impl Div<AHBPrescaler> for Hertz {
-    type Output = Hertz;
-
-    fn div(self, rhs: AHBPrescaler) -> Self::Output {
-        let divisor = match rhs {
-            AHBPrescaler::NotDivided => 1,
-            AHBPrescaler::Div2 => 2,
-            AHBPrescaler::Div4 => 4,
-            AHBPrescaler::Div8 => 8,
-            AHBPrescaler::Div16 => 16,
-            AHBPrescaler::Div64 => 64,
-            AHBPrescaler::Div128 => 128,
-            AHBPrescaler::Div256 => 256,
-            AHBPrescaler::Div512 => 512,
-        };
-        Hertz(self.0 / divisor)
-    }
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-}
-
-impl Div<APBPrescaler> for Hertz {
-    type Output = Hertz;
-
-    fn div(self, rhs: APBPrescaler) -> Self::Output {
-        let divisor = match rhs {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 2,
-            APBPrescaler::Div4 => 4,
-            APBPrescaler::Div8 => 8,
-            APBPrescaler::Div16 => 16,
-        };
-        Hertz(self.0 / divisor)
-    }
-}
-
-impl Into<Ppre> for APBPrescaler {
-    fn into(self) -> Ppre {
-        match self {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
-    }
-}
-
-impl Into<Hpre> for AHBPrescaler {
-    fn into(self) -> Hpre {
-        match self {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
-        }
-    }
-}
-
-/// Voltage Range
-///
-/// Represents the system supply voltage range
-#[derive(Copy, Clone, PartialEq)]
-pub enum VoltageRange {
-    /// 1.8 to 3.6 V
-    Min1V8,
-    /// 2.1 to 3.6 V
-    Min2V1,
-    /// 2.4 to 3.6 V
-    Min2V4,
-    /// 2.7 to 3.6 V
-    Min2V7,
-}
-
-impl VoltageRange {
+impl VoltageScale {
     const fn wait_states(&self, ahb_freq: Hertz) -> Option<Latency> {
         let ahb_freq = ahb_freq.0;
         // Reference: RM0033 - Table 3. Number of wait states according to Cortex®-M3 clock
         // frequency
         match self {
-            VoltageRange::Min1V8 => {
+            VoltageScale::Scale3 => {
                 if ahb_freq <= 16_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 32_000_000 {
@@ -328,7 +230,7 @@ impl VoltageRange {
                     None
                 }
             }
-            VoltageRange::Min2V1 => {
+            VoltageScale::Scale2 => {
                 if ahb_freq <= 18_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 36_000_000 {
@@ -347,7 +249,7 @@ impl VoltageRange {
                     None
                 }
             }
-            VoltageRange::Min2V4 => {
+            VoltageScale::Scale1 => {
                 if ahb_freq <= 24_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 48_000_000 {
@@ -362,7 +264,7 @@ impl VoltageRange {
                     None
                 }
             }
-            VoltageRange::Min2V7 => {
+            VoltageScale::Scale0 => {
                 if ahb_freq <= 30_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 60_000_000 {
@@ -386,7 +288,7 @@ pub struct Config {
     pub pll_mux: PLLSrc,
     pub pll: PLLConfig,
     pub mux: ClockSrc,
-    pub voltage: VoltageRange,
+    pub voltage: VoltageScale,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
@@ -400,7 +302,7 @@ impl Default for Config {
             hsi: true,
             pll_mux: PLLSrc::HSI,
             pll: PLLConfig::default(),
-            voltage: VoltageRange::Min1V8,
+            voltage: VoltageScale::Scale3,
             mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,

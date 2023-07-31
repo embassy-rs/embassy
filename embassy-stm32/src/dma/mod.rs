@@ -26,7 +26,7 @@ pub mod word;
 
 use core::mem;
 
-use embassy_hal_common::impl_peripheral;
+use embassy_hal_internal::impl_peripheral;
 
 #[cfg(dmamux)]
 pub use self::dmamux::*;

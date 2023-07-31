@@ -8,7 +8,6 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
-use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{bind_interrupts, Peripheral};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
@@ -46,9 +45,8 @@ async fn main(_spawner: Spawner) {
         ".wrap",
     );
 
-    let relocated = RelocatedProgram::new(&prg.program);
     let mut cfg = Config::default();
-    cfg.use_program(&common.load_program(&relocated), &[]);
+    cfg.use_program(&common.load_program(&prg.program), &[]);
     cfg.clock_divider = (U56F8!(125_000_000) / U56F8!(10_000)).to_fixed();
     cfg.shift_in = ShiftConfig {
         auto_fill: true,

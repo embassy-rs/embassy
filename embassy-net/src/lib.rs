@@ -32,12 +32,14 @@ pub use smoltcp::iface::MulticastError;
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
+#[cfg(feature = "medium-ethernet")]
+pub use smoltcp::wire::EthernetAddress;
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+pub use smoltcp::wire::HardwareAddress;
 #[cfg(feature = "udp")]
 pub use smoltcp::wire::IpListenEndpoint;
-#[cfg(feature = "medium-ethernet")]
-pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
 #[cfg(feature = "medium-ieee802154")]
-pub use smoltcp::wire::{HardwareAddress, Ieee802154Address};
+pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
 pub use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
 pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
@@ -583,7 +585,7 @@ impl SocketStack {
 impl<D: Driver + 'static> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
     fn apply_config_v4(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
-        #[cfg(feature = "medium-ethernet")]
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         let medium = self.device.capabilities().medium;
 
         debug!("Acquired IP configuration:");

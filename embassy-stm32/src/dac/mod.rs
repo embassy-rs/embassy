@@ -3,7 +3,7 @@
 //! Provide access to the STM32 digital-to-analog converter (DAC).
 use core::marker::PhantomData;
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::pac::dac;
 use crate::rcc::RccPeripheral;

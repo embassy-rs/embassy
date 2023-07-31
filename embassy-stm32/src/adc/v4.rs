@@ -226,7 +226,7 @@ impl Prescaler {
 
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
-        embassy_hal_common::into_ref!(adc);
+        embassy_hal_internal::into_ref!(adc);
         T::enable();
         T::reset();
 

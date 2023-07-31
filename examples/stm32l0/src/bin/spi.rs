@@ -15,16 +15,10 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World, folks!");
 
-    let mut spi = Spi::new(
-        p.SPI1,
-        p.PB3,
-        p.PA7,
-        p.PA6,
-        NoDma,
-        NoDma,
-        Hertz(1_000_000),
-        Config::default(),
-    );
+    let mut spi_config = Config::default();
+    spi_config.frequency = Hertz(1_000_000);
+
+    let mut spi = Spi::new(p.SPI1, p.PB3, p.PA7, p.PA6, NoDma, NoDma, spi_config);
 
     let mut cs = Output::new(p.PA15, Level::High, Speed::VeryHigh);
 

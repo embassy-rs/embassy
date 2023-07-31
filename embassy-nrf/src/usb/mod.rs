@@ -11,7 +11,7 @@ use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
 use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{Direction, EndpointAddress, EndpointError, EndpointInfo, EndpointType, Event, Unsupported};

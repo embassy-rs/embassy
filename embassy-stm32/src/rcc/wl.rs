@@ -1,3 +1,4 @@
+pub use super::common::{AHBPrescaler, APBPrescaler, VoltageScale};
 use crate::pac::pwr::vals::Dbp;
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -73,9 +74,9 @@ impl MSIRange {
 
     fn vos(&self) -> VoltageScale {
         if self > &MSIRange::Range8 {
-            VoltageScale::Range1
+            VoltageScale::Scale0
         } else {
-            VoltageScale::Range2
+            VoltageScale::Scale1
         }
     }
 }
@@ -101,78 +102,6 @@ impl Into<u8> for MSIRange {
             MSIRange::Range9 => 0b1001,
             MSIRange::Range10 => 0b1010,
             MSIRange::Range11 => 0b1011,
-        }
-    }
-}
-
-/// Voltage Scale
-///
-/// Represents the voltage range feeding the CPU core. The maximum core
-/// clock frequency depends on this value.
-#[derive(Copy, Clone, PartialEq)]
-pub enum VoltageScale {
-    Range1,
-    Range2,
-}
-
-/// AHB prescaler
-#[derive(Clone, Copy, PartialEq)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div3,
-    Div4,
-    Div5,
-    Div6,
-    Div8,
-    Div10,
-    Div16,
-    Div32,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-}
-
-impl Into<u8> for APBPrescaler {
-    fn into(self) -> u8 {
-        match self {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 0x04,
-            APBPrescaler::Div4 => 0x05,
-            APBPrescaler::Div8 => 0x06,
-            APBPrescaler::Div16 => 0x07,
-        }
-    }
-}
-
-impl Into<u8> for AHBPrescaler {
-    fn into(self) -> u8 {
-        match self {
-            AHBPrescaler::NotDivided => 0x0,
-            AHBPrescaler::Div2 => 0x08,
-            AHBPrescaler::Div3 => 0x01,
-            AHBPrescaler::Div4 => 0x09,
-            AHBPrescaler::Div5 => 0x02,
-            AHBPrescaler::Div6 => 0x05,
-            AHBPrescaler::Div8 => 0x0a,
-            AHBPrescaler::Div10 => 0x06,
-            AHBPrescaler::Div16 => 0x0b,
-            AHBPrescaler::Div32 => 0x07,
-            AHBPrescaler::Div64 => 0x0c,
-            AHBPrescaler::Div128 => 0x0d,
-            AHBPrescaler::Div256 => 0x0e,
-            AHBPrescaler::Div512 => 0x0f,
         }
     }
 }
@@ -220,8 +149,8 @@ pub enum Lsedrv {
 
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
-        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::Range2),
-        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::Range1),
+        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::Scale1),
+        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::Scale0),
         ClockSrc::MSI(range) => (range.freq(), 0x00, range.vos()),
     };
 
@@ -266,12 +195,12 @@ pub(crate) unsafe fn init(config: Config) {
     // Adjust flash latency
     let flash_clk_src_freq: u32 = shd_ahb_freq;
     let ws = match vos {
-        VoltageScale::Range1 => match flash_clk_src_freq {
+        VoltageScale::Scale0 => match flash_clk_src_freq {
             0..=18_000_000 => 0b000,
             18_000_001..=36_000_000 => 0b001,
             _ => 0b010,
         },
-        VoltageScale::Range2 => match flash_clk_src_freq {
+        VoltageScale::Scale1 => match flash_clk_src_freq {
             0..=6_000_000 => 0b000,
             6_000_001..=12_000_000 => 0b001,
             _ => 0b010,

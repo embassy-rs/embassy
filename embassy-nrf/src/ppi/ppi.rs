@@ -1,4 +1,4 @@
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::into_ref;
 
 use super::{Channel, ConfigurableChannel, Event, Ppi, StaticChannel, Task};
 use crate::{pac, Peripheral};

@@ -5,8 +5,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::future::{select, Either};
 
 use crate::dma::{NoDma, Transfer};
@@ -857,7 +857,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
         "Using {} oversampling, desired baudrate: {}, actual baudrate: {}",
         oversampling,
         config.baudrate,
-        pclk_freq.0 / div
+        (pclk_freq.0 * mul as u32) / div
     );
 
     r.cr2().write(|w| {
