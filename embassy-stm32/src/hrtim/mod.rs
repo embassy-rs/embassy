@@ -18,6 +18,8 @@ pub enum Source {
     ChC,
     ChD,
     ChE,
+    #[cfg(hrtim_v2)]
+    ChF,
 }
 
 pub struct BurstController<T: Instance> {
@@ -39,6 +41,10 @@ pub struct ChD<T: Instance> {
     phantom: PhantomData<T>,
 }
 pub struct ChE<T: Instance> {
+    phantom: PhantomData<T>,
+}
+#[cfg(hrtim_v2)]
+pub struct ChF<T: Instance> {
     phantom: PhantomData<T>,
 }
 
@@ -110,6 +116,8 @@ advanced_channel_impl!(new_chb, ChB, 1, ChannelBPin, ChannelBComplementaryPin);
 advanced_channel_impl!(new_chc, ChC, 2, ChannelCPin, ChannelCComplementaryPin);
 advanced_channel_impl!(new_chd, ChD, 3, ChannelDPin, ChannelDComplementaryPin);
 advanced_channel_impl!(new_che, ChE, 4, ChannelEPin, ChannelEComplementaryPin);
+#[cfg(hrtim_v2)]
+advanced_channel_impl!(new_chf, ChF, 5, ChannelFPin, ChannelFComplementaryPin);
 
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {
@@ -121,6 +129,8 @@ pub struct AdvancedPwm<'d, T: Instance> {
     pub ch_c: ChC<T>,
     pub ch_d: ChD<T>,
     pub ch_e: ChE<T>,
+    #[cfg(hrtim_v2)]
+    pub ch_f: ChF<T>,
 }
 
 impl<'d, T: Instance> AdvancedPwm<'d, T> {
@@ -136,6 +146,8 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
         _chdn: Option<ComplementaryPwmPin<'d, T, ChD<T>>>,
         _che: Option<PwmPin<'d, T, ChE<T>>>,
         _chen: Option<ComplementaryPwmPin<'d, T, ChE<T>>>,
+        #[cfg(hrtim_v2)] _chf: Option<PwmPin<'d, T, ChF<T>>>,
+        #[cfg(hrtim_v2)] _chfn: Option<ComplementaryPwmPin<'d, T, ChF<T>>>,
     ) -> Self {
         Self::new_inner(tim)
     }
@@ -167,6 +179,8 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
             ch_c: ChC { phantom: PhantomData },
             ch_d: ChD { phantom: PhantomData },
             ch_e: ChE { phantom: PhantomData },
+            #[cfg(hrtim_v2)]
+            ch_f: ChF { phantom: PhantomData },
         }
     }
 }
@@ -407,3 +421,7 @@ pin_trait!(ChannelDPin, Instance);
 pin_trait!(ChannelDComplementaryPin, Instance);
 pin_trait!(ChannelEPin, Instance);
 pin_trait!(ChannelEComplementaryPin, Instance);
+#[cfg(hrtim_v2)]
+pin_trait!(ChannelFPin, Instance);
+#[cfg(hrtim_v2)]
+pin_trait!(ChannelFComplementaryPin, Instance);
