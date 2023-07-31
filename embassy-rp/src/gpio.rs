@@ -643,12 +643,15 @@ pub(crate) mod sealed {
             }
         }
 
-        fn gpio(&self) -> pac::io::Gpio {
-            let block = match self._bank() {
+        fn io(&self) -> pac::io::Io {
+            match self._bank() {
                 Bank::Bank0 => crate::pac::IO_BANK0,
                 Bank::Qspi => crate::pac::IO_QSPI,
-            };
-            block.gpio(self._pin() as _)
+            }
+        }
+
+        fn gpio(&self) -> pac::io::Gpio {
+            self.io().gpio(self._pin() as _)
         }
 
         fn pad_ctrl(&self) -> Reg<pac::pads::regs::GpioCtrl, RW> {
@@ -672,12 +675,8 @@ pub(crate) mod sealed {
         }
 
         fn int_proc(&self) -> pac::io::Int {
-            let io_block = match self._bank() {
-                Bank::Bank0 => crate::pac::IO_BANK0,
-                Bank::Qspi => crate::pac::IO_QSPI,
-            };
             let proc = SIO.cpuid().read();
-            io_block.int_proc(proc as _)
+            self.io().int_proc(proc as _)
         }
     }
 }
