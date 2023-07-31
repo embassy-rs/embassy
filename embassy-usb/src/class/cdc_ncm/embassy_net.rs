@@ -87,7 +87,10 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
         ethernet_address: [u8; 6],
     ) -> (Runner<'d, D, MTU>, Device<'d, MTU>) {
         let (tx_usb, rx_usb) = self.split();
-        let (runner, device) = ch::new(&mut state.ch_state, ethernet_address);
+        let (runner, device) = ch::new(
+            &mut state.ch_state,
+            ch::driver::HardwareAddress::Ethernet(ethernet_address),
+        );
 
         (
             Runner {

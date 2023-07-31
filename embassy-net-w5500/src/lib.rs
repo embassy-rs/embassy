@@ -96,7 +96,7 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
 
     let mac = W5500::new(spi_dev, mac_addr).await.unwrap();
 
-    let (runner, device) = ch::new(&mut state.ch_state, mac_addr);
+    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
     (
         device,
         Runner {

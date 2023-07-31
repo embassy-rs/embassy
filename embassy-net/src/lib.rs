@@ -34,7 +34,7 @@ use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::EthernetAddress;
-#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
 pub use smoltcp::wire::HardwareAddress;
 #[cfg(feature = "udp")]
 pub use smoltcp::wire::IpListenEndpoint;
@@ -230,6 +230,20 @@ pub(crate) struct SocketStack {
     next_local_port: u16,
 }
 
+fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress {
+    match addr {
+        #[cfg(feature = "medium-ethernet")]
+        driver::HardwareAddress::Ethernet(eth) => HardwareAddress::Ethernet(EthernetAddress(eth)),
+        #[cfg(feature = "medium-ieee802154")]
+        driver::HardwareAddress::Ieee802154(ieee) => HardwareAddress::Ieee802154(Ieee802154Address::Extended(ieee)),
+        #[cfg(feature = "medium-ip")]
+        driver::HardwareAddress::Ip => HardwareAddress::Ip,
+
+        #[allow(unreachable_patterns)]
+        _ => panic!("Unsupported address {:?}. Make sure to enable medium-ethernet or medium-ieee802154 in embassy-net's Cargo features.", addr),
+    }
+}
+
 impl<D: Driver + 'static> Stack<D> {
     /// Create a new network stack.
     pub fn new<const SOCK: usize>(
@@ -238,23 +252,7 @@ impl<D: Driver + 'static> Stack<D> {
         resources: &'static mut StackResources<SOCK>,
         random_seed: u64,
     ) -> Self {
-        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        let medium = device.capabilities().medium;
-
-        let hardware_addr = match medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())),
-            #[cfg(feature = "medium-ip")]
-            Medium::Ip => HardwareAddress::Ip,
-            #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => HardwareAddress::Ieee802154(Ieee802154Address::Absent),
-            #[allow(unreachable_patterns)]
-            _ => panic!(
-                "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
-                medium
-            ),
-        };
-        let mut iface_cfg = smoltcp::iface::Config::new(hardware_addr);
+        let mut iface_cfg = smoltcp::iface::Config::new(to_smoltcp_hardware_address(device.hardware_address()));
         iface_cfg.random_seed = random_seed;
 
         let iface = Interface::new(
@@ -336,9 +334,9 @@ impl<D: Driver + 'static> Stack<D> {
         f(&mut *self.socket.borrow_mut(), &mut *self.inner.borrow_mut())
     }
 
-    /// Get the MAC address of the network interface.
-    pub fn ethernet_address(&self) -> [u8; 6] {
-        self.with(|_s, i| i.device.ethernet_address())
+    /// Get the hardware address of the network interface.
+    pub fn hardware_address(&self) -> HardwareAddress {
+        self.with(|_s, i| to_smoltcp_hardware_address(i.device.hardware_address()))
     }
 
     /// Get whether the link is up.
@@ -585,9 +583,6 @@ impl SocketStack {
 impl<D: Driver + 'static> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
     fn apply_config_v4(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
-        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        let medium = self.device.capabilities().medium;
-
         debug!("Acquired IP configuration:");
 
         debug!("   IP address:      {}", config.address);
@@ -602,8 +597,12 @@ impl<D: Driver + 'static> Inner<D> {
             addrs.push(IpCidr::Ipv4(config.address)).unwrap();
         });
 
-        #[cfg(feature = "medium-ethernet")]
-        if medium == Medium::Ethernet {
+        #[cfg(feature = "medium-ip")]
+        let skip_gateway = self.device.capabilities().medium != Medium::Ip;
+        #[cfg(not(feature = "medium-ip"))]
+        let skip_gateway = false;
+
+        if !skip_gateway {
             if let Some(gateway) = config.gateway {
                 debug!("   Default gateway: {}", gateway);
                 s.iface.routes_mut().add_default_ipv4_route(gateway).unwrap();
@@ -740,11 +739,12 @@ impl<D: Driver + 'static> Inner<D> {
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
         s.waker.register(cx.waker());
 
-        #[cfg(feature = "medium-ethernet")]
-        if self.device.capabilities().medium == Medium::Ethernet {
-            s.iface.set_hardware_addr(HardwareAddress::Ethernet(EthernetAddress(
-                self.device.ethernet_address(),
-            )));
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+        if self.device.capabilities().medium == Medium::Ethernet
+            || self.device.capabilities().medium == Medium::Ieee802154
+        {
+            s.iface
+                .set_hardware_addr(to_smoltcp_hardware_address(self.device.hardware_address()));
         }
 
         let timestamp = instant_to_smoltcp(Instant::now());

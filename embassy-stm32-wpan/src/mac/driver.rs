@@ -3,7 +3,7 @@
 
 use core::task::Context;
 
-use embassy_net_driver::{Capabilities, LinkState, Medium};
+use embassy_net_driver::{Capabilities, HardwareAddress, LinkState, Medium};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
@@ -73,10 +73,10 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
         LinkState::Down
     }
 
-    fn ethernet_address(&self) -> [u8; 6] {
+    fn hardware_address(&self) -> HardwareAddress {
         // self.mac_addr
 
-        [0; 6]
+        HardwareAddress::Ieee802154([0; 8])
     }
 }
 
