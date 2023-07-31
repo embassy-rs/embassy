@@ -12,7 +12,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let ADDR: u32 = 0x8000;
+    let addr: u32 = 0x8000;
 
     let mut f = Flash::new_blocking(p.FLASH).into_blocking_regions().bank1_region;
 
