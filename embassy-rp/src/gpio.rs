@@ -11,9 +11,13 @@ use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
 use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 
-const PIN_COUNT: usize = 30;
 const NEW_AW: AtomicWaker = AtomicWaker::new();
-static INTERRUPT_WAKERS: [AtomicWaker; PIN_COUNT] = [NEW_AW; PIN_COUNT];
+const BANK0_PIN_COUNT: usize = 30;
+static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
+#[cfg(feature = "qspi-as-gpio")]
+const QSPI_PIN_COUNT: usize = 6;
+#[cfg(feature = "qspi-as-gpio")]
+static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [NEW_AW; QSPI_PIN_COUNT];
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
@@ -141,17 +145,23 @@ pub(crate) unsafe fn init() {
     interrupt::IO_IRQ_BANK0.disable();
     interrupt::IO_IRQ_BANK0.set_priority(interrupt::Priority::P3);
     interrupt::IO_IRQ_BANK0.enable();
+
+    #[cfg(feature = "qspi-as-gpio")]
+    {
+        interrupt::IO_IRQ_QSPI.disable();
+        interrupt::IO_IRQ_QSPI.set_priority(interrupt::Priority::P3);
+        interrupt::IO_IRQ_QSPI.enable();
+    }
 }
 
 #[cfg(feature = "rt")]
-#[interrupt]
-fn IO_IRQ_BANK0() {
+fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
     let cpu = SIO.cpuid().read() as usize;
     // There are two sets of interrupt registers, one for cpu0 and one for cpu1
     // and here we are selecting the set that belongs to the currently executing
     // cpu.
-    let proc_intx: pac::io::Int = pac::IO_BANK0.int_proc(cpu);
-    for pin in 0..PIN_COUNT {
+    let proc_intx: pac::io::Int = bank.int_proc(cpu);
+    for pin in 0..N {
         // There are 4 raw interrupt status registers, PROCx_INTS0, PROCx_INTS1,
         // PROCx_INTS2, and PROCx_INTS3, and we are selecting the one that the
         // current pin belongs to.
@@ -172,9 +182,21 @@ fn IO_IRQ_BANK0() {
                 w.set_level_high(pin_group, true);
                 w.set_level_low(pin_group, true);
             });
-            INTERRUPT_WAKERS[pin as usize].wake();
+            wakers[pin as usize].wake();
         }
     }
+}
+
+#[cfg(feature = "rt")]
+#[interrupt]
+fn IO_IRQ_BANK0() {
+    irq_handler(pac::IO_BANK0, &BANK0_WAKERS);
+}
+
+#[cfg(all(feature = "rt", feature = "qspi-as-gpio"))]
+#[interrupt]
+fn IO_IRQ_QSPI() {
+    irq_handler(pac::IO_QSPI, &QSPI_WAKERS);
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
@@ -195,7 +217,7 @@ impl<'d, T: Pin> InputFuture<'d, T> {
         // (the alternative being checking the current level and waiting for
         // its inverse, but that requires reading the current level and thus
         // missing anything that happened before the level was read.)
-        pac::IO_BANK0.intr(pin.pin() as usize / 8).write(|w| {
+        pin.io().intr(pin.pin() as usize / 8).write(|w| {
             w.set_edge_high(pin_group, true);
             w.set_edge_low(pin_group, true);
         });
@@ -235,7 +257,12 @@ impl<'d, T: Pin> Future for InputFuture<'d, T> {
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // We need to register/re-register the waker for each poll because any
         // calls to wake will deregister the waker.
-        INTERRUPT_WAKERS[self.pin.pin() as usize].register(cx.waker());
+        let waker = match self.pin.bank() {
+            Bank::Bank0 => &BANK0_WAKERS[self.pin.pin() as usize],
+            #[cfg(feature = "qspi-as-gpio")]
+            Bank::Qspi => &QSPI_WAKERS[self.pin.pin() as usize],
+        };
+        waker.register(cx.waker());
 
         // self.int_proc() will get the register offset for the current cpu,
         // then we want to access the interrupt enable register for our
