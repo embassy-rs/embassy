@@ -34,7 +34,7 @@ use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::EthernetAddress;
-#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
 pub use smoltcp::wire::HardwareAddress;
 #[cfg(feature = "udp")]
 pub use smoltcp::wire::IpListenEndpoint;
@@ -252,23 +252,7 @@ impl<D: Driver + 'static> Stack<D> {
         resources: &'static mut StackResources<SOCK>,
         random_seed: u64,
     ) -> Self {
-        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        let medium = device.capabilities().medium;
-
-        let hardware_addr = match medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => to_smoltcp_hardware_address(device.hardware_address()),
-            #[cfg(feature = "medium-ip")]
-            Medium::Ip => HardwareAddress::Ip,
-            #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => to_smoltcp_hardware_address(device.hardware_address()),
-            #[allow(unreachable_patterns)]
-            _ => panic!(
-                "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
-                medium
-            ),
-        };
-        let mut iface_cfg = smoltcp::iface::Config::new(hardware_addr);
+        let mut iface_cfg = smoltcp::iface::Config::new(to_smoltcp_hardware_address(device.hardware_address()));
         iface_cfg.random_seed = random_seed;
 
         let iface = Interface::new(
