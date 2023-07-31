@@ -353,8 +353,8 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         p.ic_rx_tl().write(|w| w.set_rx_tl(0));
 
         // Configure SCL & SDA pins
-        scl.io().ctrl().write(|w| w.set_funcsel(3));
-        sda.io().ctrl().write(|w| w.set_funcsel(3));
+        scl.gpio().ctrl().write(|w| w.set_funcsel(3));
+        sda.gpio().ctrl().write(|w| w.set_funcsel(3));
 
         scl.pad_ctrl().write(|w| {
             w.set_schmitt(true);

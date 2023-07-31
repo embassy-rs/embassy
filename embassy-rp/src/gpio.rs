@@ -451,7 +451,7 @@ impl<'d, T: Pin> Flex<'d, T> {
             w.set_ie(true);
         });
 
-        pin.io().ctrl().write(|w| {
+        pin.gpio().ctrl().write(|w| {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0 as _);
         });
 
@@ -617,7 +617,7 @@ impl<'d, T: Pin> Drop for Flex<'d, T> {
     #[inline]
     fn drop(&mut self) {
         self.pin.pad_ctrl().write(|_| {});
-        self.pin.io().ctrl().write(|w| {
+        self.pin.gpio().ctrl().write(|w| {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _);
         });
     }
@@ -643,7 +643,7 @@ pub(crate) mod sealed {
             }
         }
 
-        fn io(&self) -> pac::io::Gpio {
+        fn gpio(&self) -> pac::io::Gpio {
             let block = match self._bank() {
                 Bank::Bank0 => crate::pac::IO_BANK0,
                 Bank::Qspi => crate::pac::IO_QSPI,

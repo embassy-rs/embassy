@@ -702,7 +702,7 @@ impl<'d, T: Pin> Gpin<'d, T> {
     pub fn new<P: GpinPin>(gpin: impl Peripheral<P = P> + 'd) -> Gpin<'d, P> {
         into_ref!(gpin);
 
-        gpin.io().ctrl().write(|w| w.set_funcsel(0x08));
+        gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
 
         Gpin {
             gpin: gpin.map_into(),
@@ -718,7 +718,7 @@ impl<'d, T: Pin> Gpin<'d, T> {
 impl<'d, T: Pin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
         self.gpin
-            .io()
+            .gpio()
             .ctrl()
             .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
     }
@@ -766,7 +766,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(gpout);
 
-        gpout.io().ctrl().write(|w| w.set_funcsel(0x08));
+        gpout.gpio().ctrl().write(|w| w.set_funcsel(0x08));
 
         Self { gpout }
     }
@@ -831,7 +831,7 @@ impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
     fn drop(&mut self) {
         self.disable();
         self.gpout
-            .io()
+            .gpio()
             .ctrl()
             .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
     }
