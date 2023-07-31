@@ -89,27 +89,7 @@ pub(crate) unsafe fn wait_ready_blocking() -> Result<(), Error> {
 }
 
 pub(crate) unsafe fn clear_all_err() {
-    pac::FLASH.sr().modify(|w| {
-        if w.progerr() {
-            w.set_progerr(true);
-        }
-        if w.pgserr() {
-            w.set_pgserr(true);
-        }
-        if w.rderr() {
-            w.set_rderr(true);
-        }
-        if w.optverr() {
-            w.set_optverr(true);
-        }
-        if w.sizerr() {
-            w.set_sizerr(true);
-        }
-        if w.pgaerr() {
-            w.set_pgaerr(true);
-        }
-        if w.wrperr() {
-            w.set_wrperr(true);
-        }
-    });
+    // read and write back the same value.
+    // This clears all "write 0 to clear" bits.
+    pac::FLASH.sr().modify(|_| {});
 }
