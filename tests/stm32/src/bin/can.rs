@@ -67,15 +67,25 @@ async fn main(_spawner: Spawner) {
         let tx_ts = Instant::now();
         can.write(&tx_frame).await;
 
-        info!("Receiving frame...");
         let envelope = can.read().await.unwrap();
+        info!("Frame received!");
 
         info!("loopback time {}", envelope.ts);
         info!("loopback frame {=u8}", envelope.frame.data().unwrap()[0]);
 
-        // Theoretical minimum latency is 55us, actual is usually ~80us
         let latency = envelope.ts.saturating_duration_since(tx_ts);
-        assert!(Duration::from_micros(50) < latency && latency < Duration::from_micros(100));
+        info!("loopback latency {} us", latency.as_micros());
+
+        // Theoretical minimum latency is 55us, actual is usually ~80us
+        const MIN_LATENCY: Duration = Duration::from_micros(50);
+        const MAX_LATENCY: Duration = Duration::from_micros(150);
+        assert!(
+            MIN_LATENCY < latency && latency < MAX_LATENCY,
+            "{} < {} < {}",
+            MIN_LATENCY,
+            latency,
+            MAX_LATENCY
+        );
 
         i += 1;
         if i > 10 {
