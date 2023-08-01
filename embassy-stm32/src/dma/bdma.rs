@@ -17,7 +17,7 @@ use crate::_generated::BDMA_CHANNEL_COUNT;
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::Priority;
 use crate::pac;
-use crate::pac::bdma::{regs, vals};
+use crate::pac::bdma::vals;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
