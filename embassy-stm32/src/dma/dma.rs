@@ -1,5 +1,6 @@
 use core::future::Future;
 use core::marker::PhantomData;
+use core::mem;
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -268,6 +269,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             W::size(),
             options,
         )
+        .start()
     }
 
     pub unsafe fn new_write<W: Word>(
@@ -303,6 +305,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
             W::size(),
             options,
         )
+        .start()
     }
 
     pub unsafe fn new_write_repeated<W: Word>(
@@ -326,9 +329,10 @@ impl<'a, C: Channel> Transfer<'a, C> {
             W::size(),
             options,
         )
+        .start()
     }
 
-    unsafe fn new_inner(
+    pub(crate) unsafe fn new_inner(
         channel: PeripheralRef<'a, C>,
         _request: Request,
         dir: Dir,
@@ -375,12 +379,10 @@ impl<'a, C: Channel> Transfer<'a, C> {
             w.set_pinc(vals::Inc::FIXED);
             w.set_teie(true);
             w.set_tcie(options.complete_transfer_ir);
-            if options.circular {
-                w.set_circ(vals::Circ::ENABLED);
-                debug!("Setting circular mode");
-            } else {
-                w.set_circ(vals::Circ::DISABLED);
-            }
+            w.set_circ(match options.circular {
+                true => vals::Circ::ENABLED,
+                false => vals::Circ::DISABLED,
+            });
             #[cfg(dma_v1)]
             w.set_trbuff(true);
 
@@ -390,11 +392,19 @@ impl<'a, C: Channel> Transfer<'a, C> {
             w.set_pburst(options.pburst.into());
             w.set_mburst(options.mburst.into());
             w.set_pfctrl(options.flow_ctrl.into());
-
-            w.set_en(true);
         });
 
         this
+    }
+
+    fn start(self) -> Self {
+        let ch = self.channel.regs().st(self.channel.num());
+
+        ch.cr().modify(|w| {
+            w.set_en(true);
+        });
+
+        self
     }
 
     fn clear_irqs(&mut self) {
@@ -626,7 +636,6 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
 }
 
 pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
-    cr: regs::Cr,
     channel: PeripheralRef<'a, C>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
@@ -634,77 +643,44 @@ pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
 impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     pub unsafe fn new_read(
         channel: impl Peripheral<P = C> + 'a,
-        _request: Request,
+        request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
 
         let len = buffer.len();
         assert!(len > 0 && len <= 0xFFFF);
 
-        let dir = Dir::PeripheralToMemory;
-        let data_size = W::size();
+        options.circular = true;
+        options.half_transfer_ir = true;
+        options.complete_transfer_ir = true;
 
-        let channel_number = channel.num();
-        let dma = channel.regs();
+        mem::forget(Transfer::new_inner(
+            channel.reborrow(),
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const _,
+            buffer.as_mut_ptr() as *mut _,
+            buffer.len(),
+            true,
+            W::size(),
+            options,
+        ));
 
-        // "Preceding reads and writes cannot be moved past subsequent writes."
-        fence(Ordering::SeqCst);
-
-        let mut w = regs::Cr(0);
-        w.set_dir(dir.into());
-        w.set_msize(data_size.into());
-        w.set_psize(data_size.into());
-        w.set_pl(vals::Pl::VERYHIGH);
-        w.set_minc(vals::Inc::INCREMENTED);
-        w.set_pinc(vals::Inc::FIXED);
-        w.set_teie(true);
-        w.set_htie(options.half_transfer_ir);
-        w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
-        #[cfg(dma_v1)]
-        w.set_trbuff(true);
-        #[cfg(dma_v2)]
-        w.set_chsel(_request);
-        w.set_pburst(options.pburst.into());
-        w.set_mburst(options.mburst.into());
-        w.set_pfctrl(options.flow_ctrl.into());
-        w.set_en(true);
-
-        let buffer_ptr = buffer.as_mut_ptr();
         let mut this = Self {
             channel,
-            cr: w,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         };
         this.clear_irqs();
-
-        #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
-
-        let ch = dma.st(channel_number);
-        ch.par().write_value(peri_addr as u32);
-        ch.m0ar().write_value(buffer_ptr as u32);
-        ch.ndtr().write_value(regs::Ndtr(len as _));
-        ch.fcr().write(|w| {
-            if let Some(fth) = options.fifo_threshold {
-                // FIFO mode
-                w.set_dmdis(vals::Dmdis::DISABLED);
-                w.set_fth(fth.into());
-            } else {
-                // Direct mode
-                w.set_dmdis(vals::Dmdis::ENABLED);
-            }
-        });
 
         this
     }
 
     pub fn start(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
-        ch.cr().write_value(self.cr);
+        ch.cr().modify(|w| w.set_en(true));
     }
 
     pub fn clear(&mut self) {
@@ -784,7 +760,9 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         let ch = self.channel.regs().st(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        ch.cr().write(|w| {
+        ch.cr().modify(|w| {
+            w.set_en(false);
+
             w.set_teie(true);
             w.set_htie(true);
             w.set_tcie(true);
@@ -808,7 +786,6 @@ impl<'a, C: Channel, W: Word> Drop for ReadableRingBuffer<'a, C, W> {
 }
 
 pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
-    cr: regs::Cr,
     channel: PeripheralRef<'a, C>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
@@ -816,77 +793,45 @@ pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
 impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     pub unsafe fn new_write(
         channel: impl Peripheral<P = C> + 'a,
-        _request: Request,
+        request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Self {
         into_ref!(channel);
 
         let len = buffer.len();
         assert!(len > 0 && len <= 0xFFFF);
 
-        let dir = Dir::MemoryToPeripheral;
-        let data_size = W::size();
+        options.circular = true;
+        options.half_transfer_ir = true;
+        options.complete_transfer_ir = true;
 
-        let channel_number = channel.num();
-        let dma = channel.regs();
+        mem::forget(Transfer::new_inner(
+            channel.reborrow(),
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const _,
+            buffer.as_mut_ptr() as *mut _,
+            buffer.len(),
+            true,
+            W::size(),
+            options,
+        ));
 
-        // "Preceding reads and writes cannot be moved past subsequent writes."
-        fence(Ordering::SeqCst);
-
-        let mut w = regs::Cr(0);
-        w.set_dir(dir.into());
-        w.set_msize(data_size.into());
-        w.set_psize(data_size.into());
-        w.set_pl(vals::Pl::VERYHIGH);
-        w.set_minc(vals::Inc::INCREMENTED);
-        w.set_pinc(vals::Inc::FIXED);
-        w.set_teie(true);
-        w.set_htie(options.half_transfer_ir);
-        w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
-        #[cfg(dma_v1)]
-        w.set_trbuff(true);
-        #[cfg(dma_v2)]
-        w.set_chsel(_request);
-        w.set_pburst(options.pburst.into());
-        w.set_mburst(options.mburst.into());
-        w.set_pfctrl(options.flow_ctrl.into());
-        w.set_en(true);
-
-        let buffer_ptr = buffer.as_mut_ptr();
         let mut this = Self {
             channel,
-            cr: w,
             ringbuf: WritableDmaRingBuffer::new(buffer),
         };
         this.clear_irqs();
-
-        #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
-
-        let ch = dma.st(channel_number);
-        ch.par().write_value(peri_addr as u32);
-        ch.m0ar().write_value(buffer_ptr as u32);
-        ch.ndtr().write_value(regs::Ndtr(len as _));
-        ch.fcr().write(|w| {
-            if let Some(fth) = options.fifo_threshold {
-                // FIFO mode
-                w.set_dmdis(vals::Dmdis::DISABLED);
-                w.set_fth(fth.into());
-            } else {
-                // Direct mode
-                w.set_dmdis(vals::Dmdis::ENABLED);
-            }
-        });
 
         this
     }
 
     pub fn start(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
-        ch.cr().write_value(self.cr);
+
+        ch.cr().modify(|w| w.set_en(true));
     }
 
     pub fn clear(&mut self) {
@@ -953,7 +898,9 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         let ch = self.channel.regs().st(self.channel.num());
 
         // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        ch.cr().write(|w| {
+        ch.cr().modify(|w| {
+            w.set_en(false);
+
             w.set_teie(true);
             w.set_htie(true);
             w.set_tcie(true);
