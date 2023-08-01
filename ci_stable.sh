@@ -36,6 +36,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features unstable-traits,defmt \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features unstable-traits,log \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi \
+    --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv6m-none-eabi --features qspi-as-gpio \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g473cc,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g491re,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32u585zi,defmt,exti,time-driver-any,unstable-traits \

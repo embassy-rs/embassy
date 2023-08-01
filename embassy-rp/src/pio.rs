@@ -852,7 +852,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     /// of [`Pio`] do not keep pin registrations alive.**
     pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
         into_ref!(pin);
-        pin.io().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
+        pin.gpio().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         Pin {

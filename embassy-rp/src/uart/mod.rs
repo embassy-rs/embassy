@@ -565,7 +565,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
     ) {
         let r = T::regs();
         if let Some(pin) = &tx {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_outover(if config.invert_tx {
                     Outover::INVERT
@@ -576,7 +576,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             pin.pad_ctrl().write(|w| w.set_ie(true));
         }
         if let Some(pin) = &rx {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_inover(if config.invert_rx {
                     Inover::INVERT
@@ -587,7 +587,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             pin.pad_ctrl().write(|w| w.set_ie(true));
         }
         if let Some(pin) = &cts {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_inover(if config.invert_cts {
                     Inover::INVERT
@@ -598,7 +598,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             pin.pad_ctrl().write(|w| w.set_ie(true));
         }
         if let Some(pin) = &rts {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_outover(if config.invert_rts {
                     Outover::INVERT
