@@ -1,7 +1,9 @@
 #![cfg_attr(gpdma, allow(unused))]
 
+use core::future::poll_fn;
 use core::ops::Range;
 use core::sync::atomic::{compiler_fence, Ordering};
+use core::task::{Poll, Waker};
 
 use super::word::Word;
 
@@ -49,6 +51,9 @@ pub trait DmaCtrl {
 
     /// Reset the transfer completed counter to 0 and return the value just prior to the reset.
     fn reset_complete_count(&mut self) -> usize;
+
+    /// Set the waker for a running poll_fn
+    fn set_waker(&mut self, waker: &Waker);
 }
 
 impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
@@ -57,7 +62,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     }
 
     /// Reset the ring buffer to its initial state
-    pub fn clear(&mut self, mut dma: impl DmaCtrl) {
+    pub fn clear(&mut self, dma: &mut impl DmaCtrl) {
         self.start = 0;
         dma.reset_complete_count();
     }
@@ -68,8 +73,43 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     }
 
     /// The current position of the ringbuffer
-    fn pos(&self, remaining_transfers: usize) -> usize {
-        self.cap() - remaining_transfers
+    fn pos(&self, dma: &mut impl DmaCtrl) -> usize {
+        self.cap() - dma.get_remaining_transfers()
+    }
+
+    /// Read an exact number of elements from the ringbuffer.
+    ///
+    /// Returns the remaining number of elements available for immediate reading.
+    /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
+    ///
+    /// Async/Wake Behavior:
+    /// The underlying DMA peripheral only can wake us when its buffer pointer has reached the halfway point,
+    /// and when it wraps around. This means that when called with a buffer of length 'M', when this
+    /// ring buffer was created with a buffer of size 'N':
+    /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
+    /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
+    pub async fn read_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &mut [W]) -> Result<usize, OverrunError> {
+        let mut read_data = 0;
+        let buffer_len = buffer.len();
+
+        poll_fn(|cx| {
+            dma.set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            match self.read(dma, &mut buffer[read_data..buffer_len]) {
+                Ok((len, remaining)) => {
+                    read_data += len;
+                    if read_data == buffer_len {
+                        Poll::Ready(Ok(remaining))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
     }
 
     /// Read elements from the ring buffer
@@ -77,7 +117,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
-    pub fn read(&mut self, mut dma: impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
+    pub fn read(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
         /*
             This algorithm is optimistic: we assume we haven't overrun more than a full buffer and then check
             after we've done our work to see we have. This is because on stm32, an interrupt is not guaranteed
@@ -93,7 +133,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             rather than the data we actually copied because it costs nothing and confirms an error condition
             earlier.
         */
-        let end = self.pos(dma.get_remaining_transfers());
+        let end = self.pos(dma);
         if self.start == end && dma.get_complete_count() == 0 {
             // No elements are available in the buffer
             Ok((0, self.cap()))
@@ -114,8 +154,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                 then, get the current position of of the dma write and check
                 if it's inside data we could have copied
             */
-            let (pos, complete_count) =
-                critical_section::with(|_| (self.pos(dma.get_remaining_transfers()), dma.get_complete_count()));
+            let (pos, complete_count) = critical_section::with(|_| (self.pos(dma), dma.get_complete_count()));
             if (pos >= self.start && pos < end) || (complete_count > 0 && pos >= end) || complete_count > 1 {
                 Err(OverrunError)
             } else {
@@ -141,7 +180,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                 then, get the current position of of the dma write and check
                 if it's inside data we could have copied
             */
-            let pos = self.pos(dma.get_remaining_transfers());
+            let pos = self.pos(dma);
             if pos > self.start || pos < end || dma.get_complete_count() > 1 {
                 Err(OverrunError)
             } else {
@@ -169,7 +208,7 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
                 then, get the current position of of the dma write and check
                 if it's inside data we could have copied
             */
-            let pos = self.pos(dma.get_remaining_transfers());
+            let pos = self.pos(dma);
             if pos > self.start || pos < end || dma.reset_complete_count() > 1 {
                 Err(OverrunError)
             } else {
@@ -209,7 +248,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// Reset the ring buffer to its initial state
-    pub fn clear(&mut self, mut dma: impl DmaCtrl) {
+    pub fn clear(&mut self, dma: &mut impl DmaCtrl) {
         self.end = 0;
         dma.reset_complete_count();
     }
@@ -220,14 +259,39 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// The current position of the ringbuffer
-    fn pos(&self, remaining_transfers: usize) -> usize {
-        self.cap() - remaining_transfers
+    fn pos(&self, dma: &mut impl DmaCtrl) -> usize {
+        self.cap() - dma.get_remaining_transfers()
+    }
+
+    /// Write an exact number of elements to the ringbuffer.
+    pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, OverrunError> {
+        let mut written_data = 0;
+        let buffer_len = buffer.len();
+
+        poll_fn(|cx| {
+            dma.set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            match self.write(dma, &buffer[written_data..buffer_len]) {
+                Ok((len, remaining)) => {
+                    written_data += len;
+                    if written_data == buffer_len {
+                        Poll::Ready(Ok(remaining))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
     }
 
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the capacity remaining to be written in the buffer
-    pub fn write(&mut self, mut dma: impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
-        let start = self.pos(dma.get_remaining_transfers());
+    pub fn write(&mut self, dma: &mut impl DmaCtrl, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        let start = self.pos(dma);
         if start > self.end {
             // The occupied portion in the ring buffer DOES wrap
             let len = self.copy_from(buf, self.end..start);
@@ -235,8 +299,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
             compiler_fence(Ordering::SeqCst);
 
             // Confirm that the DMA is not inside data we could have written
-            let (pos, complete_count) =
-                critical_section::with(|_| (self.pos(dma.get_remaining_transfers()), dma.get_complete_count()));
+            let (pos, complete_count) = critical_section::with(|_| (self.pos(dma), dma.get_complete_count()));
             if (pos >= self.end && pos < start) || (complete_count > 0 && pos >= start) || complete_count > 1 {
                 Err(OverrunError)
             } else {
@@ -256,7 +319,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
             compiler_fence(Ordering::SeqCst);
 
             // Confirm that the DMA is not inside data we could have written
-            let pos = self.pos(dma.get_remaining_transfers());
+            let pos = self.pos(dma);
             if pos > self.end || pos < start || dma.get_complete_count() > 1 {
                 Err(OverrunError)
             } else {
@@ -274,7 +337,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
             compiler_fence(Ordering::SeqCst);
 
             // Confirm that the DMA is not inside data we could have written
-            let pos = self.pos(dma.get_remaining_transfers());
+            let pos = self.pos(dma);
             if pos > self.end || pos < start || dma.reset_complete_count() > 1 {
                 Err(OverrunError)
             } else {

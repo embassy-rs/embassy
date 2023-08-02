@@ -633,6 +633,10 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     fn reset_complete_count(&mut self) -> usize {
         STATE.complete_count[self.0.index()].swap(0, Ordering::AcqRel)
     }
+
+    fn set_waker(&mut self, waker: &Waker) {
+        STATE.ch_wakers[self.0.index()].register(waker);
+    }
 }
 
 pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
@@ -684,7 +688,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     }
 
     pub fn clear(&mut self) {
-        self.ringbuf.clear(DmaCtrlImpl(self.channel.reborrow()));
+        self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
     /// Read elements from the ring buffer
@@ -693,7 +697,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     /// The length remaining is the capacity, ring_buf.len(), less the elements remaining after the read
     /// OverrunError is returned if the portion to be read was overwritten by the DMA controller.
     pub fn read(&mut self, buf: &mut [W]) -> Result<(usize, usize), OverrunError> {
-        self.ringbuf.read(DmaCtrlImpl(self.channel.reborrow()), buf)
+        self.ringbuf.read(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
     /// Read an exact number of elements from the ringbuffer.
@@ -708,30 +712,9 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     /// - If M equals N/2 or N/2 divides evenly into M, this function will return every N/2 elements read on the DMA source.
     /// - Otherwise, this function may need up to N/2 extra elements to arrive before returning.
     pub async fn read_exact(&mut self, buffer: &mut [W]) -> Result<usize, OverrunError> {
-        use core::future::poll_fn;
-        use core::sync::atomic::compiler_fence;
-
-        let mut read_data = 0;
-        let buffer_len = buffer.len();
-
-        poll_fn(|cx| {
-            self.set_waker(cx.waker());
-
-            compiler_fence(Ordering::SeqCst);
-
-            match self.read(&mut buffer[read_data..buffer_len]) {
-                Ok((len, remaining)) => {
-                    read_data += len;
-                    if read_data == buffer_len {
-                        Poll::Ready(Ok(remaining))
-                    } else {
-                        Poll::Pending
-                    }
-                }
-                Err(e) => Poll::Ready(Err(e)),
-            }
-        })
-        .await
+        self.ringbuf
+            .read_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+            .await
     }
 
     // The capacity of the ringbuffer
@@ -835,41 +818,20 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     }
 
     pub fn clear(&mut self) {
-        self.ringbuf.clear(DmaCtrlImpl(self.channel.reborrow()));
+        self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
-        self.ringbuf.write(DmaCtrlImpl(self.channel.reborrow()), buf)
+        self.ringbuf.write(&mut DmaCtrlImpl(self.channel.reborrow()), buf)
     }
 
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, OverrunError> {
-        use core::future::poll_fn;
-        use core::sync::atomic::compiler_fence;
-
-        let mut written_data = 0;
-        let buffer_len = buffer.len();
-
-        poll_fn(|cx| {
-            self.set_waker(cx.waker());
-
-            compiler_fence(Ordering::SeqCst);
-
-            match self.write(&buffer[written_data..buffer_len]) {
-                Ok((len, remaining)) => {
-                    written_data += len;
-                    if written_data == buffer_len {
-                        Poll::Ready(Ok(remaining))
-                    } else {
-                        Poll::Pending
-                    }
-                }
-                Err(e) => Poll::Ready(Err(e)),
-            }
-        })
-        .await
+        self.ringbuf
+            .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+            .await
     }
 
     // The capacity of the ringbuffer
