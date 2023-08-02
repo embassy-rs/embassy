@@ -386,7 +386,7 @@ mod tests {
         requests: cell::RefCell<vec::Vec<TestCircularTransferRequest>>,
     }
 
-    impl DmaCtrl for &mut TestCircularTransfer {
+    impl DmaCtrl for TestCircularTransfer {
         fn get_remaining_transfers(&self) -> usize {
             match self.requests.borrow_mut().pop().unwrap() {
                 TestCircularTransferRequest::PositionRequest(pos) => {
@@ -413,6 +413,8 @@ mod tests {
                 _ => unreachable!(),
             }
         }
+
+        fn set_waker(&mut self, waker: &Waker) {}
     }
 
     impl TestCircularTransfer {
