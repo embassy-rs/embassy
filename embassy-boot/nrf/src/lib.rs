@@ -3,9 +3,11 @@
 #![doc = include_str!("../README.md")]
 mod fmt;
 
+pub use embassy_boot::{
+    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareUpdaterConfig,
+};
 #[cfg(feature = "nightly")]
-pub use embassy_boot::FirmwareUpdater;
-pub use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareUpdaterConfig};
+pub use embassy_boot::{FirmwareState, FirmwareUpdater};
 use embassy_nrf::nvmc::PAGE_SIZE;
 use embassy_nrf::peripherals::WDT;
 use embassy_nrf::wdt;
