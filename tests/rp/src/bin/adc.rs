@@ -8,7 +8,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler, Sample};
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::Pull;
+use embassy_rp::gpio::{Level, Output, Pull};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -18,6 +18,8 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut p = embassy_rp::init(Default::default());
+    let _power_reg_pwm_mode = Output::new(p.PIN_23, Level::High);
+    let _wifi_off = Output::new(p.PIN_25, Level::High);
     let mut adc = Adc::new(p.ADC, Irqs, Config::default());
 
     {
