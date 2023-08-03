@@ -1,0 +1,19 @@
+[package]
+name = "embassy-net-tuntap"
+version = "0.1.0"
+description = "embassy-net driver for Linux TUN/TAP interfaces."
+keywords = ["embedded", "tuntap", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[dependencies]
+embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
+async-io = "1.6.0"
+log = "0.4.14"
+libc = "0.2.101"
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-tuntap-v$VERSION/embassy-net-tuntap/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-tuntap/src/"
+target = "thumbv7em-none-eabi"
