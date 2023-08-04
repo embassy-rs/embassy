@@ -497,7 +497,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     }
 
     /// The capacity of the ringbuffer.
-    pub fn cap(&self) -> usize {
+    pub const fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
 
@@ -628,7 +628,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     }
 
     /// The capacity of the ringbuffer.
-    pub fn cap(&self) -> usize {
+    pub const fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
 

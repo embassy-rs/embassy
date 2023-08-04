@@ -742,12 +742,12 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     }
 
     // The capacity of the ringbuffer
-    pub fn cap(&self) -> usize {
+    pub const fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
 
     pub fn set_waker(&mut self, waker: &Waker) {
-        STATE.ch_wakers[self.channel.index()].register(waker);
+        DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
     fn clear_irqs(&mut self) {
@@ -890,12 +890,12 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     }
 
     // The capacity of the ringbuffer
-    pub fn cap(&self) -> usize {
+    pub const fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
 
     pub fn set_waker(&mut self, waker: &Waker) {
-        STATE.ch_wakers[self.channel.index()].register(waker);
+        DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
     fn clear_irqs(&mut self) {
