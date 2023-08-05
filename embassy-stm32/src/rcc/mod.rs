@@ -78,22 +78,22 @@ pub struct Clocks {
 }
 
 #[cfg(feature = "low-power")]
-static mut CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
+static CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
 
 #[cfg(feature = "low-power")]
 pub fn assert_low_power_ready() {
-    assert!(unsafe { CLOCK_REFCOUNT.load(Ordering::SeqCst) } == 0);
+    assert!(CLOCK_REFCOUNT.load(Ordering::SeqCst) == 0);
 }
 
 #[cfg(feature = "low-power")]
 pub(crate) fn clock_refcount_add() {
     // We don't check for overflow because constructing more than u32 peripherals is unlikely
-    unsafe { CLOCK_REFCOUNT.fetch_add(1, Ordering::Relaxed) };
+    CLOCK_REFCOUNT.fetch_add(1, Ordering::Relaxed);
 }
 
 #[cfg(feature = "low-power")]
 pub(crate) fn clock_refcount_sub() {
-    assert!(unsafe { CLOCK_REFCOUNT.fetch_sub(1, Ordering::Relaxed) } != 0);
+    assert!(CLOCK_REFCOUNT.fetch_sub(1, Ordering::Relaxed) != 0);
 }
 
 /// Frozen clock frequencies
