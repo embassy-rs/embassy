@@ -12,6 +12,7 @@ nightly = [
     "embassy-nrf/nightly",
     "embassy-net/nightly",
     "embassy-net-esp-hosted",
+    "embassy-net-enc28j60",
     "embassy-nrf/unstable-traits",
     "embassy-time/nightly",
     "embassy-time/unstable-traits",
@@ -39,6 +40,7 @@ lora-phy = { version = "1", optional = true }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
 lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"], optional = true }
 embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"], optional = true }
+embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60", features = ["defmt"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -53,7 +55,9 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
+embedded-hal = { version = "1.0.0-alpha.11" }
 embedded-hal-async = { version = "0.2.0-alpha.2", optional = true }
+embedded-hal-bus = { version = "0.1.0-alpha.3" }
 num-integer = { version = "0.1.45", default-features = false }
 microfft = "0.5.0"
 
