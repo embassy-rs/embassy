@@ -329,6 +329,20 @@ impl Driver for RtcDriver {
     }
 }
 
+/// Compute the amount of time until the next alarm
+pub(crate) fn time_until_next_alarm() -> u64 {
+    critical_section::with(|cs| {
+        let now = DRIVER.now() + 32;
+        DRIVER
+            .alarms
+            .borrow(cs)
+            .iter()
+            .map(|alarm: &AlarmState| alarm.timestamp.get().saturating_sub(now))
+            .min()
+            .unwrap_or(u64::MAX)
+    })
+}
+
 pub(crate) fn init() {
     DRIVER.init()
 }
