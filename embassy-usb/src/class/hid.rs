@@ -370,7 +370,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
 }
 
 /// Handler for HID-related control requests.
-pub trait RequestHandler {
+pub trait RequestHandler: Sync + Send {
     /// Reads the value of report `id` into `buf` returning the size.
     ///
     /// Returns `None` if `id` is invalid or no data is available.

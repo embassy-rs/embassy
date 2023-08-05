@@ -85,7 +85,7 @@ const STRING_INDEX_CUSTOM_START: u8 = 4;
 ///
 /// All methods are optional callbacks that will be called by
 /// [`UsbDevice::run()`](crate::UsbDevice::run)
-pub trait Handler {
+pub trait Handler: Sync + Send {
     /// Called when the USB device has been enabled or disabled.
     fn enabled(&mut self, _enabled: bool) {}
 
