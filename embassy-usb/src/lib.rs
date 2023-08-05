@@ -217,6 +217,9 @@ struct Inner<'d, D: Driver<'d>> {
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 }
 
+unsafe impl<'d, D: Driver<'d>> Send for UsbDevice<'d, D> {}
+unsafe impl<'d, D: Driver<'d>> Sync for UsbDevice<'d, D> {}
+
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     pub(crate) fn build(
         driver: D,
