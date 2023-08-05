@@ -13,7 +13,9 @@ embedded-hal-async = { version = "=0.2.0-alpha.2" }
 embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
 embassy-time = { version = "0.1.2", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+
 defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-enc28j60-v$VERSION/embassy-net-enc28j60/src/"
