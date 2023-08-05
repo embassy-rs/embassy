@@ -139,10 +139,6 @@ time-driver-tim15 = ["_time-driver"]
 # Enable stop mode
 low-power = []
 
-# Implement embedded-hal 1.0 alpha traits.
-# Implement embedded-hal-async traits if `nightly` is set as well.
-unstable-traits = ["embedded-hal-1", "dep:embedded-hal-nb"]
-
 # Chip-selection features
 stm32c011d6 = [ "stm32-metapac/stm32c011d6" ]
 stm32c011f4 = [ "stm32-metapac/stm32c011f4" ]
