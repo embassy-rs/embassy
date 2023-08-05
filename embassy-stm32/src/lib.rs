@@ -47,6 +47,8 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
+#[cfg(feature = "low-power")]
+mod low_power;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]

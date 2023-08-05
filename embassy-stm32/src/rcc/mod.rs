@@ -81,8 +81,8 @@ pub struct Clocks {
 static CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
 
 #[cfg(feature = "low-power")]
-pub fn assert_low_power_ready() {
-    assert!(CLOCK_REFCOUNT.load(Ordering::SeqCst) == 0);
+pub fn low_power_ready() -> bool {
+    CLOCK_REFCOUNT.load(Ordering::SeqCst);
 }
 
 #[cfg(feature = "low-power")]

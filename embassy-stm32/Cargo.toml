@@ -38,6 +38,7 @@ embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", fea
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
+embassy-executor = { version = "0.2.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11", optional = true}
@@ -137,7 +138,7 @@ time-driver-tim15 = ["_time-driver"]
 #! e.g. in `.cargo/config.toml`.
 
 # Enable stop mode
-low-power = []
+low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m-low-power" ]
 
 # Chip-selection features
 stm32c011d6 = [ "stm32-metapac/stm32c011d6" ]

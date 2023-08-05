@@ -11,6 +11,11 @@ mod thread {
     use crate::raw::{Pender, PenderInner};
     use crate::{raw, Spawner};
 
+    #[cfg(feature = "arch-cortex-m-low-power")]
+    extern "Rust" {
+        fn _embassy_executor_arch_cortex_m_low_power_before_wfe();
+    }
+
     #[derive(Copy, Clone)]
     pub(crate) struct ThreadPender;
 
@@ -68,6 +73,10 @@ mod thread {
             loop {
                 unsafe {
                     self.inner.poll();
+
+                    #[cfg(feature = "arch-cortex-m-low-power")]
+                    _embassy_executor_arch_cortex_m_low_power_before_wfe();
+
                     asm!("wfe");
                 };
             }

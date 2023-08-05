@@ -37,6 +37,9 @@ arch-xtensa = ["_arch"]
 arch-riscv32 = ["_arch"]
 arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
 
+# Cortex-M low power support
+arch-cortex-m-low-power = ["arch-cortex-m"]
+
 # Enable creating a `Pender` from an arbitrary function pointer callback.
 pender-callback = []
 
