@@ -259,6 +259,57 @@ impl RtcDriver {
         let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
         f(alarm.ctx.get());
     }
+
+    /// Compute the approximate amount of time until the next alarm
+    fn time_until_next_alarm(&self) -> u64 {
+        critical_section::with(|cs| {
+            let now = self.now() + 32;
+            self.alarms
+                .borrow(cs)
+                .iter()
+                .map(|alarm: &AlarmState| alarm.timestamp.get().saturating_sub(now))
+                .min()
+                .unwrap_or(u64::MAX)
+        })
+    }
+
+    /// Pause the timer
+    fn pause_time(&self) {
+        T::regs_gp16().cr1().modify(|w| w.set_cen(false));
+    }
+
+    /// Resume the timer with the given offset
+    fn resume_time(&self, offset: u64) {
+        let cnt = T::regs_gp16().cnt().read().cnt() as u32;
+        let period = self.period.load(Ordering::SeqCst);
+
+        // Correct the race, if it exists
+        let period = if period & 1 == 1 && cnt < u16::MAX as u32 / 2 {
+            period + 1
+        } else {
+            period
+        };
+
+        // Normalize to the full overflow
+        let period = (period / 2) * 2;
+
+        // Add the offset
+        let period = period + 2 * (offset / u16::MAX as u64) as u32;
+        let cnt = cnt + (offset % u16::MAX as u64) as u32;
+
+        let (cnt, period) = if cnt > u16::MAX as u32 {
+            (cnt - u16::MAX as u32, period + 2)
+        } else {
+            (cnt, period)
+        };
+
+        let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
+
+        self.period.store(period, Ordering::SeqCst);
+        T::regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
+
+        T::regs_gp16().cr1().modify(|w| w.set_cen(true));
+    }
 }
 
 impl Driver for RtcDriver {
@@ -329,18 +380,19 @@ impl Driver for RtcDriver {
     }
 }
 
-/// Compute the amount of time until the next alarm
+/// Compute the approximate amount of time until the next alarm
 pub(crate) fn time_until_next_alarm() -> u64 {
-    critical_section::with(|cs| {
-        let now = DRIVER.now() + 32;
-        DRIVER
-            .alarms
-            .borrow(cs)
-            .iter()
-            .map(|alarm: &AlarmState| alarm.timestamp.get().saturating_sub(now))
-            .min()
-            .unwrap_or(u64::MAX)
-    })
+    DRIVER.time_until_next_alarm()
+}
+
+/// Pause the timer
+pub(crate) fn pause_time() {
+    DRIVER.pause_time();
+}
+
+/// Resume the timer with the given offset
+pub(crate) fn resume_time(offset: u64) {
+    DRIVER.resume_time(offset);
 }
 
 pub(crate) fn init() {
