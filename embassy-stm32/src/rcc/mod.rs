@@ -75,6 +75,9 @@ pub struct Clocks {
 
     #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab))]
     pub adc: Option<Hertz>,
+
+    /// Set only if the lsi or lse is configured
+    pub rtc: Option<Hertz>,
 }
 
 #[cfg(feature = "low-power")]

@@ -33,6 +33,21 @@ pub struct Rtc<'d, T: Instance> {
     rtc_config: RtcConfig,
 }
 
+pub(crate) fn enable_rtc(clock_source: RtcClockSource) {
+    // TODO: rewrite the RTC module so that enable is separated from configure
+
+    assert!(clock_source == RtcClockSource::LSI || clock_source == RtcClockSource::LSE);
+
+    let _ = Rtc::new(
+        unsafe { crate::Peripherals::steal().RTC },
+        RtcConfig {
+            clock_config: clock_source,
+            async_prescaler: 1,
+            sync_prescaler: 1,
+        },
+    );
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum RtcClockSource {

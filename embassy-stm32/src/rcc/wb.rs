@@ -1,5 +1,6 @@
 pub use super::common::{AHBPrescaler, APBPrescaler};
 use crate::rcc::Clocks;
+use crate::rtc::{enable_rtc, RtcClockSource};
 use crate::time::{khz, mhz, Hertz};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
@@ -110,6 +111,7 @@ pub struct Config {
     pub sys: Sysclk,
     pub mux: Option<PllMux>,
     pub pll48: Option<Pll48Source>,
+    pub rtc: Option<RtcClockSource>,
 
     pub pll: Option<Pll>,
     pub pllsai: Option<Pll>,
@@ -133,6 +135,7 @@ pub const WPAN_DEFAULT: Config = Config {
         prediv: 2,
     }),
     pll48: None,
+    rtc: None,
 
     pll: Some(Pll {
         mul: 12,
@@ -160,6 +163,7 @@ impl Default for Config {
             pll48: None,
             pll: None,
             pllsai: None,
+            rtc: None,
 
             ahb1_pre: AHBPrescaler::NotDivided,
             ahb2_pre: AHBPrescaler::NotDivided,
@@ -251,6 +255,12 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
         }
     };
 
+    let rtc_clk = match config.rtc {
+        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
+        Some(RtcClockSource::LSE) => Some(config.lse.unwrap()),
+        _ => None,
+    };
+
     Clocks {
         sys: sys_clk,
         ahb1: ahb1_clk,
@@ -260,6 +270,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
         apb2: apb2_clk,
         apb1_tim: apb1_tim_clk,
         apb2_tim: apb2_tim_clk,
+        rtc: rtc_clk,
     }
 }
 
@@ -351,4 +362,6 @@ pub(crate) fn configure_clocks(config: &Config) {
         w.set_c2hpre(config.ahb2_pre.into());
         w.set_shdhpre(config.ahb3_pre.into());
     });
+
+    config.rtc.map(|clock_source| enable_rtc(clock_source));
 }
