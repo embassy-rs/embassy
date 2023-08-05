@@ -85,13 +85,13 @@ where
             embassy_time::block_for(Duration::from_millis(5));
         }
 
-        info!(
+        debug!(
             "enc28j60: erevid {=u8:x}",
             self.read_control_register(bank3::Register::EREVID)
         );
-        info!("enc28j60: waiting for clk");
+        debug!("enc28j60: waiting for clk");
         while common::ESTAT(self.read_control_register(common::Register::ESTAT)).clkrdy() == 0 {}
-        info!("enc28j60: clk ok");
+        debug!("enc28j60: clk ok");
 
         if self.read_control_register(bank3::Register::EREVID) == 0 {
             panic!("ErevidIsZero");
