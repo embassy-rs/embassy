@@ -33,6 +33,7 @@ The <a href="https://docs.embassy.dev/embassy-net/">embassy-net</a> network stac
 
 - **Bluetooth** - 
 The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
+The <a href="https://github.com/embassy-rs/embassy/tree/main/embassy-stm32-wpan">embassy-stm32-wpan</a> crate provides Bluetooth Low Energy 5.x support for stm32wb microcontrollers.
 
 - **LoRa** - 
 <a href="https://docs.embassy.dev/embassy-lora/">embassy-lora</a> supports LoRa networking.
@@ -111,6 +112,12 @@ cargo install probe-rs --features cli
 cd examples/nrf52840
 ```
 
+- Ensure `Cargo.toml` sets the right feature for the name of the chip you are programming.
+  If this name is incorrect, the example may fail to run or immediately crash
+  after being programmed.
+
+- Ensure `.cargo/config.toml` contains the name of the chip you are programming.
+
 - Run the example
 
 For example:
@@ -118,6 +125,8 @@ For example:
 ```bash
 cargo run --release --bin blinky
 ```
+
+For more help getting started, see [Getting Started][1] and [Running the Examples][2].
 
 ## Developing Embassy with Rust Analyzer based editors
 
@@ -151,3 +160,5 @@ This work is licensed under either of
 
 at your option.
 
+[1]: https://github.com/embassy-rs/embassy/wiki/Getting-Started
+[2]: https://github.com/embassy-rs/embassy/wiki/Running-the-Examples

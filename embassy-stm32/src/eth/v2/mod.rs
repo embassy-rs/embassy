@@ -1,8 +1,9 @@
 mod descriptors;
 
+use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
 use super::*;
@@ -40,9 +41,8 @@ pub struct Ethernet<'d, T: Instance, P: PHY> {
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
     pins: [PeripheralRef<'d, AnyPin>; 9],
-    _phy: P,
-    clock_range: u8,
-    phy_addr: u8,
+    pub(crate) phy: P,
+    pub(crate) station_management: EthernetStationManagement<T>,
     pub(crate) mac_addr: [u8; 6],
 }
 
@@ -201,9 +201,12 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             pins,
-            _phy: phy,
-            clock_range,
-            phy_addr,
+            phy: phy,
+            station_management: EthernetStationManagement {
+                peri: PhantomData,
+                clock_range: clock_range,
+                phy_addr: phy_addr,
+            },
             mac_addr,
         };
 
@@ -229,8 +232,8 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             w.set_tie(true);
         });
 
-        P::phy_reset(&mut this);
-        P::phy_init(&mut this);
+        this.phy.phy_reset(&mut this.station_management);
+        this.phy.phy_init(&mut this.station_management);
 
         interrupt::ETH.unpend();
         unsafe { interrupt::ETH.enable() };
@@ -239,7 +242,13 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     }
 }
 
-unsafe impl<'d, T: Instance, P: PHY> StationManagement for Ethernet<'d, T, P> {
+pub struct EthernetStationManagement<T: Instance> {
+    peri: PhantomData<T>,
+    clock_range: u8,
+    phy_addr: u8,
+}
+
+unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
     fn smi_read(&mut self, reg: u8) -> u16 {
         let mac = ETH.ethernet_mac();
 

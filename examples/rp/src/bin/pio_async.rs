@@ -1,3 +1,5 @@
+//! This example shows powerful PIO module in the RP2040 chip.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -6,7 +8,6 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{Common, Config, InterruptHandler, Irq, Pio, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::relocate::RelocatedProgram;
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
@@ -27,9 +28,8 @@ fn setup_pio_task_sm0<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
         ".wrap",
     );
 
-    let relocated = RelocatedProgram::new(&prg.program);
     let mut cfg = Config::default();
-    cfg.use_program(&pio.load_program(&relocated), &[]);
+    cfg.use_program(&pio.load_program(&prg.program), &[]);
     let out_pin = pio.make_pio_pin(pin);
     cfg.set_out_pins(&[&out_pin]);
     cfg.set_set_pins(&[&out_pin]);
@@ -54,11 +54,17 @@ fn setup_pio_task_sm1<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
     // Setupm sm1
 
     // Read 0b10101 repeatedly until ISR is full
-    let prg = pio_proc::pio_asm!(".origin 8", "set x, 0x15", ".wrap_target", "in x, 5 [31]", ".wrap",);
+    let prg = pio_proc::pio_asm!(
+        //
+        ".origin 8",
+        "set x, 0x15",
+        ".wrap_target",
+        "in x, 5 [31]",
+        ".wrap",
+    );
 
-    let relocated = RelocatedProgram::new(&prg.program);
     let mut cfg = Config::default();
-    cfg.use_program(&pio.load_program(&relocated), &[]);
+    cfg.use_program(&pio.load_program(&prg.program), &[]);
     cfg.clock_divider = (U56F8!(125_000_000) / 2000).to_fixed();
     cfg.shift_in.auto_fill = true;
     cfg.shift_in.direction = ShiftDirection::Right;
@@ -87,9 +93,8 @@ fn setup_pio_task_sm2<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, 
         "irq 3 [15]",
         ".wrap",
     );
-    let relocated = RelocatedProgram::new(&prg.program);
     let mut cfg = Config::default();
-    cfg.use_program(&pio.load_program(&relocated), &[]);
+    cfg.use_program(&pio.load_program(&prg.program), &[]);
     cfg.clock_divider = (U56F8!(125_000_000) / 2000).to_fixed();
     sm.set_config(&cfg);
 }

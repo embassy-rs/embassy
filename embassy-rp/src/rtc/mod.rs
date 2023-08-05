@@ -1,6 +1,6 @@
 mod filter;
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 pub use self::filter::DateTimeFilter;
 
@@ -12,26 +12,24 @@ pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::clocks::clk_rtc_freq;
 
 /// A reference to the real time clock of the system
-pub struct RealTimeClock<'d, T: Instance> {
+pub struct Rtc<'d, T: Instance> {
     inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: Instance> RealTimeClock<'d, T> {
+impl<'d, T: Instance> Rtc<'d, T> {
     /// Create a new instance of the real time clock, with the given date as an initial value.
     ///
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
-    pub fn new(inner: impl Peripheral<P = T> + 'd, initial_date: DateTime) -> Result<Self, RtcError> {
+    pub fn new(inner: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(inner);
 
         // Set the RTC divider
         inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1));
 
-        let mut result = Self { inner };
-        result.set_leap_year_check(true); // should be on by default, make sure this is the case.
-        result.set_datetime(initial_date)?;
-        Ok(result)
+        let result = Self { inner };
+        result
     }
 
     /// Enable or disable the leap year check. The rp2040 chip will always add a Feb 29th on every year that is divisable by 4, but this may be incorrect (e.g. on century years). This function allows you to disable this check.
@@ -43,7 +41,37 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
         });
     }
 
-    /// Checks to see if this RealTimeClock is running
+    /// Set the time from internal format
+    pub fn restore(&mut self, ymd: rp_pac::rtc::regs::Rtc1, hms: rp_pac::rtc::regs::Rtc0) {
+        // disable RTC while we configure it
+        self.inner.regs().ctrl().modify(|w| w.set_rtc_enable(false));
+        while self.inner.regs().ctrl().read().rtc_active() {
+            core::hint::spin_loop();
+        }
+
+        self.inner.regs().setup_0().write(|w| {
+            *w = rp_pac::rtc::regs::Setup0(ymd.0);
+        });
+        self.inner.regs().setup_1().write(|w| {
+            *w = rp_pac::rtc::regs::Setup1(hms.0);
+        });
+
+        // Load the new datetime and re-enable RTC
+        self.inner.regs().ctrl().write(|w| w.set_load(true));
+        self.inner.regs().ctrl().write(|w| w.set_rtc_enable(true));
+        while !self.inner.regs().ctrl().read().rtc_active() {
+            core::hint::spin_loop();
+        }
+    }
+
+    /// Get the time in internal format
+    pub fn save(&mut self) -> (rp_pac::rtc::regs::Rtc1, rp_pac::rtc::regs::Rtc0) {
+        let rtc_0: rp_pac::rtc::regs::Rtc0 = self.inner.regs().rtc_0().read();
+        let rtc_1 = self.inner.regs().rtc_1().read();
+        (rtc_1, rtc_0)
+    }
+
+    /// Checks to see if this Rtc is running
     pub fn is_running(&self) -> bool {
         self.inner.regs().ctrl().read().rtc_active()
     }
@@ -113,8 +141,8 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
     /// # fn main() { }
     /// # #[cfg(not(feature = "chrono"))]
     /// # fn main() {
-    /// # use embassy_rp::rtc::{RealTimeClock, DateTimeFilter};
-    /// # let mut real_time_clock: RealTimeClock<embassy_rp::peripherals::RTC> = unsafe { core::mem::zeroed() };
+    /// # use embassy_rp::rtc::{Rtc, DateTimeFilter};
+    /// # let mut real_time_clock: Rtc<embassy_rp::peripherals::RTC> = unsafe { core::mem::zeroed() };
     /// let now = real_time_clock.now().unwrap();
     /// real_time_clock.schedule_alarm(
     ///     DateTimeFilter::default()
@@ -150,7 +178,7 @@ impl<'d, T: Instance> RealTimeClock<'d, T> {
     }
 }
 
-/// Errors that can occur on methods on [RealTimeClock]
+/// Errors that can occur on methods on [Rtc]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RtcError {
     /// An invalid DateTime was given or stored on the hardware.

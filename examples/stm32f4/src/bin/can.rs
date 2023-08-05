@@ -10,6 +10,7 @@ use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
 use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
+use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -40,17 +41,33 @@ async fn main(_spawner: Spawner) {
 
     can.as_mut()
         .modify_config()
-        .set_bit_timing(0x001c0003) // http://www.bittiming.can-wiki.info/
         .set_loopback(true) // Receive own frames
         .set_silent(true)
-        .enable();
+        .leave_disabled();
+
+    can.set_bitrate(1_000_000);
+
+    can.enable().await;
 
     let mut i: u8 = 0;
     loop {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
+        let tx_ts = Instant::now();
         can.write(&tx_frame).await;
-        let (_, rx_frame) = can.read().await.unwrap();
-        info!("loopback frame {=u8}", unwrap!(rx_frame.data())[0]);
+
+        let envelope = can.read().await.unwrap();
+
+        // We can measure loopback latency by using receive timestamp in the `Envelope`.
+        // Our frame is ~55 bits long (exlcuding bit stuffing), so at 1mbps loopback delay is at least 55 us.
+        // When measured with `tick-hz-1_000_000` actual latency is 80~83 us, giving a combined hardware and software
+        // overhead of ~25 us. Note that CPU frequency can greatly affect the result.
+        let latency = envelope.ts.saturating_duration_since(tx_ts);
+
+        info!(
+            "loopback frame {=u8}, latency: {} us",
+            unwrap!(envelope.frame.data())[0],
+            latency.as_micros()
+        );
         i += 1;
     }
 }

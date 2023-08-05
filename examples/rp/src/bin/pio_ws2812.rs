@@ -1,3 +1,6 @@
+//! This example shows powerful PIO module in the RP2040 chip to communicate with WS2812 LED modules.
+//! See (https://www.sparkfun.com/categories/tags/ws2812)
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
@@ -9,7 +12,6 @@ use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{
     Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{bind_interrupts, clocks, into_ref, Peripheral, PeripheralRef};
 use embassy_time::{Duration, Timer};
 use fixed::types::U24F8;
@@ -70,8 +72,7 @@ impl<'d, P: Instance, const S: usize, const N: usize> Ws2812<'d, P, S, N> {
         cfg.set_out_pins(&[&out_pin]);
         cfg.set_set_pins(&[&out_pin]);
 
-        let relocated = RelocatedProgram::new(&prg);
-        cfg.use_program(&pio.load_program(&relocated), &[&out_pin]);
+        cfg.use_program(&pio.load_program(&prg), &[&out_pin]);
 
         // Clock config, measured in kHz to avoid overflows
         // TODO CLOCK_FREQ should come from embassy_rp

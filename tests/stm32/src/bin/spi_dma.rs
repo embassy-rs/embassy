@@ -34,15 +34,14 @@ async fn main(_spawner: Spawner) {
     #[cfg(feature = "stm32c031c6")]
     let (spi, sck, mosi, miso, tx_dma, rx_dma) = (p.SPI1, p.PA5, p.PA7, p.PA6, p.DMA1_CH1, p.DMA1_CH2);
 
+    let mut spi_config = spi::Config::default();
+    spi_config.frequency = Hertz(1_000_000);
+
     let mut spi = Spi::new(
-        spi,
-        sck,  // Arduino D13
+        spi, sck,  // Arduino D13
         mosi, // Arduino D11
         miso, // Arduino D12
-        tx_dma,
-        rx_dma,
-        Hertz(1_000_000),
-        spi::Config::default(),
+        tx_dma, rx_dma, spi_config,
     );
 
     let data: [u8; 9] = [0x00, 0xFF, 0xAA, 0x55, 0xC0, 0xFF, 0xEE, 0xC0, 0xDE];

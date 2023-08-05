@@ -1,7 +1,6 @@
 use core::future::poll_fn;
+use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
-
-use atomic_polyfill::{compiler_fence, Ordering};
 
 use self::sealed::Instance;
 use crate::interrupt;
@@ -266,62 +265,8 @@ pub(crate) mod sealed {
 }
 
 fn _configure_pwr() {
-    // TODO: move this to RCC
-
-    let pwr = crate::pac::PWR;
+    // TODO: move the rest of this to rcc
     let rcc = crate::pac::RCC;
-
-    rcc.cfgr().modify(|w| w.set_stopwuck(true));
-
-    pwr.cr1().modify(|w| w.set_dbp(true));
-    pwr.cr1().modify(|w| w.set_dbp(true));
-
-    // configure LSE
-    rcc.bdcr().modify(|w| w.set_lseon(true));
-
-    // select system clock source = PLL
-    // set PLL coefficients
-    // m: 2,
-    // n: 12,
-    // r: 3,
-    // q: 4,
-    // p: 3,
-    let src_bits = 0b11;
-    let pllp = (3 - 1) & 0b11111;
-    let pllq = (4 - 1) & 0b111;
-    let pllr = (3 - 1) & 0b111;
-    let plln = 12 & 0b1111111;
-    let pllm = (2 - 1) & 0b111;
-    rcc.pllcfgr().modify(|w| {
-        w.set_pllsrc(src_bits);
-        w.set_pllm(pllm);
-        w.set_plln(plln);
-        w.set_pllr(pllr);
-        w.set_pllp(pllp);
-        w.set_pllpen(true);
-        w.set_pllq(pllq);
-        w.set_pllqen(true);
-    });
-    // enable PLL
-    rcc.cr().modify(|w| w.set_pllon(true));
-    rcc.cr().write(|w| w.set_hsion(false));
-    // while !rcc.cr().read().pllrdy() {}
-
-    // configure SYSCLK mux to use PLL clocl
-    rcc.cfgr().modify(|w| w.set_sw(0b11));
-
-    // configure CPU1 & CPU2 dividers
-    rcc.cfgr().modify(|w| w.set_hpre(0)); // not divided
-    rcc.extcfgr().modify(|w| {
-        w.set_c2hpre(0b1000); // div2
-        w.set_shdhpre(0); // not divided
-    });
-
-    // apply APB1 / APB2 values
-    rcc.cfgr().modify(|w| {
-        w.set_ppre1(0b000); // not divided
-        w.set_ppre2(0b000); // not divided
-    });
 
     // TODO: required
     // set RF wake-up clock = LSE

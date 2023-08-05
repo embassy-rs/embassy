@@ -1,7 +1,7 @@
 #![macro_use]
 use core::convert::Infallible;
 
-use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
 use crate::{pac, peripherals, Peripheral};
@@ -499,6 +499,20 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
     pub fn toggle(&mut self) {
         self.pin.toggle()
+    }
+}
+
+pub enum OutputType {
+    PushPull,
+    OpenDrain,
+}
+
+impl From<OutputType> for sealed::AFType {
+    fn from(value: OutputType) -> Self {
+        match value {
+            OutputType::OpenDrain => sealed::AFType::OutputOpenDrain,
+            OutputType::PushPull => sealed::AFType::OutputPushPull,
+        }
     }
 }
 

@@ -1,6 +1,5 @@
 use core::ptr::write_volatile;
-
-use atomic_polyfill::{fence, Ordering};
+use core::sync::atomic::{fence, Ordering};
 
 use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
@@ -114,41 +113,9 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 }
 
 pub(crate) unsafe fn clear_all_err() {
-    pac::FLASH.sr().modify(|w| {
-        #[cfg(any(flash_wl, flash_wb, flash_l4, flash_l0))]
-        if w.rderr() {
-            w.set_rderr(true);
-        }
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
-        if w.fasterr() {
-            w.set_fasterr(true);
-        }
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
-        if w.miserr() {
-            w.set_miserr(true);
-        }
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
-        if w.pgserr() {
-            w.set_pgserr(true);
-        }
-        if w.sizerr() {
-            w.set_sizerr(true);
-        }
-        if w.pgaerr() {
-            w.set_pgaerr(true);
-        }
-        if w.wrperr() {
-            w.set_wrperr(true);
-        }
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
-        if w.progerr() {
-            w.set_progerr(true);
-        }
-        #[cfg(any(flash_wl, flash_wb, flash_l4))]
-        if w.operr() {
-            w.set_operr(true);
-        }
-    });
+    // read and write back the same value.
+    // This clears all "write 0 to clear" bits.
+    pac::FLASH.sr().modify(|_| {});
 }
 
 unsafe fn wait_ready_blocking() -> Result<(), Error> {

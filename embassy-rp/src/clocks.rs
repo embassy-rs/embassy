@@ -1,11 +1,13 @@
+use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::clocks::vals::*;
 
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
+use crate::pac::common::{Reg, RW};
 use crate::{pac, reset, Peripheral};
 
 // NOTE: all gpin handling is commented out for future reference.
@@ -308,6 +310,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     // - QSPI (we're using it to run this code!)
     // - PLLs (it may be suicide if that's what's clocking us)
     // - USB, SYSCFG (breaks usb-to-swd on core1)
+    // - RTC (else there would be no more time...)
     let mut peris = reset::ALL_PERIPHERALS;
     peris.set_io_qspi(false);
     // peris.set_io_bank0(false); // might be suicide if we're clocked from gpin
@@ -317,6 +320,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     // TODO investigate if usb should be unreset here
     peris.set_usbctrl(false);
     peris.set_syscfg(false);
+    peris.set_rtc(false);
     reset::reset(peris);
 
     // Disable resus that may be enabled from previous software
@@ -700,7 +704,7 @@ impl<'d, T: Pin> Gpin<'d, T> {
     pub fn new<P: GpinPin>(gpin: impl Peripheral<P = P> + 'd) -> Gpin<'d, P> {
         into_ref!(gpin);
 
-        gpin.io().ctrl().write(|w| w.set_funcsel(0x08));
+        gpin.gpio().ctrl().write(|w| w.set_funcsel(0x08));
 
         Gpin {
             gpin: gpin.map_into(),
@@ -716,7 +720,7 @@ impl<'d, T: Pin> Gpin<'d, T> {
 impl<'d, T: Pin> Drop for Gpin<'d, T> {
     fn drop(&mut self) {
         self.gpin
-            .io()
+            .gpio()
             .ctrl()
             .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
     }
@@ -764,7 +768,7 @@ impl<'d, T: GpoutPin> Gpout<'d, T> {
     pub fn new(gpout: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(gpout);
 
-        gpout.io().ctrl().write(|w| w.set_funcsel(0x08));
+        gpout.gpio().ctrl().write(|w| w.set_funcsel(0x08));
 
         Self { gpout }
     }
@@ -829,7 +833,7 @@ impl<'d, T: GpoutPin> Drop for Gpout<'d, T> {
     fn drop(&mut self) {
         self.disable();
         self.gpout
-            .io()
+            .gpio()
             .ctrl()
             .write(|w| w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _));
     }
@@ -869,5 +873,133 @@ impl rand_core::RngCore for RoscRng {
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         dest.fill_with(Self::next_u8)
+    }
+}
+/// Enter the `DORMANT` sleep state. This will stop *all* internal clocks
+/// and can only be exited through resets, dormant-wake GPIO interrupts,
+/// and RTC interrupts. If RTC is clocked from an internal clock source
+/// it will be stopped and not function as a wakeup source.
+#[cfg(target_arch = "arm")]
+pub fn dormant_sleep() {
+    struct Set<T: Copy, F: Fn()>(Reg<T, RW>, T, F);
+
+    impl<T: Copy, F: Fn()> Drop for Set<T, F> {
+        fn drop(&mut self) {
+            self.0.write_value(self.1);
+            self.2();
+        }
+    }
+
+    fn set_with_post_restore<T: Copy, After: Fn(), F: FnOnce(&mut T) -> After>(
+        reg: Reg<T, RW>,
+        f: F,
+    ) -> Set<T, impl Fn()> {
+        reg.modify(|w| {
+            let old = *w;
+            let after = f(w);
+            Set(reg, old, after)
+        })
+    }
+
+    fn set<T: Copy, F: FnOnce(&mut T)>(reg: Reg<T, RW>, f: F) -> Set<T, impl Fn()> {
+        set_with_post_restore(reg, |r| {
+            f(r);
+            || ()
+        })
+    }
+
+    // disable all clocks that are not vital in preparation for disabling clock sources.
+    // we'll keep gpout and rtc clocks untouched, gpout because we don't care about them
+    // and rtc because it's a possible wakeup source. if clk_rtc is not configured for
+    // gpin we'll never wake from rtc, but that's what the user asked for then.
+    let _stop_adc = set(pac::CLOCKS.clk_adc_ctrl(), |w| w.set_enable(false));
+    let _stop_usb = set(pac::CLOCKS.clk_usb_ctrl(), |w| w.set_enable(false));
+    let _stop_peri = set(pac::CLOCKS.clk_peri_ctrl(), |w| w.set_enable(false));
+    // set up rosc. we could ask the use to tell us which clock source to wake from like
+    // the C SDK does, but that seems rather unfriendly. we *may* disturb rtc by changing
+    // rosc configuration if it's currently the rtc clock source, so we'll configure rosc
+    // to the slowest frequency to minimize that impact.
+    let _configure_rosc = (
+        set(pac::ROSC.ctrl(), |w| {
+            w.set_enable(pac::rosc::vals::Enable::ENABLE);
+            w.set_freq_range(pac::rosc::vals::FreqRange::LOW);
+        }),
+        // div=32
+        set(pac::ROSC.div(), |w| w.set_div(pac::rosc::vals::Div(0xaa0))),
+    );
+    while !pac::ROSC.status().read().stable() {}
+    // switch over to rosc as the system clock source. this will change clock sources for
+    // watchdog and timer clocks, but timers won't be a concern and the watchdog won't
+    // speed up by enough to worry about (unless it's clocked from gpin, which we don't
+    // support anyway).
+    let _switch_clk_ref = set(pac::CLOCKS.clk_ref_ctrl(), |w| {
+        w.set_src(pac::clocks::vals::ClkRefCtrlSrc::ROSC_CLKSRC_PH);
+    });
+    let _switch_clk_sys = set(pac::CLOCKS.clk_sys_ctrl(), |w| {
+        w.set_src(pac::clocks::vals::ClkSysCtrlSrc::CLK_REF);
+    });
+    // oscillator dormancy does not power down plls, we have to do that ourselves. we'll
+    // restore them to their prior glory when woken though since the system may be clocked
+    // from either (and usb/adc will probably need the USB PLL anyway)
+    let _stop_pll_sys = set_with_post_restore(pac::PLL_SYS.pwr(), |w| {
+        let wake = !w.pd() && !w.vcopd();
+        w.set_pd(true);
+        w.set_vcopd(true);
+        move || while wake && !pac::PLL_SYS.cs().read().lock() {}
+    });
+    let _stop_pll_usb = set_with_post_restore(pac::PLL_USB.pwr(), |w| {
+        let wake = !w.pd() && !w.vcopd();
+        w.set_pd(true);
+        w.set_vcopd(true);
+        move || while wake && !pac::PLL_USB.cs().read().lock() {}
+    });
+    // dormancy only stops the oscillator we're telling to go dormant, the other remains
+    // running. nothing can use xosc at this point any more. not doing this costs an 200µA.
+    let _stop_xosc = set_with_post_restore(pac::XOSC.ctrl(), |w| {
+        let wake = w.enable() == pac::xosc::vals::Enable::ENABLE;
+        if wake {
+            w.set_enable(pac::xosc::vals::Enable::DISABLE);
+        }
+        move || while wake && !pac::XOSC.status().read().stable() {}
+    });
+    let _power_down_xip_cache = set(pac::XIP_CTRL.ctrl(), |w| w.set_power_down(true));
+
+    // only power down memory if we're running from XIP (or ROM? how?).
+    // powering down memory otherwise would require a lot of exacting checks that
+    // are better done by the user in a local copy of this function.
+    // powering down memories saves ~100µA, so it's well worth doing.
+    unsafe {
+        let is_in_flash = {
+            // we can't rely on the address of this function as rust sees it since linker
+            // magic or even boot2 may place it into ram.
+            let pc: usize;
+            asm!(
+                "mov {pc}, pc",
+                pc = out (reg) pc
+            );
+            pc < 0x20000000
+        };
+        if is_in_flash {
+            // we will be powering down memories, so we must be *absolutely*
+            // certain that we're running entirely from XIP and registers until
+            // memories are powered back up again. accessing memory that's powered
+            // down may corrupt memory contents (see section 2.11.4 of the manual).
+            // additionally a 20ns wait time is needed after powering up memories
+            // again. rosc is likely to run at only a few MHz at most, so the
+            // inter-instruction delay alone will be enough to satisfy this bound.
+            asm!(
+                "ldr {old_mem}, [{mempowerdown}]",
+                "str {power_down_mems}, [{mempowerdown}]",
+                "str {coma}, [{dormant}]",
+                "str {old_mem}, [{mempowerdown}]",
+                old_mem = out (reg) _,
+                mempowerdown = in (reg) pac::SYSCFG.mempowerdown().as_ptr(),
+                power_down_mems = in (reg) 0b11111111,
+                dormant = in (reg) pac::ROSC.dormant().as_ptr(),
+                coma = in (reg) 0x636f6d61,
+            );
+        } else {
+            pac::ROSC.dormant().write_value(0x636f6d61);
+        }
     }
 }

@@ -6,6 +6,8 @@ use crate::PacketHeader;
 #[derive(Debug)]
 #[repr(C)]
 pub enum TlPacketType {
+    MacCmd = 0x00,
+
     BleCmd = 0x01,
     AclData = 0x02,
     BleEvt = 0x04,

@@ -49,7 +49,7 @@ trait has not had breaking changes.
 
 This crate can run on any executor.
 
-[`embassy-time`](https://crates.io/crates/embassy-net-driver) is used for timekeeping and timeouts. You must
+[`embassy-time`](https://crates.io/crates/embassy-time) is used for timekeeping and timeouts. You must
 link an `embassy-time` driver in your project to use this crate.
 
 ## License

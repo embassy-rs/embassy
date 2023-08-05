@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_common::impl_peripheral;
+use embassy_hal_internal::impl_peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Input, Pin as GpioPin};

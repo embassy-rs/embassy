@@ -40,6 +40,7 @@ display-interface = "0.4.1"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 smart-leds = "0.3.0"
 heapless = "0.7.15"
+usbd-hid = "0.6.1"
 
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11" }
 embedded-hal-async = "0.2.0-alpha.2"
@@ -52,7 +53,4 @@ pio = "0.2.1"
 rand = { version = "0.8.5", default-features = false }
 
 [profile.release]
-debug = true
-
-[patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }
+debug = 2

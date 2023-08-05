@@ -4,10 +4,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::pwm::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
-use embassy_stm32::pwm::simple_pwm::PwmPin;
-use embassy_stm32::pwm::Channel;
+use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
+use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
+use embassy_stm32::timer::simple_pwm::PwmPin;
+use embassy_stm32::timer::Channel;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,8 +17,8 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let ch1 = PwmPin::new_ch1(p.PE9);
-    let ch1n = ComplementaryPwmPin::new_ch1(p.PA7);
+    let ch1 = PwmPin::new_ch1(p.PE9, OutputType::PushPull);
+    let ch1n = ComplementaryPwmPin::new_ch1(p.PA7, OutputType::PushPull);
     let mut pwm = ComplementaryPwm::new(
         p.TIM1,
         Some(ch1),

@@ -1,3 +1,6 @@
+//! This example shows how to use SPI (Serial Peripheral Interface) in the RP2040 chip.
+//! No specific hardware is specified in this example. If you connect pin 11 and 12 you should get the same data back.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

@@ -1,0 +1,9 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace STM32F429ZITx with your chip as listed in `probe-rs-cli chip list`
+runner = "probe-run --chip STM32F334R8"
+
+[build]
+target = "thumbv7em-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"

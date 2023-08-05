@@ -1,3 +1,7 @@
+//! This example shows how to use USB (Universal Serial Bus) in the RP2040 chip.
+//!
+//! This creates the possibility to send log::info/warn/error/debug! to USB serial port.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]

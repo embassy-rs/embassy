@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::dma::{AnyChannel, Channel};
@@ -100,16 +100,16 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         p.cr1().write(|w| w.set_sse(true));
 
         if let Some(pin) = &clk {
-            pin.io().ctrl().write(|w| w.set_funcsel(1));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
         }
         if let Some(pin) = &mosi {
-            pin.io().ctrl().write(|w| w.set_funcsel(1));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
         }
         if let Some(pin) = &miso {
-            pin.io().ctrl().write(|w| w.set_funcsel(1));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
         }
         if let Some(pin) = &cs {
-            pin.io().ctrl().write(|w| w.set_funcsel(1));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
         }
         Self {
             inner,

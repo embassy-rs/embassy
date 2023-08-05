@@ -2,7 +2,7 @@ use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
 
@@ -353,8 +353,8 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         p.ic_rx_tl().write(|w| w.set_rx_tl(0));
 
         // Configure SCL & SDA pins
-        scl.io().ctrl().write(|w| w.set_funcsel(3));
-        sda.io().ctrl().write(|w| w.set_funcsel(3));
+        scl.gpio().ctrl().write(|w| w.set_funcsel(3));
+        sda.gpio().ctrl().write(|w| w.set_funcsel(3));
 
         scl.pad_ctrl().write(|w| {
             w.set_schmitt(true);
@@ -716,6 +716,9 @@ mod nightly {
         async fn transaction(&mut self, address: A, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
             let addr: u16 = address.into();
 
+            if operations.len() > 0 {
+                Self::setup(addr)?;
+            }
             let mut iterator = operations.iter_mut();
 
             while let Some(op) = iterator.next() {
@@ -723,11 +726,9 @@ mod nightly {
 
                 match op {
                     Operation::Read(buffer) => {
-                        Self::setup(addr)?;
                         self.read_async_internal(buffer, false, last).await?;
                     }
                     Operation::Write(buffer) => {
-                        Self::setup(addr)?;
                         self.write_async_internal(buffer.into_iter().cloned(), last).await?;
                     }
                 }

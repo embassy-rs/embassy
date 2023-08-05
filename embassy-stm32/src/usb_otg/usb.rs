@@ -1,9 +1,9 @@
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicBool, AtomicU16, Ordering};
-use embassy_hal_common::{into_ref, Peripheral};
+use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
     self, Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo,

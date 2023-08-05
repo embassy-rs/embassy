@@ -1,10 +1,12 @@
+//! This example test the flash connected to the RP2040 chip.
+
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::flash::{ERASE_SIZE, FLASH_BASE};
+use embassy_rp::flash::{Async, ERASE_SIZE, FLASH_BASE};
 use embassy_rp::peripherals::FLASH;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -23,7 +25,7 @@ async fn main(_spawner: Spawner) {
     // https://github.com/knurling-rs/defmt/pull/683
     Timer::after(Duration::from_millis(10)).await;
 
-    let mut flash = embassy_rp::flash::Flash::<_, FLASH_SIZE>::new(p.FLASH);
+    let mut flash = embassy_rp::flash::Flash::<_, Async, FLASH_SIZE>::new(p.FLASH, p.DMA_CH0);
 
     // Get JEDEC id
     let jedec = flash.jedec_id().unwrap();
@@ -38,10 +40,12 @@ async fn main(_spawner: Spawner) {
 
     multiwrite_bytes(&mut flash, ERASE_SIZE as u32);
 
+    background_read(&mut flash, (ERASE_SIZE * 2) as u32).await;
+
     loop {}
 }
 
-fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, FLASH, FLASH_SIZE>, offset: u32) {
+fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH_SIZE>, offset: u32) {
     info!(">>>> [multiwrite_bytes]");
     let mut read_buf = [0u8; ERASE_SIZE];
     defmt::unwrap!(flash.read(ADDR_OFFSET + offset, &mut read_buf));
@@ -69,7 +73,7 @@ fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, FLASH, FLASH_SIZE>,
     }
 }
 
-fn erase_write_sector(flash: &mut embassy_rp::flash::Flash<'_, FLASH, FLASH_SIZE>, offset: u32) {
+fn erase_write_sector(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH_SIZE>, offset: u32) {
     info!(">>>> [erase_write_sector]");
     let mut buf = [0u8; ERASE_SIZE];
     defmt::unwrap!(flash.read(ADDR_OFFSET + offset, &mut buf));
@@ -94,6 +98,38 @@ fn erase_write_sector(flash: &mut embassy_rp::flash::Flash<'_, FLASH, FLASH_SIZE
     defmt::unwrap!(flash.read(ADDR_OFFSET + offset, &mut buf));
     info!("Contents after write starts with {=[u8]}", buf[0..4]);
     if buf.iter().any(|x| *x != 0xDA) {
+        defmt::panic!("unexpected");
+    }
+}
+
+async fn background_read(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH_SIZE>, offset: u32) {
+    info!(">>>> [background_read]");
+
+    let mut buf = [0u32; 8];
+    defmt::unwrap!(flash.background_read(ADDR_OFFSET + offset, &mut buf)).await;
+
+    info!("Addr of flash block is {:x}", ADDR_OFFSET + offset + FLASH_BASE as u32);
+    info!("Contents start with {=u32:x}", buf[0]);
+
+    defmt::unwrap!(flash.erase(ADDR_OFFSET + offset, ADDR_OFFSET + offset + ERASE_SIZE as u32));
+
+    defmt::unwrap!(flash.background_read(ADDR_OFFSET + offset, &mut buf)).await;
+    info!("Contents after erase starts with {=u32:x}", buf[0]);
+    if buf.iter().any(|x| *x != 0xFFFFFFFF) {
+        defmt::panic!("unexpected");
+    }
+
+    for b in buf.iter_mut() {
+        *b = 0xDABA1234;
+    }
+
+    defmt::unwrap!(flash.write(ADDR_OFFSET + offset, unsafe {
+        core::slice::from_raw_parts(buf.as_ptr() as *const u8, buf.len() * 4)
+    }));
+
+    defmt::unwrap!(flash.background_read(ADDR_OFFSET + offset, &mut buf)).await;
+    info!("Contents after write starts with {=u32:x}", buf[0]);
+    if buf.iter().any(|x| *x != 0xDABA1234) {
         defmt::panic!("unexpected");
     }
 }

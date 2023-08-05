@@ -6,6 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -40,7 +41,9 @@ async fn main(_spawner: Spawner) {
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
     */
 
-    let p = embassy_stm32::init(Default::default());
+    let mut config = embassy_stm32::Config::default();
+    config.rcc = WPAN_DEFAULT;
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
@@ -49,7 +52,7 @@ async fn main(_spawner: Spawner) {
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
 
-    mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    let _ = mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
 
     info!("starting ble...");
     mbox.ble_subsystem.tl_write(0x0c, &[]).await;

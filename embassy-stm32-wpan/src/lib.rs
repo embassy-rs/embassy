@@ -1,5 +1,6 @@
 #![no_std]
-#![cfg_attr(feature = "ble", feature(async_fn_in_trait))]
+#![cfg_attr(any(feature = "ble", feature = "mac"), feature(async_fn_in_trait))]
+#![cfg_attr(feature = "mac", feature(type_alias_impl_trait, concat_bytes))]
 
 // This must go FIRST so that all the other modules see its macros.
 pub mod fmt;
@@ -7,7 +8,7 @@ pub mod fmt;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
@@ -25,6 +26,9 @@ pub mod shci;
 pub mod sub;
 pub mod tables;
 pub mod unsafe_linked_list;
+
+#[cfg(feature = "mac")]
+pub mod mac;
 
 #[cfg(feature = "ble")]
 pub use crate::sub::ble::hci;

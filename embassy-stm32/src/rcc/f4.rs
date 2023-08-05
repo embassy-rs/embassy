@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::vals::{Mco1, Mco2, Mcopre};
 
 use super::sealed::RccPeripheral;

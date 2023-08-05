@@ -8,7 +8,6 @@ use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pin, Pull, SlewRate};
 use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::relocate::RelocatedProgram;
 use embassy_rp::{pio_instr_util, Peripheral, PeripheralRef};
 use fixed::FixedU32;
 use pio_proc::pio_asm;
@@ -88,8 +87,6 @@ where
             ".wrap"
         );
 
-        let relocated = RelocatedProgram::new(&program.program);
-
         let mut pin_io: embassy_rp::pio::Pin<PIO> = common.make_pio_pin(dio);
         pin_io.set_pull(Pull::None);
         pin_io.set_schmitt(true);
@@ -102,7 +99,8 @@ where
         pin_clk.set_slew_rate(SlewRate::Fast);
 
         let mut cfg = Config::default();
-        cfg.use_program(&common.load_program(&relocated), &[&pin_clk]);
+        let loaded_program = common.load_program(&program.program);
+        cfg.use_program(&loaded_program, &[&pin_clk]);
         cfg.set_out_pins(&[&pin_io]);
         cfg.set_in_pins(&[&pin_io]);
         cfg.set_set_pins(&[&pin_io]);
@@ -142,7 +140,7 @@ where
             sm,
             irq,
             dma: dma.into_ref(),
-            wrap_target: relocated.wrap().target,
+            wrap_target: loaded_program.wrap.target,
         }
     }
 

@@ -1,5 +1,4 @@
 use ch::driver::LinkState;
-use defmt::Debug2Format;
 use embassy_net_driver_channel as ch;
 use heapless::String;
 
@@ -57,7 +56,6 @@ impl<'a> Control<'a> {
         let proto::CtrlMsgPayload::RespConnectAp(resp) = resp.payload.unwrap() else {
             panic!("unexpected resp")
         };
-        debug!("======= {:?}", Debug2Format(&resp));
         assert_eq!(resp.resp, 0);
         self.state_ch.set_link_state(LinkState::Up);
     }

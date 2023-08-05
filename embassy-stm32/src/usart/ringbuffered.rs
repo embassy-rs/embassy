@@ -2,16 +2,16 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::PeripheralRef;
+use embassy_hal_internal::PeripheralRef;
 use futures::future::{select, Either};
 
 use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
-use crate::dma::RingBuffer;
+use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
 pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     _peri: PeripheralRef<'d, T>,
-    ring_buf: RingBuffer<'d, RxDma, u8>,
+    ring_buf: ReadableRingBuffer<'d, RxDma, u8>,
 }
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
@@ -24,7 +24,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
         let request = self.rx_dma.request();
         let opts = Default::default();
 
-        let ring_buf = unsafe { RingBuffer::new_read(self.rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new_read(self.rx_dma, request, rdr(T::regs()), dma_buf, opts) };
 
         RingBufferedUartRx {
             _peri: self._peri,

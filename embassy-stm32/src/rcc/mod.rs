@@ -1,5 +1,7 @@
 #![macro_use]
 
+pub mod common;
+
 use core::mem::MaybeUninit;
 
 use crate::time::Hertz;
@@ -98,6 +100,14 @@ pub(crate) fn clock_refcount_sub() {
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
+
+#[cfg(stm32wb)]
+/// RCC initialization function
+pub(crate) unsafe fn init(config: Config) {
+    set_freqs(compute_clocks(&config));
+
+    configure_clocks(&config);
+}
 
 /// Sets the clock frequencies
 ///

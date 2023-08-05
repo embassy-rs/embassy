@@ -1,5 +1,6 @@
 #![macro_use]
 
+#[cfg(not(adc_f3))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
@@ -7,14 +8,16 @@
 #[cfg_attr(adc_v4, path = "v4.rs")]
 mod _version;
 
-#[cfg(not(adc_f1))]
+#[cfg(not(any(adc_f1, adc_f3)))]
 mod resolution;
 mod sample_time;
 
+#[cfg(not(adc_f3))]
 #[allow(unused)]
 pub use _version::*;
-#[cfg(not(adc_f1))]
+#[cfg(not(any(adc_f1, adc_f3)))]
 pub use resolution::Resolution;
+#[cfg(not(adc_f3))]
 pub use sample_time::SampleTime;
 
 use crate::peripherals;
@@ -22,13 +25,14 @@ use crate::peripherals;
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::PeripheralRef<'d, T>,
+    #[cfg(not(adc_f3))]
     sample_time: SampleTime,
 }
 
 pub(crate) mod sealed {
     pub trait Instance {
         fn regs() -> crate::pac::adc::Adc;
-        #[cfg(all(not(adc_f1), not(adc_v1)))]
+        #[cfg(not(any(adc_f1, adc_v1, adc_f3)))]
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
     }
 
@@ -56,7 +60,7 @@ foreach_peripheral!(
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::$inst
             }
-            #[cfg(all(not(adc_f1), not(adc_v1)))]
+            #[cfg(not(any(adc_f1, adc_v1, adc_f3)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 foreach_peripheral!{
                     (adccommon, $common_inst:ident) => {

@@ -8,7 +8,7 @@ pub mod generic_smi;
 use core::mem::MaybeUninit;
 use core::task::Context;
 
-use embassy_net_driver::{Capabilities, LinkState};
+use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
@@ -81,17 +81,15 @@ impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> 
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        // TODO: wake cx.waker on link state change
-        cx.waker().wake_by_ref();
-        if P::poll_link(self) {
+        if self.phy.poll_link(&mut self.station_management, cx) {
             LinkState::Up
         } else {
             LinkState::Down
         }
     }
 
-    fn ethernet_address(&self) -> [u8; 6] {
-        self.mac_addr
+    fn hardware_address(&self) -> HardwareAddress {
+        HardwareAddress::Ethernet(self.mac_addr)
     }
 }
 
@@ -148,11 +146,11 @@ pub unsafe trait StationManagement {
 /// The methods cannot move S
 pub unsafe trait PHY {
     /// Reset PHY and wait for it to come out of reset.
-    fn phy_reset<S: StationManagement>(sm: &mut S);
+    fn phy_reset<S: StationManagement>(&mut self, sm: &mut S);
     /// PHY initialisation.
-    fn phy_init<S: StationManagement>(sm: &mut S);
+    fn phy_init<S: StationManagement>(&mut self, sm: &mut S);
     /// Poll link to see if it is up and FD with 100Mbps
-    fn poll_link<S: StationManagement>(sm: &mut S) -> bool;
+    fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
 }
 
 pub(crate) mod sealed {

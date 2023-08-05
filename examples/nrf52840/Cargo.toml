@@ -43,6 +43,7 @@ embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-host
 defmt = "0.3"
 defmt-rtt = "0.4"
 
+fixed = "1.10.0"
 static_cell = "1.1"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
@@ -53,6 +54,8 @@ embedded-storage = "0.3.0"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
 embedded-hal-async = { version = "0.2.0-alpha.2", optional = true }
+num-integer = { version = "0.1.45", default-features = false }
+microfft = "0.5.0"
 
-[patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }
+[profile.release]
+debug = 2

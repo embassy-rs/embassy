@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
