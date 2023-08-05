@@ -138,6 +138,7 @@ time-driver-tim15 = ["_time-driver"]
 #! e.g. in `.cargo/config.toml`.
 
 # Enable stop mode
+embassy-executor = []
 low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m-low-power" ]
 
 # Chip-selection features
