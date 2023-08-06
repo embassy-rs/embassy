@@ -292,6 +292,18 @@ pub(crate) fn configure_clocks(config: &Config) {
         while !rcc.cr().read().hsirdy() {}
     }
 
+    let needs_lsi = if let Some(rtc_mux) = &config.rtc {
+        *rtc_mux == RtcClockSource::LSI
+    } else {
+        false
+    };
+
+    if needs_lsi {
+        rcc.csr().modify(|w| w.set_lsi1on(true));
+
+        while !rcc.csr().read().lsi1rdy() {}
+    }
+
     match &config.lse {
         Some(_) => {
             rcc.cfgr().modify(|w| w.set_stopwuck(true));

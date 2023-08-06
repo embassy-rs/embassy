@@ -153,6 +153,9 @@ impl RtcDriver {
         <T as RccPeripheral>::enable();
         <T as RccPeripheral>::reset();
 
+        // We're using the RTC as a backup for this
+        crate::rcc::clock_refcount_sub();
+
         let timer_freq = T::frequency();
 
         critical_section::with(|_| {
