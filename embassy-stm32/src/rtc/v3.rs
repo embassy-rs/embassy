@@ -22,10 +22,11 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
         let reg = crate::pac::RCC.bdcr().read();
         assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
+        let clock_source = clock_source as u8;
         #[cfg(not(any(rcc_wl5, rcc_wle)))]
-        let config_rtcsel = crate::pac::rcc::vals::Rtcsel::from_bits(clock_source as u8);
+        let clock_source = crate::pac::rcc::vals::Rtcsel::from_bits(clock_source);
 
-        if !reg.rtcen() || reg.rtcsel() != clock_source as u8 {
+        if !reg.rtcen() || reg.rtcsel() != clock_source {
             crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
 
             crate::pac::RCC.bdcr().modify(|w| {
@@ -33,7 +34,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 w.set_bdrst(false);
 
                 // Select RTC source
-                w.set_rtcsel(clock_source as u8);
+                w.set_rtcsel(clock_source);
 
                 w.set_rtcen(true);
 
