@@ -77,22 +77,29 @@ impl<const N: usize> UsbLogger<N> {
         );
 
         // Create classes on the builder.
-        let mut class = CdcAcmClass::new(&mut builder, &mut state.state, MAX_PACKET_SIZE as u16);
+        let class = CdcAcmClass::new(&mut builder, &mut state.state, MAX_PACKET_SIZE as u16);
+        let (mut sender, mut receiver) = class.split();
 
         // Build the builder.
         let mut device = builder.build();
-
         loop {
             let run_fut = device.run();
             let log_fut = async {
                 let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
-                class.wait_connection().await;
+                sender.wait_connection().await;
                 loop {
                     let len = self.buffer.read(&mut rx[..]).await;
-                    let _ = class.write_packet(&rx[..len]).await;
+                    let _ = sender.write_packet(&rx[..len]).await;
                 }
             };
-            join(run_fut, log_fut).await;
+            let discard_fut = async {
+                let mut discard_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+                receiver.wait_connection().await;
+                loop {
+                    let _ = receiver.read_packet(&mut discard_buf).await;
+                }
+            };
+            join(run_fut, join(log_fut, discard_fut)).await;
         }
     }
 }
