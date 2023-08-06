@@ -35,7 +35,7 @@ async fn main(_spawner: Spawner) {
 
     let mut rtc = Rtc::new(
         p.RTC,
-        RtcConfig::default().clock_config(embassy_stm32::rtc::RtcClockSource::LSE),
+        RtcConfig::default().clock_source(embassy_stm32::rtc::RtcClockSource::LSE),
     );
     info!("Got RTC! {:?}", now.timestamp());
 
