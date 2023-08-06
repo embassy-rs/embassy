@@ -34,8 +34,8 @@ async fn main(_spawner: Spawner) {
 
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
-    let mut updater = BlockingFirmwareUpdater::new(config);
-    let writer = updater.prepare_update(magic.as_mut()).unwrap();
+    let mut updater = BlockingFirmwareUpdater::new(config, &mut magic.0);
+    let writer = updater.prepare_update().unwrap();
     button.wait_for_rising_edge().await;
     let mut offset = 0;
     let mut buf = AlignedBuffer([0; 4096]);
@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
         writer.write(offset, buf.as_ref()).unwrap();
         offset += chunk.len() as u32;
     }
-    updater.mark_updated(magic.as_mut()).unwrap();
+    updater.mark_updated().unwrap();
     led.set_low();
     cortex_m::peripheral::SCB::sys_reset();
 }

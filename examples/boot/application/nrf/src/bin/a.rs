@@ -52,20 +52,20 @@ async fn main(_spawner: Spawner) {
     let nvmc = Mutex::new(BlockingAsync::new(nvmc));
 
     let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc);
-    let mut updater = FirmwareUpdater::new(config);
+    let mut magic = [0; 4];
+    let mut updater = FirmwareUpdater::new(config, &mut magic);
     loop {
         led.set_low();
         button.wait_for_any_edge().await;
         if button.is_low() {
             let mut offset = 0;
-            let mut magic = [0; 4];
             for chunk in APP_B.chunks(4096) {
                 let mut buf: [u8; 4096] = [0; 4096];
                 buf[..chunk.len()].copy_from_slice(chunk);
-                updater.write_firmware(&mut magic, offset, &buf).await.unwrap();
+                updater.write_firmware(offset, &buf).await.unwrap();
                 offset += chunk.len();
             }
-            updater.mark_updated(&mut magic).await.unwrap();
+            updater.mark_updated().await.unwrap();
             led.set_high();
             cortex_m::peripheral::SCB::sys_reset();
         }

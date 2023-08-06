@@ -16,9 +16,11 @@ mod test_flash;
 // TODO: Use the value provided by NorFlash when available
 pub(crate) const STATE_ERASE_VALUE: u8 = 0xFF;
 pub use boot_loader::{BootError, BootLoader, BootLoaderConfig};
+pub use firmware_updater::{
+    BlockingFirmwareState, BlockingFirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError,
+};
 #[cfg(feature = "nightly")]
-pub use firmware_updater::FirmwareUpdater;
-pub use firmware_updater::{BlockingFirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError};
+pub use firmware_updater::{FirmwareState, FirmwareUpdater};
 
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
@@ -118,15 +120,18 @@ mod tests {
         block_on(flash.active().erase(0, ORIGINAL.len() as u32)).unwrap();
         block_on(flash.active().write(0, &ORIGINAL)).unwrap();
 
-        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
-            dfu: flash.dfu(),
-            state: flash.state(),
-        });
-        block_on(updater.write_firmware(&mut aligned, 0, &UPDATE)).unwrap();
-        block_on(updater.mark_updated(&mut aligned)).unwrap();
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.mark_updated()).unwrap();
 
         // Writing after marking updated is not allowed until marked as booted.
-        let res: Result<(), FirmwareUpdaterError> = block_on(updater.write_firmware(&mut aligned, 0, &UPDATE));
+        let res: Result<(), FirmwareUpdaterError> = block_on(updater.write_firmware(0, &UPDATE));
         assert!(matches!(res, Err::<(), _>(FirmwareUpdaterError::BadState)));
 
         let flash = flash.into_blocking();
@@ -158,11 +163,14 @@ mod tests {
 
         // Mark as booted
         let flash = flash.into_async();
-        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
-            dfu: flash.dfu(),
-            state: flash.state(),
-        });
-        block_on(updater.mark_booted(&mut aligned)).unwrap();
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+        block_on(updater.mark_booted()).unwrap();
 
         let flash = flash.into_blocking();
         let mut bootloader = BootLoader::new(BootLoaderConfig {
@@ -190,12 +198,15 @@ mod tests {
         block_on(flash.active().erase(0, ORIGINAL.len() as u32)).unwrap();
         block_on(flash.active().write(0, &ORIGINAL)).unwrap();
 
-        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
-            dfu: flash.dfu(),
-            state: flash.state(),
-        });
-        block_on(updater.write_firmware(&mut aligned, 0, &UPDATE)).unwrap();
-        block_on(updater.mark_updated(&mut aligned)).unwrap();
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.mark_updated()).unwrap();
 
         let flash = flash.into_blocking();
         let mut bootloader = BootLoader::new(BootLoaderConfig {
@@ -232,12 +243,15 @@ mod tests {
         block_on(flash.active().erase(0, ORIGINAL.len() as u32)).unwrap();
         block_on(flash.active().write(0, &ORIGINAL)).unwrap();
 
-        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
-            dfu: flash.dfu(),
-            state: flash.state(),
-        });
-        block_on(updater.write_firmware(&mut aligned, 0, &UPDATE)).unwrap();
-        block_on(updater.mark_updated(&mut aligned)).unwrap();
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
+        block_on(updater.write_firmware(0, &UPDATE)).unwrap();
+        block_on(updater.mark_updated()).unwrap();
 
         let flash = flash.into_blocking();
         let mut bootloader = BootLoader::new(BootLoaderConfig {
@@ -293,18 +307,19 @@ mod tests {
 
         // On with the test
         let flash = flash.into_async();
-        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig {
-            dfu: flash.dfu(),
-            state: flash.state(),
-        });
-
         let mut aligned = [0; 4];
+        let mut updater = FirmwareUpdater::new(
+            FirmwareUpdaterConfig {
+                dfu: flash.dfu(),
+                state: flash.state(),
+            },
+            &mut aligned,
+        );
 
         assert!(block_on(updater.verify_and_mark_updated(
             &public_key.to_bytes(),
             &signature.to_bytes(),
             firmware_len as u32,
-            &mut aligned,
         ))
         .is_ok());
     }

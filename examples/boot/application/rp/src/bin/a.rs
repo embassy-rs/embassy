@@ -38,7 +38,8 @@ async fn main(_s: Spawner) {
     let flash = Mutex::new(RefCell::new(flash));
 
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
-    let mut updater = BlockingFirmwareUpdater::new(config);
+    let mut aligned = AlignedBuffer([0; 4]);
+    let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
 
     Timer::after(Duration::from_secs(5)).await;
     watchdog.feed();
@@ -47,7 +48,7 @@ async fn main(_s: Spawner) {
     let mut buf: AlignedBuffer<4096> = AlignedBuffer([0; 4096]);
     defmt::info!("preparing update");
     let writer = updater
-        .prepare_update(&mut buf.0[..1])
+        .prepare_update()
         .map_err(|e| defmt::warn!("E: {:?}", defmt::Debug2Format(&e)))
         .unwrap();
     defmt::info!("writer created, starting write");
@@ -59,7 +60,7 @@ async fn main(_s: Spawner) {
     }
     watchdog.feed();
     defmt::info!("firmware written, marking update");
-    updater.mark_updated(&mut buf.0[..1]).unwrap();
+    updater.mark_updated().unwrap();
     Timer::after(Duration::from_secs(2)).await;
     led.set_low();
     defmt::info!("update marked, resetting");
