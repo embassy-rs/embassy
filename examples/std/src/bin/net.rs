@@ -8,7 +8,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::Duration;
-use embedded_io::asynch::Write;
+use embedded_io_async::Write;
 use heapless::Vec;
 use log::*;
 use rand_core::{OsRng, RngCore};

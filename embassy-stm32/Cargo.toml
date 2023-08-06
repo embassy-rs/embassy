@@ -64,7 +64,8 @@ nb = "1.0.0"
 stm32-fmc = "0.2.4"
 seq-macro = "0.3.0"
 cfg-if = "1.0.0"
-embedded-io = { version = "0.4.0", features = ["async"], optional = true }
+embedded-io = { version = "0.5.0" }
+embedded-io-async = { version = "0.5.0", optional = true }
 chrono = { version = "^0.4", default-features = false, optional = true}
 bit_field = "0.10.2"
 document-features = "0.2.7"
@@ -84,7 +85,7 @@ default = ["rt"]
 rt = ["stm32-metapac/rt"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io?/defmt", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async?/defmt-03", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
 
 exti = []
 
@@ -92,7 +93,7 @@ exti = []
 memory-x = ["stm32-metapac/memory-x"]
 
 ## Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
+nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io-async", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
 
 ## Re-export stm32-metapac at `embassy_stm32::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.

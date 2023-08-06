@@ -23,7 +23,7 @@ use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
-use embedded_io::asynch::{Read, Write};
+use embedded_io_async::{Read, Write};
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::uart::PioUart;
@@ -240,8 +240,7 @@ mod uart_tx {
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
-    use embedded_io::asynch::Write;
-    use embedded_io::Io;
+    use embedded_io_async::{ErrorType, Write};
     use fixed::traits::ToFixed;
     use fixed_macro::types::U56F8;
 
@@ -293,7 +292,7 @@ mod uart_tx {
         }
     }
 
-    impl Io for PioUartTx<'_> {
+    impl ErrorType for PioUartTx<'_> {
         type Error = Infallible;
     }
 
@@ -313,8 +312,7 @@ mod uart_rx {
     use embassy_rp::gpio::Level;
     use embassy_rp::peripherals::PIO0;
     use embassy_rp::pio::{Common, Config, Direction, FifoJoin, PioPin, ShiftDirection, StateMachine};
-    use embedded_io::asynch::Read;
-    use embedded_io::Io;
+    use embedded_io_async::{ErrorType, Read};
     use fixed::traits::ToFixed;
     use fixed_macro::types::U56F8;
 
@@ -377,7 +375,7 @@ mod uart_rx {
         }
     }
 
-    impl Io for PioUartRx<'_> {
+    impl ErrorType for PioUartRx<'_> {
         type Error = Infallible;
     }
 

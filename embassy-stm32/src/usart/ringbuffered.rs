@@ -220,13 +220,12 @@ fn clear_idle_flag(r: Regs) -> Sr {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eio {
-    use embedded_io::asynch::Read;
-    use embedded_io::Io;
+    use embedded_io_async::{ErrorType, Read};
 
     use super::RingBufferedUartRx;
     use crate::usart::{BasicInstance, Error, RxDma};
 
-    impl<T, Rx> Io for RingBufferedUartRx<'_, T, Rx>
+    impl<T, Rx> ErrorType for RingBufferedUartRx<'_, T, Rx>
     where
         T: BasicInstance,
         Rx: RxDma<T>,

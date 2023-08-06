@@ -574,31 +574,31 @@ impl embedded_io::Error for Error {
     }
 }
 
-impl<'d, T: Instance> embedded_io::Io for BufferedUart<'d, T> {
+impl<'d, T: Instance> embedded_io_async::ErrorType for BufferedUart<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Io for BufferedUartRx<'d, T> {
+impl<'d, T: Instance> embedded_io_async::ErrorType for BufferedUartRx<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Io for BufferedUartTx<'d, T> {
+impl<'d, T: Instance> embedded_io_async::ErrorType for BufferedUartTx<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Read for BufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io_async::Read for BufferedUart<'d, T> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         BufferedUartRx::<'d, T>::read(buf).await
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Read for BufferedUartRx<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io_async::Read for BufferedUartRx<'d, T> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Self::read(buf).await
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io_async::BufRead for BufferedUart<'d, T> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
         BufferedUartRx::<'d, T>::fill_buf().await
     }
@@ -608,7 +608,7 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUart<'d, T> 
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUartRx<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io_async::BufRead for BufferedUartRx<'d, T> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
         Self::fill_buf().await
     }
@@ -618,7 +618,7 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::BufRead for BufferedUartRx<'d, T
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io_async::Write for BufferedUart<'d, T> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         BufferedUartTx::<'d, T>::write(buf).await
     }
@@ -628,7 +628,7 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUartTx<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io_async::Write for BufferedUartTx<'d, T> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Self::write(buf).await
     }
@@ -638,19 +638,19 @@ impl<'d, T: Instance + 'd> embedded_io::asynch::Write for BufferedUartTx<'d, T> 
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::blocking::Read for BufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io::Read for BufferedUart<'d, T> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.rx.blocking_read(buf)
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::blocking::Read for BufferedUartRx<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io::Read for BufferedUartRx<'d, T> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.blocking_read(buf)
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::blocking::Write for BufferedUart<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io::Write for BufferedUart<'d, T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.tx.blocking_write(buf)
     }
@@ -660,7 +660,7 @@ impl<'d, T: Instance + 'd> embedded_io::blocking::Write for BufferedUart<'d, T> 
     }
 }
 
-impl<'d, T: Instance + 'd> embedded_io::blocking::Write for BufferedUartTx<'d, T> {
+impl<'d, T: Instance + 'd> embedded_io::Write for BufferedUartTx<'d, T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)
     }

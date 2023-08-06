@@ -13,7 +13,7 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
 use embassy_time::{Duration, Timer};
-use embedded_io::asynch::Write;
+use embedded_io_async::Write;
 use rand_core::RngCore;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};

@@ -1022,12 +1022,11 @@ mod eh1 {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eio {
-    use embedded_io::asynch::Write;
-    use embedded_io::Io;
+    use embedded_io_async::{ErrorType, Write};
 
     use super::*;
 
-    impl<T, TxDma, RxDma> Io for Uart<'_, T, TxDma, RxDma>
+    impl<T, TxDma, RxDma> ErrorType for Uart<'_, T, TxDma, RxDma>
     where
         T: BasicInstance,
     {
@@ -1049,7 +1048,7 @@ mod eio {
         }
     }
 
-    impl<T, TxDma> Io for UartTx<'_, T, TxDma>
+    impl<T, TxDma> ErrorType for UartTx<'_, T, TxDma>
     where
         T: BasicInstance,
     {

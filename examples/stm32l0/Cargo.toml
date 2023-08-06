@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["nightly"]
 nightly = ["embassy-stm32/nightly", "embassy-time/nightly", "embassy-time/unstable-traits", "embassy-executor/nightly",
-           "embassy-lora", "lora-phy", "lorawan-device", "lorawan", "embedded-io/async"]
+           "embassy-lora", "lora-phy", "lorawan-device", "lorawan", "dep:embedded-io-async"]
 
 [dependencies]
 # Change stm32l072cz to your chip name, if necessary.
@@ -24,7 +24,8 @@ defmt = "0.3"
 defmt-rtt = "0.4"
 
 embedded-storage = "0.3.0"
-embedded-io = "0.4.0"
+embedded-io = { version = "0.5.0" }
+embedded-io-async = { version = "0.5.0", optional = true }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
