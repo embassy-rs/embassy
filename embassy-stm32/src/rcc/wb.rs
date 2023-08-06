@@ -1,6 +1,6 @@
 pub use super::common::{AHBPrescaler, APBPrescaler};
 use crate::rcc::Clocks;
-use crate::rtc::{enable_rtc, RtcClockSource};
+use crate::rtc::{enable as enable_rtc, RtcClockSource};
 use crate::time::{khz, mhz, Hertz};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,

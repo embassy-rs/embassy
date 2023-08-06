@@ -1,12 +1,10 @@
 use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Init, Key, Osel, Pol, TampalrmPu, TampalrmType};
 
-use super::{sealed, Instance, RtcCalibrationCyclePeriod, RtcConfig};
+use super::{sealed, Instance, RtcCalibrationCyclePeriod, RtcClockSource, RtcConfig};
 use crate::pac::rtc::Rtc;
 
 impl<'d, T: Instance> super::Rtc<'d, T> {
-    /// Applies the RTC config
-    /// It this changes the RTC clock source the time will be reset
-    pub(super) fn apply_config(&mut self, rtc_config: RtcConfig) {
+    pub(super) fn enable(clock_source: RtcClockSource) {
         // Unlock the backup domain
         #[cfg(not(any(rtc_v3u5, rcc_wl5, rcc_wle)))]
         {
@@ -24,11 +22,10 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
         let reg = crate::pac::RCC.bdcr().read();
         assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
-        let config_rtcsel = rtc_config.clock_config as u8;
         #[cfg(not(any(rcc_wl5, rcc_wle)))]
-        let config_rtcsel = crate::pac::rcc::vals::Rtcsel::from_bits(config_rtcsel);
+        let config_rtcsel = crate::pac::rcc::vals::Rtcsel::from_bits(clock_source as u8);
 
-        if !reg.rtcen() || reg.rtcsel() != config_rtcsel {
+        if !reg.rtcen() || reg.rtcsel() != clock_source as u8 {
             crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
 
             crate::pac::RCC.bdcr().modify(|w| {
@@ -36,7 +33,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 w.set_bdrst(false);
 
                 // Select RTC source
-                w.set_rtcsel(config_rtcsel);
+                w.set_rtcsel(clock_source as u8);
 
                 w.set_rtcen(true);
 
@@ -49,7 +46,11 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 w.set_lsebyp(reg.lsebyp());
             });
         }
+    }
 
+    /// Applies the RTC config
+    /// It this changes the RTC clock source the time will be reset
+    pub(super) fn configure(&mut self, rtc_config: RtcConfig) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 w.set_fmt(Fmt::TWENTYFOURHOUR);
@@ -69,8 +70,6 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 w.set_tampalrm_pu(TampalrmPu::NOPULLUP);
             });
         });
-
-        self.rtc_config = rtc_config;
     }
 
     const RTC_CALR_MIN_PPM: f32 = -487.1;

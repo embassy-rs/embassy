@@ -33,19 +33,15 @@ pub struct Rtc<'d, T: Instance> {
     rtc_config: RtcConfig,
 }
 
-pub(crate) fn enable_rtc(clock_source: RtcClockSource) {
-    // TODO: rewrite the RTC module so that enable is separated from configure
+#[allow(dead_code)]
+pub(crate) fn enable(clock_source: RtcClockSource) {
+    Rtc::<crate::peripherals::RTC>::enable(clock_source);
+}
 
-    assert!(clock_source == RtcClockSource::LSI || clock_source == RtcClockSource::LSE);
-
-    let _ = Rtc::new(
-        unsafe { crate::Peripherals::steal().RTC },
-        RtcConfig {
-            clock_config: clock_source,
-            async_prescaler: 1,
-            sync_prescaler: 1,
-        },
-    );
+#[cfg(feature = "time")]
+#[allow(dead_code)]
+pub(crate) fn set_wakeup_timer(_duration: embassy_time::Duration) {
+    todo!()
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -64,7 +60,7 @@ pub enum RtcClockSource {
 #[derive(Copy, Clone, PartialEq)]
 pub struct RtcConfig {
     /// RTC clock source
-    clock_config: RtcClockSource,
+    clock_source: RtcClockSource,
     /// Asynchronous prescaler factor
     /// This is the asynchronous division factor:
     /// ck_apre frequency = RTCCLK frequency/(PREDIV_A+1)
@@ -82,7 +78,7 @@ impl Default for RtcConfig {
     /// Raw sub-seconds in 1/256.
     fn default() -> Self {
         RtcConfig {
-            clock_config: RtcClockSource::LSI,
+            clock_source: RtcClockSource::LSI,
             async_prescaler: 127,
             sync_prescaler: 255,
         }
@@ -91,8 +87,8 @@ impl Default for RtcConfig {
 
 impl RtcConfig {
     /// Sets the clock source of RTC config
-    pub fn clock_config(mut self, cfg: RtcClockSource) -> Self {
-        self.clock_config = cfg;
+    pub fn clock_source(mut self, clock_source: RtcClockSource) -> Self {
+        self.clock_source = clock_source;
         self
     }
 
@@ -135,7 +131,10 @@ impl<'d, T: Instance> Rtc<'d, T> {
             rtc_config,
         };
 
-        rtc_struct.apply_config(rtc_config);
+        Self::enable(rtc_config.clock_source);
+
+        rtc_struct.configure(rtc_config);
+        rtc_struct.rtc_config = rtc_config;
 
         rtc_struct
     }

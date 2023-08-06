@@ -1,15 +1,10 @@
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
-use super::{sealed, Instance, RtcConfig};
+use super::{sealed, Instance, RtcClockSource, RtcConfig};
 use crate::pac::rtc::Rtc;
 
 impl<'d, T: Instance> super::Rtc<'d, T> {
-    /// Applies the RTC config
-    /// It this changes the RTC clock source the time will be reset
-    pub(super) fn apply_config(&mut self, rtc_config: RtcConfig) {
-        // Unlock the backup domain
-        let clock_config = rtc_config.clock_config as u8;
-
+    pub(super) fn enable(clock_source: RtcClockSource) {
         #[cfg(not(rtc_v2wb))]
         use stm32_metapac::rcc::vals::Rtcsel;
 
@@ -38,7 +33,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
         #[cfg(not(rtc_v2wb))]
         let rtcsel = reg.rtcsel().to_bits();
 
-        if !reg.rtcen() || rtcsel != clock_config {
+        if !reg.rtcen() || rtcsel != clock_source as u8 {
             #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
             crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
             #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
@@ -53,9 +48,9 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
 
                 // Select RTC source
                 #[cfg(not(rtc_v2wb))]
-                w.set_rtcsel(Rtcsel::from_bits(clock_config));
+                w.set_rtcsel(Rtcsel::from_bits(clock_source as u8));
                 #[cfg(rtc_v2wb)]
-                w.set_rtcsel(clock_config);
+                w.set_rtcsel(clock_source as u8);
                 w.set_rtcen(true);
 
                 // Restore bcdr
@@ -71,7 +66,11 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 w.set_lsebyp(reg.lsebyp());
             });
         }
+    }
 
+    /// Applies the RTC config
+    /// It this changes the RTC clock source the time will be reset
+    pub(super) fn configure(&mut self, rtc_config: RtcConfig) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 #[cfg(rtc_v2f2)]
@@ -87,8 +86,6 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
                 w.set_prediv_a(rtc_config.async_prescaler);
             });
         });
-
-        self.rtc_config = rtc_config;
     }
 
     /// Calibrate the clock drift.
