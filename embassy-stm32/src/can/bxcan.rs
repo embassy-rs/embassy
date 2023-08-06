@@ -271,7 +271,7 @@ impl<'d, T: Instance> Can<'d, T> {
             } else {
                 let stid = (rir.stid() & 0x7FF) as u32;
                 let exid = rir.exid() & 0x3FFFF;
-                let id = (stid << 18) | (exid as u32);
+                let id = (stid << 18) | (exid);
                 Id::from(ExtendedId::new_unchecked(id))
             };
             let data_len = fifo.rdtr().read().dlc() as usize;
@@ -383,7 +383,7 @@ impl<'d, T: Instance> Can<'d, T> {
         let sjw = 1;
 
         // Pack into BTR register values
-        Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler as u32 - 1))
+        Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler - 1))
     }
 
     pub fn split<'c>(&'c self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {

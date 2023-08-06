@@ -21,19 +21,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 #[non_exhaustive]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct Config {
     pub sda_pullup: bool,
     pub scl_pullup: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            sda_pullup: false,
-            scl_pullup: false,
-        }
-    }
 }
 
 pub struct State {}
@@ -90,7 +81,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             //reg.set_anfoff(false);
         });
 
-        let timings = Timings::new(T::frequency(), freq.into());
+        let timings = Timings::new(T::frequency(), freq);
 
         T::regs().cr2().modify(|reg| {
             reg.set_freq(timings.freq);
@@ -461,7 +452,7 @@ impl Timings {
         let speed = speed.0;
         let clock = i2cclk.0;
         let freq = clock / 1_000_000;
-        assert!(freq >= 2 && freq <= 50);
+        assert!((2..=50).contains(&freq));
 
         // Configure bus frequency into I2C peripheral
         let trise = if speed <= 100_000 {

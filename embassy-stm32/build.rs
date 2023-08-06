@@ -126,7 +126,7 @@ fn main() {
         _ => panic!("unknown time_driver {:?}", time_driver),
     };
 
-    if time_driver_singleton != "" {
+    if !time_driver_singleton.is_empty() {
         println!("cargo:rustc-cfg=time_driver_{}", time_driver_singleton.to_lowercase());
     }
 
@@ -634,7 +634,7 @@ fn main() {
                             || regs.version.starts_with("h7")
                             || regs.version.starts_with("f4")
                         {
-                            peri = format_ident!("{}", pin.signal.replace("_", ""));
+                            peri = format_ident!("{}", pin.signal.replace('_', ""));
                         } else {
                             continue;
                         }
@@ -774,10 +774,11 @@ fn main() {
         .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
     {
         let settings = m.settings.as_ref().unwrap();
-        let mut row = Vec::new();
-        row.push(get_flash_region_type_name(m.name));
-        row.push(settings.write_size.to_string());
-        row.push(settings.erase_size.to_string());
+        let row = vec![
+            get_flash_region_type_name(m.name),
+            settings.write_size.to_string(),
+            settings.erase_size.to_string(),
+        ];
         flash_regions_table.push(row);
     }
 
@@ -787,7 +788,7 @@ fn main() {
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             if regs.kind == "gpio" {
-                let port_letter = p.name.chars().skip(4).next().unwrap();
+                let port_letter = p.name.chars().nth(4).unwrap();
                 assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
                 let port_num = (p.address as u32 - gpio_base) / gpio_stride;
 
@@ -804,18 +805,17 @@ fn main() {
             }
 
             for irq in p.interrupts {
-                let mut row = Vec::new();
-                row.push(p.name.to_string());
-                row.push(regs.kind.to_string());
-                row.push(regs.block.to_string());
-                row.push(irq.signal.to_string());
-                row.push(irq.interrupt.to_ascii_uppercase());
+                let row = vec![
+                    p.name.to_string(),
+                    regs.kind.to_string(),
+                    regs.block.to_string(),
+                    irq.signal.to_string(),
+                    irq.interrupt.to_ascii_uppercase(),
+                ];
                 interrupts_table.push(row)
             }
 
-            let mut row = Vec::new();
-            row.push(regs.kind.to_string());
-            row.push(p.name.to_string());
+            let row = vec![regs.kind.to_string(), p.name.to_string()];
             peripherals_table.push(row);
         }
     }
@@ -975,7 +975,7 @@ macro_rules! {} {{
     .unwrap();
 
     for row in data {
-        write!(out, "        __{}_inner!(({}));\n", name, row.join(",")).unwrap();
+        writeln!(out, "        __{}_inner!(({}));", name, row.join(",")).unwrap();
     }
 
     write!(
@@ -999,5 +999,5 @@ fn get_flash_region_type_name(name: &str) -> String {
     get_flash_region_name(name)
         .replace("BANK", "Bank")
         .replace("REGION", "Region")
-        .replace("_", "")
+        .replace('_', "")
 }

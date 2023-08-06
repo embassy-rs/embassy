@@ -147,7 +147,7 @@ pub(super) unsafe fn erase_sector_unlocked(sector: &FlashSector) -> Result<(), E
 
     let _on_drop = OnDrop::new(|| family::lock());
 
-    family::blocking_erase_sector(&sector)
+    family::blocking_erase_sector(sector)
 }
 
 pub(super) unsafe fn erase_sector_with_critical_section(sector: &FlashSector) -> Result<(), Error> {
