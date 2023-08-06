@@ -31,6 +31,8 @@ register!(PHCON2, 0, u16, {
 
 register!(PHSTAT2, 0, u16, {
     // Datasheet says it's bit 10, but it's actually bit 2 ?!?!
-    #[doc = "Link Status bit"]
-    lstat @ 2,
+    #[doc = "Link Status bit (10)"]
+    lstat10 @ 10,
+    #[doc = "Link Status bit (2, errata)"]
+    lstat2 @ 2,
 });

@@ -302,7 +302,8 @@ where
 
     pub fn is_link_up(&mut self) -> bool {
         let bits = self.read_phy_register(phy::Register::PHSTAT2);
-        phy::PHSTAT2(bits).lstat() == 1
+        let bits = phy::PHSTAT2(bits);
+        bits.lstat2() == 1 || bits.lstat10() == 1
     }
 
     /// Returns the interface Maximum Transmission Unit (MTU)
