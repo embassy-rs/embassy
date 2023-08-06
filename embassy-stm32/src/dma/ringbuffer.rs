@@ -356,7 +356,7 @@ mod tests {
         pub fn new(len: usize) -> Self {
             Self {
                 requests: cell::RefCell::new(vec![]),
-                len: len,
+                len,
             }
         }
 

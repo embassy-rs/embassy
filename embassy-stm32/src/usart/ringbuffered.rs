@@ -19,7 +19,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
     /// without the possibility of loosing bytes. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be sufficiently large, such that it will not overflow.
     pub fn into_ring_buffered(self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d, T, RxDma> {
-        assert!(dma_buf.len() > 0 && dma_buf.len() <= 0xFFFF);
+        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
         let request = self.rx_dma.request();
         let opts = Default::default();
@@ -111,10 +111,9 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         let r = T::regs();
 
         // Start background receive if it was not already started
-        match r.cr3().read().dmar() {
-            false => self.start()?,
-            _ => {}
-        };
+        if !r.cr3().read().dmar() {
+            self.start()?;
+        }
 
         check_for_errors(clear_idle_flag(T::regs()))?;
 

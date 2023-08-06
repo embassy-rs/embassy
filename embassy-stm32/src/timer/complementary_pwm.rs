@@ -186,9 +186,8 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
             error = this_error;
         }
 
-        match error {
-            0 => break,
-            _ => {}
+        if error == 0 {
+            break;
         }
     }
 

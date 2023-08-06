@@ -116,6 +116,7 @@ macro_rules! impl_peripheral {
 
             #[inline]
             unsafe fn clone_unchecked(&self) -> Self::P {
+                #[allow(clippy::needless_update)]
                 $type { ..*self }
             }
         }

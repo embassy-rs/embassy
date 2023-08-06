@@ -223,7 +223,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let pclk = T::frequency();
         let freq = config.frequency;
-        let br = compute_baud_rate(pclk, freq.into());
+        let br = compute_baud_rate(pclk, freq);
 
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
@@ -331,7 +331,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let pclk = T::frequency();
         let freq = config.frequency;
-        let br = compute_baud_rate(pclk, freq.into());
+        let br = compute_baud_rate(pclk, freq);
 
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         T::REGS.cr1().modify(|w| {
@@ -447,7 +447,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     where
         Tx: TxDma<T>,
     {
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -481,7 +481,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Tx: TxDma<T>,
         Rx: RxDma<T>,
     {
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -843,7 +843,7 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_rx_ready(regs)?;
 
     let rx_word = unsafe { ptr::read_volatile(regs.rx_ptr()) };
-    return Ok(rx_word);
+    Ok(rx_word)
 }
 
 mod eh02 {
@@ -978,7 +978,7 @@ mod word_impl {
     impl_word!(u16, vals::Dff::SIXTEENBIT);
 }
 
-#[cfg(any(spi_v2))]
+#[cfg(spi_v2)]
 mod word_impl {
     use super::*;
 
