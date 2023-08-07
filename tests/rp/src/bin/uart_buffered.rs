@@ -11,7 +11,7 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config, Error, Instance, Parity};
 use embassy_time::{Duration, Timer};
-use embedded_io::asynch::{Read, ReadExactError, Write};
+use embedded_io_async::{Read, ReadExactError, Write};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

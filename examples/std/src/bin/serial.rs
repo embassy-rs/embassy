@@ -5,7 +5,7 @@ mod serial_port;
 
 use async_io::Async;
 use embassy_executor::Executor;
-use embedded_io::asynch::Read;
+use embedded_io_async::Read;
 use log::*;
 use nix::sys::termios;
 use static_cell::StaticCell;
@@ -29,7 +29,7 @@ async fn run() {
     //
     // This is not really needed, you could write the code below using futures::io directly.
     // It's useful if you want to have portable code across embedded and std.
-    let mut port = embedded_io::adapters::FromFutures::new(port);
+    let mut port = embedded_io_adapters::futures_03::FromFutures::new(port);
 
     info!("Serial opened!");
 

@@ -37,7 +37,7 @@ embassy-net = { version = "0.1.0", path = "../../embassy-net", features = [
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = [
     "defmt",
 ] }
-embedded-io = { version = "0.4.0", features = [ "async" ]}
+embedded-io-async = { version = "0.5.0" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"

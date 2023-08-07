@@ -13,7 +13,7 @@ use embassy_stm32::{bind_interrupts, peripherals, rng, usb, Config};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
-use embedded_io::asynch::Write;
+use embedded_io_async::Write;
 use rand_core::RngCore;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};

@@ -14,7 +14,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config};
 use embassy_time::{Duration, Timer};
-use embedded_io::asynch::{Read, Write};
+use embedded_io_async::{Read, Write};
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
 
