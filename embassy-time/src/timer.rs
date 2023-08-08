@@ -3,6 +3,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll, Waker};
 
 use futures_util::future::{select, Either};
+use futures_util::stream::FusedStream;
 use futures_util::{pin_mut, Stream};
 
 use crate::{Duration, Instant};
@@ -160,6 +161,13 @@ impl Stream for Ticker {
             schedule_wake(self.expires_at, cx.waker());
             Poll::Pending
         }
+    }
+}
+
+impl FusedStream for Ticker {
+    fn is_terminated(&self) -> bool {
+        // `Ticker` keeps yielding values until dropped, it never terminates.
+        false
     }
 }
 
