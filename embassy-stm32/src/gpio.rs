@@ -351,6 +351,10 @@ impl From<Level> for bool {
 }
 
 /// GPIO output driver.
+///
+/// Note that pins will **return to their floating state** when `Output` is dropped.
+/// If pins should retain their state indefinitely, either keep ownership of the
+/// `Output`, or pass it to [`core::mem::forget`].
 pub struct Output<'d, T: Pin> {
     pub(crate) pin: Flex<'d, T>,
 }
@@ -418,6 +422,10 @@ impl<'d, T: Pin> Output<'d, T> {
 }
 
 /// GPIO output open-drain driver.
+///
+/// Note that pins will **return to their floating state** when `OutputOpenDrain` is dropped.
+/// If pins should retain their state indefinitely, either keep ownership of the
+/// `OutputOpenDrain`, or pass it to [`core::mem::forget`].
 pub struct OutputOpenDrain<'d, T: Pin> {
     pub(crate) pin: Flex<'d, T>,
 }
