@@ -11,7 +11,6 @@ use crate::ring_buffer::RingBuffer;
 use crate::waitqueue::WakerRegistration;
 
 /// Write-only access to a [`Pipe`].
-#[derive(Copy)]
 pub struct Writer<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -27,6 +26,8 @@ where
         Writer { pipe: self.pipe }
     }
 }
+
+impl<'p, M, const N: usize> Copy for Writer<'p, M, N> where M: RawMutex {}
 
 impl<'p, M, const N: usize> Writer<'p, M, N>
 where
@@ -74,7 +75,6 @@ where
 impl<'p, M, const N: usize> Unpin for WriteFuture<'p, M, N> where M: RawMutex {}
 
 /// Read-only access to a [`Pipe`].
-#[derive(Copy)]
 pub struct Reader<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -90,6 +90,8 @@ where
         Reader { pipe: self.pipe }
     }
 }
+
+impl<'p, M, const N: usize> Copy for Reader<'p, M, N> where M: RawMutex {}
 
 impl<'p, M, const N: usize> Reader<'p, M, N>
 where

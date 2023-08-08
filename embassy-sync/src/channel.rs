@@ -30,7 +30,6 @@ use crate::blocking_mutex::Mutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`Channel`].
-#[derive(Copy)]
 pub struct Sender<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -46,6 +45,8 @@ where
         Sender { channel: self.channel }
     }
 }
+
+impl<'ch, M, T, const N: usize> Copy for Sender<'ch, M, T, N> where M: RawMutex {}
 
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
 where
@@ -67,7 +68,6 @@ where
 }
 
 /// Send-only access to a [`Channel`] without knowing channel size.
-#[derive(Copy)]
 pub struct DynamicSender<'ch, T> {
     channel: &'ch dyn DynamicChannel<T>,
 }
@@ -77,6 +77,8 @@ impl<'ch, T> Clone for DynamicSender<'ch, T> {
         DynamicSender { channel: self.channel }
     }
 }
+
+impl<'ch, T> Copy for DynamicSender<'ch, T> {}
 
 impl<'ch, M, T, const N: usize> From<Sender<'ch, M, T, N>> for DynamicSender<'ch, T>
 where
@@ -107,7 +109,6 @@ impl<'ch, T> DynamicSender<'ch, T> {
 }
 
 /// Receive-only access to a [`Channel`].
-#[derive(Copy)]
 pub struct Receiver<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -123,6 +124,8 @@ where
         Receiver { channel: self.channel }
     }
 }
+
+impl<'ch, M, T, const N: usize> Copy for Receiver<'ch, M, T, N> where M: RawMutex {}
 
 impl<'ch, M, T, const N: usize> Receiver<'ch, M, T, N>
 where
@@ -144,7 +147,6 @@ where
 }
 
 /// Receive-only access to a [`Channel`] without knowing channel size.
-#[derive(Copy)]
 pub struct DynamicReceiver<'ch, T> {
     channel: &'ch dyn DynamicChannel<T>,
 }
@@ -154,6 +156,8 @@ impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
         DynamicReceiver { channel: self.channel }
     }
 }
+
+impl<'ch, T> Copy for DynamicReceiver<'ch, T> {}
 
 impl<'ch, T> DynamicReceiver<'ch, T> {
     /// Receive the next value.
