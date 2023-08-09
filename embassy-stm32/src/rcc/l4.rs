@@ -10,6 +10,7 @@ use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
+use crate::rtc::{Rtc, RtcClockSource as RCS};
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
@@ -426,6 +427,8 @@ pub(crate) unsafe fn init(config: Config) {
 
             // Wait until LSE is running
             while !RCC.bdcr().read().lserdy() {}
+
+            Rtc::set_clock_source(RCS::LSE);
         }
         RtcClockSource::LSI32 => {
             // Turn on the internal 32 kHz LSI oscillator
@@ -433,6 +436,8 @@ pub(crate) unsafe fn init(config: Config) {
 
             // Wait until LSI is running
             while !RCC.csr().read().lsirdy() {}
+
+            Rtc::set_clock_source(RCS::LSI);
         }
     }
 
