@@ -3,7 +3,7 @@
 #![cfg_attr(feature = "mac", feature(type_alias_impl_trait, concat_bytes))]
 
 // This must go FIRST so that all the other modules see its macros.
-pub mod fmt;
+mod fmt;
 
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
