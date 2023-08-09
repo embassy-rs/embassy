@@ -65,6 +65,13 @@ where
     pub fn try_send(&self, message: T) -> Result<(), TrySendError<T>> {
         self.channel.try_send(message)
     }
+
+    /// Allows a poll_fn to poll until the channel is ready to send
+    ///
+    /// See [`Channel::poll_ready_to_send()`]
+    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+        self.channel.poll_ready_to_send(cx)
+    }
 }
 
 /// Send-only access to a [`Channel`] without knowing channel size.
@@ -106,6 +113,13 @@ impl<'ch, T> DynamicSender<'ch, T> {
     pub fn try_send(&self, message: T) -> Result<(), TrySendError<T>> {
         self.channel.try_send_with_context(message, None)
     }
+
+    /// Allows a poll_fn to poll until the channel is ready to send
+    ///
+    /// See [`Channel::poll_ready_to_send()`]
+    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+        self.channel.poll_ready_to_send(cx)
+    }
 }
 
 /// Receive-only access to a [`Channel`].
@@ -144,6 +158,13 @@ where
     pub fn try_recv(&self) -> Result<T, TryRecvError> {
         self.channel.try_recv()
     }
+
+    /// Allows a poll_fn to poll until the channel is ready to receive
+    ///
+    /// See [`Channel::poll_ready_to_receive()`]
+    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+        self.channel.poll_ready_to_receive(cx)
+    }
 }
 
 /// Receive-only access to a [`Channel`] without knowing channel size.
@@ -172,6 +193,13 @@ impl<'ch, T> DynamicReceiver<'ch, T> {
     /// See [`Channel::try_recv()`]
     pub fn try_recv(&self) -> Result<T, TryRecvError> {
         self.channel.try_recv_with_context(None)
+    }
+
+    /// Allows a poll_fn to poll until the channel is ready to receive
+    ///
+    /// See [`Channel::poll_ready_to_receive()`]
+    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+        self.channel.poll_ready_to_receive(cx)
     }
 }
 
@@ -286,6 +314,9 @@ trait DynamicChannel<T> {
     fn try_send_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>>;
 
     fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError>;
+
+    fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool;
+    fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool;
 }
 
 /// Error returned by [`try_recv`](Channel::try_recv).
@@ -491,6 +522,14 @@ where
 
     fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError> {
         Channel::try_recv_with_context(self, cx)
+    }
+
+    fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+        Channel::poll_ready_to_send(self, cx)
+    }
+
+    fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+        Channel::poll_ready_to_receive(self, cx)
     }
 }
 
