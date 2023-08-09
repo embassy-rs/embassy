@@ -9,6 +9,7 @@ use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
+use crate::rtc::{Rtc, RtcClockSource};
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
@@ -33,6 +34,7 @@ pub struct Config {
     pub plli2s: Option<Hertz>,
 
     pub pll48: bool,
+    pub rtc: Option<RtcClockSource>,
 }
 
 #[cfg(stm32f410)]
@@ -457,6 +459,18 @@ pub(crate) unsafe fn init(config: Config) {
         } else {
             Sw::HSI
         })
+    });
+
+    match config.rtc {
+        Some(RtcClockSource::LSI) => {
+            RCC.csr().modify(|w| w.set_lsion(true));
+            while !RCC.csr().read().lsirdy() {}
+        }
+        _ => {}
+    }
+
+    config.rtc.map(|clock_source| {
+        Rtc::set_clock_source(clock_source);
     });
 
     set_freqs(Clocks {
