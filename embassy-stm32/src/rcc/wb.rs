@@ -1,6 +1,6 @@
 pub use super::common::{AHBPrescaler, APBPrescaler};
 use crate::rcc::Clocks;
-use crate::rtc::{enable as enable_rtc, RtcClockSource};
+use crate::rtc::{Rtc, RtcClockSource};
 use crate::time::{khz, mhz, Hertz};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
@@ -375,5 +375,5 @@ pub(crate) fn configure_clocks(config: &Config) {
         w.set_shdhpre(config.ahb3_pre.into());
     });
 
-    config.rtc.map(|clock_source| enable_rtc(clock_source));
+    config.rtc.map(|clock_source| Rtc::set_clock_source(clock_source));
 }

@@ -1,5 +1,4 @@
 //! RTC peripheral abstraction
-use core::marker::PhantomData;
 mod datetime;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
@@ -17,6 +16,9 @@ mod _version;
 pub use _version::*;
 use embassy_hal_internal::Peripheral;
 
+use crate::peripherals::RTC;
+use crate::rtc::sealed::Instance;
+
 /// Errors that can occur on methods on [RtcClock]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RtcError {
@@ -28,20 +30,8 @@ pub enum RtcError {
 }
 
 /// RTC Abstraction
-pub struct Rtc<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+pub struct Rtc {
     rtc_config: RtcConfig,
-}
-
-#[allow(dead_code)]
-pub(crate) fn enable(clock_source: RtcClockSource) {
-    Rtc::<crate::peripherals::RTC>::enable(clock_source);
-}
-
-#[cfg(feature = "time")]
-#[allow(dead_code)]
-pub(crate) fn set_wakeup_timer(_duration: embassy_time::Duration) {
-    todo!()
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -59,8 +49,6 @@ pub enum RtcClockSource {
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct RtcConfig {
-    /// RTC clock source
-    clock_source: RtcClockSource,
     /// Asynchronous prescaler factor
     /// This is the asynchronous division factor:
     /// ck_apre frequency = RTCCLK frequency/(PREDIV_A+1)
@@ -78,7 +66,6 @@ impl Default for RtcConfig {
     /// Raw sub-seconds in 1/256.
     fn default() -> Self {
         RtcConfig {
-            clock_source: RtcClockSource::LSI,
             async_prescaler: 127,
             sync_prescaler: 255,
         }
@@ -86,12 +73,6 @@ impl Default for RtcConfig {
 }
 
 impl RtcConfig {
-    /// Sets the clock source of RTC config
-    pub fn clock_source(mut self, clock_source: RtcClockSource) -> Self {
-        self.clock_source = clock_source;
-        self
-    }
-
     /// Set the asynchronous prescaler of RTC config
     pub fn async_prescaler(mut self, prescaler: u8) -> Self {
         self.async_prescaler = prescaler;
@@ -122,16 +103,13 @@ impl Default for RtcCalibrationCyclePeriod {
     }
 }
 
-impl<'d, T: Instance> Rtc<'d, T> {
-    pub fn new(_rtc: impl Peripheral<P = T> + 'd, rtc_config: RtcConfig) -> Self {
-        T::enable_peripheral_clk();
+impl Rtc {
+    pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
+        RTC::enable_peripheral_clk();
 
-        let mut rtc_struct = Self {
-            phantom: PhantomData,
-            rtc_config,
-        };
+        let mut rtc_struct = Self { rtc_config };
 
-        Self::enable(rtc_config.clock_source);
+        Self::enable();
 
         rtc_struct.configure(rtc_config);
         rtc_struct.rtc_config = rtc_config;
@@ -157,7 +135,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
     ///
     /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        let r = T::regs();
+        let r = RTC::regs();
         let tr = r.tr().read();
         let second = bcd2_to_byte((tr.st(), tr.su()));
         let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
@@ -176,7 +154,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
 
     /// Check if daylight savings time is active.
     pub fn get_daylight_savings(&self) -> bool {
-        let cr = T::regs().cr().read();
+        let cr = RTC::regs().cr().read();
         cr.bkp()
     }
 
@@ -191,14 +169,14 @@ impl<'d, T: Instance> Rtc<'d, T> {
         self.rtc_config
     }
 
-    pub const BACKUP_REGISTER_COUNT: usize = T::BACKUP_REGISTER_COUNT;
+    pub const BACKUP_REGISTER_COUNT: usize = RTC::BACKUP_REGISTER_COUNT;
 
     /// Read content of the backup register.
     ///
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
     pub fn read_backup_register(&self, register: usize) -> Option<u32> {
-        T::read_backup_register(&T::regs(), register)
+        RTC::read_backup_register(&RTC::regs(), register)
     }
 
     /// Set content of the backup register.
@@ -206,7 +184,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
     /// The registers retain their values during wakes from standby mode or system resets. They also
     /// retain their value when Vdd is switched off as long as V_BAT is powered.
     pub fn write_backup_register(&self, register: usize, value: u32) {
-        T::write_backup_register(&T::regs(), register, value)
+        RTC::write_backup_register(&RTC::regs(), register, value)
     }
 }
 
@@ -257,5 +235,3 @@ pub(crate) mod sealed {
         // fn apply_config(&mut self, rtc_config: RtcConfig);
     }
 }
-
-pub trait Instance: sealed::Instance + 'static {}

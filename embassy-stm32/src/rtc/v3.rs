@@ -1,42 +1,62 @@
 use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Init, Key, Osel, Pol, TampalrmPu, TampalrmType};
 
-use super::{sealed, Instance, RtcCalibrationCyclePeriod, RtcClockSource, RtcConfig};
+use super::{sealed, RtcCalibrationCyclePeriod, RtcClockSource, RtcConfig};
 use crate::pac::rtc::Rtc;
+use crate::peripherals::RTC;
+use crate::rtc::sealed::Instance;
 
-impl<'d, T: Instance> super::Rtc<'d, T> {
-    pub(super) fn enable(clock_source: RtcClockSource) {
+impl super::Rtc {
+    fn unlock_registers() {
         // Unlock the backup domain
         #[cfg(not(any(rtc_v3u5, rcc_wl5, rcc_wle)))]
         {
-            crate::pac::PWR.cr1().modify(|w| w.set_dbp(true));
-            while !crate::pac::PWR.cr1().read().dbp() {}
+            if !crate::pac::PWR.cr1().read().dbp() {
+                crate::pac::PWR.cr1().modify(|w| w.set_dbp(true));
+                while !crate::pac::PWR.cr1().read().dbp() {}
+            }
         }
         #[cfg(any(rcc_wl5, rcc_wle))]
         {
             use crate::pac::pwr::vals::Dbp;
 
-            crate::pac::PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
-            while crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {}
+            if crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {
+                crate::pac::PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
+                while crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {}
+            }
         }
+    }
 
-        let reg = crate::pac::RCC.bdcr().read();
-        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
+    #[allow(dead_code)]
+    pub(crate) fn set_clock_source(clock_source: RtcClockSource) {
         let clock_source = clock_source as u8;
         #[cfg(not(any(rcc_wl5, rcc_wle)))]
         let clock_source = crate::pac::rcc::vals::Rtcsel::from_bits(clock_source);
 
-        if !reg.rtcen() || reg.rtcsel() != clock_source {
-            crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
+        Self::unlock_registers();
 
-            crate::pac::RCC.bdcr().modify(|w| {
+        crate::pac::RCC.bdcr().modify(|w| {
+            // Select RTC source
+            w.set_rtcsel(clock_source);
+        });
+    }
+
+    pub(super) fn enable() {
+        let bdcr = crate::pac::RCC.bdcr();
+
+        let reg = bdcr.read();
+        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
+
+        if !reg.rtcen() {
+            Self::unlock_registers();
+
+            bdcr.modify(|w| w.set_bdrst(true));
+
+            bdcr.modify(|w| {
                 // Reset
                 w.set_bdrst(false);
 
-                // Select RTC source
-                w.set_rtcsel(clock_source);
-
                 w.set_rtcen(true);
+                w.set_rtcsel(reg.rtcsel());
 
                 // Restore bcdr
                 w.set_lscosel(reg.lscosel());
@@ -141,7 +161,7 @@ impl<'d, T: Instance> super::Rtc<'d, T> {
     where
         F: FnOnce(&crate::pac::rtc::Rtc) -> R,
     {
-        let r = T::regs();
+        let r = RTC::regs();
         // Disable write protection.
         // This is safe, as we're only writin the correct and expected values.
         r.wpr().write(|w| w.set_key(Key::DEACTIVATE1));
@@ -188,5 +208,3 @@ impl sealed::Instance for crate::peripherals::RTC {
         }
     }
 }
-
-impl Instance for crate::peripherals::RTC {}

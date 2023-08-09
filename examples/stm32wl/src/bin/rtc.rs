@@ -27,10 +27,7 @@ async fn main(_spawner: Spawner) {
         .and_hms_opt(10, 30, 15)
         .unwrap();
 
-    let mut rtc = Rtc::new(
-        p.RTC,
-        RtcConfig::default().clock_source(embassy_stm32::rtc::RtcClockSource::LSE),
-    );
+    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
     info!("Got RTC! {:?}", now.timestamp());
 
     rtc.set_datetime(now.into()).expect("datetime not set");
