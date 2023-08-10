@@ -5,6 +5,69 @@ use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
 
+#[derive(Clone, Copy)]
+pub(crate) enum WakeupPrescaler {
+    Div2,
+    Div4,
+    Div8,
+    Div16,
+}
+
+#[cfg(stm32wb)]
+impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
+    fn from(val: WakeupPrescaler) -> Self {
+        use crate::pac::rtc::vals::Wucksel;
+
+        match val {
+            WakeupPrescaler::Div2 => Wucksel::DIV2,
+            WakeupPrescaler::Div4 => Wucksel::DIV4,
+            WakeupPrescaler::Div8 => Wucksel::DIV8,
+            WakeupPrescaler::Div16 => Wucksel::DIV16,
+        }
+    }
+}
+
+#[cfg(stm32wb)]
+impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
+    fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
+        use crate::pac::rtc::vals::Wucksel;
+
+        match val {
+            Wucksel::DIV2 => WakeupPrescaler::Div2,
+            Wucksel::DIV4 => WakeupPrescaler::Div4,
+            Wucksel::DIV8 => WakeupPrescaler::Div8,
+            Wucksel::DIV16 => WakeupPrescaler::Div16,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl From<WakeupPrescaler> for u32 {
+    fn from(val: WakeupPrescaler) -> Self {
+        match val {
+            WakeupPrescaler::Div2 => 2,
+            WakeupPrescaler::Div4 => 4,
+            WakeupPrescaler::Div8 => 8,
+            WakeupPrescaler::Div16 => 16,
+        }
+    }
+}
+
+impl WakeupPrescaler {
+    pub fn compute_min(val: u32) -> Self {
+        *[
+            WakeupPrescaler::Div2,
+            WakeupPrescaler::Div4,
+            WakeupPrescaler::Div8,
+            WakeupPrescaler::Div16,
+        ]
+        .iter()
+        .skip_while(|psc| <WakeupPrescaler as Into<u32>>::into(**psc) <= val)
+        .next()
+        .unwrap_or(&WakeupPrescaler::Div16)
+    }
+}
+
 impl super::Rtc {
     fn unlock_registers() {
         #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
@@ -24,44 +87,45 @@ impl super::Rtc {
 
     #[allow(dead_code)]
     #[cfg(all(feature = "time", stm32wb))]
-    // start the wakeup alarm with the given duration
-    pub(crate) fn start_wakeup_alarm(duration: embassy_time::Duration) {
-        use embassy_time::TICK_HZ;
-        use stm32_metapac::rtc::vals::Wucksel;
+    /// start the wakeup alarm and return the actual duration of the alarm
+    /// the actual duration will be the closest value possible that is less
+    /// than the requested duration.
+    pub(crate) fn start_wakeup_alarm(requested_duration: embassy_time::Duration) -> embassy_time::Duration {
+        use embassy_time::{Duration, TICK_HZ};
 
         use crate::interrupt::typelevel::Interrupt;
         use crate::rcc::get_freqs;
 
         let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
 
-        // Choose the lowest prescaler available
-        #[cfg(stm32wb)]
-        let rtc_hz = rtc_hz / 2;
+        let rtc_ticks = requested_duration.as_ticks() * rtc_hz / TICK_HZ;
+        let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
-        let rtc_ticks = duration.as_ticks() * rtc_hz / TICK_HZ;
+        // adjust the rtc ticks to the prescaler
+        let rtc_ticks = rtc_ticks / (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64);
         let rtc_ticks = if rtc_ticks > u16::MAX as u64 {
             u16::MAX
         } else {
             rtc_ticks as u16
         };
 
-        while !RTC::regs().isr().read().wutf() {}
-
-        RTC::regs().isr().modify(|w| w.set_wutf(false));
-
-        RTC::regs().wutr().modify(|w| w.set_wut(rtc_ticks));
+        let duration = Duration::from_ticks(
+            rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
+        );
 
         crate::interrupt::typelevel::RTC_WKUP::unpend();
         unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
 
+        RTC::regs().wutr().modify(|w| w.set_wut(rtc_ticks));
+
         RTC::regs().cr().modify(|w| {
-            // Choose the lowest prescaler available
-            #[cfg(stm32wb)]
-            w.set_wucksel(Wucksel::DIV2);
+            w.set_wucksel(prescaler.into());
 
             w.set_wutie(true);
             w.set_wute(true);
         });
+
+        duration
     }
 
     #[allow(dead_code)]
