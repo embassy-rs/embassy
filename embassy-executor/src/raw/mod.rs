@@ -409,7 +409,7 @@ impl SyncExecutor {
         #[allow(clippy::never_loop)]
         loop {
             #[cfg(feature = "integrated-timers")]
-            self.timer_queue.dequeue_expired(Instant::now(), |task| wake_task(task));
+            self.timer_queue.dequeue_expired(Instant::now(), wake_task_no_pend);
 
             self.run_queue.dequeue_all(|p| {
                 let task = p.header();
@@ -569,6 +569,31 @@ pub fn wake_task(task: TaskRef) {
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
             executor.enqueue(task);
+        }
+    }
+}
+
+/// Wake a task by `TaskRef` without calling pend.
+///
+/// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
+pub fn wake_task_no_pend(task: TaskRef) {
+    let header = task.header();
+
+    let res = header.state.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
+        // If already scheduled, or if not started,
+        if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
+            None
+        } else {
+            // Mark it as scheduled
+            Some(state | STATE_RUN_QUEUED)
+        }
+    });
+
+    if res.is_ok() {
+        // We have just marked the task as scheduled, so enqueue it.
+        unsafe {
+            let executor = header.executor.get().unwrap_unchecked();
+            executor.run_queue.enqueue(task);
         }
     }
 }
