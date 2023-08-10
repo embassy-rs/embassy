@@ -23,6 +23,73 @@ impl super::Rtc {
     }
 
     #[allow(dead_code)]
+    #[cfg(all(feature = "time", stm32wb))]
+    // start the wakeup alarm with the given duration
+    pub(crate) fn start_wakeup_alarm(duration: embassy_time::Duration) {
+        use embassy_time::TICK_HZ;
+        use stm32_metapac::rtc::vals::Wucksel;
+
+        use crate::interrupt::typelevel::Interrupt;
+        use crate::rcc::get_freqs;
+
+        let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
+
+        // Choose the lowest prescaler available
+        #[cfg(stm32wb)]
+        let rtc_hz = rtc_hz / 2;
+
+        let rtc_ticks = duration.as_ticks() * rtc_hz / TICK_HZ;
+        let rtc_ticks = if rtc_ticks > u16::MAX as u64 {
+            u16::MAX
+        } else {
+            rtc_ticks as u16
+        };
+
+        while !RTC::regs().isr().read().wutf() {}
+
+        RTC::regs().isr().modify(|w| w.set_wutf(false));
+
+        RTC::regs().wutr().modify(|w| w.set_wut(rtc_ticks));
+
+        crate::interrupt::typelevel::RTC_WKUP::unpend();
+        unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
+
+        RTC::regs().cr().modify(|w| {
+            // Choose the lowest prescaler available
+            #[cfg(stm32wb)]
+            w.set_wucksel(Wucksel::DIV2);
+
+            w.set_wutie(true);
+            w.set_wute(true);
+        });
+    }
+
+    #[allow(dead_code)]
+    #[cfg(all(feature = "time", stm32wb))]
+    // stop the wakeup alarm and return the time remaining
+    pub(crate) fn stop_wakeup_alarm() -> embassy_time::Duration {
+        use embassy_time::{Duration, TICK_HZ};
+
+        use crate::interrupt::typelevel::Interrupt;
+        use crate::rcc::get_freqs;
+
+        crate::interrupt::typelevel::RTC_WKUP::disable();
+
+        RTC::regs().cr().modify(|w| {
+            w.set_wute(false);
+        });
+
+        let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
+
+        // Choose the lowest prescaler available
+        #[cfg(stm32wb)]
+        let rtc_hz = rtc_hz / 2;
+        let rtc_ticks = RTC::regs().wutr().read().wut();
+
+        Duration::from_ticks(rtc_ticks as u64 * TICK_HZ / rtc_hz)
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn set_clock_source(clock_source: RtcClockSource) {
         #[cfg(not(rtc_v2wb))]
         use stm32_metapac::rcc::vals::Rtcsel;
