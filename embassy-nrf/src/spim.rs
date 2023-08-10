@@ -378,6 +378,9 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
         gpio::deconfigure_pin(r.psel.miso.read().bits());
         gpio::deconfigure_pin(r.psel.mosi.read().bits());
 
+        // Disable all events interrupts
+        T::Interrupt::disable();
+
         trace!("spim drop: done");
     }
 }
