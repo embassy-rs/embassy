@@ -73,15 +73,20 @@ impl<'d, T: Instance> Rng<'d, T> {
     #[cfg(not(rng_v1))]
     pub fn reset(&mut self) {
         T::regs().cr().write(|reg| {
-            reg.set_rngen(false);
             reg.set_condrst(true);
+            reg.set_nistc(pac::rng::vals::Nistc::CUSTOM);
             // set RNG config "A" according to reference manual
             // this has to be written within the same write access as setting the CONDRST bit
-            reg.set_nistc(pac::rng::vals::Nistc::DEFAULT);
             reg.set_rng_config1(pac::rng::vals::RngConfig1::CONFIGA);
+            reg.set_clkdiv(pac::rng::vals::Clkdiv::NODIV);
             reg.set_rng_config2(pac::rng::vals::RngConfig2::CONFIGA_B);
             reg.set_rng_config3(pac::rng::vals::RngConfig3::CONFIGA);
-            reg.set_clkdiv(pac::rng::vals::Clkdiv::NODIV);
+            reg.set_ced(true);
+            reg.set_ie(false);
+            reg.set_rngen(true);
+        });
+        T::regs().cr().write(|reg| {
+            reg.set_ced(false);
         });
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
