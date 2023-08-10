@@ -41,4 +41,5 @@
     // "examples/stm32wl/Cargo.toml",
     // "examples/wasm/Cargo.toml",
   ],
+  "rust-analyzer.showUnlinkedFileNotification": false,
 }

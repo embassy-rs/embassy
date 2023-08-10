@@ -313,6 +313,7 @@ fn main() {
         if !singletons.contains(&p.name.to_string())
             || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7"))
             || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "f3"))
+            || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "v4"))
         {
             continue;
         }
