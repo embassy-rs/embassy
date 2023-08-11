@@ -137,20 +137,24 @@ impl super::Rtc {
         use crate::interrupt::typelevel::Interrupt;
         use crate::rcc::get_freqs;
 
-        crate::interrupt::typelevel::RTC_WKUP::disable();
-
         RTC::regs().cr().modify(|w| {
             w.set_wute(false);
         });
 
-        let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
+        // Wait for the wakeup timer to stop
+        while !RTC::regs().isr().read().wutf() {}
 
-        // Choose the lowest prescaler available
-        #[cfg(stm32wb)]
-        let rtc_hz = rtc_hz / 2;
+        RTC::regs().isr().modify(|w| w.set_wutf(false));
+
+        crate::interrupt::typelevel::RTC_WKUP::disable();
+
+        let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
+        let prescaler: WakeupPrescaler = RTC::regs().cr().read().wucksel().into();
         let rtc_ticks = RTC::regs().wutr().read().wut();
 
-        Duration::from_ticks(rtc_ticks as u64 * TICK_HZ / rtc_hz)
+        Duration::from_ticks(
+            rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
+        )
     }
 
     #[allow(dead_code)]
