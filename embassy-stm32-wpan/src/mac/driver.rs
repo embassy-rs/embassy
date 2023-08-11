@@ -93,7 +93,7 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
     {
         // Only valid data events should be put into the queue
 
-        let data_event = match self.rx.try_recv().unwrap() {
+        let data_event = match self.rx.try_receive().unwrap() {
             MacEvent::McpsDataInd(data_event) => data_event,
             _ => unreachable!(),
         };
@@ -113,7 +113,7 @@ impl<'d> embassy_net_driver::TxToken for TxToken<'d> {
         F: FnOnce(&mut [u8]) -> R,
     {
         // Only valid tx buffers should be put into the queue
-        let buf = self.tx_buf.try_recv().unwrap();
+        let buf = self.tx_buf.try_receive().unwrap();
         let r = f(&mut buf[..len]);
 
         // The tx channel should always be of equal capacity to the tx_buf channel

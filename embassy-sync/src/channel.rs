@@ -147,16 +147,16 @@ where
 {
     /// Receive the next value.
     ///
-    /// See [`Channel::recv()`].
-    pub fn recv(&self) -> RecvFuture<'_, M, T, N> {
-        self.channel.recv()
+    /// See [`Channel::receive()`].
+    pub fn receive(&self) -> ReceiveFuture<'_, M, T, N> {
+        self.channel.receive()
     }
 
     /// Attempt to immediately receive the next value.
     ///
-    /// See [`Channel::try_recv()`]
-    pub fn try_recv(&self) -> Result<T, TryRecvError> {
-        self.channel.try_recv()
+    /// See [`Channel::try_receive()`]
+    pub fn try_receive(&self) -> Result<T, TryReceiveError> {
+        self.channel.try_receive()
     }
 
     /// Allows a poll_fn to poll until the channel is ready to receive
@@ -190,16 +190,16 @@ impl<'ch, T> Copy for DynamicReceiver<'ch, T> {}
 impl<'ch, T> DynamicReceiver<'ch, T> {
     /// Receive the next value.
     ///
-    /// See [`Channel::recv()`].
-    pub fn recv(&self) -> DynamicRecvFuture<'_, T> {
-        DynamicRecvFuture { channel: self.channel }
+    /// See [`Channel::receive()`].
+    pub fn receive(&self) -> DynamicReceiveFuture<'_, T> {
+        DynamicReceiveFuture { channel: self.channel }
     }
 
     /// Attempt to immediately receive the next value.
     ///
-    /// See [`Channel::try_recv()`]
-    pub fn try_recv(&self) -> Result<T, TryRecvError> {
-        self.channel.try_recv_with_context(None)
+    /// See [`Channel::try_receive()`]
+    pub fn try_receive(&self) -> Result<T, TryReceiveError> {
+        self.channel.try_receive_with_context(None)
     }
 
     /// Allows a poll_fn to poll until the channel is ready to receive
@@ -226,16 +226,16 @@ where
     }
 }
 
-/// Future returned by [`Channel::recv`] and  [`Receiver::recv`].
+/// Future returned by [`Channel::receive`] and  [`Receiver::receive`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct RecvFuture<'ch, M, T, const N: usize>
+pub struct ReceiveFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
 {
     channel: &'ch Channel<M, T, N>,
 }
 
-impl<'ch, M, T, const N: usize> Future for RecvFuture<'ch, M, T, N>
+impl<'ch, M, T, const N: usize> Future for ReceiveFuture<'ch, M, T, N>
 where
     M: RawMutex,
 {
@@ -246,19 +246,19 @@ where
     }
 }
 
-/// Future returned by [`DynamicReceiver::recv`].
+/// Future returned by [`DynamicReceiver::receive`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct DynamicRecvFuture<'ch, T> {
+pub struct DynamicReceiveFuture<'ch, T> {
     channel: &'ch dyn DynamicChannel<T>,
 }
 
-impl<'ch, T> Future for DynamicRecvFuture<'ch, T> {
+impl<'ch, T> Future for DynamicReceiveFuture<'ch, T> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        match self.channel.try_recv_with_context(Some(cx)) {
+        match self.channel.try_receive_with_context(Some(cx)) {
             Ok(v) => Poll::Ready(v),
-            Err(TryRecvError::Empty) => Poll::Pending,
+            Err(TryReceiveError::Empty) => Poll::Pending,
         }
     }
 }
@@ -324,7 +324,7 @@ impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 trait DynamicChannel<T> {
     fn try_send_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>>;
 
-    fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError>;
+    fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>;
 
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()>;
     fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()>;
@@ -332,10 +332,10 @@ trait DynamicChannel<T> {
     fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T>;
 }
 
-/// Error returned by [`try_recv`](Channel::try_recv).
+/// Error returned by [`try_receive`](Channel::try_receive).
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum TryRecvError {
+pub enum TryReceiveError {
     /// A message could not be received because the channel is empty.
     Empty,
 }
@@ -364,11 +364,11 @@ impl<T, const N: usize> ChannelState<T, N> {
         }
     }
 
-    fn try_recv(&mut self) -> Result<T, TryRecvError> {
-        self.try_recv_with_context(None)
+    fn try_receive(&mut self) -> Result<T, TryReceiveError> {
+        self.try_receive_with_context(None)
     }
 
-    fn try_recv_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError> {
+    fn try_receive_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
         if self.queue.is_full() {
             self.senders_waker.wake();
         }
@@ -379,7 +379,7 @@ impl<T, const N: usize> ChannelState<T, N> {
             if let Some(cx) = cx {
                 self.receiver_waker.register(cx.waker());
             }
-            Err(TryRecvError::Empty)
+            Err(TryReceiveError::Empty)
         }
     }
 
@@ -474,8 +474,8 @@ where
         self.inner.lock(|rc| f(&mut *rc.borrow_mut()))
     }
 
-    fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError> {
-        self.lock(|c| c.try_recv_with_context(cx))
+    fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
+        self.lock(|c| c.try_receive_with_context(cx))
     }
 
     /// Poll the channel for the next message
@@ -536,16 +536,16 @@ where
     ///
     /// If there are no messages in the channel's buffer, this method will
     /// wait until a message is sent.
-    pub fn recv(&self) -> RecvFuture<'_, M, T, N> {
-        RecvFuture { channel: self }
+    pub fn receive(&self) -> ReceiveFuture<'_, M, T, N> {
+        ReceiveFuture { channel: self }
     }
 
     /// Attempt to immediately receive a message.
     ///
     /// This method will either receive a message from the channel immediately or return an error
     /// if the channel is empty.
-    pub fn try_recv(&self) -> Result<T, TryRecvError> {
-        self.lock(|c| c.try_recv())
+    pub fn try_receive(&self) -> Result<T, TryReceiveError> {
+        self.lock(|c| c.try_receive())
     }
 }
 
@@ -559,8 +559,8 @@ where
         Channel::try_send_with_context(self, m, cx)
     }
 
-    fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError> {
-        Channel::try_recv_with_context(self, cx)
+    fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
+        Channel::try_receive_with_context(self, cx)
     }
 
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
@@ -616,15 +616,15 @@ mod tests {
     fn receiving_once_with_one_send() {
         let mut c = ChannelState::<u32, 3>::new();
         assert!(c.try_send(1).is_ok());
-        assert_eq!(c.try_recv().unwrap(), 1);
+        assert_eq!(c.try_receive().unwrap(), 1);
         assert_eq!(capacity(&c), 3);
     }
 
     #[test]
     fn receiving_when_empty() {
         let mut c = ChannelState::<u32, 3>::new();
-        match c.try_recv() {
-            Err(TryRecvError::Empty) => assert!(true),
+        match c.try_receive() {
+            Err(TryReceiveError::Empty) => assert!(true),
             _ => assert!(false),
         }
         assert_eq!(capacity(&c), 3);
@@ -634,7 +634,7 @@ mod tests {
     fn simple_send_and_receive() {
         let c = Channel::<NoopRawMutex, u32, 3>::new();
         assert!(c.try_send(1).is_ok());
-        assert_eq!(c.try_recv().unwrap(), 1);
+        assert_eq!(c.try_receive().unwrap(), 1);
     }
 
     #[test]
@@ -654,7 +654,7 @@ mod tests {
         let r: DynamicReceiver<'_, u32> = c.receiver().into();
 
         assert!(s.try_send(1).is_ok());
-        assert_eq!(r.try_recv().unwrap(), 1);
+        assert_eq!(r.try_receive().unwrap(), 1);
     }
 
     #[futures_test::test]
@@ -669,14 +669,14 @@ mod tests {
                 assert!(c2.try_send(1).is_ok());
             })
             .is_ok());
-        assert_eq!(c.recv().await, 1);
+        assert_eq!(c.receive().await, 1);
     }
 
     #[futures_test::test]
     async fn sender_send_completes_if_capacity() {
         let c = Channel::<CriticalSectionRawMutex, u32, 1>::new();
         c.send(1).await;
-        assert_eq!(c.recv().await, 1);
+        assert_eq!(c.receive().await, 1);
     }
 
     #[futures_test::test]
@@ -694,11 +694,11 @@ mod tests {
         // Wish I could think of a means of determining that the async send is waiting instead.
         // However, I've used the debugger to observe that the send does indeed wait.
         Delay::new(Duration::from_millis(500)).await;
-        assert_eq!(c.recv().await, 1);
+        assert_eq!(c.receive().await, 1);
         assert!(executor
             .spawn(async move {
                 loop {
-                    c.recv().await;
+                    c.receive().await;
                 }
             })
             .is_ok());
