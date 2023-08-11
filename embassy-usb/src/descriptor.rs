@@ -36,12 +36,26 @@ pub mod capability_type {
     pub const PLATFORM: u8 = 5;
 }
 
+/// A data structure to hold the initial descriptor position of a compound descriptor set.
+///
+/// It is meant to be used in the [`DescriptorWriter`]
+pub(crate) struct CompoundDescriptorSetTracker {
+    initial_descriptor_pos: usize,
+}
+
+impl CompoundDescriptorSetTracker {
+    pub(crate) fn new(initial_descriptor_pos: usize) -> Self {
+        Self { initial_descriptor_pos }
+    }
+}
+
 /// A writer for USB descriptors.
 pub(crate) struct DescriptorWriter<'a> {
     pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
     num_endpoints_mark: Option<usize>,
+    tracker: Option<CompoundDescriptorSetTracker>,
 }
 
 impl<'a> DescriptorWriter<'a> {
@@ -51,7 +65,30 @@ impl<'a> DescriptorWriter<'a> {
             position: 0,
             num_interfaces_mark: None,
             num_endpoints_mark: None,
+            tracker: None,
         }
+    }
+
+    /// Starts tracking the total length of a compound descriptor set.
+    pub fn start_tracking_total_length_of_compound_descriptor_set(&mut self, initial_descriptor_pos: usize) {
+        self.tracker = Some(CompoundDescriptorSetTracker::new(initial_descriptor_pos));
+    }
+
+    /// Ends tracking the total length of a compound descriptor set and updates the initial descriptor of the set.
+    pub fn end_tracking_total_length_of_compound_descriptor_set_and_update_the_initial_descriptor(
+        &mut self,
+        offset: usize,
+    ) {
+        if let Some(tracker) = self.tracker.as_mut() {
+            let total_length = u16::try_from(self.position - tracker.initial_descriptor_pos)
+                .expect("\"Total Length\" fields in class-specific descriptors are always 2 bytes long.");
+            let total_length_bytes = total_length.to_le_bytes();
+            let total_length_offset = tracker.initial_descriptor_pos + offset;
+            let total_length_length = tracker.initial_descriptor_pos + offset + total_length_bytes.len();
+            // Write in little endian
+            self.buf[total_length_offset..total_length_length].copy_from_slice(&total_length_bytes)
+        }
+        self.tracker = None;
     }
 
     pub fn into_buf(self) -> &'a mut [u8] {
@@ -331,5 +368,154 @@ impl<'a> BosWriter<'a> {
         self.num_caps_mark = None;
         let position = self.writer.position as u16;
         self.writer.buf[2..4].copy_from_slice(&position.to_le_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE: u8 = 0x24;
+    const CLASS_SPECIFIC_ENDPOINT_DESCRIPTOR_TYPE: u8 = 0x25;
+    #[test]
+    fn test_can_track_total_length() {
+        let mut writer_buf = [0u8; 256];
+        let mut writer = DescriptorWriter::new(&mut writer_buf);
+
+        // Write some imaginary descriptors to fill the buffer.
+        writer.write(CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE, &[0x0, 0x1, 0x2, 0x3]);
+        writer.write(CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE, &[0x4, 0x5, 0x6, 0x7]);
+
+        // Start a compound descriptor set. Real example.
+        let position_of_the_initial_descriptor_in_the_compound_set = writer.position();
+
+        writer.start_tracking_total_length_of_compound_descriptor_set(
+            position_of_the_initial_descriptor_in_the_compound_set,
+        );
+
+        // 7 bytes
+        writer.write(
+            CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE,
+            &[
+                0x01, // bDescriptorSubtype  HEADER subtype.
+                0x00, // bcdADC Revision of class specification - 1.0
+                0x01, // bcdADC
+                //
+                // We can write anything to the total length field here, it will be overwritten.
+                //
+                0x00, // wTotalLength Total length of the class specific descriptor set.
+                0x00, // wTotalLength
+            ],
+        );
+
+        // From here on the rest of the descriptors are part of the compound set.
+        // There can be many combinations.
+
+        // Here is one example.
+
+        // 6 bytes
+        writer.write(
+            CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE,
+            &[
+                0x02, // bDescriptorSubtype  HEADER subtype.
+                0x01, // bJackType
+                0x01, // bJackID
+                0x00, // iJack Unused
+            ],
+        );
+
+        // 9 bytes
+        writer.write(
+            CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE,
+            &[
+                0x03, // bDescriptorSubtype  HEADER subtype.
+                0x01, // bJackType
+                0x02, // bJackID
+                0x01, // bNrInputPins Number of Input Pins of this Jack.
+                0x02, // BaSourceID(1) ID of the Entity to which this Pin is connected.
+                0x01, // BaSourcePin(1) Output Pin number of the Entity to which this Input Pin is connected.
+                0x00, // iJack Unused
+            ],
+        );
+
+        // 5 bytes
+        writer.write(
+            CLASS_SPECIFIC_ENDPOINT_DESCRIPTOR_TYPE,
+            &[
+                0x01, // bDescriptorSubtype
+                0x01, // bNumEmbMIDIJack Number of embedded MIDI IN Jacks.
+                0x01, // BaAssocJackID(1) ID of the Embedded MIDI IN Jack.
+            ],
+        );
+
+        // 5 bytes
+        writer.write(
+            CLASS_SPECIFIC_ENDPOINT_DESCRIPTOR_TYPE,
+            &[
+                0x01, // bDescriptorSubtype
+                0x01, // bNumEmbMIDIJack Number of embedded MIDI OUT Jacks.
+                0x02, // BaAssocJackID(1) ID of the Embedded MIDI OUT Jack.
+            ],
+        );
+
+        // 7 + 6 + 9 + 5 + 5 = 32 bytes in total.
+
+        // Here we end the compound set.
+        // We need to give the offset of the total length bytes in the initial descriptor so they can be updated.
+        // 2 bytes of header written by our writer + 3 bytes will be our offset.
+        writer.end_tracking_total_length_of_compound_descriptor_set_and_update_the_initial_descriptor(5);
+
+        let position_of_the_buffer_when_we_finished_the_compound_set = writer.position();
+
+        let total_length_bytes_le = &writer.buf[(position_of_the_initial_descriptor_in_the_compound_set + 5)
+            ..(position_of_the_initial_descriptor_in_the_compound_set + 5 + 2)];
+
+        let total_length_we_have_written =
+            u16::from_le_bytes([total_length_bytes_le[0], total_length_bytes_le[1]]) as usize;
+
+        let actual_total_length = *&writer.buf[position_of_the_initial_descriptor_in_the_compound_set
+            ..position_of_the_buffer_when_we_finished_the_compound_set]
+            .len();
+
+        assert_eq!(total_length_we_have_written, 32);
+        assert_eq!(total_length_we_have_written, actual_total_length);
+
+        // Now let's try writing one more compound set to see if we reset the tracker correctly.
+
+        let position_of_the_initial_descriptor_in_the_compound_set = writer.position();
+
+        writer.start_tracking_total_length_of_compound_descriptor_set(
+            position_of_the_initial_descriptor_in_the_compound_set,
+        );
+
+        writer.write(
+            CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE,
+            &[
+                0x01, // bDescriptorSubtype  HEADER subtype.
+                0x00, // bcdADC Revision of class specification - 1.0
+                0x01, // bcdADC
+                //
+                // We can write anything to the total length field here, it will be overwritten.
+                //
+                0x00, // wTotalLength Total length of the class specific descriptor set.
+                0x00, // wTotalLength
+            ],
+        );
+
+        writer.end_tracking_total_length_of_compound_descriptor_set_and_update_the_initial_descriptor(5);
+
+        let position_of_the_buffer_when_we_finished_the_compound_set = writer.position();
+
+        let total_length_bytes_le = &writer.buf[(position_of_the_initial_descriptor_in_the_compound_set + 5)
+            ..(position_of_the_initial_descriptor_in_the_compound_set + 5 + 2)];
+
+        let total_length_we_have_written =
+            u16::from_le_bytes([total_length_bytes_le[0], total_length_bytes_le[1]]) as usize;
+
+        let actual_total_length = *&writer.buf[position_of_the_initial_descriptor_in_the_compound_set
+            ..position_of_the_buffer_when_we_finished_the_compound_set]
+            .len();
+        assert_eq!(total_length_we_have_written, 7);
+        assert_eq!(total_length_we_have_written, actual_total_length);
     }
 }

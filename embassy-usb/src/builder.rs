@@ -439,6 +439,48 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         self.builder.config_descriptor.write(descriptor_type, descriptor)
     }
 
+    /// Add a custom descriptor to this alternate setting,
+    /// assuming that the descriptor is the initial one which will be followed by variable number
+    /// of descriptors of the same type forming a compound descriptor set.
+    ///
+    /// Descriptors are written in the order builder functions are called. Note that some
+    /// classes care about the order.
+    ///
+    /// # Details
+    ///
+    /// In the USB specification, when it comes to class-specific descriptors, the presence of a "total length" field is not universally common across all classes.
+    /// However, it is found in several class specifications, particularly in those where a variable number of descriptors or a variable configuration might follow.
+    ///
+    /// For instance:
+    ///
+    ///  - **Audio Class:** The class-specific header descriptor in the Audio class contains a "Total Length" field, which indicates the entire length of the class-specific AudioControl interface descriptor. This is useful because the AudioControl interface can have a variable configuration depending on the number and type of audio channels, terminal interfaces, etc.
+    ///
+    ///  - **Video Class:** The Video class's class-specific header descriptor also contains a "Total Length" field.
+    ///
+    /// The purpose behind the "Total Length" (or equivalent) field in these class-specific descriptors is to provide a straightforward way to determine the full length of a compound descriptor set.
+    /// This can be especially helpful for parsing or skipping over the entirety of the descriptor set if needed.
+    ///
+    /// While it's common in certain classes like Audio and Video,
+    /// it's not a universal feature of all USB class-specific descriptors.
+    pub fn start_writing_compound_set_tracking_total_length(&mut self, descriptor_type: u8, descriptor: &[u8]) {
+        let descriptor_writer = &mut self.builder.config_descriptor;
+        // Start tracking the total length of the compound descriptor set.
+        descriptor_writer.start_tracking_total_length_of_compound_descriptor_set(descriptor_writer.position());
+        // Write the initial descriptor of that particular set.
+        self.builder.config_descriptor.write(descriptor_type, descriptor);
+    }
+
+    /// End writing a compound descriptor set updating the total length area in the initial descriptor.
+    ///
+    /// The offset of the total length bytes should be provided.
+    /// This number may change depending on the class, please derive it from the specification.
+    pub fn end_writing_compound_set_updating_total_length(&mut self, offset: usize) {
+        // End tracking the total length of the compound descriptor set and write it to the initial descriptor of that set on provided offset.
+        self.builder
+            .config_descriptor
+            .end_tracking_total_length_of_compound_descriptor_set_and_update_the_initial_descriptor(offset);
+    }
+
     fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
         let ep = self
             .builder
