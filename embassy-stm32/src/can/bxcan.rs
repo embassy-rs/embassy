@@ -506,14 +506,7 @@ impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
 
     /// Waits while receive queue is empty.
     pub async fn wait_not_empty(&mut self) {
-        poll_fn(|cx| {
-            if T::state().rx_queue.poll_ready_to_receive(cx) {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
+        poll_fn(|cx| T::state().rx_queue.poll_ready_to_receive(cx)).await
     }
 
     fn curr_error(&self) -> Option<BusError> {

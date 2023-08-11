@@ -69,7 +69,7 @@ where
     /// Allows a poll_fn to poll until the channel is ready to send
     ///
     /// See [`Channel::poll_ready_to_send()`]
-    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_send(cx)
     }
 }
@@ -117,7 +117,7 @@ impl<'ch, T> DynamicSender<'ch, T> {
     /// Allows a poll_fn to poll until the channel is ready to send
     ///
     /// See [`Channel::poll_ready_to_send()`]
-    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_send(cx)
     }
 }
@@ -162,7 +162,7 @@ where
     /// Allows a poll_fn to poll until the channel is ready to receive
     ///
     /// See [`Channel::poll_ready_to_receive()`]
-    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_receive(cx)
     }
 }
@@ -198,7 +198,7 @@ impl<'ch, T> DynamicReceiver<'ch, T> {
     /// Allows a poll_fn to poll until the channel is ready to receive
     ///
     /// See [`Channel::poll_ready_to_receive()`]
-    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_receive(cx)
     }
 }
@@ -315,8 +315,8 @@ trait DynamicChannel<T> {
 
     fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError>;
 
-    fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool;
-    fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool;
+    fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()>;
+    fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()>;
 }
 
 /// Error returned by [`try_recv`](Channel::try_recv).
@@ -370,10 +370,14 @@ impl<T, const N: usize> ChannelState<T, N> {
         }
     }
 
-    fn poll_ready_to_receive(&mut self, cx: &mut Context<'_>) -> bool {
+    fn poll_ready_to_receive(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         self.receiver_waker.register(cx.waker());
 
-        !self.queue.is_empty()
+        if !self.queue.is_empty() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 
     fn try_send(&mut self, message: T) -> Result<(), TrySendError<T>> {
@@ -395,10 +399,14 @@ impl<T, const N: usize> ChannelState<T, N> {
         }
     }
 
-    fn poll_ready_to_send(&mut self, cx: &mut Context<'_>) -> bool {
+    fn poll_ready_to_send(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         self.senders_waker.register(cx.waker());
 
-        !self.queue.is_full()
+        if !self.queue.is_full() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 }
 
@@ -449,12 +457,12 @@ where
     }
 
     /// Allows a poll_fn to poll until the channel is ready to receive
-    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.lock(|c| c.poll_ready_to_receive(cx))
     }
 
     /// Allows a poll_fn to poll until the channel is ready to send
-    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.lock(|c| c.poll_ready_to_send(cx))
     }
 
@@ -524,11 +532,11 @@ where
         Channel::try_recv_with_context(self, cx)
     }
 
-    fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> bool {
+    fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         Channel::poll_ready_to_send(self, cx)
     }
 
-    fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> bool {
+    fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         Channel::poll_ready_to_receive(self, cx)
     }
 }

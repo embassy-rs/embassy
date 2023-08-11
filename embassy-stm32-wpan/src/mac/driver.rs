@@ -28,7 +28,9 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     type TxToken<'a> = TxToken<'d> where Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        if self.runner.rx_channel.poll_ready_to_receive(cx) && self.runner.tx_buf_channel.poll_ready_to_receive(cx) {
+        if self.runner.rx_channel.poll_ready_to_receive(cx).is_ready()
+            && self.runner.tx_buf_channel.poll_ready_to_receive(cx).is_ready()
+        {
             Some((
                 RxToken {
                     rx: &self.runner.rx_channel,
