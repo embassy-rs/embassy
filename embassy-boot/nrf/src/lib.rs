@@ -14,28 +14,17 @@ use embassy_nrf::wdt;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for nRF devices.
-pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize = PAGE_SIZE> {
-    boot: embassy_boot::BootLoader<ACTIVE, DFU, STATE>,
-    aligned_buf: AlignedBuffer<BUFFER_SIZE>,
-}
+pub struct BootLoader<const BUFFER_SIZE: usize = PAGE_SIZE>;
 
-impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>
-    BootLoader<ACTIVE, DFU, STATE, BUFFER_SIZE>
-{
-    /// Create a new bootloader instance using the supplied partitions for active, dfu and state.
-    pub fn new(config: BootLoaderConfig<ACTIVE, DFU, STATE>) -> Self {
-        Self {
-            boot: embassy_boot::BootLoader::new(config),
-            aligned_buf: AlignedBuffer([0; BUFFER_SIZE]),
-        }
-    }
-
-    /// Inspect the bootloader state and perform actions required before booting, such as swapping
-    /// firmware.
-    pub fn prepare(&mut self) {
-        self.boot
-            .prepare_boot(&mut self.aligned_buf.0)
-            .expect("Boot prepare error");
+impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware.
+    pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    ) -> Self {
+        let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
+        let mut boot = embassy_boot::BootLoader::new(config);
+        boot.prepare_boot(&mut aligned_buf.0).expect("Boot prepare error");
+        Self
     }
 
     /// Boots the application without softdevice mechanisms.
@@ -45,8 +34,6 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>
     /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
     #[cfg(not(feature = "softdevice"))]
     pub unsafe fn load(self, start: u32) -> ! {
-        core::mem::drop(self.boot);
-
         let mut p = cortex_m::Peripherals::steal();
         p.SCB.invalidate_icache();
         p.SCB.vtor.write(start);
@@ -59,7 +46,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>
     ///
     /// This modifies the stack pointer and reset vector and will run code placed in the active partition.
     #[cfg(feature = "softdevice")]
-    pub unsafe fn load(&mut self, _app: u32) -> ! {
+    pub unsafe fn load(self, _app: u32) -> ! {
         use nrf_softdevice_mbr as mbr;
         const NRF_SUCCESS: u32 = 0;
 
