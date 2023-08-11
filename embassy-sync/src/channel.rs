@@ -165,6 +165,13 @@ where
     pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_receive(cx)
     }
+
+    /// Poll the channel for the next item
+    ///
+    /// See [`Channel::poll_receive()`]
+    pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
+        self.channel.poll_receive(cx)
+    }
 }
 
 /// Receive-only access to a [`Channel`] without knowing channel size.
@@ -201,6 +208,13 @@ impl<'ch, T> DynamicReceiver<'ch, T> {
     pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_receive(cx)
     }
+
+    /// Poll the channel for the next item
+    ///
+    /// See [`Channel::poll_receive()`]
+    pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
+        self.channel.poll_receive(cx)
+    }
 }
 
 impl<'ch, M, T, const N: usize> From<Receiver<'ch, M, T, N>> for DynamicReceiver<'ch, T>
@@ -228,10 +242,7 @@ where
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        match self.channel.try_recv_with_context(Some(cx)) {
-            Ok(v) => Poll::Ready(v),
-            Err(TryRecvError::Empty) => Poll::Pending,
-        }
+        self.channel.poll_receive(cx)
     }
 }
 
@@ -317,6 +328,8 @@ trait DynamicChannel<T> {
 
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()>;
     fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()>;
+
+    fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T>;
 }
 
 /// Error returned by [`try_recv`](Channel::try_recv).
@@ -367,6 +380,19 @@ impl<T, const N: usize> ChannelState<T, N> {
                 self.receiver_waker.register(cx.waker());
             }
             Err(TryRecvError::Empty)
+        }
+    }
+
+    fn poll_receive(&mut self, cx: &mut Context<'_>) -> Poll<T> {
+        if self.queue.is_full() {
+            self.senders_waker.wake();
+        }
+
+        if let Some(message) = self.queue.pop_front() {
+            Poll::Ready(message)
+        } else {
+            self.receiver_waker.register(cx.waker());
+            Poll::Pending
         }
     }
 
@@ -450,6 +476,11 @@ where
 
     fn try_recv_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryRecvError> {
         self.lock(|c| c.try_recv_with_context(cx))
+    }
+
+    /// Poll the channel for the next message
+    pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
+        self.lock(|c| c.poll_receive(cx))
     }
 
     fn try_send_with_context(&self, m: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
@@ -538,6 +569,10 @@ where
 
     fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         Channel::poll_ready_to_receive(self, cx)
+    }
+
+    fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
+        Channel::poll_receive(self, cx)
     }
 }
 

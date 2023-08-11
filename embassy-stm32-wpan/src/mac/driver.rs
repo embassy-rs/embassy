@@ -46,7 +46,7 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     }
 
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        if self.runner.tx_buf_channel.poll_ready_to_receive(cx) {
+        if self.runner.tx_buf_channel.poll_ready_to_receive(cx).is_ready() {
             Some(TxToken {
                 tx: &self.runner.tx_channel,
                 tx_buf: &self.runner.tx_buf_channel,
