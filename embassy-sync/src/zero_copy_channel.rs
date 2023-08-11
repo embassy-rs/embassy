@@ -27,7 +27,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
                 back: 0,
                 full: false,
                 send_waker: WakerRegistration::new(),
-                recv_waker: WakerRegistration::new(),
+                receive_waker: WakerRegistration::new(),
             })),
         }
     }
@@ -62,7 +62,7 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
             match s.push_index() {
                 Some(i) => Poll::Ready(unsafe { &mut *self.channel.buf.add(i) }),
                 None => {
-                    s.recv_waker.register(cx.waker());
+                    s.receive_waker.register(cx.waker());
                     Poll::Pending
                 }
             }
@@ -76,7 +76,7 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
                 match s.push_index() {
                     Some(i) => Poll::Ready(i),
                     None => {
-                        s.recv_waker.register(cx.waker());
+                        s.receive_waker.register(cx.waker());
                         Poll::Pending
                     }
                 }
@@ -99,7 +99,7 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
         Receiver { channel: self.channel }
     }
 
-    pub fn try_recv(&mut self) -> Option<&mut T> {
+    pub fn try_receive(&mut self) -> Option<&mut T> {
         self.channel.state.lock(|s| {
             let s = &mut *s.borrow_mut();
             match s.pop_index() {
@@ -109,7 +109,7 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
         })
     }
 
-    pub fn poll_recv(&mut self, cx: &mut Context) -> Poll<&mut T> {
+    pub fn poll_receive(&mut self, cx: &mut Context) -> Poll<&mut T> {
         self.channel.state.lock(|s| {
             let s = &mut *s.borrow_mut();
             match s.pop_index() {
@@ -122,7 +122,7 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
         })
     }
 
-    pub async fn recv(&mut self) -> &mut T {
+    pub async fn receive(&mut self) -> &mut T {
         let i = poll_fn(|cx| {
             self.channel.state.lock(|s| {
                 let s = &mut *s.borrow_mut();
@@ -139,7 +139,7 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
         unsafe { &mut *self.channel.buf.add(i) }
     }
 
-    pub fn recv_done(&mut self) {
+    pub fn receive_done(&mut self) {
         self.channel.state.lock(|s| s.borrow_mut().pop_done())
     }
 }
@@ -157,7 +157,7 @@ struct State {
     full: bool,
 
     send_waker: WakerRegistration,
-    recv_waker: WakerRegistration,
+    receive_waker: WakerRegistration,
 }
 
 impl State {
@@ -204,6 +204,6 @@ impl State {
         assert!(!self.is_empty());
         self.front = self.increment(self.front);
         self.full = false;
-        self.recv_waker.wake();
+        self.receive_waker.wake();
     }
 }

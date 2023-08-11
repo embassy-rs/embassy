@@ -131,24 +131,24 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
     }
 
     pub async fn tx_buf(&mut self) -> &mut [u8] {
-        let p = self.tx_chan.recv().await;
+        let p = self.tx_chan.receive().await;
         &mut p.buf[..p.len]
     }
 
     pub fn try_tx_buf(&mut self) -> Option<&mut [u8]> {
-        let p = self.tx_chan.try_recv()?;
+        let p = self.tx_chan.try_receive()?;
         Some(&mut p.buf[..p.len])
     }
 
     pub fn poll_tx_buf(&mut self, cx: &mut Context) -> Poll<&mut [u8]> {
-        match self.tx_chan.poll_recv(cx) {
+        match self.tx_chan.poll_receive(cx) {
             Poll::Ready(p) => Poll::Ready(&mut p.buf[..p.len]),
             Poll::Pending => Poll::Pending,
         }
     }
 
     pub fn tx_done(&mut self) {
-        self.tx_chan.recv_done();
+        self.tx_chan.receive_done();
     }
 }
 
@@ -205,24 +205,24 @@ impl<'d, const MTU: usize> RxRunner<'d, MTU> {
 
 impl<'d, const MTU: usize> TxRunner<'d, MTU> {
     pub async fn tx_buf(&mut self) -> &mut [u8] {
-        let p = self.tx_chan.recv().await;
+        let p = self.tx_chan.receive().await;
         &mut p.buf[..p.len]
     }
 
     pub fn try_tx_buf(&mut self) -> Option<&mut [u8]> {
-        let p = self.tx_chan.try_recv()?;
+        let p = self.tx_chan.try_receive()?;
         Some(&mut p.buf[..p.len])
     }
 
     pub fn poll_tx_buf(&mut self, cx: &mut Context) -> Poll<&mut [u8]> {
-        match self.tx_chan.poll_recv(cx) {
+        match self.tx_chan.poll_receive(cx) {
             Poll::Ready(p) => Poll::Ready(&mut p.buf[..p.len]),
             Poll::Pending => Poll::Pending,
         }
     }
 
     pub fn tx_done(&mut self) {
-        self.tx_chan.recv_done();
+        self.tx_chan.receive_done();
     }
 }
 
@@ -294,7 +294,7 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
     type TxToken<'a> = TxToken<'a, MTU> where Self: 'a ;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        if self.rx.poll_recv(cx).is_ready() && self.tx.poll_send(cx).is_ready() {
+        if self.rx.poll_receive(cx).is_ready() && self.tx.poll_send(cx).is_ready() {
             Some((RxToken { rx: self.rx.borrow() }, TxToken { tx: self.tx.borrow() }))
         } else {
             None
@@ -338,9 +338,9 @@ impl<'a, const MTU: usize> embassy_net_driver::RxToken for RxToken<'a, MTU> {
         F: FnOnce(&mut [u8]) -> R,
     {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        let pkt = unwrap!(self.rx.try_recv());
+        let pkt = unwrap!(self.rx.try_receive());
         let r = f(&mut pkt.buf[..pkt.len]);
-        self.rx.recv_done();
+        self.rx.receive_done();
         r
     }
 }
