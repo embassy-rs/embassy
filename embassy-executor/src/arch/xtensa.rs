@@ -1,12 +1,6 @@
 #[cfg(feature = "executor-interrupt")]
 compile_error!("`executor-interrupt` is not supported with `arch-xtensa`.");
 
-#[cfg(feature = "thread-context")]
-compile_error!(
-    "`thread-context` is not supported with `arch-xtensa`.\
-    Use a multicore-safe executor from esp-hal instead." // obviously, this is too specific to ESP32
-);
-
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
@@ -17,7 +11,7 @@ mod thread {
     use crate::raw::OpaqueThreadContext;
     use crate::thread::ThreadContext;
 
-    /// global atomic used to keep track of whether there is work to do since sev() is not available on RISCV
+    /// global atomic used to keep track of whether there is work to do since sev() is not available on Xtensa
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
     #[export_name = "__thread_mode_pender"]
@@ -31,6 +25,13 @@ mod thread {
     pub struct XtensaThreadContext;
 
     impl ThreadContext for XtensaThreadContext {
+        #[cfg(feature = "thread-context")]
+        fn context(&self) -> OpaqueThreadContext {
+            // Enabling thread-context is not incorrect, just wasteful.
+            OpaqueThreadContext(0)
+        }
+
+        #[cfg(not(feature = "thread-context"))]
         fn context(&self) -> OpaqueThreadContext {
             OpaqueThreadContext(())
         }
@@ -43,8 +44,8 @@ mod thread {
                 let token: critical_section::RawRestoreState;
                 core::arch::asm!("rsil {0}, 5", out(reg) token);
 
-                // we do not care about race conditions between the load and store operations, interrupts
-                // will only set this value to true.
+                // we do not care about race conditions between the load and store operations,
+                // interrupts will only set this value to true.
                 // if there is work to do, loop back to polling
                 if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
                     SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);

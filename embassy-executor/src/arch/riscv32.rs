@@ -1,9 +1,6 @@
 #[cfg(feature = "executor-interrupt")]
 compile_error!("`executor-interrupt` is not supported with `arch-riscv32`.");
 
-#[cfg(feature = "thread-context")]
-compile_error!("`thread-context` is not supported with `arch-riscv32`.");
-
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
@@ -30,6 +27,13 @@ mod thread {
     pub struct RiscVThreadContext;
 
     impl ThreadContext for RiscVThreadContext {
+        #[cfg(feature = "thread-context")]
+        fn context(&self) -> OpaqueThreadContext {
+            // Enabling thread-context is not incorrect, just wasteful.
+            OpaqueThreadContext(0)
+        }
+
+        #[cfg(not(feature = "thread-context"))]
         fn context(&self) -> OpaqueThreadContext {
             OpaqueThreadContext(())
         }
