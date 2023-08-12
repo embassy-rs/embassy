@@ -361,10 +361,16 @@ where
     fn _read_control_register(&mut self, register: Register) -> u8 {
         self.change_bank(register);
 
-        let mut buffer = [Instruction::RCR.opcode() | register.addr(), 0];
-        self.spi.transfer_in_place(&mut buffer).unwrap();
-
-        buffer[1]
+        if register.is_eth_register() {
+            let mut buffer = [Instruction::RCR.opcode() | register.addr(), 0];
+            self.spi.transfer_in_place(&mut buffer).unwrap();
+            buffer[1]
+        } else {
+            // MAC, MII regs need a dummy byte.
+            let mut buffer = [Instruction::RCR.opcode() | register.addr(), 0, 0];
+            self.spi.transfer_in_place(&mut buffer).unwrap();
+            buffer[2]
+        }
     }
 
     fn read_phy_register(&mut self, register: phy::Register) -> u16 {
@@ -379,11 +385,10 @@ where
         // wait until the read operation finishes
         while self.read_control_register(bank3::Register::MISTAT) & 0b1 != 0 {}
 
-        let h = self.read_control_register(bank2::Register::MIRDH);
-        let l = self.read_control_register(bank2::Register::MIRDL);
-
         self.write_control_register(bank2::Register::MICMD, bank2::MICMD::default().miird(0).bits());
 
+        let l = self.read_control_register(bank2::Register::MIRDL);
+        let h = self.read_control_register(bank2::Register::MIRDH);
         (l as u16) | (h as u16) << 8
     }
 
