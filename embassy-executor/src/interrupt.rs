@@ -5,7 +5,7 @@ use core::mem::MaybeUninit;
 
 use atomic_polyfill::{AtomicBool, Ordering};
 
-use crate::raw::{self, OpaqueInterruptContext, Pender, PenderInner};
+use crate::raw::{self, OpaqueInterruptContext, Pender};
 
 /// An interrupt source that can be used to drive an [`InterruptExecutor`].
 // Name pending
@@ -100,7 +100,7 @@ impl InterruptModeExecutor {
         unsafe {
             (&mut *self.executor.get())
                 .as_mut_ptr()
-                .write(raw::Executor::new(Pender(PenderInner::Interrupt(irq.context()))))
+                .write(raw::Executor::new(Pender::Interrupt(irq.context())))
         }
 
         let executor = unsafe { (&*self.executor.get()).assume_init_ref() };

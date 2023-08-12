@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use crate::raw::{OpaqueThreadContext, Pender, PenderInner};
+use crate::raw::{OpaqueThreadContext, Pender};
 use crate::{raw, Spawner};
 
 /// TODO
@@ -43,7 +43,7 @@ impl<C: ThreadContext> ThreadModeExecutor<C> {
     /// Create a new Executor.
     pub fn with_context(context: C) -> Self {
         Self {
-            inner: raw::Executor::new(Pender(PenderInner::Thread(context.context()))),
+            inner: raw::Executor::new(Pender::Thread(context.context())),
             context,
             not_send: PhantomData,
         }

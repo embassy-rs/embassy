@@ -308,19 +308,6 @@ pub struct OpaqueThreadContext(pub(crate) usize);
 #[repr(transparent)]
 pub struct OpaqueInterruptContext(pub(crate) usize);
 
-#[derive(Clone, Copy)]
-pub(crate) enum PenderInner {
-    #[cfg(feature = "executor-thread")]
-    Thread(OpaqueThreadContext),
-    #[cfg(feature = "executor-interrupt")]
-    Interrupt(OpaqueInterruptContext),
-    #[cfg(feature = "pender-callback")]
-    Callback { func: fn(*mut ()), context: *mut () },
-}
-
-unsafe impl Send for PenderInner {}
-unsafe impl Sync for PenderInner {}
-
 /// Platform/architecture-specific action executed when an executor has pending work.
 ///
 /// When a task within an executor is woken, the `Pender` is called. This does a
@@ -328,7 +315,23 @@ unsafe impl Sync for PenderInner {}
 /// When this happens, you must arrange for [`Executor::poll`] to be called.
 ///
 /// You can think of it as a waker, but for the whole executor.
-pub struct Pender(pub(crate) PenderInner);
+#[derive(Clone, Copy)]
+pub enum Pender {
+    /// Pender for a thread-mode executor.
+    #[cfg(feature = "executor-thread")]
+    Thread(OpaqueThreadContext),
+
+    /// Pender for an interrupt-mode executor.
+    #[cfg(feature = "executor-interrupt")]
+    Interrupt(OpaqueInterruptContext),
+
+    /// Arbitrary, dynamically dispatched pender.
+    #[cfg(feature = "pender-callback")]
+    Callback { func: fn(*mut ()), context: *mut () },
+}
+
+unsafe impl Send for Pender {}
+unsafe impl Sync for Pender {}
 
 impl Pender {
     /// Create a `Pender` that will call an arbitrary function pointer.
@@ -339,32 +342,29 @@ impl Pender {
     /// - `context`: Opaque context pointer, that will be passed to the function pointer.
     #[cfg(feature = "pender-callback")]
     pub fn new_from_callback(func: fn(*mut ()), context: *mut ()) -> Self {
-        Self(PenderInner::Callback {
-            func,
-            context: context.into(),
-        })
+        Self::Callback { func, context }
     }
 }
 
 impl Pender {
-    pub(crate) fn pend(&self) {
-        match self.0 {
+    pub(crate) fn pend(self) {
+        match self {
             #[cfg(feature = "executor-thread")]
-            PenderInner::Thread(core_id) => {
+            Pender::Thread(core_id) => {
                 extern "Rust" {
                     fn __thread_mode_pender(core_id: OpaqueThreadContext);
                 }
                 unsafe { __thread_mode_pender(core_id) };
             }
             #[cfg(feature = "executor-interrupt")]
-            PenderInner::Interrupt(interrupt) => {
+            Pender::Interrupt(interrupt) => {
                 extern "Rust" {
                     fn __interrupt_mode_pender(interrupt: OpaqueInterruptContext);
                 }
                 unsafe { __interrupt_mode_pender(interrupt) };
             }
             #[cfg(feature = "pender-callback")]
-            PenderInner::Callback { func, context } => func(context),
+            Pender::Callback { func, context } => func(context),
         }
     }
 }
