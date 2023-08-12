@@ -18,11 +18,11 @@ mod thread {
 
     /// TODO
     // Name pending
-    pub struct StdThreadCtx {
+    pub struct Context {
         signaler: &'static Signaler,
     }
 
-    impl Default for StdThreadCtx {
+    impl Default for Context {
         fn default() -> Self {
             Self {
                 signaler: &*Box::leak(Box::new(Signaler::new())),
@@ -30,7 +30,7 @@ mod thread {
         }
     }
 
-    impl ThreadContext for StdThreadCtx {
+    impl ThreadContext for Context {
         fn context(&self) -> OpaqueThreadContext {
             OpaqueThreadContext(self.signaler as *const _ as usize)
         }
@@ -41,8 +41,8 @@ mod thread {
     }
 
     #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(core_id: OpaqueThreadContext) {
-        let signaler: &'static Signaler = unsafe { std::mem::transmute(core_id) };
+    fn __thread_mode_pender(context: OpaqueThreadContext) {
+        let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
         signaler.signal()
     }
 
@@ -76,5 +76,5 @@ mod thread {
 
     /// TODO
     // Type alias for backwards compatibility
-    pub type Executor = crate::thread::ThreadModeExecutor<StdThreadCtx>;
+    pub type Executor = crate::thread::ThreadModeExecutor<Context>;
 }

@@ -5,13 +5,21 @@ use core::marker::PhantomData;
 use crate::raw::{OpaqueThreadContext, Pender};
 use crate::{raw, Spawner};
 
-/// TODO
-// Name pending
+/// Architecture-specific interface for a thread-mode executor. This trait describes what the
+/// executor should do when idle, and what data should be passed to its pender.
+// TODO: Name pending
 pub trait ThreadContext: Sized {
-    /// TODO
+    /// A pointer-sized piece of data that is passed to the pender function.
+    ///
+    /// For example, on multi-core systems, this can be used to store the ID of the core that
+    /// should be woken up.
+    #[cfg(feature = "thread-context")]
     fn context(&self) -> OpaqueThreadContext;
 
-    /// TODO
+    /// Waits for the executor to be waken.
+    ///
+    /// While it is valid for this function can be empty, it is recommended to use a WFE instruction
+    /// or equivalent to let the CPU sleep.
     fn wait(&mut self);
 }
 
@@ -40,11 +48,17 @@ impl<C: ThreadContext> ThreadModeExecutor<C> {
         Self::with_context(C::default())
     }
 
-    /// Create a new Executor.
-    pub fn with_context(context: C) -> Self {
+    /// Create a new Executor using the given thread context.
+    pub fn with_context(thread_context: C) -> Self {
+        #[cfg(not(feature = "thread-context"))]
+        let context = OpaqueThreadContext(());
+
+        #[cfg(feature = "thread-context")]
+        let context = thread_context.context();
+
         Self {
-            inner: raw::Executor::new(Pender::Thread(context.context())),
-            context,
+            inner: raw::Executor::new(Pender::Thread(context)),
+            context: thread_context,
             not_send: PhantomData,
         }
     }

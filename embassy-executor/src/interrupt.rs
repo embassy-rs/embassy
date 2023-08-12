@@ -7,13 +7,17 @@ use atomic_polyfill::{AtomicBool, Ordering};
 
 use crate::raw::{self, OpaqueInterruptContext, Pender};
 
-/// An interrupt source that can be used to drive an [`InterruptExecutor`].
-// Name pending
+/// Architecture-specific interface for an interrupt-mode executor. This trait describes what data
+/// should be passed to the [`InterruptExecutor`]'s pender, and how to enable the interrupt that
+/// triggers polling the executor.
+// TODO: Name pending
 pub trait InterruptContext {
-    /// Creates an opaque identifier for this interrupt.
+    /// A pointer-sized piece of data that is passed to the pender function.
+    ///
+    /// Usually, the context contains the interrupt that should be used to wake the executor.
     fn context(&self) -> OpaqueInterruptContext;
 
-    /// Sets up the interrupt request.
+    /// Enabled the interrupt request.
     fn enable(&self);
 }
 
@@ -36,8 +40,8 @@ pub trait InterruptContext {
 /// Some chips reserve some interrupts for this purpose, sometimes named "software interrupts" (SWI).
 /// If this is not the case, you may use an interrupt from any unused peripheral.
 ///
-/// It is somewhat more complex to use, it's recommended to use the thread-mode
-/// [`Executor`] instead, if it works for your use case.
+/// It is somewhat more complex to use, it's recommended to use the
+/// [`crate::thread::ThreadModeExecutor`] instead, if it works for your use case.
 pub struct InterruptModeExecutor {
     started: AtomicBool,
     executor: UnsafeCell<MaybeUninit<raw::Executor>>,

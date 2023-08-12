@@ -17,25 +17,20 @@ mod thread {
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
     #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(_core_id: OpaqueThreadContext) {
+    fn __thread_mode_pender(_context: OpaqueThreadContext) {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }
 
     /// TODO
     // Name pending
     #[derive(Default)] // Default enables Executor::new
-    pub struct RiscVThreadContext;
+    pub struct Context;
 
-    impl ThreadContext for RiscVThreadContext {
+    impl ThreadContext for Context {
         #[cfg(feature = "thread-context")]
         fn context(&self) -> OpaqueThreadContext {
             // Enabling thread-context is not incorrect, just wasteful.
             OpaqueThreadContext(0)
-        }
-
-        #[cfg(not(feature = "thread-context"))]
-        fn context(&self) -> OpaqueThreadContext {
-            OpaqueThreadContext(())
         }
 
         fn wait(&mut self) {
@@ -60,5 +55,5 @@ mod thread {
 
     /// TODO
     // Type alias for backwards compatibility
-    pub type Executor = crate::thread::ThreadModeExecutor<RiscVThreadContext>;
+    pub type Executor = crate::thread::ThreadModeExecutor<Context>;
 }

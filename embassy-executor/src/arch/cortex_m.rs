@@ -11,25 +11,20 @@ mod thread {
     use crate::thread::ThreadContext;
 
     #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(_core_id: OpaqueThreadContext) {
+    fn __thread_mode_pender(_context: OpaqueThreadContext) {
         unsafe { core::arch::asm!("sev") }
     }
 
     /// TODO
     // Name pending
     #[derive(Default)] // Default enables Executor::new
-    pub struct CortexMThreadContext;
+    pub struct Context;
 
-    impl ThreadContext for CortexMThreadContext {
+    impl ThreadContext for Context {
         #[cfg(feature = "thread-context")]
         fn context(&self) -> OpaqueThreadContext {
             // Enabling thread-context is not incorrect, just wasteful.
             OpaqueThreadContext(0)
-        }
-
-        #[cfg(not(feature = "thread-context"))]
-        fn context(&self) -> OpaqueThreadContext {
-            OpaqueThreadContext(())
         }
 
         fn wait(&mut self) {
@@ -39,7 +34,7 @@ mod thread {
 
     /// TODO
     // Type alias for backwards compatibility
-    pub type Executor = crate::thread::ThreadModeExecutor<CortexMThreadContext>;
+    pub type Executor = crate::thread::ThreadModeExecutor<Context>;
 }
 
 // None of this has to be public, I guess?
