@@ -291,12 +291,29 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     }
 }
 
+/// Context given to the thread-mode executor's pender.
+#[cfg(all(feature = "executor-thread", not(feature = "thread-context")))]
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct OpaqueThreadContext(pub(crate) ());
+
+/// Context given to the thread-mode executor's pender.
+#[cfg(all(feature = "executor-thread", feature = "thread-context"))]
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+pub struct OpaqueThreadContext(pub(crate) usize);
+
+/// Context given to the interrupt-mode executor's pender.
+#[derive(Clone, Copy)]
+#[repr(transparent)]
+pub struct OpaqueInterruptContext(pub(crate) usize);
+
 #[derive(Clone, Copy)]
 pub(crate) enum PenderInner {
     #[cfg(feature = "executor-thread")]
-    Thread(crate::arch::ThreadPender),
+    Thread(OpaqueThreadContext),
     #[cfg(feature = "executor-interrupt")]
-    Interrupt(crate::arch::InterruptPender),
+    Interrupt(OpaqueInterruptContext),
     #[cfg(feature = "pender-callback")]
     Callback { func: fn(*mut ()), context: *mut () },
 }
@@ -333,9 +350,19 @@ impl Pender {
     pub(crate) fn pend(&self) {
         match self.0 {
             #[cfg(feature = "executor-thread")]
-            PenderInner::Thread(x) => x.pend(),
+            PenderInner::Thread(core_id) => {
+                extern "Rust" {
+                    fn __thread_mode_pender(core_id: OpaqueThreadContext);
+                }
+                unsafe { __thread_mode_pender(core_id) };
+            }
             #[cfg(feature = "executor-interrupt")]
-            PenderInner::Interrupt(x) => x.pend(),
+            PenderInner::Interrupt(interrupt) => {
+                extern "Rust" {
+                    fn __interrupt_mode_pender(interrupt: OpaqueInterruptContext);
+                }
+                unsafe { __interrupt_mode_pender(interrupt) };
+            }
             #[cfg(feature = "pender-callback")]
             PenderInner::Callback { func, context } => func(context),
         }

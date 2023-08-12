@@ -31,11 +31,11 @@ features = ["nightly", "defmt", "pender-callback", "arch-cortex-m", "executor-th
 
 # Architecture
 _arch = [] # some arch was picked
-arch-std = ["_arch", "critical-section/std"]
+arch-std = ["_arch", "critical-section/std", "thread-context"]
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 arch-xtensa = ["_arch"]
 arch-riscv32 = ["_arch"]
-arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
+arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys", "thread-context"]
 
 # Enable creating a `Pender` from an arbitrary function pointer callback.
 pender-callback = []
@@ -44,6 +44,9 @@ pender-callback = []
 executor-thread = []
 # Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
+
+# Pass a context to the thread-mode executor.
+thread-context = []
 
 # Enable nightly-only features
 nightly = []

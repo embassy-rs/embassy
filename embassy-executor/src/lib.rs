@@ -37,6 +37,11 @@ pub use arch::*;
 
 pub mod raw;
 
+#[cfg(feature = "executor-interrupt")]
+pub mod interrupt;
+#[cfg(feature = "executor-thread")]
+pub mod thread;
+
 mod spawner;
 pub use spawner::*;
 
