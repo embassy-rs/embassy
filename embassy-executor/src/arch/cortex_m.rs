@@ -18,9 +18,7 @@ mod thread {
     /// TODO
     // Name pending
     #[derive(Default)] // Default enables Executor::new
-    pub struct CortexMThreadContext {
-        _not_send: core::marker::PhantomData<*mut ()>,
-    }
+    pub struct CortexMThreadContext;
 
     impl ThreadContext for CortexMThreadContext {
         #[cfg(feature = "thread-context")]

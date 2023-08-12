@@ -27,15 +27,8 @@ mod thread {
 
     /// TODO
     // Name pending
-    pub struct XtensaThreadContext {
-        _not_send: PhantomData<*mut ()>,
-    }
-
-    impl Default for XtensaThreadContext {
-        fn default() -> Self {
-            Self { _not_send: PhantomData }
-        }
-    }
+    #[derive(Default)] // Default enables Executor::new
+    pub struct XtensaThreadContext;
 
     impl ThreadContext for XtensaThreadContext {
         fn context(&self) -> OpaqueThreadContext {

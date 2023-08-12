@@ -8,7 +8,6 @@ compile_error!("`thread-context` is not supported with `arch-riscv32`.");
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
-    use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, Ordering};
 
     #[cfg(feature = "nightly")]
@@ -28,9 +27,7 @@ mod thread {
     /// TODO
     // Name pending
     #[derive(Default)] // Default enables Executor::new
-    pub struct RiscVThreadContext {
-        _not_send: PhantomData<*mut ()>,
-    }
+    pub struct RiscVThreadContext;
 
     impl ThreadContext for RiscVThreadContext {
         fn context(&self) -> OpaqueThreadContext {

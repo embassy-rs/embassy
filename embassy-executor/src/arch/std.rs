@@ -8,7 +8,6 @@ compile_error!("`arch-std` requires `thread-context`.");
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
-    use std::marker::PhantomData;
     use std::sync::{Condvar, Mutex};
 
     #[cfg(feature = "nightly")]
@@ -20,16 +19,13 @@ mod thread {
     /// TODO
     // Name pending
     pub struct StdThreadCtx {
-        _not_send: PhantomData<*mut ()>,
         signaler: &'static Signaler,
     }
 
     impl Default for StdThreadCtx {
         fn default() -> Self {
-            let signaler = &*Box::leak(Box::new(Signaler::new()));
             Self {
-                _not_send: PhantomData,
-                signaler,
+                signaler: &*Box::leak(Box::new(Signaler::new())),
             }
         }
     }
