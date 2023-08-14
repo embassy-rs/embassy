@@ -14,7 +14,7 @@ mod thread {
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
     #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(_context: crate::raw::PenderContext) {
+    fn __thread_mode_pender(_context: *mut ()) {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }
 
@@ -28,7 +28,7 @@ mod thread {
         /// Create a new Executor.
         pub fn new() -> Self {
             Self {
-                inner: raw::Executor::new(unsafe { core::mem::transmute(0) }),
+                inner: raw::Executor::new(core::ptr::null_mut()),
                 not_send: PhantomData,
             }
         }

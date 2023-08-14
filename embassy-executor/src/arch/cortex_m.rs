@@ -2,12 +2,12 @@ const THREAD_PENDER: usize = usize::MAX;
 
 #[export_name = "__pender"]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
-fn __pender(context: crate::raw::PenderContext) {
+fn __pender(context: *mut ()) {
     unsafe {
         // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
         // request number given to `InterruptExecutor::start`.
 
-        let context: usize = core::mem::transmute(context);
+        let context = context as usize;
 
         #[cfg(feature = "executor-thread")]
         if context == THREAD_PENDER {
@@ -75,7 +75,7 @@ mod thread {
         /// Create a new Executor.
         pub fn new() -> Self {
             Self {
-                inner: raw::Executor::new(unsafe { core::mem::transmute(THREAD_PENDER) }),
+                inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
             }
         }
@@ -205,10 +205,9 @@ mod interrupt {
             }
 
             unsafe {
-                let context = core::mem::transmute(irq.number() as usize);
                 (&mut *self.executor.get())
                     .as_mut_ptr()
-                    .write(raw::Executor::new(context))
+                    .write(raw::Executor::new(irq.number() as *mut ()))
             }
 
             let executor = unsafe { (&*self.executor.get()).assume_init_ref() };

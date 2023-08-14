@@ -14,11 +14,10 @@ mod thread {
     use wasm_bindgen::prelude::*;
 
     use crate::raw::util::UninitCell;
-    use crate::raw::PenderContext;
     use crate::{raw, Spawner};
 
     #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(context: PenderContext) {
+    fn __thread_mode_pender(context: *mut ()) {
         let signaler: &'static WasmContext = unsafe { std::mem::transmute(context) };
         let _ = signaler.promise.then(unsafe { signaler.closure.as_mut() });
     }
@@ -47,9 +46,9 @@ mod thread {
     impl Executor {
         /// Create a new Executor.
         pub fn new() -> Self {
-            let ctx = &*Box::leak(Box::new(WasmContext::new()));
+            let ctx = Box::leak(Box::new(WasmContext::new()));
             Self {
-                inner: raw::Executor::new(unsafe { core::mem::transmute(ctx) }),
+                inner: raw::Executor::new(ctx as *mut WasmContext as *mut ()),
                 ctx,
                 not_send: PhantomData,
             }

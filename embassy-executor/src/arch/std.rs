@@ -14,7 +14,7 @@ mod thread {
     use crate::{raw, Spawner};
 
     #[export_name = "__pender"]
-    fn __pender(context: crate::raw::PenderContext) {
+    fn __pender(context: *mut ()) {
         let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
         signaler.signal()
     }
@@ -29,9 +29,9 @@ mod thread {
     impl Executor {
         /// Create a new Executor.
         pub fn new() -> Self {
-            let signaler = &*Box::leak(Box::new(Signaler::new()));
+            let signaler = Box::leak(Box::new(Signaler::new()));
             Self {
-                inner: raw::Executor::new(unsafe { std::mem::transmute(signaler) }),
+                inner: raw::Executor::new(signaler as *mut Signaler as *mut ()),
                 not_send: PhantomData,
                 signaler,
             }

@@ -291,11 +291,6 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     }
 }
 
-/// Context given to the thread-mode executor's pender.
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-pub struct PenderContext(*mut ());
-
 /// Platform/architecture-specific action executed when an executor has pending work.
 ///
 /// When a task within an executor is woken, the `Pender` is called. This does a
@@ -306,15 +301,13 @@ pub struct PenderContext(*mut ());
 ///
 /// Platform/architecture implementations must provide a function that can be referred to as:
 ///
-/// ```rust
-/// use embassy_executor::raw::PenderContext;
-///
+/// ```rust///
 /// extern "Rust" {
-///     fn __pender(context: PenderContext);
+///     fn __pender(context: *mut ());
 /// }
 /// ```
 #[derive(Clone, Copy)]
-pub struct Pender(PenderContext);
+pub struct Pender(*mut ());
 
 unsafe impl Send for Pender {}
 unsafe impl Sync for Pender {}
@@ -322,7 +315,7 @@ unsafe impl Sync for Pender {}
 impl Pender {
     pub(crate) fn pend(self) {
         extern "Rust" {
-            fn __pender(context: PenderContext);
+            fn __pender(context: *mut ());
         }
         unsafe { __pender(self.0) };
     }
@@ -484,7 +477,7 @@ impl Executor {
     /// When the executor has work to do, it will call the [`Pender`].
     ///
     /// See [`Executor`] docs for details on `Pender`.
-    pub fn new(context: PenderContext) -> Self {
+    pub fn new(context: *mut ()) -> Self {
         Self {
             inner: SyncExecutor::new(Pender(context)),
             _not_sync: PhantomData,
