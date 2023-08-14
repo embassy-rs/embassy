@@ -317,27 +317,10 @@ pub enum Pender {
     /// Pender for an interrupt-mode executor.
     #[cfg(feature = "executor-interrupt")]
     Interrupt(OpaqueInterruptContext),
-
-    /// Arbitrary, dynamically dispatched pender.
-    #[cfg(feature = "pender-callback")]
-    Callback { func: fn(*mut ()), context: *mut () },
 }
 
 unsafe impl Send for Pender {}
 unsafe impl Sync for Pender {}
-
-impl Pender {
-    /// Create a `Pender` that will call an arbitrary function pointer.
-    ///
-    /// # Arguments
-    ///
-    /// - `func`: The function pointer to call.
-    /// - `context`: Opaque context pointer, that will be passed to the function pointer.
-    #[cfg(feature = "pender-callback")]
-    pub fn new_from_callback(func: fn(*mut ()), context: *mut ()) -> Self {
-        Self::Callback { func, context }
-    }
-}
 
 impl Pender {
     pub(crate) fn pend(self) {
@@ -356,8 +339,6 @@ impl Pender {
                 }
                 unsafe { __interrupt_mode_pender(interrupt) };
             }
-            #[cfg(feature = "pender-callback")]
-            Pender::Callback { func, context } => func(context),
         }
     }
 }
