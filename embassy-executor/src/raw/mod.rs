@@ -292,13 +292,6 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 }
 
 /// Context given to the thread-mode executor's pender.
-#[cfg(all(feature = "executor-thread", not(feature = "thread-context")))]
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct OpaqueThreadContext(pub(crate) ());
-
-/// Context given to the thread-mode executor's pender.
-#[cfg(all(feature = "executor-thread", feature = "thread-context"))]
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 pub struct OpaqueThreadContext(pub(crate) usize);

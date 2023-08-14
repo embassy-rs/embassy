@@ -21,9 +21,7 @@ mod thread {
     pub struct Context;
 
     impl ThreadContext for Context {
-        #[cfg(feature = "thread-context")]
         fn context(&self) -> OpaqueThreadContext {
-            // Enabling thread-context is not incorrect, just wasteful.
             OpaqueThreadContext(0)
         }
 

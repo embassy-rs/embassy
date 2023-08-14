@@ -1,9 +1,6 @@
 #[cfg(feature = "executor-interrupt")]
 compile_error!("`executor-interrupt` is not supported with `arch-std`.");
 
-#[cfg(not(feature = "thread-context"))]
-compile_error!("`arch-std` requires `thread-context`.");
-
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]

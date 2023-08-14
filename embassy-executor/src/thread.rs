@@ -13,7 +13,6 @@ pub trait ThreadContext: Sized {
     ///
     /// For example, on multi-core systems, this can be used to store the ID of the core that
     /// should be woken up.
-    #[cfg(feature = "thread-context")]
     fn context(&self) -> OpaqueThreadContext;
 
     /// Waits for the executor to be waken.
@@ -49,16 +48,10 @@ impl<C: ThreadContext> ThreadModeExecutor<C> {
     }
 
     /// Create a new Executor using the given thread context.
-    pub fn with_context(thread_context: C) -> Self {
-        #[cfg(not(feature = "thread-context"))]
-        let context = OpaqueThreadContext(());
-
-        #[cfg(feature = "thread-context")]
-        let context = thread_context.context();
-
+    pub fn with_context(context: C) -> Self {
         Self {
-            inner: raw::Executor::new(Pender::Thread(context)),
-            context: thread_context,
+            inner: raw::Executor::new(Pender::Thread(context.context())),
+            context,
             not_send: PhantomData,
         }
     }
