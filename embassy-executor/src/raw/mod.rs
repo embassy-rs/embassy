@@ -301,13 +301,13 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 ///
 /// Platform/architecture implementations must provide a function that can be referred to as:
 ///
-/// ```rust///
+/// ```rust
 /// extern "Rust" {
 ///     fn __pender(context: *mut ());
 /// }
 /// ```
 #[derive(Clone, Copy)]
-pub struct Pender(*mut ());
+pub(crate) struct Pender(*mut ());
 
 unsafe impl Send for Pender {}
 unsafe impl Sync for Pender {}
