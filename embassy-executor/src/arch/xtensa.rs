@@ -13,8 +13,8 @@ mod thread {
     /// global atomic used to keep track of whether there is work to do since sev() is not available on Xtensa
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
-    #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(_context: *mut ()) {
+    #[export_name = "__pender"]
+    fn __pender(_context: *mut ()) {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }
 

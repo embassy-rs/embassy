@@ -16,8 +16,8 @@ mod thread {
     use crate::raw::util::UninitCell;
     use crate::{raw, Spawner};
 
-    #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(context: *mut ()) {
+    #[export_name = "__pender"]
+    fn __pender(context: *mut ()) {
         let signaler: &'static WasmContext = unsafe { std::mem::transmute(context) };
         let _ = signaler.promise.then(unsafe { signaler.closure.as_mut() });
     }
