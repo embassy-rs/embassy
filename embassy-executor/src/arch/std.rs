@@ -5,42 +5,64 @@ compile_error!("`executor-interrupt` is not supported with `arch-std`.");
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
+    use std::marker::PhantomData;
     use std::sync::{Condvar, Mutex};
 
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_std as main;
 
-    use crate::raw::PenderContext;
-    use crate::thread::ThreadContext;
+    use crate::{raw, Spawner};
 
-    /// TODO
-    // Name pending
-    pub struct Context {
+    #[export_name = "__pender"]
+    fn __pender(context: crate::raw::PenderContext) {
+        let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
+        signaler.signal()
+    }
+
+    /// Single-threaded std-based executor.
+    pub struct Executor {
+        inner: raw::Executor,
+        not_send: PhantomData<*mut ()>,
         signaler: &'static Signaler,
     }
 
-    impl Default for Context {
-        fn default() -> Self {
+    impl Executor {
+        /// Create a new Executor.
+        pub fn new() -> Self {
+            let signaler = &*Box::leak(Box::new(Signaler::new()));
             Self {
-                signaler: &*Box::leak(Box::new(Signaler::new())),
+                inner: raw::Executor::new(unsafe { std::mem::transmute(signaler) }),
+                not_send: PhantomData,
+                signaler,
             }
         }
-    }
 
-    impl ThreadContext for Context {
-        fn context(&self) -> PenderContext {
-            unsafe { core::mem::transmute(self.signaler) }
+        /// Run the executor.
+        ///
+        /// The `init` closure is called with a [`Spawner`] that spawns tasks on
+        /// this executor. Use it to spawn the initial task(s). After `init` returns,
+        /// the executor starts running the tasks.
+        ///
+        /// To spawn more tasks later, you may keep copies of the [`Spawner`] (it is `Copy`),
+        /// for example by passing it as an argument to the initial tasks.
+        ///
+        /// This function requires `&'static mut self`. This means you have to store the
+        /// Executor instance in a place where it'll live forever and grants you mutable
+        /// access. There's a few ways to do this:
+        ///
+        /// - a [StaticCell](https://docs.rs/static_cell/latest/static_cell/) (safe)
+        /// - a `static mut` (unsafe)
+        /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
+        ///
+        /// This function never returns.
+        pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
+            init(self.inner.spawner());
+
+            loop {
+                unsafe { self.inner.poll() };
+                self.signaler.wait()
+            }
         }
-
-        fn wait(&mut self) {
-            self.signaler.wait()
-        }
-    }
-
-    #[export_name = "__pender"]
-    fn __pender(context: PenderContext) {
-        let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
-        signaler.signal()
     }
 
     struct Signaler {
@@ -70,8 +92,4 @@ mod thread {
             self.condvar.notify_one();
         }
     }
-
-    /// TODO
-    // Type alias for backwards compatibility
-    pub type Executor = crate::thread::ThreadModeExecutor<Context>;
 }

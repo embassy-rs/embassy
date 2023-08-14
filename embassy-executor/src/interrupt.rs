@@ -41,7 +41,7 @@ pub trait InterruptContext {
 /// If this is not the case, you may use an interrupt from any unused peripheral.
 ///
 /// It is somewhat more complex to use, it's recommended to use the
-/// [`crate::thread::ThreadModeExecutor`] instead, if it works for your use case.
+/// thread-mode executor instead, if it works for your use case.
 pub struct InterruptModeExecutor {
     started: AtomicBool,
     executor: UnsafeCell<MaybeUninit<raw::Executor>>,

@@ -39,8 +39,8 @@ pub mod raw;
 
 #[cfg(feature = "executor-interrupt")]
 pub mod interrupt;
-#[cfg(feature = "executor-thread")]
-pub mod thread;
+#[cfg(feature = "executor-interrupt")]
+pub use interrupt::*;
 
 mod spawner;
 pub use spawner::*;
