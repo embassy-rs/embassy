@@ -292,53 +292,17 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum PenderInner {
-    #[cfg(feature = "executor-thread")]
-    Thread(crate::arch::ThreadPender),
-    #[cfg(feature = "executor-interrupt")]
-    Interrupt(crate::arch::InterruptPender),
-    #[cfg(feature = "pender-callback")]
-    Callback { func: fn(*mut ()), context: *mut () },
-}
+pub(crate) struct Pender(*mut ());
 
-unsafe impl Send for PenderInner {}
-unsafe impl Sync for PenderInner {}
-
-/// Platform/architecture-specific action executed when an executor has pending work.
-///
-/// When a task within an executor is woken, the `Pender` is called. This does a
-/// platform/architecture-specific action to signal there is pending work in the executor.
-/// When this happens, you must arrange for [`Executor::poll`] to be called.
-///
-/// You can think of it as a waker, but for the whole executor.
-pub struct Pender(pub(crate) PenderInner);
+unsafe impl Send for Pender {}
+unsafe impl Sync for Pender {}
 
 impl Pender {
-    /// Create a `Pender` that will call an arbitrary function pointer.
-    ///
-    /// # Arguments
-    ///
-    /// - `func`: The function pointer to call.
-    /// - `context`: Opaque context pointer, that will be passed to the function pointer.
-    #[cfg(feature = "pender-callback")]
-    pub fn new_from_callback(func: fn(*mut ()), context: *mut ()) -> Self {
-        Self(PenderInner::Callback {
-            func,
-            context: context.into(),
-        })
-    }
-}
-
-impl Pender {
-    pub(crate) fn pend(&self) {
-        match self.0 {
-            #[cfg(feature = "executor-thread")]
-            PenderInner::Thread(x) => x.pend(),
-            #[cfg(feature = "executor-interrupt")]
-            PenderInner::Interrupt(x) => x.pend(),
-            #[cfg(feature = "pender-callback")]
-            PenderInner::Callback { func, context } => func(context),
+    pub(crate) fn pend(self) {
+        extern "Rust" {
+            fn __pender(context: *mut ());
         }
+        unsafe { __pender(self.0) };
     }
 }
 
@@ -472,15 +436,31 @@ impl SyncExecutor {
 ///
 /// - To get the executor to do work, call `poll()`. This will poll all queued tasks (all tasks
 ///   that "want to run").
-/// - You must supply a [`Pender`]. The executor will call it to notify you it has work
-///   to do. You must arrange for `poll()` to be called as soon as possible.
+/// - You must supply a pender function, as shown below. The executor will call it to notify you
+///   it has work to do. You must arrange for `poll()` to be called as soon as possible.
+/// - Enabling `arch-xx` features will define a pender function for you. This means that you
+///   are limited to using the executors provided to you by the architecture/platform
+///   implementation. If you need a different executor, you must not enable `arch-xx` features.
 ///
-/// The [`Pender`] can be called from *any* context: any thread, any interrupt priority
+/// The pender can be called from *any* context: any thread, any interrupt priority
 /// level, etc. It may be called synchronously from any `Executor` method call as well.
 /// You must deal with this correctly.
 ///
 /// In particular, you must NOT call `poll` directly from the pender callback, as this violates
 /// the requirement for `poll` to not be called reentrantly.
+///
+/// The pender function must be exported with the name `__pender` and have the following signature:
+///
+/// ```rust
+/// #[export_name = "__pender"]
+/// fn pender(context: *mut ()) {
+///    // schedule `poll()` to be called
+/// }
+/// ```
+///
+/// The `context` argument is a piece of arbitrary data the executor will pass to the pender.
+/// You can set the `context` when calling [`Executor::new()`]. You can use it to, for example,
+/// differentiate between executors, or to pass a pointer to a callback that should be called.
 #[repr(transparent)]
 pub struct Executor {
     pub(crate) inner: SyncExecutor,
@@ -495,12 +475,12 @@ impl Executor {
 
     /// Create a new executor.
     ///
-    /// When the executor has work to do, it will call the [`Pender`].
+    /// When the executor has work to do, it will call the pender function and pass `context` to it.
     ///
-    /// See [`Executor`] docs for details on `Pender`.
-    pub fn new(pender: Pender) -> Self {
+    /// See [`Executor`] docs for details on the pender.
+    pub fn new(context: *mut ()) -> Self {
         Self {
-            inner: SyncExecutor::new(pender),
+            inner: SyncExecutor::new(Pender(context)),
             _not_sync: PhantomData,
         }
     }
@@ -523,16 +503,16 @@ impl Executor {
     /// This loops over all tasks that are queued to be polled (i.e. they're
     /// freshly spawned or they've been woken). Other tasks are not polled.
     ///
-    /// You must call `poll` after receiving a call to the [`Pender`]. It is OK
-    /// to call `poll` even when not requested by the `Pender`, but it wastes
+    /// You must call `poll` after receiving a call to the pender. It is OK
+    /// to call `poll` even when not requested by the pender, but it wastes
     /// energy.
     ///
     /// # Safety
     ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///
-    /// In particular, note that `poll` may call the `Pender` synchronously. Therefore, you
-    /// must NOT directly call `poll()` from the `Pender` callback. Instead, the callback has to
+    /// In particular, note that `poll` may call the pender synchronously. Therefore, you
+    /// must NOT directly call `poll()` from the pender callback. Instead, the callback has to
     /// somehow schedule for `poll()` to be called later, at a time you know for sure there's
     /// no `poll()` already running.
     pub unsafe fn poll(&'static self) {

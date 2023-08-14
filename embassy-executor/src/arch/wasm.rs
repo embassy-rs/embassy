@@ -14,29 +14,17 @@ mod thread {
     use wasm_bindgen::prelude::*;
 
     use crate::raw::util::UninitCell;
-    use crate::raw::{Pender, PenderInner};
     use crate::{raw, Spawner};
 
-    /// WASM executor, wasm_bindgen to schedule tasks on the JS event loop.
-    pub struct Executor {
-        inner: raw::Executor,
-        ctx: &'static WasmContext,
-        not_send: PhantomData<*mut ()>,
+    #[export_name = "__pender"]
+    fn __pender(context: *mut ()) {
+        let signaler: &'static WasmContext = unsafe { std::mem::transmute(context) };
+        let _ = signaler.promise.then(unsafe { signaler.closure.as_mut() });
     }
 
     pub(crate) struct WasmContext {
         promise: Promise,
         closure: UninitCell<Closure<dyn FnMut(JsValue)>>,
-    }
-
-    #[derive(Copy, Clone)]
-    pub(crate) struct ThreadPender(&'static WasmContext);
-
-    impl ThreadPender {
-        #[allow(unused)]
-        pub(crate) fn pend(self) {
-            let _ = self.0.promise.then(unsafe { self.0.closure.as_mut() });
-        }
     }
 
     impl WasmContext {
@@ -48,14 +36,21 @@ mod thread {
         }
     }
 
+    /// WASM executor, wasm_bindgen to schedule tasks on the JS event loop.
+    pub struct Executor {
+        inner: raw::Executor,
+        ctx: &'static WasmContext,
+        not_send: PhantomData<*mut ()>,
+    }
+
     impl Executor {
         /// Create a new Executor.
         pub fn new() -> Self {
-            let ctx = &*Box::leak(Box::new(WasmContext::new()));
+            let ctx = Box::leak(Box::new(WasmContext::new()));
             Self {
-                inner: raw::Executor::new(Pender(PenderInner::Thread(ThreadPender(ctx)))),
-                not_send: PhantomData,
+                inner: raw::Executor::new(ctx as *mut WasmContext as *mut ()),
                 ctx,
+                not_send: PhantomData,
             }
         }
 
