@@ -15,7 +15,6 @@ export BUILDER_COMPRESS=true
 # which makes rustup very sad
 rustc --version > /dev/null
 
-docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
 docserver-builder -i ./embassy-boot/boot -o webroot/crates/embassy-boot/git.zup
 docserver-builder -i ./embassy-boot/nrf -o webroot/crates/embassy-boot-nrf/git.zup
 docserver-builder -i ./embassy-boot/rp -o webroot/crates/embassy-boot-rp/git.zup
@@ -44,3 +43,11 @@ export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
 kubectl cp webroot/crates $POD:/data
 kubectl cp webroot/static $POD:/data
+
+# build and upload stm32 last
+# so that it doesn't prevent other crates from getting docs updates when it breaks.
+rm -rf webroot
+docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
+
+POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
+kubectl cp webroot/crates $POD:/data
