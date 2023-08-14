@@ -292,10 +292,29 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 }
 
 /// Context given to the thread-mode executor's pender.
-pub type PenderContext = usize;
-
+#[repr(transparent)]
 #[derive(Clone, Copy)]
-pub(crate) struct Pender(PenderContext);
+pub struct PenderContext(usize);
+
+/// Platform/architecture-specific action executed when an executor has pending work.
+///
+/// When a task within an executor is woken, the `Pender` is called. This does a
+/// platform/architecture-specific action to signal there is pending work in the executor.
+/// When this happens, you must arrange for [`Executor::poll`] to be called.
+///
+/// You can think of it as a waker, but for the whole executor.
+///
+/// Platform/architecture implementations must provide a function that can be referred to as:
+///
+/// ```rust
+/// use embassy_executor::raw::PenderContext;
+///
+/// extern "Rust" {
+///     fn __pender(context: PenderContext);
+/// }
+/// ```
+#[derive(Clone, Copy)]
+pub struct Pender(PenderContext);
 
 unsafe impl Send for Pender {}
 unsafe impl Sync for Pender {}

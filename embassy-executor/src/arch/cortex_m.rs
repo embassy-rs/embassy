@@ -36,6 +36,7 @@ unsafe fn nvic_pend(irq: u16) {
 #[export_name = "__pender"]
 fn __pender(context: PenderContext) {
     unsafe {
+        let context: usize = core::mem::transmute(context);
         // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
         // request number given to `InterruptExecutor::start`.
         if context as usize == usize::MAX {
@@ -56,6 +57,7 @@ fn __pender(_context: PenderContext) {
 #[export_name = "__pender"]
 fn __pender(context: PenderContext) {
     unsafe {
+        let context: usize = core::mem::transmute(context);
         // Safety: `context` is the same value we passed to `InterruptExecutor::start`, which must
         // be a valid interrupt request number.
         nvic_pend(context as u16)
@@ -78,7 +80,7 @@ mod thread {
 
     impl ThreadContext for Context {
         fn context(&self) -> PenderContext {
-            usize::MAX
+            unsafe { core::mem::transmute(usize::MAX) }
         }
 
         fn wait(&mut self) {
@@ -106,7 +108,7 @@ mod interrupt {
         T: InterruptNumber,
     {
         fn context(&self) -> PenderContext {
-            self.number() as usize
+            unsafe { core::mem::transmute(self.number() as usize) }
         }
 
         fn enable(&self) {

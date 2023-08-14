@@ -29,7 +29,7 @@ mod thread {
 
     impl ThreadContext for Context {
         fn context(&self) -> PenderContext {
-            self.signaler as *const _ as usize
+            unsafe { core::mem::transmute(self.signaler) }
         }
 
         fn wait(&mut self) {

@@ -28,7 +28,7 @@ mod thread {
 
     impl ThreadContext for Context {
         fn context(&self) -> PenderContext {
-            0
+            unsafe { core::mem::transmute(0) }
         }
 
         fn wait(&mut self) {

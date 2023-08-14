@@ -49,7 +49,7 @@ mod thread {
         pub fn new() -> Self {
             let ctx = &*Box::leak(Box::new(WasmContext::new()));
             Self {
-                inner: raw::Executor::new(ctx as *const _ as usize),
+                inner: raw::Executor::new(unsafe { core::mem::transmute(ctx) }),
                 ctx,
                 not_send: PhantomData,
             }
