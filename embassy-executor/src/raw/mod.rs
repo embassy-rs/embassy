@@ -294,7 +294,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 /// Context given to the thread-mode executor's pender.
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-pub struct PenderContext(usize);
+pub struct PenderContext(*mut ());
 
 /// Platform/architecture-specific action executed when an executor has pending work.
 ///
