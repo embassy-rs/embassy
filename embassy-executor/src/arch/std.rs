@@ -10,7 +10,7 @@ mod thread {
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_std as main;
 
-    use crate::raw::OpaqueThreadContext;
+    use crate::raw::PenderContext;
     use crate::thread::ThreadContext;
 
     /// TODO
@@ -28,8 +28,8 @@ mod thread {
     }
 
     impl ThreadContext for Context {
-        fn context(&self) -> OpaqueThreadContext {
-            OpaqueThreadContext(self.signaler as *const _ as usize)
+        fn context(&self) -> PenderContext {
+            self.signaler as *const _ as usize
         }
 
         fn wait(&mut self) {
@@ -37,8 +37,8 @@ mod thread {
         }
     }
 
-    #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(context: OpaqueThreadContext) {
+    #[export_name = "__pender"]
+    fn __pender(context: PenderContext) {
         let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
         signaler.signal()
     }

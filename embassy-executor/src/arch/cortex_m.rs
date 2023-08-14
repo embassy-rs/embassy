@@ -1,19 +1,75 @@
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 
+use crate::raw::PenderContext;
+
+#[cfg(feature = "executor-interrupt")]
+
+/// # Safety
+///
+/// `irq` must be a valid interrupt request number
+unsafe fn nvic_pend(irq: u16) {
+    use cortex_m::interrupt::InterruptNumber;
+
+    #[derive(Clone, Copy)]
+    struct Irq(u16);
+    unsafe impl InterruptNumber for Irq {
+        fn number(self) -> u16 {
+            self.0
+        }
+    }
+
+    let irq = Irq(irq);
+
+    // STIR is faster, but is only available in v7 and higher.
+    #[cfg(not(armv6m))]
+    {
+        let mut nvic: cortex_m::peripheral::NVIC = unsafe { core::mem::transmute(()) };
+        nvic.request(irq);
+    }
+
+    #[cfg(armv6m)]
+    cortex_m::peripheral::NVIC::pend(irq);
+}
+
+#[cfg(all(feature = "executor-thread", feature = "executor-interrupt"))]
+#[export_name = "__pender"]
+fn __pender(context: PenderContext) {
+    unsafe {
+        // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
+        // request number given to `InterruptExecutor::start`.
+        if context as usize == usize::MAX {
+            core::arch::asm!("sev")
+        } else {
+            nvic_pend(context as u16)
+        }
+    }
+}
+
+#[cfg(all(feature = "executor-thread", not(feature = "executor-interrupt")))]
+#[export_name = "__pender"]
+fn __pender(_context: PenderContext) {
+    unsafe { core::arch::asm!("sev") }
+}
+
+#[cfg(all(not(feature = "executor-thread"), feature = "executor-interrupt"))]
+#[export_name = "__pender"]
+fn __pender(context: PenderContext) {
+    unsafe {
+        // Safety: `context` is the same value we passed to `InterruptExecutor::start`, which must
+        // be a valid interrupt request number.
+        nvic_pend(context as u16)
+    }
+}
+
 #[cfg(feature = "executor-thread")]
 mod thread {
 
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_cortex_m as main;
 
-    use crate::raw::OpaqueThreadContext;
+    use crate::raw::PenderContext;
     use crate::thread::ThreadContext;
-
-    #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(_context: OpaqueThreadContext) {
-        unsafe { core::arch::asm!("sev") }
-    }
 
     /// TODO
     // Name pending
@@ -21,8 +77,8 @@ mod thread {
     pub struct Context;
 
     impl ThreadContext for Context {
-        fn context(&self) -> OpaqueThreadContext {
-            OpaqueThreadContext(0)
+        fn context(&self) -> PenderContext {
+            usize::MAX
         }
 
         fn wait(&mut self) {
@@ -35,7 +91,6 @@ mod thread {
     pub type Executor = crate::thread::ThreadModeExecutor<Context>;
 }
 
-// None of this has to be public, I guess?
 #[cfg(feature = "executor-interrupt")]
 pub use interrupt::*;
 #[cfg(feature = "executor-interrupt")]
@@ -44,43 +99,19 @@ mod interrupt {
     use cortex_m::peripheral::NVIC;
 
     use crate::interrupt::InterruptContext;
-    use crate::raw::OpaqueInterruptContext;
-
-    #[derive(Clone, Copy)]
-    struct CortexMInterruptContext(u16);
-
-    unsafe impl cortex_m::interrupt::InterruptNumber for CortexMInterruptContext {
-        fn number(self) -> u16 {
-            self.0
-        }
-    }
+    use crate::raw::PenderContext;
 
     impl<T> InterruptContext for T
     where
         T: InterruptNumber,
     {
-        fn context(&self) -> OpaqueInterruptContext {
-            OpaqueInterruptContext(self.number() as usize)
+        fn context(&self) -> PenderContext {
+            self.number() as usize
         }
 
         fn enable(&self) {
             unsafe { NVIC::unmask(*self) }
         }
-    }
-
-    #[export_name = "__interrupt_mode_pender"]
-    fn __interrupt_mode_pender(interrupt: OpaqueInterruptContext) {
-        let interrupt = CortexMInterruptContext(unsafe { core::mem::transmute::<_, usize>(interrupt) as u16 });
-
-        // STIR is faster, but is only available in v7 and higher.
-        #[cfg(not(armv6m))]
-        {
-            let mut nvic: NVIC = unsafe { core::mem::transmute(()) };
-            nvic.request(interrupt);
-        }
-
-        #[cfg(armv6m)]
-        NVIC::pend(interrupt);
     }
 
     /// TODO

@@ -14,11 +14,11 @@ mod thread {
     use wasm_bindgen::prelude::*;
 
     use crate::raw::util::UninitCell;
-    use crate::raw::{OpaqueThreadContext, Pender};
+    use crate::raw::PenderContext;
     use crate::{raw, Spawner};
 
     #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(context: OpaqueThreadContext) {
+    fn __thread_mode_pender(context: PenderContext) {
         let signaler: &'static WasmContext = unsafe { std::mem::transmute(context) };
         let _ = signaler.promise.then(unsafe { signaler.closure.as_mut() });
     }
@@ -49,7 +49,7 @@ mod thread {
         pub fn new() -> Self {
             let ctx = &*Box::leak(Box::new(WasmContext::new()));
             Self {
-                inner: raw::Executor::new(Pender::Thread(OpaqueThreadContext(ctx as *const _ as usize))),
+                inner: raw::Executor::new(ctx as *const _ as usize),
                 ctx,
                 not_send: PhantomData,
             }

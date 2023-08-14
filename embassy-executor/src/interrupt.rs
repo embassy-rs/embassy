@@ -5,7 +5,7 @@ use core::mem::MaybeUninit;
 
 use atomic_polyfill::{AtomicBool, Ordering};
 
-use crate::raw::{self, OpaqueInterruptContext, Pender};
+use crate::raw::{self, PenderContext};
 
 /// Architecture-specific interface for an interrupt-mode executor. This trait describes what data
 /// should be passed to the [`InterruptExecutor`]'s pender, and how to enable the interrupt that
@@ -15,7 +15,7 @@ pub trait InterruptContext {
     /// A pointer-sized piece of data that is passed to the pender function.
     ///
     /// Usually, the context contains the interrupt that should be used to wake the executor.
-    fn context(&self) -> OpaqueInterruptContext;
+    fn context(&self) -> PenderContext;
 
     /// Enabled the interrupt request.
     fn enable(&self);
@@ -104,7 +104,7 @@ impl InterruptModeExecutor {
         unsafe {
             (&mut *self.executor.get())
                 .as_mut_ptr()
-                .write(raw::Executor::new(Pender::Interrupt(irq.context())))
+                .write(raw::Executor::new(irq.context()))
         }
 
         let executor = unsafe { (&*self.executor.get()).assume_init_ref() };

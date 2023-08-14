@@ -292,54 +292,20 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
 }
 
 /// Context given to the thread-mode executor's pender.
-#[repr(transparent)]
-#[derive(Clone, Copy)]
-pub struct OpaqueThreadContext(pub(crate) usize);
+pub type PenderContext = usize;
 
-/// Context given to the interrupt-mode executor's pender.
 #[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct OpaqueInterruptContext(pub(crate) usize);
-
-/// Platform/architecture-specific action executed when an executor has pending work.
-///
-/// When a task within an executor is woken, the `Pender` is called. This does a
-/// platform/architecture-specific action to signal there is pending work in the executor.
-/// When this happens, you must arrange for [`Executor::poll`] to be called.
-///
-/// You can think of it as a waker, but for the whole executor.
-#[derive(Clone, Copy)]
-pub enum Pender {
-    /// Pender for a thread-mode executor.
-    #[cfg(feature = "executor-thread")]
-    Thread(OpaqueThreadContext),
-
-    /// Pender for an interrupt-mode executor.
-    #[cfg(feature = "executor-interrupt")]
-    Interrupt(OpaqueInterruptContext),
-}
+pub(crate) struct Pender(PenderContext);
 
 unsafe impl Send for Pender {}
 unsafe impl Sync for Pender {}
 
 impl Pender {
     pub(crate) fn pend(self) {
-        match self {
-            #[cfg(feature = "executor-thread")]
-            Pender::Thread(core_id) => {
-                extern "Rust" {
-                    fn __thread_mode_pender(core_id: OpaqueThreadContext);
-                }
-                unsafe { __thread_mode_pender(core_id) };
-            }
-            #[cfg(feature = "executor-interrupt")]
-            Pender::Interrupt(interrupt) => {
-                extern "Rust" {
-                    fn __interrupt_mode_pender(interrupt: OpaqueInterruptContext);
-                }
-                unsafe { __interrupt_mode_pender(interrupt) };
-            }
+        extern "Rust" {
+            fn __pender(context: PenderContext);
         }
+        unsafe { __pender(self.0) };
     }
 }
 
@@ -499,9 +465,9 @@ impl Executor {
     /// When the executor has work to do, it will call the [`Pender`].
     ///
     /// See [`Executor`] docs for details on `Pender`.
-    pub fn new(pender: Pender) -> Self {
+    pub fn new(context: PenderContext) -> Self {
         Self {
-            inner: SyncExecutor::new(pender),
+            inner: SyncExecutor::new(Pender(context)),
             _not_sync: PhantomData,
         }
     }

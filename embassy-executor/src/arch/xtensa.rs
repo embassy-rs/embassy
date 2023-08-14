@@ -8,14 +8,14 @@ mod thread {
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, Ordering};
 
-    use crate::raw::OpaqueThreadContext;
+    use crate::raw::PenderContext;
     use crate::thread::ThreadContext;
 
     /// global atomic used to keep track of whether there is work to do since sev() is not available on Xtensa
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
     #[export_name = "__thread_mode_pender"]
-    fn __thread_mode_pender(_context: OpaqueThreadContext) {
+    fn __thread_mode_pender(_context: PenderContext) {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }
 
@@ -25,8 +25,8 @@ mod thread {
     pub struct Context;
 
     impl ThreadContext for Context {
-        fn context(&self) -> OpaqueThreadContext {
-            OpaqueThreadContext(0)
+        fn context(&self) -> PenderContext {
+            0
         }
 
         fn wait(&mut self) {
