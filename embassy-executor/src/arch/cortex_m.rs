@@ -10,7 +10,8 @@ fn __pender(context: *mut ()) {
         let context = context as usize;
 
         #[cfg(feature = "executor-thread")]
-        if context == THREAD_PENDER {
+        // Try to make Rust optimize the branching away if we only use thread mode.
+        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
             core::arch::asm!("sev");
             return;
         }
