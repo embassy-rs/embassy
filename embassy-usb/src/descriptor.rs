@@ -37,7 +37,8 @@ pub mod capability_type {
 }
 
 /// A writer for USB descriptors.
-pub(crate) struct DescriptorWriter<'a> {
+pub struct DescriptorWriter<'a> {
+    /// The inner buffer of the descriptor writer.
     pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
