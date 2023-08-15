@@ -749,31 +749,21 @@ mod eh02 {
 mod eh1 {
     use super::*;
 
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for BufferedUart<'d, T> {
+    impl<'d, T: Instance> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d, T> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for BufferedUartTx<'d, T> {
+    impl<'d, T: Instance> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d, T> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for BufferedUartRx<'d, T> {
+    impl<'d, T: Instance> embedded_hal_nb::serial::ErrorType for BufferedUart<'d, T> {
         type Error = Error;
     }
 
     impl<'d, T: Instance> embedded_hal_nb::serial::Read for BufferedUartRx<'d, T> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
             embedded_hal_02::serial::Read::read(self)
-        }
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUartTx<'d, T> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer).map(drop)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
         }
     }
 
@@ -790,16 +780,6 @@ mod eh1 {
     impl<'d, T: Instance> embedded_hal_nb::serial::Read for BufferedUart<'d, T> {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
-        }
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::serial::Write for BufferedUart<'d, T> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer).map(drop)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
         }
     }
 

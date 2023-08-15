@@ -42,8 +42,9 @@ smart-leds = "0.3.0"
 heapless = "0.7.15"
 usbd-hid = "0.6.1"
 
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11" }
-embedded-hal-async = "0.2.0-alpha.2"
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1" }
+embedded-hal-async = "1.0.0-rc.1"
+embedded-hal-bus = { version = "0.1.0-rc.1", features = ["async"] }
 embedded-io-async = { version = "0.5.0", features = ["defmt-03"] }
 embedded-storage = { version = "0.3" }
 static_cell = { version = "1.1", features = ["nightly"]}
@@ -54,3 +55,6 @@ rand = { version = "0.8.5", default-features = false }
 
 [profile.release]
 debug = 2
+
+[patch.crates-io]
+lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "1323eccc1c470d4259f95f4f315d1be830d572a3"}

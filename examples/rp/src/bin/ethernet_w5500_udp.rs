@@ -18,7 +18,7 @@ use embassy_rp::gpio::{Input, Level, Output, Pull};
 use embassy_rp::peripherals::{PIN_17, PIN_20, PIN_21, SPI0};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_time::Delay;
-use embedded_hal_async::spi::ExclusiveDevice;
+use embedded_hal_bus::spi::ExclusiveDevice;
 use rand::RngCore;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};

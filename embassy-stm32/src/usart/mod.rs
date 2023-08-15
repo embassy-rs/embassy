@@ -943,43 +943,33 @@ mod eh02 {
 mod eh1 {
     use super::*;
 
-    impl embedded_hal_1::serial::Error for Error {
-        fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
+    impl embedded_hal_nb::serial::Error for Error {
+        fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
             match *self {
-                Self::Framing => embedded_hal_1::serial::ErrorKind::FrameFormat,
-                Self::Noise => embedded_hal_1::serial::ErrorKind::Noise,
-                Self::Overrun => embedded_hal_1::serial::ErrorKind::Overrun,
-                Self::Parity => embedded_hal_1::serial::ErrorKind::Parity,
-                Self::BufferTooLong => embedded_hal_1::serial::ErrorKind::Other,
+                Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
+                Self::Noise => embedded_hal_nb::serial::ErrorKind::Noise,
+                Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
+                Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
+                Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
             }
         }
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
+    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
         type Error = Error;
     }
 
-    impl<'d, T: BasicInstance, TxDma> embedded_hal_1::serial::ErrorType for UartTx<'d, T, TxDma> {
+    impl<'d, T: BasicInstance, TxDma> embedded_hal_nb::serial::ErrorType for UartTx<'d, T, TxDma> {
         type Error = Error;
     }
 
-    impl<'d, T: BasicInstance, RxDma> embedded_hal_1::serial::ErrorType for UartRx<'d, T, RxDma> {
+    impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::ErrorType for UartRx<'d, T, RxDma> {
         type Error = Error;
     }
 
     impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::Read for UartRx<'d, T, RxDma> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
             self.nb_read()
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma> embedded_hal_1::serial::Write for UartTx<'d, T, TxDma> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
         }
     }
 
@@ -996,16 +986,6 @@ mod eh1 {
     impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Read for Uart<'d, T, TxDma, RxDma> {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             self.nb_read()
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_1::serial::Write for Uart<'d, T, TxDma, RxDma> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
         }
     }
 
