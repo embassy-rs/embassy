@@ -19,3 +19,4 @@ defmt = { version = "0.3", optional = true }
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-w5500-v$VERSION/embassy-net-w5500/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-w5500/src/"
 target = "thumbv7em-none-eabi"
+features = ["defmt"]

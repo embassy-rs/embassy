@@ -1,5 +1,7 @@
 mod w5500;
 pub use w5500::W5500;
+mod w5100s;
+pub use w5100s::W5100S;
 
 pub(crate) mod sealed {
     use embedded_hal_async::spi::SpiDevice;
@@ -21,6 +23,11 @@ pub(crate) mod sealed {
         const SOCKET_RX_DATA_READ_PTR: Self::Address;
         const SOCKET_INTR_MASK: Self::Address;
         const SOCKET_INTR: Self::Address;
+
+        const SOCKET_MODE_VALUE: u8;
+
+        const BUF_SIZE: u16;
+        const AUTO_WRAP: bool;
 
         fn rx_addr(addr: u16) -> Self::Address;
         fn tx_addr(addr: u16) -> Self::Address;

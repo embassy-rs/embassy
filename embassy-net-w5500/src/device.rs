@@ -43,13 +43,13 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         // Set MAC address
         this.bus_write(C::COMMON_MAC, &mac_addr).await?;
 
-        // Set the raw socket RX/TX buffer sizes to  16KB
-        this.bus_write(C::SOCKET_TXBUF_SIZE, &[16]).await?;
-        this.bus_write(C::SOCKET_RXBUF_SIZE, &[16]).await?;
+        // Set the raw socket RX/TX buffer sizes.
+        let buf_kbs = (C::BUF_SIZE / 1024) as u8;
+        this.bus_write(C::SOCKET_TXBUF_SIZE, &[buf_kbs]).await?;
+        this.bus_write(C::SOCKET_RXBUF_SIZE, &[buf_kbs]).await?;
 
         // MACRAW mode with MAC filtering.
-        let mode: u8 = (1 << 2) | (1 << 7);
-        this.bus_write(C::SOCKET_MODE, &[mode]).await?;
+        this.bus_write(C::SOCKET_MODE, &[C::SOCKET_MODE_VALUE]).await?;
         this.command(Command::Open).await?;
 
         Ok(this)
@@ -114,9 +114,21 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         Ok(u16::from_be_bytes(data))
     }
 
-    /// Read bytes from the RX buffer. Returns the number of bytes read.
+    /// Read bytes from the RX buffer.
     async fn read_bytes(&mut self, read_ptr: &mut u16, buffer: &mut [u8]) -> Result<(), SPI::Error> {
-        self.bus_read(C::rx_addr(*read_ptr), buffer).await?;
+        if C::AUTO_WRAP {
+            self.bus_read(C::rx_addr(*read_ptr), buffer).await?;
+        } else {
+            let addr = *read_ptr % C::BUF_SIZE;
+            if addr as usize + buffer.len() <= C::BUF_SIZE as usize {
+                self.bus_read(C::rx_addr(addr), buffer).await?;
+            } else {
+                let n = C::BUF_SIZE - addr;
+                self.bus_read(C::rx_addr(addr), &mut buffer[..n as usize]).await?;
+                self.bus_read(C::rx_addr(0), &mut buffer[n as usize..]).await?;
+            }
+        }
+
         *read_ptr = (*read_ptr).wrapping_add(buffer.len() as u16);
 
         Ok(())
@@ -155,7 +167,20 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<usize, SPI::Error> {
         while self.get_tx_free_size().await? < frame.len() as u16 {}
         let write_ptr = self.get_tx_write_ptr().await?;
-        self.bus_write(C::tx_addr(write_ptr), frame).await?;
+
+        if C::AUTO_WRAP {
+            self.bus_write(C::tx_addr(write_ptr), frame).await?;
+        } else {
+            let addr = write_ptr % C::BUF_SIZE;
+            if addr as usize + frame.len() <= C::BUF_SIZE as usize {
+                self.bus_write(C::tx_addr(addr), frame).await?;
+            } else {
+                let n = C::BUF_SIZE - addr;
+                self.bus_write(C::tx_addr(addr), &frame[..n as usize]).await?;
+                self.bus_write(C::tx_addr(0), &frame[n as usize..]).await?;
+            }
+        }
+
         self.set_tx_write_ptr(write_ptr.wrapping_add(frame.len() as u16))
             .await?;
         self.command(Command::Send).await?;
