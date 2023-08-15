@@ -23,7 +23,7 @@ log = { version = "0.4.14", optional = true }
 embassy-time = { version = "0.1.2", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false, optional = true }
-embedded-hal-async = { version = "=0.2.0-alpha.2" }
+embedded-hal-async = { version = "=1.0.0-rc.1" }
 embedded-hal = { version = "0.2", features = ["unproven"] }
 
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }

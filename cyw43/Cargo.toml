@@ -24,7 +24,7 @@ cortex-m = "0.7.6"
 cortex-m-rt = "0.7.0"
 futures = { version = "0.3.17", default-features = false, features = ["async-await", "cfg-target-has-atomic", "unstable"] }
 
-embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-alpha.11" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0.0-rc.1" }
 num_enum = { version = "0.5.7", default-features = false }
 
 [package.metadata.embassy_docs]

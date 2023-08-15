@@ -37,3 +37,6 @@ static_cell = "1.1"
 
 [profile.release]
 debug = 2
+
+[patch.crates-io]
+lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "1323eccc1c470d4259f95f4f315d1be830d572a3"}
