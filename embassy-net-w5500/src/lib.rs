@@ -2,7 +2,6 @@
 #![no_std]
 
 mod device;
-mod socket;
 mod spi;
 
 use embassy_futures::select::{select, Either};
