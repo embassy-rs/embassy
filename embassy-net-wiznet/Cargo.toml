@@ -1,8 +1,8 @@
 [package]
-name = "embassy-net-w5500"
+name = "embassy-net-wiznet"
 version = "0.1.0"
-description = "embassy-net driver for the W5500 ethernet chip"
-keywords = ["embedded", "w5500", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+description = "embassy-net driver for WIZnet SPI Ethernet chips"
+keywords = ["embedded", "wiznet", "embassy-net", "embedded-hal-async", "ethernet", "async"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
@@ -16,6 +16,7 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 defmt = { version = "0.3", optional = true }
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-w5500-v$VERSION/embassy-net-w5500/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-w5500/src/"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-wiznet-v$VERSION/embassy-net-wiznet/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-wiznet/src/"
 target = "thumbv7em-none-eabi"
+features = ["defmt"]
