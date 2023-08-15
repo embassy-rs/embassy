@@ -1,5 +1,6 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 // must go first.
 mod fmt;
@@ -43,6 +44,7 @@ const _TXND: u16 = 0x1fff;
 
 const MTU: usize = 1514; // 1500 IP + 14 ethernet header
 
+/// ENC28J60 embassy-net driver
 pub struct Enc28j60<S, O> {
     mac_addr: [u8; 6],
 
@@ -60,6 +62,10 @@ where
     S: SpiDevice,
     O: OutputPin,
 {
+    /// Create a new ENC28J60 driver instance.
+    ///
+    /// The RST pin is optional. If None, reset will be done with a SPI
+    /// soft reset command, instead of via the RST pin.
     pub fn new(spi: S, rst: Option<O>, mac_addr: [u8; 6]) -> Self {
         let mut res = Self {
             mac_addr,
@@ -300,6 +306,7 @@ where
         }*/
     }
 
+    /// Get whether the link is up
     pub fn is_link_up(&mut self) -> bool {
         let bits = self.read_phy_register(phy::Register::PHSTAT2);
         phy::PHSTAT2(bits).lstat() == 1
@@ -659,6 +666,7 @@ where
     }
 }
 
+/// embassy-net RX token.
 pub struct RxToken<'a> {
     buf: &'a mut [u8],
 }
@@ -672,6 +680,7 @@ impl<'a> embassy_net_driver::RxToken for RxToken<'a> {
     }
 }
 
+/// embassy-net TX token.
 pub struct TxToken<'a, S, O>
 where
     S: SpiDevice,
