@@ -10,6 +10,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
 use embassy_net::{Stack, StackResources};
+use embassy_net_w5500::chip::W5500;
 use embassy_net_w5500::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
@@ -26,6 +27,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn ethernet_task(
     runner: Runner<
         'static,
+        W5500,
         ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static, PIN_17>, Delay>,
         Input<'static, PIN_21>,
         Output<'static, PIN_20>,

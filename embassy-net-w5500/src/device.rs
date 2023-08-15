@@ -1,117 +1,107 @@
+use core::marker::PhantomData;
+
 use embedded_hal_async::spi::SpiDevice;
 
-use crate::spi::{Address, SpiInterface};
-
-pub const COMMON_MODE: Address = (RegisterBlock::Common, 0x00);
-pub const COMMON_MAC: Address = (RegisterBlock::Common, 0x09);
-pub const COMMON_SOCKET_INTR: Address = (RegisterBlock::Common, 0x18);
-pub const COMMON_PHY_CFG: Address = (RegisterBlock::Common, 0x2E);
-
-pub const SOCKET_MODE: Address = (RegisterBlock::Socket0, 0x00);
-pub const SOCKET_COMMAND: Address = (RegisterBlock::Socket0, 0x01);
-pub const SOCKET_RXBUF_SIZE: Address = (RegisterBlock::Socket0, 0x1E);
-pub const SOCKET_TXBUF_SIZE: Address = (RegisterBlock::Socket0, 0x1F);
-pub const SOCKET_TX_FREE_SIZE: Address = (RegisterBlock::Socket0, 0x20);
-pub const SOCKET_TX_DATA_WRITE_PTR: Address = (RegisterBlock::Socket0, 0x24);
-pub const SOCKET_RECVD_SIZE: Address = (RegisterBlock::Socket0, 0x26);
-pub const SOCKET_RX_DATA_READ_PTR: Address = (RegisterBlock::Socket0, 0x28);
-pub const SOCKET_INTR_MASK: Address = (RegisterBlock::Socket0, 0x2C);
-pub const SOCKET_INTR: Address = (RegisterBlock::Socket0, 0x02);
+use crate::chip::Chip;
 
 #[repr(u8)]
-pub enum Command {
+enum Command {
     Open = 0x01,
     Send = 0x20,
     Receive = 0x40,
 }
 
 #[repr(u8)]
-pub enum Interrupt {
+enum Interrupt {
     Receive = 0b00100_u8,
-}
-
-#[repr(u8)]
-pub enum RegisterBlock {
-    Common = 0x00,
-    Socket0 = 0x01,
-    TxBuf = 0x02,
-    RxBuf = 0x03,
 }
 
 /// W5500 in MACRAW mode
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct W5500<SPI> {
-    bus: SpiInterface<SPI>,
+pub(crate) struct WiznetDevice<C, SPI> {
+    spi: SPI,
+    _phantom: PhantomData<C>,
 }
 
-impl<SPI: SpiDevice> W5500<SPI> {
+impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
     /// Create and initialize the W5500 driver
-    pub async fn new(spi: SPI, mac_addr: [u8; 6]) -> Result<W5500<SPI>, SPI::Error> {
-        let mut bus = SpiInterface(spi);
+    pub async fn new(spi: SPI, mac_addr: [u8; 6]) -> Result<Self, SPI::Error> {
+        let mut this = Self {
+            spi,
+            _phantom: PhantomData,
+        };
+
         // Reset device
-        bus.write_frame(COMMON_MODE, &[0x80]).await?;
+        this.bus_write(C::COMMON_MODE, &[0x80]).await?;
 
         // Enable interrupt pin
-        bus.write_frame(COMMON_SOCKET_INTR, &[0x01]).await?;
+        this.bus_write(C::COMMON_SOCKET_INTR, &[0x01]).await?;
         // Enable receive interrupt
-        bus.write_frame(SOCKET_INTR_MASK, &[Interrupt::Receive as u8]).await?;
+        this.bus_write(C::SOCKET_INTR_MASK, &[Interrupt::Receive as u8]).await?;
 
         // Set MAC address
-        bus.write_frame(COMMON_MAC, &mac_addr).await?;
+        this.bus_write(C::COMMON_MAC, &mac_addr).await?;
 
         // Set the raw socket RX/TX buffer sizes to  16KB
-        bus.write_frame(SOCKET_TXBUF_SIZE, &[16]).await?;
-        bus.write_frame(SOCKET_RXBUF_SIZE, &[16]).await?;
+        this.bus_write(C::SOCKET_TXBUF_SIZE, &[16]).await?;
+        this.bus_write(C::SOCKET_RXBUF_SIZE, &[16]).await?;
 
         // MACRAW mode with MAC filtering.
         let mode: u8 = (1 << 2) | (1 << 7);
-        bus.write_frame(SOCKET_MODE, &[mode]).await?;
-        let mut this = Self { bus };
+        this.bus_write(C::SOCKET_MODE, &[mode]).await?;
         this.command(Command::Open).await?;
 
         Ok(this)
     }
 
+    async fn bus_read(&mut self, address: C::Address, data: &mut [u8]) -> Result<(), SPI::Error> {
+        C::bus_read(&mut self.spi, address, data).await
+    }
+
+    async fn bus_write(&mut self, address: C::Address, data: &[u8]) -> Result<(), SPI::Error> {
+        C::bus_write(&mut self.spi, address, data).await
+    }
+
     async fn reset_interrupt(&mut self, code: Interrupt) -> Result<(), SPI::Error> {
         let data = [code as u8];
-        self.bus.write_frame(SOCKET_INTR, &data).await
+        self.bus_write(C::SOCKET_INTR, &data).await
     }
 
     async fn get_tx_write_ptr(&mut self) -> Result<u16, SPI::Error> {
         let mut data = [0u8; 2];
-        self.bus.read_frame(SOCKET_TX_DATA_WRITE_PTR, &mut data).await?;
+        self.bus_read(C::SOCKET_TX_DATA_WRITE_PTR, &mut data).await?;
         Ok(u16::from_be_bytes(data))
     }
 
     async fn set_tx_write_ptr(&mut self, ptr: u16) -> Result<(), SPI::Error> {
         let data = ptr.to_be_bytes();
-        self.bus.write_frame(SOCKET_TX_DATA_WRITE_PTR, &data).await
+        self.bus_write(C::SOCKET_TX_DATA_WRITE_PTR, &data).await
     }
 
     async fn get_rx_read_ptr(&mut self) -> Result<u16, SPI::Error> {
         let mut data = [0u8; 2];
-        self.bus.read_frame(SOCKET_RX_DATA_READ_PTR, &mut data).await?;
+        self.bus_read(C::SOCKET_RX_DATA_READ_PTR, &mut data).await?;
         Ok(u16::from_be_bytes(data))
     }
 
     async fn set_rx_read_ptr(&mut self, ptr: u16) -> Result<(), SPI::Error> {
         let data = ptr.to_be_bytes();
-        self.bus.write_frame(SOCKET_RX_DATA_READ_PTR, &data).await
+        self.bus_write(C::SOCKET_RX_DATA_READ_PTR, &data).await
     }
 
     async fn command(&mut self, command: Command) -> Result<(), SPI::Error> {
         let data = [command as u8];
-        self.bus.write_frame(SOCKET_COMMAND, &data).await
+        self.bus_write(C::SOCKET_COMMAND, &data).await
     }
 
     async fn get_rx_size(&mut self) -> Result<u16, SPI::Error> {
         loop {
             // Wait until two sequential reads are equal
             let mut res0 = [0u8; 2];
-            self.bus.read_frame(SOCKET_RECVD_SIZE, &mut res0).await?;
+            self.bus_read(C::SOCKET_RECVD_SIZE, &mut res0).await?;
             let mut res1 = [0u8; 2];
-            self.bus.read_frame(SOCKET_RECVD_SIZE, &mut res1).await?;
+            self.bus_read(C::SOCKET_RECVD_SIZE, &mut res1).await?;
             if res0 == res1 {
                 break Ok(u16::from_be_bytes(res0));
             }
@@ -120,13 +110,13 @@ impl<SPI: SpiDevice> W5500<SPI> {
 
     async fn get_tx_free_size(&mut self) -> Result<u16, SPI::Error> {
         let mut data = [0; 2];
-        self.bus.read_frame(SOCKET_TX_FREE_SIZE, &mut data).await?;
+        self.bus_read(C::SOCKET_TX_FREE_SIZE, &mut data).await?;
         Ok(u16::from_be_bytes(data))
     }
 
     /// Read bytes from the RX buffer. Returns the number of bytes read.
     async fn read_bytes(&mut self, read_ptr: &mut u16, buffer: &mut [u8]) -> Result<(), SPI::Error> {
-        self.bus.read_frame((RegisterBlock::RxBuf, *read_ptr), buffer).await?;
+        self.bus_read(C::rx_addr(*read_ptr), buffer).await?;
         *read_ptr = (*read_ptr).wrapping_add(buffer.len() as u16);
 
         Ok(())
@@ -165,7 +155,7 @@ impl<SPI: SpiDevice> W5500<SPI> {
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<usize, SPI::Error> {
         while self.get_tx_free_size().await? < frame.len() as u16 {}
         let write_ptr = self.get_tx_write_ptr().await?;
-        self.bus.write_frame((RegisterBlock::TxBuf, write_ptr), frame).await?;
+        self.bus_write(C::tx_addr(write_ptr), frame).await?;
         self.set_tx_write_ptr(write_ptr.wrapping_add(frame.len() as u16))
             .await?;
         self.command(Command::Send).await?;
@@ -174,7 +164,7 @@ impl<SPI: SpiDevice> W5500<SPI> {
 
     pub async fn is_link_up(&mut self) -> bool {
         let mut link = [0];
-        self.bus.read_frame(COMMON_PHY_CFG, &mut link).await.ok();
+        self.bus_read(C::COMMON_PHY_CFG, &mut link).await.ok();
         link[0] & 1 == 1
     }
 }

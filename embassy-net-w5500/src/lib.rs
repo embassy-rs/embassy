@@ -1,8 +1,9 @@
 //! [`embassy-net`](https://crates.io/crates/embassy-net) driver for the WIZnet W5500 ethernet chip.
 #![no_std]
+#![feature(async_fn_in_trait)]
 
+pub mod chip;
 mod device;
-mod spi;
 
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
@@ -12,7 +13,9 @@ use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
 
-use crate::device::W5500;
+use crate::chip::Chip;
+use crate::device::WiznetDevice;
+
 const MTU: usize = 1514;
 
 /// Type alias for the embassy-net driver for W5500
@@ -35,15 +38,15 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 /// Background runner for the W5500.
 ///
 /// You must call `.run()` in a background task for the W5500 to operate.
-pub struct Runner<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> {
-    mac: W5500<SPI>,
+pub struct Runner<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> {
+    mac: WiznetDevice<C, SPI>,
     ch: ch::Runner<'d, MTU>,
     int: INT,
     _reset: RST,
 }
 
 /// You must call this in a background task for the W5500 to operate.
-impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
+impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, INT, RST> {
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
         loop {
@@ -78,13 +81,13 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
 }
 
 /// Obtain a driver for using the W5500 with [`embassy-net`](https://crates.io/crates/embassy-net).
-pub async fn new<'a, const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
+pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
     mac_addr: [u8; 6],
     state: &'a mut State<N_RX, N_TX>,
     spi_dev: SPI,
     int: INT,
     mut reset: RST,
-) -> (Device<'a>, Runner<'a, SPI, INT, RST>) {
+) -> (Device<'a>, Runner<'a, C, SPI, INT, RST>) {
     // Reset the W5500.
     reset.set_low().ok();
     // Ensure the reset is registered.
@@ -93,7 +96,7 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
     // Wait for the W5500 to achieve PLL lock.
     Timer::after(Duration::from_millis(2)).await;
 
-    let mac = W5500::new(spi_dev, mac_addr).await.unwrap();
+    let mac = WiznetDevice::new(spi_dev, mac_addr).await.unwrap();
 
     let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
     (
