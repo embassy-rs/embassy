@@ -36,6 +36,7 @@ docserver-builder -i ./embassy-usb-logger -o webroot/crates/embassy-usb-logger/g
 docserver-builder -i ./cyw43 -o webroot/crates/cyw43/git.zup
 docserver-builder -i ./cyw43-pio -o webroot/crates/cyw43-pio/git.zup
 docserver-builder -i ./embassy-net-w5500 -o webroot/crates/embassy-net-w5500/git.zup
+docserver-builder -i ./embassy-net-enc28j60 -o webroot/crates/embassy-net-enc28j60/git.zup
 docserver-builder -i ./embassy-net-esp-hosted -o webroot/crates/embassy-net-esp-hosted/git.zup
 docserver-builder -i ./embassy-stm32-wpan -o webroot/crates/embassy-stm32-wpan/git.zup --output-static webroot/static
 
