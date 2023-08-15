@@ -184,6 +184,26 @@ impl<'a> UdpSocket<'a> {
     pub fn may_recv(&self) -> bool {
         self.with(|s, _| s.can_recv())
     }
+
+    /// Return the maximum number packets the socket can receive.
+    pub fn packet_recv_capacity(&self) -> usize {
+        self.with(|s, _| s.packet_recv_capacity())
+    }
+
+    /// Return the maximum number packets the socket can receive.
+    pub fn packet_send_capacity(&self) -> usize {
+        self.with(|s, _| s.packet_send_capacity())
+    }
+
+    /// Return the maximum number of bytes inside the recv buffer.
+    pub fn payload_recv_capacity(&self) -> usize {
+        self.with(|s, _| s.payload_recv_capacity())
+    }
+
+    /// Return the maximum number of bytes inside the transmit buffer.
+    pub fn payload_send_capacity(&self) -> usize {
+        self.with(|s, _| s.payload_send_capacity())
+    }
 }
 
 impl Drop for UdpSocket<'_> {
