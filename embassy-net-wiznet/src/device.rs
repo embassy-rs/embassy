@@ -16,7 +16,7 @@ enum Interrupt {
     Receive = 0b00100_u8,
 }
 
-/// W5500 in MACRAW mode
+/// Wiznet chip in MACRAW mode
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct WiznetDevice<C, SPI> {
@@ -25,7 +25,7 @@ pub(crate) struct WiznetDevice<C, SPI> {
 }
 
 impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
-    /// Create and initialize the W5500 driver
+    /// Create and initialize the driver
     pub async fn new(spi: SPI, mac_addr: [u8; 6]) -> Result<Self, SPI::Error> {
         let mut this = Self {
             spi,

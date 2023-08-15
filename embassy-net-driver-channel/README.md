@@ -76,7 +76,7 @@ These `embassy-net` drivers are implemented using this crate. You can look at th
 
 - [`cyw43`](https://github.com/embassy-rs/embassy/tree/main/cyw43) for WiFi on CYW43xx chips, used in the Raspberry Pi Pico W
 - [`embassy-usb`](https://github.com/embassy-rs/embassy/tree/main/embassy-usb) for Ethernet-over-USB (CDC NCM) support.
-- [`embassy-net-w5500`](https://github.com/embassy-rs/embassy/tree/main/embassy-net-w5500) for Wiznet W5500 SPI Ethernet MAC+PHY chip.
+- [`embassy-net-wiznet`](https://github.com/embassy-rs/embassy/tree/main/embassy-net-wiznet) for Wiznet SPI Ethernet MAC+PHY chips.
 - [`embassy-net-esp-hosted`](https://github.com/embassy-rs/embassy/tree/main/embassy-net-esp-hosted) for using ESP32 chips with the [`esp-hosted`](https://github.com/espressif/esp-hosted) firmware as WiFi adapters for another non-ESP32 MCU.
 
 
