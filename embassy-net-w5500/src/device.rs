@@ -58,20 +58,11 @@ impl<SPI: SpiDevice> W5500<SPI> {
     }
 
     /// Read bytes from the RX buffer. Returns the number of bytes read.
-    async fn read_bytes(&mut self, buffer: &mut [u8], offset: u16) -> Result<usize, SPI::Error> {
-        let rx_size = socket::get_rx_size(&mut self.bus).await? as usize;
+    async fn read_bytes(&mut self, read_ptr: &mut u16, buffer: &mut [u8]) -> Result<(), SPI::Error> {
+        self.bus.read_frame(RegisterBlock::RxBuf, *read_ptr, buffer).await?;
+        *read_ptr = (*read_ptr).wrapping_add(buffer.len() as u16);
 
-        let read_buffer = if rx_size > buffer.len() + offset as usize {
-            buffer
-        } else {
-            &mut buffer[..rx_size - offset as usize]
-        };
-
-        let read_ptr = socket::get_rx_read_ptr(&mut self.bus).await?.wrapping_add(offset);
-        self.bus.read_frame(RegisterBlock::RxBuf, read_ptr, read_buffer).await?;
-        socket::set_rx_read_ptr(&mut self.bus, read_ptr.wrapping_add(read_buffer.len() as u16)).await?;
-
-        Ok(read_buffer.len())
+        Ok(())
     }
 
     /// Read an ethernet frame from the device. Returns the number of bytes read.
@@ -83,31 +74,24 @@ impl<SPI: SpiDevice> W5500<SPI> {
 
         socket::reset_interrupt(&mut self.bus, socket::Interrupt::Receive).await?;
 
+        let mut read_ptr = socket::get_rx_read_ptr(&mut self.bus).await?;
+
         // First two bytes gives the size of the received ethernet frame
         let expected_frame_size: usize = {
             let mut frame_bytes = [0u8; 2];
-            assert!(self.read_bytes(&mut frame_bytes[..], 0).await? == 2);
+            self.read_bytes(&mut read_ptr, &mut frame_bytes).await?;
             u16::from_be_bytes(frame_bytes) as usize - 2
         };
 
         // Read the ethernet frame
-        let read_buffer = if frame.len() > expected_frame_size {
-            &mut frame[..expected_frame_size]
-        } else {
-            frame
-        };
-
-        let recvd_frame_size = self.read_bytes(read_buffer, 2).await?;
+        self.read_bytes(&mut read_ptr, &mut frame[..expected_frame_size])
+            .await?;
 
         // Register RX as completed
+        socket::set_rx_read_ptr(&mut self.bus, read_ptr).await?;
         socket::command(&mut self.bus, socket::Command::Receive).await?;
 
-        // If the whole frame wasn't read, drop it
-        if recvd_frame_size < expected_frame_size {
-            Ok(0)
-        } else {
-            Ok(recvd_frame_size)
-        }
+        Ok(expected_frame_size)
     }
 
     /// Write an ethernet frame to the device. Returns number of bytes written
