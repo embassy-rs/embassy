@@ -1,12 +1,12 @@
 use embedded_hal_async::spi::SpiDevice;
 
 use crate::socket;
-use crate::spi::SpiInterface;
+use crate::spi::{Address, SpiInterface};
 
-pub const MODE: u16 = 0x00;
-pub const MAC: u16 = 0x09;
-pub const SOCKET_INTR: u16 = 0x18;
-pub const PHY_CFG: u16 = 0x2E;
+pub const MODE: Address = (RegisterBlock::Common, 0x00);
+pub const MAC: Address = (RegisterBlock::Common, 0x09);
+pub const SOCKET_INTR: Address = (RegisterBlock::Common, 0x18);
+pub const PHY_CFG: Address = (RegisterBlock::Common, 0x2E);
 
 #[repr(u8)]
 pub enum RegisterBlock {
@@ -28,30 +28,24 @@ impl<SPI: SpiDevice> W5500<SPI> {
     pub async fn new(spi: SPI, mac_addr: [u8; 6]) -> Result<W5500<SPI>, SPI::Error> {
         let mut bus = SpiInterface(spi);
         // Reset device
-        bus.write_frame(RegisterBlock::Common, MODE, &[0x80]).await?;
+        bus.write_frame(MODE, &[0x80]).await?;
 
         // Enable interrupt pin
-        bus.write_frame(RegisterBlock::Common, SOCKET_INTR, &[0x01]).await?;
+        bus.write_frame(SOCKET_INTR, &[0x01]).await?;
         // Enable receive interrupt
-        bus.write_frame(
-            RegisterBlock::Socket0,
-            socket::SOCKET_INTR_MASK,
-            &[socket::Interrupt::Receive as u8],
-        )
-        .await?;
+        bus.write_frame(socket::SOCKET_INTR_MASK, &[socket::Interrupt::Receive as u8])
+            .await?;
 
         // Set MAC address
-        bus.write_frame(RegisterBlock::Common, MAC, &mac_addr).await?;
+        bus.write_frame(MAC, &mac_addr).await?;
 
         // Set the raw socket RX/TX buffer sizes to  16KB
-        bus.write_frame(RegisterBlock::Socket0, socket::TXBUF_SIZE, &[16])
-            .await?;
-        bus.write_frame(RegisterBlock::Socket0, socket::RXBUF_SIZE, &[16])
-            .await?;
+        bus.write_frame(socket::TXBUF_SIZE, &[16]).await?;
+        bus.write_frame(socket::RXBUF_SIZE, &[16]).await?;
 
         // MACRAW mode with MAC filtering.
         let mode: u8 = (1 << 2) | (1 << 7);
-        bus.write_frame(RegisterBlock::Socket0, socket::MODE, &[mode]).await?;
+        bus.write_frame(socket::MODE, &[mode]).await?;
         socket::command(&mut bus, socket::Command::Open).await?;
 
         Ok(Self { bus })
@@ -59,7 +53,7 @@ impl<SPI: SpiDevice> W5500<SPI> {
 
     /// Read bytes from the RX buffer. Returns the number of bytes read.
     async fn read_bytes(&mut self, read_ptr: &mut u16, buffer: &mut [u8]) -> Result<(), SPI::Error> {
-        self.bus.read_frame(RegisterBlock::RxBuf, *read_ptr, buffer).await?;
+        self.bus.read_frame((RegisterBlock::RxBuf, *read_ptr), buffer).await?;
         *read_ptr = (*read_ptr).wrapping_add(buffer.len() as u16);
 
         Ok(())
@@ -98,7 +92,7 @@ impl<SPI: SpiDevice> W5500<SPI> {
     pub async fn write_frame(&mut self, frame: &[u8]) -> Result<usize, SPI::Error> {
         while socket::get_tx_free_size(&mut self.bus).await? < frame.len() as u16 {}
         let write_ptr = socket::get_tx_write_ptr(&mut self.bus).await?;
-        self.bus.write_frame(RegisterBlock::TxBuf, write_ptr, frame).await?;
+        self.bus.write_frame((RegisterBlock::TxBuf, write_ptr), frame).await?;
         socket::set_tx_write_ptr(&mut self.bus, write_ptr.wrapping_add(frame.len() as u16)).await?;
         socket::command(&mut self.bus, socket::Command::Send).await?;
         Ok(frame.len())
@@ -106,10 +100,7 @@ impl<SPI: SpiDevice> W5500<SPI> {
 
     pub async fn is_link_up(&mut self) -> bool {
         let mut link = [0];
-        self.bus
-            .read_frame(RegisterBlock::Common, PHY_CFG, &mut link)
-            .await
-            .ok();
+        self.bus.read_frame(PHY_CFG, &mut link).await.ok();
         link[0] & 1 == 1
     }
 }
