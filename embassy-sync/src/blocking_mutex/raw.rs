@@ -11,7 +11,7 @@ use core::marker::PhantomData;
 ///
 /// Note that, unlike other mutexes, implementations only guarantee no
 /// concurrent access from other threads: concurrent access from the current
-/// thread is allwed. For example, it's possible to lock the same mutex multiple times reentrantly.
+/// thread is allowed. For example, it's possible to lock the same mutex multiple times reentrantly.
 ///
 /// Therefore, locking a `RawMutex` is only enough to guarantee safe shared (`&`) access
 /// to the data, it is not enough to guarantee exclusive (`&mut`) access.
