@@ -3,7 +3,7 @@
 set -euo pipefail
 
 export RUSTFLAGS=-Dwarnings
-export DEFMT_LOG=trace,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
+export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
 
 TARGET=$(rustc -vV | sed -n 's|host: ||p')
 

@@ -32,7 +32,7 @@ rt = [
 
 time = ["dep:embassy-time"]
 
-defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-usb-driver?/defmt", "embassy-embedded-hal/defmt"]
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver?/defmt", "embassy-embedded-hal/defmt"]
 
 # Enable nightly-only features
 nightly = ["embedded-hal-1", "embedded-hal-async", "dep:embassy-usb-driver", "embedded-storage-async", "dep:embedded-io-async", "embassy-embedded-hal/nightly"]
