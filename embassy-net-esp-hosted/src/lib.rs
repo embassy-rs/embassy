@@ -1,17 +1,14 @@
 #![no_std]
 
-use control::Control;
 use embassy_futures::select::{select3, Either3};
 use embassy_net_driver_channel as ch;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
-use ioctl::Shared;
-use proto::CtrlMsg;
 
-use crate::ioctl::PendingIoctl;
-use crate::proto::CtrlMsgPayload;
+use crate::ioctl::{PendingIoctl, Shared};
+use crate::proto::{CtrlMsg, CtrlMsgPayload};
 
 mod proto;
 
@@ -20,6 +17,8 @@ mod fmt;
 
 mod control;
 mod ioctl;
+
+pub use control::*;
 
 const MTU: usize = 1514;
 

@@ -76,8 +76,8 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(wifi_task(runner)));
 
-    control.init().await;
-    control.join(WIFI_NETWORK, WIFI_PASSWORD).await;
+    unwrap!(control.init().await);
+    unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
 
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);

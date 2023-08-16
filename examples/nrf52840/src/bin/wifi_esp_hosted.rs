@@ -72,8 +72,8 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(wifi_task(runner)));
 
-    control.init().await;
-    control.join(WIFI_NETWORK, WIFI_PASSWORD).await;
+    unwrap!(control.init().await);
+    unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
 
     let config = embassy_net::Config::dhcpv4(Default::default());
     // let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
