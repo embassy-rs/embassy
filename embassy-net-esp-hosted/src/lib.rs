@@ -128,6 +128,7 @@ where
 
     let mut runner = Runner {
         ch: ch_runner,
+        state_ch,
         shared: &state.shared,
         next_seq: 1,
         handshake,
@@ -142,6 +143,7 @@ where
 
 pub struct Runner<'a, SPI, IN, OUT> {
     ch: ch::Runner<'a, MTU>,
+    state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
 
     next_seq: u16,
@@ -322,6 +324,10 @@ where
 
         match payload {
             CtrlMsgPayload::EventEspInit(_) => self.shared.init_done(),
+            CtrlMsgPayload::EventStationDisconnectFromAp(e) => {
+                info!("disconnected, code {}", e.resp);
+                self.state_ch.set_link_state(LinkState::Down);
+            }
             _ => {}
         }
     }
