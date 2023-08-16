@@ -378,22 +378,6 @@ pub(crate) unsafe fn init(config: Config) {
     // Reference: STM32F215xx/217xx datasheet Table 13. General operating conditions
     assert!(ahb_freq <= Hertz(120_000_000));
 
-    let flash_ws = unwrap!(config.voltage.wait_states(ahb_freq));
-    FLASH.acr().modify(|w| w.set_latency(flash_ws));
-
-    RCC.cfgr().modify(|w| {
-        w.set_sw(sw.into());
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
-    });
-    while RCC.cfgr().read().sws().to_bits() != sw.to_bits() {}
-
-    // Turn off HSI to save power if we don't need it
-    if !config.hsi {
-        RCC.cr().modify(|w| w.set_hsion(false));
-    }
-
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
         APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
         pre => {
@@ -413,6 +397,22 @@ pub(crate) unsafe fn init(config: Config) {
     };
     // Reference: STM32F215xx/217xx datasheet Table 13. General operating conditions
     assert!(apb2_freq <= Hertz(60_000_000));
+
+    let flash_ws = unwrap!(config.voltage.wait_states(ahb_freq));
+    FLASH.acr().modify(|w| w.set_latency(flash_ws));
+
+    RCC.cfgr().modify(|w| {
+        w.set_sw(sw.into());
+        w.set_hpre(config.ahb_pre.into());
+        w.set_ppre1(config.apb1_pre.into());
+        w.set_ppre2(config.apb2_pre.into());
+    });
+    while RCC.cfgr().read().sws().to_bits() != sw.to_bits() {}
+
+    // Turn off HSI to save power if we don't need it
+    if !config.hsi {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
 
     set_freqs(Clocks {
         sys: sys_clk,
