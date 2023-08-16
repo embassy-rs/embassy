@@ -53,6 +53,9 @@ impl<'a> Control<'a> {
         debug!("wait for init event...");
         self.shared.init_wait().await;
 
+        debug!("set heartbeat");
+        self.set_heartbeat(10).await?;
+
         debug!("set wifi mode");
         self.set_wifi_mode(WifiMode::Sta as _).await?;
 
@@ -80,6 +83,13 @@ impl<'a> Control<'a> {
         let req = proto::CtrlMsgReqGetStatus {};
         ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);
         self.state_ch.set_link_state(LinkState::Up);
+        Ok(())
+    }
+
+    /// duration in seconds, clamped to [10, 3600]
+    async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
+        let req = proto::CtrlMsgReqConfigHeartbeat { enable: true, duration };
+        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
         Ok(())
     }
 
