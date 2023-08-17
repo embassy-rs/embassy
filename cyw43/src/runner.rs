@@ -116,6 +116,29 @@ where
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
+        // bluetooth
+        //self.init_bluetooth().await;
+
+        // wifi
+        self.init_wifi().await;
+    }
+
+    pub(crate) async fn init_bluetooth(&mut self) {
+        // cybt_wait_bt_ready
+        loop {
+            let val = self
+                .bus
+                .bp_read32(CHIP.pmu_base_address + REG_BACKPLANE_BT_CTRL_REG_ADDR)
+                .await;
+            if val & BTSDIO_REG_BT_AWAKE_BITMASK == 1 {
+                break;
+            }
+            trace!("bluetooth_init: {:#x}", val);
+            Timer::after(Duration::from_millis(300)).await;
+        }
+    }
+
+    pub(crate) async fn init_wifi(&mut self) {
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"

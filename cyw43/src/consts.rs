@@ -50,11 +50,17 @@ pub(crate) const REG_BACKPLANE_READ_FRAME_BC_LOW: u32 = 0x1001B;
 pub(crate) const REG_BACKPLANE_READ_FRAME_BC_HIGH: u32 = 0x1001C;
 pub(crate) const REG_BACKPLANE_WAKEUP_CTRL: u32 = 0x1001E;
 pub(crate) const REG_BACKPLANE_SLEEP_CSR: u32 = 0x1001F;
+pub(crate) const REG_BACKPLANE_BT_CTRL_REG_ADDR: u32 = 0xC7C;
 
 pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 pub(crate) const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;
 pub(crate) const BACKPLANE_MAX_TRANSFER_SIZE: usize = 64;
+
+// Bluetooth constants
+pub(crate) const BTSDIO_REG_BT_AWAKE_BITMASK: u32 = (1 << 8);
+pub(crate) const BTSDIO_REG_FW_RDY_BITMASK: u32 = (1 << 24);
+
 // Active Low Power (ALP) clock constants
 pub(crate) const BACKPLANE_ALP_AVAIL_REQ: u8 = 0x08;
 pub(crate) const BACKPLANE_ALP_AVAIL: u8 = 0x40;
