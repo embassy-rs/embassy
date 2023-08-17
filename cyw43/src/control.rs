@@ -33,6 +33,11 @@ impl<'a> Control<'a> {
     }
 
     pub async fn init(&mut self, clm: &[u8]) {
+        self.init_firmware(clm).await;
+        self.init_wifi().await;
+    }
+
+    pub async fn init_firmware(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
 
         debug!("Downloading CLM...");
@@ -64,7 +69,9 @@ impl<'a> Control<'a> {
 
         // check clmload ok
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
+    }
 
+    pub async fn init_wifi(&mut self) {
         debug!("Configuring misc stuff...");
 
         // Disable tx gloming which transfers multiple packets in one request.
