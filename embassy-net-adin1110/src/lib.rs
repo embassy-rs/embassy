@@ -508,17 +508,20 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                         }
 
                         if status0.phyint() {
+                            #[cfg_attr(not(feature = "defmt"), allow(unused_variables))]
                             let crsm_irq_st = self
                                 .mac
                                 .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::CRSM_IRQ_STATUS.into())
                                 .await
                                 .unwrap();
 
+                            #[cfg_attr(not(feature = "defmt"), allow(unused_variables))]
                             let phy_irq_st = self
                                 .mac
                                 .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1F::PHY_SYBSYS_IRQ_STATUS.into())
                                 .await
                                 .unwrap();
+
                             #[cfg(feature = "defmt")]
                             defmt::warn!(
                                 "SPE CHIP PHY CRSM_IRQ_STATUS {:04x} PHY_SUBSYS_IRQ_STATUS {:04x}",
