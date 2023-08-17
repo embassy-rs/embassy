@@ -1,0 +1,8 @@
+{
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.showUnlinkedFileNotification": false,
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer",
+        "editor.formatOnSave": true
+    }
+}
