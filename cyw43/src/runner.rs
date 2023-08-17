@@ -103,11 +103,32 @@ where
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
 
+        // bluetooth
         debug!("loading bluetooth fw");
         // cybt_reg_write(BTFW_MEM_OFFSET + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE);
         self.bus.bp_write32(CHIP.btfw_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
         // cybt_mem_write(fwmem_start_addr, p_mem_ptr, write_data_len);
         self.write_bluetooth_fimrware().await;
+         // cybt_wait_bt_ready(BTSDIO_FW_READY_POLLING_RETRY_COUNT);
+         loop {
+            let val = self
+                .bus
+                .bp_read32(CHIP.pmu_base_address + REG_BACKPLANE_BT_CTRL_REG_ADDR)
+                .await;
+            info!("bluetooth_init: {:#x}", val);
+            if val & BTSDIO_REG_BT_AWAKE_BITMASK != 0 {
+                break;
+            }
+            Timer::after(Duration::from_millis(300)).await;
+        }
+        // cybt_init_buffer
+        // TODO
+        // cybt_wait_bt_awake(BTSDIO_FW_AWAKE_POLLING_RETRY_COUNT);
+        // TODO
+        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
+        self.bus
+            .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE | IRQ_F1_INTR)
+            .await;
 
         debug!("loading nvram");
         // Round up to 4 bytes.
@@ -126,9 +147,6 @@ where
         debug!("starting up core...");
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
-
-        // bluetooth
-        self.init_bluetooth().await;
 
         // wifi
         //self.init_wifi().await;
@@ -169,25 +187,6 @@ where
         for data_entry in bluetooth_firmware_lines {
             self.bus.bp_write(data_entry.address, data_entry.bytes).await;
         }
-    }
-
-    pub(crate) async fn init_bluetooth(&mut self) {
-        // cybt_wait_bt_ready(BTSDIO_FW_READY_POLLING_RETRY_COUNT);
-        loop {
-            let val = self
-                .bus
-                .bp_read32(CHIP.pmu_base_address + REG_BACKPLANE_BT_CTRL_REG_ADDR)
-                .await;
-            info!("bluetooth_init: {:#x}", val);
-            if val & BTSDIO_REG_BT_AWAKE_BITMASK == 1 {
-                break;
-            }
-            Timer::after(Duration::from_millis(300)).await;
-        }
-        // cybt_init_buffer
-        // TODO
-        // cybt_wait_bt_awake(BTSDIO_FW_AWAKE_POLLING_RETRY_COUNT);
-        // TODO
     }
 
     pub(crate) async fn init_wifi(&mut self) {
