@@ -59,7 +59,8 @@ pub(crate) const BACKPLANE_MAX_TRANSFER_SIZE: usize = 64;
 
 // Bluetooth constants
 pub(crate) const BTSDIO_REG_BT_AWAKE_BITMASK: u32 = (1 << 8);
-pub(crate) const BTSDIO_REG_FW_RDY_BITMASK: u32 = (1 << 24);
+pub(crate) const BT2WLAN_PWRUP_WAKE: u32 = 0x03;
+pub(crate) const BT2WLAN_PWRUP_ADDR: u32 = 0x640894;
 
 // Active Low Power (ALP) clock constants
 pub(crate) const BACKPLANE_ALP_AVAIL_REQ: u8 = 0x08;
