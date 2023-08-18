@@ -7,7 +7,7 @@ use core::cell::RefCell;
 use defmt_rtt as _;
 use embassy_boot_rp::*;
 use embassy_executor::Spawner;
-use embassy_rp::flash::{self, Flash};
+use embassy_rp::flash::Flash;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::watchdog::Watchdog;
 use embassy_sync::blocking_mutex::Mutex;
@@ -34,7 +34,7 @@ async fn main(_s: Spawner) {
     let mut watchdog = Watchdog::new(p.WATCHDOG);
     watchdog.start(Duration::from_secs(8));
 
-    let flash = Flash::<_, flash::Blocking, FLASH_SIZE>::new(p.FLASH);
+    let flash = Flash::<_, _, FLASH_SIZE>::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
