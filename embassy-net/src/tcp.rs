@@ -93,6 +93,11 @@ impl<'a> TcpReader<'a> {
     {
         self.io.read_with(f).await
     }
+
+    /// Return the maximum number of bytes inside the transmit buffer.
+    pub fn recv_capacity(&self) -> usize {
+        self.io.recv_capacity()
+    }
 }
 
 impl<'a> TcpWriter<'a> {
@@ -122,6 +127,11 @@ impl<'a> TcpWriter<'a> {
     {
         self.io.write_with(f).await
     }
+
+    /// Return the maximum number of bytes inside the transmit buffer.
+    pub fn send_capacity(&self) -> usize {
+        self.io.send_capacity()
+    }
 }
 
 impl<'a> TcpSocket<'a> {
@@ -141,6 +151,16 @@ impl<'a> TcpSocket<'a> {
                 handle,
             },
         }
+    }
+
+    /// Return the maximum number of bytes inside the recv buffer.
+    pub fn recv_capacity(&self) -> usize {
+        self.io.recv_capacity()
+    }
+
+    /// Return the maximum number of bytes inside the transmit buffer.
+    pub fn send_capacity(&self) -> usize {
+        self.io.send_capacity()
     }
 
     /// Call `f` with the largest contiguous slice of octets in the transmit buffer,
@@ -477,6 +497,14 @@ impl<'d> TcpIo<'d> {
             })
         })
         .await
+    }
+
+    fn recv_capacity(&self) -> usize {
+        self.with(|s, _| s.recv_capacity())
+    }
+
+    fn send_capacity(&self) -> usize {
+        self.with(|s, _| s.send_capacity())
     }
 }
 
