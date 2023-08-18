@@ -410,10 +410,11 @@ pub(crate) unsafe fn init(config: Config) {
         while RCC.cfgr().read().sws() != Sw::MSI {}
     }
 
+    RCC.apb1enr1().modify(|w| w.set_pwren(true));
+
     match config.rtc_mux {
         RtcClockSource::LSE32 => {
             // 1. Unlock the backup domain
-            RCC.apb1enr1().modify(|w| w.set_pwren(true));
             PWR.cr1().modify(|w| w.set_dbp(true));
 
             // 2. Setup the LSE
