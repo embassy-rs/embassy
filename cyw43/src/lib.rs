@@ -56,6 +56,7 @@ impl Core {
 struct Chip {
     arm_core_base_address: u32,
     socsram_base_address: u32,
+    bluetooth_base_address: u32,
     socsram_wrapper_base_address: u32,
     sdiod_core_base_address: u32,
     pmu_base_address: u32,
@@ -83,6 +84,7 @@ const WRAPPER_REGISTER_OFFSET: u32 = 0x100000;
 const CHIP: Chip = Chip {
     arm_core_base_address: 0x18003000 + WRAPPER_REGISTER_OFFSET,
     socsram_base_address: 0x18004000,
+    bluetooth_base_address: 0x19000000,
     socsram_wrapper_base_address: 0x18004000 + WRAPPER_REGISTER_OFFSET,
     sdiod_core_base_address: 0x18002000,
     pmu_base_address: 0x18000000,

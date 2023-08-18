@@ -118,7 +118,7 @@ pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
 pub(crate) const MIN_PSK_LEN: usize = 8;
 pub(crate) const MAX_PSK_LEN: usize = 64;
 
-// Bluetooth firmware constants.
+// Bluetooth constants.
 pub(crate) const BTFW_ADDR_MODE_UNKNOWN: i32 = 0;
 pub(crate) const BTFW_ADDR_MODE_EXTENDED: i32 = 1;
 pub(crate) const BTFW_ADDR_MODE_SEGMENT: i32 = 2;
@@ -129,6 +129,14 @@ pub(crate) const BTFW_HEX_LINE_TYPE_END_OF_DATA: u8 = 1;
 pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_SEGMENT_ADDRESS: u8 = 2;
 pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_ADDRESS: u8 = 4;
 pub(crate) const BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS: u8 = 5;
+
+pub(crate) const BT2WLAN_PWRUP_WAKE: u32 = 3;
+pub(crate) const BT2WLAN_PWRUP_ADDR: u32 = 0x640894;
+
+pub(crate) const BT_CTRL_REG_ADDR: u32 = 0x18000c7c;
+
+pub(crate) const BTSDIO_REG_BT_AWAKE_BITMASK: u32 = (1 << 8);
+pub(crate) const BTSDIO_REG_FW_RDY_BITMASK: u32 = (1 << 24);
 
 // Security type (authentication and encryption types are combined using bit mask)
 #[allow(non_camel_case_types)]

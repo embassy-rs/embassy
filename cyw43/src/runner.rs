@@ -101,7 +101,7 @@ where
                 break;
             }
             let fw_bytes = &hfd.p_ds[0..num_fw_bytes as usize];
-            let mut dest_start_addr = hfd.dest_addr + 0x19000000;
+            let mut dest_start_addr = hfd.dest_addr + CHIP.bluetooth_base_address;
             let mut num_bytes_to_write = num_fw_bytes;
             let mut dest_end_addr = dest_start_addr + num_bytes_to_write;
             // pad start
@@ -109,7 +109,7 @@ where
                 let num_pad_bytes = dest_start_addr % 4;
                 let padded_dest_start_addr = bluetooth::round_down(dest_start_addr, 4);
                 let memory_value = self.bus.bp_read32(padded_dest_start_addr).await;
-                let memory_value_bytes = memory_value.to_le_bytes();
+                let memory_value_bytes = memory_value.to_le_bytes(); // TOOD: to_le or to_be?
                 // Copy the previous memory value's bytes to the start
                 for i in 0..num_pad_bytes as usize {
                     aligned_fw_bytes_buffer[i] = memory_value_bytes[(4 - num_pad_bytes as usize) + i];
@@ -127,7 +127,7 @@ where
             if !bluetooth::is_aligned(dest_end_addr, 4) {
                 let num_pad_bytes_end = 4 - (dest_end_addr % 4);
                 let memory_value_end = self.bus.bp_read32(bluetooth::round_down(dest_end_addr, 4)).await;
-                let memory_value_end_bytes = memory_value_end.to_le_bytes();
+                let memory_value_end_bytes = memory_value_end.to_le_bytes(); // TOOD: to_le or to_be?
                 // Append the necessary memory bytes to pad the end
                 for i in 0..num_pad_bytes_end as usize {
                     aligned_fw_bytes_buffer[(num_fw_bytes + num_pad_bytes_end - num_pad_bytes_end as u32) as usize + i] = memory_value_end_bytes[i];
@@ -137,11 +137,33 @@ where
             }
 
             let buffer_to_write = &aligned_fw_bytes_buffer[0..num_bytes_to_write as usize];
-            debug!("dest_start_addr = {dest_start_addr:x} dest_end_addr = {dest_end_addr:x} num_bytes_to_write = {num_bytes_to_write:x} bytes = {buffer_to_write:02x?}");
+            debug!("dest_start_addr = {:x} dest_end_addr = {:x} num_bytes_to_write = {:x} buffer_to_write = {:02x}", dest_start_addr, dest_end_addr, num_bytes_to_write, buffer_to_write);
             assert!(dest_start_addr % 4 == 0);
             assert!(dest_end_addr % 4 == 0);
             assert!(num_bytes_to_write % 4 == 0);
             self.bus.bp_write(dest_start_addr, buffer_to_write).await;
+        }
+    }
+
+    async fn wait_bt_ready(&mut self) {
+        loop {
+            let val = self.bus.bp_read32(BT_CTRL_REG_ADDR).await;
+            debug!("BT_CTRL_REG_ADDR = {:08x}", val);
+            if val & BTSDIO_REG_FW_RDY_BITMASK != 0 {
+                break;
+            }
+            Timer::after(Duration::from_millis(1)).await;
+        }
+    }
+
+    async fn wait_bt_awake(&mut self) {
+        loop {
+            let val = self.bus.bp_read32(BT_CTRL_REG_ADDR).await;
+            debug!("BT_CTRL_REG_ADDR = {:08x}", val);
+            if val & BTSDIO_REG_BT_AWAKE_BITMASK != 0 {
+                break;
+            }
+            Timer::after(Duration::from_millis(1)).await;
         }
     }
 
@@ -172,7 +194,13 @@ where
 
         // Upload Bluetooth firmware.
         if bt_firmware.is_some() {
+            self.bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
             self.upload_bluetooth_firmware(&bt_firmware.unwrap()).await;
+            self.wait_bt_ready().await;
+            // TODO: cybt_init_buffer();
+            self.wait_bt_awake().await;
+            // TODO: cybt_set_host_ready();
+            // TODO: cybt_toggle_bt_intr();
         }
 
         debug!("loading nvram");
