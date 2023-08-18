@@ -137,7 +137,7 @@ where
             }
 
             let buffer_to_write = &aligned_fw_bytes_buffer[0..num_bytes_to_write as usize];
-            debug!("dest_start_addr = {:x} dest_end_addr = {:x} num_bytes_to_write = {:x} buffer_to_write = {:02x}", dest_start_addr, dest_end_addr, num_bytes_to_write, buffer_to_write);
+            debug!("upload_bluetooth_firmware: dest_start_addr = {:x} dest_end_addr = {:x} num_bytes_to_write = {} buffer_to_write = {:02x}", dest_start_addr, dest_end_addr, num_bytes_to_write, buffer_to_write);
             assert!(dest_start_addr % 4 == 0);
             assert!(dest_end_addr % 4 == 0);
             assert!(num_bytes_to_write % 4 == 0);
@@ -152,7 +152,7 @@ where
             if val & BTSDIO_REG_FW_RDY_BITMASK != 0 {
                 break;
             }
-            Timer::after(Duration::from_millis(1)).await;
+            Timer::after(Duration::from_millis(100)).await;
         }
     }
 
@@ -163,7 +163,7 @@ where
             if val & BTSDIO_REG_BT_AWAKE_BITMASK != 0 {
                 break;
             }
-            Timer::after(Duration::from_millis(1)).await;
+            Timer::after(Duration::from_millis(100)).await;
         }
     }
 
@@ -192,7 +192,7 @@ where
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
 
-        // Upload Bluetooth firmware.
+        // Upload Bluetooth firmware. TODO: is this in the right spot in terms of order of operations? it is not compared to what pico-sdk does
         if bt_firmware.is_some() {
             self.bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
             self.upload_bluetooth_firmware(&bt_firmware.unwrap()).await;
@@ -225,7 +225,7 @@ where
 
         // "Set up the interrupt mask and enable interrupts"
         // self.bus.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0).await;
-
+        // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
         self.bus
             .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE)
             .await;
@@ -233,7 +233,7 @@ where
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
         self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 32)
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x20) // TODO: bluetooth wants 0x10, wifi wants 0x20? cyw43_write_reg_u8(self, BACKPLANE_FUNCTION, SDIO_FUNCTION2_WATERMARK, 0x10);
             .await;
 
         // wait for wifi startup

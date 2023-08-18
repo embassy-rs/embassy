@@ -223,13 +223,16 @@ where
     let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
-    let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
+    let bus = Bus::new(pwr, spi);
+    let mut runner = Runner::new(ch_runner, bus, &state.ioctl_state, &state.events);
 
     runner.init(firmware, bt_firmware).await;
 
+    let control = Control::new(state_ch, &state.events, &state.ioctl_state);
+
     (
         device,
-        Control::new(state_ch, &state.events, &state.ioctl_state),
+        control,
         runner,
     )
 }

@@ -4,6 +4,7 @@ use ch::driver::LinkState;
 use embassy_net_driver_channel as ch;
 use embassy_time::{Duration, Timer};
 
+use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, EventSubscriber, Events};
