@@ -13,6 +13,7 @@ mod countries;
 mod events;
 mod ioctl;
 mod structs;
+mod bluetooth;
 
 mod control;
 mod nvram;
@@ -211,6 +212,7 @@ pub async fn new<'a, PWR, SPI>(
     pwr: PWR,
     spi: SPI,
     firmware: &[u8],
+    bt_firmware: Option<&[u8]>
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
@@ -221,7 +223,7 @@ where
 
     let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
 
-    runner.init(firmware).await;
+    runner.init(firmware, bt_firmware).await;
 
     (
         device,

@@ -5,6 +5,7 @@ use embassy_time::{block_for, Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 
 use crate::bus::Bus;
+use crate::bluetooth::{self, CybtFwCb, HexFileData};
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, Events, Status};
@@ -73,7 +74,78 @@ where
         }
     }
 
-    pub(crate) async fn init(&mut self, firmware: &[u8]) {
+    async fn upload_bluetooth_firmware(&mut self, firmware: &[u8]) {
+        // read version
+        let version_length = firmware[0];
+        let _version = &firmware[1..=version_length as usize];
+        // skip version + 1 extra byte as per cybt_shared_bus_driver.c
+        let firmware = &firmware[version_length as usize + 2..];
+        // buffer
+        let mut data_buffer: [u8; 0x100] = [0; 0x100]; 
+        let mut aligned_fw_bytes_buffer: [u8; 0x100] = [0; 0x100]; 
+        // structs
+        let mut btfw_cb = CybtFwCb {
+            p_fw_mem_start: firmware,
+            fw_len: firmware.len() as u32,
+            p_next_line_start: firmware,
+        };
+        let mut hfd = HexFileData {
+            addr_mode: BTFW_ADDR_MODE_UNKNOWN,
+            hi_addr: 0,
+            dest_addr: 0,
+            p_ds: &mut data_buffer,
+        };
+        loop {
+            let num_fw_bytes = bluetooth::cybt_fw_get_data(&mut btfw_cb, &mut hfd);
+            if num_fw_bytes == 0 {
+                break;
+            }
+            let fw_bytes = &hfd.p_ds[0..num_fw_bytes as usize];
+            let mut dest_start_addr = hfd.dest_addr + 0x19000000;
+            let mut num_bytes_to_write = num_fw_bytes;
+            let mut dest_end_addr = dest_start_addr + num_bytes_to_write;
+            // pad start
+            if !bluetooth::is_aligned(dest_start_addr, 4) {
+                let num_pad_bytes = dest_start_addr % 4;
+                let padded_dest_start_addr = bluetooth::round_down(dest_start_addr, 4);
+                let memory_value = self.bus.bp_read32(padded_dest_start_addr).await;
+                let memory_value_bytes = memory_value.to_le_bytes();
+                // Copy the previous memory value's bytes to the start
+                for i in 0..num_pad_bytes as usize {
+                    aligned_fw_bytes_buffer[i] = memory_value_bytes[(4 - num_pad_bytes as usize) + i];
+                }
+                // Copy the firmware bytes after the padding bytes
+                aligned_fw_bytes_buffer[num_pad_bytes as usize..(num_pad_bytes + num_fw_bytes) as usize].copy_from_slice(fw_bytes);
+                num_bytes_to_write += num_pad_bytes;
+                dest_start_addr = padded_dest_start_addr;
+                dest_end_addr = dest_start_addr + num_bytes_to_write;
+            } else {
+                // Directly copy fw_bytes into aligned_fw_bytes_buffer if no start padding is required
+                aligned_fw_bytes_buffer[..num_fw_bytes as usize].copy_from_slice(fw_bytes);
+            }
+            // pad end
+            if !bluetooth::is_aligned(dest_end_addr, 4) {
+                let num_pad_bytes_end = 4 - (dest_end_addr % 4);
+                let memory_value_end = self.bus.bp_read32(bluetooth::round_down(dest_end_addr, 4)).await;
+                let memory_value_end_bytes = memory_value_end.to_le_bytes();
+                // Append the necessary memory bytes to pad the end
+                for i in 0..num_pad_bytes_end as usize {
+                    aligned_fw_bytes_buffer[(num_fw_bytes + num_pad_bytes_end - num_pad_bytes_end as u32) as usize + i] = memory_value_end_bytes[i];
+                }
+                num_bytes_to_write += num_pad_bytes_end;
+                dest_end_addr = dest_start_addr + num_bytes_to_write;
+            }
+
+            let buffer_to_write = &aligned_fw_bytes_buffer[0..num_bytes_to_write as usize];
+            debug!("dest_start_addr = {dest_start_addr:x} dest_end_addr = {dest_end_addr:x} num_bytes_to_write = {num_bytes_to_write:x} bytes = {buffer_to_write:02x?}");
+            assert!(dest_start_addr % 4 == 0);
+            assert!(dest_end_addr % 4 == 0);
+            assert!(num_bytes_to_write % 4 == 0);
+            self.bus.bp_write(dest_start_addr, buffer_to_write).await;
+        }
+    }
+
+    pub(crate) async fn init(&mut self, firmware: &[u8], bt_firmware: Option<&[u8]>) {
         self.bus.init().await;
 
         // Init ALP (Active Low Power) clock
@@ -97,6 +169,11 @@ where
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
+
+        // Upload Bluetooth firmware.
+        if bt_firmware.is_some() {
+            self.upload_bluetooth_firmware(&bt_firmware.unwrap()).await;
+        }
 
         debug!("loading nvram");
         // Round up to 4 bytes.
