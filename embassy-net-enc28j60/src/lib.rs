@@ -381,8 +381,6 @@ where
     }
 
     fn read_phy_register(&mut self, register: phy::Register) -> u16 {
-        embassy_time::block_for(Duration::from_millis(1));
-
         // set PHY register address
         self.write_control_register(bank2::Register::MIREGADR, register.addr());
 
