@@ -108,6 +108,11 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
         self.inner.set_compare_value(channel, duty)
     }
 
+    pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        self.inner.set_output_polarity(channel, polarity);
+        self.inner.set_complementary_output_polarity(channel, polarity);
+    }
+
     /// Set the dead time as a proportion of max_duty
     pub fn set_dead_time(&mut self, value: u16) {
         let (ckd, value) = compute_dead_time_value(value);
