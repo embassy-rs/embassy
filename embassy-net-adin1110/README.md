@@ -4,18 +4,18 @@
 
 ## What is SPE or Single Pair Ethernet / 10 BASE-T1L
 
-SPE is Single Pair Ethernet, what the names implies, it uses a single twisted/differancial pair (only 2 wires) to transmit ethernet packet in full-duplex.
-SPE is still ethernet, only the phissical layer is different.
+SPE stands for Single Pair Ethernet. As the names implies, SPE uses differential signalling with 2 wires (a twisted-pair) in a cable as the physical medium.
+SPE is full-duplex - it can transmit and receive ethernet packets at the same time. SPE is still ethernet, only the physical layer is different.
 
-SPE also supports [`PoDL(Power over Data Line)`](https://www.ti.com/lit/an/snla395/snla395.pdf), power delivery from 0.5 up to 50 Watts, similair to [`PoE`](https://en.wikipedia.org/wiki/Power_over_Ethernet), but additional hardware and handshake protocol is needed.
+SPE also supports [`PoDL (Power over Data Line)`](https://www.ti.com/lit/an/snla395/snla395.pdf), power delivery from 0.5 up to 50 Watts, similar to [`PoE`](https://en.wikipedia.org/wiki/Power_over_Ethernet), but an additional hardware and handshake protocol are needed.
 
-SPE has many link speeds but only `10 BASE-T1L` is able to reach cable length up to 1000 meters in `2.4 Vpp` transmit amplitude.
-Currently in 2023, none of the standards are compatiable with eachother.
-So `10 BASE-T1L` don't work with a `10 BASE-T1S` or `100 BASE-T1`.
+SPE has many link speeds but only `10 BASE-T1L` is able to reach cable lengths up to 1000 meters in `2.4 Vpp` transmit amplitude.
+Currently in 2023, none of the standards are compatible with each other.
+Thus `10 BASE-T1L` won't work with a `10 BASE-T1S`, `100 BASE-T1` or any standard `x BASE-T`.
 
-In the industry SPE is also called [`APL(Advanced Physical Layer)`](https://www.ethernet-apl.org), it is based on the `10 BASE-T1L` standard.
+In the industry SPE is also called [`APL (Advanced Physical Layer)`](https://www.ethernet-apl.org), and is based on the `10 BASE-T1L` standard.
 
-APL can be use in [`intrinsic safety applications/explosion hazardous areas`](https://en.wikipedia.org/wiki/Electrical_equipment_in_hazardous_areas) which has it's own name and standard [`2-WISE(2-wire intrinsically safe ethernet) IEC TS 60079-47:2021`](https://webstore.iec.ch/publication/64292).
+APL can be used in [`intrinsic safety applications/explosion hazardous areas`](https://en.wikipedia.org/wiki/Electrical_equipment_in_hazardous_areas) which has its own name and standard called [`2-WISE (2-wire intrinsically safe ethernet) IEC TS 60079-47:2021`](https://webstore.iec.ch/publication/64292).
 
 `10 BASE-T1L` and `ADIN1110` are designed to support intrinsic safety applications. The power supply energy is fixed and PDoL is not supported.
 
@@ -30,8 +30,8 @@ Currently only `Generic` SPI with or without CRC is supported.
 
 ## Hardware
 
-- Testen on [`Analog Devices EVAL-ADIN1110EBZ`](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/eval-adin1110.html) with a `STM32L4S5QII3P`, see [`spe_adin1110_http_server`](../examples/stm32l4/src/bin/spe_adin1110_http_server.rs) example.
-- [`SparkFun MicroMod Single Pair Ethernet Function Board`](https://www.sparkfun.com/products/19038) or [`SparkFun MicroMod Single Pair Ethernet Kit`](https://www.sparkfun.com/products/19628), the kit supports multiple microcontrollers, please check if get the right microcontroller that is supported by Embassy!
+- Tested on [`Analog Devices EVAL-ADIN1110EBZ`](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/eval-adin1110.html) with an `STM32L4S5QII3P`, see [`spe_adin1110_http_server`](../examples/stm32l4/src/bin/spe_adin1110_http_server.rs) dor an example.
+- [`SparkFun MicroMod Single Pair Ethernet Function Board`](https://www.sparkfun.com/products/19038) or [`SparkFun MicroMod Single Pair Ethernet Kit`](https://www.sparkfun.com/products/19628), supporting multiple microcontrollers. **Make sure to check if it's a microcontroller that is supported by Embassy!**
 
 ## Other SPE chips
 
@@ -40,7 +40,7 @@ Currently only `Generic` SPI with or without CRC is supported.
 
 ## Testing
 
-ADIN1110 library can tested on the host with a mock SPI driver
+ADIN1110 library can tested on the host with a mock SPI driver.
 
 $ `cargo test --target x86_64-unknown-linux-gnu`
 
