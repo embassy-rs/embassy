@@ -384,13 +384,20 @@ mod embedded_io_impls {
 
     impl embedded_io_async::Error for ConnectError {
         fn kind(&self) -> embedded_io_async::ErrorKind {
-            embedded_io_async::ErrorKind::Other
+            match self {
+                ConnectError::ConnectionReset => embedded_io_async::ErrorKind::ConnectionReset,
+                ConnectError::TimedOut => embedded_io_async::ErrorKind::TimedOut,
+                ConnectError::NoRoute => embedded_io_async::ErrorKind::NotConnected,
+                ConnectError::InvalidState => embedded_io_async::ErrorKind::Other,
+            }
         }
     }
 
     impl embedded_io_async::Error for Error {
         fn kind(&self) -> embedded_io_async::ErrorKind {
-            embedded_io_async::ErrorKind::Other
+            match self {
+                Error::ConnectionReset => embedded_io_async::ErrorKind::ConnectionReset,
+            }
         }
     }
 
