@@ -97,11 +97,11 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 
     pub fn get_max_duty(&self) -> u16 {
-        self.inner.get_max_compare_value()
+        self.inner.get_max_compare_value() + 1
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u16) {
-        assert!(duty < self.get_max_duty());
+        assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, duty)
     }
 }
