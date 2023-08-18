@@ -54,7 +54,7 @@ pub struct WatchdogFlash<'d, const SIZE: usize> {
 impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
     /// Start a new watchdog with a given flash and watchdog peripheral and a timeout
     pub fn start(flash: FLASH, watchdog: WATCHDOG, timeout: Duration) -> Self {
-        let flash = Flash::<_, Blocking, SIZE>::new(flash);
+        let flash = Flash::<_, Blocking, SIZE>::new_blocking(flash);
         let mut watchdog = Watchdog::new(watchdog);
         watchdog.start(timeout);
         Self { flash, watchdog }
@@ -71,11 +71,11 @@ impl<'d, const SIZE: usize> NorFlash for WatchdogFlash<'d, SIZE> {
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         self.watchdog.feed();
-        self.flash.erase(from, to)
+        self.flash.blocking_erase(from, to)
     }
     fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
         self.watchdog.feed();
-        self.flash.write(offset, data)
+        self.flash.blocking_write(offset, data)
     }
 }
 
@@ -83,7 +83,7 @@ impl<'d, const SIZE: usize> ReadNorFlash for WatchdogFlash<'d, SIZE> {
     const READ_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as ReadNorFlash>::READ_SIZE;
     fn read(&mut self, offset: u32, data: &mut [u8]) -> Result<(), Self::Error> {
         self.watchdog.feed();
-        self.flash.read(offset, data)
+        self.flash.blocking_read(offset, data)
     }
     fn capacity(&self) -> usize {
         self.flash.capacity()
