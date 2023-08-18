@@ -104,4 +104,8 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, duty)
     }
+
+    pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        self.inner.set_output_polarity(channel, polarity);
+    }
 }
