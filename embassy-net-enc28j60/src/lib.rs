@@ -106,19 +106,7 @@ where
         // disable CLKOUT output
         self.write_control_register(bank3::Register::ECOCON, 0);
 
-        // RX start
-        // "It is recommended that the ERXST Pointer be programmed with an even address"
-        self.write_control_register(bank0::Register::ERXSTL, RXST.low());
-        self.write_control_register(bank0::Register::ERXSTH, RXST.high());
-
-        // RX read pointer
-        // NOTE Errata #14 so we are using an *odd* address here instead of ERXST
-        self.write_control_register(bank0::Register::ERXRDPTL, RXND.low());
-        self.write_control_register(bank0::Register::ERXRDPTH, RXND.high());
-
-        // RX end
-        self.write_control_register(bank0::Register::ERXNDL, RXND.low());
-        self.write_control_register(bank0::Register::ERXNDH, RXND.high());
+        self.init_rx();
 
         // TX start
         // "It is recommended that an even address be used for ETXST"
@@ -172,12 +160,37 @@ where
         // Set the per packet control byte; we'll always use the value 0
         self.write_buffer_memory(Some(TXST), &mut [0]);
 
+        // Enable reception
+        self.bit_field_set(common::Register::ECON1, common::ECON1::mask().rxen());
+    }
+
+    fn init_rx(&mut self) {
+        // RX start
+        // "It is recommended that the ERXST Pointer be programmed with an even address"
+        self.write_control_register(bank0::Register::ERXSTL, RXST.low());
+        self.write_control_register(bank0::Register::ERXSTH, RXST.high());
+
+        // RX read pointer
+        // NOTE Errata #14 so we are using an *odd* address here instead of ERXST
+        self.write_control_register(bank0::Register::ERXRDPTL, RXND.low());
+        self.write_control_register(bank0::Register::ERXRDPTH, RXND.high());
+
+        // RX end
+        self.write_control_register(bank0::Register::ERXNDL, RXND.low());
+        self.write_control_register(bank0::Register::ERXNDH, RXND.high());
+
         // decrease the packet count to 0
         while self.read_control_register(bank1::Register::EPKTCNT) != 0 {
             self.bit_field_set(common::Register::ECON2, common::ECON2::mask().pktdec());
         }
 
-        // Enable reception
+        self.next_packet = RXST;
+    }
+
+    fn reset_rx(&mut self) {
+        self.bit_field_set(common::Register::ECON1, common::ECON1::mask().rxrst());
+        self.bit_field_clear(common::Register::ECON1, common::ECON1::mask().rxrst());
+        self.init_rx();
         self.bit_field_set(common::Register::ECON1, common::ECON1::mask().rxen());
     }
 
@@ -198,18 +211,17 @@ where
 
         // next packet pointer
         let next_packet = u16::from_parts(temp_buf[0], temp_buf[1]);
-        if next_packet > RXND {
-            panic!("CorruptRxBuffer");
-        }
-
         // status vector
         let status = header::RxStatus(u32::from_le_bytes(temp_buf[2..].try_into().unwrap()));
-        let len = status.byte_count() as u16 - CRC_SZ;
+        let len_with_crc = status.byte_count() as u16;
 
-        if len > RXND {
-            panic!("CorruptRxBuffer 2");
+        if len_with_crc < CRC_SZ || len_with_crc > 1600 || next_packet > RXND {
+            warn!("RX buffer corrupted, resetting RX logic to recover...");
+            self.reset_rx();
+            return None;
         }
 
+        let len = len_with_crc - CRC_SZ;
         self.read_buffer_memory(None, &mut buf[..len as usize]);
 
         // update ERXRDPT
@@ -381,8 +393,6 @@ where
     }
 
     fn read_phy_register(&mut self, register: phy::Register) -> u16 {
-        embassy_time::block_for(Duration::from_millis(1));
-
         // set PHY register address
         self.write_control_register(bank2::Register::MIREGADR, register.addr());
 
