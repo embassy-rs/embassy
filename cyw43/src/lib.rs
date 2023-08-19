@@ -213,7 +213,8 @@ pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    firmware: &[u8]
+    firmware: &[u8],
+    bluetooth_firmware: &[u8]
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
@@ -225,7 +226,7 @@ where
     let bus = Bus::new(pwr, spi);
     let mut runner = Runner::new(ch_runner, bus, &state.ioctl_state, &state.events);
 
-    runner.init(firmware).await;
+    runner.init(firmware, bluetooth_firmware).await;
 
     let control = Control::new(state_ch, &state.events, &state.ioctl_state);
 
