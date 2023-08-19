@@ -4,7 +4,6 @@ use ch::driver::LinkState;
 use embassy_net_driver_channel as ch;
 use embassy_time::{Duration, Timer};
 
-use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, EventSubscriber, Events};
@@ -33,11 +32,9 @@ impl<'a> Control<'a> {
         }
     }
 
-    pub async fn init(&mut self, clm: &[u8]) {
+    pub async fn clm_load(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
-
         debug!("Downloading CLM...");
-
         let mut offs = 0;
         for chunk in clm.chunks(CHUNK_SIZE) {
             let mut flag = DOWNLOAD_FLAG_HANDLER_VER;
@@ -48,7 +45,6 @@ impl<'a> Control<'a> {
             if offs == clm.len() {
                 flag |= DOWNLOAD_FLAG_END;
             }
-
             let header = DownloadHeader {
                 flag,
                 dload_type: DOWNLOAD_TYPE_CLM,
@@ -62,12 +58,14 @@ impl<'a> Control<'a> {
             self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
                 .await;
         }
-
         // check clmload ok
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
+    }
+
+    pub async fn init(&mut self, clm: &[u8]) {
+        self.clm_load(clm).await;
 
         debug!("Configuring misc stuff...");
-
         // Disable tx gloming which transfers multiple packets in one request.
         // 'glom' is short for "conglomerate" which means "gather together into
         // a compact mass".
@@ -79,7 +77,11 @@ impl<'a> Control<'a> {
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
-        let country = countries::WORLD_WIDE_XX;
+        // init bluetooth
+        self.ioctl(IoctlType::Set, 0xFFFFFFFF, 0, &mut []).await;
+
+        // TODO: this seems wifi specific, turning off for now for bluetooth to make sure it does not colllide
+        /*let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
             country_abbrev: [country.code[0], country.code[1], 0, 0],
             country_code: [country.code[0], country.code[1], 0, 0],
@@ -134,7 +136,7 @@ impl<'a> Control<'a> {
 
         Timer::after(Duration::from_millis(100)).await;
 
-        self.state_ch.set_ethernet_address(mac_addr);
+        self.state_ch.set_ethernet_address(mac_addr);*/
 
         debug!("INIT DONE");
     }

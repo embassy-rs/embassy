@@ -49,12 +49,14 @@ where
     }
 
     pub async fn init(&mut self) {
-        // Reset
+        // Reset (WL_REG_ON off/on)
+        debug!("WL_REG off/on");
         self.pwr.set_low().unwrap();
         Timer::after(Duration::from_millis(20)).await;
         self.pwr.set_high().unwrap();
         Timer::after(Duration::from_millis(250)).await;
 
+        debug!("read REG_BUS_TEST_RO");
         while self
             .read32_swapped(REG_BUS_TEST_RO)
             .inspect(|v| trace!("{:#x}", v))
@@ -62,30 +64,58 @@ where
             != FEEDBEAD
         {}
 
+        debug!("write REG_BUS_TEST_RW");
         self.write32_swapped(REG_BUS_TEST_RW, TEST_PATTERN).await;
         let val = self.read32_swapped(REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
         assert_eq!(val, TEST_PATTERN);
 
+        debug!("read REG_BUS_CTRL");
         let val = self.read32_swapped(REG_BUS_CTRL).await;
         trace!("{:#010b}", (val & 0xff));
 
-        // 32-bit word length, little endian (which is the default endianess).
+        // 32-bit word length, little endian (which is the default endianess)
+        // TODO: C library is  uint32_t val = WORD_LENGTH_32 | ENDIAN_BIG | HIGH_SPEED_MODE | INTERRUPT_POLARITY_HIGH | WAKE_UP | 0x4 << (8 * SPI_RESPONSE_DELAY) | INTR_WITH_STATUS << (8 * SPI_STATUS_ENABLE);
+        debug!("write REG_BUS_CTRL");
         self.write32_swapped(
             REG_BUS_CTRL,
             WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP | STATUS_ENABLE | INTERRUPT_WITH_STATUS,
         )
         .await;
 
+        debug!("read REG_BUS_CTRL");
         let val = self.read8(FUNC_BUS, REG_BUS_CTRL).await;
         trace!("{:#b}", val);
 
+        // TODO: C doesn't do this? i doubt it messes anything up
+        debug!("read REG_BUS_TEST_RO");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RO).await;
         trace!("{:#x}", val);
         assert_eq!(val, FEEDBEAD);
+
+        // TODO: C doesn't do this? i doubt it messes anything up
+        debug!("read REG_BUS_TEST_RW");
         let val = self.read32(FUNC_BUS, REG_BUS_TEST_RW).await;
         trace!("{:#x}", val);
         assert_eq!(val, TEST_PATTERN);
+
+        // TODO: if i turn these on the watermark assert fails
+        // #define SPI_RESP_DELAY_F1 ((uint32_t)0x001d)  // 8 bits (corerev >= 3)
+        // cyw43_write_reg_u8(self, BUS_FUNCTION, SPI_RESP_DELAY_F1, CYW43_BACKPLANE_READ_PAD_LEN_BYTES) CYW43_BACKPLANE_READ_PAD_LEN_BYTES = 16 because SPI instead of SDIO
+        /*debug!("write SPI_RESP_DELAY_F1 CYW43_BACKPLANE_READ_PAD_LEN_BYTES");
+        self.write8(FUNC_BUS, 0x001d, 16).await;*/
+
+        // TODO: Make sure error interrupt bits are clear?
+        // cyw43_write_reg_u8(self, BUS_FUNCTION, SPI_INTERRUPT_REGISTER, DATA_UNAVAILABLE | COMMAND_ERROR | DATA_ERROR | F1_OVERFLOW) != 0)
+        debug!("Make sure error interrupt bits are clear");
+        self.write8(FUNC_BUS, REG_BUS_INTERRUPT, (IRQ_DATA_UNAVAILABLE | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F1_OVERFLOW) as u8)
+            .await;
+
+        // Enable a selection of interrupts
+        // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
+        debug!("enable a selection of interrupts");
+        self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_F3_FIFO_RD_UNDERFLOW | IRQ_F2_F3_FIFO_WR_OVERFLOW | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F2_PACKET_AVAILABLE | IRQ_F1_OVERFLOW | IRQ_F1_INTR)
+            .await;
     }
 
     pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {

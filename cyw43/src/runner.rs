@@ -167,31 +167,79 @@ where
         }
     }
 
-    pub(crate) async fn init(&mut self, firmware: &[u8], bt_firmware: Option<&[u8]>) {
+    async fn bt_set_host_ready(&mut self) {
+        /*cybt_reg_read(HOST_CTRL_REG_ADDR, &reg_val);
+        reg_val |= BTSDIO_REG_SW_RDY_BITMASK;
+        cybt_reg_write(HOST_CTRL_REG_ADDR, reg_val);*/
+    }
+
+    async fn bt_set_awake(&mut self) {
+        /*int32_t reg_val_before;
+        cybt_reg_read(HOST_CTRL_REG_ADDR, &reg_val_before);
+
+        uint32_t reg_val_after = reg_val_before;
+        if (value)
+            reg_val_after |= BTSDIO_REG_WAKE_BT_BITMASK;
+        else
+            reg_val_after &= ~BTSDIO_REG_WAKE_BT_BITMASK;
+
+        if (reg_val_before != reg_val_after) {
+            cybt_reg_write(HOST_CTRL_REG_ADDR, reg_val_after);
+        }*/
+    }
+
+    async fn bt_toggle_intr(&mut self) {
+        /*cybt_reg_read(HOST_CTRL_REG_ADDR, &reg_val);
+        new_val = reg_val ^ BTSDIO_REG_DATA_VALID_BITMASK;
+        cybt_reg_write(HOST_CTRL_REG_ADDR, new_val);*/
+    }
+
+    async fn bt_set_intr(&mut self) {
+        /*cybt_reg_read(HOST_CTRL_REG_ADDR, &reg_val);
+        if (value) {
+            new_val = reg_val | BTSDIO_REG_DATA_VALID_BITMASK;
+        } else {
+            new_val = reg_val & ~BTSDIO_REG_DATA_VALID_BITMASK;
+        }
+        cybt_reg_write(HOST_CTRL_REG_ADDR, new_val);*/
+    }
+
+    pub(crate) async fn init(&mut self, firmware: &[u8]) {
         self.bus.init().await;
 
         // Init ALP (Active Low Power) clock
+        debug!("init alp");
         self.bus
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
             .await;
         
-        // check we can set the watermark
+        // check we can set the bluetooth watermark
+        debug!("set bluetooth watermark");
         self.bus
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
             .await;
         let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
         debug!("watermark = {:02x}", watermark);
+        assert!(watermark == 0x10);
         
         debug!("waiting for clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
         debug!("clock ok");
 
+        // clear request for ALP
+        debug!("clear request for ALP");
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
+
+        debug!("read chip id");
         let chip_id = self.bus.bp_read16(0x1800_0000).await;
         debug!("chip ID: {}", chip_id);
 
         // Upload firmware.
         self.core_disable(Core::WLAN).await;
+        self.core_disable(Core::SOCSRAM).await;
         self.core_reset(Core::SOCSRAM).await;
+
+        // this is 4343x specific stuff: Disable remap for SRAM_3
         self.bus.bp_write32(CHIP.socsram_base_address + 0x10, 3).await;
         self.bus.bp_write32(CHIP.socsram_base_address + 0x44, 0).await;
 
@@ -199,6 +247,8 @@ where
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
+
+        // TODO: load bluetooth firmware here or not? C does it after CLM is loaded
 
         debug!("loading nvram");
         // Round up to 4 bytes.
@@ -218,28 +268,27 @@ where
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
+        // wait until HT clock is available; takes about 29ms
+        debug!("wait for HT clock");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"
+        debug!("setup interrupt mask");
         self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK).await;
 
-        // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
-        self.bus
-            .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_F3_FIFO_RD_UNDERFLOW | IRQ_F2_F3_FIFO_WR_OVERFLOW | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F2_PACKET_AVAILABLE | IRQ_F1_OVERFLOW | IRQ_F1_INTR)
-            .await;
-
         // Set up the interrupt mask and enable interrupts
+        debug!("bluetooth setup interrupt mask");
         self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE).await;
 
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
         self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x20) // SPI_F2_WATERMARK
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, SPI_F2_WATERMARK)
             .await;
 
-        // wait for wifi startup
-        debug!("waiting for wifi init...");
-        while self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY == 0 {}
+        // wait for F2 to be ready
+        debug!("waiting for F2 to be ready...");
+        while self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY == 0 {}        
 
         // Some random configs related to sleep.
         // These aren't needed if we don't want to sleep the bus.
@@ -259,6 +308,7 @@ where
          */
 
         // clear pulls
+        debug!("clear pad pulls");
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0).await;
         let _ = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
 
@@ -268,16 +318,14 @@ where
         //while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         //debug!("clock ok");
 
-        // Upload Bluetooth firmware. TODO: is this in the right spot in terms of order of operations? it is not compared to what pico-sdk does
-        if bt_firmware.is_some() {
-            self.bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
-            self.upload_bluetooth_firmware(&bt_firmware.unwrap()).await;
-            //self.wait_bt_ready().await;
-            // TODO: cybt_init_buffer();
-            //self.wait_bt_awake().await;
-            // TODO: cybt_set_host_ready();
-            // TODO: cybt_toggle_bt_intr();
-        }
+        // TODO: We always seem to start with a data unavailable error - so clear it now
+        // uint16_t spi_int_status = cyw43_read_reg_u16(self, BUS_FUNCTION, SPI_INTERRUPT_REGISTER);
+        // if (spi_int_status & DATA_UNAVAILABLE) {
+        //    cyw43_write_reg_u16(self, BUS_FUNCTION, SPI_INTERRUPT_REGISTER, spi_int_status);
+        //}
+
+        // TODO: cyw43_read_backplane(self, CHIPCOMMON_SR_CONTROL1, 4);
+        // TODO: cyw43_ll_bus_sleep(self_in, false);
 
         #[cfg(feature = "firmware-logs")]
         self.log_init().await;
@@ -339,7 +387,17 @@ where
         }
     }
 
-    pub async fn run(mut self) -> ! {
+    pub async fn init_bluetooth(&mut self, bt_firmware: &[u8]) {
+        self.bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
+        self.upload_bluetooth_firmware(bt_firmware).await;
+        self.wait_bt_ready().await;
+        // TODO: cybt_init_buffer();
+        //self.wait_bt_awake().await;
+        // TODO: cybt_set_host_ready();
+        // TODO: cybt_toggle_bt_intr();
+    }
+
+    pub async fn run(mut self, bluetooth_firmware: &[u8]) -> ! {
         let mut buf = [0; 512];
         loop {
             #[cfg(feature = "firmware-logs")]
@@ -357,10 +415,20 @@ where
                         cmd,
                         iface,
                     }) => {
-                        self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }).await;
-                        self.check_status(&mut buf).await;
+                        debug!("PendingIoctl cmd = {:08x} buf = {:02x}", cmd, buf);
+                        if cmd == 0xFFFFFFFF { // fake command i came up with to do bluetooth init?
+                            debug!("PendingIoctl init_bluetooth");
+                            self.init_bluetooth(bluetooth_firmware).await;
+                        } else {
+                            self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }).await;
+                            self.check_status(&mut buf).await;
+                        }
                     }
                     Either3::Second(packet) => {
+                        trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
+                        // TODO?
+                    }
+                    /*Either3::Second(packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
                         let mut buf = [0; 512];
@@ -414,7 +482,7 @@ where
                         self.bus.wlan_write(&buf[..(total_len / 4)]).await;
                         self.ch.tx_done();
                         self.check_status(&mut buf).await;
-                    }
+                    }*/
                     Either3::Third(()) => {
                         self.handle_irq(&mut buf).await;
                     }
@@ -428,18 +496,42 @@ where
     }
 
     /// Wait for IRQ on F2 packet available
-    async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
+    async fn handle_irq(&mut self, buf: &mut [u32; 512]) {        
         // Receive stuff
         let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
-        trace!("irq{}", FormatInterrupt(irq));
+        trace!("irq{} {:04x}", FormatInterrupt(irq), irq);
 
         if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
+            debug!("IRQ F2_PACKET_AVAILABLE");
             self.check_status(buf).await;
+        }
+
+        if irq & IRQ_F1_INTR != 0 {
+            debug!("IRQ IRQ_F1_INTR");
+            // TODO
         }
 
         if irq & IRQ_DATA_UNAVAILABLE != 0 {
             // TODO what should we do here?
             warn!("IRQ DATA_UNAVAILABLE, clearing...");
+            self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
+        }
+
+        if irq & IRQ_COMMAND_ERROR != 0 {
+            // TODO what should we do here?
+            warn!("IRQ COMMAND_ERROR, clearing...");
+            self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
+        }
+
+        if irq & IRQ_DATA_ERROR != 0 {
+            // TODO what should we do here?
+            warn!("IRQ DATA_ERROR, clearing...");
+            self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
+        }
+
+        if irq & IRQ_F1_OVERFLOW != 0 {
+            // TODO what should we do here?
+            warn!("IRQ F1_OVERFLOW, clearing...");
             self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
         }
     }
@@ -450,6 +542,11 @@ where
             let status = self.bus.status();
             trace!("check status{}", FormatStatus(status));
 
+            let sdio_int_status = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
+            if sdio_int_status & I_HMB_FC_CHANGE != 0 {
+                debug!("sdio_int_status & I_HMB_FC_CHANGE != 0");
+            }
+
             if status & STATUS_F2_PKT_AVAILABLE != 0 {
                 let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
                 self.bus.wlan_read(buf, len).await;
@@ -459,14 +556,13 @@ where
                 break;
             }
 
-            let sdio_int_status = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
-            if sdio_int_status & I_HMB_FC_CHANGE != 0 {
-                debug!("sdio_int_status & I_HMB_FC_CHANGE != 0");
-            }
+            
         }
     }
 
     fn rx(&mut self, packet: &mut [u8]) {
+        debug!("runner rx packet = {:02x}", packet);
+
         let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else {
             return;
         };
@@ -487,6 +583,8 @@ where
                         // TODO: propagate error instead
                         panic!("IOCTL error {}", cdc_header.status as i32);
                     }
+
+                    debug!("runner rx CHANNEL_TYPE_CONTROL response = {:02x}", response);
 
                     self.ioctl_state.ioctl_done(response);
                 }
@@ -644,6 +742,8 @@ where
     }
 
     async fn core_disable(&mut self, core: Core) {
+        debug!("core_disable");
+
         let base = core.base_addr();
 
         // Dummy read?
@@ -667,6 +767,8 @@ where
     }
 
     async fn core_reset(&mut self, core: Core) {
+        debug!("core_reset");
+
         self.core_disable(core).await;
 
         let base = core.base_addr();
@@ -688,6 +790,8 @@ where
     }
 
     async fn core_is_up(&mut self, core: Core) -> bool {
+        debug!("core_is_up");
+
         let base = core.base_addr();
 
         let io = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;

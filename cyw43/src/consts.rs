@@ -56,6 +56,8 @@ pub(crate) const I_HMB_FC_CHANGE: u32 =              (1 << 5);
 pub(crate) const SDIO_INT_STATUS: u32 =          0x20;
 pub(crate) const SDIO_INT_HOST_MASK: u32 =       0x24;
 
+pub(crate) const SPI_F2_WATERMARK: u8 =       0x20;
+
 pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 pub(crate) const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;
@@ -139,6 +141,8 @@ pub(crate) const BT2WLAN_PWRUP_WAKE: u32 = 3;
 pub(crate) const BT2WLAN_PWRUP_ADDR: u32 = 0x640894;
 
 pub(crate) const BT_CTRL_REG_ADDR: u32 = 0x18000c7c;
+pub(crate) const HOST_CTRL_REG_ADDR: u32 = 0x18000d6c;
+pub(crate) const WLAN_RAM_BASE_REG_ADDR: u32 = 0x18000d68;
 
 pub(crate) const BTSDIO_REG_BT_AWAKE_BITMASK: u32 = (1 << 8);
 pub(crate) const BTSDIO_REG_FW_RDY_BITMASK: u32 = (1 << 24);

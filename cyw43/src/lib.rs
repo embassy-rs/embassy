@@ -213,8 +213,7 @@ pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    firmware: &[u8],
-    bt_firmware: Option<&[u8]>
+    firmware: &[u8]
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
@@ -226,9 +225,11 @@ where
     let bus = Bus::new(pwr, spi);
     let mut runner = Runner::new(ch_runner, bus, &state.ioctl_state, &state.events);
 
-    runner.init(firmware, bt_firmware).await;
+    runner.init(firmware).await;
 
     let control = Control::new(state_ch, &state.events, &state.ioctl_state);
+
+    // TODO: figure out how to use bus after it gets moved to Runner because for Bluetooth the official `pico-sdk` + `cyw43-driver` C code doesn't upload Bluetooth firmware until after `CLM` is loaded which happens later in `control.init()`
 
     (
         device,
