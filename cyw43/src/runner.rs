@@ -174,6 +174,14 @@ where
         self.bus
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
             .await;
+        
+        // check we can set the watermark
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
+            .await;
+        let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
+        debug!("watermark = {:02x}", watermark);
+        
         debug!("waiting for clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
         debug!("clock ok");
@@ -191,17 +199,6 @@ where
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
-
-        // Upload Bluetooth firmware. TODO: is this in the right spot in terms of order of operations? it is not compared to what pico-sdk does
-        if bt_firmware.is_some() {
-            self.bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
-            self.upload_bluetooth_firmware(&bt_firmware.unwrap()).await;
-            self.wait_bt_ready().await;
-            // TODO: cybt_init_buffer();
-            self.wait_bt_awake().await;
-            // TODO: cybt_set_host_ready();
-            // TODO: cybt_toggle_bt_intr();
-        }
 
         debug!("loading nvram");
         // Round up to 4 bytes.
@@ -224,16 +221,20 @@ where
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"
-        // self.bus.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0).await;
+        self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK).await;
+
         // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
         self.bus
-            .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE)
+            .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_F3_FIFO_RD_UNDERFLOW | IRQ_F2_F3_FIFO_WR_OVERFLOW | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F2_PACKET_AVAILABLE | IRQ_F1_OVERFLOW | IRQ_F1_INTR)
             .await;
+
+        // Set up the interrupt mask and enable interrupts
+        self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE).await;
 
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
         self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x20) // TODO: bluetooth wants 0x10, wifi wants 0x20? cyw43_write_reg_u8(self, BACKPLANE_FUNCTION, SDIO_FUNCTION2_WATERMARK, 0x10);
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x20) // SPI_F2_WATERMARK
             .await;
 
         // wait for wifi startup
@@ -266,6 +267,17 @@ where
         //debug!("waiting for HT clock...");
         //while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         //debug!("clock ok");
+
+        // Upload Bluetooth firmware. TODO: is this in the right spot in terms of order of operations? it is not compared to what pico-sdk does
+        if bt_firmware.is_some() {
+            self.bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
+            self.upload_bluetooth_firmware(&bt_firmware.unwrap()).await;
+            //self.wait_bt_ready().await;
+            // TODO: cybt_init_buffer();
+            //self.wait_bt_awake().await;
+            // TODO: cybt_set_host_ready();
+            // TODO: cybt_toggle_bt_intr();
+        }
 
         #[cfg(feature = "firmware-logs")]
         self.log_init().await;
@@ -445,6 +457,11 @@ where
                 self.rx(&mut slice8_mut(buf)[..len as usize]);
             } else {
                 break;
+            }
+
+            let sdio_int_status = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
+            if sdio_int_status & I_HMB_FC_CHANGE != 0 {
+                debug!("sdio_int_status & I_HMB_FC_CHANGE != 0");
             }
         }
     }

@@ -51,6 +51,11 @@ pub(crate) const REG_BACKPLANE_READ_FRAME_BC_HIGH: u32 = 0x1001C;
 pub(crate) const REG_BACKPLANE_WAKEUP_CTRL: u32 = 0x1001E;
 pub(crate) const REG_BACKPLANE_SLEEP_CSR: u32 = 0x1001F;
 
+pub(crate) const I_HMB_SW_MASK: u32 =            (0x000000f0);
+pub(crate) const I_HMB_FC_CHANGE: u32 =              (1 << 5);
+pub(crate) const SDIO_INT_STATUS: u32 =          0x20;
+pub(crate) const SDIO_INT_HOST_MASK: u32 =       0x24;
+
 pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 pub(crate) const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;

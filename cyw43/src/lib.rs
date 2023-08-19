@@ -89,7 +89,7 @@ const CHIP: Chip = Chip {
     sdiod_core_base_address: 0x18002000,
     pmu_base_address: 0x18000000,
     chip_ram_size: 512 * 1024,
-    atcm_ram_base_address: 0,
+    atcm_ram_base_address: 0, // TODO: 0 or 0x10100000?
     socram_srmem_size: 64 * 1024,
     chanspec_band_mask: 0xc000,
     chanspec_band_2g: 0x0000,
