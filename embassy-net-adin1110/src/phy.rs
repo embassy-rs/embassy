@@ -30,7 +30,8 @@ pub mod RegsC45 {
     }
 
     impl DA1 {
-        #[must_use] pub fn into(self) -> (u8, u16) {
+        #[must_use]
+        pub fn into(self) -> (u8, u16) {
             (0x01, self as u16)
         }
     }
@@ -48,7 +49,8 @@ pub mod RegsC45 {
     }
 
     impl DA3 {
-        #[must_use] pub fn into(self) -> (u8, u16) {
+        #[must_use]
+        pub fn into(self) -> (u8, u16) {
             (0x03, self as u16)
         }
     }
@@ -62,7 +64,8 @@ pub mod RegsC45 {
     }
 
     impl DA7 {
-        #[must_use] pub fn into(self) -> (u8, u16) {
+        #[must_use]
+        pub fn into(self) -> (u8, u16) {
             (0x07, self as u16)
         }
     }
@@ -84,7 +87,8 @@ pub mod RegsC45 {
     }
 
     impl DA1E {
-        #[must_use] pub fn into(self) -> (u8, u16) {
+        #[must_use]
+        pub fn into(self) -> (u8, u16) {
             (0x1e, self as u16)
         }
     }
@@ -100,7 +104,8 @@ pub mod RegsC45 {
     }
 
     impl DA1F {
-        #[must_use] pub fn into(self) -> (u8, u16) {
+        #[must_use]
+        pub fn into(self) -> (u8, u16) {
             (0x1f, self as u16)
         }
     }
