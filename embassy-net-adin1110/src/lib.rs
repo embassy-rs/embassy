@@ -250,7 +250,7 @@ where
 
         packet
             .extend_from_slice(spi_hdr.0.to_be_bytes().as_slice())
-            .map_err(|_| AdinError::PACKET_TOO_BIG)?;
+            .map_err(|_e| AdinError::PACKET_TOO_BIG)?;
 
         if self.crc {
             // Add CRC for header data
@@ -262,10 +262,12 @@ where
         // Add port number, ADIN1110 its fixed to zero/P1, but for ADIN2111 has two ports.
         packet
             .extend_from_slice(u16::from(PORT_ID_BYTE).to_be_bytes().as_slice())
-            .map_err(|_| AdinError::PACKET_TOO_BIG)?;
+            .map_err(|_e| AdinError::PACKET_TOO_BIG)?;
 
         // Copy packet data to spi buffer.
-        packet.extend_from_slice(frame).map_err(|_| AdinError::PACKET_TOO_BIG)?;
+        packet
+            .extend_from_slice(frame)
+            .map_err(|_e| AdinError::PACKET_TOO_BIG)?;
 
         // Pad data up to ETH_MIN_LEN - FCS_LEN
         for _ in packet.len()..(ETH_MIN_LEN - FSC_LEN + header_len) {
