@@ -74,6 +74,7 @@ where
     }
 
     async fn validate_firmware(&mut self, ram_addr: u32, firmware: &[u8]) {
+        debug!("validating firmware");
         let mut i = 0;
         let mut mem_bytes = [0; 0x100];
         while i < firmware.len() {
@@ -89,18 +90,22 @@ where
             let mem_slice = &mem_bytes[..slice_len];
             assert_eq!(firmware_slice.len(), mem_slice.len());
             for j in 0..firmware_slice.len() {
-                debug!(
-                    "{:08x} firmware_slice[{}] mem_slice[{}] {:02x} != {:02x}",
-                    ram_addr as usize + i + j,
-                    j,
-                    j,
-                    firmware_slice[j],
-                    mem_slice[j]
-                );
+                if firmware_slice[j] != mem_slice[j] {
+                    debug!(
+                        "{:08x} firmware_slice[{}] != mem_slice[{}] {:02x} != {:02x}",
+                        ram_addr as usize + i + j,
+                        j,
+                        j,
+                        firmware_slice[j],
+                        mem_slice[j]
+                    );
+                }
                 assert_eq!(firmware_slice[j], mem_slice[j]);
             }
             i += slice_len;
         }
+        assert_eq!(i, firmware.len());
+        debug!("validated firmware");
     }
 
     pub(crate) async fn init(&mut self, firmware: &[u8]) {
