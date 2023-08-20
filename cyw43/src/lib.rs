@@ -89,7 +89,7 @@ const CHIP: Chip = Chip {
     sdiod_core_base_address: 0x18002000,
     pmu_base_address: 0x18000000,
     chip_ram_size: 512 * 1024,
-    atcm_ram_base_address: 0, // TODO: 0 or 0x10100000?
+    atcm_ram_base_address: 0, // actually 0x10100000?
     socram_srmem_size: 64 * 1024,
     chanspec_band_mask: 0xc000,
     chanspec_band_2g: 0x0000,
@@ -224,9 +224,7 @@ where
     let state_ch = ch_runner.state_runner();
 
     let bus = Bus::new(pwr, spi);
-    let mut runner = Runner::new(ch_runner, bus, &state.ioctl_state, &state.events);
-
-    runner.init(firmware, bluetooth_firmware).await;
+    let runner = Runner::new(ch_runner, bus, &state.ioctl_state, &state.events);
 
     let control = Control::new(state_ch, &state.events, &state.ioctl_state);
 

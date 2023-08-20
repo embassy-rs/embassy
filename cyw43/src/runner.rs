@@ -101,6 +101,7 @@ where
                 break;
             }
             let fw_bytes = &hfd.p_ds[0..num_fw_bytes as usize];
+            let ori_dest_start_addr = hfd.dest_addr + CHIP.bluetooth_base_address;
             let mut dest_start_addr = hfd.dest_addr + CHIP.bluetooth_base_address;
             let mut aligned_data_buffer_index: usize = 0;
             debug!("upload_bluetooth_firmware: pre-alignment: dest_start_addr = {:08x} aligned_data_buffer_index = {} fw_bytes = {:02x}", dest_start_addr, aligned_data_buffer_index, fw_bytes);
@@ -110,7 +111,7 @@ where
                 let padded_dest_start_addr = bluetooth::round_down(dest_start_addr, 4);
                 let mut memory_value_bytes = [0; 4];
                 self.bus.bp_read(padded_dest_start_addr, &mut memory_value_bytes).await;
-                debug!("upload_bluetooth_firmware: pad start bp_read({:08x}) memory_value_bytes = {:02x}", padded_dest_start_addr, memory_value_bytes);
+                debug!("upload_bluetooth_firmware: pad start ori_dest_start_addr = {:08x} bp_read({:08x}) memory_value_bytes = {:02x}", ori_dest_start_addr, padded_dest_start_addr, memory_value_bytes);
                 // Copy the previous memory value's bytes to the start
                 for i in 0..num_pad_bytes as usize {
                     aligned_data_buffer[aligned_data_buffer_index] = memory_value_bytes[i];
@@ -139,7 +140,7 @@ where
                 let padded_dest_end_addr = bluetooth::round_down(dest_end_addr, 4);
                 let mut memory_value_bytes = [0; 4];
                 self.bus.bp_read(padded_dest_end_addr, &mut memory_value_bytes).await;
-                debug!("upload_bluetooth_firmware: pad end bp_read({:08x}) memory_value_bytes = {:02x}", padded_dest_end_addr, memory_value_bytes);
+                debug!("upload_bluetooth_firmware: pad end ori_dest_start_addr = {:08x} bp_read({:08x}) memory_value_bytes = {:02x}", ori_dest_start_addr, padded_dest_end_addr, memory_value_bytes);
                 // Append the necessary memory bytes to pad the end of aligned_data_buffer
                 debug!("upload_bluetooth_firmware: pad end alignment needed: dest_end_addr = {:08x} padded_dest_end_addr = {:08x} offset = {} num_pad_bytes_end = {} aligned_data_buffer_index = {}", dest_end_addr, padded_dest_end_addr, offset, num_pad_bytes_end, aligned_data_buffer_index);
                 for i in offset..4 {
@@ -225,7 +226,33 @@ where
         self.bus.bp_write32(HOST_CTRL_REG_ADDR, new_val).await;
     }
 
-    pub(crate) async fn init(&mut self, firmware: &[u8], bluetooth_firmware: &[u8]) {
+    async fn validate_firmware(&mut self, ram_addr: u32, firmware: &[u8]) {
+        let mut i = 0;
+        let mut mem_bytes = [0; 0x100];
+        while i < firmware.len() {
+            debug!("i = {:08x}", i);
+    
+            self.bus.bp_read((ram_addr as usize + i) as u32, &mut mem_bytes).await;
+    
+            let slice_len = if 0x100 <= firmware.len() - i { 0x100 } else { firmware.len() - i };
+            let firmware_slice = &firmware[i..i+slice_len];
+            let mem_slice = &mem_bytes[..slice_len];
+
+            assert_eq!(firmware_slice.len(), mem_slice.len());
+            for j in 0..firmware_slice.len() {
+                if firmware_slice[j] != mem_slice[j] {
+                    // TODO: assert
+                    debug!("{:08x} firmware_slice[{}] != mem_slice[{}] {:02x} != {:02x}", ram_addr as usize + i + j, j, j, firmware_slice[j], mem_slice[j]);
+                }
+            }
+    
+            i += slice_len;
+        }
+    }
+    
+    pub async fn init(&mut self, firmware: &[u8], bluetooth_firmware: &[u8]) {
+        debug!("runner init");
+
         self.bus.init().await;
 
         // Init ALP (Active Low Power) clock
@@ -268,6 +295,7 @@ where
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
+        self.validate_firmware(ram_addr, firmware).await;
 
         // TODO: load bluetooth firmware here or not? C does it after CLM is loaded
         //self.init_bluetooth(bluetooth_firmware).await;
@@ -316,7 +344,7 @@ where
         // These aren't needed if we don't want to sleep the bus.
         // TODO do we need to sleep the bus to read the irq line, due to
         // being on the same pin as MOSI/MISO?
-        let mut val = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
+        /*let mut val = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL).await;
         val |= 0x02; // WAKE_TILL_HT_AVAIL
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_WAKEUP_CTRL, val).await;
         self.bus.write8(FUNC_BUS, 0xF0, 0x08).await; // SDIOD_CCCR_BRCM_CARDCAP.CMD_NODEC = 1
@@ -324,7 +352,7 @@ where
 
         let mut val = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR).await;
         val |= 0x01; // SBSDIO_SLPCSR_KEEP_SDIO_ON
-        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR, val).await;
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_SLEEP_CSR, val).await;*/
 
         // clear pulls
         debug!("clear pad pulls");
@@ -332,7 +360,7 @@ where
         let _ = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
 
         // start HT clock
-        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await;
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await; // SBSDIO_HT_AVAIL_REQ
         debug!("waiting for HT clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         debug!("clock ok");

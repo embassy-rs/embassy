@@ -49,6 +49,8 @@ where
     }
 
     pub async fn init(&mut self) {
+        debug!("bus init");
+
         // Reset (WL_REG_ON off/on)
         debug!("WL_REG off/on");
         self.pwr.set_low().unwrap();
@@ -230,7 +232,7 @@ where
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
         if len == 4 {
-            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG
+            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
         self.readn(FUNC_BACKPLANE, bus_addr, len).await
     }
@@ -240,7 +242,7 @@ where
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
         if len == 4 {
-            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG
+            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
         self.writen(FUNC_BACKPLANE, bus_addr, val, len).await
     }

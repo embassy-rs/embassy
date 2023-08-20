@@ -63,6 +63,8 @@ impl<'a> Control<'a> {
     }
 
     pub async fn init(&mut self, clm: &[u8]) {
+        debug!("control init");
+
         self.clm_load(clm).await;
 
         debug!("Configuring misc stuff...");
@@ -76,9 +78,6 @@ impl<'a> Control<'a> {
         let mut mac_addr = [0; 6];
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
-
-        // init bluetooth
-        self.ioctl(IoctlType::Set, 0xFFFFFFFF, 0, &mut []).await;
 
         // TODO: this seems wifi specific, turning off for now for bluetooth to make sure it does not colllide
         /*let country = countries::WORLD_WIDE_XX;
@@ -139,6 +138,10 @@ impl<'a> Control<'a> {
         self.state_ch.set_ethernet_address(mac_addr);*/
 
         debug!("INIT DONE");
+    }
+
+    pub async fn init_bluetooth(&mut self) {
+        self.ioctl(IoctlType::Set, 0xFFFFFFFF, 0, &mut []).await;
     }
 
     pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
