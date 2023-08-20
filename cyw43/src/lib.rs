@@ -8,6 +8,7 @@
 pub(crate) mod fmt;
 
 mod bus;
+mod bluetooth;
 mod consts;
 mod countries;
 mod events;
@@ -55,6 +56,7 @@ impl Core {
 struct Chip {
     arm_core_base_address: u32,
     socsram_base_address: u32,
+    bluetooth_base_address: u32,
     socsram_wrapper_base_address: u32,
     sdiod_core_base_address: u32,
     pmu_base_address: u32,
@@ -82,6 +84,7 @@ const WRAPPER_REGISTER_OFFSET: u32 = 0x100000;
 const CHIP: Chip = Chip {
     arm_core_base_address: 0x18003000 + WRAPPER_REGISTER_OFFSET,
     socsram_base_address: 0x18004000,
+    bluetooth_base_address: 0x19000000,
     socsram_wrapper_base_address: 0x18004000 + WRAPPER_REGISTER_OFFSET,
     sdiod_core_base_address: 0x18002000,
     pmu_base_address: 0x18000000,
@@ -211,6 +214,7 @@ pub async fn new<'a, PWR, SPI>(
     pwr: PWR,
     spi: SPI,
     firmware: &[u8],
+    bluetooth_firmware: &[u8]
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
@@ -221,7 +225,7 @@ where
 
     let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
 
-    runner.init(firmware).await;
+    runner.init(firmware, bluetooth_firmware).await;
 
     (
         device,

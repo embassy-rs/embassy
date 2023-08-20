@@ -6,7 +6,7 @@ use embedded_hal_1::digital::OutputPin;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-use crate::consts::*;
+use crate::{consts::*, bluetooth};
 use crate::events::{Event, Events, Status};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
@@ -73,23 +73,41 @@ where
         }
     }
 
-    pub(crate) async fn init(&mut self, firmware: &[u8]) {
+    pub(crate) async fn init(&mut self, firmware: &[u8], bluetooth_firmware: &[u8]) {
         self.bus.init().await;
 
         // Init ALP (Active Low Power) clock
+        debug!("init alp");
         self.bus
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
             .await;
+
+        // check we can set the bluetooth watermark
+        debug!("set bluetooth watermark");
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
+            .await;
+        let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
+        debug!("watermark = {:02x}", watermark);
+        assert!(watermark == 0x10);
+        
         debug!("waiting for clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
         debug!("clock ok");
+
+        // clear request for ALP
+        debug!("clear request for ALP");
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
 
         let chip_id = self.bus.bp_read16(0x1800_0000).await;
         debug!("chip ID: {}", chip_id);
 
         // Upload firmware.
         self.core_disable(Core::WLAN).await;
+        self.core_disable(Core::SOCSRAM).await; // TODO: is this needed if we reset right after?
         self.core_reset(Core::SOCSRAM).await;
+
+        // this is 4343x specific stuff: Disable remap for SRAM_3
         self.bus.bp_write32(CHIP.socsram_base_address + 0x10, 3).await;
         self.bus.bp_write32(CHIP.socsram_base_address + 0x44, 0).await;
 
@@ -97,6 +115,9 @@ where
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
+
+        debug!("loading bluetooth fw");
+        bluetooth::init_bluetooth(&mut self.bus, bluetooth_firmware).await;
 
         debug!("loading nvram");
         // Round up to 4 bytes.
@@ -116,23 +137,31 @@ where
         self.core_reset(Core::WLAN).await;
         assert!(self.core_is_up(Core::WLAN).await);
 
+        // wait until HT clock is available; takes about 29ms
+        debug!("wait for HT clock");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"
-        // self.bus.bp_write32(CHIP.sdiod_core_base_address + 0x24, 0xF0).await;
+        debug!("setup interrupt mask");
+        self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK).await;
 
-        self.bus
+        // Set up the interrupt mask and enable interrupts
+        debug!("bluetooth setup interrupt mask");
+        self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE).await;
+
+        // TODO: turn interrupts on here or in bus.init()?
+        /*self.bus
             .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE)
-            .await;
+            .await;*/
 
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
         self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 32)
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, SPI_F2_WATERMARK)
             .await;
 
-        // wait for wifi startup
-        debug!("waiting for wifi init...");
+        // wait for F2 to be ready
+        debug!("waiting for F2 to be ready...");
         while self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY == 0 {}
 
         // Some random configs related to sleep.
@@ -153,14 +182,15 @@ where
          */
 
         // clear pulls
+        debug!("clear pad pulls");
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP, 0).await;
         let _ = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
 
         // start HT clock
-        //self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await;
-        //debug!("waiting for HT clock...");
-        //while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
-        //debug!("clock ok");
+        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await; // SBSDIO_HT_AVAIL_REQ
+        debug!("waiting for HT clock...");
+        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
+        debug!("clock ok");
 
         #[cfg(feature = "firmware-logs")]
         self.log_init().await;

@@ -51,6 +51,13 @@ pub(crate) const REG_BACKPLANE_READ_FRAME_BC_HIGH: u32 = 0x1001C;
 pub(crate) const REG_BACKPLANE_WAKEUP_CTRL: u32 = 0x1001E;
 pub(crate) const REG_BACKPLANE_SLEEP_CSR: u32 = 0x1001F;
 
+pub(crate) const I_HMB_SW_MASK: u32 =            (0x000000f0);
+pub(crate) const I_HMB_FC_CHANGE: u32 =              (1 << 5);
+pub(crate) const SDIO_INT_STATUS: u32 =          0x20;
+pub(crate) const SDIO_INT_HOST_MASK: u32 =       0x24;
+
+pub(crate) const SPI_F2_WATERMARK: u8 =       0x20;
+
 pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 pub(crate) const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;
@@ -117,6 +124,35 @@ pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
 
 pub(crate) const MIN_PSK_LEN: usize = 8;
 pub(crate) const MAX_PSK_LEN: usize = 64;
+
+// Bluetooth constants.
+pub(crate) const SPI_RESP_DELAY_F1: u32 = 0x001d;
+pub(crate) const WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE: u8 = 4;
+pub(crate) const CYW43_BACKPLANE_READ_PAD_LEN_BYTES: u8 = 16;
+
+pub(crate) const BTFW_ADDR_MODE_UNKNOWN: i32 = 0;
+pub(crate) const BTFW_ADDR_MODE_EXTENDED: i32 = 1;
+pub(crate) const BTFW_ADDR_MODE_SEGMENT: i32 = 2;
+pub(crate) const BTFW_ADDR_MODE_LINEAR32: i32 = 3;
+
+pub(crate) const BTFW_HEX_LINE_TYPE_DATA: u8 = 0;
+pub(crate) const BTFW_HEX_LINE_TYPE_END_OF_DATA: u8 = 1;
+pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_SEGMENT_ADDRESS: u8 = 2;
+pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_ADDRESS: u8 = 4;
+pub(crate) const BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS: u8 = 5;
+
+pub(crate) const BT2WLAN_PWRUP_WAKE: u32 = 3;
+pub(crate) const BT2WLAN_PWRUP_ADDR: u32 = 0x640894;
+
+pub(crate) const BT_CTRL_REG_ADDR: u32 = 0x18000c7c;
+pub(crate) const HOST_CTRL_REG_ADDR: u32 = 0x18000d6c;
+pub(crate) const WLAN_RAM_BASE_REG_ADDR: u32 = 0x18000d68;
+
+pub(crate) const BTSDIO_REG_DATA_VALID_BITMASK: u32 = (1 << 1);
+pub(crate) const BTSDIO_REG_BT_AWAKE_BITMASK: u32 = (1 << 8);
+pub(crate) const BTSDIO_REG_WAKE_BT_BITMASK: u32 = (1 << 17);
+pub(crate) const BTSDIO_REG_SW_RDY_BITMASK: u32 = (1 << 24);
+pub(crate) const BTSDIO_REG_FW_RDY_BITMASK: u32 = (1 << 24);
 
 // Security type (authentication and encryption types are combined using bit mask)
 #[allow(non_camel_case_types)]
