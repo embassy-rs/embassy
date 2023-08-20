@@ -75,11 +75,16 @@ where
         trace!("{:#010b}", (val & 0xff));
 
         // 32-bit word length, little endian (which is the default endianess).
-        // TODO: C library is uint32_t val = WORD_LENGTH_32 | ENDIAN_BIG | HIGH_SPEED_MODE | INTERRUPT_POLARITY_HIGH | WAKE_UP | 0x4 << (8 * SPI_RESPONSE_DELAY) | INTR_WITH_STATUS << (8 * SPI_STATUS_ENABLE);
+        // TODO: C library is uint32_t val = WORD_LENGTH_32 | HIGH_SPEED_MODE| ENDIAN_BIG | INTERRUPT_POLARITY_HIGH | WAKE_UP | 0x4 << (8 * SPI_RESPONSE_DELAY) | INTR_WITH_STATUS << (8 * SPI_STATUS_ENABLE);
         debug!("write REG_BUS_CTRL");
         self.write32_swapped(
             REG_BUS_CTRL,
-            WORD_LENGTH_32 | HIGH_SPEED | INTERRUPT_HIGH | WAKE_UP | STATUS_ENABLE | INTERRUPT_WITH_STATUS,
+            WORD_LENGTH_32
+                | HIGH_SPEED
+                | INTERRUPT_POLARITY_HIGH
+                | WAKE_UP
+                | 0x4 << (8 * REG_BUS_RESPONSE_DELAY)
+                | INTR_WITH_STATUS << (8 * REG_BUS_STATUS_ENABLE),
         )
         .await;
 
