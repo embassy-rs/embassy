@@ -1,5 +1,4 @@
 #![deny(clippy::pedantic)]
-#![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![allow(clippy::module_name_repetitions)]
