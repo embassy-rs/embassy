@@ -73,6 +73,27 @@ where
         }
     }
 
+    async fn validate_firmware(&mut self, ram_addr: u32, firmware: &[u8]) {
+        let mut i = 0;
+        let mut mem_bytes = [0; 0x100];
+        while i < firmware.len() {
+            let slice_len = if 0x100 <= firmware.len() - i { 0x100 } else { firmware.len() - i };
+            self.bus.bp_read((ram_addr as usize + i) as u32, &mut mem_bytes[0..slice_len]).await;
+            let firmware_slice = &firmware[i..i+slice_len];
+            let mem_slice = &mem_bytes[..slice_len];
+
+            assert_eq!(firmware_slice.len(), mem_slice.len());
+            for j in 0..firmware_slice.len() {
+                if firmware_slice[j] != mem_slice[j] {
+                    // TODO: assert
+                    debug!("{:08x} firmware_slice[{}] != mem_slice[{}] {:02x} != {:02x}", ram_addr as usize + i + j, j, j, firmware_slice[j], mem_slice[j]);
+                }
+            }
+
+            i += slice_len;
+        }
+    }
+
     pub(crate) async fn init(&mut self, firmware: &[u8]) {
         self.bus.init().await;
 
@@ -97,6 +118,9 @@ where
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
+
+        debug!("Validating fw");
+        self.validate_firmware(ram_addr, firmware).await;
 
         debug!("loading nvram");
         // Round up to 4 bytes.
