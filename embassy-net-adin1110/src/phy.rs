@@ -30,7 +30,7 @@ pub mod RegsC45 {
     }
 
     impl DA1 {
-        pub fn into(self) -> (u8, u16) {
+        #[must_use] pub fn into(self) -> (u8, u16) {
             (0x01, self as u16)
         }
     }
@@ -48,7 +48,7 @@ pub mod RegsC45 {
     }
 
     impl DA3 {
-        pub fn into(self) -> (u8, u16) {
+        #[must_use] pub fn into(self) -> (u8, u16) {
             (0x03, self as u16)
         }
     }
@@ -62,7 +62,7 @@ pub mod RegsC45 {
     }
 
     impl DA7 {
-        pub fn into(self) -> (u8, u16) {
+        #[must_use] pub fn into(self) -> (u8, u16) {
             (0x07, self as u16)
         }
     }
@@ -84,7 +84,7 @@ pub mod RegsC45 {
     }
 
     impl DA1E {
-        pub fn into(self) -> (u8, u16) {
+        #[must_use] pub fn into(self) -> (u8, u16) {
             (0x1e, self as u16)
         }
     }
@@ -100,7 +100,7 @@ pub mod RegsC45 {
     }
 
     impl DA1F {
-        pub fn into(self) -> (u8, u16) {
+        #[must_use] pub fn into(self) -> (u8, u16) {
             (0x1f, self as u16)
         }
     }
@@ -121,8 +121,8 @@ impl Phy10BaseT1x {
         MDIOBUS: MdioBus<Error = MDE>,
         MDE: core::fmt::Debug,
     {
-        let mut phyid = (mdiobus.read_cl22(self.0, RegsC22::PHY_ID1 as u8).await? as u32) << 16;
-        phyid |= mdiobus.read_cl22(self.0, RegsC22::PHY_ID2 as u8).await? as u32;
+        let mut phyid = u32::from(mdiobus.read_cl22(self.0, RegsC22::PHY_ID1 as u8).await?) << 16;
+        phyid |= u32::from(mdiobus.read_cl22(self.0, RegsC22::PHY_ID2 as u8).await?);
         Ok(phyid)
     }
 

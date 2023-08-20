@@ -74,7 +74,6 @@ impl From<u16> for SpiRegisters {
 }
 
 // Register definitions
-
 bitfield! {
     /// Status0 Register bits
     pub struct Status0(u32);
@@ -242,6 +241,7 @@ bitfield! {
     pub link_change_mask, set_link_change_mask : 1;
 }
 
+/// LED Functions
 #[repr(u8)]
 pub enum LedFunc {
     LinkupTxRxActicity = 0,
@@ -326,7 +326,7 @@ bitfield_bitrange! {struct LedCntrl(u16)}
 impl LedCntrl {
     bitfield_fields! {
         u8;
-        /// LED_0 Pin Function
+        /// LED 0 Pin Function
         pub from into LedFunc, led0_function, set_led0_function: 4, 0;
         /// LED 0 Mode Selection
         pub led0_mode, set_led0_mode: 5;
@@ -334,7 +334,7 @@ impl LedCntrl {
         pub led0_link_st_qualify, set_led0_link_st_qualify: 6;
         /// LED 0 Enable
         pub led0_en, set_led0_en: 7;
-        /// LED_1 Pin Function
+        /// LED 1 Pin Function
         pub from into LedFunc, led1_function, set_led1_function: 12, 8;
         /// /// LED 1 Mode Selection
         pub led1_mode, set_led1_mode: 13;
@@ -349,7 +349,7 @@ impl LedCntrl {
     }
 }
 
-// #[allow(dead_code)]
+// LED Polarity
 #[repr(u8)]
 pub enum LedPol {
     AutoSense = 0,
@@ -384,12 +384,12 @@ impl LedPolarity {
         u8;
         /// LED 1 Polarity
         pub from into LedPol, led1_polarity, set_led1_polarity: 3, 2;
-        /// LED_0 Polarity
+        /// LED 0 Polarity
         pub from into LedPol, led0_polarity, set_led0_polarity: 1, 0;
     }
 }
 
-/// LED Control Register
+/// SPI Header
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SpiHeader(pub u16);
 bitfield_bitrange! {struct SpiHeader(u16)}
@@ -400,8 +400,9 @@ impl SpiHeader {
         /// Mask Bit for TXF_ECC_ERR
         pub control, set_control : 15;
         pub full_duplex, set_full_duplex : 14;
+        /// Read or Write to register
         pub write, set_write : 13;
-        /// LED_0 Polarity
+        /// Registers ID/addr
         pub from into SpiRegisters, addr, set_addr: 11, 0;
     }
 }

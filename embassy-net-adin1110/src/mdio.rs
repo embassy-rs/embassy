@@ -32,11 +32,11 @@ enum Reg13Op {
     PostReadIncAddr = 0b10 << 14,
     Read = 0b11 << 14,
 }
-/// MdioBus trait
-/// Driver needs to implemnt the Claus 22
+/// `MdioBus` trait
+/// Driver needs to implement the Clause 22
 /// Optional Clause 45 is the device supports this.
 ///
-/// Claus 45 methodes are bases on https://www.ieee802.org/3/efm/public/nov02/oam/pannell_oam_1_1102.pdf
+/// Claus 45 methodes are bases on <https://www.ieee802.org/3/efm/public/nov02/oam/pannell_oam_1_1102.pdf>
 pub trait MdioBus {
     type Error;
 
@@ -52,13 +52,14 @@ pub trait MdioBus {
     /// Implement this function when your hardware supports it.
     async fn read_cl45(&mut self, phy_id: PhyAddr, regc45: (u8, RegC45)) -> Result<RegVal, Self::Error> {
         // Write FN
-        let val = (Reg13Op::Addr as RegVal) | (regc45.0 & DEV_MASK) as RegVal;
+        let val = (Reg13Op::Addr as RegVal) | RegVal::from(regc45.0 & DEV_MASK);
+
         self.write_cl22(phy_id, REG13, val).await?;
         // Write Addr
         self.write_cl22(phy_id, REG14, regc45.1).await?;
 
         // Write FN
-        let val = (Reg13Op::Read as RegVal) | (regc45.0 & DEV_MASK) as RegVal;
+        let val = (Reg13Op::Read as RegVal) | RegVal::from(regc45.0 & DEV_MASK);
         self.write_cl22(phy_id, REG13, val).await?;
         // Write Addr
         self.read_cl22(phy_id, REG14).await
@@ -69,7 +70,7 @@ pub trait MdioBus {
     /// Many hardware these days support direct Clause 45 operations.
     /// Implement this function when your hardware supports it.
     async fn write_cl45(&mut self, phy_id: PhyAddr, regc45: (u8, RegC45), reg_val: RegVal) -> Result<(), Self::Error> {
-        let dev_addr = (regc45.0 & DEV_MASK) as RegVal;
+        let dev_addr = RegVal::from(regc45.0 & DEV_MASK);
         let reg = regc45.1;
 
         // Write FN

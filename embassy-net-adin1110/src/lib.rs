@@ -1,16 +1,10 @@
-#![allow(clippy::pedantic)]
+#![deny(clippy::pedantic)]
 #![feature(type_alias_impl_trait)]
 #![feature(async_fn_in_trait)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
-
-use ch::driver::LinkState;
-use embassy_futures::select::{select, Either};
-use embassy_net_driver_channel as ch;
-use embassy_time::{Duration, Timer};
-use embedded_hal_1::digital::OutputPin;
-use embedded_hal_async::digital::Wait;
-use embedded_hal_async::spi::{Operation, SpiDevice};
-use heapless::Vec;
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
 
 mod crc32;
 mod crc8;
@@ -18,15 +12,23 @@ mod mdio;
 mod phy;
 mod regs;
 
+use ch::driver::LinkState;
 pub use crc32::ETH_FSC;
 use crc8::crc8;
+use embassy_futures::select::{select, Either};
+use embassy_net_driver_channel as ch;
+use embassy_time::{Duration, Timer};
+use embedded_hal_1::digital::OutputPin;
+use embedded_hal_async::digital::Wait;
+use embedded_hal_async::spi::{Operation, SpiDevice};
+use heapless::Vec;
 pub use mdio::MdioBus;
 pub use phy::{Phy10BaseT1x, RegsC22, RegsC45};
 pub use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
 
-pub const PHYID: u32 = 0x0283BC91;
+pub const PHYID: u32 = 0x0283_BC91;
 
 /// Error values ADIN1110
 #[derive(Debug)]
@@ -44,21 +46,28 @@ pub enum AdinError<E> {
 
 pub type AEResult<T, SPIE> = core::result::Result<T, AdinError<SPIE>>;
 pub const MDIO_PHY_ADDR: u8 = 0x01;
-pub const MTU: usize = 1500;
+
+/// Maximum Transmission Unit
+pub const MTU: usize = 1514;
+
 /// Max SPI/Frame buffer size
 pub const MAX_BUFF: usize = 2048;
 
 const DONT_CARE_BYTE: u8 = 0x00;
 const TURN_AROUND_BYTE: u8 = 0x00;
 
-const FEC_LEN: usize = 4;
+/// Packet minimal frame/packet length
+const ETH_MIN_LEN: usize = 64;
+
+/// Ethernet `Frame Check Sequence` length
+const FSC_LEN: usize = 4;
 const FRAME_HEADER_LEN: usize = 2;
 const WR_HEADER_LEN: usize = 2;
 
 // P1 = 0x00, P2 = 0x01
 const PORT_ID_BYTE: u8 = 0x00;
 
-pub type Packet = Vec<u8, { MTU + FEC_LEN + WR_HEADER_LEN }>;
+pub type Packet = Vec<u8, { MTU + FSC_LEN + WR_HEADER_LEN }>;
 
 /// Type alias for the embassy-net driver for ADIN1110
 pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
@@ -69,6 +78,7 @@ pub struct State<const N_RX: usize, const N_TX: usize> {
 }
 impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     /// Create a new `State`.
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             ch_state: ch::State::new(),
@@ -81,11 +91,11 @@ pub struct ADIN1110<SPI> {
     /// SPI bus
     spi: SPI,
     /// Enable CRC on SPI transfer.
-    /// This must match with the hardware pin SPI_CFG0 were 0 = CRC enable, 1 CRC disabled.
+    /// This must match with the hardware pin `SPI_CFG0` were low = CRC enable, high = CRC disabled.
     crc: bool,
 }
 
-// Round size up the N u32;
+/// Round size up the N u32;
 pub(crate) fn size_align_u32(size: u32) -> u32 {
     (size + 3) & 0xFFFF_FFFC
 }
@@ -166,7 +176,7 @@ where
         self.spi.write(&tx_buf).await.map_err(AdinError::Spi)
     }
 
-    // helper function for write to MDIO_ACC register and wait for ready!
+    /// helper function for write to `MDIO_ACC` register and wait for ready!
     async fn write_mdio_acc_reg(&mut self, mdio_acc_val: u32) -> AEResult<u32, SpiE> {
         self.write_reg(sr::MDIO_ACC, mdio_acc_val).await?;
 
@@ -181,6 +191,7 @@ where
         Err(AdinError::MDIO_ACC_TIMEOUT)
     }
 
+    /// Read out fifo ethernet packet memory received via the wire.
     pub async fn read_fifo(&mut self, packet: &mut [u8]) -> AEResult<usize, SpiE> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
@@ -190,7 +201,7 @@ where
         // Packet read of write to the MAC packet buffer must be a multipul of 4!
         let read_size = size_align_u32(packet_size);
 
-        if packet_size < u32::try_from(FRAME_HEADER_LEN + FEC_LEN).unwrap()
+        if packet_size < u32::try_from(FRAME_HEADER_LEN + FSC_LEN).unwrap()
             || read_size > u32::try_from(packet.len()).unwrap()
         {
             return Err(AdinError::PACKET_TOO_BIG);
@@ -226,11 +237,9 @@ where
         Ok(packet_size as usize)
     }
 
+    /// Write to fifo ethernet packet memory send over the wire.
     pub async fn write_fifo(&mut self, frame: &[u8]) -> AEResult<(), SpiE> {
         let header_len = self.header_write_len();
-        // if packet.len() < header_len {
-        //     return Err(AdinError::PACKET_TOO_SMALL);
-        // }
 
         let mut packet = Packet::new();
 
@@ -244,37 +253,33 @@ where
             .map_err(|_| AdinError::PACKET_TOO_BIG)?;
 
         if self.crc {
-            assert_eq!(header_len, 5);
             // Add CRC for header data
             packet
                 .push(crc8(&packet[0..2]))
                 .map_err(|_| AdinError::PACKET_TOO_BIG)?;
         }
 
-        // Add port number
-        // packet[header_len - FRAME_HEADER_LEN..header_len]
-        //     .copy_from_slice(u16::from(PORT_ID_BYTE).to_be_bytes().as_slice());
+        // Add port number, ADIN1110 its fixed to zero/P1, but for ADIN2111 has two ports.
         packet
             .extend_from_slice(u16::from(PORT_ID_BYTE).to_be_bytes().as_slice())
             .map_err(|_| AdinError::PACKET_TOO_BIG)?;
 
+        // Copy packet data to spi buffer.
         packet.extend_from_slice(frame).map_err(|_| AdinError::PACKET_TOO_BIG)?;
 
-        // Pad data up to 64
-        for _ in packet.len()..(64 - FEC_LEN + header_len) {
+        // Pad data up to ETH_MIN_LEN - FCS_LEN
+        for _ in packet.len()..(ETH_MIN_LEN - FSC_LEN + header_len) {
             let _ = packet.push(0x00);
         }
 
-        // // add ethernet crc32
+        // add ethernet FCS only over the ethernet packet.
         let crc = ETH_FSC::new(&packet[header_len..]);
         let _ = packet.extend_from_slice(crc.hton_bytes().as_slice());
 
-        let crc = ETH_FSC::new(&packet[header_len..]);
-        assert!(crc.crc_ok());
+        let send_len =
+            u32::try_from(packet.len() - header_len + FRAME_HEADER_LEN).map_err(|_| AdinError::PACKET_TOO_BIG)?;
 
-        let send_len = packet.len() - header_len + FRAME_HEADER_LEN;
-
-        // Packet read of write to the MAC packet buffer must be a multipul of 4!
+        // Packet read of write to the MAC packet buffer must be a multipul of 4 bytes!
         while packet.len() & 0x3 != 0 {
             let _ = packet.push(DONT_CARE_BYTE);
         }
@@ -288,7 +293,7 @@ where
             send_len,
         );
 
-        self.write_reg(sr::TX_FSIZE, send_len as u32).await?;
+        self.write_reg(sr::TX_FSIZE, send_len).await?;
 
         // Spi packet must be half word / even length
         if send_len & 1 != 0 {
@@ -346,17 +351,21 @@ where
         let mdio_acc_val: u32 =
             (0x1 << 28) | u32::from(phy_id & 0x1F) << 21 | u32::from(reg & 0x1F) << 16 | (0x3 << 26);
 
+        // Result is in the lower half of the answer.
+        #[allow(clippy::cast_possible_truncation)]
         self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
     }
 
     /// Read from the PHY Registers as Clause 45.
     async fn read_cl45(&mut self, phy_id: u8, regc45: (u8, u16)) -> Result<u16, Self::Error> {
-        let mdio_acc_val: u32 = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | u32::from(regc45.1);
+        let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | u32::from(regc45.1);
 
         self.write_mdio_acc_reg(mdio_acc_val).await?;
 
-        let mdio_acc_val: u32 = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | (0x03 << 26);
+        let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | (0x03 << 26);
 
+        // Result is in the lower half of the answer.
+        #[allow(clippy::cast_possible_truncation)]
         self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
     }
 
@@ -394,6 +403,7 @@ pub struct Runner<'d, SPI, INT, RST> {
 }
 
 impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
+    #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> ! {
         loop {
             let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
@@ -566,6 +576,7 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
 
     // Reset sequence
     reset.set_low().unwrap();
+
     // Wait t1: 20-43mS
     Timer::after(Duration::from_millis(30)).await;
 
@@ -604,7 +615,7 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     }
 
     // Config2: CRC_APPEND
-    let mut config2 = Config2(0x00000800);
+    let mut config2 = Config2(0x0000_0800);
     config2.set_crc_append(true);
     mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
 
@@ -677,6 +688,7 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     )
 }
 
+#[allow(clippy::similar_names)]
 #[cfg(test)]
 mod tests {
     use core::convert::Infallible;
@@ -743,16 +755,12 @@ mod tests {
         let mut spe = ADIN1110::new(spi_dev, false);
 
         // Read PHIID
-        match spe.read_reg(sr::PHYID).await {
-            Ok(val) => assert_eq!(val, 0x0283BC91),
-            Err(_e) => panic!("Error:"),
-        };
+        let val = spe.read_reg(sr::PHYID).await.expect("Error");
+        assert_eq!(val, 0x0283_BC91);
 
         // Read CAPAVILITY
-        match spe.read_reg(sr::CAPABILITY).await {
-            Ok(val) => assert_eq!(val, 0x000006C3),
-            Err(_e) => panic!("Error:"),
-        };
+        let val = spe.read_reg(sr::CAPABILITY).await.expect("Error");
+        assert_eq!(val, 0x0000_06C3);
 
         spi.done();
     }
@@ -778,20 +786,16 @@ mod tests {
 
         let mut spe = ADIN1110::new(spi_dev, true);
 
-        assert_eq!(crc8(0x0283BC91_u32.to_be_bytes().as_slice()), 215);
-        assert_eq!(crc8(0x000006C3_u32.to_be_bytes().as_slice()), 57);
+        assert_eq!(crc8(0x0283_BC91_u32.to_be_bytes().as_slice()), 215);
+        assert_eq!(crc8(0x0000_06C3_u32.to_be_bytes().as_slice()), 57);
 
         // Read PHIID
-        match spe.read_reg(sr::PHYID).await {
-            Ok(val) => assert_eq!(val, 0x0283BC91),
-            Err(e) => panic!("Error: {e:?}"),
-        };
+        let val = spe.read_reg(sr::PHYID).await.expect("Error");
+        assert_eq!(val, 0x0283_BC91);
 
         // Read CAPAVILITY
-        match spe.read_reg(sr::CAPABILITY).await {
-            Ok(val) => assert_eq!(val, 0x000006C3),
-            Err(_e) => panic!("Error:"),
-        };
+        let val = spe.read_reg(sr::CAPABILITY).await.expect("Error");
+        assert_eq!(val, 0x0000_06C3);
 
         spi.done();
     }
@@ -885,7 +889,7 @@ mod tests {
     //         ];
 
     //         let mut packet = Packet::new();
-    //         packet.resize(64, 0).unwrap();
+    //         packet.resize(ETH_MIN_LEN, 0).unwrap();
 
     //         for &byte in &packet[4..] {
     //             expectations.push(SpiTransaction::send(byte));
@@ -893,7 +897,7 @@ mod tests {
     //         }
 
     //         // padding
-    //         for _ in packet.len() as u32..65 {
+    //         for _ in packet.len()..65 {
     //             expectations.push(SpiTransaction::send(0x00));
     //             expectations.push(SpiTransaction::read(DONT_CARE_BYTE));
     //         }
@@ -943,7 +947,7 @@ mod tests {
     //         ];
 
     //         let mut packet = Packet::new();
-    //         packet.resize(64, 0).unwrap();
+    //         packet.resize(ETH_MIN_LEN, 0).unwrap();
 
     //         for &byte in &packet[4..] {
     //             expectations.push(SpiTransaction::send(byte));
@@ -951,7 +955,7 @@ mod tests {
     //         }
 
     //         // padding
-    //         for _ in packet.len() as u32..64 {
+    //         for _ in packet.len() as u32..ETH_MIN_LEN {
     //             expectations.push(SpiTransaction::send(0x00));
     //             expectations.push(SpiTransaction::read(DONT_CARE_BYTE));
     //         }
@@ -1061,7 +1065,7 @@ mod tests {
     //         }
 
     //         // padding
-    //         for _ in packet.len() as u32..64 {
+    //         for _ in packet.len()..ETH_MIN_LEN {
     //             expectations.push(SpiTransaction::send(0x00));
     //             expectations.push(SpiTransaction::read(DONT_CARE_BYTE));
     //         }
@@ -1119,7 +1123,7 @@ mod tests {
     //         }
 
     //         // padding
-    //         for _ in packet.len() as u32..64 {
+    //         for _ in packet.len()..ETH_MIN_LEN {
     //             expectations.push(SpiTransaction::send(0x00));
     //             expectations.push(SpiTransaction::read(DONT_CARE_BYTE));
     //         }
@@ -1176,7 +1180,7 @@ mod tests {
     //         }
 
     //         // padding
-    //         for _ in packet.len() as u32..64 {
+    //         for _ in packet.len()..ETH_MIN_LEN {
     //             expectations.push(SpiTransaction::send(0x00));
     //             expectations.push(SpiTransaction::read(DONT_CARE_BYTE));
     //         }
@@ -1219,15 +1223,17 @@ mod tests {
         spi_packet.extend_from_slice(&[160, 49, 143, 0, 0]).unwrap();
         // Packet data
         spi_packet.extend_from_slice(&packet).unwrap();
-        // Packet padding up to 60 (64 - FCS)
-        for _ in packet.len() as u32..60 {
+        // Packet padding up to 60 (ETH_MIN_LEN - FCS)
+        for _ in packet.len()..(ETH_MIN_LEN - FSC_LEN) {
             spi_packet.push(0x00).unwrap();
         }
         // Packet FCS
         spi_packet.extend_from_slice(&[147, 149, 213, 68]).unwrap();
 
+        let spi_packet_len = u32::try_from(spi_packet.len()).unwrap();
+
         // SPI HEADER Padding of u32
-        for _ in spi_packet.len() as u32..size_align_u32(spi_packet.len() as u32) {
+        for _ in spi_packet_len..size_align_u32(spi_packet_len) {
             spi_packet.push(0x00).unwrap();
         }
 
@@ -1242,7 +1248,7 @@ mod tests {
 
         let mut spe = ADIN1110::new(spi_dev, true);
 
-        assert!(spe.write_fifo(&mut packet).await.is_ok());
+        assert!(spe.write_fifo(&packet).await.is_ok());
 
         spi.done();
     }
