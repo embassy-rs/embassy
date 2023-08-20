@@ -101,19 +101,34 @@ where
 
         // TODO: setting this causes total failure (watermark read test fails)
         debug!("write SPI_RESP_DELAY_F1 CYW43_BACKPLANE_READ_PAD_LEN_BYTES");
-        self.write8(FUNC_BUS, SPI_RESP_DELAY_F1, WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE).await;
+        self.write8(FUNC_BUS, SPI_RESP_DELAY_F1, WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE)
+            .await;
 
         // TODO: Make sure error interrupt bits are clear?
         // cyw43_write_reg_u8(self, BUS_FUNCTION, SPI_INTERRUPT_REGISTER, DATA_UNAVAILABLE | COMMAND_ERROR | DATA_ERROR | F1_OVERFLOW) != 0)
         debug!("Make sure error interrupt bits are clear");
-        self.write8(FUNC_BUS, REG_BUS_INTERRUPT, (IRQ_DATA_UNAVAILABLE | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F1_OVERFLOW) as u8)
-            .await;
+        self.write8(
+            FUNC_BUS,
+            REG_BUS_INTERRUPT,
+            (IRQ_DATA_UNAVAILABLE | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F1_OVERFLOW) as u8,
+        )
+        .await;
 
         // Enable a selection of interrupts
         // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
         debug!("enable a selection of interrupts");
-        self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_F3_FIFO_RD_UNDERFLOW | IRQ_F2_F3_FIFO_WR_OVERFLOW | IRQ_COMMAND_ERROR | IRQ_DATA_ERROR | IRQ_F2_PACKET_AVAILABLE | IRQ_F1_OVERFLOW | IRQ_F1_INTR)
-            .await;
+        self.write16(
+            FUNC_BUS,
+            REG_BUS_INTERRUPT_ENABLE,
+            IRQ_F2_F3_FIFO_RD_UNDERFLOW
+                | IRQ_F2_F3_FIFO_WR_OVERFLOW
+                | IRQ_COMMAND_ERROR
+                | IRQ_DATA_ERROR
+                | IRQ_F2_PACKET_AVAILABLE
+                | IRQ_F1_OVERFLOW
+                | IRQ_F1_INTR,
+        )
+        .await;
     }
 
     pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {

@@ -6,13 +6,13 @@ use embedded_hal_1::digital::OutputPin;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-use crate::{consts::*, bluetooth};
+use crate::consts::*;
 use crate::events::{Event, Events, Status};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
 use crate::structs::*;
-use crate::{events, slice8_mut, Core, CHIP, MTU};
+use crate::{bluetooth, events, slice8_mut, Core, CHIP, MTU};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -90,7 +90,7 @@ where
         let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
         debug!("watermark = {:02x}", watermark);
         assert!(watermark == 0x10);
-        
+
         debug!("waiting for clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
         debug!("clock ok");
@@ -143,16 +143,20 @@ where
 
         // "Set up the interrupt mask and enable interrupts"
         debug!("setup interrupt mask");
-        self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK).await;
+        self.bus
+            .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_SW_MASK)
+            .await;
 
         // Set up the interrupt mask and enable interrupts
         debug!("bluetooth setup interrupt mask");
-        self.bus.bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE).await;
+        self.bus
+            .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_HOST_MASK, I_HMB_FC_CHANGE)
+            .await;
 
         // TODO: turn interrupts on here or in bus.init()?
         /*self.bus
-            .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE)
-            .await;*/
+        .write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, IRQ_F2_PACKET_AVAILABLE)
+        .await;*/
 
         // "Lower F2 Watermark to avoid DMA Hang in F2 when SD Clock is stopped."
         // Sounds scary...
@@ -187,7 +191,9 @@ where
         let _ = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_PULL_UP).await;
 
         // start HT clock
-        self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10).await; // SBSDIO_HT_AVAIL_REQ
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0x10)
+            .await; // SBSDIO_HT_AVAIL_REQ
         debug!("waiting for HT clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         debug!("clock ok");

@@ -7,8 +7,8 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-mod bus;
 mod bluetooth;
+mod bus;
 mod consts;
 mod countries;
 mod events;
@@ -214,7 +214,7 @@ pub async fn new<'a, PWR, SPI>(
     pwr: PWR,
     spi: SPI,
     firmware: &[u8],
-    bluetooth_firmware: &[u8]
+    bluetooth_firmware: &[u8],
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,

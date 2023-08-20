@@ -1,7 +1,9 @@
-use embassy_time::{Timer, Duration};
+use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 
-use crate::{consts::*, CHIP, bus::Bus, SpiBusCyw43};
+use crate::bus::Bus;
+use crate::consts::*;
+use crate::{SpiBusCyw43, CHIP};
 
 #[derive(Debug)]
 pub(crate) struct CybtFwCb<'a> {
@@ -56,8 +58,10 @@ pub(crate) fn cybt_fw_get_data(p_btfw_cb: &mut CybtFwCb, hfd: &mut HexFileData) 
                 hfd.addr_mode = BTFW_ADDR_MODE_SEGMENT;
             }
             BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS => {
-                abs_base_addr32 = (hfd.p_ds[0] as u32) << 24 | (hfd.p_ds[1] as u32) << 16 |
-                                  (hfd.p_ds[2] as u32) << 8 | hfd.p_ds[3] as u32;
+                abs_base_addr32 = (hfd.p_ds[0] as u32) << 24
+                    | (hfd.p_ds[1] as u32) << 16
+                    | (hfd.p_ds[2] as u32) << 8
+                    | hfd.p_ds[3] as u32;
                 hfd.addr_mode = BTFW_ADDR_MODE_LINEAR32;
             }
             BTFW_HEX_LINE_TYPE_DATA => {
@@ -76,14 +80,17 @@ pub(crate) fn cybt_fw_get_data(p_btfw_cb: &mut CybtFwCb, hfd: &mut HexFileData) 
     0
 }
 
-pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>, firmware: &[u8]) {
+pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
+    bus: &mut Bus<PWR, SPI>,
+    firmware: &[u8],
+) {
     // read version
     let version_length = firmware[0];
     let _version = &firmware[1..=version_length as usize];
     // skip version + 1 extra byte as per cybt_shared_bus_driver.c
     let firmware = &firmware[version_length as usize + 2..];
     // buffer
-    let mut data_buffer: [u8; 0x100] = [0; 0x100]; 
+    let mut data_buffer: [u8; 0x100] = [0; 0x100];
     // structs
     let mut btfw_cb = CybtFwCb {
         p_fw_mem_start: firmware,
@@ -176,7 +183,7 @@ pub(crate) async fn wait_bt_ready<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bu
 }
 
 pub(crate) async fn wait_bt_awake<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
-    debug!("wait_bt_awake");        
+    debug!("wait_bt_awake");
     loop {
         let val = bus.bp_read32(BT_CTRL_REG_ADDR).await;
         // TODO: do we need to swap endianness on this read?
@@ -189,7 +196,7 @@ pub(crate) async fn wait_bt_awake<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bu
 }
 
 pub(crate) async fn bt_set_host_ready<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
-    debug!("bt_set_host_ready");        
+    debug!("bt_set_host_ready");
     let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
     // TODO: do we need to swap endianness on this read?
     let new_val = old_val | BTSDIO_REG_SW_RDY_BITMASK;
@@ -197,7 +204,7 @@ pub(crate) async fn bt_set_host_ready<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mu
 }
 
 pub(crate) async fn bt_set_awake<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
-    debug!("bt_set_awake");        
+    debug!("bt_set_awake");
     let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
     // TODO: do we need to swap endianness on this read?
     let new_val = old_val | BTSDIO_REG_WAKE_BT_BITMASK;
@@ -205,7 +212,7 @@ pub(crate) async fn bt_set_awake<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus
 }
 
 pub(crate) async fn bt_toggle_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
-    debug!("bt_toggle_intr");        
+    debug!("bt_toggle_intr");
     let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
     // TODO: do we need to swap endianness on this read?
     let new_val = old_val ^ BTSDIO_REG_DATA_VALID_BITMASK;
@@ -213,14 +220,15 @@ pub(crate) async fn bt_toggle_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut B
 }
 
 pub(crate) async fn bt_set_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
-    debug!("bt_set_intr");        
+    debug!("bt_set_intr");
     let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
     let new_val = old_val | BTSDIO_REG_DATA_VALID_BITMASK;
     bus.bp_write32(HOST_CTRL_REG_ADDR, new_val).await;
 }
 
 pub(crate) async fn init_bluetooth<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>, firmware: &[u8]) {
-    bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE).await;
+    bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE)
+        .await;
     upload_bluetooth_firmware(bus, firmware).await;
     wait_bt_ready(bus).await;
     // TODO: cybt_init_buffer();
