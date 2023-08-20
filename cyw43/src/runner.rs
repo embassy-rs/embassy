@@ -87,22 +87,18 @@ where
                 .await;
             let firmware_slice = &firmware[i..i + slice_len];
             let mem_slice = &mem_bytes[..slice_len];
-
             assert_eq!(firmware_slice.len(), mem_slice.len());
             for j in 0..firmware_slice.len() {
-                if firmware_slice[j] != mem_slice[j] {
-                    // TODO: assert
-                    debug!(
-                        "{:08x} firmware_slice[{}] != mem_slice[{}] {:02x} != {:02x}",
-                        ram_addr as usize + i + j,
-                        j,
-                        j,
-                        firmware_slice[j],
-                        mem_slice[j]
-                    );
-                }
+                debug!(
+                    "{:08x} firmware_slice[{}] mem_slice[{}] {:02x} != {:02x}",
+                    ram_addr as usize + i + j,
+                    j,
+                    j,
+                    firmware_slice[j],
+                    mem_slice[j]
+                );
+                assert_eq!(firmware_slice[j], mem_slice[j]);
             }
-
             i += slice_len;
         }
     }
