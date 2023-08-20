@@ -28,3 +28,5 @@ cargo test --manifest-path ./embassy-rp/Cargo.toml --no-default-features --featu
 cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features nightly,stm32f429vg,exti,time-driver-any,exti
 cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features nightly,stm32f732ze,exti,time-driver-any,exti
 cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --features nightly,stm32f769ni,exti,time-driver-any,exti
+
+cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml
