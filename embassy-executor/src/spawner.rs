@@ -39,6 +39,11 @@ impl<S> SpawnToken<S> {
             phantom: PhantomData,
         }
     }
+
+    /// Returns whether the task was successfully spawned.
+    pub fn is_success(&self) -> bool {
+        self.raw_task.is_some()
+    }
 }
 
 impl<S> Drop for SpawnToken<S> {
