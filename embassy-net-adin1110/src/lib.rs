@@ -44,7 +44,7 @@ pub enum AdinError<E> {
     MDIO_ACC_TIMEOUT,
 }
 
-pub type AEResult<T, SPIE> = core::result::Result<T, AdinError<SPIE>>;
+pub type AEResult<T, SPIError> = core::result::Result<T, AdinError<SPIError>>;
 pub const MDIO_PHY_ADDR: u8 = 0x01;
 
 /// Maximum Transmission Unit
@@ -100,16 +100,12 @@ pub(crate) fn size_align_u32(size: u32) -> u32 {
     (size + 3) & 0xFFFF_FFFC
 }
 
-impl<SpiE, SPI> ADIN1110<SPI>
-where
-    SPI: SpiDevice<u8, Error = SpiE>,
-    SpiE: core::fmt::Debug,
-{
+impl<SPI: SpiDevice> ADIN1110<SPI> {
     pub fn new(spi: SPI, crc: bool) -> Self {
         Self { spi, crc }
     }
 
-    pub async fn read_reg(&mut self, reg: sr) -> AEResult<u32, SpiE> {
+    pub async fn read_reg(&mut self, reg: sr) -> AEResult<u32, SPI::Error> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
         let mut spi_hdr = SpiHeader(0);
@@ -148,7 +144,7 @@ where
         Ok(value)
     }
 
-    pub async fn write_reg(&mut self, reg: sr, value: u32) -> AEResult<(), SpiE> {
+    pub async fn write_reg(&mut self, reg: sr, value: u32) -> AEResult<(), SPI::Error> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
         let mut spi_hdr = SpiHeader(0);
@@ -177,7 +173,7 @@ where
     }
 
     /// helper function for write to `MDIO_ACC` register and wait for ready!
-    async fn write_mdio_acc_reg(&mut self, mdio_acc_val: u32) -> AEResult<u32, SpiE> {
+    async fn write_mdio_acc_reg(&mut self, mdio_acc_val: u32) -> AEResult<u32, SPI::Error> {
         self.write_reg(sr::MDIO_ACC, mdio_acc_val).await?;
 
         // TODO: Add proper timeout!
@@ -192,7 +188,7 @@ where
     }
 
     /// Read out fifo ethernet packet memory received via the wire.
-    pub async fn read_fifo(&mut self, packet: &mut [u8]) -> AEResult<usize, SpiE> {
+    pub async fn read_fifo(&mut self, packet: &mut [u8]) -> AEResult<usize, SPI::Error> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
         // Size of the frame, also includes the appednded header.
@@ -238,7 +234,7 @@ where
     }
 
     /// Write to fifo ethernet packet memory send over the wire.
-    pub async fn write_fifo(&mut self, frame: &[u8]) -> AEResult<(), SpiE> {
+    pub async fn write_fifo(&mut self, frame: &[u8]) -> AEResult<(), SPI::Error> {
         let header_len = self.header_write_len();
 
         let mut packet = Packet::new();
@@ -318,7 +314,7 @@ where
     /// Programs the mac address in the mac filters.
     /// Also set the boardcast address.
     /// The chip supports 2 priority queues but current code doesn't support this mode.
-    pub async fn set_mac_addr(&mut self, mac: &[u8; 6]) -> AEResult<(), SpiE> {
+    pub async fn set_mac_addr(&mut self, mac: &[u8; 6]) -> AEResult<(), SPI::Error> {
         let mac_high_part = u16::from_be_bytes(mac[0..2].try_into().unwrap());
         let mac_low_part = u32::from_be_bytes(mac[2..6].try_into().unwrap());
 
@@ -341,12 +337,8 @@ where
     }
 }
 
-impl<SpiE, SPI> mdio::MdioBus for ADIN1110<SPI>
-where
-    SPI: SpiDevice<u8, Error = SpiE>,
-    SpiE: core::fmt::Debug,
-{
-    type Error = AdinError<SpiE>;
+impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<SPI> {
+    type Error = AdinError<SPI::Error>;
 
     /// Read from the PHY Registers as Clause 22.
     async fn read_cl22(&mut self, phy_id: u8, reg: u8) -> Result<u16, Self::Error> {
@@ -380,7 +372,7 @@ where
     }
 
     /// Write to the PHY Registers as Clause 45.
-    async fn write_cl45(&mut self, phy_id: u8, regc45: (u8, u16), value: u16) -> AEResult<(), SpiE> {
+    async fn write_cl45(&mut self, phy_id: u8, regc45: (u8, u16), value: u16) -> AEResult<(), SPI::Error> {
         let phy_id = u32::from(phy_id & 0x1F) << 21;
         let dev_addr = u32::from(regc45.0 & 0x1F) << 16;
         let reg = u32::from(regc45.1);
