@@ -95,11 +95,6 @@ pub struct ADIN1110<SPI> {
     crc: bool,
 }
 
-/// Round size up the N u32;
-pub(crate) fn size_align_u32(size: u32) -> u32 {
-    (size + 3) & 0xFFFF_FFFC
-}
-
 impl<SPI: SpiDevice> ADIN1110<SPI> {
     pub fn new(spi: SPI, crc: bool) -> Self {
         Self { spi, crc }
@@ -192,14 +187,12 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
         // Size of the frame, also includes the appednded header.
-        let packet_size = self.read_reg(sr::RX_FSIZE).await?;
+        let packet_size = self.read_reg(sr::RX_FSIZE).await? as usize;
 
         // Packet read of write to the MAC packet buffer must be a multipul of 4!
-        let read_size = size_align_u32(packet_size);
+        let read_size = packet_size.next_multiple_of(4);
 
-        if packet_size < u32::try_from(FRAME_HEADER_LEN + FSC_LEN).unwrap()
-            || read_size > u32::try_from(packet.len()).unwrap()
-        {
+        if packet_size < (FRAME_HEADER_LEN + FSC_LEN) || read_size > packet.len() {
             return Err(AdinError::PACKET_TOO_BIG);
         }
 
@@ -836,18 +829,6 @@ mod tests {
         spi.done();
     }
 
-    #[test]
-    fn align_size() {
-        assert_eq!(size_align_u32(1), 4);
-        assert_eq!(size_align_u32(2), 4);
-        assert_eq!(size_align_u32(3), 4);
-        assert_eq!(size_align_u32(4), 4);
-        assert_eq!(size_align_u32(5), 8);
-        assert_eq!(size_align_u32(6), 8);
-        assert_eq!(size_align_u32(7), 8);
-        assert_eq!(size_align_u32(8), 8);
-    }
-
     //     #[test]
     //     fn write_packet_to_fifo_less_64b_with_crc() {
     //         // Configure expectations
@@ -1224,10 +1205,9 @@ mod tests {
         // Packet FCS
         spi_packet.extend_from_slice(&[147, 149, 213, 68]).unwrap();
 
-        let spi_packet_len = u32::try_from(spi_packet.len()).unwrap();
-
         // SPI HEADER Padding of u32
-        for _ in spi_packet_len..size_align_u32(spi_packet_len) {
+        let spi_packet_len = spi_packet.len();
+        for _ in spi_packet_len..spi_packet_len.next_multiple_of(4) {
             spi_packet.push(0x00).unwrap();
         }
 
