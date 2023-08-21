@@ -33,7 +33,8 @@ impl<S> SpawnToken<S> {
         }
     }
 
-    pub(crate) fn new_failed() -> Self {
+    /// Return a SpawnToken that represents a failed spawn.
+    pub fn new_failed() -> Self {
         Self {
             raw_task: None,
             phantom: PhantomData,
