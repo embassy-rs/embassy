@@ -33,6 +33,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let bluetooth_firmware_offsets = &cyw43_firmware::BLUETOOTH_FIRMWARE_OFFSETS;
     let bluetooth_firmware = &cyw43_firmware::BLUETOOTH_FIRMWARE;
+    defmt::assert!(bluetooth_firmware.len() == 5952);
     let fw = include_bytes!("../../../../cyw43-firmware/43439A0.bin");
     let clm = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
 
