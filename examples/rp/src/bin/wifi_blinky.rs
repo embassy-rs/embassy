@@ -31,8 +31,9 @@ async fn wifi_task(
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
+    let bluetooth_firmware_offsets = &cyw43_firmware::BLUETOOTH_FIRMWARE_OFFSETS;
+    let bluetooth_firmware = &cyw43_firmware::BLUETOOTH_FIRMWARE;
     let fw = include_bytes!("../../../../cyw43-firmware/43439A0.bin");
-    let bt_fw = include_bytes!("../../../../cyw43-firmware/43439A0_btfw.bin");
     let clm = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
 
     // To make flashing faster for development, you may want to flash the firmwares independently
@@ -48,7 +49,7 @@ async fn main(spawner: Spawner) {
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
     let state = make_static!(cyw43::State::new());
-    let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, bt_fw).await;
+    let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, bluetooth_firmware_offsets, bluetooth_firmware).await;
     unwrap!(spawner.spawn(wifi_task(runner)));
 
     control.init(clm).await;
