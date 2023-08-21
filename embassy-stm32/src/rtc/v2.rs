@@ -54,8 +54,8 @@ impl core::ops::Sub for RtcInstant {
 
         trace!("self st: {}", st);
 
-        let self_ticks = st as u32 * 256 + self.ssr as u32;
-        let other_ticks = rhs.st as u32 * 256 + rhs.ssr as u32;
+        let self_ticks = st as u32 * 256 + (255 - self.ssr as u32);
+        let other_ticks = rhs.st as u32 * 256 + (255 - rhs.ssr as u32);
         let rtc_ticks = self_ticks - other_ticks;
 
         trace!("self ticks: {}", self_ticks);
@@ -65,7 +65,8 @@ impl core::ops::Sub for RtcInstant {
         // TODO: read prescaler
 
         Duration::from_ticks(
-            ((((st as u32 * 256 + self.ssr as u32) - (rhs.st as u32 * 256 + rhs.ssr as u32)) * TICK_HZ as u32) as u32
+            ((((st as u32 * 256 + (255u32 - self.ssr as u32)) - (rhs.st as u32 * 256 + (255u32 - rhs.ssr as u32)))
+                * TICK_HZ as u32) as u32
                 / 256u32) as u64,
         )
     }
