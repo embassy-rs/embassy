@@ -18,9 +18,15 @@ impl RtcInstant {
         use crate::rtc::bcd2_to_byte;
 
         let tr = RTC::regs().tr().read();
+        let tr2 = RTC::regs().tr().read();
         let ssr = RTC::regs().ssr().read().ss();
+        let ssr2 = RTC::regs().ssr().read().ss();
 
         let st = bcd2_to_byte((tr.st(), tr.su()));
+        let st2 = bcd2_to_byte((tr2.st(), tr2.su()));
+
+        assert!(st == st2);
+        assert!(ssr == ssr2);
 
         let _ = RTC::regs().dr().read();
 
@@ -41,12 +47,15 @@ impl core::ops::Sub for RtcInstant {
         trace!("self st: {}", self.st);
         trace!("other st: {}", rhs.st);
 
+        trace!("self ssr: {}", self.ssr);
+        trace!("other ssr: {}", rhs.ssr);
+
         let st = if self.st < rhs.st { self.st + 60 } else { self.st };
 
         trace!("self st: {}", st);
 
-        let self_ticks = (st as u32 * 256 + self.ssr as u32);
-        let other_ticks = (rhs.st as u32 * 256 + rhs.ssr as u32);
+        let self_ticks = st as u32 * 256 + self.ssr as u32;
+        let other_ticks = rhs.st as u32 * 256 + rhs.ssr as u32;
         let rtc_ticks = self_ticks - other_ticks;
 
         trace!("self ticks: {}", self_ticks);
