@@ -18,23 +18,15 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
     firmware_offsets: &[(u32, usize)],
     firmware: &[u8],
 ) {
-    assert!(firmware.len() == 5952);
-    // read version
-    let version_length = firmware[0];
-    let _version = &firmware[1..=version_length as usize];
-    // skip version + 1 extra byte as per cybt_shared_bus_driver.c
-    let firmware = &firmware[version_length as usize + 2..];
     // buffer
     let mut aligned_data_buffer: [u8; 0x100] = [0; 0x100];
     // structs
     let mut pointer = 0;
     for (index, &(dest_addr, num_fw_bytes)) in firmware_offsets.iter().enumerate() {
-        Timer::after(Duration::from_millis(100)).await;
         let fw_bytes = &firmware[(pointer)..(pointer + num_fw_bytes)];
         assert!(fw_bytes.len() == num_fw_bytes);
         //debug!("index = {}/{} dest_addr = {:08x} num_fw_bytes = {} fw_bytes = {:02x}", index, firmware_offsets.len(), dest_addr, num_fw_bytes, fw_bytes);
-        debug!("index = {}/{} dest_addr = {:08x} num_fw_bytes = {} pointer = {}", index, firmware_offsets.len(), dest_addr, num_fw_bytes, pointer);
-        assert!(firmware.len() == 5952);
+        //debug!("index = {}/{} dest_addr = {:08x} num_fw_bytes = {} pointer = {}", index, firmware_offsets.len(), dest_addr, num_fw_bytes, pointer);
         let mut dest_start_addr = dest_addr;
         let mut aligned_data_buffer_index: usize = 0;
         // pad start
@@ -158,7 +150,6 @@ pub(crate) async fn bt_set_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<
 }
 
 pub(crate) async fn init_bluetooth<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>, firmware_offsets: &[(u32, usize)], firmware: &[u8]) {
-    assert!(firmware.len() == 5952);
     bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE)
         .await;
     upload_bluetooth_firmware(bus, firmware_offsets, firmware).await;

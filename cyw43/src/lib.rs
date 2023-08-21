@@ -226,7 +226,6 @@ where
 
     let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
 
-    assert!(bluetooth_firmware.len() == 5952);
     runner.init(firmware, bluetooth_firmware_offsets, bluetooth_firmware).await;
 
     (

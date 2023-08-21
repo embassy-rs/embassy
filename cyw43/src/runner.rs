@@ -74,8 +74,6 @@ where
     }
 
     pub(crate) async fn init(&mut self, firmware: &[u8], bluetooth_firmware_offsets: &[(u32, usize)], bluetooth_firmware: &[u8]) {
-        assert!(bluetooth_firmware.len() == 5952);
-
         self.bus.init().await;
 
         // Init ALP (Active Low Power) clock
@@ -117,6 +115,9 @@ where
 
         debug!("loading fw");
         self.bus.bp_write(ram_addr, firmware).await;
+
+        debug!("loading bluetooth fw");
+        bluetooth::init_bluetooth(&mut self.bus, bluetooth_firmware_offsets, bluetooth_firmware).await;
 
         debug!("loading nvram");
         // Round up to 4 bytes.
@@ -196,10 +197,6 @@ where
         debug!("waiting for HT clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
         debug!("clock ok");
-
-        debug!("loading bluetooth fw");
-        assert!(bluetooth_firmware.len() == 5952);
-        bluetooth::init_bluetooth(&mut self.bus, bluetooth_firmware_offsets, bluetooth_firmware).await;
 
         #[cfg(feature = "firmware-logs")]
         self.log_init().await;
