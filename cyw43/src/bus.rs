@@ -257,7 +257,7 @@ where
 
         debug!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
 
-        self.backplane_set_window(0x18000000).await; // CHIPCOMMON_BASE_ADDRESS
+        self.backplane_set_window(CHIP.pmu_base_address).await;
 
         return val;
     }
@@ -273,7 +273,7 @@ where
         }
         self.writen(FUNC_BACKPLANE, bus_addr, val, len).await;
 
-        self.backplane_set_window(0x18000000).await; // CHIPCOMMON_BASE_ADDRESS
+        self.backplane_set_window(CHIP.pmu_base_address).await;
     }
 
     async fn backplane_set_window(&mut self, addr: u32) {
