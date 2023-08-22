@@ -24,7 +24,7 @@ fn round_down(x: u32, a: u32) -> u32 {
     x & !(a - 1)
 }
 
-fn cybt_fw_get_data(p_btfw_cb: &mut CybtFwCb, hfd: &mut HexFileData) -> u32 {
+fn read_firmware_patch_line(p_btfw_cb: &mut CybtFwCb, hfd: &mut HexFileData) -> u32 {
     let mut abs_base_addr32 = 0;
 
     loop {
@@ -99,7 +99,7 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
         p_ds: &mut data_buffer,
     };
     loop {
-        let num_fw_bytes = cybt_fw_get_data(&mut btfw_cb, &mut hfd);
+        let num_fw_bytes = read_firmware_patch_line(&mut btfw_cb, &mut hfd);
         if num_fw_bytes == 0 {
             break;
         }
