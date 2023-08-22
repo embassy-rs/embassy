@@ -49,7 +49,15 @@ async fn main(spawner: Spawner) {
     let state = make_static!(cyw43::State::new());
     let bluetooth_firmware_offsets = &cyw43_firmware::BLUETOOTH_FIRMWARE_OFFSETS;
     let bluetooth_firmware = &cyw43_firmware::BLUETOOTH_FIRMWARE;
-    let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, Some(bluetooth_firmware_offsets), Some(bluetooth_firmware)).await;
+    let (_net_device, mut control, runner) = cyw43::new(
+        state,
+        pwr,
+        spi,
+        fw,
+        Some(bluetooth_firmware_offsets),
+        Some(bluetooth_firmware),
+    )
+    .await;
     unwrap!(spawner.spawn(cyw43_runner_task(runner)));
 
     control.init(clm).await;

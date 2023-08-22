@@ -226,7 +226,9 @@ where
 
     let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
 
-    runner.init(firmware, bluetooth_firmware_offsets, bluetooth_firmware).await;
+    runner
+        .init(firmware, bluetooth_firmware_offsets, bluetooth_firmware)
+        .await;
 
     (
         device,
