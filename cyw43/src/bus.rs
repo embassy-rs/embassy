@@ -102,7 +102,7 @@ where
         cmd_buf[0] = cmd;
         cmd_buf[1..][..buf.len()].copy_from_slice(buf);
 
-        self.status = self.spi.cmd_write(&cmd_buf).await;
+        self.status = self.spi.cmd_write(&cmd_buf[..buf.len() + 1]).await;
     }
 
     #[allow(unused)]
