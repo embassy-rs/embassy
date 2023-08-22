@@ -372,7 +372,7 @@ where
     }
 
     async fn write32_swapped(&mut self, func: u32, addr: u32, val: u32) {
-        let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BUS, addr, 4);
+        let cmd = cmd_word(WRITE, INC_ADDR, func, addr, 4);
         let buf = [swap16(cmd), swap16(val)];
 
         self.status = self.spi.cmd_write(&buf).await;
