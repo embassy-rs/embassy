@@ -252,14 +252,14 @@ where
         if len == 4 {
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
-        
+
         let val = self.readn(FUNC_BACKPLANE, bus_addr, len).await;
 
         debug!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
 
         self.backplane_set_window(0x18000000).await; // CHIPCOMMON_BASE_ADDRESS
 
-        return val
+        return val;
     }
 
     async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
@@ -307,7 +307,7 @@ where
             )
             .await;
         }
-        
+
         self.backplane_window = new_window;
     }
 
@@ -345,7 +345,10 @@ where
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
 
-        debug!("readn cmd = {:08x} addr = {:08x} len = {} buf = {:08x}", cmd, addr, len, buf);
+        debug!(
+            "readn cmd = {:08x} addr = {:08x} len = {} buf = {:08x}",
+            cmd, addr, len, buf
+        );
 
         // if we read from the backplane, the result is in the second word, after the response delay
         if func == FUNC_BACKPLANE {
