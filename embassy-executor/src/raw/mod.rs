@@ -147,10 +147,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         let task = AvailableTask::claim(self);
         match task {
-            Some(task) => {
-                let task = task.initialize(future);
-                unsafe { SpawnToken::<F>::new(task) }
-            }
+            Some(task) => task.initialize(future),
             None => SpawnToken::new_failed(),
         }
     }
@@ -186,12 +183,16 @@ impl<F: Future + 'static> TaskStorage<F> {
     }
 }
 
-struct AvailableTask<F: Future + 'static> {
+/// An uninitialized [`TaskStorage`].
+pub struct AvailableTask<F: Future + 'static> {
     task: &'static TaskStorage<F>,
 }
 
 impl<F: Future + 'static> AvailableTask<F> {
-    fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
+    /// Try to claim a [`TaskStorage`].
+    ///
+    /// This function returns `None` if a task has already been spawned and has not finished running.
+    pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
         task.raw
             .state
             .compare_exchange(0, STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::AcqRel, Ordering::Acquire)
@@ -199,61 +200,30 @@ impl<F: Future + 'static> AvailableTask<F> {
             .map(|_| Self { task })
     }
 
-    fn initialize(self, future: impl FnOnce() -> F) -> TaskRef {
+    fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write(future());
-        }
-        TaskRef::new(self.task)
-    }
-}
 
-/// Raw storage that can hold up to N tasks of the same type.
-///
-/// This is essentially a `[TaskStorage<F>; N]`.
-pub struct TaskPool<F: Future + 'static, const N: usize> {
-    pool: [TaskStorage<F>; N],
-}
+            let task = TaskRef::new(self.task);
 
-impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
-    /// Create a new TaskPool, with all tasks in non-spawned state.
-    pub const fn new() -> Self {
-        Self {
-            pool: [TaskStorage::NEW; N],
+            SpawnToken::new(task)
         }
     }
 
-    /// Try to spawn a task in the pool.
-    ///
-    /// See [`TaskStorage::spawn()`] for details.
-    ///
-    /// This will loop over the pool and spawn the task in the first storage that
-    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
-        let task = self.pool.iter().find_map(AvailableTask::claim);
-        match task {
-            Some(task) => {
-                let task = task.initialize(future);
-                unsafe { SpawnToken::<F>::new(task) }
-            }
-            None => SpawnToken::new_failed(),
-        }
+    /// Initialize the [`TaskStorage`] to run the given future.
+    pub fn initialize(self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+        self.initialize_impl::<F>(future)
     }
 
-    /// Like spawn(), but allows the task to be send-spawned if the args are Send even if
-    /// the future is !Send.
+    /// Initialize the [`TaskStorage`] to run the given future.
     ///
-    /// Not covered by semver guarantees. DO NOT call this directly. Intended to be used
-    /// by the Embassy macros ONLY.
+    /// # Safety
     ///
-    /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    /// `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
     /// is an `async fn`, NOT a hand-written `Future`.
     #[doc(hidden)]
-    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
-    where
-        FutFn: FnOnce() -> F,
-    {
+    pub unsafe fn __initialize_async_fn<FutFn>(self, future: impl FnOnce() -> F) -> SpawnToken<FutFn> {
         // When send-spawning a task, we construct the future in this thread, and effectively
         // "send" it to the executor thread by enqueuing it in its queue. Therefore, in theory,
         // send-spawning should require the future `F` to be `Send`.
@@ -279,15 +249,58 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
         //
         // This ONLY holds for `async fn` futures. The other `spawn` methods can be called directly
         // by the user, with arbitrary hand-implemented futures. This is why these return `SpawnToken<F>`.
+        self.initialize_impl::<FutFn>(future)
+    }
+}
 
-        let task = self.pool.iter().find_map(AvailableTask::claim);
-        match task {
-            Some(task) => {
-                let task = task.initialize(future);
-                unsafe { SpawnToken::<FutFn>::new(task) }
-            }
+/// Raw storage that can hold up to N tasks of the same type.
+///
+/// This is essentially a `[TaskStorage<F>; N]`.
+pub struct TaskPool<F: Future + 'static, const N: usize> {
+    pool: [TaskStorage<F>; N],
+}
+
+impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
+    /// Create a new TaskPool, with all tasks in non-spawned state.
+    pub const fn new() -> Self {
+        Self {
+            pool: [TaskStorage::NEW; N],
+        }
+    }
+
+    fn spawn_impl<T>(&'static self, future: impl FnOnce() -> F) -> SpawnToken<T> {
+        match self.pool.iter().find_map(AvailableTask::claim) {
+            Some(task) => task.initialize_impl::<T>(future),
             None => SpawnToken::new_failed(),
         }
+    }
+
+    /// Try to spawn a task in the pool.
+    ///
+    /// See [`TaskStorage::spawn()`] for details.
+    ///
+    /// This will loop over the pool and spawn the task in the first storage that
+    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
+    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+        self.spawn_impl::<F>(future)
+    }
+
+    /// Like spawn(), but allows the task to be send-spawned if the args are Send even if
+    /// the future is !Send.
+    ///
+    /// Not covered by semver guarantees. DO NOT call this directly. Intended to be used
+    /// by the Embassy macros ONLY.
+    ///
+    /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    /// is an `async fn`, NOT a hand-written `Future`.
+    #[doc(hidden)]
+    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
+    where
+        FutFn: FnOnce() -> F,
+    {
+        // See the comment in AvailableTask::__initialize_async_fn for explanation.
+        self.spawn_impl::<FutFn>(future)
     }
 }
 
