@@ -56,7 +56,7 @@ async fn core0_task() {
 async fn core1_task(mut led: Output<'static, PIN_25>) {
     info!("Hello from core 1");
     loop {
-        match CHANNEL.recv().await {
+        match CHANNEL.receive().await {
             LedState::On => led.set_high(),
             LedState::Off => led.set_low(),
         }

@@ -147,10 +147,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
         let task = AvailableTask::claim(self);
         match task {
-            Some(task) => {
-                let task = task.initialize(future);
-                unsafe { SpawnToken::<F>::new(task) }
-            }
+            Some(task) => task.initialize(future),
             None => SpawnToken::new_failed(),
         }
     }
@@ -186,12 +183,16 @@ impl<F: Future + 'static> TaskStorage<F> {
     }
 }
 
-struct AvailableTask<F: Future + 'static> {
+/// An uninitialized [`TaskStorage`].
+pub struct AvailableTask<F: Future + 'static> {
     task: &'static TaskStorage<F>,
 }
 
 impl<F: Future + 'static> AvailableTask<F> {
-    fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
+    /// Try to claim a [`TaskStorage`].
+    ///
+    /// This function returns `None` if a task has already been spawned and has not finished running.
+    pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
         task.raw
             .state
             .compare_exchange(0, STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::AcqRel, Ordering::Acquire)
@@ -199,61 +200,30 @@ impl<F: Future + 'static> AvailableTask<F> {
             .map(|_| Self { task })
     }
 
-    fn initialize(self, future: impl FnOnce() -> F) -> TaskRef {
+    fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write(future());
-        }
-        TaskRef::new(self.task)
-    }
-}
 
-/// Raw storage that can hold up to N tasks of the same type.
-///
-/// This is essentially a `[TaskStorage<F>; N]`.
-pub struct TaskPool<F: Future + 'static, const N: usize> {
-    pool: [TaskStorage<F>; N],
-}
+            let task = TaskRef::new(self.task);
 
-impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
-    /// Create a new TaskPool, with all tasks in non-spawned state.
-    pub const fn new() -> Self {
-        Self {
-            pool: [TaskStorage::NEW; N],
+            SpawnToken::new(task)
         }
     }
 
-    /// Try to spawn a task in the pool.
-    ///
-    /// See [`TaskStorage::spawn()`] for details.
-    ///
-    /// This will loop over the pool and spawn the task in the first storage that
-    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
-        let task = self.pool.iter().find_map(AvailableTask::claim);
-        match task {
-            Some(task) => {
-                let task = task.initialize(future);
-                unsafe { SpawnToken::<F>::new(task) }
-            }
-            None => SpawnToken::new_failed(),
-        }
+    /// Initialize the [`TaskStorage`] to run the given future.
+    pub fn initialize(self, future: impl FnOnce() -> F) -> SpawnToken<F> {
+        self.initialize_impl::<F>(future)
     }
 
-    /// Like spawn(), but allows the task to be send-spawned if the args are Send even if
-    /// the future is !Send.
+    /// Initialize the [`TaskStorage`] to run the given future.
     ///
-    /// Not covered by semver guarantees. DO NOT call this directly. Intended to be used
-    /// by the Embassy macros ONLY.
+    /// # Safety
     ///
-    /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    /// `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
     /// is an `async fn`, NOT a hand-written `Future`.
     #[doc(hidden)]
-    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
-    where
-        FutFn: FnOnce() -> F,
-    {
+    pub unsafe fn __initialize_async_fn<FutFn>(self, future: impl FnOnce() -> F) -> SpawnToken<FutFn> {
         // When send-spawning a task, we construct the future in this thread, and effectively
         // "send" it to the executor thread by enqueuing it in its queue. Therefore, in theory,
         // send-spawning should require the future `F` to be `Send`.
@@ -279,66 +249,73 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
         //
         // This ONLY holds for `async fn` futures. The other `spawn` methods can be called directly
         // by the user, with arbitrary hand-implemented futures. This is why these return `SpawnToken<F>`.
+        self.initialize_impl::<FutFn>(future)
+    }
+}
 
-        let task = self.pool.iter().find_map(AvailableTask::claim);
-        match task {
-            Some(task) => {
-                let task = task.initialize(future);
-                unsafe { SpawnToken::<FutFn>::new(task) }
-            }
+/// Raw storage that can hold up to N tasks of the same type.
+///
+/// This is essentially a `[TaskStorage<F>; N]`.
+pub struct TaskPool<F: Future + 'static, const N: usize> {
+    pool: [TaskStorage<F>; N],
+}
+
+impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
+    /// Create a new TaskPool, with all tasks in non-spawned state.
+    pub const fn new() -> Self {
+        Self {
+            pool: [TaskStorage::NEW; N],
+        }
+    }
+
+    fn spawn_impl<T>(&'static self, future: impl FnOnce() -> F) -> SpawnToken<T> {
+        match self.pool.iter().find_map(AvailableTask::claim) {
+            Some(task) => task.initialize_impl::<T>(future),
             None => SpawnToken::new_failed(),
         }
+    }
+
+    /// Try to spawn a task in the pool.
+    ///
+    /// See [`TaskStorage::spawn()`] for details.
+    ///
+    /// This will loop over the pool and spawn the task in the first storage that
+    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
+    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+        self.spawn_impl::<F>(future)
+    }
+
+    /// Like spawn(), but allows the task to be send-spawned if the args are Send even if
+    /// the future is !Send.
+    ///
+    /// Not covered by semver guarantees. DO NOT call this directly. Intended to be used
+    /// by the Embassy macros ONLY.
+    ///
+    /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
+    /// is an `async fn`, NOT a hand-written `Future`.
+    #[doc(hidden)]
+    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
+    where
+        FutFn: FnOnce() -> F,
+    {
+        // See the comment in AvailableTask::__initialize_async_fn for explanation.
+        self.spawn_impl::<FutFn>(future)
     }
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum PenderInner {
-    #[cfg(feature = "executor-thread")]
-    Thread(crate::arch::ThreadPender),
-    #[cfg(feature = "executor-interrupt")]
-    Interrupt(crate::arch::InterruptPender),
-    #[cfg(feature = "pender-callback")]
-    Callback { func: fn(*mut ()), context: *mut () },
-}
+pub(crate) struct Pender(*mut ());
 
-unsafe impl Send for PenderInner {}
-unsafe impl Sync for PenderInner {}
-
-/// Platform/architecture-specific action executed when an executor has pending work.
-///
-/// When a task within an executor is woken, the `Pender` is called. This does a
-/// platform/architecture-specific action to signal there is pending work in the executor.
-/// When this happens, you must arrange for [`Executor::poll`] to be called.
-///
-/// You can think of it as a waker, but for the whole executor.
-pub struct Pender(pub(crate) PenderInner);
+unsafe impl Send for Pender {}
+unsafe impl Sync for Pender {}
 
 impl Pender {
-    /// Create a `Pender` that will call an arbitrary function pointer.
-    ///
-    /// # Arguments
-    ///
-    /// - `func`: The function pointer to call.
-    /// - `context`: Opaque context pointer, that will be passed to the function pointer.
-    #[cfg(feature = "pender-callback")]
-    pub fn new_from_callback(func: fn(*mut ()), context: *mut ()) -> Self {
-        Self(PenderInner::Callback {
-            func,
-            context: context.into(),
-        })
-    }
-}
-
-impl Pender {
-    pub(crate) fn pend(&self) {
-        match self.0 {
-            #[cfg(feature = "executor-thread")]
-            PenderInner::Thread(x) => x.pend(),
-            #[cfg(feature = "executor-interrupt")]
-            PenderInner::Interrupt(x) => x.pend(),
-            #[cfg(feature = "pender-callback")]
-            PenderInner::Callback { func, context } => func(context),
+    pub(crate) fn pend(self) {
+        extern "Rust" {
+            fn __pender(context: *mut ());
         }
+        unsafe { __pender(self.0) };
     }
 }
 
@@ -409,7 +386,7 @@ impl SyncExecutor {
         #[allow(clippy::never_loop)]
         loop {
             #[cfg(feature = "integrated-timers")]
-            self.timer_queue.dequeue_expired(Instant::now(), |task| wake_task(task));
+            self.timer_queue.dequeue_expired(Instant::now(), wake_task_no_pend);
 
             self.run_queue.dequeue_all(|p| {
                 let task = p.header();
@@ -472,15 +449,31 @@ impl SyncExecutor {
 ///
 /// - To get the executor to do work, call `poll()`. This will poll all queued tasks (all tasks
 ///   that "want to run").
-/// - You must supply a [`Pender`]. The executor will call it to notify you it has work
-///   to do. You must arrange for `poll()` to be called as soon as possible.
+/// - You must supply a pender function, as shown below. The executor will call it to notify you
+///   it has work to do. You must arrange for `poll()` to be called as soon as possible.
+/// - Enabling `arch-xx` features will define a pender function for you. This means that you
+///   are limited to using the executors provided to you by the architecture/platform
+///   implementation. If you need a different executor, you must not enable `arch-xx` features.
 ///
-/// The [`Pender`] can be called from *any* context: any thread, any interrupt priority
+/// The pender can be called from *any* context: any thread, any interrupt priority
 /// level, etc. It may be called synchronously from any `Executor` method call as well.
 /// You must deal with this correctly.
 ///
 /// In particular, you must NOT call `poll` directly from the pender callback, as this violates
 /// the requirement for `poll` to not be called reentrantly.
+///
+/// The pender function must be exported with the name `__pender` and have the following signature:
+///
+/// ```rust
+/// #[export_name = "__pender"]
+/// fn pender(context: *mut ()) {
+///    // schedule `poll()` to be called
+/// }
+/// ```
+///
+/// The `context` argument is a piece of arbitrary data the executor will pass to the pender.
+/// You can set the `context` when calling [`Executor::new()`]. You can use it to, for example,
+/// differentiate between executors, or to pass a pointer to a callback that should be called.
 #[repr(transparent)]
 pub struct Executor {
     pub(crate) inner: SyncExecutor,
@@ -495,12 +488,12 @@ impl Executor {
 
     /// Create a new executor.
     ///
-    /// When the executor has work to do, it will call the [`Pender`].
+    /// When the executor has work to do, it will call the pender function and pass `context` to it.
     ///
-    /// See [`Executor`] docs for details on `Pender`.
-    pub fn new(pender: Pender) -> Self {
+    /// See [`Executor`] docs for details on the pender.
+    pub fn new(context: *mut ()) -> Self {
         Self {
-            inner: SyncExecutor::new(pender),
+            inner: SyncExecutor::new(Pender(context)),
             _not_sync: PhantomData,
         }
     }
@@ -523,16 +516,16 @@ impl Executor {
     /// This loops over all tasks that are queued to be polled (i.e. they're
     /// freshly spawned or they've been woken). Other tasks are not polled.
     ///
-    /// You must call `poll` after receiving a call to the [`Pender`]. It is OK
-    /// to call `poll` even when not requested by the `Pender`, but it wastes
+    /// You must call `poll` after receiving a call to the pender. It is OK
+    /// to call `poll` even when not requested by the pender, but it wastes
     /// energy.
     ///
     /// # Safety
     ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///
-    /// In particular, note that `poll` may call the `Pender` synchronously. Therefore, you
-    /// must NOT directly call `poll()` from the `Pender` callback. Instead, the callback has to
+    /// In particular, note that `poll` may call the pender synchronously. Therefore, you
+    /// must NOT directly call `poll()` from the pender callback. Instead, the callback has to
     /// somehow schedule for `poll()` to be called later, at a time you know for sure there's
     /// no `poll()` already running.
     pub unsafe fn poll(&'static self) {
@@ -569,6 +562,31 @@ pub fn wake_task(task: TaskRef) {
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
             executor.enqueue(task);
+        }
+    }
+}
+
+/// Wake a task by `TaskRef` without calling pend.
+///
+/// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
+pub fn wake_task_no_pend(task: TaskRef) {
+    let header = task.header();
+
+    let res = header.state.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
+        // If already scheduled, or if not started,
+        if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
+            None
+        } else {
+            // Mark it as scheduled
+            Some(state | STATE_RUN_QUEUED)
+        }
+    });
+
+    if res.is_ok() {
+        // We have just marked the task as scheduled, so enqueue it.
+        unsafe {
+            let executor = header.executor.get().unwrap_unchecked();
+            executor.run_queue.enqueue(task);
         }
     }
 }

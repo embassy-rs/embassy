@@ -76,7 +76,8 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     )
 }
 
-static DUMMY: u32 = 0;
+// static mut so that this is allocated in RAM.
+static mut DUMMY: u32 = 0;
 
 pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
@@ -86,7 +87,7 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
-        &DUMMY as *const u32,
+        &mut DUMMY as *const u32,
         to as *mut u32,
         len,
         W::size(),

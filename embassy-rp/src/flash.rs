@@ -102,7 +102,7 @@ pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
 }
 
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SIZE> {
-    pub fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         trace!(
             "Reading from 0x{:x} to 0x{:x}",
             FLASH_BASE as u32 + offset,
@@ -120,7 +120,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
         FLASH_SIZE
     }
 
-    pub fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
+    pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         check_erase(self, from, to)?;
 
         trace!(
@@ -136,7 +136,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
         Ok(())
     }
 
-    pub fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         check_write(self, offset, bytes.len())?;
 
         trace!("Writing {:?} bytes to 0x{:x}", bytes.len(), FLASH_BASE as u32 + offset);
@@ -233,13 +233,13 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
     }
 
     /// Read SPI flash unique ID
-    pub fn unique_id(&mut self, uid: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_unique_id(&mut self, uid: &mut [u8]) -> Result<(), Error> {
         unsafe { self.in_ram(|| ram_helpers::flash_unique_id(uid))? };
         Ok(())
     }
 
     /// Read SPI flash JEDEC ID
-    pub fn jedec_id(&mut self) -> Result<u32, Error> {
+    pub fn blocking_jedec_id(&mut self) -> Result<u32, Error> {
         let mut jedec = None;
         unsafe {
             self.in_ram(|| {
@@ -251,7 +251,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE> {
-    pub fn new(_flash: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_blocking(_flash: impl Peripheral<P = T> + 'd) -> Self {
         Self {
             dma: None,
             phantom: PhantomData,
@@ -310,47 +310,8 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
             transfer,
         })
     }
-}
 
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, M, FLASH_SIZE> {
-    type Error = Error;
-}
-
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, M, FLASH_SIZE> {
-    const READ_SIZE: usize = READ_SIZE;
-
-    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(offset, bytes)
-    }
-
-    fn capacity(&self) -> usize {
-        self.capacity()
-    }
-}
-
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, M, FLASH_SIZE> {}
-
-impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, M, FLASH_SIZE> {
-    const WRITE_SIZE: usize = WRITE_SIZE;
-
-    const ERASE_SIZE: usize = ERASE_SIZE;
-
-    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.erase(from, to)
-    }
-
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.write(offset, bytes)
-    }
-}
-
-#[cfg(feature = "nightly")]
-impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::ReadNorFlash
-    for Flash<'d, T, Async, FLASH_SIZE>
-{
-    const READ_SIZE: usize = ASYNC_READ_SIZE;
-
-    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+    pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         use core::mem::MaybeUninit;
 
         // Checked early to simplify address validity checks
@@ -389,6 +350,49 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
 
         Ok(())
     }
+}
+
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ErrorType for Flash<'d, T, M, FLASH_SIZE> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> ReadNorFlash for Flash<'d, T, M, FLASH_SIZE> {
+    const READ_SIZE: usize = READ_SIZE;
+
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(offset, bytes)
+    }
+
+    fn capacity(&self) -> usize {
+        self.capacity()
+    }
+}
+
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> MultiwriteNorFlash for Flash<'d, T, M, FLASH_SIZE> {}
+
+impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T, M, FLASH_SIZE> {
+    const WRITE_SIZE: usize = WRITE_SIZE;
+
+    const ERASE_SIZE: usize = ERASE_SIZE;
+
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        self.blocking_erase(from, to)
+    }
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(offset, bytes)
+    }
+}
+
+#[cfg(feature = "nightly")]
+impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::ReadNorFlash
+    for Flash<'d, T, Async, FLASH_SIZE>
+{
+    const READ_SIZE: usize = ASYNC_READ_SIZE;
+
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        self.read(offset, bytes).await
+    }
 
     fn capacity(&self) -> usize {
         self.capacity()
@@ -404,11 +408,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
     const ERASE_SIZE: usize = ERASE_SIZE;
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.erase(from, to)
+        self.blocking_erase(from, to)
     }
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
-        self.write(offset, bytes)
+        self.blocking_write(offset, bytes)
     }
 }
 

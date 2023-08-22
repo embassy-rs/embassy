@@ -1,9 +1,8 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
-
-#[path = "../common.rs"]
-mod common;
+teleprobe_meta::target!(b"nrf52840-dk");
+teleprobe_meta::timeout!(120);
 
 use defmt::{error, info, unwrap};
 use embassy_executor::Spawner;
@@ -15,11 +14,9 @@ use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::{with_timeout, Delay, Duration, Timer};
-use embedded_hal_async::spi::ExclusiveDevice;
+use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::make_static;
 use {defmt_rtt as _, embassy_net_esp_hosted as hosted, panic_probe as _};
-
-teleprobe_meta::timeout!(120);
 
 bind_interrupts!(struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
@@ -76,8 +73,8 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(wifi_task(runner)));
 
-    control.init().await;
-    control.join(WIFI_NETWORK, WIFI_PASSWORD).await;
+    unwrap!(control.init().await);
+    unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
 
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);

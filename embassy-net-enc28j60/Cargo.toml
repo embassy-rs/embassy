@@ -1,0 +1,23 @@
+[package]
+name = "embassy-net-enc28j60"
+version = "0.1.0"
+description = "embassy-net driver for the ENC28J60 ethernet chip"
+keywords = ["embedded", "enc28j60", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[dependencies]
+embedded-hal = { version = "1.0.0-rc.1" }
+embedded-hal-async = { version = "=1.0.0-rc.1" }
+embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
+embassy-time = { version = "0.1.2", path = "../embassy-time" }
+embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-enc28j60-v$VERSION/embassy-net-enc28j60/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-enc28j60/src/"
+target = "thumbv7em-none-eabi"

@@ -1,4 +1,4 @@
-#[cfg(not(adc_f3))]
+#[cfg(not(any(adc_f3, adc_f3_v2)))]
 macro_rules! impl_sample_time {
     ($default_doc:expr, $default:ident, ($(($doc:expr, $variant:ident, $pac_variant:ident)),*)) => {
         #[doc = concat!("ADC sample time\n\nThe default setting is ", $default_doc, " ADC clock cycles.")]

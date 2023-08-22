@@ -11,17 +11,12 @@ mod thread {
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_std as main;
 
-    use crate::raw::{Pender, PenderInner};
     use crate::{raw, Spawner};
 
-    #[derive(Copy, Clone)]
-    pub(crate) struct ThreadPender(&'static Signaler);
-
-    impl ThreadPender {
-        #[allow(unused)]
-        pub(crate) fn pend(self) {
-            self.0.signal()
-        }
+    #[export_name = "__pender"]
+    fn __pender(context: *mut ()) {
+        let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
+        signaler.signal()
     }
 
     /// Single-threaded std-based executor.
@@ -34,9 +29,9 @@ mod thread {
     impl Executor {
         /// Create a new Executor.
         pub fn new() -> Self {
-            let signaler = &*Box::leak(Box::new(Signaler::new()));
+            let signaler = Box::leak(Box::new(Signaler::new()));
             Self {
-                inner: raw::Executor::new(Pender(PenderInner::Thread(ThreadPender(signaler)))),
+                inner: raw::Executor::new(signaler as *mut Signaler as *mut ()),
                 not_send: PhantomData,
                 signaler,
             }

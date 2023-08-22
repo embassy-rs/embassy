@@ -46,7 +46,7 @@ async fn main(spawner: Spawner) {
     // back out the buffer we receive from the read
     // task.
     loop {
-        let buf = CHANNEL.recv().await;
+        let buf = CHANNEL.receive().await;
         info!("writing...");
         unwrap!(tx.write(&buf).await);
     }

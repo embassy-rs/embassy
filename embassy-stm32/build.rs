@@ -310,7 +310,11 @@ fn main() {
 
     for p in METADATA.peripherals {
         // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
-        if !singletons.contains(&p.name.to_string()) || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7")) {
+        if !singletons.contains(&p.name.to_string())
+            || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7"))
+            || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "f3"))
+            || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "v4"))
+        {
             continue;
         }
 

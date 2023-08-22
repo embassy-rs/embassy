@@ -478,7 +478,7 @@ impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
-            if let Poll::Ready(envelope) = T::state().rx_queue.recv().poll_unpin(cx) {
+            if let Poll::Ready(envelope) = T::state().rx_queue.receive().poll_unpin(cx) {
                 return Poll::Ready(Ok(envelope));
             } else if let Some(err) = self.curr_error() {
                 return Poll::Ready(Err(err));
@@ -493,7 +493,7 @@ impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
     pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
-        if let Ok(envelope) = T::state().rx_queue.try_recv() {
+        if let Ok(envelope) = T::state().rx_queue.try_receive() {
             return Ok(envelope);
         }
 
@@ -506,14 +506,7 @@ impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
 
     /// Waits while receive queue is empty.
     pub async fn wait_not_empty(&mut self) {
-        poll_fn(|cx| {
-            if T::state().rx_queue.poll_ready_to_receive(cx) {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await
+        poll_fn(|cx| T::state().rx_queue.poll_ready_to_receive(cx)).await
     }
 
     fn curr_error(&self) -> Option<BusError> {

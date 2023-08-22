@@ -1,4 +1,4 @@
-use embedded_hal_02::{blocking, serial};
+use embedded_hal_02::blocking;
 
 /// Wrapper that implements async traits using blocking implementations.
 ///
@@ -101,15 +101,6 @@ where
         self.wrapped.transfer(data)?;
         Ok(())
     }
-}
-
-// Uart implementatinos
-impl<T, E> embedded_hal_1::serial::ErrorType for BlockingAsync<T>
-where
-    T: serial::Read<u8, Error = E>,
-    E: embedded_hal_1::serial::Error + 'static,
-{
-    type Error = E;
 }
 
 /// NOR flash wrapper

@@ -4,8 +4,7 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
-#[path = "../common.rs"]
-mod common;
+teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;

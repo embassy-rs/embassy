@@ -8,21 +8,15 @@ mod thread {
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, Ordering};
 
-    use crate::raw::{Pender, PenderInner};
     use crate::{raw, Spawner};
-
-    #[derive(Copy, Clone)]
-    pub(crate) struct ThreadPender;
-
-    impl ThreadPender {
-        #[allow(unused)]
-        pub(crate) fn pend(self) {
-            SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
-        }
-    }
 
     /// global atomic used to keep track of whether there is work to do since sev() is not available on Xtensa
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
+
+    #[export_name = "__pender"]
+    fn __pender(_context: *mut ()) {
+        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
+    }
 
     /// Xtensa Executor
     pub struct Executor {
@@ -34,7 +28,7 @@ mod thread {
         /// Create a new Executor.
         pub fn new() -> Self {
             Self {
-                inner: raw::Executor::new(Pender(PenderInner::Thread(ThreadPender))),
+                inner: raw::Executor::new(core::ptr::null_mut()),
                 not_send: PhantomData,
             }
         }
@@ -77,8 +71,8 @@ mod thread {
                         SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
 
                         core::arch::asm!(
-                            "wsr.ps {0}",
-                            "rsync", in(reg) token)
+                        "wsr.ps {0}",
+                        "rsync", in(reg) token)
                     } else {
                         // waiti sets the PS.INTLEVEL when slipping into sleep
                         // because critical sections in Xtensa are implemented via increasing
