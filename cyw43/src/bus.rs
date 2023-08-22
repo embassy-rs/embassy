@@ -275,10 +275,6 @@ where
     async fn backplane_set_window(&mut self, addr: u32) {
         let new_window = addr & !BACKPLANE_ADDRESS_MASK;
 
-        if new_window == self.backplane_window {
-            return;
-        }
-
         if (new_window >> 24) as u8 != (self.backplane_window >> 24) as u8 {
             self.write8(
                 FUNC_BACKPLANE,
