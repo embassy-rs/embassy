@@ -49,12 +49,12 @@ impl<'a> Leds<'a> {
 
     async fn show(&mut self) {
         self.leds[self.current_led].set_high();
-        if let Ok(new_message) = with_timeout(Duration::from_millis(500), CHANNEL.recv()).await {
+        if let Ok(new_message) = with_timeout(Duration::from_millis(500), CHANNEL.receive()).await {
             self.leds[self.current_led].set_low();
             self.process_event(new_message).await;
         } else {
             self.leds[self.current_led].set_low();
-            if let Ok(new_message) = with_timeout(Duration::from_millis(200), CHANNEL.recv()).await {
+            if let Ok(new_message) = with_timeout(Duration::from_millis(200), CHANNEL.receive()).await {
                 self.process_event(new_message).await;
             }
         }

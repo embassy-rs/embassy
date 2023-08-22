@@ -28,7 +28,9 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     type TxToken<'a> = TxToken<'d> where Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        if self.runner.rx_channel.poll_ready_to_receive(cx) && self.runner.tx_buf_channel.poll_ready_to_receive(cx) {
+        if self.runner.rx_channel.poll_ready_to_receive(cx).is_ready()
+            && self.runner.tx_buf_channel.poll_ready_to_receive(cx).is_ready()
+        {
             Some((
                 RxToken {
                     rx: &self.runner.rx_channel,
@@ -44,7 +46,7 @@ impl<'d> embassy_net_driver::Driver for Driver<'d> {
     }
 
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        if self.runner.tx_buf_channel.poll_ready_to_receive(cx) {
+        if self.runner.tx_buf_channel.poll_ready_to_receive(cx).is_ready() {
             Some(TxToken {
                 tx: &self.runner.tx_channel,
                 tx_buf: &self.runner.tx_buf_channel,
@@ -91,7 +93,7 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
     {
         // Only valid data events should be put into the queue
 
-        let data_event = match self.rx.try_recv().unwrap() {
+        let data_event = match self.rx.try_receive().unwrap() {
             MacEvent::McpsDataInd(data_event) => data_event,
             _ => unreachable!(),
         };
@@ -111,7 +113,7 @@ impl<'d> embassy_net_driver::TxToken for TxToken<'d> {
         F: FnOnce(&mut [u8]) -> R,
     {
         // Only valid tx buffers should be put into the queue
-        let buf = self.tx_buf.try_recv().unwrap();
+        let buf = self.tx_buf.try_receive().unwrap();
         let r = f(&mut buf[..len]);
 
         // The tx channel should always be of equal capacity to the tx_buf channel
