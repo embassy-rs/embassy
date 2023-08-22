@@ -214,8 +214,32 @@ pub async fn new<'a, PWR, SPI>(
     pwr: PWR,
     spi: SPI,
     firmware: &[u8],
-    bluetooth_firmware_offsets: Option<&[(u32, usize)]>,
-    bluetooth_firmware: Option<&[u8]>,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
+where
+    PWR: OutputPin,
+    SPI: SpiBusCyw43,
+{
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let state_ch = ch_runner.state_runner();
+
+    let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
+
+    runner.init(firmware, None, None).await;
+
+    (
+        device,
+        Control::new(state_ch, &state.events, &state.ioctl_state),
+        runner,
+    )
+}
+
+pub async fn new_with_bluetooth<'a, PWR, SPI>(
+    state: &'a mut State,
+    pwr: PWR,
+    spi: SPI,
+    firmware: &[u8],
+    bluetooth_firmware_offsets: &[(u32, usize)],
+    bluetooth_firmware: &[u8],
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
@@ -227,7 +251,7 @@ where
     let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
 
     runner
-        .init(firmware, bluetooth_firmware_offsets, bluetooth_firmware)
+        .init(firmware, Some(bluetooth_firmware_offsets), Some(bluetooth_firmware))
         .await;
 
     (
