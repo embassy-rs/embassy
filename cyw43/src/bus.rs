@@ -340,7 +340,7 @@ where
         let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
-        
+
         // if we read from the backplane, the result is in the second word, after the response delay
         if func == FUNC_BACKPLANE {
             buf[1]

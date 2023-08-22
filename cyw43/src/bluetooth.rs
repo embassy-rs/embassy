@@ -22,7 +22,7 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
     let mut aligned_data_buffer: [u8; 0x100] = [0; 0x100];
     // structs
     let mut fw_bytes_pointer = 0;
-    for (index, &(dest_addr, num_fw_bytes)) in firmware_offsets.iter().enumerate() {
+    for &(dest_addr, num_fw_bytes) in firmware_offsets.iter() {
         let fw_bytes = &firmware[(fw_bytes_pointer)..(fw_bytes_pointer + num_fw_bytes)];
         assert!(fw_bytes.len() == num_fw_bytes);
         let mut dest_start_addr = dest_addr;
@@ -33,7 +33,7 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
             let padded_dest_start_addr = round_down(dest_start_addr, 4);
             let memory_value = bus.bp_read32(padded_dest_start_addr).await;
             let memory_value_bytes = memory_value.to_le_bytes(); // TODO: le or be
-            // Copy the previous memory value's bytes to the start
+                                                                 // Copy the previous memory value's bytes to the start
             for i in 0..num_pad_bytes as usize {
                 aligned_data_buffer[aligned_data_buffer_index] = memory_value_bytes[i];
                 aligned_data_buffer_index += 1;
@@ -59,7 +59,7 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
             let padded_dest_end_addr = round_down(dest_end_addr, 4);
             let memory_value = bus.bp_read32(padded_dest_end_addr).await;
             let memory_value_bytes = memory_value.to_le_bytes(); // TODO: le or be
-            // Append the necessary memory bytes to pad the end of aligned_data_buffer
+                                                                 // Append the necessary memory bytes to pad the end of aligned_data_buffer
             for i in offset..4 {
                 aligned_data_buffer[aligned_data_buffer_index] = memory_value_bytes[i as usize];
                 aligned_data_buffer_index += 1;
