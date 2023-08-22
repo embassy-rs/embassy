@@ -162,7 +162,7 @@ impl super::Rtc {
     ///
     /// note: this api is exposed for testing purposes until low power is implemented.
     /// it is not intended to be public
-    pub(crate) fn start_wakeup_alarm(requested_duration: embassy_time::Duration) -> RtcInstant {
+    pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) -> RtcInstant {
         use embassy_time::{Duration, TICK_HZ};
 
         use crate::interrupt::typelevel::Interrupt;
@@ -217,7 +217,7 @@ impl super::Rtc {
     ///
     /// note: this api is exposed for testing purposes until low power is implemented.
     /// it is not intended to be public
-    pub(crate) fn stop_wakeup_alarm() -> RtcInstant {
+    pub(crate) fn stop_wakeup_alarm(&self) -> RtcInstant {
         use crate::interrupt::typelevel::Interrupt;
 
         crate::interrupt::typelevel::RTC_WKUP::disable();
