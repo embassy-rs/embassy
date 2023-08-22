@@ -72,6 +72,7 @@ impl core::ops::Sub for RtcInstant {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub(crate) enum WakeupPrescaler {
     Div2,
@@ -120,6 +121,7 @@ impl From<WakeupPrescaler> for u32 {
     }
 }
 
+#[allow(dead_code)]
 impl WakeupPrescaler {
     pub fn compute_min(val: u32) -> Self {
         *[
