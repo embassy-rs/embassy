@@ -25,15 +25,6 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
     for (index, &(dest_addr, num_fw_bytes)) in firmware_offsets.iter().enumerate() {
         let fw_bytes = &firmware[(fw_bytes_pointer)..(fw_bytes_pointer + num_fw_bytes)];
         assert!(fw_bytes.len() == num_fw_bytes);
-        debug!(
-            "index = {}/{} dest_addr = {:08x} num_fw_bytes = {} fw_bytes_pointer = {} fw_bytes = {:02x}",
-            index,
-            firmware_offsets.len(),
-            dest_addr,
-            num_fw_bytes,
-            fw_bytes_pointer,
-            fw_bytes
-        );
         let mut dest_start_addr = dest_addr;
         let mut aligned_data_buffer_index: usize = 0;
         // pad start
@@ -42,10 +33,6 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
             let padded_dest_start_addr = round_down(dest_start_addr, 4);
             let memory_value = bus.bp_read32(padded_dest_start_addr).await;
             let memory_value_bytes = memory_value.to_le_bytes(); // TODO: le or be
-            debug!(
-                "pad start padded_dest_start_addr = {:08x} memory_value_bytes = {:02x}",
-                padded_dest_start_addr, memory_value_bytes
-            );
             // Copy the previous memory value's bytes to the start
             for i in 0..num_pad_bytes as usize {
                 aligned_data_buffer[aligned_data_buffer_index] = memory_value_bytes[i];
@@ -72,10 +59,6 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
             let padded_dest_end_addr = round_down(dest_end_addr, 4);
             let memory_value = bus.bp_read32(padded_dest_end_addr).await;
             let memory_value_bytes = memory_value.to_le_bytes(); // TODO: le or be
-            debug!(
-                "pad end padded_dest_end_addr = {:08x} memory_value_bytes = {:02x}",
-                padded_dest_end_addr, memory_value_bytes
-            );
             // Append the necessary memory bytes to pad the end of aligned_data_buffer
             for i in offset..4 {
                 aligned_data_buffer[aligned_data_buffer_index] = memory_value_bytes[i as usize];
@@ -86,11 +69,10 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
             // pad end alignment not needed
         }
         let buffer_to_write = &aligned_data_buffer[0..aligned_data_buffer_index as usize];
-        //debug!("upload_bluetooth_firmware: dest_start_addr = {:x} dest_end_addr = {:x} aligned_data_buffer_index = {} buffer_to_write = {:02x}", dest_start_addr, dest_end_addr, aligned_data_buffer_index, buffer_to_write);
         assert!(dest_start_addr % 4 == 0);
         assert!(dest_end_addr % 4 == 0);
         assert!(aligned_data_buffer_index % 4 == 0);
-        // write in 0x40 chunks TODO: is this needed
+        // write in 0x40 chunks TODO: is this needed or can we write straight away
         let chunk_size = 0x40;
         for (i, chunk) in buffer_to_write.chunks(chunk_size).enumerate() {
             let offset = i * chunk_size;
@@ -144,6 +126,7 @@ pub(crate) async fn bt_set_host_ready<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mu
 }
 
 // TODO: use this
+#[allow(dead_code)]
 pub(crate) async fn bt_set_awake<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
     debug!("bt_set_awake");
     let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
@@ -161,6 +144,7 @@ pub(crate) async fn bt_toggle_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut B
 }
 
 // TODO: use this
+#[allow(dead_code)]
 pub(crate) async fn bt_set_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
     debug!("bt_set_intr");
     let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;

@@ -274,7 +274,7 @@ where
 
     async fn backplane_set_window(&mut self, addr: u32) {
         let new_window = addr & !BACKPLANE_ADDRESS_MASK;
-        
+
         if new_window == self.backplane_window {
             return;
         }
@@ -340,12 +340,7 @@ where
         let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
-
-        debug!(
-            "readn cmd = {:08x} addr = {:08x} len = {} buf = {:08x}",
-            cmd, addr, len, buf
-        );
-
+        
         // if we read from the backplane, the result is in the second word, after the response delay
         if func == FUNC_BACKPLANE {
             buf[1]
