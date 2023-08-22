@@ -473,6 +473,11 @@ pub(crate) unsafe fn init(config: Config) {
         Rtc::set_clock_source(clock_source);
     });
 
+    let rtc = match config.rtc {
+        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
+        _ => None,
+    };
+
     set_freqs(Clocks {
         sys: Hertz(sysclk),
         apb1: Hertz(pclk1),
@@ -492,6 +497,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
         pllsai: None,
+
+        rtc: rtc,
     });
 }
 

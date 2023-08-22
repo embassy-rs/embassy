@@ -13,6 +13,7 @@ pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 )]
 #[cfg_attr(any(rtc_v3, rtc_v3u5), path = "v3.rs")]
 mod _version;
+#[allow(unused_imports)]
 pub use _version::*;
 use embassy_hal_internal::Peripheral;
 
