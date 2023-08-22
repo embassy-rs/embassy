@@ -21,21 +21,20 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
     // buffer
     let mut aligned_data_buffer: [u8; 0x100] = [0; 0x100];
     // structs
-    let mut pointer = 0;
+    let mut fw_bytes_pointer = 0;
     for (index, &(dest_addr, num_fw_bytes)) in firmware_offsets.iter().enumerate() {
-        let fw_bytes = &firmware[(pointer)..(pointer + num_fw_bytes)];
+        let fw_bytes = &firmware[(fw_bytes_pointer)..(fw_bytes_pointer + num_fw_bytes)];
         assert!(fw_bytes.len() == num_fw_bytes);
-        //debug!("index = {}/{} dest_addr = {:08x} num_fw_bytes = {} fw_bytes = {:02x}", index, firmware_offsets.len(), dest_addr, num_fw_bytes, fw_bytes);
-        //debug!("index = {}/{} dest_addr = {:08x} num_fw_bytes = {} pointer = {}", index, firmware_offsets.len(), dest_addr, num_fw_bytes, pointer);
+        debug!("index = {}/{} dest_addr = {:08x} num_fw_bytes = {} fw_bytes_pointer = {} fw_bytes = {:02x}", index, firmware_offsets.len(), dest_addr, num_fw_bytes, fw_bytes_pointer, fw_bytes);
         let mut dest_start_addr = dest_addr;
         let mut aligned_data_buffer_index: usize = 0;
         // pad start
         if !is_aligned(dest_start_addr, 4) {
             let num_pad_bytes = dest_start_addr % 4;
             let padded_dest_start_addr = round_down(dest_start_addr, 4);
-            let mut memory_value_bytes = [0; 4];
-            bus.bp_read(padded_dest_start_addr, &mut memory_value_bytes).await;
-            //debug!("pad start padded_dest_start_addr = {:08x} memory_value_bytes = {:02x}", padded_dest_start_addr, memory_value_bytes);
+            let memory_value = bus.bp_read32(padded_dest_start_addr).await;
+            let memory_value_bytes = memory_value.to_le_bytes(); // TODO: le or be
+            debug!("pad start padded_dest_start_addr = {:08x} memory_value_bytes = {:02x}", padded_dest_start_addr, memory_value_bytes);
             // Copy the previous memory value's bytes to the start
             for i in 0..num_pad_bytes as usize {
                 aligned_data_buffer[aligned_data_buffer_index] = memory_value_bytes[i];
@@ -60,9 +59,9 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
             let offset = dest_end_addr % 4;
             let num_pad_bytes_end = 4 - offset;
             let padded_dest_end_addr = round_down(dest_end_addr, 4);
-            let mut memory_value_bytes = [0; 4];
-            bus.bp_read(padded_dest_end_addr, &mut memory_value_bytes).await;
-            //debug!("pad end padded_dest_end_addr = {:08x} memory_value_bytes = {:02x}", padded_dest_end_addr, memory_value_bytes);
+            let memory_value = bus.bp_read32(padded_dest_end_addr).await;
+            let memory_value_bytes = memory_value.to_le_bytes(); // TODO: le or be
+            debug!("pad end padded_dest_end_addr = {:08x} memory_value_bytes = {:02x}", padded_dest_end_addr, memory_value_bytes);
             // Append the necessary memory bytes to pad the end of aligned_data_buffer
             for i in offset..4 {
                 aligned_data_buffer[aligned_data_buffer_index] = memory_value_bytes[i as usize];
@@ -77,9 +76,16 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
         assert!(dest_start_addr % 4 == 0);
         assert!(dest_end_addr % 4 == 0);
         assert!(aligned_data_buffer_index % 4 == 0);
-        bus.bp_write(dest_start_addr, buffer_to_write).await;
-        // increment pointer
-        pointer += num_fw_bytes;
+        // write in 0x40 chunks TODO: is this needed
+        let chunk_size = 0x40;
+        for (i, chunk) in buffer_to_write.chunks(chunk_size).enumerate() {
+            let offset = i * chunk_size;
+            bus.bp_write(dest_start_addr + (offset as u32), chunk).await;
+        }
+        // increment fw_bytes_pointer
+        fw_bytes_pointer += num_fw_bytes;
+        // sleep TODO: is this needed
+        Timer::after(Duration::from_millis(1)).await;
     }
 }
 
@@ -90,30 +96,29 @@ pub(crate) async fn wait_bt_ready<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bu
         let val = bus.bp_read32(BT_CTRL_REG_ADDR).await;
         // TODO: do we need to swap endianness on this read?
         debug!("BT_CTRL_REG_ADDR = {:08x}", val);
-        /*if val & BTSDIO_REG_FW_RDY_BITMASK != 0 {
-            break;
-        }*/
-        // TODO: should be 00000000 until it is 0x01000100
-        if val == 0x01000100 {
+        if val & BTSDIO_REG_FW_RDY_BITMASK != 0 {
             success = true;
             break;
         }
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(1)).await;
     }
     assert!(success == true);
 }
 
 pub(crate) async fn wait_bt_awake<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
-    debug!("wait_bt_awake");
-    loop {
+   debug!("wait_bt_awake");
+   let mut success = false;
+    for _ in 0..300 {
         let val = bus.bp_read32(BT_CTRL_REG_ADDR).await;
         // TODO: do we need to swap endianness on this read?
         debug!("BT_CTRL_REG_ADDR = {:08x}", val);
         if val & BTSDIO_REG_BT_AWAKE_BITMASK != 0 {
+            success = true;
             break;
         }
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after(Duration::from_millis(1)).await;
     }
+    assert!(success == true);
 }
 
 pub(crate) async fn bt_set_host_ready<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>) {
@@ -150,8 +155,12 @@ pub(crate) async fn bt_set_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<
 }
 
 pub(crate) async fn init_bluetooth<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>, firmware_offsets: &[(u32, usize)], firmware: &[u8]) {
+    Timer::after(Duration::from_millis(100)).await;
+    debug!("init_bluetooth");
+    Timer::after(Duration::from_millis(100)).await;
     bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE)
         .await;
+    Timer::after(Duration::from_millis(2)).await;
     upload_bluetooth_firmware(bus, firmware_offsets, firmware).await;
     wait_bt_ready(bus).await;
     // TODO: cybt_init_buffer();

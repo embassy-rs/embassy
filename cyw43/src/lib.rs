@@ -214,8 +214,8 @@ pub async fn new<'a, PWR, SPI>(
     pwr: PWR,
     spi: SPI,
     firmware: &[u8],
-    bluetooth_firmware_offsets: &[(u32, usize)],
-    bluetooth_firmware: &[u8],
+    bluetooth_firmware_offsets: Option<&[(u32, usize)]>,
+    bluetooth_firmware: Option<&[u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,

@@ -22,7 +22,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn wifi_task(
+async fn cyw43_runner_task(
     runner: cyw43::Runner<'static, Output<'static, PIN_23>, PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>>,
 ) -> ! {
     runner.run().await
@@ -47,8 +47,10 @@ async fn main(spawner: Spawner) {
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
     let state = make_static!(cyw43::State::new());
-    let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    let bluetooth_firmware_offsets = &cyw43_firmware::BLUETOOTH_FIRMWARE_OFFSETS;
+    let bluetooth_firmware = &cyw43_firmware::BLUETOOTH_FIRMWARE;
+    let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, Some(bluetooth_firmware_offsets), Some(bluetooth_firmware)).await;
+    unwrap!(spawner.spawn(cyw43_runner_task(runner)));
 
     control.init(clm).await;
     control
