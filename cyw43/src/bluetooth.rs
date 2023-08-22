@@ -5,6 +5,17 @@ use crate::bus::Bus;
 use crate::consts::*;
 use crate::{SpiBusCyw43, CHIP};
 
+struct CybtFwCb<'a> {
+    p_next_line_start: &'a [u8],
+}
+
+struct HexFileData<'a> {
+    addr_mode: i32,
+    hi_addr: u16,
+    dest_addr: u32,
+    p_ds: &'a mut [u8],
+}
+
 fn is_aligned(a: u32, x: u32) -> bool {
     (a & (x - 1)) == 0
 }
@@ -13,19 +24,87 @@ fn round_down(x: u32, a: u32) -> u32 {
     x & !(a - 1)
 }
 
+fn cybt_fw_get_data(p_btfw_cb: &mut CybtFwCb, hfd: &mut HexFileData) -> u32 {
+    let mut abs_base_addr32 = 0;
+
+    loop {
+        let num_bytes = p_btfw_cb.p_next_line_start[0];
+        p_btfw_cb.p_next_line_start = &p_btfw_cb.p_next_line_start[1..];
+
+        let addr = (p_btfw_cb.p_next_line_start[0] as u16) << 8 | p_btfw_cb.p_next_line_start[1] as u16;
+        p_btfw_cb.p_next_line_start = &p_btfw_cb.p_next_line_start[2..];
+
+        let line_type = p_btfw_cb.p_next_line_start[0];
+        p_btfw_cb.p_next_line_start = &p_btfw_cb.p_next_line_start[1..];
+
+        if num_bytes == 0 {
+            break;
+        }
+
+        hfd.p_ds[..num_bytes as usize].copy_from_slice(&p_btfw_cb.p_next_line_start[..num_bytes as usize]);
+        p_btfw_cb.p_next_line_start = &p_btfw_cb.p_next_line_start[num_bytes as usize..];
+
+        match line_type {
+            BTFW_HEX_LINE_TYPE_EXTENDED_ADDRESS => {
+                hfd.hi_addr = (hfd.p_ds[0] as u16) << 8 | hfd.p_ds[1] as u16;
+                hfd.addr_mode = BTFW_ADDR_MODE_EXTENDED;
+            }
+            BTFW_HEX_LINE_TYPE_EXTENDED_SEGMENT_ADDRESS => {
+                hfd.hi_addr = (hfd.p_ds[0] as u16) << 8 | hfd.p_ds[1] as u16;
+                hfd.addr_mode = BTFW_ADDR_MODE_SEGMENT;
+            }
+            BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS => {
+                abs_base_addr32 = (hfd.p_ds[0] as u32) << 24
+                    | (hfd.p_ds[1] as u32) << 16
+                    | (hfd.p_ds[2] as u32) << 8
+                    | hfd.p_ds[3] as u32;
+                hfd.addr_mode = BTFW_ADDR_MODE_LINEAR32;
+            }
+            BTFW_HEX_LINE_TYPE_DATA => {
+                hfd.dest_addr = addr as u32;
+                match hfd.addr_mode {
+                    BTFW_ADDR_MODE_EXTENDED => hfd.dest_addr += (hfd.hi_addr as u32) << 16,
+                    BTFW_ADDR_MODE_SEGMENT => hfd.dest_addr += (hfd.hi_addr as u32) << 4,
+                    BTFW_ADDR_MODE_LINEAR32 => hfd.dest_addr += abs_base_addr32,
+                    _ => {}
+                }
+                return num_bytes as u32;
+            }
+            _ => {}
+        }
+    }
+    0
+}
+
 pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
     bus: &mut Bus<PWR, SPI>,
-    firmware_offsets: &[(u32, usize)],
     firmware: &[u8],
 ) {
-    // buffer
+    // read version
+    let version_length = firmware[0];
+    let _version = &firmware[1..=version_length as usize];
+    // skip version + 1 extra byte as per cybt_shared_bus_driver.c
+    let firmware = &firmware[version_length as usize + 2..];
+    // buffers
+    let mut data_buffer: [u8; 0x100] = [0; 0x100];
     let mut aligned_data_buffer: [u8; 0x100] = [0; 0x100];
     // structs
-    let mut fw_bytes_pointer = 0;
-    for &(dest_addr, num_fw_bytes) in firmware_offsets.iter() {
-        let fw_bytes = &firmware[(fw_bytes_pointer)..(fw_bytes_pointer + num_fw_bytes)];
-        assert!(fw_bytes.len() == num_fw_bytes);
-        let mut dest_start_addr = dest_addr;
+    let mut btfw_cb = CybtFwCb {
+        p_next_line_start: firmware,
+    };
+    let mut hfd = HexFileData {
+        addr_mode: BTFW_ADDR_MODE_EXTENDED,
+        hi_addr: 0,
+        dest_addr: 0,
+        p_ds: &mut data_buffer,
+    };
+    loop {
+        let num_fw_bytes = cybt_fw_get_data(&mut btfw_cb, &mut hfd);
+        if num_fw_bytes == 0 {
+            break;
+        }
+        let fw_bytes = &hfd.p_ds[0..num_fw_bytes as usize];
+        let mut dest_start_addr = hfd.dest_addr + CHIP.bluetooth_base_address;
         let mut aligned_data_buffer_index: usize = 0;
         // pad start
         if !is_aligned(dest_start_addr, 4) {
@@ -78,8 +157,6 @@ pub(crate) async fn upload_bluetooth_firmware<PWR: OutputPin, SPI: SpiBusCyw43>(
             let offset = i * chunk_size;
             bus.bp_write(dest_start_addr + (offset as u32), chunk).await;
         }
-        // increment fw_bytes_pointer
-        fw_bytes_pointer += num_fw_bytes;
         // sleep TODO: is this needed
         Timer::after(Duration::from_millis(1)).await;
     }
@@ -152,18 +229,14 @@ pub(crate) async fn bt_set_intr<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<
     bus.bp_write32(HOST_CTRL_REG_ADDR, new_val).await;
 }
 
-pub(crate) async fn init_bluetooth<PWR: OutputPin, SPI: SpiBusCyw43>(
-    bus: &mut Bus<PWR, SPI>,
-    firmware_offsets: &[(u32, usize)],
-    firmware: &[u8],
-) {
+pub(crate) async fn init_bluetooth<PWR: OutputPin, SPI: SpiBusCyw43>(bus: &mut Bus<PWR, SPI>, firmware: &[u8]) {
     Timer::after(Duration::from_millis(100)).await;
     debug!("init_bluetooth");
     Timer::after(Duration::from_millis(100)).await;
     bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE)
         .await;
     Timer::after(Duration::from_millis(2)).await;
-    upload_bluetooth_firmware(bus, firmware_offsets, firmware).await;
+    upload_bluetooth_firmware(bus, firmware).await;
     wait_bt_ready(bus).await;
     // TODO: cybt_init_buffer();
     wait_bt_awake(bus).await;

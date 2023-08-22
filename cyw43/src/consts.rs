@@ -139,6 +139,18 @@ pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
 pub(crate) const MIN_PSK_LEN: usize = 8;
 pub(crate) const MAX_PSK_LEN: usize = 64;
 
+// Bluetooth firmware extraction constants.
+pub(crate) const BTFW_ADDR_MODE_UNKNOWN: i32 = 0;
+pub(crate) const BTFW_ADDR_MODE_EXTENDED: i32 = 1;
+pub(crate) const BTFW_ADDR_MODE_SEGMENT: i32 = 2;
+pub(crate) const BTFW_ADDR_MODE_LINEAR32: i32 = 3;
+
+pub(crate) const BTFW_HEX_LINE_TYPE_DATA: u8 = 0;
+pub(crate) const BTFW_HEX_LINE_TYPE_END_OF_DATA: u8 = 1;
+pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_SEGMENT_ADDRESS: u8 = 2;
+pub(crate) const BTFW_HEX_LINE_TYPE_EXTENDED_ADDRESS: u8 = 4;
+pub(crate) const BTFW_HEX_LINE_TYPE_ABSOLUTE_32BIT_ADDRESS: u8 = 5;
+
 // Bluetooth constants.
 pub(crate) const SPI_RESP_DELAY_F1: u32 = 0x001d;
 pub(crate) const WHD_BUS_SPI_BACKPLANE_READ_PADD_SIZE: u8 = 4;

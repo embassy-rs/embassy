@@ -73,12 +73,7 @@ where
         }
     }
 
-    pub(crate) async fn init(
-        &mut self,
-        firmware: &[u8],
-        bluetooth_firmware_offsets: Option<&[(u32, usize)]>,
-        bluetooth_firmware: Option<&[u8]>,
-    ) {
+    pub(crate) async fn init(&mut self, firmware: &[u8], bluetooth_firmware: Option<&[u8]>) {
         self.bus.init().await;
 
         // Init ALP (Active Low Power) clock
@@ -122,14 +117,9 @@ where
         self.bus.bp_write(ram_addr, firmware).await;
 
         // Optionally load Bluetooth fimrware into RAM.
-        if bluetooth_firmware_offsets.is_some() && bluetooth_firmware.is_some() {
+        if bluetooth_firmware.is_some() {
             debug!("loading bluetooth fw");
-            bluetooth::init_bluetooth(
-                &mut self.bus,
-                bluetooth_firmware_offsets.unwrap(),
-                bluetooth_firmware.unwrap(),
-            )
-            .await;
+            bluetooth::init_bluetooth(&mut self.bus, bluetooth_firmware.unwrap()).await;
         }
 
         debug!("loading nvram");

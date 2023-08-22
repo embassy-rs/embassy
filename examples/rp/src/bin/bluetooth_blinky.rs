@@ -33,6 +33,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let fw = include_bytes!("../../../../cyw43-firmware/43439A0.bin");
     let clm = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
+    let btfw = include_bytes!("../../../../cyw43-firmware/43439A0_btfw.bin");
 
     // To make flashing faster for development, you may want to flash the firmwares independently
     // at hardcoded addresses, instead of baking them into the program with `include_bytes!`:
@@ -47,10 +48,7 @@ async fn main(spawner: Spawner) {
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
     let state = make_static!(cyw43::State::new());
-    let bluetooth_firmware_offsets = &cyw43_firmware::BLUETOOTH_FIRMWARE_OFFSETS;
-    let bluetooth_firmware = &cyw43_firmware::BLUETOOTH_FIRMWARE;
-    let (_net_device, mut control, runner) =
-        cyw43::new_with_bluetooth(state, pwr, spi, fw, bluetooth_firmware_offsets, bluetooth_firmware).await;
+    let (_net_device, mut control, runner) = cyw43::new_with_bluetooth(state, pwr, spi, fw, btfw).await;
     unwrap!(spawner.spawn(cyw43_runner_task(runner)));
 
     control.init(clm).await;

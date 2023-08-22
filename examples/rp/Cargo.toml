@@ -21,7 +21,6 @@ lora-phy = { version = "1" }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"] }
 lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"] }
 cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
-cyw43-firmware = { path = "../../cyw43-firmware" }
 cyw43-pio = { path = "../../cyw43-pio", features = ["defmt"] }
 
 defmt = "0.3"

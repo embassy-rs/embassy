@@ -244,7 +244,7 @@ where
     }
 
     async fn backplane_readn(&mut self, addr: u32, len: u32) -> u32 {
-        debug!("backplane_readn addr = {:08x} len = {}", addr, len);
+        trace!("backplane_readn addr = {:08x} len = {}", addr, len);
 
         self.backplane_set_window(addr).await;
 
@@ -255,13 +255,13 @@ where
 
         let val = self.readn(FUNC_BACKPLANE, bus_addr, len).await;
 
-        debug!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
+        trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
 
         return val;
     }
 
     async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
-        debug!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, len, val);
+        trace!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, len, val);
 
         self.backplane_set_window(addr).await;
 
