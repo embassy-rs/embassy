@@ -53,6 +53,8 @@ pio-proc = "0.2"
 pio = "0.2.1"
 rand = { version = "0.8.5", default-features = false }
 
+bleps = { path = "../../../bleps/bleps", features = ["macros", "async", "defmt"] }
+
 [profile.release]
 debug = 2
 

@@ -4,7 +4,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
-use crate::slice8_mut;
+use crate::utilities::slice8_mut;
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -32,6 +32,7 @@ pub(crate) struct Bus<PWR, SPI> {
     pwr: PWR,
     spi: SPI,
     status: u32,
+    bluetooth_enabled: bool,
 }
 
 impl<PWR, SPI> Bus<PWR, SPI>
@@ -39,11 +40,12 @@ where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
 {
-    pub(crate) fn new(pwr: PWR, spi: SPI) -> Self {
+    pub(crate) fn new(pwr: PWR, spi: SPI, bluetooth_enabled: bool) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
             pwr,
             spi,
+            bluetooth_enabled,
             status: 0,
         }
     }
@@ -122,18 +124,16 @@ where
         // Enable a selection of interrupts
         // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
         debug!("enable a selection of interrupts");
-        self.write16(
-            FUNC_BUS,
-            REG_BUS_INTERRUPT_ENABLE,
-            IRQ_F2_F3_FIFO_RD_UNDERFLOW
-                | IRQ_F2_F3_FIFO_WR_OVERFLOW
-                | IRQ_COMMAND_ERROR
-                | IRQ_DATA_ERROR
-                | IRQ_F2_PACKET_AVAILABLE
-                | IRQ_F1_OVERFLOW
-                | IRQ_F1_INTR,
-        )
-        .await;
+        let mut val = IRQ_F2_F3_FIFO_RD_UNDERFLOW
+            | IRQ_F2_F3_FIFO_WR_OVERFLOW
+            | IRQ_COMMAND_ERROR
+            | IRQ_DATA_ERROR
+            | IRQ_F2_PACKET_AVAILABLE
+            | IRQ_F1_OVERFLOW;
+        if self.bluetooth_enabled {
+            val = val | IRQ_F1_INTR;
+        }
+        self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
     }
 
     pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
@@ -155,6 +155,8 @@ where
 
     #[allow(unused)]
     pub async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+        debug!("bp_read addr = {:08x}", addr);
+
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -188,6 +190,8 @@ where
     }
 
     pub async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+        debug!("bp_write addr = {:08x}", addr);
+
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4

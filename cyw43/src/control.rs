@@ -1,8 +1,8 @@
 use core::cmp::{max, min};
 
-use ch::driver::LinkState;
-use embassy_net_driver_channel as ch;
+use embassy_net_driver_channel as net_driver_channel;
 use embassy_time::{Duration, Timer};
+use net_driver_channel::driver::LinkState;
 
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
@@ -18,25 +18,50 @@ pub struct Error {
 }
 
 pub struct Control<'a> {
-    state_ch: ch::StateRunner<'a>,
+    net_driver_channel_state_runner: net_driver_channel::StateRunner<'a>,
     events: &'a Events,
     ioctl_state: &'a IoctlState,
+    bluetooth_enabled: bool,
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a Events, ioctl_state: &'a IoctlState) -> Self {
+    pub(crate) fn new(
+        net_driver_channel_state_runner: net_driver_channel::StateRunner<'a>,
+        events: &'a Events,
+        ioctl_state: &'a IoctlState,
+        bluetooth_enabled: bool,
+    ) -> Self {
         Self {
-            state_ch,
-            events: event_sub,
+            net_driver_channel_state_runner,
+            events,
             ioctl_state,
+            bluetooth_enabled,
         }
     }
 
     pub async fn init(&mut self, clm: &[u8]) {
+        self.load_clm(clm).await;
+        debug!("Configuring misc stuff...");
+        // Disable tx gloming which transfers multiple packets in one request.
+        // 'glom' is short for "conglomerate" which means "gather together into
+        // a compact mass".
+        self.set_iovar_u32("bus:txglom", 0).await;
+        self.set_iovar_u32("apsta", 1).await;
+        // read MAC addr.
+        let mut mac_addr = [0; 6];
+        assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
+        debug!("mac addr: {:02x}", Bytes(&mac_addr));
+        if self.bluetooth_enabled == false {
+            self.wifi_init(mac_addr).await;
+        } else {
+            // TODO: call bluetooth firmware init somehow
+        }
+        debug!("cyw43 control init done");
+    }
+
+    async fn load_clm(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
-
         debug!("Downloading CLM...");
-
         let mut offs = 0;
         for chunk in clm.chunks(CHUNK_SIZE) {
             let mut flag = DOWNLOAD_FLAG_HANDLER_VER;
@@ -61,23 +86,11 @@ impl<'a> Control<'a> {
             self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
                 .await;
         }
-
         // check clmload ok
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
+    }
 
-        debug!("Configuring misc stuff...");
-
-        // Disable tx gloming which transfers multiple packets in one request.
-        // 'glom' is short for "conglomerate" which means "gather together into
-        // a compact mass".
-        self.set_iovar_u32("bus:txglom", 0).await;
-        self.set_iovar_u32("apsta", 1).await;
-
-        // read MAC addr.
-        let mut mac_addr = [0; 6];
-        assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
-        debug!("mac addr: {:02x}", Bytes(&mac_addr));
-
+    async fn wifi_init(&mut self, mac_addr: [u8; 6]) {
         let country = countries::WORLD_WIDE_XX;
         let country_info = CountryInfo {
             country_abbrev: [country.code[0], country.code[1], 0, 0],
@@ -133,9 +146,7 @@ impl<'a> Control<'a> {
 
         Timer::after(Duration::from_millis(100)).await;
 
-        self.state_ch.set_ethernet_address(mac_addr);
-
-        debug!("INIT DONE");
+        self.net_driver_channel_state_runner.set_ethernet_address(mac_addr);
     }
 
     pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
@@ -225,7 +236,7 @@ impl<'a> Control<'a> {
         self.events.mask.disable_all();
         if status == EStatus::SUCCESS {
             // successful join
-            self.state_ch.set_link_state(LinkState::Up);
+            self.net_driver_channel_state_runner.set_link_state(LinkState::Up);
             debug!("JOINED");
             Ok(())
         } else {

@@ -168,6 +168,15 @@ pub(crate) const BTSDIO_REG_WAKE_BT_BITMASK: u32 = 1 << 17;
 pub(crate) const BTSDIO_REG_SW_RDY_BITMASK: u32 = 1 << 24;
 pub(crate) const BTSDIO_REG_FW_RDY_BITMASK: u32 = 1 << 24;
 
+pub(crate) const BTSDIO_FWBUF_SIZE: u32 = 0x1000;
+pub(crate) const BTSDIO_OFFSET_HOST_WRITE_BUF: u32 = 0;
+pub(crate) const BTSDIO_OFFSET_HOST_READ_BUF: u32 = BTSDIO_FWBUF_SIZE;
+
+pub(crate) const BTSDIO_OFFSET_HOST2BT_IN: u32 = 0x00002000;
+pub(crate) const BTSDIO_OFFSET_HOST2BT_OUT: u32 = 0x00002004;
+pub(crate) const BTSDIO_OFFSET_BT2HOST_IN: u32 = 0x00002008;
+pub(crate) const BTSDIO_OFFSET_BT2HOST_OUT: u32 = 0x0000200C;
+
 // Security type (authentication and encryption types are combined using bit mask)
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, PartialEq)]

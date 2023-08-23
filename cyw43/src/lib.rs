@@ -7,25 +7,25 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+mod ble_connector;
 mod bluetooth;
 mod bus;
 mod consts;
+mod control;
 mod countries;
 mod events;
 mod ioctl;
-mod structs;
-
-mod control;
 mod nvram;
 mod runner;
+mod structs;
+mod utilities;
 
-use core::slice;
-
-use embassy_net_driver_channel as ch;
+use embassy_net_driver_channel as net_driver_channel;
 use embedded_hal_1::digital::OutputPin;
 use events::Events;
 use ioctl::IoctlState;
 
+pub use crate::ble_connector::BleConnector;
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 pub use crate::control::{Control, Error as ControlError};
@@ -108,7 +108,7 @@ const CHIP: Chip = Chip {
 
 pub struct State {
     ioctl_state: IoctlState,
-    ch: ch::State<MTU, 4, 4>,
+    net_driver_channel: net_driver_channel::State<MTU, 4, 4>,
     events: Events,
 }
 
@@ -116,7 +116,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             ioctl_state: IoctlState::new(),
-            ch: ch::State::new(),
+            net_driver_channel: net_driver_channel::State::new(),
             events: Events::new(),
         }
     }
@@ -207,58 +207,32 @@ impl PowerManagementMode {
     }
 }
 
-pub type NetDriver<'a> = ch::Device<'a, MTU>;
+pub type NetDriver<'a> = net_driver_channel::Device<'a, MTU>;
 
 pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
     firmware: &[u8],
+    bluetooth_enabled: bool,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
 {
-    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
-    let state_ch = ch_runner.state_runner();
-
-    let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
-
-    runner.init(firmware, None).await;
-
-    (
-        device,
-        Control::new(state_ch, &state.events, &state.ioctl_state),
-        runner,
-    )
-}
-
-pub async fn new_with_bluetooth<'a, PWR, SPI>(
-    state: &'a mut State,
-    pwr: PWR,
-    spi: SPI,
-    firmware: &[u8],
-    bluetooth_firmware: &[u8],
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
-where
-    PWR: OutputPin,
-    SPI: SpiBusCyw43,
-{
-    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
-    let state_ch = ch_runner.state_runner();
-
-    let mut runner = Runner::new(ch_runner, Bus::new(pwr, spi), &state.ioctl_state, &state.events);
-
-    runner.init(firmware, Some(bluetooth_firmware)).await;
-
-    (
-        device,
-        Control::new(state_ch, &state.events, &state.ioctl_state),
-        runner,
-    )
-}
-
-fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
-    let len = x.len() * 4;
-    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
+    let (net_driver_channel_runner, device) = net_driver_channel::new(
+        &mut state.net_driver_channel,
+        net_driver_channel::driver::HardwareAddress::Ethernet([0; 6]),
+    );
+    let net_driver_channel_state_runner = net_driver_channel_runner.state_runner();
+    let bus = Bus::new(pwr, spi, bluetooth_enabled);
+    let mut runner = Runner::new(net_driver_channel_runner, bus, &state.ioctl_state, &state.events);
+    runner.init(firmware, bluetooth_enabled).await;
+    let control = Control::new(
+        net_driver_channel_state_runner,
+        &state.events,
+        &state.ioctl_state,
+        bluetooth_enabled,
+    );
+    (device, control, runner)
 }
