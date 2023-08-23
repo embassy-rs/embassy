@@ -1,15 +1,33 @@
 use core::arch::asm;
 use core::marker::PhantomData;
 
+use cortex_m::peripheral::SCB;
 use embassy_executor::*;
+use embassy_time::Duration;
+
+use crate::interrupt;
+use crate::interrupt::typelevel::Interrupt;
 
 const THREAD_PENDER: usize = usize::MAX;
+const THRESHOLD: Duration = Duration::from_millis(500);
 
 use crate::rtc::{Rtc, RtcInstant};
 
 static mut RTC: Option<&'static Rtc> = None;
 
+foreach_interrupt! {
+    (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
+        #[interrupt]
+        unsafe fn $irq() {
+            Executor::on_wakeup_irq();
+        }
+    };
+}
+
 pub fn stop_with_rtc(rtc: &'static Rtc) {
+    crate::interrupt::typelevel::RTC_WKUP::unpend();
+    unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
+
     unsafe { RTC = Some(rtc) };
 }
 
@@ -45,8 +63,47 @@ impl Executor {
         }
     }
 
-    fn configure_power(&self) {
-        todo!()
+    unsafe fn on_wakeup_irq() {
+        info!("on wakeup irq");
+
+        cortex_m::asm::bkpt();
+    }
+
+    fn low_power_ready(&self) -> bool {
+        true
+    }
+
+    fn time_until_next_alarm(&self) -> Duration {
+        Duration::from_secs(3)
+    }
+
+    fn get_scb(&self) -> SCB {
+        unsafe { cortex_m::Peripherals::steal() }.SCB
+    }
+
+    fn configure_pwr(&self) {
+        trace!("low power before wfe");
+
+        if !self.low_power_ready() {
+            return;
+        }
+
+        let time_until_next_alarm = self.time_until_next_alarm();
+        if time_until_next_alarm < THRESHOLD {
+            return;
+        }
+
+        trace!("low power stop required");
+
+        critical_section::with(|_| {
+            trace!("executor: set wakeup alarm...");
+
+            start_wakeup_alarm(time_until_next_alarm);
+
+            trace!("low power wait for rtc ready...");
+
+            self.get_scb().set_sleepdeep();
+        });
     }
 
     /// Run the executor.
@@ -73,7 +130,7 @@ impl Executor {
         loop {
             unsafe {
                 self.inner.poll();
-                self.configure_power();
+                self.configure_pwr();
                 asm!("wfe");
             };
         }
