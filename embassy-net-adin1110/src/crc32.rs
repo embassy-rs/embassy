@@ -274,6 +274,15 @@ impl ETH_FSC {
     }
 
     #[must_use]
+    pub fn update(self, data: &[u8]) -> Self {
+        let fsc = data.iter().fold(self.0 ^ u32::MAX, |crc, byte| {
+            let idx = u8::try_from(crc & 0xFF).unwrap() ^ byte;
+            CRC32R_LOOKUP_TABLE[usize::from(idx)] ^ (crc >> 8)
+        }) ^ u32::MAX;
+        Self(fsc)
+    }
+
+    #[must_use]
     pub fn crc_ok(&self) -> bool {
         self.0 == Self::CRC32_OK
     }
@@ -328,5 +337,22 @@ mod tests {
         let own_crc = ETH_FSC::new(packet_b);
         println!("{:08x}", own_crc.0);
         assert_eq!(own_crc.0, ETH_FSC::CRC32_OK);
+    }
+
+    #[test]
+    fn crc32_update() {
+        let full_data = &[
+            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0x00, 0xe0, 0x4c, 0x68, 0xee, 0xee, 0xdd, 0x06, 0x00, 0x01, 0x08, 0x00,
+            0x06, 0x04, 0x00, 0x02, 0x00, 0xe0, 0x4c, 0x68, 0x09, 0xde, 0xc0, 0xa8, 0x01, 0x02, 0x12, 0x34, 0x56, 0x78,
+            0x9a, 0xbc, 0xc0, 0xa8, 0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0x3d, 0x67, 0x7c,
+        ];
+
+        let (part_a, part_b) = full_data.split_at(16);
+        let crc_partially = ETH_FSC::new(part_a).update(part_b);
+
+        let crc_full = ETH_FSC::new(full_data);
+
+        assert_eq!(crc_full.0, crc_partially.0);
     }
 }
