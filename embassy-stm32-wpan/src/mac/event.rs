@@ -1,4 +1,5 @@
-use super::helpers::to_u16;
+use core::{mem, ptr};
+
 use super::indications::{
     AssociateIndication, BeaconNotifyIndication, CommStatusIndication, DataIndication, DisassociateIndication,
     DpsIndication, GtsIndication, OrphanIndication, PollIndication, SyncLossIndication,
@@ -7,88 +8,146 @@ use super::responses::{
     AssociateConfirm, CalibrateConfirm, DataConfirm, DisassociateConfirm, DpsConfirm, GetConfirm, GtsConfirm,
     PollConfirm, PurgeConfirm, ResetConfirm, RxEnableConfirm, ScanConfirm, SetConfirm, SoundingConfirm, StartConfirm,
 };
+use crate::evt::{EvtBox, MemoryManager};
 use crate::mac::opcodes::OpcodeM0ToM4;
+use crate::sub::mac::{self, Mac};
 
-pub trait ParseableMacEvent {
-    const SIZE: usize;
-
-    fn validate(buf: &[u8]) -> Result<(), ()> {
-        if buf.len() < Self::SIZE {
-            return Err(());
+pub(crate) trait ParseableMacEvent: Sized {
+    fn from_buffer<'a>(buf: &'a [u8]) -> Result<&'a Self, ()> {
+        if buf.len() < mem::size_of::<Self>() {
+            Err(())
+        } else {
+            Ok(unsafe { &*(buf as *const _ as *const Self) })
         }
-
-        Ok(())
     }
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()>
-    where
-        Self: Sized;
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum MacEvent {
-    MlmeAssociateCnf(AssociateConfirm),
-    MlmeDisassociateCnf(DisassociateConfirm),
-    MlmeGetCnf(GetConfirm),
-    MlmeGtsCnf(GtsConfirm),
-    MlmeResetCnf(ResetConfirm),
-    MlmeRxEnableCnf(RxEnableConfirm),
-    MlmeScanCnf(ScanConfirm),
-    MlmeSetCnf(SetConfirm),
-    MlmeStartCnf(StartConfirm),
-    MlmePollCnf(PollConfirm),
-    MlmeDpsCnf(DpsConfirm),
-    MlmeSoundingCnf(SoundingConfirm),
-    MlmeCalibrateCnf(CalibrateConfirm),
-    McpsDataCnf(DataConfirm),
-    McpsPurgeCnf(PurgeConfirm),
-    MlmeAssociateInd(AssociateIndication),
-    MlmeDisassociateInd(DisassociateIndication),
-    MlmeBeaconNotifyInd(BeaconNotifyIndication),
-    MlmeCommStatusInd(CommStatusIndication),
-    MlmeGtsInd(GtsIndication),
-    MlmeOrphanInd(OrphanIndication),
-    MlmeSyncLossInd(SyncLossIndication),
-    MlmeDpsInd(DpsIndication),
-    McpsDataInd(DataIndication),
-    MlmePollInd(PollIndication),
+#[derive(Debug)]
+pub enum MacEvent<'a> {
+    MlmeAssociateCnf(&'a AssociateConfirm),
+    MlmeDisassociateCnf(&'a DisassociateConfirm),
+    MlmeGetCnf(&'a GetConfirm),
+    MlmeGtsCnf(&'a GtsConfirm),
+    MlmeResetCnf(&'a ResetConfirm),
+    MlmeRxEnableCnf(&'a RxEnableConfirm),
+    MlmeScanCnf(&'a ScanConfirm),
+    MlmeSetCnf(&'a SetConfirm),
+    MlmeStartCnf(&'a StartConfirm),
+    MlmePollCnf(&'a PollConfirm),
+    MlmeDpsCnf(&'a DpsConfirm),
+    MlmeSoundingCnf(&'a SoundingConfirm),
+    MlmeCalibrateCnf(&'a CalibrateConfirm),
+    McpsDataCnf(&'a DataConfirm),
+    McpsPurgeCnf(&'a PurgeConfirm),
+    MlmeAssociateInd(&'a AssociateIndication),
+    MlmeDisassociateInd(&'a DisassociateIndication),
+    MlmeBeaconNotifyInd(&'a BeaconNotifyIndication),
+    MlmeCommStatusInd(&'a CommStatusIndication),
+    MlmeGtsInd(&'a GtsIndication),
+    MlmeOrphanInd(&'a OrphanIndication),
+    MlmeSyncLossInd(&'a SyncLossIndication),
+    MlmeDpsInd(&'a DpsIndication),
+    McpsDataInd(&'a DataIndication),
+    MlmePollInd(&'a PollIndication),
 }
 
-impl TryFrom<&[u8]> for MacEvent {
-    type Error = ();
+impl<'a> MacEvent<'a> {
+    pub(crate) fn new(event_box: EvtBox<Mac>) -> Result<Self, ()> {
+        let payload = event_box.payload();
+        let opcode = u16::from_le_bytes(payload[0..2].try_into().unwrap());
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        let opcode = to_u16(&value[0..2]);
         let opcode = OpcodeM0ToM4::try_from(opcode)?;
+        let buf = &payload[2..];
 
-        let buf = &value[2..];
+        // To avoid re-parsing the opcode, we store the result of the parse
+        // this requires use of unsafe because rust cannot assume that a reference will become
+        // invalid when the underlying result is moved. However, because we refer to a "heap"
+        // allocation, the underlying reference will not move until the struct is dropped.
 
-        match opcode {
-            OpcodeM0ToM4::MlmeAssociateCnf => Ok(Self::MlmeAssociateCnf(AssociateConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeDisassociateCnf => Ok(Self::MlmeDisassociateCnf(DisassociateConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeGetCnf => Ok(Self::MlmeGetCnf(GetConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeGtsCnf => Ok(Self::MlmeGtsCnf(GtsConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeResetCnf => Ok(Self::MlmeResetCnf(ResetConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeRxEnableCnf => Ok(Self::MlmeRxEnableCnf(RxEnableConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeScanCnf => Ok(Self::MlmeScanCnf(ScanConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeSetCnf => Ok(Self::MlmeSetCnf(SetConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeStartCnf => Ok(Self::MlmeStartCnf(StartConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmePollCnf => Ok(Self::MlmePollCnf(PollConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeDpsCnf => Ok(Self::MlmeDpsCnf(DpsConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeSoundingCnf => Ok(Self::MlmeSoundingCnf(SoundingConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeCalibrateCnf => Ok(Self::MlmeCalibrateCnf(CalibrateConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::McpsDataCnf => Ok(Self::McpsDataCnf(DataConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::McpsPurgeCnf => Ok(Self::McpsPurgeCnf(PurgeConfirm::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeAssociateInd => Ok(Self::MlmeAssociateInd(AssociateIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeDisassociateInd => Ok(Self::MlmeDisassociateInd(DisassociateIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeBeaconNotifyInd => Ok(Self::MlmeBeaconNotifyInd(BeaconNotifyIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeCommStatusInd => Ok(Self::MlmeCommStatusInd(CommStatusIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeGtsInd => Ok(Self::MlmeGtsInd(GtsIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeOrphanInd => Ok(Self::MlmeOrphanInd(OrphanIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeSyncLossInd => Ok(Self::MlmeSyncLossInd(SyncLossIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmeDpsInd => Ok(Self::MlmeDpsInd(DpsIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::McpsDataInd => Ok(Self::McpsDataInd(DataIndication::try_parse(buf)?)),
-            OpcodeM0ToM4::MlmePollInd => Ok(Self::MlmePollInd(PollIndication::try_parse(buf)?)),
-        }
+        let mac_event = match opcode {
+            OpcodeM0ToM4::MlmeAssociateCnf => {
+                MacEvent::MlmeAssociateCnf(unsafe { &*(AssociateConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeDisassociateCnf => {
+                MacEvent::MlmeDisassociateCnf(unsafe { &*(DisassociateConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeGetCnf => MacEvent::MlmeGetCnf(unsafe { &*(GetConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeGtsCnf => MacEvent::MlmeGtsCnf(unsafe { &*(GtsConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeResetCnf => {
+                MacEvent::MlmeResetCnf(unsafe { &*(ResetConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeRxEnableCnf => {
+                MacEvent::MlmeRxEnableCnf(unsafe { &*(RxEnableConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeScanCnf => {
+                MacEvent::MlmeScanCnf(unsafe { &*(ScanConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeSetCnf => MacEvent::MlmeSetCnf(unsafe { &*(SetConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeStartCnf => {
+                MacEvent::MlmeStartCnf(unsafe { &*(StartConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmePollCnf => {
+                MacEvent::MlmePollCnf(unsafe { &*(PollConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeDpsCnf => MacEvent::MlmeDpsCnf(unsafe { &*(DpsConfirm::from_buffer(buf)? as *const _) }),
+            OpcodeM0ToM4::MlmeSoundingCnf => {
+                MacEvent::MlmeSoundingCnf(unsafe { &*(SoundingConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeCalibrateCnf => {
+                MacEvent::MlmeCalibrateCnf(unsafe { &*(CalibrateConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::McpsDataCnf => {
+                MacEvent::McpsDataCnf(unsafe { &*(DataConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::McpsPurgeCnf => {
+                MacEvent::McpsPurgeCnf(unsafe { &*(PurgeConfirm::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeAssociateInd => {
+                MacEvent::MlmeAssociateInd(unsafe { &*(AssociateIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeDisassociateInd => {
+                MacEvent::MlmeDisassociateInd(unsafe { &*(DisassociateIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeBeaconNotifyInd => {
+                MacEvent::MlmeBeaconNotifyInd(unsafe { &*(BeaconNotifyIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeCommStatusInd => {
+                MacEvent::MlmeCommStatusInd(unsafe { &*(CommStatusIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeGtsInd => {
+                MacEvent::MlmeGtsInd(unsafe { &*(GtsIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeOrphanInd => {
+                MacEvent::MlmeOrphanInd(unsafe { &*(OrphanIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeSyncLossInd => {
+                MacEvent::MlmeSyncLossInd(unsafe { &*(SyncLossIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmeDpsInd => {
+                MacEvent::MlmeDpsInd(unsafe { &*(DpsIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::McpsDataInd => {
+                MacEvent::McpsDataInd(unsafe { &*(DataIndication::from_buffer(buf)? as *const _) })
+            }
+            OpcodeM0ToM4::MlmePollInd => {
+                MacEvent::MlmePollInd(unsafe { &*(PollIndication::from_buffer(buf)? as *const _) })
+            }
+        };
+
+        // Forget the event box so that drop isn't called
+        // We want to handle the lifetime ourselves
+
+        mem::forget(event_box);
+
+        Ok(mac_event)
+    }
+}
+
+unsafe impl<'a> Send for MacEvent<'a> {}
+
+impl<'a> Drop for MacEvent<'a> {
+    fn drop(&mut self) {
+        unsafe { mac::Mac::drop_event_packet(ptr::null_mut()) };
     }
 }

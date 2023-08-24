@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::{into_ref, Peripheral};
+use embassy_hal_internal::{into_ref, Peripheral};
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
 use crate::rcc::LSI_FREQ;
@@ -60,9 +60,7 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
             rl
         );
 
-        IndependentWatchdog {
-            wdg: PhantomData::default(),
-        }
+        IndependentWatchdog { wdg: PhantomData }
     }
 
     pub fn unleash(&mut self) {
@@ -104,16 +102,16 @@ mod tests {
         assert_eq!(512_000, get_timeout_us(4, MAX_RL));
 
         assert_eq!(8_000, get_timeout_us(256, 0));
-        assert_eq!(32768_000, get_timeout_us(256, MAX_RL));
+        assert_eq!(32_768_000, get_timeout_us(256, MAX_RL));
 
-        assert_eq!(8000_000, get_timeout_us(64, 3999));
+        assert_eq!(8_000_000, get_timeout_us(64, 3999));
     }
 
     #[test]
     fn can_compute_reload_value() {
         assert_eq!(0xFFF, reload_value(4, 512_000));
-        assert_eq!(0xFFF, reload_value(256, 32768_000));
+        assert_eq!(0xFFF, reload_value(256, 32_768_000));
 
-        assert_eq!(3999, reload_value(64, 8000_000));
+        assert_eq!(3999, reload_value(64, 8_000_000));
     }
 }

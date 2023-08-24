@@ -9,7 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["log"] }
-embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-wasm", "executor-thread", "log", "nightly", "integrated-timers"] }
+embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["arch-wasm", "executor-thread", "log", "nightly", "integrated-timers"] }
 embassy-time = { version = "0.1.2", path = "../../embassy-time", features = ["log", "wasm", "nightly"] }
 
 wasm-logger = "0.2.0"
@@ -17,3 +17,6 @@ wasm-bindgen = "0.2"
 web-sys = { version = "0.3", features = ["Document", "Element", "HtmlElement", "Node", "Window" ] }
 log = "0.4.11"
 critical-section = { version = "1.1", features = ["std"] }
+
+[profile.release]
+debug = 2

@@ -4,8 +4,8 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{NoDma, Transfer};
@@ -598,14 +598,38 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
+        self.write_timeout(address, write, || Ok(())).await
+    }
+
+    pub async fn write_timeout(
+        &mut self,
+        address: u8,
+        write: &[u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
         if write.is_empty() {
-            self.write_internal(address, write, true, || Ok(()))
+            self.write_internal(address, write, true, check_timeout)
         } else {
-            self.write_dma_internal(address, write, true, true, || Ok(())).await
+            self.write_dma_internal(address, write, true, true, check_timeout).await
         }
     }
 
     pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        self.write_vectored_timeout(address, write, || Ok(())).await
+    }
+
+    pub async fn write_vectored_timeout(
+        &mut self,
+        address: u8,
+        write: &[&[u8]],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
@@ -620,7 +644,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let next = iter.next();
             let is_last = next.is_none();
 
-            self.write_dma_internal(address, c, first, is_last, || Ok(())).await?;
+            self.write_dma_internal(address, c, first, is_last, || check_timeout())
+                .await?;
             first = false;
             current = next;
         }
@@ -631,10 +656,22 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
+        self.read_timeout(address, buffer, || Ok(())).await
+    }
+
+    pub async fn read_timeout(
+        &mut self,
+        address: u8,
+        buffer: &mut [u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
         if buffer.is_empty() {
-            self.read_internal(address, buffer, false, || Ok(()))
+            self.read_internal(address, buffer, false, check_timeout)
         } else {
-            self.read_dma_internal(address, buffer, false, || Ok(())).await
+            self.read_dma_internal(address, buffer, false, check_timeout).await
         }
     }
 
@@ -643,16 +680,31 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         TXDMA: super::TxDma<T>,
         RXDMA: super::RxDma<T>,
     {
+        self.write_read_timeout(address, write, read, || Ok(())).await
+    }
+
+    pub async fn write_read_timeout(
+        &mut self,
+        address: u8,
+        write: &[u8],
+        read: &mut [u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error>
+    where
+        TXDMA: super::TxDma<T>,
+        RXDMA: super::RxDma<T>,
+    {
         if write.is_empty() {
-            self.write_internal(address, write, false, || Ok(()))?;
+            self.write_internal(address, write, false, || check_timeout())?;
         } else {
-            self.write_dma_internal(address, write, true, true, || Ok(())).await?;
+            self.write_dma_internal(address, write, true, true, || check_timeout())
+                .await?;
         }
 
         if read.is_empty() {
-            self.read_internal(address, read, true, || Ok(()))?;
+            self.read_internal(address, read, true, check_timeout)?;
         } else {
-            self.read_dma_internal(address, read, true, || Ok(())).await?;
+            self.read_dma_internal(address, read, true, check_timeout).await?;
         }
 
         Ok(())

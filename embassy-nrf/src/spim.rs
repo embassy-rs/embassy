@@ -8,7 +8,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
@@ -377,6 +377,9 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
         gpio::deconfigure_pin(r.psel.sck.read().bits());
         gpio::deconfigure_pin(r.psel.miso.read().bits());
         gpio::deconfigure_pin(r.psel.mosi.read().bits());
+
+        // Disable all events interrupts
+        T::Interrupt::disable();
 
         trace!("spim drop: done");
     }

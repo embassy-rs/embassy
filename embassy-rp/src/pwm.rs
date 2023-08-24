@@ -1,6 +1,6 @@
 //! Pulse Width Modulation (PWM)
 
-use embassy_hal_common::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use fixed::traits::ToFixed;
 use fixed::FixedU16;
 use pac::pwm::regs::{ChDiv, Intr};
@@ -79,10 +79,10 @@ impl<'d, T: Channel> Pwm<'d, T> {
         Self::configure(p, &config);
 
         if let Some(pin) = &a {
-            pin.io().ctrl().write(|w| w.set_funcsel(4));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(4));
         }
         if let Some(pin) = &b {
-            pin.io().ctrl().write(|w| w.set_funcsel(4));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(4));
         }
         Self {
             inner,
@@ -243,10 +243,10 @@ impl<'d, T: Channel> Drop for Pwm<'d, T> {
     fn drop(&mut self) {
         self.inner.regs().csr().write_clear(|w| w.set_en(false));
         if let Some(pin) = &self.pin_a {
-            pin.io().ctrl().write(|w| w.set_funcsel(31));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(31));
         }
         if let Some(pin) = &self.pin_b {
-            pin.io().ctrl().write(|w| w.set_funcsel(31));
+            pin.gpio().ctrl().write(|w| w.set_funcsel(31));
         }
     }
 }

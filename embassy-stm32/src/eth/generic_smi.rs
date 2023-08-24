@@ -45,19 +45,18 @@ use self::phy_consts::*;
 pub struct GenericSMI {
     #[cfg(feature = "time")]
     poll_interval: Duration,
+    #[cfg(not(feature = "time"))]
+    _private: (),
 }
 
 impl GenericSMI {
-    #[cfg(feature = "time")]
     pub fn new() -> Self {
         Self {
+            #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
+            #[cfg(not(feature = "time"))]
+            _private: (),
         }
-    }
-
-    #[cfg(not(feature = "time"))]
-    pub fn new() -> Self {
-        Self {}
     }
 }
 
@@ -102,6 +101,7 @@ unsafe impl PHY for GenericSMI {
 
 /// Public functions for the PHY
 impl GenericSMI {
+    #[cfg(feature = "time")]
     pub fn set_poll_interval(&mut self, poll_interval: Duration) {
         self.poll_interval = poll_interval
     }

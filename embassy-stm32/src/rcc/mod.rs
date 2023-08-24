@@ -1,5 +1,7 @@
 #![macro_use]
 
+pub mod common;
+
 use core::mem::MaybeUninit;
 
 use crate::time::Hertz;
@@ -7,7 +9,7 @@ use crate::time::Hertz;
 #[cfg_attr(rcc_f0, path = "f0.rs")]
 #[cfg_attr(any(rcc_f1, rcc_f100, rcc_f1cl), path = "f1.rs")]
 #[cfg_attr(rcc_f2, path = "f2.rs")]
-#[cfg_attr(rcc_f3, path = "f3.rs")]
+#[cfg_attr(any(rcc_f3, rcc_f3_v2), path = "f3.rs")]
 #[cfg_attr(any(rcc_f4, rcc_f410), path = "f4.rs")]
 #[cfg_attr(rcc_f7, path = "f7.rs")]
 #[cfg_attr(rcc_c0, path = "c0.rs")]
@@ -24,6 +26,8 @@ use crate::time::Hertz;
 #[cfg_attr(any(rcc_h5, rcc_h50), path = "h5.rs")]
 mod _version;
 pub use _version::*;
+#[cfg(feature = "low-power")]
+use atomic_polyfill::{AtomicU32, Ordering};
 
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -71,12 +75,43 @@ pub struct Clocks {
 
     #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab))]
     pub adc: Option<Hertz>,
+
+    #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+    /// Set only if the lsi or lse is configured
+    pub rtc: Option<Hertz>,
+}
+
+#[cfg(feature = "low-power")]
+static CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(feature = "low-power")]
+pub fn low_power_ready() -> bool {
+    CLOCK_REFCOUNT.load(Ordering::SeqCst) == 0
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn clock_refcount_add() {
+    // We don't check for overflow because constructing more than u32 peripherals is unlikely
+    CLOCK_REFCOUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn clock_refcount_sub() {
+    assert!(CLOCK_REFCOUNT.fetch_sub(1, Ordering::Relaxed) != 0);
 }
 
 /// Frozen clock frequencies
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
+
+#[cfg(stm32wb)]
+/// RCC initialization function
+pub(crate) unsafe fn init(config: Config) {
+    set_freqs(compute_clocks(&config));
+
+    configure_clocks(&config);
+}
 
 /// Sets the clock frequencies
 ///

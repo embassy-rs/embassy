@@ -2,7 +2,7 @@ use core::future::poll_fn;
 use core::slice;
 use core::task::Poll;
 
-use embassy_hal_common::atomic_ring_buffer::RingBuffer;
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
@@ -400,37 +400,37 @@ impl<'d, T: BasicInstance> Drop for BufferedUartTx<'d, T> {
     }
 }
 
-impl embedded_io::Error for Error {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        embedded_io::ErrorKind::Other
+impl embedded_io_async::Error for Error {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        embedded_io_async::ErrorKind::Other
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::Io for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::ErrorType for BufferedUart<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: BasicInstance> embedded_io::Io for BufferedUartRx<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::ErrorType for BufferedUartRx<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: BasicInstance> embedded_io::Io for BufferedUartTx<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::ErrorType for BufferedUartTx<'d, T> {
     type Error = Error;
 }
 
-impl<'d, T: BasicInstance> embedded_io::asynch::Read for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::Read for BufferedUart<'d, T> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.rx.read(buf).await
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::asynch::Read for BufferedUartRx<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::Read for BufferedUartRx<'d, T> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         Self::read(self, buf).await
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::BufRead for BufferedUart<'d, T> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
         self.rx.fill_buf().await
     }
@@ -440,7 +440,7 @@ impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUart<'d, T> 
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::BufRead for BufferedUartRx<'d, T> {
     async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
         Self::fill_buf(self).await
     }
@@ -450,7 +450,7 @@ impl<'d, T: BasicInstance> embedded_io::asynch::BufRead for BufferedUartRx<'d, T
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::Write for BufferedUart<'d, T> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.tx.write(buf).await
     }
@@ -460,7 +460,7 @@ impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUart<'d, T> {
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUartTx<'d, T> {
+impl<'d, T: BasicInstance> embedded_io_async::Write for BufferedUartTx<'d, T> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Self::write(self, buf).await
     }
@@ -470,19 +470,19 @@ impl<'d, T: BasicInstance> embedded_io::asynch::Write for BufferedUartTx<'d, T> 
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::blocking::Read for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::Read for BufferedUart<'d, T> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.rx.blocking_read(buf)
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::blocking::Read for BufferedUartRx<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::Read for BufferedUartRx<'d, T> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.blocking_read(buf)
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::blocking::Write for BufferedUart<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::Write for BufferedUart<'d, T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.tx.blocking_write(buf)
     }
@@ -492,7 +492,7 @@ impl<'d, T: BasicInstance> embedded_io::blocking::Write for BufferedUart<'d, T> 
     }
 }
 
-impl<'d, T: BasicInstance> embedded_io::blocking::Write for BufferedUartTx<'d, T> {
+impl<'d, T: BasicInstance> embedded_io::Write for BufferedUartTx<'d, T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Self::blocking_write(self, buf)
     }
@@ -584,31 +584,21 @@ mod eh02 {
 mod eh1 {
     use super::*;
 
-    impl<'d, T: BasicInstance> embedded_hal_1::serial::ErrorType for BufferedUart<'d, T> {
+    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUart<'d, T> {
         type Error = Error;
     }
 
-    impl<'d, T: BasicInstance> embedded_hal_1::serial::ErrorType for BufferedUartTx<'d, T> {
+    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d, T> {
         type Error = Error;
     }
 
-    impl<'d, T: BasicInstance> embedded_hal_1::serial::ErrorType for BufferedUartRx<'d, T> {
+    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d, T> {
         type Error = Error;
     }
 
     impl<'d, T: BasicInstance> embedded_hal_nb::serial::Read for BufferedUartRx<'d, T> {
         fn read(&mut self) -> nb::Result<u8, Self::Error> {
             embedded_hal_02::serial::Read::read(self)
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_1::serial::Write for BufferedUartTx<'d, T> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer).map(drop)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
         }
     }
 
@@ -625,16 +615,6 @@ mod eh1 {
     impl<'d, T: BasicInstance> embedded_hal_nb::serial::Read for BufferedUart<'d, T> {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_1::serial::Write for BufferedUart<'d, T> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.tx.blocking_write(buffer).map(drop)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.tx.blocking_flush()
         }
     }
 

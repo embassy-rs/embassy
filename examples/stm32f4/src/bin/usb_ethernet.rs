@@ -6,14 +6,14 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
-use embassy_stm32::rng::Rng;
+use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb_otg::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
-use embedded_io::asynch::Write;
+use embedded_io_async::Write;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -38,6 +38,7 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+    HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
 #[embassy_executor::main]
@@ -104,7 +105,7 @@ async fn main(spawner: Spawner) {
     //});
 
     // Generate random seed
-    let mut rng = Rng::new(p.RNG);
+    let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
     unwrap!(rng.async_fill_bytes(&mut seed).await);
     let seed = u64::from_le_bytes(seed);

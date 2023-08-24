@@ -85,12 +85,7 @@ impl Mac {
     where
         T: MacCommand,
     {
-        let mut payload = [0u8; MAX_PACKET_SIZE];
-        cmd.copy_into_slice(&mut payload);
-
-        let response = self
-            .tl_write_and_get_response(T::OPCODE as u16, &payload[..T::SIZE])
-            .await;
+        let response = self.tl_write_and_get_response(T::OPCODE as u16, cmd.payload()).await;
 
         if response == 0x00 {
             Ok(())
@@ -99,19 +94,16 @@ impl Mac {
         }
     }
 
-    pub async fn read(&self) -> Result<MacEvent, ()> {
-        let evt_box = self.tl_read().await;
-        let payload = evt_box.payload();
-
-        MacEvent::try_from(payload)
+    pub async fn read(&self) -> Result<MacEvent<'_>, ()> {
+        MacEvent::new(self.tl_read().await)
     }
 }
-
-const MAX_PACKET_SIZE: usize = 255;
 
 impl evt::MemoryManager for Mac {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB
     unsafe fn drop_event_packet(_: *mut EvtPacket) {
+        trace!("mac drop event");
+
         // Write the ack
         CmdPacket::write_into(
             MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _,
@@ -121,7 +113,7 @@ impl evt::MemoryManager for Mac {
         );
 
         // Clear the rx flag
-        let _ = poll_once(Ipcc::receive::<bool>(
+        let _ = poll_once(Ipcc::receive::<()>(
             channels::cpu2::IPCC_MAC_802_15_4_NOTIFICATION_ACK_CHANNEL,
             || None,
         ));

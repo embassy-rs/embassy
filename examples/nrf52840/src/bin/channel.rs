@@ -35,7 +35,7 @@ async fn main(spawner: Spawner) {
     unwrap!(spawner.spawn(my_task()));
 
     loop {
-        match CHANNEL.recv().await {
+        match CHANNEL.receive().await {
             LedState::On => led.set_high(),
             LedState::Off => led.set_low(),
         }

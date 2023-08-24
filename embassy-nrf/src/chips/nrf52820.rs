@@ -8,7 +8,7 @@ pub const FLASH_SIZE: usize = 256 * 1024;
 
 pub const RESET_PIN: u32 = 18;
 
-embassy_hal_common::peripherals! {
+embassy_hal_internal::peripherals! {
     // USB
     USBD,
 
@@ -224,7 +224,7 @@ impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
 
-embassy_hal_common::interrupt_mod!(
+embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,
     RADIO,
     UARTE0_UART0,

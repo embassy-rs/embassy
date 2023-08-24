@@ -31,19 +31,19 @@ async fn main(_spawner: Spawner) {
     led.set_high();
 
     let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
-    let mut updater = FirmwareUpdater::new(config);
+    let mut magic = AlignedBuffer([0; WRITE_SIZE]);
+    let mut updater = FirmwareUpdater::new(config, &mut magic.0);
     button.wait_for_falling_edge().await;
     //defmt::info!("Starting update");
-    let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut offset = 0;
     for chunk in APP_B.chunks(2048) {
         let mut buf: [u8; 2048] = [0; 2048];
         buf[..chunk.len()].copy_from_slice(chunk);
         //        defmt::info!("Writing chunk at 0x{:x}", offset);
-        updater.write_firmware(magic.as_mut(), offset, &buf).await.unwrap();
+        updater.write_firmware(offset, &buf).await.unwrap();
         offset += chunk.len();
     }
-    updater.mark_updated(magic.as_mut()).await.unwrap();
+    updater.mark_updated().await.unwrap();
     //defmt::info!("Marked as updated");
     led.set_low();
     cortex_m::peripheral::SCB::sys_reset();

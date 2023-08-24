@@ -4,15 +4,12 @@ use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net_tuntap::TunTapDevice;
 use heapless::Vec;
 use log::*;
 use rand_core::{OsRng, RngCore};
 use static_cell::{make_static, StaticCell};
 
-#[path = "../tuntap.rs"]
-mod tuntap;
-
-use crate::tuntap::TunTapDevice;
 #[derive(Parser)]
 #[clap(version = "1.0")]
 struct Opts {

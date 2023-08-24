@@ -16,7 +16,7 @@ use embassy_rp::{bind_interrupts, peripherals};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, Config, UsbDevice};
-use embedded_io::asynch::Write;
+use embedded_io_async::Write;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
 

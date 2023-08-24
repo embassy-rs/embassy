@@ -10,9 +10,9 @@ use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, STATE_ERASE_VALUE, SWAP_MAG
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
-pub struct FirmwareUpdater<DFU: NorFlash, STATE: NorFlash> {
+pub struct FirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
     dfu: DFU,
-    state: STATE,
+    state: FirmwareState<'d, STATE>,
 }
 
 #[cfg(target_os = "none")]
@@ -47,22 +47,12 @@ impl<'a, FLASH: NorFlash>
     }
 }
 
-impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
+impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     /// Create a firmware updater instance with partition ranges for the update and state partitions.
-    pub fn new(config: FirmwareUpdaterConfig<DFU, STATE>) -> Self {
+    pub fn new(config: FirmwareUpdaterConfig<DFU, STATE>, aligned: &'d mut [u8]) -> Self {
         Self {
             dfu: config.dfu,
-            state: config.state,
-        }
-    }
-
-    // Make sure we are running a booted firmware to avoid reverting to a bad state.
-    async fn verify_booted(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
-        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
-        if self.get_state(aligned).await? == State::Boot {
-            Ok(())
-        } else {
-            Err(FirmwareUpdaterError::BadState)
+            state: FirmwareState::new(config.state, aligned),
         }
     }
 
@@ -71,14 +61,8 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     /// This is useful to check if the bootloader has just done a swap, in order
     /// to do verifications and self-tests of the new image before calling
     /// `mark_booted`.
-    pub async fn get_state(&mut self, aligned: &mut [u8]) -> Result<State, FirmwareUpdaterError> {
-        self.state.read(0, aligned).await?;
-
-        if !aligned.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else {
-            Ok(State::Boot)
-        }
+    pub async fn get_state(&mut self) -> Result<State, FirmwareUpdaterError> {
+        self.state.get_state().await
     }
 
     /// Verify the DFU given a public key. If there is an error then DO NOT
@@ -92,23 +76,16 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     ///
     /// If no signature feature is set then this method will always return a
     /// signature error.
-    ///
-    /// # Safety
-    ///
-    /// The `_aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being read from
-    /// and written to.
     #[cfg(feature = "_verify")]
     pub async fn verify_and_mark_updated(
         &mut self,
         _public_key: &[u8],
         _signature: &[u8],
         _update_len: u32,
-        _aligned: &mut [u8],
     ) -> Result<(), FirmwareUpdaterError> {
-        assert_eq!(_aligned.len(), STATE::WRITE_SIZE);
         assert!(_update_len <= self.dfu.capacity() as u32);
 
-        self.verify_booted(_aligned).await?;
+        self.state.verify_booted().await?;
 
         #[cfg(feature = "ed25519-dalek")]
         {
@@ -121,8 +98,9 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
             let public_key = PublicKey::from_bytes(_public_key).map_err(into_signature_error)?;
             let signature = Signature::from_bytes(_signature).map_err(into_signature_error)?;
 
+            let mut chunk_buf = [0; 2];
             let mut message = [0; 64];
-            self.hash::<Sha512>(_update_len, _aligned, &mut message).await?;
+            self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
             public_key.verify(&message, &signature).map_err(into_signature_error)?
         }
@@ -143,7 +121,8 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
             let signature = Signature::try_from(&signature).map_err(into_signature_error)?;
 
             let mut message = [0; 64];
-            self.hash::<Sha512>(_update_len, _aligned, &mut message).await?;
+            let mut chunk_buf = [0; 2];
+            self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
             let r = public_key.verify(&message, &signature);
             trace!(
@@ -156,7 +135,7 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
             r.map_err(into_signature_error)?
         }
 
-        self.set_magic(_aligned, SWAP_MAGIC).await
+        self.state.mark_updated().await
     }
 
     /// Verify the update in DFU with any digest.
@@ -177,49 +156,14 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     }
 
     /// Mark to trigger firmware swap on next boot.
-    ///
-    /// # Safety
-    ///
-    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being written to.
     #[cfg(not(feature = "_verify"))]
-    pub async fn mark_updated(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
-        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
-        self.set_magic(aligned, SWAP_MAGIC).await
+    pub async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_updated().await
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
-    ///
-    /// # Safety
-    ///
-    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being written to.
-    pub async fn mark_booted(&mut self, aligned: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
-        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
-        self.set_magic(aligned, BOOT_MAGIC).await
-    }
-
-    async fn set_magic(&mut self, aligned: &mut [u8], magic: u8) -> Result<(), FirmwareUpdaterError> {
-        self.state.read(0, aligned).await?;
-
-        if aligned.iter().any(|&b| b != magic) {
-            // Read progress validity
-            self.state.read(STATE::WRITE_SIZE as u32, aligned).await?;
-
-            if aligned.iter().any(|&b| b != STATE_ERASE_VALUE) {
-                // The current progress validity marker is invalid
-            } else {
-                // Invalidate progress
-                aligned.fill(!STATE_ERASE_VALUE);
-                self.state.write(STATE::WRITE_SIZE as u32, aligned).await?;
-            }
-
-            // Clear magic and progress
-            self.state.erase(0, self.state.capacity() as u32).await?;
-
-            // Set magic
-            aligned.fill(magic);
-            self.state.write(0, aligned).await?;
-        }
-        Ok(())
+    pub async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_booted().await
     }
 
     /// Write data to a flash page.
@@ -229,16 +173,10 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     /// # Safety
     ///
     /// Failing to meet alignment and size requirements may result in a panic.
-    pub async fn write_firmware(
-        &mut self,
-        aligned: &mut [u8],
-        offset: usize,
-        data: &[u8],
-    ) -> Result<(), FirmwareUpdaterError> {
+    pub async fn write_firmware(&mut self, offset: usize, data: &[u8]) -> Result<(), FirmwareUpdaterError> {
         assert!(data.len() >= DFU::ERASE_SIZE);
-        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
 
-        self.verify_booted(aligned).await?;
+        self.state.verify_booted().await?;
 
         self.dfu.erase(offset as u32, (offset + data.len()) as u32).await?;
 
@@ -252,17 +190,91 @@ impl<DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<DFU, STATE> {
     ///
     /// Using this instead of `write_firmware` allows for an optimized API in
     /// exchange for added complexity.
-    ///
-    /// # Safety
-    ///
-    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being written to.
-    pub async fn prepare_update(&mut self, aligned: &mut [u8]) -> Result<&mut DFU, FirmwareUpdaterError> {
-        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
-        self.verify_booted(aligned).await?;
-
+    pub async fn prepare_update(&mut self) -> Result<&mut DFU, FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
         self.dfu.erase(0, self.dfu.capacity() as u32).await?;
 
         Ok(&mut self.dfu)
+    }
+}
+
+/// Manages the state partition of the firmware update.
+///
+/// Can be used standalone for more fine grained control, or as part of the updater.
+pub struct FirmwareState<'d, STATE> {
+    state: STATE,
+    aligned: &'d mut [u8],
+}
+
+impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
+    /// Create a firmware state instance with a buffer for magic content and state partition.
+    ///
+    /// # Safety
+    ///
+    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being read from
+    /// and written to.
+    pub fn new(state: STATE, aligned: &'d mut [u8]) -> Self {
+        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
+        Self { state, aligned }
+    }
+
+    // Make sure we are running a booted firmware to avoid reverting to a bad state.
+    async fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        if self.get_state().await? == State::Boot {
+            Ok(())
+        } else {
+            Err(FirmwareUpdaterError::BadState)
+        }
+    }
+
+    /// Obtain the current state.
+    ///
+    /// This is useful to check if the bootloader has just done a swap, in order
+    /// to do verifications and self-tests of the new image before calling
+    /// `mark_booted`.
+    pub async fn get_state(&mut self) -> Result<State, FirmwareUpdaterError> {
+        self.state.read(0, &mut self.aligned).await?;
+
+        if !self.aligned.iter().any(|&b| b != SWAP_MAGIC) {
+            Ok(State::Swap)
+        } else {
+            Ok(State::Boot)
+        }
+    }
+
+    /// Mark to trigger firmware swap on next boot.
+    pub async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(SWAP_MAGIC).await
+    }
+
+    /// Mark firmware boot successful and stop rollback on reset.
+    pub async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(BOOT_MAGIC).await
+    }
+
+    async fn set_magic(&mut self, magic: u8) -> Result<(), FirmwareUpdaterError> {
+        self.state.read(0, &mut self.aligned).await?;
+
+        if self.aligned.iter().any(|&b| b != magic) {
+            // Read progress validity
+            self.state.read(STATE::WRITE_SIZE as u32, &mut self.aligned).await?;
+
+            if self.aligned.iter().any(|&b| b != STATE_ERASE_VALUE) {
+                // The current progress validity marker is invalid
+            } else {
+                // Invalidate progress
+                self.aligned.fill(!STATE_ERASE_VALUE);
+                self.state.write(STATE::WRITE_SIZE as u32, &self.aligned).await?;
+            }
+
+            // Clear magic and progress
+            self.state.erase(0, self.state.capacity() as u32).await?;
+
+            // Set magic
+            self.aligned.fill(magic);
+            self.state.write(0, &self.aligned).await?;
+        }
+        Ok(())
     }
 }
 
@@ -288,8 +300,8 @@ mod tests {
         let mut to_write = [0; 4096];
         to_write[..7].copy_from_slice(update.as_slice());
 
-        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state });
-        block_on(updater.write_firmware(&mut aligned, 0, to_write.as_slice())).unwrap();
+        let mut updater = FirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
+        block_on(updater.write_firmware(0, to_write.as_slice())).unwrap();
         let mut chunk_buf = [0; 2];
         let mut hash = [0; 20];
         block_on(updater.hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)).unwrap();

@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{BufferedUart, Config};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
-use embedded_io::asynch::BufRead;
+use embedded_io_async::BufRead;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

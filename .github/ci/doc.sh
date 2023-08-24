@@ -15,7 +15,6 @@ export BUILDER_COMPRESS=true
 # which makes rustup very sad
 rustc --version > /dev/null
 
-docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
 docserver-builder -i ./embassy-boot/boot -o webroot/crates/embassy-boot/git.zup
 docserver-builder -i ./embassy-boot/nrf -o webroot/crates/embassy-boot-nrf/git.zup
 docserver-builder -i ./embassy-boot/rp -o webroot/crates/embassy-boot-rp/git.zup
@@ -36,10 +35,20 @@ docserver-builder -i ./embassy-usb-driver -o webroot/crates/embassy-usb-driver/g
 docserver-builder -i ./embassy-usb-logger -o webroot/crates/embassy-usb-logger/git.zup
 docserver-builder -i ./cyw43 -o webroot/crates/cyw43/git.zup
 docserver-builder -i ./cyw43-pio -o webroot/crates/cyw43-pio/git.zup
-docserver-builder -i ./embassy-net-w5500 -o webroot/crates/embassy-net-w5500/git.zup
+docserver-builder -i ./embassy-net-wiznet -o webroot/crates/embassy-net-wiznet/git.zup
+docserver-builder -i ./embassy-net-enc28j60 -o webroot/crates/embassy-net-enc28j60/git.zup
+docserver-builder -i ./embassy-net-esp-hosted -o webroot/crates/embassy-net-esp-hosted/git.zup
 docserver-builder -i ./embassy-stm32-wpan -o webroot/crates/embassy-stm32-wpan/git.zup --output-static webroot/static
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
 kubectl cp webroot/crates $POD:/data
 kubectl cp webroot/static $POD:/data
+
+# build and upload stm32 last
+# so that it doesn't prevent other crates from getting docs updates when it breaks.
+rm -rf webroot
+docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
+
+POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
+kubectl cp webroot/crates $POD:/data

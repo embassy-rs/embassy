@@ -1,15 +1,13 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
-#[path = "../common.rs"]
-mod common;
+teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{Config, InterruptHandler, Pio};
-use embassy_rp::relocate::RelocatedProgram;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -35,9 +33,8 @@ async fn main(_spawner: Spawner) {
         "irq wait 1",
     );
 
-    let relocated = RelocatedProgram::new(&prg.program);
     let mut cfg = Config::default();
-    cfg.use_program(&common.load_program(&relocated), &[]);
+    cfg.use_program(&common.load_program(&prg.program), &[]);
     sm.set_config(&cfg);
     sm.set_enable(true);
 

@@ -12,12 +12,14 @@ nightly = [
     "embassy-nrf/nightly",
     "embassy-net/nightly",
     "embassy-net-esp-hosted",
+    "embassy-net-enc28j60",
     "embassy-nrf/unstable-traits",
     "embassy-time/nightly",
     "embassy-time/unstable-traits",
     "static_cell/nightly",
     "embassy-usb",
-    "embedded-io/async",
+    "embedded-io-async",
+    "embedded-hal-bus/async",
     "embassy-net",
     "embassy-lora",
     "lora-phy",
@@ -28,21 +30,24 @@ nightly = [
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"], optional = true }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt", "msos-descriptor",], optional = true }
-embedded-io = "0.4.0"
+embedded-io = { version = "0.5.0", features = ["defmt-03"]  }
+embedded-io-async = { version = "0.5.0", optional = true, features = ["defmt-03"] }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"], optional = true }
 lora-phy = { version = "1", optional = true }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
 lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"], optional = true }
 embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"], optional = true }
+embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60", features = ["defmt"], optional = true }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
 
+fixed = "1.10.0"
 static_cell = "1.1"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
@@ -52,7 +57,14 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
-embedded-hal-async = { version = "0.2.0-alpha.2", optional = true }
+embedded-hal = { version = "1.0.0-rc.1" }
+embedded-hal-async = { version = "1.0.0-rc.1", optional = true }
+embedded-hal-bus = { version = "0.1.0-rc.1" }
+num-integer = { version = "0.1.45", default-features = false }
+microfft = "0.5.0"
+
+[profile.release]
+debug = 2
 
 [patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "ad289428fd44b02788e2fa2116445cc8f640a265" }
+lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "1323eccc1c470d4259f95f4f315d1be830d572a3"}

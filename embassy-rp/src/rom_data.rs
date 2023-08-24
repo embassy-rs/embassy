@@ -88,15 +88,20 @@ macro_rules! declare_rom_function {
         #[doc = stringify!($name)]
         #[doc = r"` ROM function."]
         pub mod $name {
-            /// Retrieve a function pointer.
             #[cfg(not(feature = "rom-func-cache"))]
-            pub fn ptr() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
+            pub(crate) fn outer_call() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
                 let p: *const u32 = $lookup;
                 unsafe {
                     let func : $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret
                         = core::mem::transmute(p);
                     func
                 }
+            }
+
+            /// Retrieve a function pointer.
+            #[cfg(not(feature = "rom-func-cache"))]
+            pub fn ptr() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
+                outer_call()
             }
 
             #[cfg(feature = "rom-func-cache")]
@@ -119,9 +124,8 @@ macro_rules! declare_rom_function {
                 }
             }
 
-            /// Retrieve a function pointer.
             #[cfg(feature = "rom-func-cache")]
-            pub fn ptr() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
+            pub(crate) fn outer_call() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
                 use core::sync::atomic::{compiler_fence, Ordering};
 
                 // This is safe because the lookup will always resolve
@@ -138,11 +142,37 @@ macro_rules! declare_rom_function {
                     CACHE
                 }
             }
+
+            /// Retrieve a function pointer.
+            #[cfg(feature = "rom-func-cache")]
+            pub fn ptr() -> $( $maybe_unsafe )? extern "C" fn( $($argname: $ty),* ) -> $ret {
+                use core::sync::atomic::{compiler_fence, Ordering};
+
+                // We can't just return the trampoline here because we need
+                // the actual resolved function address (e.x. flash operations
+                // can't reference a trampoline which itself is in flash).  We
+                // can still utilize the cache, but we have to make sure it has
+                // been resolved already.  Like the normal call path, we
+                // don't need anything stronger than fences because the
+                // final value always resolves to the same thing and SRAM
+                // itself is not cached.
+                compiler_fence(Ordering::Acquire);
+                #[allow(unused_unsafe)]
+                unsafe {
+                    // ROM is 16kB in size at 0x0, so anything outside is cached
+                    if CACHE as u32 >> 14 != 0 {
+                        let p: *const u32 = $lookup;
+                        CACHE = core::mem::transmute(p);
+                        compiler_fence(Ordering::Release);
+                    }
+                    CACHE
+                }
+            }
         }
 
         $(#[$outer])*
         pub $( $maybe_unsafe )? extern "C" fn $name( $($argname: $ty),* ) -> $ret {
-            $name::ptr()($($argname),*)
+            $name::outer_call()($($argname),*)
         }
     };
 }

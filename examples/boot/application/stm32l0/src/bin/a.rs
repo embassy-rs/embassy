@@ -33,18 +33,18 @@ async fn main(_spawner: Spawner) {
     led.set_high();
 
     let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
-    let mut updater = FirmwareUpdater::new(config);
+    let mut magic = AlignedBuffer([0; WRITE_SIZE]);
+    let mut updater = FirmwareUpdater::new(config, &mut magic.0);
     button.wait_for_falling_edge().await;
     let mut offset = 0;
-    let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     for chunk in APP_B.chunks(128) {
         let mut buf: [u8; 128] = [0; 128];
         buf[..chunk.len()].copy_from_slice(chunk);
-        updater.write_firmware(magic.as_mut(), offset, &buf).await.unwrap();
+        updater.write_firmware(offset, &buf).await.unwrap();
         offset += chunk.len();
     }
 
-    updater.mark_updated(magic.as_mut()).await.unwrap();
+    updater.mark_updated().await.unwrap();
     led.set_low();
     Timer::after(Duration::from_secs(1)).await;
     cortex_m::peripheral::SCB::sys_reset();

@@ -113,7 +113,7 @@ async fn core1_task(
     };
 
     loop {
-        let buffer: [u8; 3] = CHANNEL.recv().await;
+        let buffer: [u8; 3] = CHANNEL.receive().await;
         match lora.prepare_for_tx(&mdltn_params, 20, false).await {
             Ok(()) => {}
             Err(err) => {

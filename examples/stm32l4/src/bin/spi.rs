@@ -15,16 +15,10 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let mut spi = Spi::new(
-        p.SPI3,
-        p.PC10,
-        p.PC12,
-        p.PC11,
-        NoDma,
-        NoDma,
-        Hertz(1_000_000),
-        Config::default(),
-    );
+    let mut spi_config = Config::default();
+    spi_config.frequency = Hertz(1_000_000);
+
+    let mut spi = Spi::new(p.SPI3, p.PC10, p.PC12, p.PC11, NoDma, NoDma, spi_config);
 
     let mut cs = Output::new(p.PE0, Level::High, Speed::VeryHigh);
 

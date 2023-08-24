@@ -9,7 +9,7 @@ embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = [
     "defmt",
 ] }
-embassy-executor = { version = "0.2.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", 
+embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", 
     "nightly",
     "defmt",
     "integrated-timers",
@@ -37,7 +37,7 @@ embassy-net = { version = "0.1.0", path = "../../embassy-net", features = [
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = [
     "defmt",
 ] }
-embedded-io = { version = "0.4.0", features = [ "async" ]}
+embedded-io-async = { version = "0.5.0" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -53,3 +53,6 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.0"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
+
+[profile.release]
+debug = 2

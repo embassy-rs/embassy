@@ -4,7 +4,7 @@ use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{select, Either};
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Timer};
 use pac::uart::regs::Uartris;
@@ -565,7 +565,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
     ) {
         let r = T::regs();
         if let Some(pin) = &tx {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_outover(if config.invert_tx {
                     Outover::INVERT
@@ -576,7 +576,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             pin.pad_ctrl().write(|w| w.set_ie(true));
         }
         if let Some(pin) = &rx {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_inover(if config.invert_rx {
                     Inover::INVERT
@@ -587,7 +587,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             pin.pad_ctrl().write(|w| w.set_ie(true));
         }
         if let Some(pin) = &cts {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_inover(if config.invert_cts {
                     Inover::INVERT
@@ -598,7 +598,7 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
             pin.pad_ctrl().write(|w| w.set_ie(true));
         }
         if let Some(pin) = &rts {
-            pin.io().ctrl().write(|w| {
+            pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(2);
                 w.set_outover(if config.invert_rts {
                     Outover::INVERT
@@ -807,26 +807,26 @@ mod eh02 {
 mod eh1 {
     use super::*;
 
-    impl embedded_hal_1::serial::Error for Error {
-        fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
+    impl embedded_hal_nb::serial::Error for Error {
+        fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
             match *self {
-                Self::Framing => embedded_hal_1::serial::ErrorKind::FrameFormat,
-                Self::Break => embedded_hal_1::serial::ErrorKind::Other,
-                Self::Overrun => embedded_hal_1::serial::ErrorKind::Overrun,
-                Self::Parity => embedded_hal_1::serial::ErrorKind::Parity,
+                Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
+                Self::Break => embedded_hal_nb::serial::ErrorKind::Other,
+                Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
+                Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
             }
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for Uart<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::ErrorType for UartRx<'d, T, M> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for UartTx<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::ErrorType for UartTx<'d, T, M> {
         type Error = Error;
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::ErrorType for UartRx<'d, T, M> {
+    impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::ErrorType for Uart<'d, T, M> {
         type Error = Error;
     }
 
@@ -851,16 +851,6 @@ mod eh1 {
         }
     }
 
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::Write for UartTx<'d, T, M> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
-        }
-    }
-
     impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, T, M> {
         fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
             self.blocking_write(&[char]).map_err(nb::Error::Other)
@@ -874,16 +864,6 @@ mod eh1 {
     impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, T, M> {
         fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
             embedded_hal_02::serial::Read::read(&mut self.rx)
-        }
-    }
-
-    impl<'d, T: Instance, M: Mode> embedded_hal_1::serial::Write for Uart<'d, T, M> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
         }
     }
 

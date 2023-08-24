@@ -18,8 +18,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use pac::uarte0::RegisterBlock;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
@@ -947,53 +947,5 @@ mod eh02 {
         fn bflush(&mut self) -> Result<(), Self::Error> {
             Ok(())
         }
-    }
-}
-
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
-
-    impl embedded_hal_1::serial::Error for Error {
-        fn kind(&self) -> embedded_hal_1::serial::ErrorKind {
-            match *self {
-                Self::BufferTooLong => embedded_hal_1::serial::ErrorKind::Other,
-                Self::BufferNotInRAM => embedded_hal_1::serial::ErrorKind::Other,
-            }
-        }
-    }
-
-    // =====================
-
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for Uarte<'d, T> {
-        type Error = Error;
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::serial::Write for Uarte<'d, T> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteTx<'d, T> {
-        type Error = Error;
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::serial::Write for UarteTx<'d, T> {
-        fn write(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::serial::ErrorType for UarteRx<'d, T> {
-        type Error = Error;
     }
 }

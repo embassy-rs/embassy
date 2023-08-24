@@ -11,7 +11,6 @@ use crate::ring_buffer::RingBuffer;
 use crate::waitqueue::WakerRegistration;
 
 /// Write-only access to a [`Pipe`].
-#[derive(Copy)]
 pub struct Writer<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -27,6 +26,8 @@ where
         Writer { pipe: self.pipe }
     }
 }
+
+impl<'p, M, const N: usize> Copy for Writer<'p, M, N> where M: RawMutex {}
 
 impl<'p, M, const N: usize> Writer<'p, M, N>
 where
@@ -74,7 +75,6 @@ where
 impl<'p, M, const N: usize> Unpin for WriteFuture<'p, M, N> where M: RawMutex {}
 
 /// Read-only access to a [`Pipe`].
-#[derive(Copy)]
 pub struct Reader<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -90,6 +90,8 @@ where
         Reader { pipe: self.pipe }
     }
 }
+
+impl<'p, M, const N: usize> Copy for Reader<'p, M, N> where M: RawMutex {}
 
 impl<'p, M, const N: usize> Reader<'p, M, N>
 where
@@ -381,17 +383,17 @@ mod io_impls {
 
     use super::*;
 
-    impl<M: RawMutex, const N: usize> embedded_io::Io for Pipe<M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Pipe<M, N> {
         type Error = Infallible;
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Pipe<M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::Read for Pipe<M, N> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             Ok(Pipe::read(self, buf).await)
         }
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Pipe<M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::Write for Pipe<M, N> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             Ok(Pipe::write(self, buf).await)
         }
@@ -401,17 +403,17 @@ mod io_impls {
         }
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::Io for &Pipe<M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for &Pipe<M, N> {
         type Error = Infallible;
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for &Pipe<M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::Read for &Pipe<M, N> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             Ok(Pipe::read(self, buf).await)
         }
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for &Pipe<M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::Write for &Pipe<M, N> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             Ok(Pipe::write(self, buf).await)
         }
@@ -421,21 +423,21 @@ mod io_impls {
         }
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::Io for Reader<'_, M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Reader<'_, M, N> {
         type Error = Infallible;
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::asynch::Read for Reader<'_, M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::Read for Reader<'_, M, N> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             Ok(Reader::read(self, buf).await)
         }
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::Io for Writer<'_, M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Writer<'_, M, N> {
         type Error = Infallible;
     }
 
-    impl<M: RawMutex, const N: usize> embedded_io::asynch::Write for Writer<'_, M, N> {
+    impl<M: RawMutex, const N: usize> embedded_io_async::Write for Writer<'_, M, N> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             Ok(Writer::write(self, buf).await)
         }

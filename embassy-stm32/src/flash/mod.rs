@@ -63,10 +63,13 @@ impl FlashRegion {
 #[cfg_attr(flash_f3, path = "f3.rs")]
 #[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
+#[cfg_attr(flash_g0, path = "g0.rs")]
 #[cfg_attr(flash_h7, path = "h7.rs")]
+#[cfg_attr(flash_h7ab, path = "h7.rs")]
 #[cfg_attr(
     not(any(
-        flash_l0, flash_l1, flash_l4, flash_wl, flash_wb, flash_f0, flash_f3, flash_f4, flash_f7, flash_h7
+        flash_l0, flash_l1, flash_l4, flash_wl, flash_wb, flash_f0, flash_f3, flash_f4, flash_f7, flash_g0, flash_h7,
+        flash_h7ab
     )),
     path = "other.rs"
 )]

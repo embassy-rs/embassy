@@ -6,6 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::mac::commands::{AssociateRequest, DataRequest, GetRequest, ResetRequest, SetRequest};
 use embassy_stm32_wpan::mac::event::MacEvent;
 use embassy_stm32_wpan::mac::typedefs::{
@@ -32,7 +33,7 @@ async fn main(spawner: Spawner) {
 
         - Obtain a NUCLEO-STM32WB55 from your preferred supplier.
         - Download and Install STM32CubeProgrammer.
-        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Stack_full_fw.bin, and Release_Notes.html from
+        - Download stm32wb5x_FUS_fw.bin, stm32wb5x_BLE_Mac_802_15_4_fw.bin, and Release_Notes.html from
           gh:STMicroelectronics/STM32CubeWB@2234d97/Projects/STM32WB_Copro_Wireless_Binaries/STM32WB5x
         - Open STM32CubeProgrammer
         - On the right-hand pane, click "firmware upgrade" to upgrade the st-link firmware.
@@ -41,7 +42,7 @@ async fn main(spawner: Spawner) {
         - In the Release_Notes.html, find the memory address that corresponds to your device for the stm32wb5x_FUS_fw.bin file
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Once complete, in the Release_Notes.html, find the memory address that corresponds to your device for the
-          stm32wb5x_BLE_Stack_full_fw.bin file. It should not be the same memory address.
+          stm32wb5x_BLE_Mac_802_15_4_fw.bin file. It should not be the same memory address.
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Select "Start Wireless Stack".
         - Disconnect from the device.
@@ -51,7 +52,9 @@ async fn main(spawner: Spawner) {
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
     */
 
-    let p = embassy_stm32::init(Default::default());
+    let mut config = embassy_stm32::Config::default();
+    config.rcc = WPAN_DEFAULT;
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
@@ -69,11 +72,13 @@ async fn main(spawner: Spawner) {
 
     info!("resetting");
     mbox.mac_subsystem
-        .send_command(&ResetRequest { set_default_pib: true })
+        .send_command(&ResetRequest {
+            set_default_pib: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
@@ -84,24 +89,27 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
 
     info!("getting extended address");
     mbox.mac_subsystem
         .send_command(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
+            ..Default::default()
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
 
-    if let Ok(MacEvent::MlmeGetCnf(evt)) = evt {
-        if evt.pib_attribute_value_len == 8 {
-            let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+    {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
 
-            info!("value {:#x}", value)
+        if let MacEvent::MlmeGetCnf(evt) = evt {
+            if evt.pib_attribute_value_len == 8 {
+                let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+
+                info!("value {:#x}", value)
+            }
         }
     }
 
@@ -120,13 +128,15 @@ async fn main(spawner: Spawner) {
     };
     info!("{}", a);
     mbox.mac_subsystem.send_command(&a).await.unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    let short_addr = {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
 
-    let short_addr = if let Ok(MacEvent::MlmeAssociateCnf(conf)) = evt {
-        conf.assoc_short_address
-    } else {
-        defmt::panic!()
+        if let MacEvent::MlmeAssociateCnf(conf) = evt {
+            conf.assoc_short_address
+        } else {
+            defmt::panic!()
+        }
     };
 
     info!("setting short address");
@@ -137,34 +147,39 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
+    }
 
     info!("sending data");
-    let mut data_buffer = [0u8; 256];
     let data = b"Hello from embassy!";
-    data_buffer[..data.len()].copy_from_slice(data);
     mbox.mac_subsystem
-        .send_command(&DataRequest {
-            src_addr_mode: AddressMode::Short,
-            dst_addr_mode: AddressMode::Short,
-            dst_pan_id: PanId([0x1A, 0xAA]),
-            dst_address: MacAddress::BROADCAST,
-            msdu_handle: 0x02,
-            ack_tx: 0x00,
-            gts_tx: false,
-            msdu_ptr: &data_buffer as *const _ as *const u8,
-            msdu_length: data.len() as u8,
-            security_level: SecurityLevel::Unsecure,
-            ..Default::default()
-        })
+        .send_command(
+            DataRequest {
+                src_addr_mode: AddressMode::Short,
+                dst_addr_mode: AddressMode::Short,
+                dst_pan_id: PanId([0x1A, 0xAA]),
+                dst_address: MacAddress::BROADCAST,
+                msdu_handle: 0x02,
+                ack_tx: 0x00,
+                gts_tx: false,
+                security_level: SecurityLevel::Unsecure,
+                ..Default::default()
+            }
+            .set_buffer(data),
+        )
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
+    }
 
     loop {
-        let evt = mbox.mac_subsystem.read().await;
-        info!("{:#x}", evt);
+        match mbox.mac_subsystem.read().await {
+            Ok(evt) => info!("{:#x}", evt),
+            _ => continue,
+        };
     }
 }

@@ -44,7 +44,7 @@ async fn main(spawner: Spawner) -> ! {
     unwrap!(spawner.spawn(reader(rx)));
 
     loop {
-        let buf = CHANNEL.recv().await;
+        let buf = CHANNEL.receive().await;
         info!("writing...");
         unwrap!(tx.write(&buf).await);
     }

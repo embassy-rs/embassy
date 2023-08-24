@@ -51,6 +51,8 @@ where
             Medium::Ethernet => phy::Medium::Ethernet,
             #[cfg(feature = "medium-ip")]
             Medium::Ip => phy::Medium::Ip,
+            #[cfg(feature = "medium-ieee802154")]
+            Medium::Ieee802154 => phy::Medium::Ieee802154,
             #[allow(unreachable_patterns)]
             _ => panic!(
                 "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",

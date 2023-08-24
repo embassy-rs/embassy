@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
-use embassy_hal_common::drop::OnDrop;
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use stm32_metapac::FLASH_BASE;
 
 use super::{
@@ -147,7 +147,7 @@ pub(super) unsafe fn erase_sector_unlocked(sector: &FlashSector) -> Result<(), E
 
     let _on_drop = OnDrop::new(|| family::lock());
 
-    family::blocking_erase_sector(&sector)
+    family::blocking_erase_sector(sector)
 }
 
 pub(super) unsafe fn erase_sector_with_critical_section(sector: &FlashSector) -> Result<(), Error> {

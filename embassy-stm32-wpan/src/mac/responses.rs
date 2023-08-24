@@ -1,6 +1,5 @@
 use super::consts::{MAX_ED_SCAN_RESULTS_SUPPORTED, MAX_PAN_DESC_SUPPORTED, MAX_SOUNDING_LIST_SUPPORTED};
 use super::event::ParseableMacEvent;
-use super::helpers::to_u32;
 use super::typedefs::{
     AddressMode, AssociationStatus, KeyIdMode, MacAddress, MacStatus, PanDescriptor, PanId, PibId, ScanType,
     SecurityLevel,
@@ -8,6 +7,8 @@ use super::typedefs::{
 
 /// MLME ASSOCIATE Confirm used to inform of the initiating device whether
 /// its request to associate was successful or unsuccessful
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AssociateConfirm {
     /// short address allocated by the coordinator on successful association
@@ -22,26 +23,15 @@ pub struct AssociateConfirm {
     pub key_id_mode: KeyIdMode,
     /// the index of the key to be used
     pub key_index: u8,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for AssociateConfirm {
-    const SIZE: usize = 16;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            assoc_short_address: [buf[0], buf[1]],
-            status: AssociationStatus::try_from(buf[2])?,
-            security_level: SecurityLevel::try_from(buf[3])?,
-            key_source: [buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]],
-            key_id_mode: KeyIdMode::try_from(buf[12])?,
-            key_index: buf[13],
-        })
-    }
-}
+impl ParseableMacEvent for AssociateConfirm {}
 
 /// MLME DISASSOCIATE Confirm used to send disassociation Confirmation to the application.
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DisassociateConfirm {
     /// status of the disassociation attempt
@@ -54,34 +44,11 @@ pub struct DisassociateConfirm {
     pub device_address: MacAddress,
 }
 
-impl ParseableMacEvent for DisassociateConfirm {
-    const SIZE: usize = 12;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        let device_addr_mode = AddressMode::try_from(buf[1])?;
-        let device_address = match device_addr_mode {
-            AddressMode::NoAddress => MacAddress { short: [0, 0] },
-            AddressMode::Reserved => MacAddress { short: [0, 0] },
-            AddressMode::Short => MacAddress {
-                short: [buf[4], buf[5]],
-            },
-            AddressMode::Extended => MacAddress {
-                extended: [buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]],
-            },
-        };
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-            device_addr_mode,
-            device_pan_id: PanId([buf[2], buf[3]]),
-            device_address,
-        })
-    }
-}
+impl ParseableMacEvent for DisassociateConfirm {}
 
 ///  MLME GET Confirm which requests information about a given PIB attribute
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GetConfirm {
     /// The pointer to the value of the PIB attribute attempted to read
@@ -92,88 +59,58 @@ pub struct GetConfirm {
     pub pib_attribute: PibId,
     /// The lenght of the PIB attribute Value return
     pub pib_attribute_value_len: u8,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 1],
 }
 
-impl ParseableMacEvent for GetConfirm {
-    const SIZE: usize = 8;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        let address = to_u32(&buf[0..4]);
-
-        Ok(Self {
-            pib_attribute_value_ptr: address as *const u8,
-            status: MacStatus::try_from(buf[4])?,
-            pib_attribute: PibId::try_from(buf[5])?,
-            pib_attribute_value_len: buf[6],
-        })
-    }
-}
+impl ParseableMacEvent for GetConfirm {}
 
 /// MLME GTS Confirm which eports the results of a request to allocate a new GTS
 /// or to deallocate an existing GTS
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct GtsConfirm {
     /// The characteristics of the GTS
     pub gts_characteristics: u8,
     /// The status of the GTS reques
     pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for GtsConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            gts_characteristics: buf[0],
-            status: MacStatus::try_from(buf[1])?,
-        })
-    }
-}
+impl ParseableMacEvent for GtsConfirm {}
 
 /// MLME RESET Confirm which is used to report the results of the reset operation
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResetConfirm {
     /// The result of the reset operation
-    status: MacStatus,
+    pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for ResetConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-        })
-    }
-}
+impl ParseableMacEvent for ResetConfirm {}
 
 /// MLME RX ENABLE Confirm which is used to report the results of the attempt
 /// to enable or disable the receiver
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RxEnableConfirm {
     /// Result of the request to enable or disable the receiver
-    status: MacStatus,
+    pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for RxEnableConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-        })
-    }
-}
+impl ParseableMacEvent for RxEnableConfirm {}
 
 /// MLME SCAN Confirm which is used to report the result of the channel scan request
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ScanConfirm {
     /// Status of the scan request
@@ -196,150 +133,87 @@ pub struct ScanConfirm {
     pub uwb_energy_detect_list: [u8; MAX_ED_SCAN_RESULTS_SUPPORTED],
 }
 
-impl ParseableMacEvent for ScanConfirm {
-    const SIZE: usize = 185;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        // TODO: this is unchecked
-
-        Self::validate(buf)?;
-
-        let mut energy_detect_list = [0; MAX_ED_SCAN_RESULTS_SUPPORTED];
-        energy_detect_list.copy_from_slice(&buf[8..24]);
-
-        let pan_descriptor_list = [
-            PanDescriptor::try_from(&buf[24..46])?,
-            PanDescriptor::try_from(&buf[46..68])?,
-            PanDescriptor::try_from(&buf[68..90])?,
-            PanDescriptor::try_from(&buf[90..102])?,
-            PanDescriptor::try_from(&buf[102..124])?,
-            PanDescriptor::try_from(&buf[124..146])?,
-        ];
-
-        let mut uwb_energy_detect_list = [0; MAX_ED_SCAN_RESULTS_SUPPORTED];
-        uwb_energy_detect_list.copy_from_slice(&buf[147..163]);
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-            scan_type: ScanType::try_from(buf[1])?,
-            channel_page: buf[2],
-            unscanned_channels: [buf[3], buf[4], buf[5], buf[6]],
-            result_list_size: buf[7],
-            energy_detect_list,
-            pan_descriptor_list,
-            detected_category: buf[146],
-            uwb_energy_detect_list,
-        })
-    }
-}
+impl ParseableMacEvent for ScanConfirm {}
 
 /// MLME SET Confirm which reports the result of an attempt to write a value to a PIB attribute
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SetConfirm {
     /// The result of the set operation
     pub status: MacStatus,
     /// The name of the PIB attribute that was written
     pub pin_attribute: PibId,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for SetConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-            pin_attribute: PibId::try_from(buf[1])?,
-        })
-    }
-}
+impl ParseableMacEvent for SetConfirm {}
 
 /// MLME START Confirm which is used to report the results of the attempt to
 /// start using a new superframe configuration
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct StartConfirm {
     /// Result of the attempt to start using an updated superframe configuration
     pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for StartConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-        })
-    }
-}
+impl ParseableMacEvent for StartConfirm {}
 
 /// MLME POLL Confirm which is used to report the result of a request to poll the coordinator for data
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PollConfirm {
     /// The status of the data request
     pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for PollConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-        })
-    }
-}
+impl ParseableMacEvent for PollConfirm {}
 
 /// MLME DPS Confirm which  reports the results of the attempt to enable or disable the DPS
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DpsConfirm {
     /// The status of the DPS request
     pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for DpsConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-        })
-    }
-}
+impl ParseableMacEvent for DpsConfirm {}
 
 /// MLME SOUNDING Confirm which  reports the result of a request to the PHY to provide
 /// channel sounding information
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SoundingConfirm {
     /// Results of the sounding measurement
-    sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
+    pub sounding_list: [u8; MAX_SOUNDING_LIST_SUPPORTED],
+
+    status: u8,
 }
 
-impl ParseableMacEvent for SoundingConfirm {
-    const SIZE: usize = 1;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        let mut sounding_list = [0u8; MAX_SOUNDING_LIST_SUPPORTED];
-        sounding_list[..buf.len()].copy_from_slice(buf);
-
-        Ok(Self { sounding_list })
-    }
-}
+impl ParseableMacEvent for SoundingConfirm {}
 
 /// MLME CALIBRATE Confirm which reports the result of a request to the PHY
 /// to provide internal propagation path information
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CalibrateConfirm {
     /// The status of the attempt to return sounding data
     pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 3],
     /// A count of the propagation time from the ranging counter
     /// to the transmit antenna
     pub cal_tx_rmaker_offset: u32,
@@ -348,23 +222,12 @@ pub struct CalibrateConfirm {
     pub cal_rx_rmaker_offset: u32,
 }
 
-impl ParseableMacEvent for CalibrateConfirm {
-    const SIZE: usize = 12;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            status: MacStatus::try_from(buf[0])?,
-            // 3 byte stuffing
-            cal_tx_rmaker_offset: to_u32(&buf[4..8]),
-            cal_rx_rmaker_offset: to_u32(&buf[8..12]),
-        })
-    }
-}
+impl ParseableMacEvent for CalibrateConfirm {}
 
 /// MCPS DATA Confirm which will be used for reporting the results of
 /// MAC data related requests from the application
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DataConfirm {
     /// The handle associated with the MSDU being confirmed
@@ -387,47 +250,24 @@ pub struct DataConfirm {
     pub ranging_offset: u32,
     /// The FoM characterizing the ranging measurement
     pub ranging_fom: u8,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 3],
 }
 
-impl ParseableMacEvent for DataConfirm {
-    const SIZE: usize = 28;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            msdu_handle: buf[0],
-            time_stamp: [buf[1], buf[2], buf[3], buf[4]],
-            ranging_received: buf[5],
-            status: MacStatus::try_from(buf[6])?,
-            ranging_counter_start: to_u32(&buf[7..11]),
-            ranging_counter_stop: to_u32(&buf[11..15]),
-            ranging_tracking_interval: to_u32(&buf[15..19]),
-            ranging_offset: to_u32(&buf[19..23]),
-            ranging_fom: buf[24],
-        })
-    }
-}
+impl ParseableMacEvent for DataConfirm {}
 
 /// MCPS PURGE Confirm which will be used by the  MAC to notify the application of
 /// the status of its request to purge an MSDU from the transaction queue
+#[repr(C)]
+#[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PurgeConfirm {
     /// Handle associated with the MSDU requested to be purged from the transaction queue
     pub msdu_handle: u8,
     /// The status of the request
     pub status: MacStatus,
+    /// byte stuffing to keep 32 bit alignment
+    a_stuffing: [u8; 2],
 }
 
-impl ParseableMacEvent for PurgeConfirm {
-    const SIZE: usize = 4;
-
-    fn try_parse(buf: &[u8]) -> Result<Self, ()> {
-        Self::validate(buf)?;
-
-        Ok(Self {
-            msdu_handle: buf[0],
-            status: MacStatus::try_from(buf[1])?,
-        })
-    }
-}
+impl ParseableMacEvent for PurgeConfirm {}

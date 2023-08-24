@@ -152,8 +152,8 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-alpha.11", optional = true}
-embedded-hal-async = { version = "=0.2.0-alpha.2", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
+embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
 
 futures-util = { version = "0.3.17", default-features = false }
 atomic-polyfill = "1.0.1"
@@ -169,4 +169,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.2.0", path = "../embassy-executor", features = ["nightly"] }
+embassy-executor = { version = "0.3.0", path = "../embassy-executor", features = ["nightly"] }

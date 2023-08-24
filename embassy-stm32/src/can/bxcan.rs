@@ -6,7 +6,7 @@ use core::task::Poll;
 
 pub use bxcan;
 use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
-use embassy_hal_common::{into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::FutureExt;
 
 use crate::gpio::sealed::AFType;
@@ -15,6 +15,17 @@ use crate::pac::can::vals::{Lec, RirIde};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
+
+/// Contains CAN frame and additional metadata.
+///
+/// Timestamp is available if `time` feature is enabled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Envelope {
+    #[cfg(feature = "time")]
+    pub ts: embassy_time::Instant,
+    pub frame: bxcan::Frame,
+}
 
 /// Interrupt handler.
 pub struct TxInterruptHandler<T: Instance> {
@@ -77,6 +88,7 @@ pub struct Can<'d, T: Instance> {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BusError {
     Stuff,
     Form,
@@ -88,6 +100,22 @@ pub enum BusError {
     BusOff,
     BusPassive,
     BusWarning,
+}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryReadError {
+    /// Bus error
+    BusError(BusError),
+    /// Receive buffer is empty
+    Empty,
+}
+
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryWriteError {
+    /// All transmit mailboxes are full
+    Full,
 }
 
 impl<'d, T: Instance> Can<'d, T> {
@@ -161,61 +189,67 @@ impl<'d, T: Instance> Can<'d, T> {
             .leave_disabled();
     }
 
-    /// Queues the message to be sent but exerts backpressure
-    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
-        poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
-            if let Ok(status) = self.can.borrow_mut().transmit(frame) {
-                return Poll::Ready(status);
-            }
-
-            Poll::Pending
-        })
-        .await
+    /// Enables the peripheral and synchronizes with the bus.
+    ///
+    /// This will wait for 11 consecutive recessive bits (bus idle state).
+    /// Contrary to enable method from bxcan library, this will not freeze the executor while waiting.
+    pub async fn enable(&mut self) {
+        while self.borrow_mut().enable_non_blocking().is_err() {
+            // SCE interrupt is only generated for entering sleep mode, but not leaving.
+            // Yield to allow other tasks to execute while can bus is initializing.
+            embassy_futures::yield_now().await;
+        }
     }
 
-    pub async fn flush(&self, mb: bxcan::Mailbox) {
-        poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
-            if T::regs().tsr().read().tme(mb.index()) {
-                return Poll::Ready(());
-            }
+    /// Queues the message to be sent but exerts backpressure
+    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+        CanTx { can: &self.can }.write(frame).await
+    }
 
-            Poll::Pending
-        })
-        .await;
+    /// Attempts to transmit a frame without blocking.
+    ///
+    /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
+    pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
+        CanTx { can: &self.can }.try_write(frame)
+    }
+
+    /// Waits for a specific transmit mailbox to become empty
+    pub async fn flush(&self, mb: bxcan::Mailbox) {
+        CanTx { can: &self.can }.flush(mb).await
+    }
+
+    /// Waits until any of the transmit mailboxes become empty
+    pub async fn flush_any(&self) {
+        CanTx { can: &self.can }.flush_any().await
+    }
+
+    /// Waits until all of the transmit mailboxes become empty
+    pub async fn flush_all(&self) {
+        CanTx { can: &self.can }.flush_all().await
     }
 
     /// Returns a tuple of the time the message was received and the message frame
-    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
-        poll_fn(|cx| {
-            T::state().err_waker.register(cx.waker());
-            if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
-                return Poll::Ready(Ok((time, frame)));
-            } else if let Some(err) = self.curr_error() {
-                return Poll::Ready(Err(err));
-            }
-
-            Poll::Pending
-        })
-        .await
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
+        CanRx { can: &self.can }.read().await
     }
 
-    fn curr_error(&self) -> Option<BusError> {
-        let err = { T::regs().esr().read() };
-        if err.boff() {
-            return Some(BusError::BusOff);
-        } else if err.epvf() {
-            return Some(BusError::BusPassive);
-        } else if err.ewgf() {
-            return Some(BusError::BusWarning);
-        } else if let Some(err) = err.lec().into_bus_err() {
-            return Some(err);
-        }
-        None
+    /// Attempts to read a can frame without blocking.
+    ///
+    /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
+    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
+        CanRx { can: &self.can }.try_read()
+    }
+
+    /// Waits while receive queue is empty.
+    pub async fn wait_not_empty(&mut self) {
+        CanRx { can: &self.can }.wait_not_empty().await
     }
 
     unsafe fn receive_fifo(fifo: RxFifo) {
+        // Generate timestamp as early as possible
+        #[cfg(feature = "time")]
+        let ts = embassy_time::Instant::now();
+
         let state = T::state();
         let regs = T::regs();
         let fifo_idx = match fifo {
@@ -237,7 +271,7 @@ impl<'d, T: Instance> Can<'d, T> {
             } else {
                 let stid = (rir.stid() & 0x7FF) as u32;
                 let exid = rir.exid() & 0x3FFFF;
-                let id = (stid << 18) | (exid as u32);
+                let id = (stid << 18) | (exid);
                 Id::from(ExtendedId::new_unchecked(id))
             };
             let data_len = fifo.rdtr().read().dlc() as usize;
@@ -245,15 +279,19 @@ impl<'d, T: Instance> Can<'d, T> {
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-            let time = fifo.rdtr().read().time();
             let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
+            let envelope = Envelope {
+                #[cfg(feature = "time")]
+                ts,
+                frame,
+            };
 
             rfr.modify(|v| v.set_rfom(true));
 
             /*
                 NOTE: consensus was reached that if rx_queue is full, packets should be dropped
             */
-            let _ = state.rx_queue.try_send((time, frame));
+            let _ = state.rx_queue.try_send(envelope);
         }
     }
 
@@ -345,7 +383,7 @@ impl<'d, T: Instance> Can<'d, T> {
         let sjw = 1;
 
         // Pack into BTR register values
-        Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler as u32 - 1))
+        Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler - 1))
     }
 
     pub fn split<'c>(&'c self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
@@ -374,10 +412,54 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
         .await
     }
 
+    /// Attempts to transmit a frame without blocking.
+    ///
+    /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
+    pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
+        self.can.borrow_mut().transmit(frame).map_err(|_| TryWriteError::Full)
+    }
+
+    /// Waits for a specific transmit mailbox to become empty
     pub async fn flush(&self, mb: bxcan::Mailbox) {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
             if T::regs().tsr().read().tme(mb.index()) {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+    }
+
+    /// Waits until any of the transmit mailboxes become empty
+    pub async fn flush_any(&self) {
+        poll_fn(|cx| {
+            T::state().tx_waker.register(cx.waker());
+
+            let tsr = T::regs().tsr().read();
+            if tsr.tme(bxcan::Mailbox::Mailbox0.index())
+                || tsr.tme(bxcan::Mailbox::Mailbox1.index())
+                || tsr.tme(bxcan::Mailbox::Mailbox2.index())
+            {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+    }
+
+    /// Waits until all of the transmit mailboxes become empty
+    pub async fn flush_all(&self) {
+        poll_fn(|cx| {
+            T::state().tx_waker.register(cx.waker());
+
+            let tsr = T::regs().tsr().read();
+            if tsr.tme(bxcan::Mailbox::Mailbox0.index())
+                && tsr.tme(bxcan::Mailbox::Mailbox1.index())
+                && tsr.tme(bxcan::Mailbox::Mailbox2.index())
+            {
                 return Poll::Ready(());
             }
 
@@ -393,11 +475,11 @@ pub struct CanRx<'c, 'd, T: Instance> {
 }
 
 impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
-    pub async fn read(&mut self) -> Result<(u16, bxcan::Frame), BusError> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
-            if let Poll::Ready((time, frame)) = T::state().rx_queue.recv().poll_unpin(cx) {
-                return Poll::Ready(Ok((time, frame)));
+            if let Poll::Ready(envelope) = T::state().rx_queue.receive().poll_unpin(cx) {
+                return Poll::Ready(Ok(envelope));
             } else if let Some(err) = self.curr_error() {
                 return Poll::Ready(Err(err));
             }
@@ -405,6 +487,26 @@ impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
             Poll::Pending
         })
         .await
+    }
+
+    /// Attempts to read a CAN frame without blocking.
+    ///
+    /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
+    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
+        if let Ok(envelope) = T::state().rx_queue.try_receive() {
+            return Ok(envelope);
+        }
+
+        if let Some(err) = self.curr_error() {
+            return Err(TryReadError::BusError(err));
+        }
+
+        Err(TryReadError::Empty)
+    }
+
+    /// Waits while receive queue is empty.
+    pub async fn wait_not_empty(&mut self) {
+        poll_fn(|cx| T::state().rx_queue.poll_ready_to_receive(cx)).await
     }
 
     fn curr_error(&self) -> Option<BusError> {
@@ -455,10 +557,12 @@ pub(crate) mod sealed {
     use embassy_sync::channel::Channel;
     use embassy_sync::waitqueue::AtomicWaker;
 
+    use super::Envelope;
+
     pub struct State {
         pub tx_waker: AtomicWaker,
         pub err_waker: AtomicWaker,
-        pub rx_queue: Channel<CriticalSectionRawMutex, (u16, bxcan::Frame), 32>,
+        pub rx_queue: Channel<CriticalSectionRawMutex, Envelope, 32>,
     }
 
     impl State {

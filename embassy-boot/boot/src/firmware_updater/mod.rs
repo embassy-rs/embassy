@@ -3,8 +3,8 @@ mod asynch;
 mod blocking;
 
 #[cfg(feature = "nightly")]
-pub use asynch::FirmwareUpdater;
-pub use blocking::BlockingFirmwareUpdater;
+pub use asynch::{FirmwareState, FirmwareUpdater};
+pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater};
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 /// Firmware updater flash configuration holding the two flashes used by the updater

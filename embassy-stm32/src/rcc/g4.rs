@@ -2,6 +2,7 @@ use stm32_metapac::flash::vals::Latency;
 use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
 use stm32_metapac::FLASH;
 
+pub use super::common::{AHBPrescaler, APBPrescaler};
 use crate::pac::{PWR, RCC};
 use crate::rcc::sealed::RccPeripheral;
 use crate::rcc::{set_freqs, Clocks};
@@ -19,30 +20,6 @@ pub enum ClockSrc {
     HSE(Hertz),
     HSI16,
     PLL,
-}
-
-/// AHB prescaler
-#[derive(Clone, Copy, PartialEq)]
-pub enum AHBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div64,
-    Div128,
-    Div256,
-    Div512,
-}
-
-/// APB prescaler
-#[derive(Clone, Copy)]
-pub enum APBPrescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
 }
 
 /// PLL clock input source

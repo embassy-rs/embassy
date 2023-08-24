@@ -1,3 +1,49 @@
+const THREAD_PENDER: usize = usize::MAX;
+
+#[export_name = "__pender"]
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+fn __pender(context: *mut ()) {
+    unsafe {
+        // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
+        // request number given to `InterruptExecutor::start`.
+
+        let context = context as usize;
+
+        #[cfg(feature = "executor-thread")]
+        // Try to make Rust optimize the branching away if we only use thread mode.
+        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+            core::arch::asm!("sev");
+            return;
+        }
+
+        #[cfg(feature = "executor-interrupt")]
+        {
+            use cortex_m::interrupt::InterruptNumber;
+            use cortex_m::peripheral::NVIC;
+
+            #[derive(Clone, Copy)]
+            struct Irq(u16);
+            unsafe impl InterruptNumber for Irq {
+                fn number(self) -> u16 {
+                    self.0
+                }
+            }
+
+            let irq = Irq(context as u16);
+
+            // STIR is faster, but is only available in v7 and higher.
+            #[cfg(not(armv6m))]
+            {
+                let mut nvic: NVIC = core::mem::transmute(());
+                nvic.request(irq);
+            }
+
+            #[cfg(armv6m)]
+            NVIC::pend(irq);
+        }
+    }
+}
+
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
@@ -8,17 +54,8 @@ mod thread {
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_cortex_m as main;
 
-    use crate::raw::{Pender, PenderInner};
+    use crate::arch::THREAD_PENDER;
     use crate::{raw, Spawner};
-
-    #[derive(Copy, Clone)]
-    pub(crate) struct ThreadPender;
-
-    impl ThreadPender {
-        pub(crate) fn pend(self) {
-            unsafe { core::arch::asm!("sev") }
-        }
-    }
 
     /// Thread mode executor, using WFE/SEV.
     ///
@@ -39,7 +76,7 @@ mod thread {
         /// Create a new Executor.
         pub fn new() -> Self {
             Self {
-                inner: raw::Executor::new(Pender(PenderInner::Thread(ThreadPender))),
+                inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
             }
         }
@@ -86,30 +123,7 @@ mod interrupt {
     use cortex_m::interrupt::InterruptNumber;
     use cortex_m::peripheral::NVIC;
 
-    use crate::raw::{self, Pender, PenderInner};
-
-    #[derive(Clone, Copy)]
-    pub(crate) struct InterruptPender(u16);
-
-    impl InterruptPender {
-        pub(crate) fn pend(self) {
-            // STIR is faster, but is only available in v7 and higher.
-            #[cfg(not(armv6m))]
-            {
-                let mut nvic: cortex_m::peripheral::NVIC = unsafe { core::mem::transmute(()) };
-                nvic.request(self);
-            }
-
-            #[cfg(armv6m)]
-            cortex_m::peripheral::NVIC::pend(self);
-        }
-    }
-
-    unsafe impl cortex_m::interrupt::InterruptNumber for InterruptPender {
-        fn number(self) -> u16 {
-            self.0
-        }
-    }
+    use crate::raw;
 
     /// Interrupt mode executor.
     ///
@@ -194,9 +208,7 @@ mod interrupt {
             unsafe {
                 (&mut *self.executor.get())
                     .as_mut_ptr()
-                    .write(raw::Executor::new(Pender(PenderInner::Interrupt(InterruptPender(
-                        irq.number(),
-                    )))))
+                    .write(raw::Executor::new(irq.number() as *mut ()))
             }
 
             let executor = unsafe { (&*self.executor.get()).assume_init_ref() };

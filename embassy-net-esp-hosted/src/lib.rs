@@ -1,17 +1,15 @@
 #![no_std]
 
-use control::Control;
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{select4, Either4};
 use embassy_net_driver_channel as ch;
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
-use ioctl::Shared;
-use proto::CtrlMsg;
 
-use crate::ioctl::PendingIoctl;
-use crate::proto::CtrlMsgPayload;
+use crate::ioctl::{PendingIoctl, Shared};
+use crate::proto::{CtrlMsg, CtrlMsgPayload};
 
 mod proto;
 
@@ -20,6 +18,8 @@ mod fmt;
 
 mod control;
 mod ioctl;
+
+pub use control::*;
 
 const MTU: usize = 1514;
 
@@ -95,6 +95,7 @@ enum InterfaceType {
 }
 
 const MAX_SPI_BUFFER_SIZE: usize = 1600;
+const HEARTBEAT_MAX_GAP: Duration = Duration::from_secs(20);
 
 pub struct State {
     shared: Shared,
@@ -124,17 +125,19 @@ where
     IN: InputPin + Wait,
     OUT: OutputPin,
 {
-    let (ch_runner, device) = ch::new(&mut state.ch, [0; 6]);
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner {
         ch: ch_runner,
+        state_ch,
         shared: &state.shared,
         next_seq: 1,
         handshake,
         ready,
         reset,
         spi,
+        heartbeat_deadline: Instant::now() + HEARTBEAT_MAX_GAP,
     };
     runner.init().await;
 
@@ -143,9 +146,11 @@ where
 
 pub struct Runner<'a, SPI, IN, OUT> {
     ch: ch::Runner<'a, MTU>,
+    state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
 
     next_seq: u16,
+    heartbeat_deadline: Instant,
 
     spi: SPI,
     handshake: IN,
@@ -177,9 +182,10 @@ where
             let ioctl = self.shared.ioctl_wait_pending();
             let tx = self.ch.tx_buf();
             let ev = async { self.ready.wait_for_high().await.unwrap() };
+            let hb = Timer::at(self.heartbeat_deadline);
 
-            match select3(ioctl, tx, ev).await {
-                Either3::First(PendingIoctl { buf, req_len }) => {
+            match select4(ioctl, tx, ev, hb).await {
+                Either4::First(PendingIoctl { buf, req_len }) => {
                     tx_buf[12..24].copy_from_slice(b"\x01\x08\x00ctrlResp\x02");
                     tx_buf[24..26].copy_from_slice(&(req_len as u16).to_le_bytes());
                     tx_buf[26..][..req_len].copy_from_slice(&unsafe { &*buf }[..req_len]);
@@ -198,7 +204,7 @@ where
                     header.checksum = checksum(&tx_buf[..26 + req_len]);
                     tx_buf[0..12].copy_from_slice(&header.to_bytes());
                 }
-                Either3::Second(packet) => {
+                Either4::Second(packet) => {
                     tx_buf[12..][..packet.len()].copy_from_slice(packet);
 
                     let mut header = PayloadHeader {
@@ -217,8 +223,11 @@ where
 
                     self.ch.tx_done();
                 }
-                Either3::Third(()) => {
+                Either4::Third(()) => {
                     tx_buf[..PayloadHeader::SIZE].fill(0);
+                }
+                Either4::Fourth(()) => {
+                    panic!("heartbeat from esp32 stopped")
                 }
             }
 
@@ -308,7 +317,7 @@ where
         }
     }
 
-    fn handle_event(&self, data: &[u8]) {
+    fn handle_event(&mut self, data: &[u8]) {
         let Ok(event) = noproto::read::<CtrlMsg>(data) else {
             warn!("failed to parse event");
             return;
@@ -323,6 +332,11 @@ where
 
         match payload {
             CtrlMsgPayload::EventEspInit(_) => self.shared.init_done(),
+            CtrlMsgPayload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
+            CtrlMsgPayload::EventStationDisconnectFromAp(e) => {
+                info!("disconnected, code {}", e.resp);
+                self.state_ch.set_link_state(LinkState::Down);
+            }
             _ => {}
         }
     }

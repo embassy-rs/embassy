@@ -1,7 +1,7 @@
 #![macro_use]
 use core::convert::Infallible;
 
-use embassy_hal_common::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
 use crate::{pac, peripherals, Peripheral};
@@ -351,6 +351,10 @@ impl From<Level> for bool {
 }
 
 /// GPIO output driver.
+///
+/// Note that pins will **return to their floating state** when `Output` is dropped.
+/// If pins should retain their state indefinitely, either keep ownership of the
+/// `Output`, or pass it to [`core::mem::forget`].
 pub struct Output<'d, T: Pin> {
     pub(crate) pin: Flex<'d, T>,
 }
@@ -418,6 +422,10 @@ impl<'d, T: Pin> Output<'d, T> {
 }
 
 /// GPIO output open-drain driver.
+///
+/// Note that pins will **return to their floating state** when `OutputOpenDrain` is dropped.
+/// If pins should retain their state indefinitely, either keep ownership of the
+/// `OutputOpenDrain`, or pass it to [`core::mem::forget`].
 pub struct OutputOpenDrain<'d, T: Pin> {
     pub(crate) pin: Flex<'d, T>,
 }
@@ -499,6 +507,20 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     #[inline]
     pub fn toggle(&mut self) {
         self.pin.toggle()
+    }
+}
+
+pub enum OutputType {
+    PushPull,
+    OpenDrain,
+}
+
+impl From<OutputType> for sealed::AFType {
+    fn from(value: OutputType) -> Self {
+        match value {
+            OutputType::OpenDrain => sealed::AFType::OutputOpenDrain,
+            OutputType::PushPull => sealed::AFType::OutputPushPull,
+        }
     }
 }
 
@@ -763,12 +785,14 @@ mod eh02 {
 
         #[inline]
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         #[inline]
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -789,7 +813,8 @@ mod eh02 {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
+            self.toggle();
+            Ok(())
         }
     }
 
@@ -798,12 +823,14 @@ mod eh02 {
 
         #[inline]
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         #[inline]
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -824,7 +851,8 @@ mod eh02 {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
+            self.toggle();
+            Ok(())
         }
     }
 
@@ -847,12 +875,14 @@ mod eh02 {
 
         #[inline]
         fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
+            self.set_high();
+            Ok(())
         }
 
         #[inline]
         fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
+            self.set_low();
+            Ok(())
         }
     }
 
@@ -873,7 +903,8 @@ mod eh02 {
         type Error = Infallible;
         #[inline]
         fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
+            self.toggle();
+            Ok(())
         }
     }
 }

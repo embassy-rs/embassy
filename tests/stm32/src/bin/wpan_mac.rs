@@ -10,6 +10,7 @@ use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::mac::commands::{AssociateRequest, GetRequest, ResetRequest, SetRequest};
 use embassy_stm32_wpan::mac::event::MacEvent;
 use embassy_stm32_wpan::mac::typedefs::{
@@ -31,7 +32,10 @@ async fn run_mm_queue(memory_manager: mm::MemoryManager) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(config());
+    let mut config = config();
+    config.rcc = WPAN_DEFAULT;
+
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
@@ -49,11 +53,16 @@ async fn main(spawner: Spawner) {
 
     info!("resetting");
     mbox.mac_subsystem
-        .send_command(&ResetRequest { set_default_pib: true })
+        .send_command(&ResetRequest {
+            set_default_pib: true,
+            ..Default::default()
+        })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
+    }
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
@@ -64,24 +73,30 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
+    }
 
     info!("getting extended address");
     mbox.mac_subsystem
         .send_command(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
+            ..Default::default()
         })
         .await
         .unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
 
-    if let Ok(MacEvent::MlmeGetCnf(evt)) = evt {
-        if evt.pib_attribute_value_len == 8 {
-            let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+    {
+        let evt = mbox.mac_subsystem.read().await.unwrap();
+        info!("{:#x}", evt);
 
-            info!("value {:#x}", value)
+        if let MacEvent::MlmeGetCnf(evt) = evt {
+            if evt.pib_attribute_value_len == 8 {
+                let value = unsafe { core::ptr::read_unaligned(evt.pib_attribute_value_ptr as *const u64) };
+
+                info!("value {:#x}", value)
+            }
         }
     }
 
@@ -100,8 +115,13 @@ async fn main(spawner: Spawner) {
     };
     info!("{}", a);
     mbox.mac_subsystem.send_command(&a).await.unwrap();
-    let evt = mbox.mac_subsystem.read().await;
-    info!("{:#x}", evt);
+    let short_addr = if let MacEvent::MlmeAssociateCnf(conf) = mbox.mac_subsystem.read().await.unwrap() {
+        conf.assoc_short_address
+    } else {
+        defmt::panic!()
+    };
+
+    info!("{}", short_addr);
 
     info!("Test OK");
     cortex_m::asm::bkpt();

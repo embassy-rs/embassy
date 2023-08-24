@@ -14,7 +14,7 @@ use crate::pac;
 mod alt_regions {
     use core::marker::PhantomData;
 
-    use embassy_hal_common::PeripheralRef;
+    use embassy_hal_internal::PeripheralRef;
     use stm32_metapac::FLASH_SIZE;
 
     use crate::_generated::flash_regions::{OTPRegion, BANK1_REGION1, BANK1_REGION2, BANK1_REGION3, OTP_REGION};
@@ -336,12 +336,9 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 }
 
 pub(crate) fn clear_all_err() {
-    pac::FLASH.sr().write(|w| {
-        w.set_pgserr(true);
-        w.set_pgperr(true);
-        w.set_pgaerr(true);
-        w.set_wrperr(true);
-    });
+    // read and write back the same value.
+    // This clears all "write 0 to clear" bits.
+    pac::FLASH.sr().modify(|_| {});
 }
 
 pub(crate) async fn wait_ready() -> Result<(), Error> {

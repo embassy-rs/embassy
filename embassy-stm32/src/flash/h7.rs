@@ -11,7 +11,7 @@ pub const fn is_default_layout() -> bool {
 }
 
 const fn is_dual_bank() -> bool {
-    FLASH_REGIONS.len() == 2
+    FLASH_REGIONS.len() >= 2
 }
 
 pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
@@ -49,6 +49,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     };
     bank.cr().write(|w| {
         w.set_pg(true);
+        #[cfg(flash_h7)]
         w.set_psize(2); // 32 bits at once
     });
     cortex_m::asm::isb();
@@ -85,7 +86,10 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     let bank = pac::FLASH.bank(sector.bank as usize);
     bank.cr().modify(|w| {
         w.set_ser(true);
-        w.set_snb(sector.index_in_bank)
+        #[cfg(flash_h7)]
+        w.set_snb(sector.index_in_bank);
+        #[cfg(flash_h7ab)]
+        w.set_ssn(sector.index_in_bank);
     });
 
     bank.cr().modify(|w| {
@@ -104,39 +108,9 @@ pub(crate) unsafe fn clear_all_err() {
 }
 
 unsafe fn bank_clear_all_err(bank: pac::flash::Bank) {
-    bank.sr().modify(|w| {
-        if w.wrperr() {
-            w.set_wrperr(true);
-        }
-        if w.pgserr() {
-            w.set_pgserr(true);
-        }
-        if w.strberr() {
-            // single address was written multiple times, can be ignored
-            w.set_strberr(true);
-        }
-        if w.incerr() {
-            // writing to a different address when programming 256 bit word was not finished
-            w.set_incerr(true);
-        }
-        if w.operr() {
-            w.set_operr(true);
-        }
-        if w.sneccerr1() {
-            // single ECC error
-            w.set_sneccerr1(true);
-        }
-        if w.dbeccerr() {
-            // double ECC error
-            w.set_dbeccerr(true);
-        }
-        if w.rdperr() {
-            w.set_rdperr(true);
-        }
-        if w.rdserr() {
-            w.set_rdserr(true);
-        }
-    });
+    // read and write back the same value.
+    // This clears all "write 0 to clear" bits.
+    bank.sr().modify(|_| {});
 }
 
 unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
@@ -154,6 +128,10 @@ unsafe fn blocking_wait_ready(bank: pac::flash::Bank) -> Result<(), Error> {
             if sr.incerr() {
                 // writing to a different address when programming 256 bit word was not finished
                 error!("incerr");
+                return Err(Error::Seq);
+            }
+            if sr.crcrderr() {
+                error!("crcrderr");
                 return Err(Error::Seq);
             }
             if sr.operr() {

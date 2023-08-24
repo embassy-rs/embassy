@@ -2,16 +2,16 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_common::PeripheralRef;
+use embassy_hal_internal::PeripheralRef;
 use futures::future::{select, Either};
 
 use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
-use crate::dma::RingBuffer;
+use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
 pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     _peri: PeripheralRef<'d, T>,
-    ring_buf: RingBuffer<'d, RxDma, u8>,
+    ring_buf: ReadableRingBuffer<'d, RxDma, u8>,
 }
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
@@ -19,12 +19,12 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
     /// without the possibility of loosing bytes. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be sufficiently large, such that it will not overflow.
     pub fn into_ring_buffered(self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d, T, RxDma> {
-        assert!(dma_buf.len() > 0 && dma_buf.len() <= 0xFFFF);
+        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
         let request = self.rx_dma.request();
         let opts = Default::default();
 
-        let ring_buf = unsafe { RingBuffer::new_read(self.rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new_read(self.rx_dma, request, rdr(T::regs()), dma_buf, opts) };
 
         RingBufferedUartRx {
             _peri: self._peri,
@@ -111,10 +111,9 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         let r = T::regs();
 
         // Start background receive if it was not already started
-        match r.cr3().read().dmar() {
-            false => self.start()?,
-            _ => {}
-        };
+        if !r.cr3().read().dmar() {
+            self.start()?;
+        }
 
         check_for_errors(clear_idle_flag(T::regs()))?;
 
@@ -221,13 +220,12 @@ fn clear_idle_flag(r: Regs) -> Sr {
 
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eio {
-    use embedded_io::asynch::Read;
-    use embedded_io::Io;
+    use embedded_io_async::{ErrorType, Read};
 
     use super::RingBufferedUartRx;
     use crate::usart::{BasicInstance, Error, RxDma};
 
-    impl<T, Rx> Io for RingBufferedUartRx<'_, T, Rx>
+    impl<T, Rx> ErrorType for RingBufferedUartRx<'_, T, Rx>
     where
         T: BasicInstance,
         Rx: RxDma<T>,

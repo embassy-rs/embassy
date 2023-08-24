@@ -1,16 +1,15 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
-#[path = "../common.rs"]
-mod common;
+teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::flash::{ERASE_SIZE, FLASH_BASE};
+use embassy_rp::flash::{Async, ERASE_SIZE, FLASH_BASE};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-const ADDR_OFFSET: u32 = 0x4000;
+const ADDR_OFFSET: u32 = 0x8000;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -23,26 +22,26 @@ async fn main(_spawner: Spawner) {
     // https://github.com/knurling-rs/defmt/pull/683
     Timer::after(Duration::from_millis(10)).await;
 
-    let mut flash = embassy_rp::flash::Flash::<_, { 2 * 1024 * 1024 }>::new(p.FLASH);
+    let mut flash = embassy_rp::flash::Flash::<_, Async, { 2 * 1024 * 1024 }>::new(p.FLASH, p.DMA_CH0);
 
     // Get JEDEC id
-    let jedec = defmt::unwrap!(flash.jedec_id());
+    let jedec = defmt::unwrap!(flash.blocking_jedec_id());
     info!("jedec id: 0x{:x}", jedec);
 
     // Get unique id
     let mut uid = [0; 8];
-    defmt::unwrap!(flash.unique_id(&mut uid));
+    defmt::unwrap!(flash.blocking_unique_id(&mut uid));
     info!("unique id: {:?}", uid);
 
     let mut buf = [0u8; ERASE_SIZE];
-    defmt::unwrap!(flash.read(ADDR_OFFSET, &mut buf));
+    defmt::unwrap!(flash.blocking_read(ADDR_OFFSET, &mut buf));
 
     info!("Addr of flash block is {:x}", ADDR_OFFSET + FLASH_BASE as u32);
     info!("Contents start with {=[u8]}", buf[0..4]);
 
-    defmt::unwrap!(flash.erase(ADDR_OFFSET, ADDR_OFFSET + ERASE_SIZE as u32));
+    defmt::unwrap!(flash.blocking_erase(ADDR_OFFSET, ADDR_OFFSET + ERASE_SIZE as u32));
 
-    defmt::unwrap!(flash.read(ADDR_OFFSET, &mut buf));
+    defmt::unwrap!(flash.blocking_read(ADDR_OFFSET, &mut buf));
     info!("Contents after erase starts with {=[u8]}", buf[0..4]);
     if buf.iter().any(|x| *x != 0xFF) {
         defmt::panic!("unexpected");
@@ -52,11 +51,19 @@ async fn main(_spawner: Spawner) {
         *b = 0xDA;
     }
 
-    defmt::unwrap!(flash.write(ADDR_OFFSET, &mut buf));
+    defmt::unwrap!(flash.blocking_write(ADDR_OFFSET, &mut buf));
 
-    defmt::unwrap!(flash.read(ADDR_OFFSET, &mut buf));
+    defmt::unwrap!(flash.blocking_read(ADDR_OFFSET, &mut buf));
     info!("Contents after write starts with {=[u8]}", buf[0..4]);
     if buf.iter().any(|x| *x != 0xDA) {
+        defmt::panic!("unexpected");
+    }
+
+    let mut buf = [0u32; ERASE_SIZE / 4];
+
+    defmt::unwrap!(flash.background_read(ADDR_OFFSET, &mut buf)).await;
+    info!("Contents after write starts with {=u32:x}", buf[0]);
+    if buf.iter().any(|x| *x != 0xDADADADA) {
         defmt::panic!("unexpected");
     }
 

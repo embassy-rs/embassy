@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_common::into_ref;
+use embassy_hal_internal::into_ref;
 pub use pll::PllConfig;
 use stm32_metapac::rcc::vals::{Mco1, Mco2};
 
@@ -24,21 +24,7 @@ pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-/// Voltage Scale
-///
-/// Represents the voltage range feeding the CPU core. The maximum core
-/// clock frequency depends on this value.
-#[derive(Copy, Clone, PartialEq)]
-pub enum VoltageScale {
-    /// VOS 0 range VCORE 1.26V - 1.40V
-    Scale0,
-    /// VOS 1 range VCORE 1.15V - 1.26V
-    Scale1,
-    /// VOS 2 range VCORE 1.05V - 1.15V
-    Scale2,
-    /// VOS 3 range VCORE 0.95V - 1.05V
-    Scale3,
-}
+pub use super::common::VoltageScale;
 
 #[derive(Clone, Copy)]
 pub enum AdcClockSource {
@@ -214,6 +200,7 @@ fn flash_setup(rcc_aclk: u32, vos: VoltageScale) {
 
     // See RM0433 Rev 7 Table 17. FLASH recommended number of wait
     // states and programming delay
+    #[cfg(flash_h7)]
     let (wait_states, progr_delay) = match vos {
         // VOS 0 range VCORE 1.26V - 1.40V
         VoltageScale::Scale0 => match rcc_aclk_mhz {
@@ -249,6 +236,50 @@ fn flash_setup(rcc_aclk: u32, vos: VoltageScale) {
             90..=134 => (2, 1),
             135..=179 => (3, 2),
             180..=224 => (4, 2),
+            _ => (7, 3),
+        },
+    };
+
+    // See RM0455 Rev 10 Table 16. FLASH recommended number of wait
+    // states and programming delay
+    #[cfg(flash_h7ab)]
+    let (wait_states, progr_delay) = match vos {
+        // VOS 0 range VCORE 1.25V - 1.35V
+        VoltageScale::Scale0 => match rcc_aclk_mhz {
+            0..=42 => (0, 0),
+            43..=84 => (1, 0),
+            85..=126 => (2, 1),
+            127..=168 => (3, 1),
+            169..=210 => (4, 2),
+            211..=252 => (5, 2),
+            253..=280 => (6, 3),
+            _ => (7, 3),
+        },
+        // VOS 1 range VCORE 1.15V - 1.25V
+        VoltageScale::Scale1 => match rcc_aclk_mhz {
+            0..=38 => (0, 0),
+            39..=76 => (1, 0),
+            77..=114 => (2, 1),
+            115..=152 => (3, 1),
+            153..=190 => (4, 2),
+            191..=225 => (5, 2),
+            _ => (7, 3),
+        },
+        // VOS 2 range VCORE 1.05V - 1.15V
+        VoltageScale::Scale2 => match rcc_aclk_mhz {
+            0..=34 => (0, 0),
+            35..=68 => (1, 0),
+            69..=102 => (2, 1),
+            103..=136 => (3, 1),
+            137..=160 => (4, 2),
+            _ => (7, 3),
+        },
+        // VOS 3 range VCORE 0.95V - 1.05V
+        VoltageScale::Scale3 => match rcc_aclk_mhz {
+            0..=22 => (0, 0),
+            23..=44 => (1, 0),
+            45..=66 => (2, 1),
+            67..=88 => (3, 1),
             _ => (7, 3),
         },
     };
@@ -552,8 +583,6 @@ pub(crate) unsafe fn init(mut config: Config) {
     let requested_pclk4 = config.pclk4.map(|v| v.0).unwrap_or_else(|| pclk_max.min(rcc_hclk / 2));
     let (rcc_pclk4, ppre4_bits, ppre4, _) = ppre_calculate(requested_pclk4, rcc_hclk, pclk_max, None);
 
-    flash_setup(rcc_aclk, pwr_vos);
-
     // Start switching clocks -------------------
 
     // Ensure CSI is on and stable
@@ -608,6 +637,8 @@ pub(crate) unsafe fn init(mut config: Config) {
     // Ensure core prescaler value is valid before future lower
     // core voltage
     while RCC.d1cfgr().read().d1cpre().to_bits() != d1cpre_bits {}
+
+    flash_setup(rcc_aclk, pwr_vos);
 
     // APB1 / APB2 Prescaler
     RCC.d2cfgr().modify(|w| {

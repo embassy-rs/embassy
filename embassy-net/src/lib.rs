@@ -24,16 +24,22 @@ use embassy_net_driver::{Driver, LinkState, Medium};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
+#[allow(unused_imports)]
 use heapless::Vec;
 #[cfg(feature = "igmp")]
 pub use smoltcp::iface::MulticastError;
+#[allow(unused_imports)]
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
+#[cfg(feature = "medium-ethernet")]
+pub use smoltcp::wire::EthernetAddress;
+#[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
+pub use smoltcp::wire::HardwareAddress;
 #[cfg(feature = "udp")]
 pub use smoltcp::wire::IpListenEndpoint;
-#[cfg(feature = "medium-ethernet")]
-pub use smoltcp::wire::{EthernetAddress, HardwareAddress};
+#[cfg(feature = "medium-ieee802154")]
+pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
 pub use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
 pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
@@ -224,6 +230,20 @@ pub(crate) struct SocketStack {
     next_local_port: u16,
 }
 
+fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress {
+    match addr {
+        #[cfg(feature = "medium-ethernet")]
+        driver::HardwareAddress::Ethernet(eth) => HardwareAddress::Ethernet(EthernetAddress(eth)),
+        #[cfg(feature = "medium-ieee802154")]
+        driver::HardwareAddress::Ieee802154(ieee) => HardwareAddress::Ieee802154(Ieee802154Address::Extended(ieee)),
+        #[cfg(feature = "medium-ip")]
+        driver::HardwareAddress::Ip => HardwareAddress::Ip,
+
+        #[allow(unreachable_patterns)]
+        _ => panic!("Unsupported address {:?}. Make sure to enable medium-ethernet or medium-ieee802154 in embassy-net's Cargo features.", addr),
+    }
+}
+
 impl<D: Driver + 'static> Stack<D> {
     /// Create a new network stack.
     pub fn new<const SOCK: usize>(
@@ -232,21 +252,7 @@ impl<D: Driver + 'static> Stack<D> {
         resources: &'static mut StackResources<SOCK>,
         random_seed: u64,
     ) -> Self {
-        #[cfg(feature = "medium-ethernet")]
-        let medium = device.capabilities().medium;
-
-        let hardware_addr = match medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => HardwareAddress::Ethernet(EthernetAddress(device.ethernet_address())),
-            #[cfg(feature = "medium-ip")]
-            Medium::Ip => HardwareAddress::Ip,
-            #[allow(unreachable_patterns)]
-            _ => panic!(
-                "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
-                medium
-            ),
-        };
-        let mut iface_cfg = smoltcp::iface::Config::new(hardware_addr);
+        let mut iface_cfg = smoltcp::iface::Config::new(to_smoltcp_hardware_address(device.hardware_address()));
         iface_cfg.random_seed = random_seed;
 
         let iface = Interface::new(
@@ -262,6 +268,7 @@ impl<D: Driver + 'static> Stack<D> {
 
         let next_local_port = (random_seed % (LOCAL_PORT_MAX - LOCAL_PORT_MIN) as u64) as u16 + LOCAL_PORT_MIN;
 
+        #[cfg_attr(feature = "medium-ieee802154", allow(unused_mut))]
         let mut socket = SocketStack {
             sockets,
             iface,
@@ -269,6 +276,7 @@ impl<D: Driver + 'static> Stack<D> {
             next_local_port,
         };
 
+        #[cfg_attr(feature = "medium-ieee802154", allow(unused_mut))]
         let mut inner = Inner {
             device,
             link_up: false,
@@ -286,6 +294,9 @@ impl<D: Driver + 'static> Stack<D> {
             #[cfg(feature = "dns")]
             dns_waker: WakerRegistration::new(),
         };
+
+        #[cfg(feature = "medium-ieee802154")]
+        let _ = config;
 
         #[cfg(feature = "proto-ipv4")]
         match config.ipv4 {
@@ -323,9 +334,9 @@ impl<D: Driver + 'static> Stack<D> {
         f(&mut *self.socket.borrow_mut(), &mut *self.inner.borrow_mut())
     }
 
-    /// Get the MAC address of the network interface.
-    pub fn ethernet_address(&self) -> [u8; 6] {
-        self.with(|_s, i| i.device.ethernet_address())
+    /// Get the hardware address of the network interface.
+    pub fn hardware_address(&self) -> HardwareAddress {
+        self.with(|_s, i| to_smoltcp_hardware_address(i.device.hardware_address()))
     }
 
     /// Get whether the link is up.
@@ -479,30 +490,78 @@ impl<D: Driver + 'static> Stack<D> {
 }
 
 #[cfg(feature = "igmp")]
-impl<D: Driver + smoltcp::phy::Device + 'static> Stack<D> {
+impl<D: Driver + 'static> Stack<D> {
     /// Join a multicast group.
-    pub fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    pub async fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    where
+        T: Into<IpAddress>,
+    {
+        let addr = addr.into();
+
+        poll_fn(move |cx| self.poll_join_multicast_group(addr, cx)).await
+    }
+
+    /// Join a multicast group.
+    ///
+    /// When the send queue is full, this method will return `Poll::Pending`
+    /// and register the current task to be notified when the queue has space available.
+    pub fn poll_join_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
     where
         T: Into<IpAddress>,
     {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
-            s.iface
-                .join_multicast_group(&mut i.device, addr, instant_to_smoltcp(Instant::now()))
+            let mut smoldev = DriverAdapter {
+                cx: Some(cx),
+                inner: &mut i.device,
+            };
+
+            match s
+                .iface
+                .join_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
+            {
+                Ok(announce_sent) => Poll::Ready(Ok(announce_sent)),
+                Err(MulticastError::Exhausted) => Poll::Pending,
+                Err(other) => Poll::Ready(Err(other)),
+            }
         })
     }
 
     /// Leave a multicast group.
-    pub fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    pub async fn leave_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
+    where
+        T: Into<IpAddress>,
+    {
+        let addr = addr.into();
+
+        poll_fn(move |cx| self.poll_leave_multicast_group(addr, cx)).await
+    }
+
+    /// Leave a multicast group.
+    ///
+    /// When the send queue is full, this method will return `Poll::Pending`
+    /// and register the current task to be notified when the queue has space available.
+    pub fn poll_leave_multicast_group<T>(&self, addr: T, cx: &mut Context<'_>) -> Poll<Result<bool, MulticastError>>
     where
         T: Into<IpAddress>,
     {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
-            s.iface
-                .leave_multicast_group(&mut i.device, addr, instant_to_smoltcp(Instant::now()))
+            let mut smoldev = DriverAdapter {
+                cx: Some(cx),
+                inner: &mut i.device,
+            };
+
+            match s
+                .iface
+                .leave_multicast_group(&mut smoldev, addr, instant_to_smoltcp(Instant::now()))
+            {
+                Ok(leave_sent) => Poll::Ready(Ok(leave_sent)),
+                Err(MulticastError::Exhausted) => Poll::Pending,
+                Err(other) => Poll::Ready(Err(other)),
+            }
         })
     }
 
@@ -524,22 +583,26 @@ impl SocketStack {
 impl<D: Driver + 'static> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
     fn apply_config_v4(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
-        #[cfg(feature = "medium-ethernet")]
-        let medium = self.device.capabilities().medium;
-
         debug!("Acquired IP configuration:");
 
         debug!("   IP address:      {}", config.address);
         s.iface.update_ip_addrs(|addrs| {
-            if addrs.is_empty() {
-                addrs.push(IpCidr::Ipv4(config.address)).unwrap();
-            } else {
-                addrs[0] = IpCidr::Ipv4(config.address);
+            if let Some((index, _)) = addrs
+                .iter()
+                .enumerate()
+                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv4(_)))
+            {
+                addrs.remove(index);
             }
+            addrs.push(IpCidr::Ipv4(config.address)).unwrap();
         });
 
-        #[cfg(feature = "medium-ethernet")]
-        if medium == Medium::Ethernet {
+        #[cfg(feature = "medium-ip")]
+        let skip_gateway = self.device.capabilities().medium != Medium::Ip;
+        #[cfg(not(feature = "medium-ip"))]
+        let skip_gateway = false;
+
+        if !skip_gateway {
             if let Some(gateway) = config.gateway {
                 debug!("   Default gateway: {}", gateway);
                 s.iface.routes_mut().add_default_ipv4_route(gateway).unwrap();
@@ -570,11 +633,14 @@ impl<D: Driver + 'static> Inner<D> {
 
         debug!("   IP address:      {}", config.address);
         s.iface.update_ip_addrs(|addrs| {
-            if addrs.is_empty() {
-                addrs.push(IpCidr::Ipv6(config.address)).unwrap();
-            } else {
-                addrs[0] = IpCidr::Ipv6(config.address);
+            if let Some((index, _)) = addrs
+                .iter()
+                .enumerate()
+                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv6(_)))
+            {
+                addrs.remove(index);
             }
+            addrs.push(IpCidr::Ipv6(config.address)).unwrap();
         });
 
         #[cfg(feature = "medium-ethernet")]
@@ -642,13 +708,21 @@ impl<D: Driver + 'static> Inner<D> {
         socket.set_retry_config(config.retry_config);
     }
 
-    #[allow(unused)] // used only with dhcp
-    fn unapply_config(&mut self, s: &mut SocketStack) {
+    #[cfg(feature = "dhcpv4")]
+    fn unapply_config_v4(&mut self, s: &mut SocketStack) {
         #[cfg(feature = "medium-ethernet")]
         let medium = self.device.capabilities().medium;
-
         debug!("Lost IP configuration");
-        s.iface.update_ip_addrs(|ip_addrs| ip_addrs.clear());
+        s.iface.update_ip_addrs(|ip_addrs| {
+            #[cfg(feature = "proto-ipv4")]
+            if let Some((index, _)) = ip_addrs
+                .iter()
+                .enumerate()
+                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv4(_)))
+            {
+                ip_addrs.remove(index);
+            }
+        });
         #[cfg(feature = "medium-ethernet")]
         if medium == Medium::Ethernet {
             #[cfg(feature = "proto-ipv4")]
@@ -665,11 +739,12 @@ impl<D: Driver + 'static> Inner<D> {
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
         s.waker.register(cx.waker());
 
-        #[cfg(feature = "medium-ethernet")]
-        if self.device.capabilities().medium == Medium::Ethernet {
-            s.iface.set_hardware_addr(HardwareAddress::Ethernet(EthernetAddress(
-                self.device.ethernet_address(),
-            )));
+        #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
+        if self.device.capabilities().medium == Medium::Ethernet
+            || self.device.capabilities().medium == Medium::Ieee802154
+        {
+            s.iface
+                .set_hardware_addr(to_smoltcp_hardware_address(self.device.hardware_address()));
         }
 
         let timestamp = instant_to_smoltcp(Instant::now());
@@ -695,7 +770,7 @@ impl<D: Driver + 'static> Inner<D> {
             if self.link_up {
                 match socket.poll() {
                     None => {}
-                    Some(dhcpv4::Event::Deconfigured) => self.unapply_config(s),
+                    Some(dhcpv4::Event::Deconfigured) => self.unapply_config_v4(s),
                     Some(dhcpv4::Event::Configured(config)) => {
                         let config = StaticConfigV4 {
                             address: config.address,
@@ -707,7 +782,7 @@ impl<D: Driver + 'static> Inner<D> {
                 }
             } else if old_link_up {
                 socket.reset();
-                self.unapply_config(s);
+                self.unapply_config_v4(s);
             }
         }
         //if old_link_up || self.link_up {

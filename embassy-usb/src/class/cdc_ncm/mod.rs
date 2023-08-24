@@ -248,6 +248,8 @@ pub struct CdcNcmClass<'d, D: Driver<'d>> {
     write_ep: D::EndpointIn,
 
     _control: &'d ControlShared,
+
+    max_packet_size: usize,
 }
 
 impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
@@ -338,6 +340,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             read_ep,
             write_ep,
             _control: &state.shared,
+            max_packet_size: max_packet_size as usize,
         }
     }
 
@@ -349,6 +352,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             Sender {
                 write_ep: self.write_ep,
                 seq: 0,
+                max_packet_size: self.max_packet_size,
             },
             Receiver {
                 data_if: self.data_if,
@@ -365,6 +369,7 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
 pub struct Sender<'d, D: Driver<'d>> {
     write_ep: D::EndpointIn,
     seq: u16,
+    max_packet_size: usize,
 }
 
 impl<'d, D: Driver<'d>> Sender<'d, D> {
@@ -375,8 +380,8 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         let seq = self.seq;
         self.seq = self.seq.wrapping_add(1);
 
-        const MAX_PACKET_SIZE: usize = 64; // TODO unhardcode
         const OUT_HEADER_LEN: usize = 28;
+        const ABS_MAX_PACKET_SIZE: usize = 512;
 
         let header = NtbOutHeader {
             nth_sig: SIG_NTH,
@@ -395,27 +400,27 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
         };
 
         // Build first packet on a buffer, send next packets straight from `data`.
-        let mut buf = [0; MAX_PACKET_SIZE];
+        let mut buf = [0; ABS_MAX_PACKET_SIZE];
         let n = byteify(&mut buf, header);
         assert_eq!(n.len(), OUT_HEADER_LEN);
 
-        if OUT_HEADER_LEN + data.len() < MAX_PACKET_SIZE {
+        if OUT_HEADER_LEN + data.len() < self.max_packet_size {
             // First packet is not full, just send it.
             // No need to send ZLP because it's short for sure.
             buf[OUT_HEADER_LEN..][..data.len()].copy_from_slice(data);
             self.write_ep.write(&buf[..OUT_HEADER_LEN + data.len()]).await?;
         } else {
-            let (d1, d2) = data.split_at(MAX_PACKET_SIZE - OUT_HEADER_LEN);
+            let (d1, d2) = data.split_at(self.max_packet_size - OUT_HEADER_LEN);
 
-            buf[OUT_HEADER_LEN..].copy_from_slice(d1);
-            self.write_ep.write(&buf).await?;
+            buf[OUT_HEADER_LEN..self.max_packet_size].copy_from_slice(d1);
+            self.write_ep.write(&buf[..self.max_packet_size]).await?;
 
-            for chunk in d2.chunks(MAX_PACKET_SIZE) {
+            for chunk in d2.chunks(self.max_packet_size) {
                 self.write_ep.write(&chunk).await?;
             }
 
             // Send ZLP if needed.
-            if d2.len() % MAX_PACKET_SIZE == 0 {
+            if d2.len() % self.max_packet_size == 0 {
                 self.write_ep.write(&[]).await?;
             }
         }

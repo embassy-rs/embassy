@@ -60,7 +60,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(send_can_message(tx)).unwrap();
 
     loop {
-        let frame = rx.read().await.unwrap();
-        println!("Received: {:?}", frame);
+        let envelope = rx.read().await.unwrap();
+        println!("Received: {:?}", envelope);
     }
 }
