@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32/src/"
 
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time", "low-power"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
@@ -38,6 +38,7 @@ embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", fea
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
+embassy-executor = { version = "0.3.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
@@ -88,6 +89,8 @@ rt = ["stm32-metapac/rt"]
 defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async?/defmt-03", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
 
 exti = []
+low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m" ]
+embassy-executor = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
 memory-x = ["stm32-metapac/memory-x"]

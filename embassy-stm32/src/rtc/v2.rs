@@ -44,25 +44,15 @@ impl core::ops::Sub for RtcInstant {
     fn sub(self, rhs: Self) -> Self::Output {
         use embassy_time::{Duration, TICK_HZ};
 
-        trace!("self st: {}", self.st);
-        trace!("other st: {}", rhs.st);
-
-        trace!("self ssr: {}", self.ssr);
-        trace!("other ssr: {}", rhs.ssr);
-
         let st = if self.st < rhs.st { self.st + 60 } else { self.st };
 
-        trace!("self st: {}", st);
+        // TODO: read prescaler
 
         let self_ticks = st as u32 * 256 + (255 - self.ssr as u32);
         let other_ticks = rhs.st as u32 * 256 + (255 - rhs.ssr as u32);
         let rtc_ticks = self_ticks - other_ticks;
 
-        trace!("self ticks: {}", self_ticks);
-        trace!("other ticks: {}", other_ticks);
-        trace!("rtc ticks: {}", rtc_ticks);
-
-        // TODO: read prescaler
+        trace!("self, other, rtc ticks: {}, {}, {}", self_ticks, other_ticks, rtc_ticks);
 
         Duration::from_ticks(
             ((((st as u32 * 256 + (255u32 - self.ssr as u32)) - (rhs.st as u32 * 256 + (255u32 - rhs.ssr as u32)))
@@ -73,7 +63,7 @@ impl core::ops::Sub for RtcInstant {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum WakeupPrescaler {
     Div2,
     Div4,
@@ -162,10 +152,9 @@ impl super::Rtc {
     ///
     /// note: this api is exposed for testing purposes until low power is implemented.
     /// it is not intended to be public
-    pub fn start_wakeup_alarm(requested_duration: embassy_time::Duration) -> RtcInstant {
+    pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) -> RtcInstant {
         use embassy_time::{Duration, TICK_HZ};
 
-        use crate::interrupt::typelevel::Interrupt;
         use crate::rcc::get_freqs;
 
         let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
@@ -187,26 +176,16 @@ impl super::Rtc {
 
         trace!("set wakeup timer for {} ms", duration.as_millis());
 
-        RTC::regs().wpr().write(|w| w.set_key(0xca));
-        RTC::regs().wpr().write(|w| w.set_key(0x53));
+        self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wutie(true));
 
-        RTC::regs().wutr().modify(|w| w.set_wut(rtc_ticks));
+            regs.cr().modify(|w| w.set_wute(false));
+            regs.isr().modify(|w| w.set_wutf(false));
+            while !regs.isr().read().wutwf() {}
 
-        RTC::regs().cr().modify(|w| {
-            w.set_wucksel(prescaler.into());
-
-            w.set_wutie(true);
-            w.set_wute(true);
+            regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
+            regs.cr().modify(|w| w.set_wute(true));
         });
-
-        if !RTC::regs().cr().read().wute() {
-            trace!("wakeup timer not enabled");
-        } else {
-            trace!("wakeup timer enabled");
-        }
-
-        crate::interrupt::typelevel::RTC_WKUP::unpend();
-        unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
 
         RtcInstant::now()
     }
@@ -217,25 +196,13 @@ impl super::Rtc {
     ///
     /// note: this api is exposed for testing purposes until low power is implemented.
     /// it is not intended to be public
-    pub fn stop_wakeup_alarm() -> RtcInstant {
-        use crate::interrupt::typelevel::Interrupt;
-
-        crate::interrupt::typelevel::RTC_WKUP::disable();
-
+    pub(crate) fn stop_wakeup_alarm(&self) -> RtcInstant {
         trace!("disable wakeup timer...");
 
-        RTC::regs().cr().modify(|w| {
-            w.set_wute(false);
+        self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wute(false));
+            regs.isr().modify(|w| w.set_wutf(false));
         });
-
-        trace!("wait for wakeup timer stop...");
-
-        // Wait for the wakeup timer to stop
-        // while !RTC::regs().isr().read().wutf() {}
-        //
-        // RTC::regs().isr().modify(|w| w.set_wutf(false));
-
-        trace!("wait for wakeup timer stop...done");
 
         RtcInstant::now()
     }
@@ -388,7 +355,7 @@ impl super::Rtc {
         })
     }
 
-    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
+    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(&crate::pac::rtc::Rtc) -> R,
     {
