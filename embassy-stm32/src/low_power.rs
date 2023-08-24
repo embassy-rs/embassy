@@ -8,6 +8,7 @@ use embassy_time::Duration;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::EXTI;
+use crate::rcc::low_power_ready;
 
 const THREAD_PENDER: usize = usize::MAX;
 const THRESHOLD: Duration = Duration::from_millis(500);
@@ -73,22 +74,18 @@ impl Executor {
         cortex_m::asm::bkpt();
     }
 
-    fn low_power_ready(&self) -> bool {
-        true
-    }
-
     fn time_until_next_alarm(&self) -> Duration {
         Duration::from_secs(3)
     }
 
-    fn get_scb(&self) -> SCB {
+    fn get_scb() -> SCB {
         unsafe { cortex_m::Peripherals::steal() }.SCB
     }
 
     fn configure_pwr(&self) {
-        trace!("low power before wfe");
+        trace!("configure_pwr");
 
-        if !self.low_power_ready() {
+        if !low_power_ready() {
             return;
         }
 
@@ -106,7 +103,7 @@ impl Executor {
 
             trace!("low power wait for rtc ready...");
 
-            self.get_scb().set_sleepdeep();
+            Self::get_scb().set_sleepdeep();
         });
     }
 
