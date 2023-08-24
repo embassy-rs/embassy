@@ -1,4 +1,3 @@
-use defmt::Format;
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
 use super::{sealed, RtcClockSource, RtcConfig};
@@ -45,25 +44,15 @@ impl core::ops::Sub for RtcInstant {
     fn sub(self, rhs: Self) -> Self::Output {
         use embassy_time::{Duration, TICK_HZ};
 
-        trace!("self st: {}", self.st);
-        trace!("other st: {}", rhs.st);
-
-        trace!("self ssr: {}", self.ssr);
-        trace!("other ssr: {}", rhs.ssr);
-
         let st = if self.st < rhs.st { self.st + 60 } else { self.st };
 
-        trace!("self st: {}", st);
+        // TODO: read prescaler
 
         let self_ticks = st as u32 * 256 + (255 - self.ssr as u32);
         let other_ticks = rhs.st as u32 * 256 + (255 - rhs.ssr as u32);
         let rtc_ticks = self_ticks - other_ticks;
 
-        trace!("self ticks: {}", self_ticks);
-        trace!("other ticks: {}", other_ticks);
-        trace!("rtc ticks: {}", rtc_ticks);
-
-        // TODO: read prescaler
+        trace!("self, other, rtc ticks: {}, {}, {}", self_ticks, other_ticks, rtc_ticks);
 
         Duration::from_ticks(
             ((((st as u32 * 256 + (255u32 - self.ssr as u32)) - (rhs.st as u32 * 256 + (255u32 - rhs.ssr as u32)))
@@ -74,7 +63,7 @@ impl core::ops::Sub for RtcInstant {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Format)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum WakeupPrescaler {
     Div2,
     Div4,
@@ -186,39 +175,17 @@ impl super::Rtc {
         );
 
         trace!("set wakeup timer for {} ms", duration.as_millis());
-        trace!("set wakeup timer for {} ticks with pre {}", rtc_ticks, prescaler);
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wutie(true));
 
-            trace!("clear wute");
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
-
-            trace!("wait for wutwf...");
             while !regs.isr().read().wutwf() {}
-            trace!("wait for wutwf...done");
 
-            regs.cr().modify(|w| {
-                w.set_wucksel(prescaler.into());
-
-                w.set_wutie(true);
-            });
-
+            regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
             regs.cr().modify(|w| w.set_wute(true));
         });
-
-        if !RTC::regs().cr().read().wute() {
-            trace!("wakeup timer not enabled");
-        } else {
-            trace!("wakeup timer enabled");
-        }
-
-        if !RTC::regs().cr().read().wutie() {
-            trace!("wakeup timer interrupt not enabled");
-        } else {
-            trace!("wakeup timer interrupt enabled");
-        }
 
         RtcInstant::now()
     }
