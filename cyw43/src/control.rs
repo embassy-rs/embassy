@@ -32,13 +32,11 @@ impl<'a> Control<'a> {
         }
     }
 
-    pub async fn init(&mut self, clm: &[u8]) {
-        const CHUNK_SIZE: usize = 1024;
-
-        debug!("Downloading CLM...");
-
+    async fn load_clm(&mut self, clm: &[u8]) {
+        debug!("load_clm");
+        const CLM_CHUNK_SIZE: usize = 1024;
         let mut offs = 0;
-        for chunk in clm.chunks(CHUNK_SIZE) {
+        for chunk in clm.chunks(CLM_CHUNK_SIZE) {
             let mut flag = DOWNLOAD_FLAG_HANDLER_VER;
             if offs == 0 {
                 flag |= DOWNLOAD_FLAG_BEGIN;
@@ -54,16 +52,19 @@ impl<'a> Control<'a> {
                 len: chunk.len() as _,
                 crc: 0,
             };
-            let mut buf = [0; 8 + 12 + CHUNK_SIZE];
+            let mut buf = [0; 8 + 12 + CLM_CHUNK_SIZE];
             buf[0..8].copy_from_slice(b"clmload\x00");
             buf[8..20].copy_from_slice(&header.to_bytes());
             buf[20..][..chunk.len()].copy_from_slice(&chunk);
             self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..8 + 12 + chunk.len()])
                 .await;
         }
-
         // check clmload ok
         assert_eq!(self.get_iovar_u32("clmload_status").await, 0);
+    }
+
+    pub async fn init(&mut self, clm: &[u8], wifi_enabled: bool, bluetooth_enabled: bool) {
+        self.load_clm(&clm).await;
 
         debug!("Configuring misc stuff...");
 
@@ -78,64 +79,70 @@ impl<'a> Control<'a> {
         assert_eq!(self.get_iovar("cur_etheraddr", &mut mac_addr).await, 6);
         debug!("mac addr: {:02x}", Bytes(&mac_addr));
 
-        let country = countries::WORLD_WIDE_XX;
-        let country_info = CountryInfo {
-            country_abbrev: [country.code[0], country.code[1], 0, 0],
-            country_code: [country.code[0], country.code[1], 0, 0],
-            rev: if country.rev == 0 { -1 } else { country.rev as _ },
-        };
-        self.set_iovar("country", &country_info.to_bytes()).await;
+        if wifi_enabled {
+            let country = countries::WORLD_WIDE_XX;
+            let country_info = CountryInfo {
+                country_abbrev: [country.code[0], country.code[1], 0, 0],
+                country_code: [country.code[0], country.code[1], 0, 0],
+                rev: if country.rev == 0 { -1 } else { country.rev as _ },
+            };
+            self.set_iovar("country", &country_info.to_bytes()).await;
 
-        // set country takes some time, next ioctls fail if we don't wait.
-        Timer::after(Duration::from_millis(100)).await;
+            // set country takes some time, next ioctls fail if we don't wait.
+            Timer::after(Duration::from_millis(100)).await;
 
-        // Set antenna to chip antenna
-        self.ioctl_set_u32(IOCTL_CMD_ANTDIV, 0, 0).await;
+            // Set antenna to chip antenna
+            self.ioctl_set_u32(IOCTL_CMD_ANTDIV, 0, 0).await;
 
-        self.set_iovar_u32("bus:txglom", 0).await;
-        Timer::after(Duration::from_millis(100)).await;
-        //self.set_iovar_u32("apsta", 1).await; // this crashes, also we already did it before...??
-        //Timer::after(Duration::from_millis(100)).await;
-        self.set_iovar_u32("ampdu_ba_wsize", 8).await;
-        Timer::after(Duration::from_millis(100)).await;
-        self.set_iovar_u32("ampdu_mpdu", 4).await;
-        Timer::after(Duration::from_millis(100)).await;
-        //self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
+            self.set_iovar_u32("bus:txglom", 0).await;
+            Timer::after(Duration::from_millis(100)).await;
+            //self.set_iovar_u32("apsta", 1).await; // this crashes, also we already did it before...??
+            //Timer::after(Duration::from_millis(100)).await;
+            self.set_iovar_u32("ampdu_ba_wsize", 8).await;
+            Timer::after(Duration::from_millis(100)).await;
+            self.set_iovar_u32("ampdu_mpdu", 4).await;
+            Timer::after(Duration::from_millis(100)).await;
+            //self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
 
-        //Timer::after(Duration::from_millis(100)).await;
+            //Timer::after(Duration::from_millis(100)).await;
 
-        // evts
-        let mut evts = EventMask {
-            iface: 0,
-            events: [0xFF; 24],
-        };
+            // evts
+            let mut evts = EventMask {
+                iface: 0,
+                events: [0xFF; 24],
+            };
 
-        // Disable spammy uninteresting events.
-        evts.unset(Event::RADIO);
-        evts.unset(Event::IF);
-        evts.unset(Event::PROBREQ_MSG);
-        evts.unset(Event::PROBREQ_MSG_RX);
-        evts.unset(Event::PROBRESP_MSG);
-        evts.unset(Event::PROBRESP_MSG);
-        evts.unset(Event::ROAM);
+            // Disable spammy uninteresting events.
+            evts.unset(Event::RADIO);
+            evts.unset(Event::IF);
+            evts.unset(Event::PROBREQ_MSG);
+            evts.unset(Event::PROBREQ_MSG_RX);
+            evts.unset(Event::PROBRESP_MSG);
+            evts.unset(Event::PROBRESP_MSG);
+            evts.unset(Event::ROAM);
 
-        self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
+            self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
 
-        Timer::after(Duration::from_millis(100)).await;
+            Timer::after(Duration::from_millis(100)).await;
 
-        // set wifi up
-        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+            // set wifi up
+            self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
 
-        Timer::after(Duration::from_millis(100)).await;
+            Timer::after(Duration::from_millis(100)).await;
 
-        self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
-        self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
+            self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
+            self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
 
-        Timer::after(Duration::from_millis(100)).await;
+            Timer::after(Duration::from_millis(100)).await;
 
-        self.state_ch.set_ethernet_address(mac_addr);
+            self.state_ch.set_ethernet_address(mac_addr);
+        }
 
-        debug!("INIT DONE");
+        if bluetooth_enabled {
+            // TODO: call runner.init_bluetooth somehow and pass it bluetooth_firmware?
+        }
+
+        debug!("cyw43 control init done");
     }
 
     pub async fn set_power_management(&mut self, mode: PowerManagementMode) {

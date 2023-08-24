@@ -51,7 +51,7 @@ async fn main(spawner: Spawner) {
     let (_net_device, mut control, runner) = cyw43::new_with_bluetooth(state, pwr, spi, fw, btfw).await;
     unwrap!(spawner.spawn(cyw43_runner_task(runner)));
 
-    control.init(clm).await;
+    control.init(clm, false, true).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;

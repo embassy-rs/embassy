@@ -10,16 +10,15 @@ pub(crate) mod fmt;
 mod bluetooth;
 mod bus;
 mod consts;
+mod control;
 mod countries;
 mod events;
+mod hci_connector;
 mod ioctl;
-mod structs;
-
-mod control;
 mod nvram;
 mod runner;
-
-use core::slice;
+mod structs;
+mod utilities;
 
 use embassy_net_driver_channel as ch;
 use embedded_hal_1::digital::OutputPin;
@@ -226,6 +225,8 @@ where
 
     runner.init(firmware, None).await;
 
+    // TODO: build and return something like MPSC channels that can interact as hci_connector with runner/bus?
+
     (
         device,
         Control::new(state_ch, &state.events, &state.ioctl_state),
@@ -256,9 +257,4 @@ where
         Control::new(state_ch, &state.events, &state.ioctl_state),
         runner,
     )
-}
-
-fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
-    let len = x.len() * 4;
-    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }

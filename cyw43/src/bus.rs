@@ -4,7 +4,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
-use crate::slice8_mut;
+use crate::utilities;
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -48,7 +48,7 @@ where
         }
     }
 
-    pub async fn init(&mut self) {
+    pub async fn init(&mut self, bluetooth_enabled: bool) {
         // Reset
         debug!("WL_REG off/on");
         self.pwr.set_low().unwrap();
@@ -122,18 +122,16 @@ where
         // Enable a selection of interrupts
         // TODO: why not all of these F2_F3_FIFO_RD_UNDERFLOW | F2_F3_FIFO_WR_OVERFLOW | COMMAND_ERROR | DATA_ERROR | F2_PACKET_AVAILABLE | F1_OVERFLOW | F1_INTR
         debug!("enable a selection of interrupts");
-        self.write16(
-            FUNC_BUS,
-            REG_BUS_INTERRUPT_ENABLE,
-            IRQ_F2_F3_FIFO_RD_UNDERFLOW
-                | IRQ_F2_F3_FIFO_WR_OVERFLOW
-                | IRQ_COMMAND_ERROR
-                | IRQ_DATA_ERROR
-                | IRQ_F2_PACKET_AVAILABLE
-                | IRQ_F1_OVERFLOW
-                | IRQ_F1_INTR,
-        )
-        .await;
+        let mut val = IRQ_F2_F3_FIFO_RD_UNDERFLOW
+            | IRQ_F2_F3_FIFO_WR_OVERFLOW
+            | IRQ_COMMAND_ERROR
+            | IRQ_DATA_ERROR
+            | IRQ_F2_PACKET_AVAILABLE
+            | IRQ_F1_OVERFLOW;
+        if bluetooth_enabled {
+            val = val | IRQ_F1_INTR;
+        }
+        self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
     }
 
     pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
@@ -155,6 +153,8 @@ where
 
     #[allow(unused)]
     pub async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+        debug!("bp_read addr = {:08x}", addr);
+
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -179,7 +179,7 @@ where
             self.status = self.spi.cmd_read(cmd, &mut buf[..(len + 3) / 4 + 1]).await;
 
             // when writing out the data, we skip the response-delay byte
-            data[..len].copy_from_slice(&slice8_mut(&mut buf[1..])[..len]);
+            data[..len].copy_from_slice(&utilities::slice8_mut(&mut buf[1..])[..len]);
 
             // Advance ptr.
             addr += len as u32;
@@ -188,6 +188,8 @@ where
     }
 
     pub async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+        debug!("bp_write addr = {:08x}", addr);
+
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
@@ -202,7 +204,7 @@ where
             let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
 
             let len = data.len().min(BACKPLANE_MAX_TRANSFER_SIZE).min(window_remaining);
-            slice8_mut(&mut buf[1..])[..len].copy_from_slice(&data[..len]);
+            utilities::slice8_mut(&mut buf[1..])[..len].copy_from_slice(&data[..len]);
 
             self.backplane_set_window(addr).await;
 
