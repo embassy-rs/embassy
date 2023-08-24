@@ -249,7 +249,10 @@ fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress
         driver::HardwareAddress::Ip => HardwareAddress::Ip,
 
         #[allow(unreachable_patterns)]
-        _ => panic!("Unsupported address {:?}. Make sure to enable medium-ethernet or medium-ieee802154 in embassy-net's Cargo features.", addr),
+        _ => panic!(
+            "Unsupported medium {:?}. Make sure to enable the right medium feature in embassy-net's Cargo features.",
+            addr
+        ),
     }
 }
 

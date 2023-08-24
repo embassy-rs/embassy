@@ -9,6 +9,7 @@ categories = [
     "embedded",
     "no-std",
     "asynchronous",
+    "network-programming",
 ]
 
 [package.metadata.embassy_docs]
