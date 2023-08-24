@@ -108,7 +108,7 @@ const CHIP: Chip = Chip {
 
 pub struct State {
     ioctl_state: IoctlState,
-    net_driver_channel: net_driver_channel::State<MTU, 4, 4>,
+    net_driver_channel_state: net_driver_channel::State<MTU, 4, 4>,
     events: Events,
 }
 
@@ -116,7 +116,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             ioctl_state: IoctlState::new(),
-            net_driver_channel: net_driver_channel::State::new(),
+            net_driver_channel_state: net_driver_channel::State::new(),
             events: Events::new(),
         }
     }
