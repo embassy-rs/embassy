@@ -8,6 +8,7 @@ use core::cell::RefCell;
 use core::mem::MaybeUninit;
 use core::task::{Context, Poll};
 
+use driver::HardwareAddress;
 pub use embassy_net_driver as driver;
 use embassy_net_driver::{Capabilities, LinkState, Medium};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -218,7 +219,11 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
 ) -> (Runner<'d, MTU>, Device<'d, MTU>) {
     let mut caps = Capabilities::default();
     caps.max_transmission_unit = MTU;
-    caps.medium = Medium::Ethernet;
+    caps.medium = match &hardware_address {
+        HardwareAddress::Ethernet(_) => Medium::Ethernet,
+        HardwareAddress::Ieee802154(_) => Medium::Ieee802154,
+        HardwareAddress::Ip => Medium::Ip,
+    };
 
     // safety: this is a self-referential struct, however:
     // - it can't move while the `'d` borrow is active.
