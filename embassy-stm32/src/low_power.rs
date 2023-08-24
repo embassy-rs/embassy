@@ -7,6 +7,7 @@ use embassy_time::Duration;
 
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::EXTI;
 
 const THREAD_PENDER: usize = usize::MAX;
 const THRESHOLD: Duration = Duration::from_millis(500);
@@ -27,6 +28,9 @@ foreach_interrupt! {
 pub fn stop_with_rtc(rtc: &'static Rtc) {
     crate::interrupt::typelevel::RTC_WKUP::unpend();
     unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
+
+    EXTI.rtsr(0).modify(|w| w.set_line(22, true));
+    EXTI.imr(0).modify(|w| w.set_line(22, true));
 
     unsafe { RTC = Some(rtc) };
 }

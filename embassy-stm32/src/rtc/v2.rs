@@ -1,3 +1,4 @@
+use defmt::Format;
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
 use super::{sealed, RtcClockSource, RtcConfig};
@@ -73,7 +74,7 @@ impl core::ops::Sub for RtcInstant {
 }
 
 #[allow(dead_code)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Format)]
 pub(crate) enum WakeupPrescaler {
     Div2,
     Div4,
@@ -185,23 +186,38 @@ impl super::Rtc {
         );
 
         trace!("set wakeup timer for {} ms", duration.as_millis());
+        trace!("set wakeup timer for {} ticks with pre {}", rtc_ticks, prescaler);
 
-        RTC::regs().wpr().write(|w| w.set_key(0xca));
-        RTC::regs().wpr().write(|w| w.set_key(0x53));
+        self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wutie(true));
 
-        RTC::regs().wutr().modify(|w| w.set_wut(rtc_ticks));
+            trace!("clear wute");
+            regs.cr().modify(|w| w.set_wute(false));
+            regs.isr().modify(|w| w.set_wutf(false));
 
-        RTC::regs().cr().modify(|w| {
-            w.set_wucksel(prescaler.into());
+            trace!("wait for wutwf...");
+            while !regs.isr().read().wutwf() {}
+            trace!("wait for wutwf...done");
 
-            w.set_wutie(true);
-            w.set_wute(true);
+            regs.cr().modify(|w| {
+                w.set_wucksel(prescaler.into());
+
+                w.set_wutie(true);
+            });
+
+            regs.cr().modify(|w| w.set_wute(true));
         });
 
         if !RTC::regs().cr().read().wute() {
             trace!("wakeup timer not enabled");
         } else {
             trace!("wakeup timer enabled");
+        }
+
+        if !RTC::regs().cr().read().wutie() {
+            trace!("wakeup timer interrupt not enabled");
+        } else {
+            trace!("wakeup timer interrupt enabled");
         }
 
         RtcInstant::now()
@@ -216,18 +232,10 @@ impl super::Rtc {
     pub(crate) fn stop_wakeup_alarm(&self) -> RtcInstant {
         trace!("disable wakeup timer...");
 
-        RTC::regs().cr().modify(|w| {
-            w.set_wute(false);
+        self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wute(false));
+            regs.isr().modify(|w| w.set_wutf(false));
         });
-
-        trace!("wait for wakeup timer stop...");
-
-        // Wait for the wakeup timer to stop
-        // while !RTC::regs().isr().read().wutf() {}
-        //
-        // RTC::regs().isr().modify(|w| w.set_wutf(false));
-
-        trace!("wait for wakeup timer stop...done");
 
         RtcInstant::now()
     }
@@ -380,7 +388,7 @@ impl super::Rtc {
         })
     }
 
-    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
+    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(&crate::pac::rtc::Rtc) -> R,
     {
