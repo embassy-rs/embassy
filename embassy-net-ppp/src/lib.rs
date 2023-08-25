@@ -55,6 +55,15 @@ pub enum RunError<E> {
     Eof,
 }
 
+impl<E> From<WriteAllError<E>> for RunError<E> {
+    fn from(value: WriteAllError<E>) -> Self {
+        match value {
+            WriteAllError::Other(e) => Self::Write(e),
+            WriteAllError::WriteZero => Self::WriteZero,
+        }
+    }
+}
+
 impl<'d> Runner<'d> {
     /// You must call this in a background task for the driver to operate.
     ///
@@ -112,11 +121,7 @@ impl<'d> Runner<'d> {
                             buf[..pkt.len()].copy_from_slice(pkt);
                             rx_chan.rx_done(pkt.len());
                         }
-                        PPPoSAction::Transmit(n) => match rw.write_all(&tx_buf[..n]).await {
-                            Ok(()) => {}
-                            Err(WriteAllError::WriteZero) => return Err(RunError::WriteZero),
-                            Err(WriteAllError::Other(e)) => return Err(RunError::Write(e)),
-                        },
+                        PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await?,
                     }
 
                     match ppp.status().phase {
@@ -126,11 +131,7 @@ impl<'d> Runner<'d> {
                 }
                 Either::Second(pkt) => {
                     match ppp.send(pkt, &mut tx_buf) {
-                        Ok(n) => match rw.write_all(&tx_buf[..n]).await {
-                            Ok(()) => {}
-                            Err(WriteAllError::WriteZero) => return Err(RunError::WriteZero),
-                            Err(WriteAllError::Other(e)) => return Err(RunError::Write(e)),
-                        },
+                        Ok(n) => rw.write_all(&tx_buf[..n]).await?,
                         Err(BufferFullError) => unreachable!(),
                     }
                     tx_chan.tx_done();
