@@ -30,9 +30,6 @@ impl RtcInstant {
 
         let _ = RTC::regs().dr().read();
 
-        trace!("ssr: {}", ssr);
-        trace!("st: {}", st);
-
         Self { ssr, st }
     }
 }
@@ -52,7 +49,12 @@ impl core::ops::Sub for RtcInstant {
         let other_ticks = rhs.st as u32 * 256 + (255 - rhs.ssr as u32);
         let rtc_ticks = self_ticks - other_ticks;
 
-        trace!("self, other, rtc ticks: {}, {}, {}", self_ticks, other_ticks, rtc_ticks);
+        trace!(
+            "rtc: instant sub: self, other, rtc ticks: {}, {}, {}",
+            self_ticks,
+            other_ticks,
+            rtc_ticks
+        );
 
         Duration::from_ticks(
             ((((st as u32 * 256 + (255u32 - self.ssr as u32)) - (rhs.st as u32 * 256 + (255u32 - rhs.ssr as u32)))
@@ -174,10 +176,10 @@ impl super::Rtc {
             rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
         );
 
-        trace!("set wakeup timer for {} ms", duration.as_millis());
+        trace!("rtc: set wakeup timer for {} ms", duration.as_millis());
 
         self.write(false, |regs| {
-            regs.cr().modify(|w| w.set_wutie(true));
+            // regs.cr().modify(|w| w.set_wutie(true));
 
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
@@ -185,6 +187,15 @@ impl super::Rtc {
 
             regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
             regs.cr().modify(|w| w.set_wute(true));
+        });
+
+        self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wutie(false));
+
+            regs.isr().modify(|w| w.set_wutf(false));
+            crate::pac::PWR.cr1().modify(|w| w.set_cwuf(false));
+
+            regs.cr().modify(|w| w.set_wutie(true));
         });
 
         RtcInstant::now()
@@ -197,7 +208,7 @@ impl super::Rtc {
     /// note: this api is exposed for testing purposes until low power is implemented.
     /// it is not intended to be public
     pub(crate) fn stop_wakeup_alarm(&self) -> RtcInstant {
-        trace!("disable wakeup timer...");
+        trace!("rtc: stop wakeup alarm...");
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wute(false));

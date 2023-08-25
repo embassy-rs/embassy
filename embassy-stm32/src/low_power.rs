@@ -9,6 +9,7 @@ use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::EXTI;
 use crate::rcc::low_power_ready;
+use crate::time_driver::{pause_time, resume_time, time_until_next_alarm};
 
 const THREAD_PENDER: usize = usize::MAX;
 const THRESHOLD: Duration = Duration::from_millis(500);
@@ -16,6 +17,9 @@ const THRESHOLD: Duration = Duration::from_millis(500);
 use crate::rtc::{Rtc, RtcInstant};
 
 static mut RTC: Option<&'static Rtc> = None;
+static mut STOP_TIME: embassy_time::Duration = Duration::from_ticks(0);
+static mut NEXT_ALARM: embassy_time::Duration = Duration::from_ticks(u64::MAX);
+static mut RTC_INSTANT: Option<crate::rtc::RtcInstant> = None;
 
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
@@ -69,13 +73,25 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq() {
-        info!("on wakeup irq");
+        trace!("on wakeup irq");
 
-        cortex_m::asm::bkpt();
-    }
+        let elapsed = RTC_INSTANT.take().unwrap() - stop_wakeup_alarm();
 
-    fn time_until_next_alarm(&self) -> Duration {
-        Duration::from_secs(3)
+        STOP_TIME += elapsed;
+        // let to_next = NEXT_ALARM - STOP_TIME;
+        let to_next = Duration::from_secs(3);
+
+        trace!("on wakeup irq: to next: {}", to_next);
+        if to_next > THRESHOLD {
+            trace!("start wakeup alarm");
+            RTC_INSTANT.replace(start_wakeup_alarm(to_next));
+
+            trace!("set sleeponexit");
+            Self::get_scb().set_sleeponexit();
+        } else {
+            Self::get_scb().clear_sleeponexit();
+            Self::get_scb().clear_sleepdeep();
+        }
     }
 
     fn get_scb() -> SCB {
@@ -86,25 +102,28 @@ impl Executor {
         trace!("configure_pwr");
 
         if !low_power_ready() {
+            trace!("configure_pwr: low power not ready");
             return;
         }
 
-        let time_until_next_alarm = self.time_until_next_alarm();
+        let time_until_next_alarm = time_until_next_alarm();
         if time_until_next_alarm < THRESHOLD {
+            trace!("configure_pwr: not enough time until next alarm");
             return;
         }
 
-        trace!("low power stop required");
+        unsafe {
+            NEXT_ALARM = time_until_next_alarm;
+            RTC_INSTANT = Some(start_wakeup_alarm(time_until_next_alarm))
+        };
 
-        critical_section::with(|_| {
-            trace!("executor: set wakeup alarm...");
+        // return;
 
-            start_wakeup_alarm(time_until_next_alarm);
+        pause_time();
 
-            trace!("low power wait for rtc ready...");
+        trace!("enter stop...");
 
-            Self::get_scb().set_sleepdeep();
-        });
+        Self::get_scb().set_sleepdeep();
     }
 
     /// Run the executor.
