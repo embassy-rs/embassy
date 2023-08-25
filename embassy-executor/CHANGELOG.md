@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced Pender. Implementations now must define an extern function called `__pender`.
 - Made `raw::AvailableTask` public
 - Made `SpawnToken::new_failed` public
+- You can now use arbitrary expressions to specify `#[task(pool_size = X)]`
 
 ## 0.2.1 - 2023-08-10
 
