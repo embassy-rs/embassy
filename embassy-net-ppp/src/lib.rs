@@ -13,7 +13,7 @@ use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embedded_io_async::{BufRead, Write, WriteAllError};
 use ppproto::pppos::{BufferFullError, PPPoS, PPPoSAction};
-pub use ppproto::Config;
+pub use ppproto::{Config, Ipv4Status};
 
 const MTU: usize = 1500;
 
@@ -79,6 +79,7 @@ impl<'d> Runner<'d> {
         &mut self,
         mut rw: RW,
         config: ppproto::Config<'_>,
+        mut on_ipv4_up: impl FnMut(Ipv4Status),
     ) -> Result<Infallible, RunError<RW::Error>> {
         let mut ppp = PPPoS::new(config);
         ppp.open().unwrap();
@@ -91,6 +92,7 @@ impl<'d> Runner<'d> {
         let mut tx_buf = [0; 2048];
 
         let mut needs_poll = true;
+        let mut was_up = false;
 
         loop {
             let rx_fut = async {
@@ -124,9 +126,19 @@ impl<'d> Runner<'d> {
                         PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await?,
                     }
 
-                    match ppp.status().phase {
-                        ppproto::Phase::Open => state_chan.set_link_state(LinkState::Up),
-                        _ => state_chan.set_link_state(LinkState::Down),
+                    let status = ppp.status();
+                    match status.phase {
+                        ppproto::Phase::Open => {
+                            if !was_up {
+                                on_ipv4_up(status.ipv4.unwrap());
+                            }
+                            was_up = true;
+                            state_chan.set_link_state(LinkState::Up);
+                        }
+                        _ => {
+                            was_up = false;
+                            state_chan.set_link_state(LinkState::Down);
+                        }
                     }
                 }
                 Either::Second(pkt) => {
