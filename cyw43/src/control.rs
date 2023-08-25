@@ -1,9 +1,11 @@
 use core::cmp::{max, min};
+use core::marker::PhantomData;
 
 use ch::driver::LinkState;
 use embassy_net_driver_channel as ch;
 use embassy_time::{Duration, Timer};
 
+use self::control_states::{Associated, Down, HostingAP, Idle, Uninit};
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, EventSubscriber, Events};
@@ -16,23 +18,166 @@ use crate::{countries, events, PowerManagementMode};
 pub struct Error {
     pub status: u32,
 }
-
-pub struct Control<'a> {
+/// Represents the compile-time checked state of the [Control] struct.
+///
+/// This would be the graph of state transitions.
+/// ```text
+///
+///                                                 join_*()    **************
+///                                               |<----------> * Associated *
+/// ********** init() ********  up()  ********    | leave()     **************
+/// * Uninit * -----> * Down * <----> * Idle * ---|
+/// **********        ******** down() ********    | start_ap()  *************
+///                                               |-----------> * HostingAP *
+///                                                 stop_ap()   *************
+/// ```
+pub mod control_states {
+    /// This means, that the wifi chip hasn't been initialized yet.
+    pub struct Uninit;
+    /// This means, that the wifi chip is down.
+    pub struct Down;
+    /// This means, that we're disassociated and not acting as an AP.
+    pub struct Idle;
+    /// This means, that we're associated.
+    pub struct Associated;
+    /// This means, that we're currently hosting an AP.
+    pub struct HostingAP;
+}
+pub struct Control<'a, State> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
     ioctl_state: &'a IoctlState,
+    _phantom_state: PhantomData<State>,
+}
+impl<'a, State> Control<'a, State> {
+    pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
+        // power save mode
+        let mode_num = mode.mode();
+        if mode_num == 2 {
+            self.set_iovar_u32("pm2_sleep_ret", mode.sleep_ret_ms() as u32).await;
+            self.set_iovar_u32("bcn_li_bcn", mode.beacon_period() as u32).await;
+            self.set_iovar_u32("bcn_li_dtim", mode.dtim_period() as u32).await;
+            self.set_iovar_u32("assoc_listen", mode.assoc() as u32).await;
+        }
+        self.ioctl_set_u32(86, 0, mode_num).await;
+    }
+
+    pub async fn gpio_set(&mut self, gpio_n: u8, gpio_en: bool) {
+        assert!(gpio_n < 3);
+        self.set_iovar_u32x2("gpioout", 1 << gpio_n, if gpio_en { 1 << gpio_n } else { 0 })
+            .await
+    }
+
+    async fn up_internal(&mut self) {
+        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+    }
+
+    async fn down_internal(&mut self) {
+        self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
+    }
+
+    async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
+        let mut buf = [0; 8];
+        buf[0..4].copy_from_slice(&val1.to_le_bytes());
+        buf[4..8].copy_from_slice(&val2.to_le_bytes());
+        self.set_iovar(name, &buf).await
+    }
+
+    async fn set_iovar_u32(&mut self, name: &str, val: u32) {
+        self.set_iovar(name, &val.to_le_bytes()).await
+    }
+
+    async fn get_iovar_u32(&mut self, name: &str) -> u32 {
+        let mut buf = [0; 4];
+        let len = self.get_iovar(name, &mut buf).await;
+        assert_eq!(len, 4);
+        u32::from_le_bytes(buf)
+    }
+
+    async fn set_iovar(&mut self, name: &str, val: &[u8]) {
+        self.set_iovar_v::<64>(name, val).await
+    }
+
+    async fn set_iovar_v<const BUFSIZE: usize>(&mut self, name: &str, val: &[u8]) {
+        debug!("set {} = {:02x}", name, Bytes(val));
+
+        let mut buf = [0; BUFSIZE];
+        buf[..name.len()].copy_from_slice(name.as_bytes());
+        buf[name.len()] = 0;
+        buf[name.len() + 1..][..val.len()].copy_from_slice(val);
+
+        let total_len = name.len() + 1 + val.len();
+        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..total_len])
+            .await;
+    }
+
+    // TODO this is not really working, it always returns all zeros.
+    async fn get_iovar(&mut self, name: &str, res: &mut [u8]) -> usize {
+        debug!("get {}", name);
+
+        let mut buf = [0; 64];
+        buf[..name.len()].copy_from_slice(name.as_bytes());
+        buf[name.len()] = 0;
+
+        let total_len = max(name.len() + 1, res.len());
+        let res_len = self
+            .ioctl(IoctlType::Get, IOCTL_CMD_GET_VAR, 0, &mut buf[..total_len])
+            .await;
+
+        let out_len = min(res.len(), res_len);
+        res[..out_len].copy_from_slice(&buf[..out_len]);
+        out_len
+    }
+
+    async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
+        let mut buf = val.to_le_bytes();
+        self.ioctl(IoctlType::Set, cmd, iface, &mut buf).await;
+    }
+
+    async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
+        struct CancelOnDrop<'a>(&'a IoctlState);
+
+        impl CancelOnDrop<'_> {
+            fn defuse(self) {
+                core::mem::forget(self);
+            }
+        }
+
+        impl Drop for CancelOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.cancel_ioctl();
+            }
+        }
+
+        let ioctl = CancelOnDrop(self.ioctl_state);
+        let resp_len = ioctl.0.do_ioctl(kind, cmd, iface, buf).await;
+        ioctl.defuse();
+
+        resp_len
+    }
+
+    /// Just an internal helper.
+    fn change_state<NewState>(self) -> Control<'a, NewState> {
+        Control {
+            state_ch: self.state_ch,
+            events: self.events,
+            ioctl_state: self.ioctl_state,
+            _phantom_state: PhantomData::default(),
+        }
+    }
 }
 
-impl<'a> Control<'a> {
+impl<'a> Control<'a, Uninit> {
     pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a Events, ioctl_state: &'a IoctlState) -> Self {
         Self {
             state_ch,
             events: event_sub,
             ioctl_state,
+            _phantom_state: PhantomData::default(),
         }
     }
 
-    pub async fn init(&mut self, clm: &[u8]) {
+    pub async fn init(mut self, clm: &[u8]) -> Control<'a, Down> {
         const CHUNK_SIZE: usize = 1024;
 
         debug!("Downloading CLM...");
@@ -123,8 +268,8 @@ impl<'a> Control<'a> {
 
         Timer::after(Duration::from_millis(100)).await;
 
-        // set wifi up
-        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+        // Temporarily raise the wifi to set gmode and band.
+        self.up_internal().await;
 
         Timer::after(Duration::from_millis(100)).await;
 
@@ -133,24 +278,26 @@ impl<'a> Control<'a> {
 
         Timer::after(Duration::from_millis(100)).await;
 
+        self.down_internal().await;
+
         self.state_ch.set_ethernet_address(mac_addr);
 
         debug!("INIT DONE");
+        self.change_state()
     }
-
-    pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
-        // power save mode
-        let mode_num = mode.mode();
-        if mode_num == 2 {
-            self.set_iovar_u32("pm2_sleep_ret", mode.sleep_ret_ms() as u32).await;
-            self.set_iovar_u32("bcn_li_bcn", mode.beacon_period() as u32).await;
-            self.set_iovar_u32("bcn_li_dtim", mode.dtim_period() as u32).await;
-            self.set_iovar_u32("assoc_listen", mode.assoc() as u32).await;
-        }
-        self.ioctl_set_u32(86, 0, mode_num).await;
+}
+impl<'a> Control<'a, Down> {
+    pub async fn up(mut self) -> Control<'a, Idle> {
+        self.up_internal().await;
+        self.change_state()
     }
-
-    pub async fn join_open(&mut self, ssid: &str) -> Result<(), Error> {
+}
+impl<'a> Control<'a, Idle> {
+    pub async fn down(mut self) -> Control<'a, Down> {
+        self.down_internal().await;
+        self.change_state()
+    }
+    pub async fn join_open(mut self, ssid: &'a str) -> Result<Control<Associated>, (Error, Control<'a, Idle>)> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         self.ioctl_set_u32(134, 0, 0).await; // wsec = open
@@ -164,10 +311,18 @@ impl<'a> Control<'a> {
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
-        self.wait_for_join(i).await
+        match self.wait_for_join(i).await {
+            Err(e) => return Err((e, self)),
+            _ => {}
+        };
+        Ok(self.change_state())
     }
 
-    pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) -> Result<(), Error> {
+    pub async fn join_wpa2(
+        mut self,
+        ssid: &'a str,
+        passphrase: &'a str,
+    ) -> Result<Control<'a, Associated>, (Error, Control<'a, Idle>)> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         self.ioctl_set_u32(134, 0, 4).await; // wsec = wpa2
@@ -196,7 +351,11 @@ impl<'a> Control<'a> {
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
-        self.wait_for_join(i).await
+        match self.wait_for_join(i).await {
+            Err(e) => return Err((e, self)),
+            _ => {}
+        };
+        Ok(self.change_state())
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo) -> Result<(), Error> {
@@ -234,18 +393,51 @@ impl<'a> Control<'a> {
         }
     }
 
-    pub async fn gpio_set(&mut self, gpio_n: u8, gpio_en: bool) {
-        assert!(gpio_n < 3);
-        self.set_iovar_u32x2("gpioout", 1 << gpio_n, if gpio_en { 1 << gpio_n } else { 0 })
-            .await
+    /// Start a wifi scan
+    ///
+    /// Returns a `Stream` of networks found by the device
+    ///
+    /// # Note
+    /// Device events are currently implemented using a bounded queue.
+    /// To not miss any events, you should make sure to always await the stream.
+    pub async fn scan(&mut self) -> Scanner<'_> {
+        const SCANTYPE_PASSIVE: u8 = 1;
+
+        let scan_params = ScanParams {
+            version: 1,
+            action: 1,
+            sync_id: 1,
+            ssid_len: 0,
+            ssid: [0; 32],
+            bssid: [0xff; 6],
+            bss_type: 2,
+            scan_type: SCANTYPE_PASSIVE,
+            nprobes: !0,
+            active_time: !0,
+            passive_time: !0,
+            home_time: !0,
+            channel_num: 0,
+            channel_list: [0; 1],
+        };
+
+        self.events.mask.enable(&[Event::ESCAN_RESULT]);
+        let subscriber = self.events.queue.subscriber().unwrap();
+        self.set_iovar_v::<256>("escan", &scan_params.to_bytes()).await;
+
+        Scanner {
+            subscriber,
+            events: &self.events,
+        }
     }
 
-    pub async fn start_ap_open(&mut self, ssid: &str, channel: u8) {
+    pub async fn start_ap_open(mut self, ssid: &str, channel: u8) -> Control<'a, HostingAP> {
         self.start_ap(ssid, "", Security::OPEN, channel).await;
+        self.change_state()
     }
 
-    pub async fn start_ap_wpa2(&mut self, ssid: &str, passphrase: &str, channel: u8) {
+    pub async fn start_ap_wpa2(mut self, ssid: &str, passphrase: &str, channel: u8) -> Control<'a, HostingAP> {
         self.start_ap(ssid, passphrase, Security::WPA2_AES_PSK, channel).await;
+        self.change_state()
     }
 
     async fn start_ap(&mut self, ssid: &str, passphrase: &str, security: Security, channel: u8) {
@@ -306,124 +498,9 @@ impl<'a> Control<'a> {
         // Start AP
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
     }
-
-    async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
-        let mut buf = [0; 8];
-        buf[0..4].copy_from_slice(&val1.to_le_bytes());
-        buf[4..8].copy_from_slice(&val2.to_le_bytes());
-        self.set_iovar(name, &buf).await
-    }
-
-    async fn set_iovar_u32(&mut self, name: &str, val: u32) {
-        self.set_iovar(name, &val.to_le_bytes()).await
-    }
-
-    async fn get_iovar_u32(&mut self, name: &str) -> u32 {
-        let mut buf = [0; 4];
-        let len = self.get_iovar(name, &mut buf).await;
-        assert_eq!(len, 4);
-        u32::from_le_bytes(buf)
-    }
-
-    async fn set_iovar(&mut self, name: &str, val: &[u8]) {
-        self.set_iovar_v::<64>(name, val).await
-    }
-
-    async fn set_iovar_v<const BUFSIZE: usize>(&mut self, name: &str, val: &[u8]) {
-        debug!("set {} = {:02x}", name, Bytes(val));
-
-        let mut buf = [0; BUFSIZE];
-        buf[..name.len()].copy_from_slice(name.as_bytes());
-        buf[name.len()] = 0;
-        buf[name.len() + 1..][..val.len()].copy_from_slice(val);
-
-        let total_len = name.len() + 1 + val.len();
-        self.ioctl(IoctlType::Set, IOCTL_CMD_SET_VAR, 0, &mut buf[..total_len])
-            .await;
-    }
-
-    // TODO this is not really working, it always returns all zeros.
-    async fn get_iovar(&mut self, name: &str, res: &mut [u8]) -> usize {
-        debug!("get {}", name);
-
-        let mut buf = [0; 64];
-        buf[..name.len()].copy_from_slice(name.as_bytes());
-        buf[name.len()] = 0;
-
-        let total_len = max(name.len() + 1, res.len());
-        let res_len = self
-            .ioctl(IoctlType::Get, IOCTL_CMD_GET_VAR, 0, &mut buf[..total_len])
-            .await;
-
-        let out_len = min(res.len(), res_len);
-        res[..out_len].copy_from_slice(&buf[..out_len]);
-        out_len
-    }
-
-    async fn ioctl_set_u32(&mut self, cmd: u32, iface: u32, val: u32) {
-        let mut buf = val.to_le_bytes();
-        self.ioctl(IoctlType::Set, cmd, iface, &mut buf).await;
-    }
-
-    async fn ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
-        struct CancelOnDrop<'a>(&'a IoctlState);
-
-        impl CancelOnDrop<'_> {
-            fn defuse(self) {
-                core::mem::forget(self);
-            }
-        }
-
-        impl Drop for CancelOnDrop<'_> {
-            fn drop(&mut self) {
-                self.0.cancel_ioctl();
-            }
-        }
-
-        let ioctl = CancelOnDrop(self.ioctl_state);
-        let resp_len = ioctl.0.do_ioctl(kind, cmd, iface, buf).await;
-        ioctl.defuse();
-
-        resp_len
-    }
-
-    /// Start a wifi scan
-    ///
-    /// Returns a `Stream` of networks found by the device
-    ///
-    /// # Note
-    /// Device events are currently implemented using a bounded queue.
-    /// To not miss any events, you should make sure to always await the stream.
-    pub async fn scan(&mut self) -> Scanner<'_> {
-        const SCANTYPE_PASSIVE: u8 = 1;
-
-        let scan_params = ScanParams {
-            version: 1,
-            action: 1,
-            sync_id: 1,
-            ssid_len: 0,
-            ssid: [0; 32],
-            bssid: [0xff; 6],
-            bss_type: 2,
-            scan_type: SCANTYPE_PASSIVE,
-            nprobes: !0,
-            active_time: !0,
-            passive_time: !0,
-            home_time: !0,
-            channel_num: 0,
-            channel_list: [0; 1],
-        };
-
-        self.events.mask.enable(&[Event::ESCAN_RESULT]);
-        let subscriber = self.events.queue.subscriber().unwrap();
-        self.set_iovar_v::<256>("escan", &scan_params.to_bytes()).await;
-
-        Scanner {
-            subscriber,
-            events: &self.events,
-        }
-    }
 }
+impl<'a> Control<'a, Associated> {}
+impl<'a> Control<'a, HostingAP> {}
 
 pub struct Scanner<'a> {
     subscriber: EventSubscriber<'a>,

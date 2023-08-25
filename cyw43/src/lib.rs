@@ -20,6 +20,7 @@ mod runner;
 
 use core::slice;
 
+use control::control_states::Uninit;
 use embassy_net_driver_channel as ch;
 use embedded_hal_1::digital::OutputPin;
 use events::Events;
@@ -27,7 +28,7 @@ use ioctl::IoctlState;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-pub use crate::control::{Control, Error as ControlError};
+pub use crate::control::{control_states, Control, Error as ControlError};
 pub use crate::runner::Runner;
 pub use crate::structs::BssInfo;
 
@@ -211,7 +212,7 @@ pub async fn new<'a, PWR, SPI>(
     pwr: PWR,
     spi: SPI,
     firmware: &[u8],
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
+) -> (NetDriver<'a>, Control<'a, Uninit>, Runner<'a, PWR, SPI>)
 where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
