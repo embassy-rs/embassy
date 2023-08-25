@@ -8,11 +8,9 @@ mod fmt;
 use core::convert::Infallible;
 use core::mem::MaybeUninit;
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-use embassy_sync::signal::Signal;
 use embedded_io_async::{BufRead, Write, WriteAllError};
 use ppproto::pppos::{BufferFullError, PPPoS, PPPoSAction};
 
@@ -75,22 +73,50 @@ impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
         let mut rx_buf = [0; 2048];
         let mut tx_buf = [0; 2048];
 
-        let poll_signal: Signal<NoopRawMutex, ()> = Signal::new();
-        poll_signal.signal(());
+        let mut needs_poll = true;
 
         loop {
-            let mut poll = false;
-            match select3(self.r.fill_buf(), tx_chan.tx_buf(), poll_signal.wait()).await {
-                Either3::First(r) => {
-                    let data = r.map_err(RunError::Read)?;
-                    if data.is_empty() {
-                        return Err(RunError::Eof);
-                    }
-                    let n = ppp.consume(data, &mut rx_buf);
+            let rx_fut = async {
+                let buf = rx_chan.rx_buf().await;
+                let rx_data = match needs_poll {
+                    true => &[][..],
+                    false => match self.r.fill_buf().await {
+                        Ok(rx_data) if rx_data.len() == 0 => return Err(RunError::Eof),
+                        Ok(rx_data) => rx_data,
+                        Err(e) => return Err(RunError::Read(e)),
+                    },
+                };
+                Ok((buf, rx_data))
+            };
+            let tx_fut = tx_chan.tx_buf();
+            match select(rx_fut, tx_fut).await {
+                Either::First(r) => {
+                    needs_poll = false;
+
+                    let (buf, rx_data) = r?;
+                    let n = ppp.consume(rx_data, &mut rx_buf);
                     self.r.consume(n);
-                    poll = true;
+
+                    match ppp.poll(&mut tx_buf, &mut rx_buf) {
+                        PPPoSAction::None => {}
+                        PPPoSAction::Received(rg) => {
+                            let pkt = &rx_buf[rg];
+                            buf[..pkt.len()].copy_from_slice(pkt);
+                            rx_chan.rx_done(pkt.len());
+                        }
+                        PPPoSAction::Transmit(n) => match self.w.write_all(&tx_buf[..n]).await {
+                            Ok(()) => {}
+                            Err(WriteAllError::WriteZero) => return Err(RunError::WriteZero),
+                            Err(WriteAllError::Other(e)) => return Err(RunError::Write(e)),
+                        },
+                    }
+
+                    match ppp.status().phase {
+                        ppproto::Phase::Open => state_chan.set_link_state(LinkState::Up),
+                        _ => state_chan.set_link_state(LinkState::Down),
+                    }
                 }
-                Either3::Second(pkt) => {
+                Either::Second(pkt) => {
                     match ppp.send(pkt, &mut tx_buf) {
                         Ok(n) => match self.w.write_all(&tx_buf[..n]).await {
                             Ok(()) => {}
@@ -100,34 +126,6 @@ impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
                         Err(BufferFullError) => unreachable!(),
                     }
                     tx_chan.tx_done();
-                }
-                Either3::Third(_) => poll = true,
-            }
-
-            if poll {
-                match ppp.poll(&mut tx_buf, &mut rx_buf) {
-                    PPPoSAction::None => {}
-                    PPPoSAction::Received(rg) => {
-                        let pkt = &rx_buf[rg];
-                        let buf = rx_chan.rx_buf().await; // TODO: fix possible deadlock
-                        buf[..pkt.len()].copy_from_slice(pkt);
-                        rx_chan.rx_done(pkt.len());
-
-                        poll_signal.signal(());
-                    }
-                    PPPoSAction::Transmit(n) => {
-                        match self.w.write_all(&tx_buf[..n]).await {
-                            Ok(()) => {}
-                            Err(WriteAllError::WriteZero) => return Err(RunError::WriteZero),
-                            Err(WriteAllError::Other(e)) => return Err(RunError::Write(e)),
-                        }
-                        poll_signal.signal(());
-                    }
-                }
-
-                match ppp.status().phase {
-                    ppproto::Phase::Open => state_chan.set_link_state(LinkState::Up),
-                    _ => state_chan.set_link_state(LinkState::Down),
                 }
             }
         }
