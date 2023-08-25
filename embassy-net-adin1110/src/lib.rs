@@ -65,13 +65,15 @@ const FSC_LEN: usize = 4;
 const SPI_HEADER_LEN: usize = 2;
 /// SPI Header CRC length
 const SPI_HEADER_CRC_LEN: usize = 1;
-/// Frame Header,
+/// SPI Header Trun Around length
+const SPI_HEADER_TA_LEN: usize = 1;
+/// Frame Header length
 const FRAME_HEADER_LEN: usize = 2;
+/// Space for last bytes to create multipule 4 bytes on the end of a FIFO read/write.
+const SPI_SPACE_MULTIPULE: usize = 3;
 
 // P1 = 0x00, P2 = 0x01
 const PORT_ID_BYTE: u8 = 0x00;
-
-pub type Packet = Vec<u8, { SPI_HEADER_LEN + FRAME_HEADER_LEN + MTU + FSC_LEN + 1 + 4 }>;
 
 /// Type alias for the embassy-net driver for ADIN1110
 pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
@@ -187,22 +189,24 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
     }
 
     /// Read out fifo ethernet packet memory received via the wire.
-    pub async fn read_fifo(&mut self, packet: &mut [u8]) -> AEResult<usize, SPI::Error> {
-        let mut tx_buf = Vec::<u8, 16>::new();
+    pub async fn read_fifo(&mut self, frame: &mut [u8]) -> AEResult<usize, SPI::Error> {
+        const HEAD_LEN: usize = SPI_HEADER_LEN + SPI_HEADER_CRC_LEN + SPI_HEADER_TA_LEN;
+        const TAIL_LEN: usize = FSC_LEN + SPI_SPACE_MULTIPULE;
 
-        // Size of the frame, also includes the appednded header.
-        let packet_size = self.read_reg(sr::RX_FSIZE).await? as usize;
+        let mut tx_buf = Vec::<u8, HEAD_LEN>::new();
 
-        // Packet read of write to the MAC packet buffer must be a multipul of 4!
-        let read_size = packet_size.next_multiple_of(4);
+        // Size of the frame, also includes the `frame header` and `FSC`.
+        let fifo_frame_size = self.read_reg(sr::RX_FSIZE).await? as usize;
 
-        if packet_size < (SPI_HEADER_LEN + FSC_LEN) {
+        if fifo_frame_size < ETH_MIN_LEN + FRAME_HEADER_LEN {
             return Err(AdinError::PACKET_TOO_SMALL);
         }
 
-        if read_size > packet.len() {
+        let packet_size = fifo_frame_size - FRAME_HEADER_LEN - FSC_LEN;
+
+        if packet_size > frame.len() {
             #[cfg(feature = "defmt")]
-            defmt::trace!("MAX: {} WANT: {}", packet.len(), read_size);
+            defmt::trace!("MAX: {} WANT: {}", frame.len(), packet_size);
             return Err(AdinError::PACKET_TOO_BIG);
         }
 
@@ -219,29 +223,28 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         // Turn around byte, TODO: Unknown that this is.
         let _ = tx_buf.push(TURN_AROUND_BYTE);
 
-        let spi_packet = &mut packet[0..read_size];
+        let mut frame_header = [0, 0];
+        let mut fsc_and_extra = [0; TAIL_LEN];
 
-        assert_eq!(spi_packet.len() & 0x03, 0x00);
-
-        let mut pkt_header = [0, 0];
-        let mut fsc = [0, 0, 0, 0];
+        // Packet read of write to the MAC packet buffer must be a multipul of 4!
+        let tail_size = (fifo_frame_size & 0x03) + FSC_LEN;
 
         let mut spi_op = [
             Operation::Write(&tx_buf),
-            Operation::Read(&mut pkt_header),
-            Operation::Read(spi_packet),
-            Operation::Read(&mut fsc),
+            Operation::Read(&mut frame_header),
+            Operation::Read(&mut frame[0..packet_size]),
+            Operation::Read(&mut fsc_and_extra[0..tail_size]),
         ];
 
         self.spi.transaction(&mut spi_op).await.map_err(AdinError::Spi)?;
 
-        Ok(packet_size as usize)
+        Ok(packet_size)
     }
 
     /// Write to fifo ethernet packet memory send over the wire.
     pub async fn write_fifo(&mut self, frame: &[u8]) -> AEResult<(), SPI::Error> {
         const HEAD_LEN: usize = SPI_HEADER_LEN + SPI_HEADER_CRC_LEN + FRAME_HEADER_LEN;
-        const TAIL_LEN: usize = ETH_MIN_LEN - FSC_LEN + FSC_LEN + 1;
+        const TAIL_LEN: usize = ETH_MIN_LEN - FSC_LEN + FSC_LEN + SPI_SPACE_MULTIPULE;
 
         if frame.len() < (6 + 6 + 2) {
             return Err(AdinError::PACKET_TOO_SMALL);
@@ -1042,5 +1045,145 @@ mod tests {
         assert!(spe.write_fifo(&packet).await.is_ok());
 
         spi.done();
+    }
+
+    #[futures_test::test]
+    async fn read_packet_from_fifo_packet_too_big_for_frame_buffer() {
+        // Configure expectations
+        let mut expectations = vec![];
+
+        // Read RX_SIZE reg
+        let rx_size: u32 = u32::try_from(ETH_MIN_LEN + FRAME_HEADER_LEN + FSC_LEN).unwrap();
+        let mut rx_size_vec = rx_size.to_be_bytes().to_vec();
+        rx_size_vec.push(crc8(&rx_size_vec));
+
+        expectations.push(SpiTransaction::write_vec(vec![128, 144, 79, TURN_AROUND_BYTE]));
+        expectations.push(SpiTransaction::read_vec(rx_size_vec));
+        expectations.push(SpiTransaction::flush());
+
+        let mut spi = SpiMock::new(&expectations);
+
+        let cs = CsPinMock::default();
+        let delay = MockDelay {};
+        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
+
+        let mut spe = ADIN1110::new(spi_dev, true);
+
+        let mut frame = [0; MTU];
+
+        let ret = spe.read_fifo(&mut frame[0..ETH_MIN_LEN - 1]).await;
+        assert!(matches!(dbg!(ret), Err(AdinError::PACKET_TOO_BIG)));
+
+        spi.done();
+    }
+
+    #[futures_test::test]
+    async fn read_packet_from_fifo_packet_too_small() {
+        // Configure expectations
+        let mut expectations = vec![];
+
+        // This value is importen for this test!
+        assert_eq!(ETH_MIN_LEN, 64);
+
+        // Packet data, size = `ETH_MIN_LEN` - `FSC_LEN` - 1
+        let packet = [0; 64 - FSC_LEN - 1];
+
+        // Read RX_SIZE reg
+        let rx_size: u32 = u32::try_from(packet.len() + FRAME_HEADER_LEN + FSC_LEN).unwrap();
+        let mut rx_size_vec = rx_size.to_be_bytes().to_vec();
+        rx_size_vec.push(crc8(&rx_size_vec));
+
+        expectations.push(SpiTransaction::write_vec(vec![128, 144, 79, TURN_AROUND_BYTE]));
+        expectations.push(SpiTransaction::read_vec(rx_size_vec));
+        expectations.push(SpiTransaction::flush());
+
+        let mut spi = SpiMock::new(&expectations);
+
+        let cs = CsPinMock::default();
+        let delay = MockDelay {};
+        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
+
+        let mut spe = ADIN1110::new(spi_dev, true);
+
+        let mut frame = [0; MTU];
+
+        let ret = spe.read_fifo(&mut frame).await;
+        assert!(matches!(dbg!(ret), Err(AdinError::PACKET_TOO_SMALL)));
+
+        spi.done();
+    }
+
+    #[futures_test::test]
+    async fn read_packet_to_fifo_check_spi_read_multipule_of_u32_valid_lengths() {
+        let packet_buffer = [0; MTU];
+        let mut frame = [0; MTU];
+        let mut expectations = std::vec::Vec::with_capacity(16);
+
+        // Packet data, size = `ETH_MIN_LEN` - `FSC_LEN`
+        for packet_size in [60, 61, 62, 63, 64, MTU - 4, MTU - 3, MTU - 2, MTU - 1, MTU] {
+            for crc_en in [false, true] {
+                expectations.clear();
+
+                let packet = &packet_buffer[0..packet_size];
+
+                // Read RX_SIZE reg
+                let rx_size: u32 = u32::try_from(packet.len() + FRAME_HEADER_LEN + FSC_LEN).unwrap();
+                let mut rx_size_vec = rx_size.to_be_bytes().to_vec();
+                if crc_en {
+                    rx_size_vec.push(crc8(&rx_size_vec));
+                }
+
+                // SPI Header with CRC
+                let mut rx_fsize = vec![128, 144, 79, TURN_AROUND_BYTE];
+                if !crc_en {
+                    // remove the CRC on idx 2
+                    rx_fsize.swap_remove(2);
+                }
+                expectations.push(SpiTransaction::write_vec(rx_fsize));
+                expectations.push(SpiTransaction::read_vec(rx_size_vec));
+                expectations.push(SpiTransaction::flush());
+
+                // Read RX reg, SPI Header with CRC
+                let mut rx_reg = vec![128, 145, 72, TURN_AROUND_BYTE];
+                if !crc_en {
+                    // remove the CRC on idx 2
+                    rx_reg.swap_remove(2);
+                }
+                expectations.push(SpiTransaction::write_vec(rx_reg));
+                // Frame Header
+                expectations.push(SpiTransaction::read_vec(vec![0, 0]));
+                // Packet data
+                expectations.push(SpiTransaction::read_vec(packet.to_vec()));
+
+                let packet_crc = ETH_FSC::new(packet);
+
+                let mut tail = std::vec::Vec::<u8>::with_capacity(100);
+
+                tail.extend_from_slice(&packet_crc.hton_bytes());
+
+                // Need extra bytes?
+                let pad = (packet_size + FSC_LEN + FRAME_HEADER_LEN) & 0x03;
+                if pad != 0 {
+                    // Packet FCS + optinal padding
+                    tail.resize(tail.len() + pad, DONT_CARE_BYTE);
+                }
+
+                expectations.push(SpiTransaction::read_vec(tail));
+                expectations.push(SpiTransaction::flush());
+
+                let mut spi = SpiMock::new(&expectations);
+
+                let cs = CsPinMock::default();
+                let delay = MockDelay {};
+                let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
+
+                let mut spe = ADIN1110::new(spi_dev, crc_en);
+
+                let ret = spe.read_fifo(&mut frame).await.expect("Error!");
+                assert_eq!(ret, packet_size);
+
+                spi.done();
+            }
+        }
     }
 }
