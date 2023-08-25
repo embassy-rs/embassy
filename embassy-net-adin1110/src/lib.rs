@@ -13,7 +13,7 @@ mod phy;
 mod regs;
 
 use ch::driver::LinkState;
-pub use crc32::ETH_FSC;
+pub use crc32::ETH_FCS;
 use crc8::crc8;
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
@@ -35,16 +35,22 @@ pub const PHYID: u32 = 0x0283_BC91;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(non_camel_case_types)]
 pub enum AdinError<E> {
+    /// SPI-BUS Error
     Spi(E),
-    SENDERROR,
-    READERROR,
-    CRC,
+    /// Ethernet FCS error
+    FCS,
+    /// SPI Header CRC error
+    SPI_CRC,
+    /// Received or sended ethernet packet is too big
     PACKET_TOO_BIG,
+    /// Received or sended ethernet packet is too small
     PACKET_TOO_SMALL,
+    /// MDIO transaction timeout
     MDIO_ACC_TIMEOUT,
 }
 
 pub type AEResult<T, SPIError> = core::result::Result<T, AdinError<SPIError>>;
+/// Internet PHY address
 pub const MDIO_PHY_ADDR: u8 = 0x01;
 
 /// Maximum Transmission Unit
@@ -59,9 +65,9 @@ const TURN_AROUND_BYTE: u8 = 0x00;
 /// Packet minimal frame/packet length
 const ETH_MIN_LEN: usize = 64;
 /// Ethernet `Frame Check Sequence` length
-const FSC_LEN: usize = 4;
+const FCS_LEN: usize = 4;
 /// Packet minimal frame/packet length without `Frame Check Sequence` length
-const ETH_MIN_WITHOUT_FSC_LEN: usize = ETH_MIN_LEN - FSC_LEN;
+const ETH_MIN_WITHOUT_FCS_LEN: usize = ETH_MIN_LEN - FCS_LEN;
 
 /// SPI Header, contains SPI action and register id.
 const SPI_HEADER_LEN: usize = 2;
@@ -74,7 +80,7 @@ const FRAME_HEADER_LEN: usize = 2;
 /// Space for last bytes to create multipule 4 bytes on the end of a FIFO read/write.
 const SPI_SPACE_MULTIPULE: usize = 3;
 
-// P1 = 0x00, P2 = 0x01
+/// P1 = 0x00, P2 = 0x01
 const PORT_ID_BYTE: u8 = 0x00;
 
 /// Type alias for the embassy-net driver for ADIN1110
@@ -100,12 +106,18 @@ pub struct ADIN1110<SPI> {
     spi: SPI,
     /// Enable CRC on SPI transfer.
     /// This must match with the hardware pin `SPI_CFG0` were low = CRC enable, high = CRC disabled.
-    crc: bool,
+    spi_crc: bool,
+    /// Append FCS by the application of transmit packet, false = FCS is appended by the MAC, true = FCS appended by the application.
+    append_fcs_on_tx: bool,
 }
 
 impl<SPI: SpiDevice> ADIN1110<SPI> {
-    pub fn new(spi: SPI, crc: bool) -> Self {
-        Self { spi, crc }
+    pub fn new(spi: SPI, spi_crc: bool, append_fcs_on_tx: bool) -> Self {
+        Self {
+            spi,
+            spi_crc,
+            append_fcs_on_tx,
+        }
     }
 
     pub async fn read_reg(&mut self, reg: sr) -> AEResult<u32, SPI::Error> {
@@ -116,7 +128,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         spi_hdr.set_addr(reg);
         let _ = tx_buf.extend_from_slice(spi_hdr.0.to_be_bytes().as_slice());
 
-        if self.crc {
+        if self.spi_crc {
             // Add CRC for header data
             let _ = tx_buf.push(crc8(&tx_buf));
         }
@@ -126,16 +138,16 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
 
         let mut rx_buf = [0; 5];
 
-        let spi_read_len = if self.crc { rx_buf.len() } else { rx_buf.len() - 1 };
+        let spi_read_len = if self.spi_crc { rx_buf.len() } else { rx_buf.len() - 1 };
 
         let mut spi_op = [Operation::Write(&tx_buf), Operation::Read(&mut rx_buf[0..spi_read_len])];
 
         self.spi.transaction(&mut spi_op).await.map_err(AdinError::Spi)?;
 
-        if self.crc {
+        if self.spi_crc {
             let crc = crc8(&rx_buf[0..4]);
             if crc != rx_buf[4] {
-                return Err(AdinError::CRC);
+                return Err(AdinError::SPI_CRC);
             }
         }
 
@@ -156,7 +168,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         spi_hdr.set_addr(reg);
         let _ = tx_buf.extend_from_slice(spi_hdr.0.to_be_bytes().as_slice());
 
-        if self.crc {
+        if self.spi_crc {
             // Add CRC for header data
             let _ = tx_buf.push(crc8(&tx_buf));
         }
@@ -164,7 +176,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         let val = value.to_be_bytes();
         let _ = tx_buf.extend_from_slice(val.as_slice());
 
-        if self.crc {
+        if self.spi_crc {
             // Add CRC for header data
             let _ = tx_buf.push(crc8(val.as_slice()));
         }
@@ -193,18 +205,18 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
     /// Read out fifo ethernet packet memory received via the wire.
     pub async fn read_fifo(&mut self, frame: &mut [u8]) -> AEResult<usize, SPI::Error> {
         const HEAD_LEN: usize = SPI_HEADER_LEN + SPI_HEADER_CRC_LEN + SPI_HEADER_TA_LEN;
-        const TAIL_LEN: usize = FSC_LEN + SPI_SPACE_MULTIPULE;
+        const TAIL_LEN: usize = FCS_LEN + SPI_SPACE_MULTIPULE;
 
         let mut tx_buf = Vec::<u8, HEAD_LEN>::new();
 
-        // Size of the frame, also includes the `frame header` and `FSC`.
+        // Size of the frame, also includes the `frame header` and `FCS`.
         let fifo_frame_size = self.read_reg(sr::RX_FSIZE).await? as usize;
 
         if fifo_frame_size < ETH_MIN_LEN + FRAME_HEADER_LEN {
             return Err(AdinError::PACKET_TOO_SMALL);
         }
 
-        let packet_size = fifo_frame_size - FRAME_HEADER_LEN - FSC_LEN;
+        let packet_size = fifo_frame_size - FRAME_HEADER_LEN - FCS_LEN;
 
         if packet_size > frame.len() {
             #[cfg(feature = "defmt")]
@@ -217,7 +229,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         spi_hdr.set_addr(sr::RX);
         let _ = tx_buf.extend_from_slice(spi_hdr.0.to_be_bytes().as_slice());
 
-        if self.crc {
+        if self.spi_crc {
             // Add CRC for header data
             let _ = tx_buf.push(crc8(&tx_buf));
         }
@@ -226,27 +238,36 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         let _ = tx_buf.push(TURN_AROUND_BYTE);
 
         let mut frame_header = [0, 0];
-        let mut fsc_and_extra = [0; TAIL_LEN];
+        let mut fcs_and_extra = [0; TAIL_LEN];
 
         // Packet read of write to the MAC packet buffer must be a multipul of 4!
-        let tail_size = (fifo_frame_size & 0x03) + FSC_LEN;
+        let tail_size = (fifo_frame_size & 0x03) + FCS_LEN;
 
         let mut spi_op = [
             Operation::Write(&tx_buf),
             Operation::Read(&mut frame_header),
             Operation::Read(&mut frame[0..packet_size]),
-            Operation::Read(&mut fsc_and_extra[0..tail_size]),
+            Operation::Read(&mut fcs_and_extra[0..tail_size]),
         ];
 
         self.spi.transaction(&mut spi_op).await.map_err(AdinError::Spi)?;
 
-        Ok(packet_size)
+        // According to register `CONFIG2`, bit 5 `CRC_APPEND` discription:
+        // "Similarly, on receive, the CRC32 is forwarded with the frame to the host where the host must verify it is correct."
+        // The application must allways check the FCS. It seems that the MAC/PHY has no option to handle this.
+        let fcs_calc = ETH_FCS::new(&frame[0..packet_size]);
+
+        if fcs_calc.hton_bytes() == fcs_and_extra[0..4] {
+            Ok(packet_size)
+        } else {
+            Err(AdinError::FCS)
+        }
     }
 
     /// Write to fifo ethernet packet memory send over the wire.
     pub async fn write_fifo(&mut self, frame: &[u8]) -> AEResult<(), SPI::Error> {
         const HEAD_LEN: usize = SPI_HEADER_LEN + SPI_HEADER_CRC_LEN + FRAME_HEADER_LEN;
-        const TAIL_LEN: usize = ETH_MIN_LEN - FSC_LEN + FSC_LEN + SPI_SPACE_MULTIPULE;
+        const TAIL_LEN: usize = ETH_MIN_LEN - FCS_LEN + FCS_LEN + SPI_SPACE_MULTIPULE;
 
         if frame.len() < (6 + 6 + 2) {
             return Err(AdinError::PACKET_TOO_SMALL);
@@ -269,7 +290,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
             .extend_from_slice(spi_hdr.0.to_be_bytes().as_slice())
             .map_err(|_e| AdinError::PACKET_TOO_BIG)?;
 
-        if self.crc {
+        if self.spi_crc {
             // Add CRC for header data
             head_data
                 .push(crc8(&head_data[0..2]))
@@ -281,18 +302,22 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
             .extend_from_slice(u16::from(PORT_ID_BYTE).to_be_bytes().as_slice())
             .map_err(|_e| AdinError::PACKET_TOO_BIG)?;
 
-        let mut frame_fcs = ETH_FSC::new(frame);
-
         // ADIN1110 MAC and PHY don´t accept ethernet packet smaller than 64 bytes.
         // So padded the data minus the FCS, FCS is automatilly added to by the MAC.
-        if frame.len() < ETH_MIN_WITHOUT_FSC_LEN {
-            let _ = tail_data.resize(ETH_MIN_WITHOUT_FSC_LEN - frame.len(), 0x00);
-            frame_fcs = frame_fcs.update(&tail_data);
+        if frame.len() < ETH_MIN_WITHOUT_FCS_LEN {
+            let _ = tail_data.resize(ETH_MIN_WITHOUT_FCS_LEN - frame.len(), 0x00);
         }
 
-        // Add ethernet FCS only over the ethernet packet.
-        // Only usefull when `CONFIG0`, `Transmit Frame Check Sequence Validation Enable` bit is enabled.
-        let _ = tail_data.extend_from_slice(frame_fcs.hton_bytes().as_slice());
+        // Append FCS by the application
+        if self.append_fcs_on_tx {
+            let mut frame_fcs = ETH_FCS::new(frame);
+
+            if !tail_data.is_empty() {
+                frame_fcs = frame_fcs.update(&tail_data);
+            }
+
+            let _ = tail_data.extend_from_slice(frame_fcs.hton_bytes().as_slice());
+        }
 
         // len = frame_size + optional padding + 2 bytes Frame header
         let send_len_orig = frame.len() + tail_data.len() + FRAME_HEADER_LEN;
@@ -583,7 +608,8 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     spi_dev: SPI,
     int: INT,
     mut reset: RST,
-    crc: bool,
+    spi_crc: bool,
+    append_fcs_on_tx: bool,
 ) -> (Device<'_>, Runner<'_, SPI, INT, RST>) {
     use crate::regs::{IMask0, IMask1};
 
@@ -602,7 +628,7 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     Timer::after(Duration::from_millis(50)).await;
 
     // Create device
-    let mut mac = ADIN1110::new(spi_dev, crc);
+    let mut mac = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
 
     // Check PHYID
     let id = mac.read_reg(sr::PHYID).await.unwrap();
@@ -630,18 +656,15 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
             .unwrap();
     }
 
-    // Check if the FCS is valid in the TX path.
-    let tx_fsc_validation_enable = true;
-
     // Config0
     let mut config0 = Config0(0x0000_0006);
-    config0.set_txfcsve(tx_fsc_validation_enable);
+    config0.set_txfcsve(mac.append_fcs_on_tx);
     mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
 
     // Config2
     let mut config2 = Config2(0x0000_0800);
-    // crc_append must be disable if tx_fsc_validation_enable is true!
-    config2.set_crc_append(!tx_fsc_validation_enable);
+    // crc_append must be disable if tx_fcs_validation_enable is true!
+    config2.set_crc_append(!mac.append_fcs_on_tx);
     mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
 
     // Pin Mux Config 1
@@ -721,6 +744,7 @@ mod tests {
     use embedded_hal_1::digital::{ErrorType, OutputPin};
     use embedded_hal_async::delay::DelayUs;
     use embedded_hal_bus::spi::ExclusiveDevice;
+    use embedded_hal_mock::common::Generic;
     use embedded_hal_mock::eh1::spi::{Mock as SpiMock, Transaction as SpiTransaction};
 
     #[derive(Debug, Default)]
@@ -759,6 +783,30 @@ mod tests {
         }
     }
 
+    struct TestHarnass {
+        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>>,
+        spi: Generic<SpiTransaction>,
+    }
+
+    impl TestHarnass {
+        pub fn new(expectations: &[SpiTransaction], spi_crc: bool, append_fcs_on_tx: bool) -> Self {
+            let cs = CsPinMock::default();
+            let delay = MockDelay {};
+            let spi = SpiMock::new(expectations);
+            let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay> =
+                ExclusiveDevice::new(spi.clone(), cs, delay);
+            let spe: ADIN1110<
+                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>,
+            > = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
+
+            Self { spe, spi }
+        }
+
+        pub fn done(&mut self) {
+            self.spi.done();
+        }
+    }
+
     #[futures_test::test]
     async fn mac_read_registers_without_crc() {
         // Configure expectations
@@ -772,22 +820,20 @@ mod tests {
             SpiTransaction::read_vec(vec![0x00, 0x00, 0x06, 0xC3]),
             SpiTransaction::flush(),
         ];
-        let mut spi = SpiMock::new(&expectations);
 
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-        let mut spe = ADIN1110::new(spi_dev, false);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, false, true);
 
         // Read PHIID
-        let val = spe.read_reg(sr::PHYID).await.expect("Error");
+        let val = th.spe.read_reg(sr::PHYID).await.expect("Error");
         assert_eq!(val, 0x0283_BC91);
 
         // Read CAPAVILITY
-        let val = spe.read_reg(sr::CAPABILITY).await.expect("Error");
+        let val = th.spe.read_reg(sr::CAPABILITY).await.expect("Error");
         assert_eq!(val, 0x0000_06C3);
 
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -803,26 +849,23 @@ mod tests {
             SpiTransaction::read_vec(vec![0x00, 0x00, 0x06, 0xC3, 57]),
             SpiTransaction::flush(),
         ];
-        let mut spi = SpiMock::new(&expectations);
 
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-
-        let mut spe = ADIN1110::new(spi_dev, true);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
 
         assert_eq!(crc8(0x0283_BC91_u32.to_be_bytes().as_slice()), 215);
         assert_eq!(crc8(0x0000_06C3_u32.to_be_bytes().as_slice()), 57);
 
         // Read PHIID
-        let val = spe.read_reg(sr::PHYID).await.expect("Error");
+        let val = th.spe.read_reg(sr::PHYID).await.expect("Error");
         assert_eq!(val, 0x0283_BC91);
 
         // Read CAPAVILITY
-        let val = spe.read_reg(sr::CAPABILITY).await.expect("Error");
+        let val = th.spe.read_reg(sr::CAPABILITY).await.expect("Error");
         assert_eq!(val, 0x0000_06C3);
 
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -832,18 +875,15 @@ mod tests {
             SpiTransaction::write_vec(vec![0xA0, 0x09, 0x12, 0x34, 0x56, 0x78]),
             SpiTransaction::flush(),
         ];
-        let mut spi = SpiMock::new(&expectations);
 
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-
-        let mut spe = ADIN1110::new(spi_dev, false);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, false, true);
 
         // Write reg: 0x1FFF
-        assert!(spe.write_reg(sr::STATUS1, 0x1234_5678).await.is_ok());
+        assert!(th.spe.write_reg(sr::STATUS1, 0x1234_5678).await.is_ok());
 
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -854,17 +894,14 @@ mod tests {
             SpiTransaction::flush(),
         ];
 
-        // Basic test init block
-        let mut spi = SpiMock::new(&expectations);
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-        let mut spe = ADIN1110::new(spi_dev, true);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
 
         // Write reg: 0x1FFF
-        assert!(spe.write_reg(sr::STATUS1, 0x1234_5678).await.is_ok());
+        assert!(th.spe.write_reg(sr::STATUS1, 0x1234_5678).await.is_ok());
 
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -885,7 +922,7 @@ mod tests {
 
         let mut tail = std::vec::Vec::<u8>::with_capacity(100);
         // Padding
-        if let Some(padding_len) = (ETH_MIN_LEN - FSC_LEN).checked_sub(packet.len()) {
+        if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
         // Packet FCS + optinal padding
@@ -894,17 +931,49 @@ mod tests {
         expectations.push(SpiTransaction::write_vec(tail));
         expectations.push(SpiTransaction::flush());
 
-        let mut spi = SpiMock::new(&expectations);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
 
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
+        assert!(th.spe.write_fifo(&packet).await.is_ok());
 
-        let mut spe = ADIN1110::new(spi_dev, true);
+        // Mark end of the SPI test.
+        th.done();
+    }
 
-        assert!(spe.write_fifo(&packet).await.is_ok());
+    #[futures_test::test]
+    async fn write_packet_to_fifo_minimal_with_crc_without_fcs() {
+        // Configure expectations
+        let mut expectations = vec![];
 
-        spi.done();
+        // Write TX_SIZE reg
+        expectations.push(SpiTransaction::write_vec(vec![160, 48, 136, 0, 0, 0, 62, 186]));
+        expectations.push(SpiTransaction::flush());
+
+        // Write TX reg.
+        // SPI Header + optional CRC + Frame Header
+        expectations.push(SpiTransaction::write_vec(vec![160, 49, 143, 0, 0]));
+        // Packet data
+        let packet = [0xFF_u8; 60];
+        expectations.push(SpiTransaction::write_vec(packet.to_vec()));
+
+        let mut tail = std::vec::Vec::<u8>::with_capacity(100);
+        // Padding
+        if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
+            tail.resize(padding_len, 0x00);
+        }
+        // Packet FCS + optinal padding
+        tail.extend_from_slice(&[DONT_CARE_BYTE, DONT_CARE_BYTE]);
+
+        expectations.push(SpiTransaction::write_vec(tail));
+        expectations.push(SpiTransaction::flush());
+
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, false);
+
+        assert!(th.spe.write_fifo(&packet).await.is_ok());
+
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -926,7 +995,7 @@ mod tests {
 
         let mut tail = std::vec::Vec::<u8>::with_capacity(100);
         // Padding
-        if let Some(padding_len) = (ETH_MIN_LEN - FSC_LEN).checked_sub(packet.len()) {
+        if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
         // Packet FCS + optinal padding
@@ -935,17 +1004,13 @@ mod tests {
         expectations.push(SpiTransaction::write_vec(tail));
         expectations.push(SpiTransaction::flush());
 
-        let mut spi = SpiMock::new(&expectations);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
 
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
+        assert!(th.spe.write_fifo(&packet).await.is_ok());
 
-        let mut spe = ADIN1110::new(spi_dev, true);
-
-        assert!(spe.write_fifo(&packet).await.is_ok());
-
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -958,24 +1023,23 @@ mod tests {
         // Max packet size = MAX_BUFF - FRAME_HEADER_LEN
         let packet = [0xAA_u8; MAX_BUFF - FRAME_HEADER_LEN + 1];
 
-        let mut spi = SpiMock::new(&expectations);
-
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-
-        let mut spe = ADIN1110::new(spi_dev, true);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
 
         // minimal
         assert!(matches!(
-            spe.write_fifo(&packet[0..(6 + 6 + 2 - 1)]).await,
+            th.spe.write_fifo(&packet[0..(6 + 6 + 2 - 1)]).await,
             Err(AdinError::PACKET_TOO_SMALL)
         ));
 
         // max + 1
-        assert!(matches!(spe.write_fifo(&packet).await, Err(AdinError::PACKET_TOO_BIG)));
+        assert!(matches!(
+            th.spe.write_fifo(&packet).await,
+            Err(AdinError::PACKET_TOO_BIG)
+        ));
 
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -999,7 +1063,7 @@ mod tests {
 
         let mut tail = std::vec::Vec::<u8>::with_capacity(100);
         // Padding
-        if let Some(padding_len) = (ETH_MIN_LEN - FSC_LEN).checked_sub(packet.len()) {
+        if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
         // Packet FCS + optinal padding
@@ -1008,17 +1072,13 @@ mod tests {
         expectations.push(SpiTransaction::write_vec(tail));
         expectations.push(SpiTransaction::flush());
 
-        let mut spi = SpiMock::new(&expectations);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
 
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
+        assert!(th.spe.write_fifo(&packet).await.is_ok());
 
-        let mut spe = ADIN1110::new(spi_dev, true);
-
-        assert!(spe.write_fifo(&packet).await.is_ok());
-
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -1042,7 +1102,7 @@ mod tests {
 
         let mut tail = std::vec::Vec::<u8>::with_capacity(100);
         // Padding
-        if let Some(padding_len) = (ETH_MIN_LEN - FSC_LEN).checked_sub(packet.len()) {
+        if let Some(padding_len) = (ETH_MIN_LEN - FCS_LEN).checked_sub(packet.len()) {
             tail.resize(padding_len, 0x00);
         }
         // Packet FCS + optinal padding
@@ -1051,17 +1111,13 @@ mod tests {
         expectations.push(SpiTransaction::write_vec(tail));
         expectations.push(SpiTransaction::flush());
 
-        let mut spi = SpiMock::new(&expectations);
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, false, true);
 
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
+        assert!(th.spe.write_fifo(&packet).await.is_ok());
 
-        let mut spe = ADIN1110::new(spi_dev, false);
-
-        assert!(spe.write_fifo(&packet).await.is_ok());
-
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -1070,7 +1126,7 @@ mod tests {
         let mut expectations = vec![];
 
         // Read RX_SIZE reg
-        let rx_size: u32 = u32::try_from(ETH_MIN_LEN + FRAME_HEADER_LEN + FSC_LEN).unwrap();
+        let rx_size: u32 = u32::try_from(ETH_MIN_LEN + FRAME_HEADER_LEN + FCS_LEN).unwrap();
         let mut rx_size_vec = rx_size.to_be_bytes().to_vec();
         rx_size_vec.push(crc8(&rx_size_vec));
 
@@ -1078,20 +1134,16 @@ mod tests {
         expectations.push(SpiTransaction::read_vec(rx_size_vec));
         expectations.push(SpiTransaction::flush());
 
-        let mut spi = SpiMock::new(&expectations);
-
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-
-        let mut spe = ADIN1110::new(spi_dev, true);
-
         let mut frame = [0; MTU];
 
-        let ret = spe.read_fifo(&mut frame[0..ETH_MIN_LEN - 1]).await;
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
+
+        let ret = th.spe.read_fifo(&mut frame[0..ETH_MIN_LEN - 1]).await;
         assert!(matches!(dbg!(ret), Err(AdinError::PACKET_TOO_BIG)));
 
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -1102,11 +1154,11 @@ mod tests {
         // This value is importen for this test!
         assert_eq!(ETH_MIN_LEN, 64);
 
-        // Packet data, size = `ETH_MIN_LEN` - `FSC_LEN` - 1
-        let packet = [0; 64 - FSC_LEN - 1];
+        // Packet data, size = `ETH_MIN_LEN` - `FCS_LEN` - 1
+        let packet = [0; 64 - FCS_LEN - 1];
 
         // Read RX_SIZE reg
-        let rx_size: u32 = u32::try_from(packet.len() + FRAME_HEADER_LEN + FSC_LEN).unwrap();
+        let rx_size: u32 = u32::try_from(packet.len() + FRAME_HEADER_LEN + FCS_LEN).unwrap();
         let mut rx_size_vec = rx_size.to_be_bytes().to_vec();
         rx_size_vec.push(crc8(&rx_size_vec));
 
@@ -1114,20 +1166,84 @@ mod tests {
         expectations.push(SpiTransaction::read_vec(rx_size_vec));
         expectations.push(SpiTransaction::flush());
 
-        let mut spi = SpiMock::new(&expectations);
-
-        let cs = CsPinMock::default();
-        let delay = MockDelay {};
-        let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-
-        let mut spe = ADIN1110::new(spi_dev, true);
-
         let mut frame = [0; MTU];
 
-        let ret = spe.read_fifo(&mut frame).await;
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, true);
+
+        let ret = th.spe.read_fifo(&mut frame).await;
         assert!(matches!(dbg!(ret), Err(AdinError::PACKET_TOO_SMALL)));
 
-        spi.done();
+        // Mark end of the SPI test.
+        th.done();
+    }
+
+    #[futures_test::test]
+    async fn read_packet_from_fifo_packet_corrupted_fcs() {
+        let mut frame = [0; MTU];
+        // Configure expectations
+        let mut expectations = vec![];
+
+        let packet = [0xDE; 60];
+        let crc_en = true;
+
+        // Read RX_SIZE reg
+        let rx_size: u32 = u32::try_from(packet.len() + FRAME_HEADER_LEN + FCS_LEN).unwrap();
+        let mut rx_size_vec = rx_size.to_be_bytes().to_vec();
+        if crc_en {
+            rx_size_vec.push(crc8(&rx_size_vec));
+        }
+
+        // SPI Header with CRC
+        let mut rx_fsize = vec![128, 144, 79, TURN_AROUND_BYTE];
+        if !crc_en {
+            // remove the CRC on idx 2
+            rx_fsize.swap_remove(2);
+        }
+        expectations.push(SpiTransaction::write_vec(rx_fsize));
+        expectations.push(SpiTransaction::read_vec(rx_size_vec));
+        expectations.push(SpiTransaction::flush());
+
+        // Read RX reg, SPI Header with CRC
+        let mut rx_reg = vec![128, 145, 72, TURN_AROUND_BYTE];
+        if !crc_en {
+            // remove the CRC on idx 2
+            rx_reg.swap_remove(2);
+        }
+        expectations.push(SpiTransaction::write_vec(rx_reg));
+        // Frame Header
+        expectations.push(SpiTransaction::read_vec(vec![0, 0]));
+        // Packet data
+        expectations.push(SpiTransaction::read_vec(packet.to_vec()));
+
+        let packet_crc = ETH_FCS::new(&packet);
+
+        let mut tail = std::vec::Vec::<u8>::with_capacity(100);
+
+        tail.extend_from_slice(&packet_crc.hton_bytes());
+        // increase last byte with 1.
+        if let Some(crc) = tail.last_mut() {
+            *crc = crc.wrapping_add(1);
+        }
+
+        // Need extra bytes?
+        let pad = (packet.len() + FCS_LEN + FRAME_HEADER_LEN) & 0x03;
+        if pad != 0 {
+            // Packet FCS + optinal padding
+            tail.resize(tail.len() + pad, DONT_CARE_BYTE);
+        }
+
+        expectations.push(SpiTransaction::read_vec(tail));
+        expectations.push(SpiTransaction::flush());
+
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, crc_en, false);
+
+        let ret = th.spe.read_fifo(&mut frame).await.expect_err("Error!");
+        assert!(matches!(ret, AdinError::FCS));
+
+        // Mark end of the SPI test.
+        th.done();
     }
 
     #[futures_test::test]
@@ -1136,7 +1252,7 @@ mod tests {
         let mut frame = [0; MTU];
         let mut expectations = std::vec::Vec::with_capacity(16);
 
-        // Packet data, size = `ETH_MIN_LEN` - `FSC_LEN`
+        // Packet data, size = `ETH_MIN_LEN` - `FCS_LEN`
         for packet_size in [60, 61, 62, 63, 64, MTU - 4, MTU - 3, MTU - 2, MTU - 1, MTU] {
             for crc_en in [false, true] {
                 expectations.clear();
@@ -1144,7 +1260,7 @@ mod tests {
                 let packet = &packet_buffer[0..packet_size];
 
                 // Read RX_SIZE reg
-                let rx_size: u32 = u32::try_from(packet.len() + FRAME_HEADER_LEN + FSC_LEN).unwrap();
+                let rx_size: u32 = u32::try_from(packet.len() + FRAME_HEADER_LEN + FCS_LEN).unwrap();
                 let mut rx_size_vec = rx_size.to_be_bytes().to_vec();
                 if crc_en {
                     rx_size_vec.push(crc8(&rx_size_vec));
@@ -1172,14 +1288,14 @@ mod tests {
                 // Packet data
                 expectations.push(SpiTransaction::read_vec(packet.to_vec()));
 
-                let packet_crc = ETH_FSC::new(packet);
+                let packet_crc = ETH_FCS::new(packet);
 
                 let mut tail = std::vec::Vec::<u8>::with_capacity(100);
 
                 tail.extend_from_slice(&packet_crc.hton_bytes());
 
                 // Need extra bytes?
-                let pad = (packet_size + FSC_LEN + FRAME_HEADER_LEN) & 0x03;
+                let pad = (packet_size + FCS_LEN + FRAME_HEADER_LEN) & 0x03;
                 if pad != 0 {
                     // Packet FCS + optinal padding
                     tail.resize(tail.len() + pad, DONT_CARE_BYTE);
@@ -1188,19 +1304,34 @@ mod tests {
                 expectations.push(SpiTransaction::read_vec(tail));
                 expectations.push(SpiTransaction::flush());
 
-                let mut spi = SpiMock::new(&expectations);
+                // Create TestHarnass
+                let mut th = TestHarnass::new(&expectations, crc_en, false);
 
-                let cs = CsPinMock::default();
-                let delay = MockDelay {};
-                let spi_dev = ExclusiveDevice::new(spi.clone(), cs, delay);
-
-                let mut spe = ADIN1110::new(spi_dev, crc_en);
-
-                let ret = spe.read_fifo(&mut frame).await.expect("Error!");
+                let ret = th.spe.read_fifo(&mut frame).await.expect("Error!");
                 assert_eq!(ret, packet_size);
 
-                spi.done();
+                // Mark end of the SPI test.
+                th.done();
             }
         }
+    }
+
+    #[futures_test::test]
+    async fn spi_crc_error() {
+        // Configure expectations
+        let expectations = vec![
+            SpiTransaction::write_vec(vec![128, 144, 79, TURN_AROUND_BYTE]),
+            SpiTransaction::read_vec(vec![0x00, 0x00, 0x00, 0x00, 0xDD]),
+            SpiTransaction::flush(),
+        ];
+
+        // Create TestHarnass
+        let mut th = TestHarnass::new(&expectations, true, false);
+
+        let ret = th.spe.read_reg(sr::RX_FSIZE).await;
+        assert!(matches!(dbg!(ret), Err(AdinError::SPI_CRC)));
+
+        // Mark end of the SPI test.
+        th.done();
     }
 }

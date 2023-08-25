@@ -174,7 +174,7 @@ bitfield! {
     pub sdf_detect_src, set_sdf_detect_src : 7;
     /// Statistics Clear on Reading
     pub stats_clr_on_rd, set_stats_clr_on_rd : 6;
-    /// Enable CRC Append
+    /// Enable SPI CRC
     pub crc_append, set_crc_append : 5;
     /// Admit Frames with IFG Errors on Port 1 (P1)
     pub p1_rcv_ifg_err_frm, set_p1_rcv_ifg_err_frm : 4;
