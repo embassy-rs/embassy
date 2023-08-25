@@ -74,6 +74,18 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
         )
     }
 
+    pub fn borrow_split(&mut self) -> (StateRunner<'_>, RxRunner<'_, MTU>, TxRunner<'_, MTU>) {
+        (
+            StateRunner { shared: self.shared },
+            RxRunner {
+                rx_chan: self.rx_chan.borrow(),
+            },
+            TxRunner {
+                tx_chan: self.tx_chan.borrow(),
+            },
+        )
+    }
+
     pub fn state_runner(&self) -> StateRunner<'d> {
         StateRunner { shared: self.shared }
     }

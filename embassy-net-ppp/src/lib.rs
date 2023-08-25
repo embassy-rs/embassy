@@ -13,6 +13,7 @@ use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embedded_io_async::{BufRead, Write, WriteAllError};
 use ppproto::pppos::{BufferFullError, PPPoS, PPPoSAction};
+pub use ppproto::Config;
 
 const MTU: usize = 1500;
 
@@ -36,37 +37,44 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 /// Background runner for the driver.
 ///
 /// You must call `.run()` in a background task for the driver to operate.
-pub struct Runner<'d, R: BufRead, W: Write> {
+pub struct Runner<'d> {
     ch: ch::Runner<'d, MTU>,
-    r: R,
-    w: W,
 }
 
 /// Error returned by [`Runner::run`].
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum RunError<RE, WE> {
+pub enum RunError<E> {
     /// Reading from the serial port failed.
-    Read(RE),
+    Read(E),
     /// Writing to the serial port failed.
-    Write(WE),
+    Write(E),
     /// Writing to the serial port wrote zero bytes, indicating it can't accept more data.
     WriteZero,
     /// Writing to the serial got EOF.
     Eof,
 }
 
-impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
+impl<'d> Runner<'d> {
     /// You must call this in a background task for the driver to operate.
-    pub async fn run(mut self) -> Result<Infallible, RunError<R::Error, W::Error>> {
-        let config = ppproto::Config {
-            username: b"myuser",
-            password: b"mypass",
-        };
+    ///
+    /// If reading/writing to the underlying serial port fails, the link state
+    /// is set to Down and the error is returned.
+    ///
+    /// It is allowed to cancel this function's future (i.e. drop it). This will terminate
+    /// the PPP connection and set the link state to Down.
+    ///
+    /// After this function returns or is canceled, you can call it again to establish
+    /// a new PPP connection.
+    pub async fn run<RW: BufRead + Write>(
+        &mut self,
+        mut rw: RW,
+        config: ppproto::Config<'_>,
+    ) -> Result<Infallible, RunError<RW::Error>> {
         let mut ppp = PPPoS::new(config);
         ppp.open().unwrap();
 
-        let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
+        let (state_chan, mut rx_chan, mut tx_chan) = self.ch.borrow_split();
         state_chan.set_link_state(LinkState::Down);
         let _ondrop = OnDrop::new(|| state_chan.set_link_state(LinkState::Down));
 
@@ -80,7 +88,7 @@ impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
                 let buf = rx_chan.rx_buf().await;
                 let rx_data = match needs_poll {
                     true => &[][..],
-                    false => match self.r.fill_buf().await {
+                    false => match rw.fill_buf().await {
                         Ok(rx_data) if rx_data.len() == 0 => return Err(RunError::Eof),
                         Ok(rx_data) => rx_data,
                         Err(e) => return Err(RunError::Read(e)),
@@ -95,7 +103,7 @@ impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
 
                     let (buf, rx_data) = r?;
                     let n = ppp.consume(rx_data, &mut rx_buf);
-                    self.r.consume(n);
+                    rw.consume(n);
 
                     match ppp.poll(&mut tx_buf, &mut rx_buf) {
                         PPPoSAction::None => {}
@@ -104,7 +112,7 @@ impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
                             buf[..pkt.len()].copy_from_slice(pkt);
                             rx_chan.rx_done(pkt.len());
                         }
-                        PPPoSAction::Transmit(n) => match self.w.write_all(&tx_buf[..n]).await {
+                        PPPoSAction::Transmit(n) => match rw.write_all(&tx_buf[..n]).await {
                             Ok(()) => {}
                             Err(WriteAllError::WriteZero) => return Err(RunError::WriteZero),
                             Err(WriteAllError::Other(e)) => return Err(RunError::Write(e)),
@@ -118,7 +126,7 @@ impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
                 }
                 Either::Second(pkt) => {
                     match ppp.send(pkt, &mut tx_buf) {
-                        Ok(n) => match self.w.write_all(&tx_buf[..n]).await {
+                        Ok(n) => match rw.write_all(&tx_buf[..n]).await {
                             Ok(()) => {}
                             Err(WriteAllError::WriteZero) => return Err(RunError::WriteZero),
                             Err(WriteAllError::Other(e)) => return Err(RunError::Write(e)),
@@ -137,13 +145,9 @@ impl<'d, R: BufRead, W: Write> Runner<'d, R, W> {
 /// This returns two structs:
 /// - a `Device` that you must pass to the `embassy-net` stack.
 /// - a `Runner`. You must call `.run()` on it in a background task.
-pub fn new<'a, const N_RX: usize, const N_TX: usize, R: BufRead, W: Write>(
-    state: &'a mut State<N_RX, N_TX>,
-    r: R,
-    w: W,
-) -> (Device<'a>, Runner<'a, R, W>) {
+pub fn new<'a, const N_RX: usize, const N_TX: usize>(state: &'a mut State<N_RX, N_TX>) -> (Device<'a>, Runner<'a>) {
     let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ip);
-    (device, Runner { ch: runner, r, w })
+    (device, Runner { ch: runner })
 }
 
 struct OnDrop<F: FnOnce()> {
