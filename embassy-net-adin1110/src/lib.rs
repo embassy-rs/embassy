@@ -58,9 +58,11 @@ const TURN_AROUND_BYTE: u8 = 0x00;
 
 /// Packet minimal frame/packet length
 const ETH_MIN_LEN: usize = 64;
-
 /// Ethernet `Frame Check Sequence` length
 const FSC_LEN: usize = 4;
+/// Packet minimal frame/packet length without `Frame Check Sequence` length
+const ETH_MIN_WITHOUT_FSC_LEN: usize = ETH_MIN_LEN - FSC_LEN;
+
 /// SPI Header, contains SPI action and register id.
 const SPI_HEADER_LEN: usize = 2;
 /// SPI Header CRC length
@@ -283,8 +285,8 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
 
         // ADIN1110 MAC and PHY don´t accept ethernet packet smaller than 64 bytes.
         // So padded the data minus the FCS, FCS is automatilly added to by the MAC.
-        if let Some(pad_len) = (ETH_MIN_LEN - FSC_LEN).checked_sub(frame.len()) {
-            let _ = tail_data.resize(pad_len, 0x00);
+        if frame.len() < ETH_MIN_WITHOUT_FSC_LEN {
+            let _ = tail_data.resize(ETH_MIN_WITHOUT_FSC_LEN - frame.len(), 0x00);
             frame_fcs = frame_fcs.update(&tail_data);
         }
 
@@ -294,14 +296,17 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
 
         // len = frame_size + optional padding + 2 bytes Frame header
         let send_len_orig = frame.len() + tail_data.len() + FRAME_HEADER_LEN;
-        let spi_pad_len = send_len_orig.next_multiple_of(4);
+
         let send_len = u32::try_from(send_len_orig).map_err(|_| AdinError::PACKET_TOO_BIG)?;
 
         // Packet read of write to the MAC packet buffer must be a multipul of 4 bytes!
-        if spi_pad_len != send_len_orig {
-            let spi_pad_len = spi_pad_len - send_len_orig;
-            let _ = tail_data.extend_from_slice(&[DONT_CARE_BYTE, DONT_CARE_BYTE, DONT_CARE_BYTE][..spi_pad_len]);
+        let pad_len = send_len_orig & 0x03;
+        if pad_len != 0 {
+            let spi_pad_len = 4 - pad_len + tail_data.len();
+            let _ = tail_data.resize(spi_pad_len, DONT_CARE_BYTE);
         }
+
+        self.write_reg(sr::TX_FSIZE, send_len).await?;
 
         #[cfg(feature = "defmt")]
         defmt::trace!(
@@ -313,8 +318,6 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
             tail_data.as_slice(),
             send_len,
         );
-
-        self.write_reg(sr::TX_FSIZE, send_len).await?;
 
         let mut transaction = [
             Operation::Write(head_data.as_slice()),
@@ -439,7 +442,12 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                                     Err(e) => match e {
                                         AdinError::PACKET_TOO_BIG => {
                                             #[cfg(feature = "defmt")]
-                                            defmt::error!("RX Packet to big, DROP");
+                                            defmt::error!("RX Packet too big, DROP");
+                                            self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
+                                        }
+                                        AdinError::PACKET_TOO_SMALL => {
+                                            #[cfg(feature = "defmt")]
+                                            defmt::error!("RX Packet too small, DROP");
                                             self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
                                         }
                                         AdinError::Spi(_) => {
@@ -622,9 +630,18 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
             .unwrap();
     }
 
-    // Config2: CRC_APPEND
+    // Check if the FCS is valid in the TX path.
+    let tx_fsc_validation_enable = true;
+
+    // Config0
+    let mut config0 = Config0(0x0000_0006);
+    config0.set_txfcsve(tx_fsc_validation_enable);
+    mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
+
+    // Config2
     let mut config2 = Config2(0x0000_0800);
-    config2.set_crc_append(true);
+    // crc_append must be disable if tx_fsc_validation_enable is true!
+    config2.set_crc_append(!tx_fsc_validation_enable);
     mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
 
     // Pin Mux Config 1
