@@ -1,7 +1,7 @@
 use core::convert::TryFrom;
 use core::ops::{Div, Mul};
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::{Pllp, Pllsrc, Sw};
 use crate::pac::{FLASH, RCC};
@@ -201,7 +201,7 @@ pub struct PLLClocks {
     pub pll48_freq: Hertz,
 }
 
-pub use super::common::VoltageScale;
+pub use super::bus::VoltageScale;
 
 impl VoltageScale {
     const fn wait_states(&self, ahb_freq: Hertz) -> Option<Latency> {

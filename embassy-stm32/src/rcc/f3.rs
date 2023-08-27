@@ -201,9 +201,9 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
     // Calculates the Multiplier and the Divisor to arrive at
     // the required System clock from PLL source frequency
     let get_mul_div = |sysclk, pllsrcclk| {
-        let common_div = gcd(sysclk, pllsrcclk);
-        let mut multiplier = sysclk / common_div;
-        let mut divisor = pllsrcclk / common_div;
+        let bus_div = gcd(sysclk, pllsrcclk);
+        let mut multiplier = sysclk / bus_div;
+        let mut divisor = pllsrcclk / bus_div;
         // Minimum PLL multiplier is two
         if multiplier == 1 {
             multiplier *= 2;

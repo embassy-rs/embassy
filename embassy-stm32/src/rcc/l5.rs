@@ -1,6 +1,6 @@
 use stm32_metapac::PWR;
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};

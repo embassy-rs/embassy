@@ -11,7 +11,8 @@ use common::*;
 use cortex_m_rt::entry;
 use embassy_executor::Spawner;
 use embassy_stm32::low_power::{stop_with_rtc, Executor};
-use embassy_stm32::rtc::{Rtc, RtcClockSource, RtcConfig};
+use embassy_stm32::rcc::RtcClockSource;
+use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::{Duration, Timer};
 use static_cell::make_static;
 

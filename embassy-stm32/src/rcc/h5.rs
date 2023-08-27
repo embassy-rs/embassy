@@ -26,7 +26,7 @@ const VCO_MAX: u32 = 420_000_000;
 const VCO_WIDE_MIN: u32 = 128_000_000;
 const VCO_WIDE_MAX: u32 = 560_000_000;
 
-pub use super::common::{AHBPrescaler, APBPrescaler, VoltageScale};
+pub use super::bus::{AHBPrescaler, APBPrescaler, VoltageScale};
 
 pub enum HseMode {
     /// crystal/ceramic oscillator (HSEBYP=0)
