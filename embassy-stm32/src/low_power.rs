@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
-use embassy_time::Duration;
 
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
