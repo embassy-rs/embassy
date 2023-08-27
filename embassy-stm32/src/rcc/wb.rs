@@ -1,4 +1,4 @@
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::rcc::Clocks;
 use crate::rtc::{Rtc, RtcClockSource};
 use crate::time::{khz, mhz, Hertz};

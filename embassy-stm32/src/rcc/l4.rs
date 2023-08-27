@@ -4,7 +4,7 @@ use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::regs::Cfgr;
 use stm32_metapac::rcc::vals::{Lsedrv, Mcopre, Mcosel};
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};

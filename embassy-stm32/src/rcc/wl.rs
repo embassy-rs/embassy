@@ -1,4 +1,4 @@
-pub use super::common::{AHBPrescaler, APBPrescaler, VoltageScale};
+pub use super::bus::{AHBPrescaler, APBPrescaler, VoltageScale};
 use crate::pac::pwr::vals::Dbp;
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};

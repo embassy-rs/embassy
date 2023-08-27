@@ -2,7 +2,7 @@ use stm32_metapac::flash::vals::Latency;
 use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
 use stm32_metapac::FLASH;
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::{PWR, RCC};
 use crate::rcc::sealed::RccPeripheral;
 use crate::rcc::{set_freqs, Clocks};

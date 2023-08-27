@@ -1,6 +1,6 @@
 #![macro_use]
 
-pub mod common;
+pub mod bus;
 
 use core::mem::MaybeUninit;
 
