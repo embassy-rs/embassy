@@ -12,10 +12,12 @@ pub enum RtcClockSource {
     HSE = 0b11,
 }
 
-#[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+#[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
+#[allow(dead_code)]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
 
 #[cfg(any(rtc_v2l0, rtc_v2l1))]
+#[allow(dead_code)]
 type Bdcr = crate::pac::rcc::regs::Csr;
 
 #[allow(dead_code)]
@@ -26,7 +28,7 @@ impl BackupDomain {
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
         rtc_v3u5
     ))]
-    #[allow(dead_code)]
+    #[allow(dead_code, unused_variables)]
     fn modify<R>(f: impl FnOnce(&mut Bdcr) -> R) -> R {
         #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
         let cr = crate::pac::PWR.cr();
@@ -40,7 +42,13 @@ impl BackupDomain {
             while !cr.read().dbp() {}
         }
 
-        crate::pac::RCC.bdcr().modify(|w| f(w))
+        #[cfg(any(rtc_v2l0, rtc_v2l1))]
+        let cr = crate::pac::RCC.csr();
+
+        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+        let cr = crate::pac::RCC.bdcr();
+
+        cr.modify(|w| f(w))
     }
 
     #[cfg(any(
@@ -62,7 +70,7 @@ impl BackupDomain {
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
         rtc_v3u5
     ))]
-    #[allow(dead_code)]
+    #[allow(dead_code, unused_variables)]
     pub fn set_rtc_clock_source(clock_source: RtcClockSource) {
         let clock_source = clock_source as u8;
         #[cfg(any(
