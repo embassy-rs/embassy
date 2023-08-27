@@ -86,6 +86,8 @@ static CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
 
 #[cfg(feature = "low-power")]
 pub fn low_power_ready() -> bool {
+    trace!("clock refcount: {}", CLOCK_REFCOUNT.load(Ordering::SeqCst));
+
     CLOCK_REFCOUNT.load(Ordering::SeqCst) == 0
 }
 

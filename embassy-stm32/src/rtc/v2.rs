@@ -1,66 +1,11 @@
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
+#[cfg(feature = "low-power")]
+use super::RtcInstant;
 use super::{sealed, RtcClockSource, RtcConfig};
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
-
-#[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-pub struct RtcInstant {
-    ssr: u16,
-    st: u8,
-}
-
-#[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-impl RtcInstant {
-    pub fn now() -> Self {
-        // TODO: read value twice
-        use crate::rtc::bcd2_to_byte;
-
-        let tr = RTC::regs().tr().read();
-        let tr2 = RTC::regs().tr().read();
-        let ssr = RTC::regs().ssr().read().ss();
-        let ssr2 = RTC::regs().ssr().read().ss();
-
-        let st = bcd2_to_byte((tr.st(), tr.su()));
-        let st2 = bcd2_to_byte((tr2.st(), tr2.su()));
-
-        assert!(st == st2);
-        assert!(ssr == ssr2);
-
-        let _ = RTC::regs().dr().read();
-
-        trace!("ssr: {}", ssr);
-        trace!("st: {}", st);
-
-        Self { ssr, st }
-    }
-}
-
-#[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-impl core::ops::Sub for RtcInstant {
-    type Output = embassy_time::Duration;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        use embassy_time::{Duration, TICK_HZ};
-
-        let st = if self.st < rhs.st { self.st + 60 } else { self.st };
-
-        // TODO: read prescaler
-
-        let self_ticks = st as u32 * 256 + (255 - self.ssr as u32);
-        let other_ticks = rhs.st as u32 * 256 + (255 - rhs.ssr as u32);
-        let rtc_ticks = self_ticks - other_ticks;
-
-        trace!("self, other, rtc ticks: {}, {}, {}", self_ticks, other_ticks, rtc_ticks);
-
-        Duration::from_ticks(
-            ((((st as u32 * 256 + (255u32 - self.ssr as u32)) - (rhs.st as u32 * 256 + (255u32 - rhs.ssr as u32)))
-                * TICK_HZ as u32) as u32
-                / 256u32) as u64,
-        )
-    }
-}
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
@@ -144,15 +89,10 @@ impl super::Rtc {
         }
     }
 
-    #[allow(dead_code)]
-    #[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-    /// start the wakeup alarm and return the actual duration of the alarm
-    /// the actual duration will be the closest value possible that is less
-    /// than the requested duration.
-    ///
-    /// note: this api is exposed for testing purposes until low power is implemented.
-    /// it is not intended to be public
-    pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) -> RtcInstant {
+    #[cfg(feature = "low-power")]
+    /// start the wakeup alarm and wtih a duration that is as close to but less than
+    /// the requested duration, and record the instant the wakeup alarm was started
+    pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) {
         use embassy_time::{Duration, TICK_HZ};
 
         use crate::rcc::get_freqs;
@@ -174,37 +114,45 @@ impl super::Rtc {
             rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
         );
 
-        trace!("set wakeup timer for {} ms", duration.as_millis());
-
         self.write(false, |regs| {
-            regs.cr().modify(|w| w.set_wutie(true));
-
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
             while !regs.isr().read().wutwf() {}
 
             regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
             regs.cr().modify(|w| w.set_wute(true));
+            regs.cr().modify(|w| w.set_wutie(true));
         });
 
-        RtcInstant::now()
+        trace!("rtc: start wakeup alarm for {} ms", duration.as_millis());
+
+        critical_section::with(|cs| assert!(self.stop_time.borrow(cs).replace(Some(RtcInstant::now())).is_none()))
     }
 
-    #[allow(dead_code)]
-    #[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-    /// stop the wakeup alarm and return the time remaining
-    ///
-    /// note: this api is exposed for testing purposes until low power is implemented.
-    /// it is not intended to be public
-    pub(crate) fn stop_wakeup_alarm(&self) -> RtcInstant {
-        trace!("disable wakeup timer...");
+    #[cfg(feature = "low-power")]
+    /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
+    /// was called, otherwise none
+    pub(crate) fn stop_wakeup_alarm(&self) -> Option<embassy_time::Duration> {
+        use crate::interrupt::typelevel::Interrupt;
+
+        trace!("rtc: stop wakeup alarm...");
 
         self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wutie(false));
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
+
+            crate::pac::EXTI.pr(0).modify(|w| w.set_line(22, true));
+            crate::interrupt::typelevel::RTC_WKUP::unpend();
         });
 
-        RtcInstant::now()
+        critical_section::with(|cs| {
+            if let Some(stop_time) = self.stop_time.borrow(cs).take() {
+                Some(RtcInstant::now() - stop_time)
+            } else {
+                None
+            }
+        })
     }
 
     #[allow(dead_code)]
