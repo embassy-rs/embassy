@@ -1,5 +1,4 @@
 pub use super::bus::{AHBPrescaler, APBPrescaler, VoltageScale};
-use crate::pac::pwr::vals::Dbp;
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
@@ -212,7 +211,7 @@ pub(crate) unsafe fn init(config: Config) {
     match config.rtc_mux {
         RtcClockSource::LSE => {
             // 1. Unlock the backup domain
-            PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
+            PWR.cr1().modify(|w| w.set_dbp(true));
 
             // 2. Setup the LSE
             RCC.bdcr().modify(|w| {

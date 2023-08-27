@@ -12,86 +12,67 @@ pub enum RtcClockSource {
     HSE = 0b11,
 }
 
+#[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+type Bdcr = crate::pac::rcc::regs::Bdcr;
+
+#[cfg(any(rtc_v2l0, rtc_v2l1))]
+type Bdcr = crate::pac::rcc::regs::Csr;
+
 #[allow(dead_code)]
 pub struct BackupDomain {}
 
 impl BackupDomain {
     #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
+        rtc_v3u5
     ))]
     #[allow(dead_code)]
-    fn unlock_registers() {
+    fn modify<R>(f: impl FnOnce(&mut Bdcr) -> R) -> R {
         #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
         let cr = crate::pac::PWR.cr();
-        #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+        #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
         let cr = crate::pac::PWR.cr1();
 
         // TODO: Missing from PAC for l0 and f0?
-        #[cfg(not(any(rtc_v2f0, rtc_v2l0)))]
+        #[cfg(not(any(rtc_v2f0, rtc_v2l0, rtc_v3u5)))]
         {
-            if !cr.read().dbp() {
-                cr.modify(|w| w.set_dbp(true));
-                while !cr.read().dbp() {}
-            }
+            cr.modify(|w| w.set_dbp(true));
+            while !cr.read().dbp() {}
         }
-    }
 
-    #[cfg(any(rtc_v3, rtc_v3u5))]
-    #[allow(dead_code)]
-    fn unlock_registers() {
-        // Unlock the backup domain
-        #[cfg(not(any(rtc_v3u5, rcc_wl5, rcc_wle)))]
-        {
-            if !crate::pac::PWR.cr1().read().dbp() {
-                crate::pac::PWR.cr1().modify(|w| w.set_dbp(true));
-                while !crate::pac::PWR.cr1().read().dbp() {}
-            }
-        }
-        #[cfg(any(rcc_wl5, rcc_wle))]
-        {
-            use crate::pac::pwr::vals::Dbp;
-
-            if crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {
-                crate::pac::PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
-                while crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {}
-            }
-        }
+        crate::pac::RCC.bdcr().modify(|w| f(w))
     }
 
     #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
+        rtc_v3u5
+    ))]
+    #[allow(dead_code)]
+    fn read() -> Bdcr {
+        #[cfg(any(rtc_v2l0, rtc_v2l1))]
+        let r = crate::pac::RCC.csr().read();
+
+        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+        let r = crate::pac::RCC.bdcr().read();
+
+        r
+    }
+
+    #[cfg(any(
+        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
+        rtc_v3u5
     ))]
     #[allow(dead_code)]
     pub fn set_rtc_clock_source(clock_source: RtcClockSource) {
-        #[cfg(not(rtc_v2wb))]
-        use stm32_metapac::rcc::vals::Rtcsel;
-
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let cr = crate::pac::RCC.bdcr();
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let cr = crate::pac::RCC.csr();
-
-        Self::unlock_registers();
-
-        cr.modify(|w| {
-            // Select RTC source
-            #[cfg(not(rtc_v2wb))]
-            w.set_rtcsel(Rtcsel::from_bits(clock_source as u8));
-            #[cfg(rtc_v2wb)]
-            w.set_rtcsel(clock_source as u8);
-        });
-    }
-
-    #[cfg(any(rtc_v3, rtc_v3u5))]
-    #[allow(dead_code)]
-    pub fn set_rtc_clock_source(clock_source: RtcClockSource) {
         let clock_source = clock_source as u8;
-        #[cfg(not(any(rcc_wl5, rcc_wle)))]
+        #[cfg(any(
+            all(not(any(rtc_v3, rtc_v3u5)), not(rtc_v2wb)),
+            all(any(rtc_v3, rtc_v3u5), not(any(rcc_wl5, rcc_wle)))
+        ))]
         let clock_source = crate::pac::rcc::vals::Rtcsel::from_bits(clock_source);
 
-        Self::unlock_registers();
-
-        crate::pac::RCC.bdcr().modify(|w| {
+        #[cfg(not(rtc_v2wb))]
+        Self::modify(|w| {
             // Select RTC source
             w.set_rtcsel(clock_source);
         });
@@ -102,25 +83,16 @@ impl BackupDomain {
     ))]
     #[allow(dead_code)]
     pub fn enable_rtc() {
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let reg = crate::pac::RCC.bdcr().read();
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let reg = crate::pac::RCC.csr().read();
+        let reg = Self::read();
 
         #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb))]
         assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
         if !reg.rtcen() {
-            Self::unlock_registers();
-
             #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
-            crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-            let cr = crate::pac::RCC.bdcr();
-            #[cfg(any(rtc_v2l0, rtc_v2l1))]
-            let cr = crate::pac::RCC.csr();
+            Self::modify(|w| w.set_bdrst(true));
 
-            cr.modify(|w| {
+            Self::modify(|w| {
                 // Reset
                 #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
                 w.set_bdrst(false);
@@ -146,18 +118,13 @@ impl BackupDomain {
     #[cfg(any(rtc_v3, rtc_v3u5))]
     #[allow(dead_code)]
     pub fn enable_rtc() {
-        let bdcr = crate::pac::RCC.bdcr();
-
-        let reg = bdcr.read();
+        let reg = Self::read();
         assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
         if !reg.rtcen() {
-            Self::unlock_registers();
+            Self::modify(|w| w.set_bdrst(true));
 
-            bdcr.modify(|w| w.set_bdrst(true));
-
-            bdcr.modify(|w| {
-                // Reset
+            Self::modify(|w| {
                 w.set_bdrst(false);
 
                 w.set_rtcen(true);
