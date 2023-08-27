@@ -66,9 +66,6 @@ pub struct Executor {
     not_send: PhantomData<*mut ()>,
     scb: SCB,
     time_driver: &'static RtcDriver,
-    stop_time: embassy_time::Duration,
-    next_alarm: embassy_time::Duration,
-    wfe: u8,
 }
 
 impl Executor {
@@ -82,9 +79,6 @@ impl Executor {
                 not_send: PhantomData,
                 scb: cortex_m::Peripherals::steal().SCB,
                 time_driver: get_driver(),
-                stop_time: Duration::from_ticks(0),
-                next_alarm: Duration::from_ticks(u64::MAX),
-                wfe: 0,
             });
 
             EXECUTOR.as_mut().unwrap()
@@ -94,50 +88,8 @@ impl Executor {
     unsafe fn on_wakeup_irq(&mut self) {
         trace!("low power: on wakeup irq");
 
-        if crate::pac::RTC.isr().read().wutf() {
-            trace!("low power: wutf set");
-        } else {
-            trace!("low power: wutf not set");
-        }
-
         self.time_driver.resume_time();
         trace!("low power: resume time");
-
-        crate::interrupt::typelevel::RTC_WKUP::disable();
-
-        // cortex_m::asm::bkpt();
-
-        //        let time_elasped = self.rtc.unwrap().stop_wakeup_alarm() - self.last_stop.take().unwrap();
-        //
-        //        trace!("low power: {} ms elapsed", time_elasped.as_millis());
-        //
-        //        resume_time(time_elasped);
-        //        trace!("low power: resume time");
-        //
-        //        self.scb.clear_sleepdeep();
-
-        //       cortex_m::asm::bkpt();
-        //        Self::get_scb().set_sleeponexit();
-        //
-        //        return;
-        //
-        //        let elapsed = RTC_INSTANT.take().unwrap() - stop_wakeup_alarm();
-        //
-        //        STOP_TIME += elapsed;
-        //        // let to_next = NEXT_ALARM - STOP_TIME;
-        //        let to_next = Duration::from_secs(3);
-        //
-        //        trace!("on wakeup irq: to next: {}", to_next);
-        //        if to_next > THRESHOLD {
-        //            trace!("start wakeup alarm");
-        //            RTC_INSTANT.replace(start_wakeup_alarm(to_next));
-        //
-        //            trace!("set sleeponexit");
-        //            Self::get_scb().set_sleeponexit();
-        //        } else {
-        //            Self::get_scb().clear_sleeponexit();
-        //            Self::get_scb().clear_sleepdeep();
-        //        }
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {

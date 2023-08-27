@@ -15,7 +15,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 #[cfg(feature = "low-power")]
-use crate::rtc::{Rtc, RtcInstant};
+use crate::rtc::Rtc;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
 use crate::{interrupt, peripherals};
 
@@ -140,8 +140,6 @@ pub(crate) struct RtcDriver {
     alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
     #[cfg(feature = "low-power")]
     rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
-    #[cfg(feature = "low-power")]
-    stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
 }
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
@@ -152,8 +150,6 @@ embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
     #[cfg(feature = "low-power")]
     rtc: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
-    #[cfg(feature = "low-power")]
-    stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
 });
 
 impl RtcDriver {
@@ -340,9 +336,8 @@ impl RtcDriver {
     /// Stop the wakeup alarm, if enabled, and add the appropriate offset
     fn stop_wakeup_alarm(&self) {
         critical_section::with(|cs| {
-            if let Some(stop_time) = self.stop_time.borrow(cs).take() {
-                let current_time = self.rtc.borrow(cs).get().unwrap().stop_wakeup_alarm();
-                self.add_time(current_time - stop_time);
+            if let Some(offset) = self.rtc.borrow(cs).get().unwrap().stop_wakeup_alarm() {
+                self.add_time(offset);
             }
         });
     }
@@ -361,17 +356,11 @@ impl RtcDriver {
             Err(())
         } else {
             critical_section::with(|cs| {
-                assert!(self
-                    .stop_time
+                self.rtc
                     .borrow(cs)
-                    .replace(Some(
-                        self.rtc
-                            .borrow(cs)
-                            .get()
-                            .unwrap()
-                            .start_wakeup_alarm(time_until_next_alarm)
-                    ))
-                    .is_none());
+                    .get()
+                    .unwrap()
+                    .start_wakeup_alarm(time_until_next_alarm);
             });
 
             T::regs_gp16().cr1().modify(|w| w.set_cen(false));

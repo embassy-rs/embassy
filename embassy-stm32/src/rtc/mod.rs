@@ -1,6 +1,14 @@
 //! RTC peripheral abstraction
 mod datetime;
 
+#[cfg(feature = "low-power")]
+use core::cell::Cell;
+
+#[cfg(feature = "low-power")]
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+#[cfg(feature = "low-power")]
+use embassy_sync::blocking_mutex::Mutex;
+
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
@@ -30,9 +38,73 @@ pub enum RtcError {
     NotRunning,
 }
 
+#[cfg(feature = "low-power")]
+/// Represents an instant in time that can be substracted to compute a duration
+struct RtcInstant {
+    second: u8,
+    subsecond: u16,
+}
+
+#[cfg(feature = "low-power")]
+impl RtcInstant {
+    pub fn now() -> Self {
+        let tr = RTC::regs().tr().read();
+        let tr2 = RTC::regs().tr().read();
+        let ssr = RTC::regs().ssr().read().ss();
+        let ssr2 = RTC::regs().ssr().read().ss();
+
+        let st = bcd2_to_byte((tr.st(), tr.su()));
+        let st2 = bcd2_to_byte((tr2.st(), tr2.su()));
+
+        assert!(st == st2);
+        assert!(ssr == ssr2);
+
+        let _ = RTC::regs().dr().read();
+
+        let subsecond = ssr;
+        let second = st;
+
+        // trace!("rtc: instant now: st, ssr: {}, {}", st, ssr);
+
+        Self { second, subsecond }
+    }
+}
+
+#[cfg(feature = "low-power")]
+impl core::ops::Sub for RtcInstant {
+    type Output = embassy_time::Duration;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        use embassy_time::{Duration, TICK_HZ};
+
+        let second = if self.second < rhs.second {
+            self.second + 60
+        } else {
+            self.second
+        };
+
+        // TODO: read prescaler
+
+        let self_ticks = second as u32 * 256 + (255 - self.subsecond as u32);
+        let other_ticks = rhs.second as u32 * 256 + (255 - rhs.subsecond as u32);
+        let rtc_ticks = self_ticks - other_ticks;
+
+        //        trace!(
+        //            "rtc: instant sub: self, other, rtc ticks: {}, {}, {}",
+        //            self_ticks,
+        //            other_ticks,
+        //            rtc_ticks
+        //        );
+
+        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / 256u32) as u64)
+    }
+}
+
 /// RTC Abstraction
 pub struct Rtc {
     rtc_config: RtcConfig,
+    #[cfg(feature = "low-power")]
+    stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -108,7 +180,14 @@ impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         RTC::enable_peripheral_clk();
 
+        #[cfg(not(feature = "low-power"))]
         let mut rtc_struct = Self { rtc_config };
+
+        #[cfg(feature = "low-power")]
+        let mut rtc_struct = Self {
+            rtc_config,
+            stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+        };
 
         Self::enable();
 
