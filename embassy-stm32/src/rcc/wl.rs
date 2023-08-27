@@ -1,8 +1,8 @@
 pub use super::bus::{AHBPrescaler, APBPrescaler, VoltageScale};
 use crate::pac::pwr::vals::Dbp;
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::bd::{BackupDomain, RtcClockSource as RCS};
 use crate::rcc::{set_freqs, Clocks};
-use crate::rtc::{Rtc, RtcClockSource as RCS};
 use crate::time::Hertz;
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
@@ -231,7 +231,7 @@ pub(crate) unsafe fn init(config: Config) {
             // Wait until LSE is running
             while !RCC.bdcr().read().lserdy() {}
 
-            Rtc::set_clock_source(RCS::LSE);
+            BackupDomain::set_rtc_clock_source(RCS::LSE);
         }
         RtcClockSource::LSI32 => {
             // Turn on the internal 32 kHz LSI oscillator
@@ -240,7 +240,7 @@ pub(crate) unsafe fn init(config: Config) {
             // Wait until LSI is running
             while !RCC.csr().read().lsirdy() {}
 
-            Rtc::set_clock_source(RCS::LSI);
+            BackupDomain::set_rtc_clock_source(RCS::LSI);
         }
     }
 

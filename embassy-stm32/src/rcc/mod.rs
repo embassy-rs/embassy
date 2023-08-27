@@ -1,5 +1,6 @@
 #![macro_use]
 
+pub(crate) mod bd;
 pub mod bus;
 
 use core::mem::MaybeUninit;
