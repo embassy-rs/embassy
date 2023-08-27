@@ -5,13 +5,19 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rtc::{Rtc, RtcConfig};
+use embassy_stm32::{
+    rtc::{Rtc, RtcClockSource, RtcConfig},
+    Config,
+};
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut config = Config::default();
+    config.rcc.rtc = Option::Some(RtcClockSource::LSI);
+    let p = embassy_stm32::init(config);
+
     info!("Hello World!");
 
     let now = NaiveDate::from_ymd_opt(2020, 5, 15)
@@ -23,8 +29,11 @@ async fn main(_spawner: Spawner) {
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
-    // In reality the delay would be much longer
-    Timer::after(Duration::from_millis(20000)).await;
+    loop {
+        let now: NaiveDateTime = rtc.now().unwrap().into();
 
-    let _then: NaiveDateTime = rtc.now().unwrap().into();
+        info!("{}", now.timestamp());
+
+        Timer::after(Duration::from_millis(1000)).await;
+    }
 }
