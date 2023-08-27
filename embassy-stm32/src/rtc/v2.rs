@@ -89,23 +89,7 @@ impl super::Rtc {
         }
     }
 
-    //    pub(crate) fn clear_wakeup_alarm(&self) {
-    //        use crate::interrupt::typelevel::Interrupt;
-    //
-    //        self.write(false, |regs| {
-    //            regs.cr().modify(|w| w.set_wutie(false));
-    //
-    //            regs.isr().modify(|w| w.set_wutf(false));
-    //            crate::pac::PWR.cr1().modify(|w| w.set_cwuf(false));
-    //            crate::pac::EXTI.pr(0).modify(|w| w.set_line(22, false));
-    //            crate::interrupt::typelevel::RTC_WKUP::unpend();
-    //
-    //            regs.cr().modify(|w| w.set_wutie(true));
-    //        });
-    //    }
-
-    #[allow(dead_code)]
-    #[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
+    #[cfg(feature = "low-power")]
     /// start the wakeup alarm and wtih a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
     pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) {
@@ -145,8 +129,7 @@ impl super::Rtc {
         critical_section::with(|cs| assert!(self.stop_time.borrow(cs).replace(Some(RtcInstant::now())).is_none()))
     }
 
-    #[allow(dead_code)]
-    #[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
+    #[cfg(feature = "low-power")]
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
     pub(crate) fn stop_wakeup_alarm(&self) -> Option<embassy_time::Duration> {
