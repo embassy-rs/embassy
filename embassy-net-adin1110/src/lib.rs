@@ -6,6 +6,9 @@
 #![allow(clippy::missing_panics_doc)]
 #![doc = include_str!("../README.md")]
 
+// must go first!
+mod fmt;
+
 mod crc32;
 mod crc8;
 mod mdio;
@@ -20,12 +23,13 @@ use embassy_net_driver_channel as ch;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
-use embedded_hal_async::spi::{Operation, SpiDevice};
+use embedded_hal_async::spi::{Error, Operation, SpiDevice};
 use heapless::Vec;
 pub use mdio::MdioBus;
 pub use phy::{Phy10BaseT1x, RegsC22, RegsC45};
 pub use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
+use crate::fmt::Bytes;
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
 
 pub const PHYID: u32 = 0x0283_BC91;
@@ -153,8 +157,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
 
         let value = u32::from_be_bytes(rx_buf[0..4].try_into().unwrap());
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!("REG Read {} = {:08x} SPI {:02x}", reg, value, &tx_buf);
+        trace!("REG Read {} = {:08x} SPI {}", reg, value, Bytes(&tx_buf));
 
         Ok(value)
     }
@@ -181,8 +184,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
             let _ = tx_buf.push(crc8(val.as_slice()));
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!("REG Write {} = {:08x} SPI {:02x}", reg, value, &tx_buf);
+        trace!("REG Write {} = {:08x} SPI {}", reg, value, Bytes(&tx_buf));
 
         self.spi.write(&tx_buf).await.map_err(AdinError::Spi)
     }
@@ -219,8 +221,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         let packet_size = fifo_frame_size - FRAME_HEADER_LEN - FCS_LEN;
 
         if packet_size > frame.len() {
-            #[cfg(feature = "defmt")]
-            defmt::trace!("MAX: {} WANT: {}", frame.len(), packet_size);
+            trace!("MAX: {} WANT: {}", frame.len(), packet_size);
             return Err(AdinError::PACKET_TOO_BIG);
         }
 
@@ -333,14 +334,13 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
 
         self.write_reg(sr::TX_FSIZE, send_len).await?;
 
-        #[cfg(feature = "defmt")]
-        defmt::trace!(
-            "TX: hdr {} [{}] {:02x}-{:02x}-{:02x} SIZE: {}",
+        trace!(
+            "TX: hdr {} [{}] {}-{}-{} SIZE: {}",
             head_data.len(),
             frame.len(),
-            head_data.as_slice(),
-            frame,
-            tail_data.as_slice(),
+            Bytes(head_data.as_slice()),
+            Bytes(frame),
+            Bytes(tail_data.as_slice()),
             send_len,
         );
 
@@ -445,16 +445,14 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
             let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
 
             loop {
-                #[cfg(feature = "defmt")]
-                defmt::debug!("Waiting for interrupts");
+                debug!("Waiting for interrupts");
                 match select(self.int.wait_for_low(), tx_chan.tx_buf()).await {
                     Either::First(_) => {
                         let mut status1_clr = Status1(0);
                         let mut status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
 
                         while status1.p1_rx_rdy() {
-                            #[cfg(feature = "defmt")]
-                            defmt::debug!("alloc RX packet buffer");
+                            debug!("alloc RX packet buffer");
                             match select(rx_chan.rx_buf(), tx_chan.tx_buf()).await {
                                 // Handle frames that needs to transmit from the wire.
                                 // Note: rx_chan.rx_buf() channel don´t accept new request
@@ -466,22 +464,18 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                                     }
                                     Err(e) => match e {
                                         AdinError::PACKET_TOO_BIG => {
-                                            #[cfg(feature = "defmt")]
-                                            defmt::error!("RX Packet too big, DROP");
+                                            error!("RX Packet too big, DROP");
                                             self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
                                         }
                                         AdinError::PACKET_TOO_SMALL => {
-                                            #[cfg(feature = "defmt")]
-                                            defmt::error!("RX Packet too small, DROP");
+                                            error!("RX Packet too small, DROP");
                                             self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
                                         }
-                                        AdinError::Spi(_) => {
-                                            #[cfg(feature = "defmt")]
-                                            defmt::error!("RX Spi error")
+                                        AdinError::Spi(e) => {
+                                            error!("RX Spi error {}", e.kind());
                                         }
                                         _ => {
-                                            #[cfg(feature = "defmt")]
-                                            defmt::error!("RX Error")
+                                            error!("RX Error");
                                         }
                                     },
                                 },
@@ -496,21 +490,18 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
 
                         let status0 = Status0(self.mac.read_reg(sr::STATUS0).await.unwrap());
                         if status1.0 & !0x1b != 0 {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("SPE CHIP STATUS 0:{:08x} 1:{:08x}", status0.0, status1.0);
+                            error!("SPE CHIP STATUS 0:{:08x} 1:{:08x}", status0.0, status1.0);
                         }
 
                         if status1.tx_rdy() {
                             status1_clr.set_tx_rdy(true);
-                            #[cfg(feature = "defmt")]
-                            defmt::info!("TX_DONE");
+                            trace!("TX_DONE");
                         }
 
                         if status1.link_change() {
                             let link = status1.p1_link_status();
                             self.is_link_up = link;
 
-                            #[cfg(feature = "defmt")]
                             if link {
                                 let link_status = self
                                     .mac
@@ -530,9 +521,9 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                                     .await
                                     .unwrap();
 
-                                defmt::info!("LINK Changed: Link Up, Volt: {} V p-p, MSE: {:0004}", volt, mse);
+                                info!("LINK Changed: Link Up, Volt: {} V p-p, MSE: {:0004}", volt, mse);
                             } else {
-                                defmt::info!("LINK Changed: Link Down");
+                                info!("LINK Changed: Link Down");
                             }
 
                             state_chan.set_link_state(if link { LinkState::Up } else { LinkState::Down });
@@ -540,50 +531,42 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                         }
 
                         if status1.tx_ecc_err() {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("SPI TX_ECC_ERR error, CLEAR TX FIFO");
+                            error!("SPI TX_ECC_ERR error, CLEAR TX FIFO");
                             self.mac.write_reg(sr::FIFO_CLR, 2).await.unwrap();
                             status1_clr.set_tx_ecc_err(true);
                         }
 
                         if status1.rx_ecc_err() {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("SPI RX_ECC_ERR error");
+                            error!("SPI RX_ECC_ERR error");
                             status1_clr.set_rx_ecc_err(true);
                         }
 
                         if status1.spi_err() {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("SPI SPI_ERR CRC error");
+                            error!("SPI SPI_ERR CRC error");
                             status1_clr.set_spi_err(true);
                         }
 
                         if status0.phyint() {
-                            #[cfg_attr(not(feature = "defmt"), allow(unused_variables))]
                             let crsm_irq_st = self
                                 .mac
                                 .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::CRSM_IRQ_STATUS.into())
                                 .await
                                 .unwrap();
 
-                            #[cfg_attr(not(feature = "defmt"), allow(unused_variables))]
                             let phy_irq_st = self
                                 .mac
                                 .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1F::PHY_SYBSYS_IRQ_STATUS.into())
                                 .await
                                 .unwrap();
 
-                            #[cfg(feature = "defmt")]
-                            defmt::warn!(
+                            warn!(
                                 "SPE CHIP PHY CRSM_IRQ_STATUS {:04x} PHY_SUBSYS_IRQ_STATUS {:04x}",
-                                crsm_irq_st,
-                                phy_irq_st
+                                crsm_irq_st, phy_irq_st
                             );
                         }
 
                         if status0.txfcse() {
-                            #[cfg(feature = "defmt")]
-                            defmt::error!("SPE CHIP PHY TX Frame CRC error");
+                            error!("Ethernet Frame FCS and calc FCS don't match!");
                         }
 
                         // Clear status0
@@ -613,8 +596,7 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
 ) -> (Device<'_>, Runner<'_, SPI, INT, RST>) {
     use crate::regs::{IMask0, IMask1};
 
-    #[cfg(feature = "defmt")]
-    defmt::info!("INIT ADIN1110");
+    info!("INIT ADIN1110");
 
     // Reset sequence
     reset.set_low().unwrap();
@@ -634,23 +616,20 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     let id = mac.read_reg(sr::PHYID).await.unwrap();
     assert_eq!(id, PHYID);
 
-    #[cfg(feature = "defmt")]
-    defmt::debug!("SPE: CHIP MAC/ID: {:08x}", id);
+    debug!("SPE: CHIP MAC/ID: {:08x}", id);
 
-    #[cfg(feature = "defmt")]
-    let adin_phy = Phy10BaseT1x::default();
-    #[cfg(feature = "defmt")]
-    let phy_id = adin_phy.get_id(&mut mac).await.unwrap();
-    #[cfg(feature = "defmt")]
-    defmt::debug!("SPE: CHIP: PHY ID: {:08x}", phy_id);
+    #[cfg(any(feature = "defmt", feature = "log"))]
+    {
+        let adin_phy = Phy10BaseT1x::default();
+        let phy_id = adin_phy.get_id(&mut mac).await.unwrap();
+        debug!("SPE: CHIP: PHY ID: {:08x}", phy_id);
+    }
 
     let mi_control = mac.read_cl22(MDIO_PHY_ADDR, RegsC22::CONTROL as u8).await.unwrap();
-    #[cfg(feature = "defmt")]
-    defmt::println!("SPE CHIP PHY MI_CONTROL {:04x}", mi_control);
+    debug!("SPE CHIP PHY MI_CONTROL {:04x}", mi_control);
     if mi_control & 0x0800 != 0 {
         let val = mi_control & !0x0800;
-        #[cfg(feature = "defmt")]
-        defmt::println!("SPE CHIP PHY MI_CONTROL Disable PowerDown");
+        debug!("SPE CHIP PHY MI_CONTROL Disable PowerDown");
         mac.write_cl22(MDIO_PHY_ADDR, RegsC22::CONTROL as u8, val)
             .await
             .unwrap();

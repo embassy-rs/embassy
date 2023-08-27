@@ -21,7 +21,6 @@ embassy-time = { version = "0.1.0" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
-
 [dev-dependencies]
 # reenable when https://github.com/dbrgn/embedded-hal-mock/pull/86 is merged.
 #embedded-hal-mock = { git = "https://github.com/dbrgn/embedded-hal-mock", branch = "1-alpha", features = ["embedded-hal-async", "eh1"] }] }
@@ -33,9 +32,11 @@ futures-test = "0.3.17"
 
 [features]
 default = [ ]
-defmt = [ "dep:defmt" ]
+defmt = [ "dep:defmt", "embedded-hal-1/defmt-03" ]
+log = ["dep:log"]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-adin1110-v$VERSION/embassy-net-adin1110/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-adin1110/src/"
 target = "thumbv7em-none-eabi"
+features = ["defmt"]

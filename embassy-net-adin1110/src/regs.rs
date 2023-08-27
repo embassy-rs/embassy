@@ -1,3 +1,5 @@
+use core::fmt::{Debug, Display};
+
 use bitfield::{bitfield, bitfield_bitrange, bitfield_fields};
 
 #[allow(non_camel_case_types)]
@@ -34,6 +36,12 @@ pub enum SpiRegisters {
     RX = 0x91,
 }
 
+impl Display for SpiRegisters {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 impl From<SpiRegisters> for u16 {
     fn from(val: SpiRegisters) -> Self {
         val as u16
@@ -68,7 +76,7 @@ impl From<u16> for SpiRegisters {
             0x73 => Self::ADDR_MSK_UPR1,
             0x90 => Self::RX_FSIZE,
             0x91 => Self::RX,
-            e => panic!("Unknown value {e}"),
+            e => panic!("Unknown value {}", e),
         }
     }
 }
@@ -313,7 +321,7 @@ impl From<u8> for LedFunc {
             26 => LedFunc::Clk25Ref,
             27 => LedFunc::TxTCLK,
             28 => LedFunc::Clk120MHz,
-            e => panic!("Invalid value {e}"),
+            e => panic!("Invalid value {}", e),
         }
     }
 }
@@ -369,7 +377,7 @@ impl From<u8> for LedPol {
             0 => LedPol::AutoSense,
             1 => LedPol::ActiveHigh,
             2 => LedPol::ActiveLow,
-            e => panic!("Invalid value {e}"),
+            e => panic!("Invalid value {}", e),
         }
     }
 }
