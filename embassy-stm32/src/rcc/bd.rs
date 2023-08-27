@@ -1,5 +1,6 @@
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
+#[allow(dead_code)]
 pub enum RtcClockSource {
     /// 00: No clock
     NoClock = 0b00,
@@ -11,12 +12,14 @@ pub enum RtcClockSource {
     HSE = 0b11,
 }
 
+#[allow(dead_code)]
 pub struct BackupDomain {}
 
 impl BackupDomain {
     #[cfg(any(
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
     ))]
+    #[allow(dead_code)]
     fn unlock_registers() {
         #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
         let cr = crate::pac::PWR.cr();
@@ -34,6 +37,7 @@ impl BackupDomain {
     }
 
     #[cfg(any(rtc_v3, rtc_v3u5))]
+    #[allow(dead_code)]
     fn unlock_registers() {
         // Unlock the backup domain
         #[cfg(not(any(rtc_v3u5, rcc_wl5, rcc_wle)))]
@@ -57,6 +61,7 @@ impl BackupDomain {
     #[cfg(any(
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
     ))]
+    #[allow(dead_code)]
     pub fn set_rtc_clock_source(clock_source: RtcClockSource) {
         #[cfg(not(rtc_v2wb))]
         use stm32_metapac::rcc::vals::Rtcsel;
@@ -78,6 +83,7 @@ impl BackupDomain {
     }
 
     #[cfg(any(rtc_v3, rtc_v3u5))]
+    #[allow(dead_code)]
     pub fn set_rtc_clock_source(clock_source: RtcClockSource) {
         let clock_source = clock_source as u8;
         #[cfg(not(any(rcc_wl5, rcc_wle)))]
@@ -94,6 +100,7 @@ impl BackupDomain {
     #[cfg(any(
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
     ))]
+    #[allow(dead_code)]
     pub fn enable_rtc() {
         #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
         let reg = crate::pac::RCC.bdcr().read();
@@ -137,6 +144,7 @@ impl BackupDomain {
     }
 
     #[cfg(any(rtc_v3, rtc_v3u5))]
+    #[allow(dead_code)]
     pub fn enable_rtc() {
         let bdcr = crate::pac::RCC.bdcr();
 
