@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-adin1110"
-version = "0.1.0"
+version = "0.2.0"
 description = "embassy-net driver for the ADIN1110 ethernet chip"
 keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethernet", "async"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
