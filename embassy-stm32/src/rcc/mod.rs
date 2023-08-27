@@ -2,9 +2,9 @@
 
 pub(crate) mod bd;
 pub mod bus;
-
 use core::mem::MaybeUninit;
 
+pub use crate::rcc::bd::RtcClockSource;
 use crate::time::Hertz;
 
 #[cfg_attr(rcc_f0, path = "f0.rs")]

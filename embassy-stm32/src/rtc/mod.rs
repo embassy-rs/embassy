@@ -11,6 +11,7 @@ use embassy_sync::blocking_mutex::Mutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::rcc::bd::BackupDomain;
+pub use crate::rcc::RtcClockSource;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
 #[cfg_attr(any(rtc_v1), path = "v1.rs")]
