@@ -5,8 +5,8 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{self, ClockSrc};
-use embassy_stm32::rtc::{Rtc, RtcConfig};
+use embassy_stm32::rcc::ClockSrc;
+use embassy_stm32::rtc::{Rtc, RtcClockSource, RtcConfig};
 use embassy_stm32::Config;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner) {
     let p = {
         let mut config = Config::default();
         config.rcc.mux = ClockSrc::HSE32;
-        config.rcc.rtc_mux = rcc::RtcClockSource::LSE32;
+        config.rcc.rtc_mux = RtcClockSource::LSE;
         config.rcc.enable_rtc_apb = true;
         embassy_stm32::init(config)
     };
