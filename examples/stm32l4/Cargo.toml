@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "embassy-stm32l4-examples"
-version = "0.1.0"
+version = "0.1.1"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
@@ -12,7 +12,7 @@ embassy-executor = { version = "0.3.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768", "unstable-traits", "nightly"] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-net-adin1110 = { version = "0.1.0", path = "../../embassy-net-adin1110", default-features = false }
+embassy-net-adin1110 = { version = "0.2.0", path = "../../embassy-net-adin1110" }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "nightly", "udp", "tcp", "dhcpv4", "medium-ethernet"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embedded-io-async = { version = "0.5.0", features = ["defmt-03"] }
