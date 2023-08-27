@@ -91,13 +91,11 @@ async fn main(_spawner: Spawner) {
     let (mut uart_tx, mut uart_rx) = uart.split();
 
     // Pipe setup
-    let usb_pipe: Pipe<NoopRawMutex, 20> = Pipe::new();
-    let mut usb_pipe_writer = usb_pipe.writer();
-    let mut usb_pipe_reader = usb_pipe.reader();
+    let mut usb_pipe: Pipe<NoopRawMutex, 20> = Pipe::new();
+    let (mut usb_pipe_reader, mut usb_pipe_writer) = usb_pipe.split();
 
-    let uart_pipe: Pipe<NoopRawMutex, 20> = Pipe::new();
-    let mut uart_pipe_writer = uart_pipe.writer();
-    let mut uart_pipe_reader = uart_pipe.reader();
+    let mut uart_pipe: Pipe<NoopRawMutex, 20> = Pipe::new();
+    let (mut uart_pipe_reader, mut uart_pipe_writer) = uart_pipe.split();
 
     let (mut usb_tx, mut usb_rx) = class.split();
 
