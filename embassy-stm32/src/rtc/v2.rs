@@ -110,7 +110,7 @@ impl super::Rtc {
 
         trace!("rtc: start wakeup alarm for {} ms", duration.as_millis());
 
-        critical_section::with(|cs| assert!(self.stop_time.borrow(cs).replace(Some(RtcInstant::now())).is_none()))
+        critical_section::with(|cs| assert!(self.stop_time.borrow(cs).replace(Some(self.instant())).is_none()))
     }
 
     #[cfg(feature = "low-power")]
@@ -132,7 +132,7 @@ impl super::Rtc {
 
         critical_section::with(|cs| {
             if let Some(stop_time) = self.stop_time.borrow(cs).take() {
-                Some(RtcInstant::now() - stop_time)
+                Some(self.instant() - stop_time)
             } else {
                 None
             }

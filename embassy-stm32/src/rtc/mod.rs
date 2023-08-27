@@ -48,31 +48,6 @@ struct RtcInstant {
 }
 
 #[cfg(feature = "low-power")]
-impl RtcInstant {
-    pub fn now() -> Self {
-        let tr = RTC::regs().tr().read();
-        let tr2 = RTC::regs().tr().read();
-        let ssr = RTC::regs().ssr().read().ss();
-        let ssr2 = RTC::regs().ssr().read().ss();
-
-        let st = bcd2_to_byte((tr.st(), tr.su()));
-        let st2 = bcd2_to_byte((tr2.st(), tr2.su()));
-
-        assert!(st == st2);
-        assert!(ssr == ssr2);
-
-        let _ = RTC::regs().dr().read();
-
-        let subsecond = ssr;
-        let second = st;
-
-        // trace!("rtc: instant now: st, ssr: {}, {}", st, ssr);
-
-        Self { second, subsecond }
-    }
-}
-
-#[cfg(feature = "low-power")]
 impl core::ops::Sub for RtcInstant {
     type Output = embassy_time::Duration;
 
@@ -85,20 +60,13 @@ impl core::ops::Sub for RtcInstant {
             self.second
         };
 
-        // TODO: read prescaler
+        let psc = RTC::regs().prer().read().prediv_s() as u32;
 
-        let self_ticks = second as u32 * 256 + (255 - self.subsecond as u32);
-        let other_ticks = rhs.second as u32 * 256 + (255 - rhs.subsecond as u32);
+        let self_ticks = second as u32 * (psc + 1) + (psc - self.subsecond as u32);
+        let other_ticks = rhs.second as u32 * (psc + 1) + (psc - rhs.subsecond as u32);
         let rtc_ticks = self_ticks - other_ticks;
 
-        //        trace!(
-        //            "rtc: instant sub: self, other, rtc ticks: {}, {}, {}",
-        //            self_ticks,
-        //            other_ticks,
-        //            rtc_ticks
-        //        );
-
-        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / 256u32) as u64)
+        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / psc) as u64)
     }
 }
 
@@ -196,6 +164,19 @@ impl Rtc {
         self.write(true, |rtc| self::datetime::write_date_time(rtc, t));
 
         Ok(())
+    }
+
+    /// Return the current instant.
+    fn instant(&self) -> RtcInstant {
+        let r = RTC::regs();
+        let tr = r.tr().read();
+        let subsecond = r.ssr().read().ss();
+        let second = bcd2_to_byte((tr.st(), tr.su()));
+
+        // Unlock the registers
+        r.dr();
+
+        RtcInstant { second, subsecond }
     }
 
     /// Return the current datetime.
