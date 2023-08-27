@@ -9,12 +9,11 @@ use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::EXTI;
 use crate::rcc::low_power_ready;
-use crate::time_driver::{pause_time, resume_time, time_until_next_alarm};
+use crate::time_driver::{get_driver, RtcDriver};
 
 const THREAD_PENDER: usize = usize::MAX;
-const THRESHOLD: Duration = Duration::from_millis(500);
 
-use crate::rtc::{Rtc, RtcInstant};
+use crate::rtc::Rtc;
 
 static mut EXECUTOR: Option<Executor> = None;
 
@@ -27,20 +26,30 @@ foreach_interrupt! {
     };
 }
 
+// pub fn timer_driver_pause_time() {
+//     pause_time();
+// }
+
 pub fn stop_with_rtc(rtc: &'static Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
 }
 
-pub fn start_wakeup_alarm(requested_duration: embassy_time::Duration) -> RtcInstant {
-    unsafe { EXECUTOR.as_mut().unwrap() }
-        .rtc
-        .unwrap()
-        .start_wakeup_alarm(requested_duration)
-}
-
-pub fn stop_wakeup_alarm() -> RtcInstant {
-    unsafe { EXECUTOR.as_mut().unwrap() }.rtc.unwrap().stop_wakeup_alarm()
-}
+// pub fn start_wakeup_alarm(requested_duration: embassy_time::Duration) {
+//     let rtc_instant = unsafe { EXECUTOR.as_mut().unwrap() }
+//         .rtc
+//         .unwrap()
+//         .start_wakeup_alarm(requested_duration);
+//
+//     unsafe { EXECUTOR.as_mut().unwrap() }.last_stop = Some(rtc_instant);
+// }
+//
+// pub fn set_sleepdeep() {
+//     unsafe { EXECUTOR.as_mut().unwrap() }.scb.set_sleepdeep();
+// }
+//
+// pub fn stop_wakeup_alarm() -> RtcInstant {
+//     unsafe { EXECUTOR.as_mut().unwrap() }.rtc.unwrap().stop_wakeup_alarm()
+// }
 
 /// Thread mode executor, using WFE/SEV.
 ///
@@ -56,15 +65,15 @@ pub struct Executor {
     inner: raw::Executor,
     not_send: PhantomData<*mut ()>,
     scb: SCB,
-    pub(self) rtc: Option<&'static Rtc>,
+    time_driver: &'static RtcDriver,
     stop_time: embassy_time::Duration,
     next_alarm: embassy_time::Duration,
-    last_stop: Option<crate::rtc::RtcInstant>,
+    wfe: u8,
 }
 
 impl Executor {
     /// Create a new Executor.
-    pub fn new() -> &'static mut Self {
+    pub fn take() -> &'static mut Self {
         unsafe {
             assert!(EXECUTOR.is_none());
 
@@ -72,10 +81,10 @@ impl Executor {
                 inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
                 scb: cortex_m::Peripherals::steal().SCB,
-                rtc: None,
+                time_driver: get_driver(),
                 stop_time: Duration::from_ticks(0),
                 next_alarm: Duration::from_ticks(u64::MAX),
-                last_stop: None,
+                wfe: 0,
             });
 
             EXECUTOR.as_mut().unwrap()
@@ -83,9 +92,31 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
-        trace!("low power: one wakekup irq");
+        trace!("low power: on wakeup irq");
 
-        self.rtc.unwrap().clear_wakeup_alarm();
+        if crate::pac::RTC.isr().read().wutf() {
+            trace!("low power: wutf set");
+        } else {
+            trace!("low power: wutf not set");
+        }
+
+        self.time_driver.resume_time();
+        trace!("low power: resume time");
+
+        crate::interrupt::typelevel::RTC_WKUP::disable();
+
+        // cortex_m::asm::bkpt();
+
+        //        let time_elasped = self.rtc.unwrap().stop_wakeup_alarm() - self.last_stop.take().unwrap();
+        //
+        //        trace!("low power: {} ms elapsed", time_elasped.as_millis());
+        //
+        //        resume_time(time_elasped);
+        //        trace!("low power: resume time");
+        //
+        //        self.scb.clear_sleepdeep();
+
+        //       cortex_m::asm::bkpt();
         //        Self::get_scb().set_sleeponexit();
         //
         //        return;
@@ -110,48 +141,33 @@ impl Executor {
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
-        assert!(self.rtc.is_none());
+        trace!("low power: stop with rtc configured");
+
+        self.time_driver.set_rtc(rtc);
 
         crate::interrupt::typelevel::RTC_WKUP::unpend();
         unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
 
         EXTI.rtsr(0).modify(|w| w.set_line(22, true));
         EXTI.imr(0).modify(|w| w.set_line(22, true));
-
-        self.rtc = Some(rtc);
     }
 
-    fn configure_pwr(&self) {
-        // defeat the borrow checker
-        let s = unsafe { EXECUTOR.as_mut().unwrap() };
+    fn configure_pwr(&mut self) {
+        trace!("low power: configure_pwr");
 
-        //        trace!("configure_pwr");
-        //
-        //        if !low_power_ready() {
-        //            trace!("configure_pwr: low power not ready");
-        //            return;
-        //        }
-        //
-        //        let time_until_next_alarm = time_until_next_alarm();
-        //        if time_until_next_alarm < THRESHOLD {
-        //            trace!("configure_pwr: not enough time until next alarm");
-        //            return;
-        //        }
-        //
-        //        unsafe {
-        //            NEXT_ALARM = time_until_next_alarm;
-        //            if RTC_INSTANT.is_none() {
-        //                RTC_INSTANT = Some(start_wakeup_alarm(time_until_next_alarm))
-        //            }
-        //        };
-        //
-        //        // return;
-        //
-        //        pause_time();
-        //
-        //        trace!("enter stop...");
-        //
-        //        Self::get_scb().set_sleepdeep();
+        self.scb.clear_sleepdeep();
+        if !low_power_ready() {
+            trace!("low power: configure_pwr: low power not ready");
+            return;
+        }
+
+        if self.time_driver.pause_time().is_err() {
+            trace!("low power: configure_pwr: time driver failed to pause");
+            return;
+        }
+
+        trace!("low power: enter stop...");
+        self.scb.set_sleepdeep();
     }
 
     /// Run the executor.
@@ -173,11 +189,11 @@ impl Executor {
     ///
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-        init(self.inner.spawner());
+        init(unsafe { EXECUTOR.as_mut().unwrap() }.inner.spawner());
 
         loop {
             unsafe {
-                self.inner.poll();
+                EXECUTOR.as_mut().unwrap().inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
             };

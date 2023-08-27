@@ -30,6 +30,8 @@ impl RtcInstant {
 
         let _ = RTC::regs().dr().read();
 
+        trace!("rtc: instant now: st, ssr: {}, {}", st, ssr);
+
         Self { ssr, st }
     }
 }
@@ -146,6 +148,21 @@ impl super::Rtc {
         }
     }
 
+    //    pub(crate) fn clear_wakeup_alarm(&self) {
+    //        use crate::interrupt::typelevel::Interrupt;
+    //
+    //        self.write(false, |regs| {
+    //            regs.cr().modify(|w| w.set_wutie(false));
+    //
+    //            regs.isr().modify(|w| w.set_wutf(false));
+    //            crate::pac::PWR.cr1().modify(|w| w.set_cwuf(false));
+    //            crate::pac::EXTI.pr(0).modify(|w| w.set_line(22, false));
+    //            crate::interrupt::typelevel::RTC_WKUP::unpend();
+    //
+    //            regs.cr().modify(|w| w.set_wutie(true));
+    //        });
+    //    }
+
     #[allow(dead_code)]
     #[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
     /// start the wakeup alarm and return the actual duration of the alarm
@@ -157,6 +174,7 @@ impl super::Rtc {
     pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) -> RtcInstant {
         use embassy_time::{Duration, TICK_HZ};
 
+        use crate::interrupt::typelevel::Interrupt;
         use crate::rcc::get_freqs;
 
         let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
@@ -176,27 +194,39 @@ impl super::Rtc {
             rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
         );
 
-        trace!("rtc: set wakeup timer for {} ms", duration.as_millis());
-
         self.write(false, |regs| {
-            // regs.cr().modify(|w| w.set_wutie(true));
-
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
             while !regs.isr().read().wutwf() {}
 
             regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
             regs.cr().modify(|w| w.set_wute(true));
-        });
-
-        self.write(false, |regs| {
-            regs.cr().modify(|w| w.set_wutie(false));
-
-            regs.isr().modify(|w| w.set_wutf(false));
-            crate::pac::PWR.cr1().modify(|w| w.set_cwuf(false));
-
             regs.cr().modify(|w| w.set_wutie(true));
         });
+
+        trace!("rtc: start wakeup alarm for {} ms", duration.as_millis());
+
+        //        self.write(false, |regs| {
+        //            regs.cr().modify(|w| w.set_wutie(false));
+        //
+        //            regs.isr().modify(|w| w.set_wutf(false));
+        //
+        //            regs.cr().modify(|w| w.set_wutie(true));
+        //        });
+        //
+        //        trace!("rtc: clear wuf...");
+        //        crate::pac::PWR.cr1().modify(|w| w.set_cwuf(true));
+        //        while crate::pac::PWR.csr1().read().wuf() {}
+        //        trace!("rtc: clear wuf...done");
+        //
+        //        crate::pac::PWR
+        //            .cr1()
+        //            .modify(|w| w.set_pdds(crate::pac::pwr::vals::Pdds::STANDBY_MODE));
+        //
+        //        // crate::pac::PWR.cr1().modify(|w| w.set_lpds(true));
+        //
+        //        // crate::pac::EXTI.pr(0).modify(|w| w.set_line(22, true));
+        //        crate::interrupt::typelevel::RTC_WKUP::unpend();
 
         RtcInstant::now()
     }
@@ -211,6 +241,7 @@ impl super::Rtc {
         trace!("rtc: stop wakeup alarm...");
 
         self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wutie(false));
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
         });
