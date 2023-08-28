@@ -77,7 +77,7 @@ const ETH_MIN_WITHOUT_FCS_LEN: usize = ETH_MIN_LEN - FCS_LEN;
 const SPI_HEADER_LEN: usize = 2;
 /// SPI Header CRC length
 const SPI_HEADER_CRC_LEN: usize = 1;
-/// SPI Header Trun Around length
+/// SPI Header Turn Around length
 const SPI_HEADER_TA_LEN: usize = 1;
 /// Frame Header length
 const FRAME_HEADER_LEN: usize = 2;
@@ -137,7 +137,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
             let _ = tx_buf.push(crc8(&tx_buf));
         }
 
-        // Turn around byte, TODO: Unknown that this is.
+        // Turn around byte, give the chip the time to access/setup the answer data.
         let _ = tx_buf.push(TURN_AROUND_BYTE);
 
         let mut rx_buf = [0; 5];
