@@ -78,7 +78,7 @@ impl core::ops::Sub for RtcInstant {
         let other_ticks = rhs.second as u32 * (psc + 1) + (psc - rhs.subsecond as u32);
         let rtc_ticks = self_ticks - other_ticks;
 
-        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / psc) as u64)
+        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / (psc + 1)) as u64)
     }
 }
 
