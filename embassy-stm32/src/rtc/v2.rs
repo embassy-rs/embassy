@@ -75,21 +75,6 @@ impl super::Rtc {
     /// start the wakeup alarm and wtih a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
     pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) {
-        #[cfg(feature = "rtc-debug")]
-        if critical_section::with(|cs| {
-            if let Some(instant) = self.stop_time.borrow(cs).take() {
-                self.stop_time.borrow(cs).replace(Some(instant));
-
-                Some(())
-            } else {
-                None
-            }
-        })
-        .is_some()
-        {
-            return;
-        }
-
         use embassy_time::{Duration, TICK_HZ};
 
         use crate::rcc::get_freqs;
@@ -134,15 +119,20 @@ impl super::Rtc {
     }
 
     #[cfg(feature = "low-power")]
+    pub(crate) fn enable_wakeup_line(&self) {
+        use crate::pac::EXTI;
+
+        EXTI.rtsr(0).modify(|w| w.set_line(22, true));
+        EXTI.imr(0).modify(|w| w.set_line(22, true));
+    }
+
+    #[cfg(feature = "low-power")]
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
     pub(crate) fn stop_wakeup_alarm(&self) -> Option<embassy_time::Duration> {
         use crate::interrupt::typelevel::Interrupt;
 
         trace!("rtc: stop wakeup alarm at {}", self.instant());
-
-        #[cfg(feature = "rtc-debug")]
-        return None;
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wutie(false));
