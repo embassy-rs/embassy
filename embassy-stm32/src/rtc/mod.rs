@@ -178,6 +178,7 @@ impl Rtc {
         Ok(())
     }
 
+    #[cfg(feature = "low-power")]
     /// Return the current instant.
     fn instant(&self) -> RtcInstant {
         let r = RTC::regs();
