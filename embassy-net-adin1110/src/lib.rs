@@ -474,8 +474,8 @@ impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
                                         AdinError::Spi(e) => {
                                             error!("RX Spi error {}", e.kind());
                                         }
-                                        _ => {
-                                            error!("RX Error");
+                                        e => {
+                                            error!("RX Error {:?}", e);
                                         }
                                     },
                                 },
