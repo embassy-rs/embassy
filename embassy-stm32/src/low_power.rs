@@ -6,7 +6,6 @@ use embassy_executor::*;
 
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::EXTI;
 use crate::rcc::low_power_ready;
 use crate::time_driver::{get_driver, RtcDriver};
 
