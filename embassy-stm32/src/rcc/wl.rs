@@ -1,8 +1,7 @@
-pub use super::common::{AHBPrescaler, APBPrescaler, VoltageScale};
-use crate::pac::pwr::vals::Dbp;
+pub use super::bus::{AHBPrescaler, APBPrescaler, VoltageScale};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
-use crate::rtc::{Rtc, RtcClockSource as RCS};
 use crate::time::Hertz;
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
@@ -130,14 +129,9 @@ impl Default for Config {
             apb2_pre: APBPrescaler::NotDivided,
             enable_lsi: false,
             enable_rtc_apb: false,
-            rtc_mux: RtcClockSource::LSI32,
+            rtc_mux: RtcClockSource::LSI,
         }
     }
-}
-
-pub enum RtcClockSource {
-    LSE32,
-    LSI32,
 }
 
 #[repr(u8)]
@@ -215,9 +209,9 @@ pub(crate) unsafe fn init(config: Config) {
     while FLASH.acr().read().latency() != ws {}
 
     match config.rtc_mux {
-        RtcClockSource::LSE32 => {
+        RtcClockSource::LSE => {
             // 1. Unlock the backup domain
-            PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
+            PWR.cr1().modify(|w| w.set_dbp(true));
 
             // 2. Setup the LSE
             RCC.bdcr().modify(|w| {
@@ -231,17 +225,18 @@ pub(crate) unsafe fn init(config: Config) {
             // Wait until LSE is running
             while !RCC.bdcr().read().lserdy() {}
 
-            Rtc::set_clock_source(RCS::LSE);
+            BackupDomain::set_rtc_clock_source(RtcClockSource::LSE);
         }
-        RtcClockSource::LSI32 => {
+        RtcClockSource::LSI => {
             // Turn on the internal 32 kHz LSI oscillator
             RCC.csr().modify(|w| w.set_lsion(true));
 
             // Wait until LSI is running
             while !RCC.csr().read().lsirdy() {}
 
-            Rtc::set_clock_source(RCS::LSI);
+            BackupDomain::set_rtc_clock_source(RtcClockSource::LSI);
         }
+        _ => unreachable!(),
     }
 
     match config.mux {
@@ -266,7 +261,7 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_msirange(range.into());
                 w.set_msion(true);
 
-                if let RtcClockSource::LSE32 = config.rtc_mux {
+                if let RtcClockSource::LSE = config.rtc_mux {
                     // If LSE is enabled, enable calibration of MSI
                     w.set_msipllen(true);
                 } else {

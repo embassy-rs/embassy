@@ -2,7 +2,7 @@ use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
 #[cfg(feature = "low-power")]
 use super::RtcInstant;
-use super::{sealed, RtcClockSource, RtcConfig};
+use super::{sealed, RtcConfig};
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
@@ -73,22 +73,6 @@ impl WakeupPrescaler {
 }
 
 impl super::Rtc {
-    fn unlock_registers() {
-        #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
-        let cr = crate::pac::PWR.cr();
-        #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-        let cr = crate::pac::PWR.cr1();
-
-        // TODO: Missing from PAC for l0 and f0?
-        #[cfg(not(any(rtc_v2f0, rtc_v2l0)))]
-        {
-            if !cr.read().dbp() {
-                cr.modify(|w| w.set_dbp(true));
-                while !cr.read().dbp() {}
-            }
-        }
-    }
-
     #[cfg(feature = "low-power")]
     /// start the wakeup alarm and wtih a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
@@ -153,69 +137,6 @@ impl super::Rtc {
                 None
             }
         })
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_clock_source(clock_source: RtcClockSource) {
-        #[cfg(not(rtc_v2wb))]
-        use stm32_metapac::rcc::vals::Rtcsel;
-
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let cr = crate::pac::RCC.bdcr();
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let cr = crate::pac::RCC.csr();
-
-        Self::unlock_registers();
-
-        cr.modify(|w| {
-            // Select RTC source
-            #[cfg(not(rtc_v2wb))]
-            w.set_rtcsel(Rtcsel::from_bits(clock_source as u8));
-            #[cfg(rtc_v2wb)]
-            w.set_rtcsel(clock_source as u8);
-        });
-    }
-
-    pub(super) fn enable() {
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let reg = crate::pac::RCC.bdcr().read();
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let reg = crate::pac::RCC.csr().read();
-
-        #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
-        if !reg.rtcen() {
-            Self::unlock_registers();
-
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
-            crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-            let cr = crate::pac::RCC.bdcr();
-            #[cfg(any(rtc_v2l0, rtc_v2l1))]
-            let cr = crate::pac::RCC.csr();
-
-            cr.modify(|w| {
-                // Reset
-                #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-                w.set_bdrst(false);
-
-                w.set_rtcen(true);
-                w.set_rtcsel(reg.rtcsel());
-
-                // Restore bcdr
-                #[cfg(any(rtc_v2l4, rtc_v2wb))]
-                w.set_lscosel(reg.lscosel());
-                #[cfg(any(rtc_v2l4, rtc_v2wb))]
-                w.set_lscoen(reg.lscoen());
-
-                w.set_lseon(reg.lseon());
-
-                #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-                w.set_lsedrv(reg.lsedrv());
-                w.set_lsebyp(reg.lsebyp());
-            });
-        }
     }
 
     /// Applies the RTC config

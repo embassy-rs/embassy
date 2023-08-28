@@ -10,6 +10,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
+use crate::rcc::bd::BackupDomain;
+pub use crate::rcc::RtcClockSource;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
 #[cfg_attr(any(rtc_v1), path = "v1.rs")]
@@ -107,19 +109,6 @@ pub struct Rtc {
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[repr(u8)]
-pub enum RtcClockSource {
-    /// 00: No clock
-    NoClock = 0b00,
-    /// 01: LSE oscillator clock used as RTC clock
-    LSE = 0b01,
-    /// 10: LSI oscillator clock used as RTC clock
-    LSI = 0b10,
-    /// 11: HSE oscillator clock divided by 32 used as RTC clock
-    HSE = 0b11,
-}
-
 #[derive(Copy, Clone, PartialEq)]
 pub struct RtcConfig {
     /// Asynchronous prescaler factor
@@ -189,7 +178,7 @@ impl Rtc {
             stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
         };
 
-        Self::enable();
+        BackupDomain::enable_rtc();
 
         rtc_struct.configure(rtc_config);
         rtc_struct.rtc_config = rtc_config;

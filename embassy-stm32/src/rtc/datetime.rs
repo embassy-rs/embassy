@@ -89,7 +89,7 @@ pub enum DayOfWeek {
 #[cfg(feature = "chrono")]
 impl From<chrono::Weekday> for DayOfWeek {
     fn from(weekday: Weekday) -> Self {
-        day_of_week_from_u8(weekday.number_from_monday() as u8).unwrap()
+        day_of_week_from_u8(weekday.num_days_from_monday() as u8).unwrap()
     }
 }
 

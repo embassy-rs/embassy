@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
             PLLMul::Mul20,
             None,
         );
-        config.rcc.rtc_mux = rcc::RtcClockSource::LSE32;
+        config.rcc.rtc_mux = rcc::RtcClockSource::LSE;
         embassy_stm32::init(config)
     };
     info!("Hello World!");

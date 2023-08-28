@@ -1,4 +1,4 @@
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::{Hsidiv, Ppre, Sw};
 use crate::pac::{FLASH, RCC};

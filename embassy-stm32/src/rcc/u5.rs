@@ -1,6 +1,6 @@
 use stm32_metapac::rcc::vals::{Msirange, Msirgsel, Pllm, Pllsrc, Sw};
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -11,7 +11,7 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-pub use super::common::VoltageScale;
+pub use super::bus::VoltageScale;
 
 #[derive(Copy, Clone)]
 pub enum ClockSrc {

@@ -86,7 +86,7 @@ async fn main(spawner: Spawner) {
         None,
     );
     config.rcc.hsi48 = true; // needed for rng
-    config.rcc.rtc_mux = rcc::RtcClockSource::LSI32;
+    config.rcc.rtc_mux = rcc::RtcClockSource::LSI;
 
     let dp = embassy_stm32::init(config);
 

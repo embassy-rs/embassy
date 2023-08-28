@@ -24,7 +24,7 @@ pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-pub use super::common::VoltageScale;
+pub use super::bus::VoltageScale;
 
 #[derive(Clone, Copy)]
 pub enum AdcClockSource {
