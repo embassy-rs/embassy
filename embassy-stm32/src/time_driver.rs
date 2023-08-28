@@ -363,6 +363,7 @@ impl RtcDriver {
                     .start_wakeup_alarm(time_until_next_alarm);
             });
 
+            #[cfg(not(feature = "rtc-debug"))]
             T::regs_gp16().cr1().modify(|w| w.set_cen(false));
 
             Ok(())
@@ -374,6 +375,7 @@ impl RtcDriver {
     pub(crate) fn resume_time(&self) {
         self.stop_wakeup_alarm();
 
+        #[cfg(not(feature = "rtc-debug"))]
         T::regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 }

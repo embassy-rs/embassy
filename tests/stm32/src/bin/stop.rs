@@ -46,8 +46,10 @@ async fn async_main(_spawner: Spawner) {
 
     stop_with_rtc(rtc);
 
-    info!("Waiting 5 seconds");
-    Timer::after(Duration::from_secs(5)).await;
+    info!("Waiting...");
+    Timer::after(Duration::from_secs(2)).await;
+    info!("Waiting...");
+    Timer::after(Duration::from_secs(3)).await;
 
     info!("Test OK");
     cortex_m::asm::bkpt();

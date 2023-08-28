@@ -47,6 +47,18 @@ struct RtcInstant {
     subsecond: u16,
 }
 
+#[cfg(all(feature = "low-power", feature = "defmt"))]
+impl defmt::Format for RtcInstant {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "{}:{}",
+            self.second,
+            RTC::regs().prer().read().prediv_s() - self.subsecond,
+        )
+    }
+}
+
 #[cfg(feature = "low-power")]
 impl core::ops::Sub for RtcInstant {
     type Output = embassy_time::Duration;
@@ -174,7 +186,7 @@ impl Rtc {
         let second = bcd2_to_byte((tr.st(), tr.su()));
 
         // Unlock the registers
-        r.dr();
+        r.dr().read();
 
         RtcInstant { second, subsecond }
     }

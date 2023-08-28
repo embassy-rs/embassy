@@ -89,6 +89,9 @@ impl Executor {
 
         self.time_driver.resume_time();
         trace!("low power: resume time");
+
+        #[cfg(feature = "rtc-debug")]
+        cortex_m::asm::bkpt();
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
@@ -118,6 +121,7 @@ impl Executor {
         }
 
         trace!("low power: enter stop...");
+        #[cfg(not(feature = "rtc-debug"))]
         self.scb.set_sleepdeep();
     }
 
@@ -140,6 +144,9 @@ impl Executor {
     ///
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
+        #[cfg(feature = "rtc-debug")]
+        trace!("low power: rtc debug enabled");
+
         init(unsafe { EXECUTOR.as_mut().unwrap() }.inner.spawner());
 
         loop {
