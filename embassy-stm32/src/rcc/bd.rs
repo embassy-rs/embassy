@@ -87,13 +87,14 @@ impl BackupDomain {
     }
 
     #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
+        rtc_v3u5
     ))]
     #[allow(dead_code)]
     pub fn enable_rtc() {
         let reg = Self::read();
 
-        #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb))]
+        #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
         assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
         if !reg.rtcen() {
@@ -102,47 +103,21 @@ impl BackupDomain {
 
             Self::modify(|w| {
                 // Reset
-                #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
+                #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
                 w.set_bdrst(false);
 
                 w.set_rtcen(true);
                 w.set_rtcsel(reg.rtcsel());
 
                 // Restore bcdr
-                #[cfg(any(rtc_v2l4, rtc_v2wb))]
+                #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
                 w.set_lscosel(reg.lscosel());
-                #[cfg(any(rtc_v2l4, rtc_v2wb))]
+                #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
                 w.set_lscoen(reg.lscoen());
 
                 w.set_lseon(reg.lseon());
 
-                #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-                w.set_lsedrv(reg.lsedrv());
-                w.set_lsebyp(reg.lsebyp());
-            });
-        }
-    }
-
-    #[cfg(any(rtc_v3, rtc_v3u5))]
-    #[allow(dead_code)]
-    pub fn enable_rtc() {
-        let reg = Self::read();
-        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
-        if !reg.rtcen() {
-            Self::modify(|w| w.set_bdrst(true));
-
-            Self::modify(|w| {
-                w.set_bdrst(false);
-
-                w.set_rtcen(true);
-                w.set_rtcsel(reg.rtcsel());
-
-                // Restore bcdr
-                w.set_lscosel(reg.lscosel());
-                w.set_lscoen(reg.lscoen());
-
-                w.set_lseon(reg.lseon());
+                #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
                 w.set_lsedrv(reg.lsedrv());
                 w.set_lsebyp(reg.lsebyp());
             });
