@@ -6,7 +6,6 @@ use embassy_executor::*;
 
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::EXTI;
 use crate::rcc::low_power_ready;
 use crate::time_driver::{get_driver, RtcDriver};
 
@@ -99,8 +98,7 @@ impl Executor {
         crate::interrupt::typelevel::RTC_WKUP::unpend();
         unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
 
-        EXTI.rtsr(0).modify(|w| w.set_line(22, true));
-        EXTI.imr(0).modify(|w| w.set_line(22, true));
+        rtc.enable_wakeup_line();
     }
 
     fn configure_pwr(&mut self) {

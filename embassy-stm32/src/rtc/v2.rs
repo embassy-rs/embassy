@@ -1,7 +1,5 @@
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
-#[cfg(feature = "low-power")]
-use super::RtcInstant;
 use super::{sealed, RtcConfig};
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
@@ -86,17 +84,14 @@ impl super::Rtc {
         let rtc_ticks = requested_duration.as_ticks() * rtc_hz / TICK_HZ;
         let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
-        // adjust the rtc ticks to the prescaler
+        // adjust the rtc ticks to the prescaler and subtract one rtc tick
         let rtc_ticks = rtc_ticks / (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64);
         let rtc_ticks = if rtc_ticks >= u16::MAX as u64 {
             u16::MAX - 1
         } else {
             rtc_ticks as u16
-        };
-
-        let duration = Duration::from_ticks(
-            rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
-        );
+        }
+        .saturating_sub(1);
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wute(false));
@@ -104,13 +99,31 @@ impl super::Rtc {
             while !regs.isr().read().wutwf() {}
 
             regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
+            regs.wutr().write(|w| w.set_wut(rtc_ticks));
             regs.cr().modify(|w| w.set_wute(true));
             regs.cr().modify(|w| w.set_wutie(true));
         });
 
-        trace!("rtc: start wakeup alarm for {} ms", duration.as_millis());
+        trace!(
+            "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {}) at {}",
+            Duration::from_ticks(
+                rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
+            )
+            .as_millis(),
+            <WakeupPrescaler as Into<u32>>::into(prescaler),
+            rtc_ticks,
+            self.instant(),
+        );
 
-        critical_section::with(|cs| assert!(self.stop_time.borrow(cs).replace(Some(RtcInstant::now())).is_none()))
+        critical_section::with(|cs| assert!(self.stop_time.borrow(cs).replace(Some(self.instant())).is_none()))
+    }
+
+    #[cfg(feature = "low-power")]
+    pub(crate) fn enable_wakeup_line(&self) {
+        use crate::pac::EXTI;
+
+        EXTI.rtsr(0).modify(|w| w.set_line(22, true));
+        EXTI.imr(0).modify(|w| w.set_line(22, true));
     }
 
     #[cfg(feature = "low-power")]
@@ -119,7 +132,7 @@ impl super::Rtc {
     pub(crate) fn stop_wakeup_alarm(&self) -> Option<embassy_time::Duration> {
         use crate::interrupt::typelevel::Interrupt;
 
-        trace!("rtc: stop wakeup alarm...");
+        trace!("rtc: stop wakeup alarm at {}", self.instant());
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wutie(false));
@@ -132,7 +145,7 @@ impl super::Rtc {
 
         critical_section::with(|cs| {
             if let Some(stop_time) = self.stop_time.borrow(cs).take() {
-                Some(RtcInstant::now() - stop_time)
+                Some(self.instant() - stop_time)
             } else {
                 None
             }
