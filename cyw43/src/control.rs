@@ -124,7 +124,7 @@ impl<'a> Control<'a> {
         Timer::after(Duration::from_millis(100)).await;
 
         // set wifi up
-        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+        self.up().await;
 
         Timer::after(Duration::from_millis(100)).await;
 
@@ -136,6 +136,16 @@ impl<'a> Control<'a> {
         self.state_ch.set_ethernet_address(mac_addr);
 
         debug!("INIT DONE");
+    }
+
+    /// Set the WiFi interface up.
+    async fn up(&mut self) {
+        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+    }
+
+    /// Set the interface down.
+    async fn down(&mut self) {
+        self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
     }
 
     pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
@@ -256,13 +266,13 @@ impl<'a> Control<'a> {
         }
 
         // Temporarily set wifi down
-        self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
+        self.down().await;
 
         // Turn off APSTA mode
         self.set_iovar_u32("apsta", 0).await;
 
         // Set wifi up again
-        self.ioctl(IoctlType::Set, IOCTL_CMD_UP, 0, &mut []).await;
+        self.up().await;
 
         // Turn on AP mode
         self.ioctl_set_u32(IOCTL_CMD_SET_AP, 0, 1).await;
