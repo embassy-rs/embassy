@@ -433,6 +433,11 @@ impl<'a> Control<'a> {
             events: &self.events,
         }
     }
+    /// Leave the wifi, with which we are currently associated.
+    pub async fn leave(&mut self) {
+        self.ioctl(IoctlType::Set, IOCTL_CMD_DISASSOC, 0, &mut []).await;
+        info!("Disassociated")
+    }
 }
 
 pub struct Scanner<'a> {
