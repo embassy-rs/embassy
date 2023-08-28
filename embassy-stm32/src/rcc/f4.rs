@@ -17,7 +17,7 @@ use crate::{peripherals, Peripheral};
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
 /// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_768);
+pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// Clocks configuration
 #[non_exhaustive]
