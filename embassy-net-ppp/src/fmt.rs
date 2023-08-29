@@ -93,7 +93,7 @@ macro_rules! unreachable {
 #[cfg(feature = "defmt")]
 macro_rules! unreachable {
     ($($x:tt)*) => {
-        ::defmt::unreachable!($($x)*);
+        ::defmt::unreachable!($($x)*)
     };
 }
 
@@ -229,7 +229,8 @@ impl<T, E> Try for Result<T, E> {
     }
 }
 
-pub struct Bytes<'a>(pub &'a [u8]);
+#[allow(unused)]
+pub(crate) struct Bytes<'a>(pub &'a [u8]);
 
 impl<'a> Debug for Bytes<'a> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
