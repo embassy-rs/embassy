@@ -1,6 +1,8 @@
 #![macro_use]
 #![allow(unused_macros)]
 
+use core::fmt::{Debug, Display, LowerHex};
+
 #[cfg(all(feature = "defmt", feature = "log"))]
 compile_error!("You may not enable both `defmt` and `log` features.");
 
@@ -81,14 +83,17 @@ macro_rules! todo {
     };
 }
 
+#[cfg(not(feature = "defmt"))]
 macro_rules! unreachable {
     ($($x:tt)*) => {
-        {
-            #[cfg(not(feature = "defmt"))]
-            ::core::unreachable!($($x)*);
-            #[cfg(feature = "defmt")]
-            ::defmt::unreachable!($($x)*);
-        }
+        ::core::unreachable!($($x)*)
+    };
+}
+
+#[cfg(feature = "defmt")]
+macro_rules! unreachable {
+    ($($x:tt)*) => {
+        ::defmt::unreachable!($($x)*)
     };
 }
 
@@ -221,5 +226,33 @@ impl<T, E> Try for Result<T, E> {
     #[inline]
     fn into_result(self) -> Self {
         self
+    }
+}
+
+#[allow(unused)]
+pub(crate) struct Bytes<'a>(pub &'a [u8]);
+
+impl<'a> Debug for Bytes<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:#02x?}", self.0)
+    }
+}
+
+impl<'a> Display for Bytes<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:#02x?}", self.0)
+    }
+}
+
+impl<'a> LowerHex for Bytes<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:#02x?}", self.0)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<'a> defmt::Format for Bytes<'a> {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "{:02x}", self.0)
     }
 }
