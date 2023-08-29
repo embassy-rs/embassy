@@ -53,6 +53,8 @@ pub enum RunError<E> {
     WriteZero,
     /// Writing to the serial got EOF.
     Eof,
+    /// PPP protocol was terminated by the peer
+    Terminated,
 }
 
 impl<E> From<WriteAllError<E>> for RunError<E> {
@@ -128,6 +130,9 @@ impl<'d> Runner<'d> {
 
                     let status = ppp.status();
                     match status.phase {
+                        ppproto::Phase::Dead => {
+                            return Err(RunError::Terminated);
+                        }
                         ppproto::Phase::Open => {
                             if !was_up {
                                 on_ipv4_up(status.ipv4.unwrap());
