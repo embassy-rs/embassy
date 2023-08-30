@@ -94,7 +94,7 @@ impl ClockConfig {
                     post_div1: 6,
                     post_div2: 5,
                 }),
-                delay_multiplier: 1
+                delay_multiplier: 1,
             }),
             ref_clk: RefClkConfig {
                 src: RefClkSrc::Xosc,
