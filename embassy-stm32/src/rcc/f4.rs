@@ -499,6 +499,7 @@ pub(crate) unsafe fn init(config: Config) {
         pllsai: None,
 
         rtc: rtc,
+        rtc_hse: None,
     });
 }
 

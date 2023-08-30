@@ -1,6 +1,6 @@
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
-use super::{sealed, RtcConfig};
+use super::sealed;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
@@ -154,7 +154,7 @@ impl super::Rtc {
 
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
-    pub(super) fn configure(&mut self, rtc_config: RtcConfig) {
+    pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 #[cfg(rtc_v2f2)]
@@ -166,8 +166,8 @@ impl super::Rtc {
             });
 
             rtc.prer().modify(|w| {
-                w.set_prediv_s(rtc_config.sync_prescaler);
-                w.set_prediv_a(rtc_config.async_prescaler);
+                w.set_prediv_s(sync_psc);
+                w.set_prediv_a(async_psc);
             });
         });
     }

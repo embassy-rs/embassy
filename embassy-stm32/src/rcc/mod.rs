@@ -78,8 +78,12 @@ pub struct Clocks {
     pub adc: Option<Hertz>,
 
     #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-    /// Set only if the lsi or lse is configured
+    /// Set only if the lsi or lse is configured, indicates stop is supported
     pub rtc: Option<Hertz>,
+
+    #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+    /// Set if the hse is configured, indicates stop is not supported
+    pub rtc_hse: Option<Hertz>,
 }
 
 #[cfg(feature = "low-power")]

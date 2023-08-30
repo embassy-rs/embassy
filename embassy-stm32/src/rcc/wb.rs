@@ -271,6 +271,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
         apb1_tim: apb1_tim_clk,
         apb2_tim: apb2_tim_clk,
         rtc: rtc_clk,
+        rtc_hse: None,
     }
 }
 
