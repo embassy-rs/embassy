@@ -1,6 +1,6 @@
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
-use super::{sealed, RtcConfig};
+use super::sealed;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;

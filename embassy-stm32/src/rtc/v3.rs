@@ -1,6 +1,6 @@
 use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Init, Key, Osel, Pol, TampalrmPu, TampalrmType};
 
-use super::{sealed, RtcCalibrationCyclePeriod, RtcConfig};
+use super::{sealed, RtcCalibrationCyclePeriod};
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;

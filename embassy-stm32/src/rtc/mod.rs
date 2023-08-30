@@ -124,6 +124,7 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
+        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
         use crate::rcc::get_freqs;
 
         RTC::enable_peripheral_clk();
