@@ -12,6 +12,7 @@ use embassy_sync::blocking_mutex::Mutex;
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::rcc::bd::BackupDomain;
 pub use crate::rcc::RtcClockSource;
+use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
 #[cfg_attr(any(rtc_v1), path = "v1.rs")]
@@ -84,47 +85,23 @@ impl core::ops::Sub for RtcInstant {
 
 /// RTC Abstraction
 pub struct Rtc {
-    rtc_config: RtcConfig,
     #[cfg(feature = "low-power")]
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct RtcConfig {
-    /// Asynchronous prescaler factor
-    /// This is the asynchronous division factor:
-    /// ck_apre frequency = RTCCLK frequency/(PREDIV_A+1)
-    /// ck_apre drives the subsecond register
-    async_prescaler: u8,
-    /// Synchronous prescaler factor
-    /// This is the synchronous division factor:
-    /// ck_spre frequency = ck_apre frequency/(PREDIV_S+1)
-    /// ck_spre must be 1Hz
-    sync_prescaler: u16,
+    /// The subsecond counter frequency; default is 256
+    ///
+    /// A high counter frequency may impact stop power consumption
+    pub frequency: Hertz,
 }
 
 impl Default for RtcConfig {
     /// LSI with prescalers assuming 32.768 kHz.
     /// Raw sub-seconds in 1/256.
     fn default() -> Self {
-        RtcConfig {
-            async_prescaler: 127,
-            sync_prescaler: 255,
-        }
-    }
-}
-
-impl RtcConfig {
-    /// Set the asynchronous prescaler of RTC config
-    pub fn async_prescaler(mut self, prescaler: u8) -> Self {
-        self.async_prescaler = prescaler;
-        self
-    }
-
-    /// Set the synchronous prescaler of RTC config
-    pub fn sync_prescaler(mut self, prescaler: u16) -> Self {
-        self.sync_prescaler = prescaler;
-        self
+        RtcConfig { frequency: Hertz(256) }
     }
 }
 
@@ -147,23 +124,36 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
+        use crate::rcc::get_freqs;
+
         RTC::enable_peripheral_clk();
+        BackupDomain::enable_rtc();
 
-        #[cfg(not(feature = "low-power"))]
-        let mut rtc_struct = Self { rtc_config };
-
-        #[cfg(feature = "low-power")]
-        let mut rtc_struct = Self {
-            rtc_config,
+        let mut this = Self {
+            #[cfg(feature = "low-power")]
             stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
         };
 
-        BackupDomain::enable_rtc();
+        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+        let freqs = unsafe { get_freqs() };
 
-        rtc_struct.configure(rtc_config);
-        rtc_struct.rtc_config = rtc_config;
+        // Load the clock frequency from the rcc mod, if supported
+        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+        let frequency = match freqs.rtc {
+            Some(hertz) => hertz,
+            None => freqs.rtc_hse.unwrap(),
+        };
 
-        rtc_struct
+        // Assume the  default value, if not supported
+        #[cfg(not(any(rcc_wb, rcc_f4, rcc_f410)))]
+        let frequency = Hertz(32_768);
+
+        let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
+        let sync_psc = (rtc_config.frequency.0 - 1) as u16;
+
+        this.configure(async_psc, sync_psc);
+
+        this
     }
 
     /// Set the datetime to a new value.
@@ -226,10 +216,6 @@ impl Rtc {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| w.set_bkp(daylight_savings));
         })
-    }
-
-    pub fn get_config(&self) -> RtcConfig {
-        self.rtc_config
     }
 
     pub const BACKUP_REGISTER_COUNT: usize = RTC::BACKUP_REGISTER_COUNT;
