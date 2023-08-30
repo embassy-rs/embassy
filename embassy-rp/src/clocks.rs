@@ -94,6 +94,7 @@ impl ClockConfig {
                     post_div1: 6,
                     post_div2: 5,
                 }),
+                delay_multiplier: 1
             }),
             ref_clk: RefClkConfig {
                 src: RefClkSrc::Xosc,
@@ -203,6 +204,7 @@ pub struct XoscConfig {
     pub hz: u32,
     pub sys_pll: Option<PllConfig>,
     pub usb_pll: Option<PllConfig>,
+    pub delay_multiplier: u32,
 }
 
 pub struct PllConfig {
@@ -363,7 +365,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             // start XOSC
             // datasheet mentions support for clock inputs into XIN, but doesn't go into
             // how this is achieved. pico-sdk doesn't support this at all.
-            start_xosc(config.hz);
+            start_xosc(config.hz, config.delay_multiplier);
 
             let pll_sys_freq = match config.sys_pll {
                 Some(sys_pll_config) => configure_pll(pac::PLL_SYS, config.hz, sys_pll_config),
@@ -624,12 +626,12 @@ pub fn clk_rtc_freq() -> u16 {
     CLOCKS.rtc.load(Ordering::Relaxed)
 }
 
-fn start_xosc(crystal_hz: u32) {
+fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
     pac::XOSC
         .ctrl()
         .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
 
-    let startup_delay = ((crystal_hz / 1000) + 128) / 256;
+    let startup_delay = (((crystal_hz / 1000) + 128) * delay_multiplier) / 256;
     pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
     pac::XOSC.ctrl().write(|w| {
         w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ);
