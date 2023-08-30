@@ -1,4 +1,5 @@
 pub mod complementary_pwm;
+pub mod qei;
 pub mod simple_pwm;
 
 use stm32_metapac::timer::vals;
