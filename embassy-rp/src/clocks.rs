@@ -94,7 +94,7 @@ impl ClockConfig {
                     post_div1: 6,
                     post_div2: 5,
                 }),
-                delay_multiplier: 1,
+                delay_multiplier: 128,
             }),
             ref_clk: RefClkConfig {
                 src: RefClkSrc::Xosc,
@@ -631,7 +631,7 @@ fn start_xosc(crystal_hz: u32, delay_multiplier: u32) {
         .ctrl()
         .write(|w| w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ));
 
-    let startup_delay = (((crystal_hz / 1000) + 128) * delay_multiplier) / 256;
+    let startup_delay = ((crystal_hz / 1000 + delay_multiplier) + 128) / 256;
     pac::XOSC.startup().write(|w| w.set_delay(startup_delay as u16));
     pac::XOSC.ctrl().write(|w| {
         w.set_freq_range(pac::xosc::vals::CtrlFreqRange::_1_15MHZ);
