@@ -216,14 +216,12 @@ impl<'d, T: Instance> I2cDevice<'d, T> {
     pub async fn respond_to_read(&mut self, buffer: &[u8]) -> Result<ReadStatus, Error> {
         let p = T::regs();
 
-        info!("buff: {}", buffer);
         let mut chunks = buffer.chunks(FIFO_SIZE as usize);
 
         let ret = self
             .wait_on(
                 |me| {
                     if let Err(abort_reason) = me.read_and_clear_abort_reason() {
-                        info!("ar: {}", abort_reason);
                         if let Error::Abort(AbortReason::TxNotEmpty(bytes)) = abort_reason {
                             return Poll::Ready(Ok(ReadStatus::LeftoverBytes(bytes)));
                         } else {
