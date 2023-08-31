@@ -83,14 +83,53 @@ pub struct Qspi<'d, T: Instance, Dma> {
 }
 
 impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
-    pub fn new(
+    pub fn new_bk1(
         peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
+        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, d0, d1, d2, d3, sck, nss);
+
+        sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        nss.set_as_af(nss.af_num(), AFType::OutputPushPull);
+        nss.set_speed(crate::gpio::Speed::VeryHigh);
+        d0.set_as_af(d0.af_num(), AFType::OutputPushPull);
+        d0.set_speed(crate::gpio::Speed::VeryHigh);
+        d1.set_as_af(d1.af_num(), AFType::OutputPushPull);
+        d1.set_speed(crate::gpio::Speed::VeryHigh);
+        d2.set_as_af(d2.af_num(), AFType::OutputPushPull);
+        d2.set_speed(crate::gpio::Speed::VeryHigh);
+        d3.set_as_af(d3.af_num(), AFType::OutputPushPull);
+        d3.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(d0.map_into()),
+            Some(d1.map_into()),
+            Some(d2.map_into()),
+            Some(d3.map_into()),
+            Some(sck.map_into()),
+            Some(nss.map_into()),
+            dma,
+            config,
+        )
+    }
+
+    pub fn new_bk2(
+        peri: impl Peripheral<P = T> + 'd,
+        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
         config: Config,
     ) -> Self {
@@ -313,11 +352,17 @@ pub(crate) mod sealed {
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
-pin_trait!(D0Pin, Instance);
-pin_trait!(D1Pin, Instance);
-pin_trait!(D2Pin, Instance);
-pin_trait!(D3Pin, Instance);
-pin_trait!(NSSPin, Instance);
+pin_trait!(BK1D0Pin, Instance);
+pin_trait!(BK1D1Pin, Instance);
+pin_trait!(BK1D2Pin, Instance);
+pin_trait!(BK1D3Pin, Instance);
+pin_trait!(BK1NSSPin, Instance);
+
+pin_trait!(BK2D0Pin, Instance);
+pin_trait!(BK2D1Pin, Instance);
+pin_trait!(BK2D2Pin, Instance);
+pin_trait!(BK2D3Pin, Instance);
+pin_trait!(BK2NSSPin, Instance);
 
 dma_trait!(QuadDma, Instance);
 
