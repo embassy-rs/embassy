@@ -30,8 +30,8 @@ Currently only `Generic` SPI with or without CRC is supported.
 
 ## Hardware
 
-- Tested on [`Analog Devices EVAL-ADIN1110EBZ`](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/eval-adin1110.html) with an `STM32L4S5QII3P`, see [`spe_adin1110_http_server`](../examples/stm32l4/src/bin/spe_adin1110_http_server.rs) dor an example.
-- [`SparkFun MicroMod Single Pair Ethernet Function Board`](https://www.sparkfun.com/products/19038) or [`SparkFun MicroMod Single Pair Ethernet Kit`](https://www.sparkfun.com/products/19628), supporting multiple microcontrollers. **Make sure to check if it's a microcontroller that is supported by Embassy!**
+- Tested on [`Analog Devices EVAL-ADIN1110EBZ`](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/eval-adin1110.html) with an `STM32L4S5QII3P`, see [`spe_adin1110_http_server`](../examples/stm32l4/src/bin/spe_adin1110_http_server.rs) for an example.
+- [`SparkFun MicroMod Single Pair Ethernet Function Board`](https://www.sparkfun.com/products/19038) or [`SparkFun MicroMod Single Pair Ethernet Kit (End Of Life)`](https://www.sparkfun.com/products/19628), supporting multiple microcontrollers. **Make sure to check if it's a microcontroller that is supported by Embassy!**
 
 ## Other SPE chips
 
@@ -43,6 +43,39 @@ Currently only `Generic` SPI with or without CRC is supported.
 ADIN1110 library can tested on the host with a mock SPI driver.
 
 $ `cargo test --target x86_64-unknown-linux-gnu`
+
+## Benchmark
+
+- Benchmarked on [`Analog Devices EVAL-ADIN1110EBZ`](https://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/eval-adin1110.html), with [`spe_adin1110_http_server`](../examples/stm32l4/src/bin/spe_adin1110_http_server.rs) example.
+
+Basic `ping` benchmark
+```rust,ignore
+# ping <IP> -c 60
+
+60 packets transmitted, 60 received, 0% packet loss, time 59066ms
+rtt min/avg/max/mdev = 1.089/1.161/1.237/0.018 ms
+
+# ping <IP> -s 1472 -M do -c 60
+
+60 packets transmitted, 60 received, 0% packet loss, time 59066ms
+rtt min/avg/max/mdev = 5.122/5.162/6.177/0.133 ms
+```
+
+HTTP load generator benchmark with [`oha`](https://github.com/hatoo/oha)
+```rust,ignore
+# oha -c 1 http://<IP> -z 60s
+Summary:
+  Success rate: 50.00%
+  Total:        60.0005 secs
+  Slowest:      0.0055 secs
+  Fastest:      0.0033 secs
+  Average:      0.0034 secs
+  Requests/sec: 362.1971
+
+  Total data:   2.99 MiB
+  Size/request: 289 B
+  Size/sec:     51.11 KiB
+```
 
 ## License
 

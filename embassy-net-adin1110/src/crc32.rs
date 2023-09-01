@@ -257,29 +257,30 @@ pub const CRC32R_LOOKUP_TABLE: [u32; 256] = [
     0x2D02_EF8D,
 ];
 
+/// Generate Ethernet Frame Check Sequence
 #[allow(non_camel_case_types)]
 #[derive(Debug)]
-pub struct ETH_FSC(pub u32);
+pub struct ETH_FCS(pub u32);
 
-impl ETH_FSC {
+impl ETH_FCS {
     pub const CRC32_OK: u32 = 0x2144_df1c;
 
     #[must_use]
     pub fn new(data: &[u8]) -> Self {
-        let fsc = data.iter().fold(u32::MAX, |crc, byte| {
+        let fcs = data.iter().fold(u32::MAX, |crc, byte| {
             let idx = u8::try_from(crc & 0xFF).unwrap() ^ byte;
             CRC32R_LOOKUP_TABLE[usize::from(idx)] ^ (crc >> 8)
         }) ^ u32::MAX;
-        Self(fsc)
+        Self(fcs)
     }
 
     #[must_use]
     pub fn update(self, data: &[u8]) -> Self {
-        let fsc = data.iter().fold(self.0 ^ u32::MAX, |crc, byte| {
+        let fcs = data.iter().fold(self.0 ^ u32::MAX, |crc, byte| {
             let idx = u8::try_from(crc & 0xFF).unwrap() ^ byte;
             CRC32R_LOOKUP_TABLE[usize::from(idx)] ^ (crc >> 8)
         }) ^ u32::MAX;
-        Self(fsc)
+        Self(fcs)
     }
 
     #[must_use]
@@ -319,24 +320,24 @@ mod tests {
         ];
 
         // Packet A
-        let own_crc = ETH_FSC::new(&packet_a[0..60]);
+        let own_crc = ETH_FCS::new(&packet_a[0..60]);
         let crc_bytes = own_crc.hton_bytes();
         println!("{:08x} {:02x?}", own_crc.0, crc_bytes);
         assert_eq!(&crc_bytes, &packet_a[60..64]);
 
-        let own_crc = ETH_FSC::new(packet_a);
+        let own_crc = ETH_FCS::new(packet_a);
         println!("{:08x}", own_crc.0);
-        assert_eq!(own_crc.0, ETH_FSC::CRC32_OK);
+        assert_eq!(own_crc.0, ETH_FCS::CRC32_OK);
 
         // Packet B
-        let own_crc = ETH_FSC::new(&packet_b[0..60]);
+        let own_crc = ETH_FCS::new(&packet_b[0..60]);
         let crc_bytes = own_crc.hton_bytes();
         println!("{:08x} {:02x?}", own_crc.0, crc_bytes);
         assert_eq!(&crc_bytes, &packet_b[60..64]);
 
-        let own_crc = ETH_FSC::new(packet_b);
+        let own_crc = ETH_FCS::new(packet_b);
         println!("{:08x}", own_crc.0);
-        assert_eq!(own_crc.0, ETH_FSC::CRC32_OK);
+        assert_eq!(own_crc.0, ETH_FCS::CRC32_OK);
     }
 
     #[test]
@@ -349,9 +350,9 @@ mod tests {
         ];
 
         let (part_a, part_b) = full_data.split_at(16);
-        let crc_partially = ETH_FSC::new(part_a).update(part_b);
+        let crc_partially = ETH_FCS::new(part_a).update(part_b);
 
-        let crc_full = ETH_FSC::new(full_data);
+        let crc_full = ETH_FCS::new(full_data);
 
         assert_eq!(crc_full.0, crc_partially.0);
     }

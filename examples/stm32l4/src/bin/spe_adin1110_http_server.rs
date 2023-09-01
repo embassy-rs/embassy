@@ -11,7 +11,9 @@
 // Settings switch S201 "HW CFG":
 //  - Without SPI CRC: OFF-ON-OFF-OFF-OFF
 //  -    With SPI CRC: ON -ON-OFF-OFF-OFF
-// Settings switch S303 "uC CFG": CFG0: On = static ip, Off = Dhcp
+// Settings switch S303 "uC CFG":
+// - CFG0: On = static ip, Off = Dhcp
+// - CFG1: Ethernet `FCS` on TX path: On, Off
 // The webserver shows the actual temperature of the onboard i2c temp sensor.
 
 use core::marker::PhantomData;
@@ -107,7 +109,7 @@ async fn main(spawner: Spawner) {
 
     // Read the uc_cfg switches
     let uc_cfg0 = Input::new(dp.PB2, Pull::None);
-    let _uc_cfg1 = Input::new(dp.PF11, Pull::None);
+    let uc_cfg1 = Input::new(dp.PF11, Pull::None);
     let _uc_cfg2 = Input::new(dp.PG6, Pull::None);
     let _uc_cfg3 = Input::new(dp.PG11, Pull::None);
 
@@ -154,11 +156,13 @@ async fn main(spawner: Spawner) {
 
     let cfg0_without_crc = spe_cfg0.is_high();
     let cfg1_spi_mode = spe_cfg1.is_high();
+    let uc_cfg1_fcs_en = uc_cfg1.is_low();
 
     defmt::println!(
-        "ADIN1110: CFG SPI-MODE 1-{}, CRC-bit 0-{}",
+        "ADIN1110: CFG SPI-MODE 1-{}, CRC-bit 0-{} FCS-{}",
         cfg1_spi_mode,
-        cfg0_without_crc
+        cfg0_without_crc,
+        uc_cfg1_fcs_en
     );
 
     // Check the SPI mode selected with the "HW CFG" dip-switch
@@ -172,8 +176,16 @@ async fn main(spawner: Spawner) {
 
     let state = make_static!(embassy_net_adin1110::State::<8, 8>::new());
 
-    let (device, runner) =
-        embassy_net_adin1110::new(MAC, state, spe_spi, spe_int, spe_reset_n, !cfg0_without_crc).await;
+    let (device, runner) = embassy_net_adin1110::new(
+        MAC,
+        state,
+        spe_spi,
+        spe_int,
+        spe_reset_n,
+        !cfg0_without_crc,
+        uc_cfg1_fcs_en,
+    )
+    .await;
 
     // Start task blink_led
     unwrap!(spawner.spawn(heartbeat_led(led_uc3_yellow)));
