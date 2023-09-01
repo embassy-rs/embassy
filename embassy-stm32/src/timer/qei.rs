@@ -43,11 +43,11 @@ macro_rules! channel_impl {
 channel_impl!(new_ch1, Ch1, Channel1Pin);
 channel_impl!(new_ch2, Ch2, Channel2Pin);
 
-pub struct SimplePwm<'d, T> {
+pub struct Qei<'d, T> {
     _inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
+impl<'d, T: CaptureCompare16bitInstance> Qei<'d, T> {
     pub fn new(tim: impl Peripheral<P = T> + 'd, _ch1: QeiPin<'d, T, Ch1>, _ch2: QeiPin<'d, T, Ch2>) -> Self {
         Self::new_inner(tim)
     }
