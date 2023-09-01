@@ -73,7 +73,7 @@ impl<'a> Runner<'a> {
                 let mut msdu_handle = 0x02;
 
                 loop {
-                    let (buf, len) = self.tx_channel.recv().await;
+                    let (buf, len) = self.tx_channel.receive().await;
                     let _wm = self.write_mutex.lock().await;
 
                     // The mutex should be dropped on the next loop iteration

@@ -1,4 +1,5 @@
 pub mod complementary_pwm;
+pub mod qei;
 pub mod simple_pwm;
 
 use stm32_metapac::timer::vals;
@@ -211,6 +212,7 @@ macro_rules! impl_basic_16bit_timer {
                 use core::convert::TryInto;
                 let f = frequency.0;
                 let timer_f = Self::frequency().0;
+                assert!(f > 0);
                 let pclk_ticks_per_timer_period = timer_f / f;
                 let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 16)).try_into());
                 let arr: u16 = unwrap!((pclk_ticks_per_timer_period / (u32::from(psc) + 1)).try_into());
@@ -255,6 +257,7 @@ macro_rules! impl_32bit_timer {
             fn set_frequency(&mut self, frequency: Hertz) {
                 use core::convert::TryInto;
                 let f = frequency.0;
+                assert!(f > 0);
                 let timer_f = Self::frequency().0;
                 let pclk_ticks_per_timer_period = (timer_f / f) as u64;
                 let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());

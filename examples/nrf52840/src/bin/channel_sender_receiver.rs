@@ -33,7 +33,7 @@ async fn recv_task(led: AnyPin, receiver: Receiver<'static, NoopRawMutex, LedSta
     let mut led = Output::new(led, Level::Low, OutputDrive::Standard);
 
     loop {
-        match receiver.recv().await {
+        match receiver.receive().await {
             LedState::On => led.set_high(),
             LedState::Off => led.set_low(),
         }

@@ -33,7 +33,7 @@ async fn core0_task() {
     info!("CORE0 is running");
     let ping = true;
     CHANNEL0.send(ping).await;
-    let pong = CHANNEL1.recv().await;
+    let pong = CHANNEL1.receive().await;
     assert_eq!(ping, pong);
 
     info!("Test OK");
@@ -43,6 +43,6 @@ async fn core0_task() {
 #[embassy_executor::task]
 async fn core1_task() {
     info!("CORE1 is running");
-    let ping = CHANNEL0.recv().await;
+    let ping = CHANNEL0.receive().await;
     CHANNEL1.send(ping).await;
 }

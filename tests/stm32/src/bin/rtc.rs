@@ -10,7 +10,8 @@ use chrono::{NaiveDate, NaiveDateTime};
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
-use embassy_stm32::rtc::{Rtc, RtcClockSource, RtcConfig};
+use embassy_stm32::rcc::RtcClockSource;
+use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::{Duration, Timer};
 
 #[embassy_executor::main]

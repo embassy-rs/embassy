@@ -35,9 +35,9 @@ macro_rules! ioctl {
         };
         $self.ioctl(&mut msg).await?;
         let Some(proto::CtrlMsgPayload::$resp_variant($resp)) = msg.payload else {
-                                                                            warn!("unexpected response variant");
-                                                                            return Err(Error::Internal);
-                                                                        };
+            warn!("unexpected response variant");
+            return Err(Error::Internal);
+        };
         if $resp.resp != 0 {
             return Err(Error::Failed($resp.resp));
         }
@@ -82,7 +82,7 @@ impl<'a> Control<'a> {
     pub async fn disconnect(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqGetStatus {};
         ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);
-        self.state_ch.set_link_state(LinkState::Up);
+        self.state_ch.set_link_state(LinkState::Down);
         Ok(())
     }
 

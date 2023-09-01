@@ -1,0 +1,28 @@
+[package]
+name = "embassy-net-ppp"
+version = "0.1.0"
+description = "embassy-net driver for PPP over Serial"
+keywords = ["embedded", "ppp", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[features]
+defmt = ["dep:defmt", "ppproto/defmt"]
+log = ["dep:log", "ppproto/log"]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+embedded-io-async = { version = "0.5.0" }
+embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel" }
+embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+ppproto = { version = "0.1.2"}
+embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-ppp-v$VERSION/embassy-net-ppp/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-ppp/src/"
+target = "thumbv7em-none-eabi"
+features = ["defmt"]

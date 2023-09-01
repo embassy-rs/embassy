@@ -39,6 +39,7 @@ docserver-builder -i ./embassy-net-wiznet -o webroot/crates/embassy-net-wiznet/g
 docserver-builder -i ./embassy-net-enc28j60 -o webroot/crates/embassy-net-enc28j60/git.zup
 docserver-builder -i ./embassy-net-esp-hosted -o webroot/crates/embassy-net-esp-hosted/git.zup
 docserver-builder -i ./embassy-stm32-wpan -o webroot/crates/embassy-stm32-wpan/git.zup --output-static webroot/static
+docserver-builder -i ./embassy-net-adin1110 -o webroot/crates/embassy-net-adin1110/git.zup
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})

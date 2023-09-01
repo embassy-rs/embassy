@@ -37,11 +37,11 @@ async fn core0_task(p: PIN_0) {
     let mut pin = Output::new(p, Level::Low);
 
     CHANNEL0.send(()).await;
-    CHANNEL1.recv().await;
+    CHANNEL1.receive().await;
 
     pin.set_high();
 
-    CHANNEL1.recv().await;
+    CHANNEL1.receive().await;
 
     info!("Test OK");
     cortex_m::asm::bkpt();
@@ -51,7 +51,7 @@ async fn core0_task(p: PIN_0) {
 async fn core1_task(p: PIN_1) {
     info!("CORE1 is running");
 
-    CHANNEL0.recv().await;
+    CHANNEL0.receive().await;
 
     let mut pin = Input::new(p, Pull::Down);
     let wait = pin.wait_for_rising_edge();

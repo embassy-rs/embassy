@@ -80,8 +80,8 @@ async fn main(_spawner: Spawner) {
         const MIN_LATENCY: Duration = Duration::from_micros(50);
         const MAX_LATENCY: Duration = Duration::from_micros(150);
         assert!(
-            MIN_LATENCY < latency && latency < MAX_LATENCY,
-            "{} < {} < {}",
+            MIN_LATENCY <= latency && latency <= MAX_LATENCY,
+            "{} <= {} <= {}",
             MIN_LATENCY,
             latency,
             MAX_LATENCY

@@ -60,7 +60,7 @@ unstable-traits = ["embedded-hal-1", "embedded-hal-nb"]
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.2", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
+embassy-time = { version = "0.1.3", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
@@ -95,5 +95,5 @@ pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 
 [dev-dependencies]
-embassy-executor = { version = "0.2.0", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
+embassy-executor = { version = "0.3.0", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
 static_cell = "1.1"

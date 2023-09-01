@@ -47,6 +47,8 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
+#[cfg(feature = "low-power")]
+pub mod low_power;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
@@ -195,6 +197,11 @@ pub fn init(config: Config) -> Peripherals {
         // must be after rcc init
         #[cfg(feature = "_time-driver")]
         time_driver::init();
+
+        #[cfg(feature = "low-power")]
+        while !crate::rcc::low_power_ready() {
+            crate::rcc::clock_refcount_sub();
+        }
     }
 
     p

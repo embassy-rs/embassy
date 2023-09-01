@@ -1,9 +1,10 @@
 #![macro_use]
 
-pub mod common;
-
+pub(crate) mod bd;
+pub mod bus;
 use core::mem::MaybeUninit;
 
+pub use crate::rcc::bd::RtcClockSource;
 use crate::time::Hertz;
 
 #[cfg_attr(rcc_f0, path = "f0.rs")]
@@ -26,6 +27,8 @@ use crate::time::Hertz;
 #[cfg_attr(any(rcc_h5, rcc_h50), path = "h5.rs")]
 mod _version;
 pub use _version::*;
+#[cfg(feature = "low-power")]
+use atomic_polyfill::{AtomicU32, Ordering};
 
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -74,9 +77,34 @@ pub struct Clocks {
     #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab))]
     pub adc: Option<Hertz>,
 
-    #[cfg(rcc_wb)]
-    /// Set only if the lsi or lse is configured
+    #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+    /// Set only if the lsi or lse is configured, indicates stop is supported
     pub rtc: Option<Hertz>,
+
+    #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+    /// Set if the hse is configured, indicates stop is not supported
+    pub rtc_hse: Option<Hertz>,
+}
+
+#[cfg(feature = "low-power")]
+static CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(feature = "low-power")]
+pub fn low_power_ready() -> bool {
+    trace!("clock refcount: {}", CLOCK_REFCOUNT.load(Ordering::SeqCst));
+
+    CLOCK_REFCOUNT.load(Ordering::SeqCst) == 0
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn clock_refcount_add() {
+    // We don't check for overflow because constructing more than u32 peripherals is unlikely
+    CLOCK_REFCOUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn clock_refcount_sub() {
+    assert!(CLOCK_REFCOUNT.fetch_sub(1, Ordering::Relaxed) != 0);
 }
 
 /// Frozen clock frequencies

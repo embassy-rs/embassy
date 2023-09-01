@@ -6,8 +6,8 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-sync = { version = "0.2.0", path = "../../../../embassy-sync" }
-embassy-executor = { version = "0.2.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "nightly", "integrated-timers", "arch-cortex-m", "executor-thread"] }
-embassy-time = { version = "0.1.2", path = "../../../../embassy-time", features = ["nightly"] }
+embassy-executor = { version = "0.3.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "nightly", "integrated-timers", "arch-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.1.3", path = "../../../../embassy-time", features = ["nightly"] }
 embassy-nrf = { version = "0.1.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", "nightly"] }
 embassy-boot = { version = "0.1.0", path = "../../../../embassy-boot/boot", features = ["nightly"] }
 embassy-boot-nrf = { version = "0.1.0", path = "../../../../embassy-boot/nrf", features = ["nightly"] }
