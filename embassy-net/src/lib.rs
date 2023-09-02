@@ -616,7 +616,7 @@ impl<D: Driver + 'static> Inner<D> {
                 }
 
                 // Configure it
-                let socket = _s.sockets.get_mut::<dhcpv4::Socket>(self.dhcp_socket.unwrap());
+                let socket = _s.sockets.get_mut::<dhcpv4::Socket>(unwrap!(self.dhcp_socket));
                 socket.set_ignore_naks(c.ignore_naks);
                 socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
                 socket.set_ports(c.server_port, c.client_port);
@@ -656,12 +656,12 @@ impl<D: Driver + 'static> Inner<D> {
             debug!("   IP address:      {:?}", config.address);
             debug!("   Default gateway: {:?}", config.gateway);
 
-            addrs.push(IpCidr::Ipv4(config.address)).unwrap();
+            unwrap!(addrs.push(IpCidr::Ipv4(config.address)).ok());
             gateway_v4 = config.gateway.into();
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
                 debug!("   DNS server:      {:?}", s);
-                dns_servers.push(s.clone().into()).unwrap();
+                unwrap!(dns_servers.push(s.clone().into()).ok());
             }
         } else {
             info!("IPv4: DOWN");
@@ -673,12 +673,12 @@ impl<D: Driver + 'static> Inner<D> {
             debug!("   IP address:      {:?}", config.address);
             debug!("   Default gateway: {:?}", config.gateway);
 
-            addrs.push(IpCidr::Ipv6(config.address)).unwrap();
+            unwrap!(addrs.push(IpCidr::Ipv6(config.address)).ok());
             gateway_v6 = config.gateway.into();
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
                 debug!("   DNS server:      {:?}", s);
-                dns_servers.push(s.clone().into()).unwrap();
+                unwrap!(dns_servers.push(s.clone().into()).ok());
             }
         } else {
             info!("IPv6: DOWN");
@@ -690,13 +690,13 @@ impl<D: Driver + 'static> Inner<D> {
         // Apply gateways
         #[cfg(feature = "proto-ipv4")]
         if let Some(gateway) = gateway_v4 {
-            s.iface.routes_mut().add_default_ipv4_route(gateway).unwrap();
+            unwrap!(s.iface.routes_mut().add_default_ipv4_route(gateway));
         } else {
             s.iface.routes_mut().remove_default_ipv4_route();
         }
         #[cfg(feature = "proto-ipv6")]
         if let Some(gateway) = gateway_v6 {
-            s.iface.routes_mut().add_default_ipv6_route(gateway).unwrap();
+            unwrap!(s.iface.routes_mut().add_default_ipv6_route(gateway));
         } else {
             s.iface.routes_mut().remove_default_ipv6_route();
         }

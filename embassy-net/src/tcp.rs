@@ -440,7 +440,7 @@ impl<'d> TcpIo<'d> {
                         Poll::Ready(Err(Error::ConnectionReset))
                     }
                 } else {
-                    Poll::Ready(match s.send(f.take().unwrap()) {
+                    Poll::Ready(match s.send(unwrap!(f.take())) {
                         // Connection reset. TODO: this can also be timeouts etc, investigate.
                         Err(tcp::SendError::InvalidState) => Err(Error::ConnectionReset),
                         Ok(r) => Ok(r),
@@ -468,7 +468,7 @@ impl<'d> TcpIo<'d> {
                         Poll::Ready(Err(Error::ConnectionReset))
                     }
                 } else {
-                    Poll::Ready(match s.recv(f.take().unwrap()) {
+                    Poll::Ready(match s.recv(unwrap!(f.take())) {
                         // Connection reset. TODO: this can also be timeouts etc, investigate.
                         Err(tcp::RecvError::Finished) | Err(tcp::RecvError::InvalidState) => {
                             Err(Error::ConnectionReset)
