@@ -26,5 +26,6 @@ defmt = [
       "dep:defmt",
       "embassy-stm32/defmt",
       "embassy-boot-stm32/defmt",
+      "embassy-sync/defmt",
 ]
 skip-include = []

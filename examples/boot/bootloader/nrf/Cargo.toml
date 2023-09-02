@@ -25,7 +25,7 @@ defmt = [
 softdevice = [
     "embassy-boot-nrf/softdevice",
 ]
-debug = ["defmt-rtt"]
+debug = ["defmt-rtt", "defmt"]
 
 [profile.dev]
 debug = 2

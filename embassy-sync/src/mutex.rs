@@ -149,7 +149,7 @@ where
 {
     fn drop(&mut self) {
         self.mutex.state.lock(|s| {
-            let mut s = s.borrow_mut();
+            let mut s = unwrap!(s.try_borrow_mut());
             s.locked = false;
             s.waker.wake();
         })

@@ -27,6 +27,7 @@ default = ["panic-reset"]
 debug = [
     "embassy-rp/defmt",
     "embassy-boot-rp/defmt",
+    "embassy-sync/defmt",
     "panic-probe"
 ]
 skip-include = []

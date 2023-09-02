@@ -22,13 +22,13 @@ where
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.inner
-            .receive(self.cx.as_deref_mut().unwrap())
+            .receive(unwrap!(self.cx.as_deref_mut()))
             .map(|(rx, tx)| (RxTokenAdapter(rx), TxTokenAdapter(tx)))
     }
 
     /// Construct a transmit token.
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        self.inner.transmit(self.cx.as_deref_mut().unwrap()).map(TxTokenAdapter)
+        self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter)
     }
 
     /// Get a description of device capabilities.
