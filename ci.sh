@@ -180,4 +180,9 @@ if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     exit
 fi
 
+rm out/tests/rpi-pico/ethernet_w5100s_perf
+rm out/tests/nrf52840-dk/ethernet_enc28j60_perf
+rm out/tests/nrf52840-dk/wifi_esp_hosted_perf
+rm out/tests/rpi-pico/cyw43-perf
+
 teleprobe client run -r out/tests

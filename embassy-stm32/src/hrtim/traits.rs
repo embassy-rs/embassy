@@ -1,31 +1,17 @@
 use crate::rcc::sealed::RccPeripheral;
 use crate::time::Hertz;
 
+#[repr(u8)]
 #[derive(Clone, Copy)]
 pub(crate) enum Prescaler {
-    Div1,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div32,
-    Div64,
-    Div128,
-}
-
-impl From<Prescaler> for u32 {
-    fn from(val: Prescaler) -> Self {
-        match val {
-            Prescaler::Div1 => 1,
-            Prescaler::Div2 => 2,
-            Prescaler::Div4 => 4,
-            Prescaler::Div8 => 8,
-            Prescaler::Div16 => 16,
-            Prescaler::Div32 => 32,
-            Prescaler::Div64 => 64,
-            Prescaler::Div128 => 128,
-        }
-    }
+    Div1 = 1,
+    Div2 = 2,
+    Div4 = 4,
+    Div8 = 8,
+    Div16 = 16,
+    Div32 = 32,
+    Div64 = 64,
+    Div128 = 128,
 }
 
 impl From<Prescaler> for u8 {
@@ -72,7 +58,7 @@ impl Prescaler {
             Prescaler::Div128,
         ]
         .iter()
-        .skip_while(|psc| <Prescaler as Into<u32>>::into(**psc) <= val)
+        .skip_while(|psc| **psc as u32 <= val)
         .next()
         .unwrap()
     }
@@ -80,7 +66,7 @@ impl Prescaler {
     pub fn compute_min_low_res(val: u32) -> Self {
         *[Prescaler::Div32, Prescaler::Div64, Prescaler::Div128]
             .iter()
-            .skip_while(|psc| <Prescaler as Into<u32>>::into(**psc) <= val)
+            .skip_while(|psc| **psc as u32 <= val)
             .next()
             .unwrap()
     }
@@ -126,8 +112,7 @@ foreach_interrupt! {
                     Prescaler::compute_min_low_res(psc_min)
                 };
 
-                let psc_val: u32 = psc.into();
-                let timer_f = 32 * (timer_f / psc_val);
+                let timer_f = 32 * (timer_f / psc as u32);
                 let per: u16 = (timer_f / f) as u16;
 
                 let regs = Self::regs();
@@ -148,8 +133,7 @@ foreach_interrupt! {
                     Prescaler::compute_min_low_res(psc_min)
                 };
 
-                let psc_val: u32 = psc.into();
-                let timer_f = 32 * (timer_f / psc_val);
+                let timer_f = 32 * (timer_f / psc as u32);
                 let per: u16 = (timer_f / f) as u16;
 
                 let regs = Self::regs();
@@ -163,20 +147,17 @@ foreach_interrupt! {
                 let regs = Self::regs();
 
                 let channel_psc: Prescaler = regs.tim(channel).cr().read().ckpsc().into();
-                let psc_val: u32 = channel_psc.into();
-
 
                 // The dead-time base clock runs 4 times slower than the hrtim base clock
                 // u9::MAX = 511
-                let psc_min = (psc_val * dead_time as u32) / (4 * 511);
+                let psc_min = (channel_psc as u32 * dead_time as u32) / (4 * 511);
                 let psc = if Self::regs().isr().read().dllrdy() {
                     Prescaler::compute_min_high_res(psc_min)
                 } else {
                     Prescaler::compute_min_low_res(psc_min)
                 };
 
-                let dt_psc_val: u32 = psc.into();
-                let dt_val = (dt_psc_val * dead_time as u32) / (4 * psc_val);
+                let dt_val = (psc as u32 * dead_time as u32) / (4 * channel_psc as u32);
 
                 regs.tim(channel).dt().modify(|w| {
                     w.set_dtprsc(psc.into());

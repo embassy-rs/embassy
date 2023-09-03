@@ -6,12 +6,13 @@ use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
 
 #[allow(dead_code)]
+#[repr(u8)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum WakeupPrescaler {
-    Div2,
-    Div4,
-    Div8,
-    Div16,
+    Div2 = 2,
+    Div4 = 4,
+    Div8 = 8,
+    Div16 = 16,
 }
 
 #[cfg(any(stm32wb, stm32f4))]
@@ -43,17 +44,6 @@ impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     }
 }
 
-impl From<WakeupPrescaler> for u32 {
-    fn from(val: WakeupPrescaler) -> Self {
-        match val {
-            WakeupPrescaler::Div2 => 2,
-            WakeupPrescaler::Div4 => 4,
-            WakeupPrescaler::Div8 => 8,
-            WakeupPrescaler::Div16 => 16,
-        }
-    }
-}
-
 #[allow(dead_code)]
 impl WakeupPrescaler {
     pub fn compute_min(val: u32) -> Self {
@@ -64,7 +54,7 @@ impl WakeupPrescaler {
             WakeupPrescaler::Div16,
         ]
         .iter()
-        .skip_while(|psc| <WakeupPrescaler as Into<u32>>::into(**psc) <= val)
+        .skip_while(|psc| **psc as u32 <= val)
         .next()
         .unwrap_or(&WakeupPrescaler::Div16)
     }
@@ -85,7 +75,7 @@ impl super::Rtc {
         let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
         // adjust the rtc ticks to the prescaler and subtract one rtc tick
-        let rtc_ticks = rtc_ticks / (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64);
+        let rtc_ticks = rtc_ticks / prescaler as u64;
         let rtc_ticks = if rtc_ticks >= u16::MAX as u64 {
             u16::MAX - 1
         } else {
@@ -106,11 +96,8 @@ impl super::Rtc {
 
         trace!(
             "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {}) at {}",
-            Duration::from_ticks(
-                rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
-            )
-            .as_millis(),
-            <WakeupPrescaler as Into<u32>>::into(prescaler),
+            Duration::from_ticks(rtc_ticks as u64 * TICK_HZ * prescaler as u64 / rtc_hz).as_millis(),
+            prescaler as u32,
             rtc_ticks,
             self.instant(),
         );
