@@ -347,9 +347,7 @@ fn main() {
                 TokenStream::new()
             };
 
-            let ptype = p
-                .name
-                .replace(&['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'][..], "");
+            let ptype = p.name.replace(|c| char::is_numeric(c), "");
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
@@ -363,16 +361,14 @@ fn main() {
 
                 (
                     quote! {
-                        use atomic_polyfill::Ordering;
-
-                        if refcount_statics::#refcount_static.fetch_add(1, Ordering::SeqCst) > 0 {
+                        unsafe { refcount_statics::#refcount_static += 1 };
+                        if unsafe { refcount_statics::#refcount_static } > 1 {
                             return;
                         }
                     },
                     quote! {
-                        use atomic_polyfill::Ordering;
-
-                        if refcount_statics::#refcount_static.fetch_sub(1, Ordering::SeqCst) > 1 {
+                        unsafe { refcount_statics::#refcount_static -= 1 };
+                        if unsafe { refcount_statics::#refcount_static } > 0  {
                             return;
                         }
                     },
@@ -416,14 +412,12 @@ fn main() {
     let mut refcount_mod = TokenStream::new();
     for refcount_static in refcount_statics {
         refcount_mod.extend(quote! {
-            pub(crate) static #refcount_static: AtomicU8 = AtomicU8::new(0);
+            pub(crate) static mut #refcount_static: u8 = 0;
         });
     }
 
     g.extend(quote! {
         mod refcount_statics {
-            use atomic_polyfill::AtomicU8;
-
             #refcount_mod
         }
     });
