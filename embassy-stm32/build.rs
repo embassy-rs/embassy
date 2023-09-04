@@ -309,7 +309,7 @@ fn main() {
     // Generate RccPeripheral impls
 
     // TODO: maybe get this from peripheral kind? Not sure
-    let refcounted_peripherals = HashSet::from(["UART", "USART", "SPI", "I2C"]);
+    let refcounted_peripherals = HashSet::from(["USART"]);
     let mut refcount_statics = HashSet::new();
 
     for p in METADATA.peripherals {
@@ -348,13 +348,13 @@ fn main() {
                 TokenStream::new()
             };
 
-            let ptype = p.name.replace(|c| char::is_numeric(c), "");
+            let ptype = (if let Some(reg) = &p.registers { reg.kind } else { "" }).to_ascii_uppercase();
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
 
-            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype.trim_start_matches("LP")) {
+            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype.as_str()) {
                 let refcount_static =
                     format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
 
