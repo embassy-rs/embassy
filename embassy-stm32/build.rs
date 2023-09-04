@@ -308,6 +308,9 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
+    let refcounted_peripherals = HashSet::from(["ADC", "USART", "SPI", "I2C"]);
+    let mut refcount_statics = HashSet::new();
+
     for p in METADATA.peripherals {
         // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
         if !singletons.contains(&p.name.to_string())
@@ -344,10 +347,39 @@ fn main() {
                 TokenStream::new()
             };
 
+            let ptype = p
+                .name
+                .replace(&['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'][..], "");
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+
+            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype.trim_start_matches("LP")) {
+                let refcount_static =
+                    format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
+
+                refcount_statics.insert(refcount_static.clone());
+
+                (
+                    quote! {
+                        use atomic_polyfill::Ordering;
+
+                        if refcount_statics::#refcount_static.fetch_add(1, Ordering::SeqCst) > 0 {
+                            return;
+                        }
+                    },
+                    quote! {
+                        use atomic_polyfill::Ordering;
+
+                        if refcount_statics::#refcount_static.fetch_sub(1, Ordering::SeqCst) > 1 {
+                            return;
+                        }
+                    },
+                )
+            } else {
+                (TokenStream::new(), TokenStream::new())
+            };
 
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
@@ -356,6 +388,7 @@ fn main() {
                     }
                     fn enable() {
                         critical_section::with(|_| {
+                            #before_enable
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_add();
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
@@ -364,6 +397,7 @@ fn main() {
                     }
                     fn disable() {
                         critical_section::with(|_| {
+                            #before_disable
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_sub();
@@ -378,6 +412,21 @@ fn main() {
             });
         }
     }
+
+    let mut refcount_mod = TokenStream::new();
+    for refcount_static in refcount_statics {
+        refcount_mod.extend(quote! {
+            pub(crate) static #refcount_static: AtomicU8 = AtomicU8::new(0);
+        });
+    }
+
+    g.extend(quote! {
+        mod refcount_statics {
+            use atomic_polyfill::AtomicU8;
+
+            #refcount_mod
+        }
+    });
 
     // ========
     // Generate fns to enable GPIO, DMA in RCC
