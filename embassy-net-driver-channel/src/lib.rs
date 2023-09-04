@@ -14,7 +14,7 @@ use embassy_net_driver::{Capabilities, LinkState, Medium};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::waitqueue::WakerRegistration;
-use embassy_sync::zero_copy_channel;
+use embassy_sync::zerocopy_channel;
 
 pub struct State<const MTU: usize, const N_RX: usize, const N_TX: usize> {
     rx: [PacketBuf<MTU>; N_RX],
@@ -35,8 +35,8 @@ impl<const MTU: usize, const N_RX: usize, const N_TX: usize> State<MTU, N_RX, N_
 }
 
 struct StateInner<'d, const MTU: usize> {
-    rx: zero_copy_channel::Channel<'d, NoopRawMutex, PacketBuf<MTU>>,
-    tx: zero_copy_channel::Channel<'d, NoopRawMutex, PacketBuf<MTU>>,
+    rx: zerocopy_channel::Channel<'d, NoopRawMutex, PacketBuf<MTU>>,
+    tx: zerocopy_channel::Channel<'d, NoopRawMutex, PacketBuf<MTU>>,
     shared: Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
@@ -48,8 +48,8 @@ struct Shared {
 }
 
 pub struct Runner<'d, const MTU: usize> {
-    tx_chan: zero_copy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
-    rx_chan: zero_copy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
+    tx_chan: zerocopy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
+    rx_chan: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
 }
 
@@ -59,11 +59,11 @@ pub struct StateRunner<'d> {
 }
 
 pub struct RxRunner<'d, const MTU: usize> {
-    rx_chan: zero_copy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
+    rx_chan: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
 }
 
 pub struct TxRunner<'d, const MTU: usize> {
-    tx_chan: zero_copy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
+    tx_chan: zerocopy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
 }
 
 impl<'d, const MTU: usize> Runner<'d, MTU> {
@@ -244,8 +244,8 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
     let state_uninit: *mut MaybeUninit<StateInner<'d, MTU>> =
         (&mut state.inner as *mut MaybeUninit<StateInner<'static, MTU>>).cast();
     let state = unsafe { &mut *state_uninit }.write(StateInner {
-        rx: zero_copy_channel::Channel::new(&mut state.rx[..]),
-        tx: zero_copy_channel::Channel::new(&mut state.tx[..]),
+        rx: zerocopy_channel::Channel::new(&mut state.rx[..]),
+        tx: zerocopy_channel::Channel::new(&mut state.tx[..]),
         shared: Mutex::new(RefCell::new(Shared {
             link_state: LinkState::Down,
             hardware_address,
@@ -283,8 +283,8 @@ impl<const MTU: usize> PacketBuf<MTU> {
 }
 
 pub struct Device<'d, const MTU: usize> {
-    rx: zero_copy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
-    tx: zero_copy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
+    rx: zerocopy_channel::Receiver<'d, NoopRawMutex, PacketBuf<MTU>>,
+    tx: zerocopy_channel::Sender<'d, NoopRawMutex, PacketBuf<MTU>>,
     shared: &'d Mutex<NoopRawMutex, RefCell<Shared>>,
     caps: Capabilities,
 }
@@ -329,7 +329,7 @@ impl<'d, const MTU: usize> embassy_net_driver::Driver for Device<'d, MTU> {
 }
 
 pub struct RxToken<'a, const MTU: usize> {
-    rx: zero_copy_channel::Receiver<'a, NoopRawMutex, PacketBuf<MTU>>,
+    rx: zerocopy_channel::Receiver<'a, NoopRawMutex, PacketBuf<MTU>>,
 }
 
 impl<'a, const MTU: usize> embassy_net_driver::RxToken for RxToken<'a, MTU> {
@@ -346,7 +346,7 @@ impl<'a, const MTU: usize> embassy_net_driver::RxToken for RxToken<'a, MTU> {
 }
 
 pub struct TxToken<'a, const MTU: usize> {
-    tx: zero_copy_channel::Sender<'a, NoopRawMutex, PacketBuf<MTU>>,
+    tx: zerocopy_channel::Sender<'a, NoopRawMutex, PacketBuf<MTU>>,
 }
 
 impl<'a, const MTU: usize> embassy_net_driver::TxToken for TxToken<'a, MTU> {

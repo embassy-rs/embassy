@@ -17,4 +17,4 @@ pub mod pipe;
 pub mod pubsub;
 pub mod signal;
 pub mod waitqueue;
-pub mod zero_copy_channel;
+pub mod zerocopy_channel;
