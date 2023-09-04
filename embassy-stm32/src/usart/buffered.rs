@@ -124,6 +124,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> BufferedUart<'d, T> {
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -143,6 +145,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     ) -> BufferedUart<'d, T> {
         into_ref!(cts, rts);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -169,6 +173,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     ) -> BufferedUart<'d, T> {
         into_ref!(de);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -382,6 +388,8 @@ impl<'d, T: BasicInstance> Drop for BufferedUartRx<'d, T> {
                 T::Interrupt::disable();
             }
         }
+
+        T::disable();
     }
 }
 
@@ -397,6 +405,8 @@ impl<'d, T: BasicInstance> Drop for BufferedUartTx<'d, T> {
                 T::Interrupt::disable();
             }
         }
+
+        T::disable();
     }
 }
 

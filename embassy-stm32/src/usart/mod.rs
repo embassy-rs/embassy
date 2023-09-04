@@ -618,6 +618,18 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     }
 }
 
+impl<'d, T: BasicInstance, TxDma> Drop for UartTx<'d, T, TxDma> {
+    fn drop(&mut self) {
+        T::disable();
+    }
+}
+
+impl<'d, T: BasicInstance, TxDma> Drop for UartRx<'d, T, TxDma> {
+    fn drop(&mut self) {
+        T::disable();
+    }
+}
+
 impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
@@ -628,6 +640,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Self {
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -647,6 +661,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     ) -> Self {
         into_ref!(cts, rts);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -672,6 +688,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     ) -> Self {
         into_ref!(de);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 

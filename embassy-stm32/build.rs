@@ -308,6 +308,10 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
+    // TODO: maybe get this from peripheral kind? Not sure
+    let refcounted_peripherals = HashSet::from(["USART"]);
+    let mut refcount_statics = HashSet::new();
+
     for p in METADATA.peripherals {
         // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
         if !singletons.contains(&p.name.to_string())
@@ -344,10 +348,35 @@ fn main() {
                 TokenStream::new()
             };
 
+            let ptype = (if let Some(reg) = &p.registers { reg.kind } else { "" }).to_ascii_uppercase();
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+
+            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype.as_str()) {
+                let refcount_static =
+                    format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
+
+                refcount_statics.insert(refcount_static.clone());
+
+                (
+                    quote! {
+                        unsafe { refcount_statics::#refcount_static += 1 };
+                        if unsafe { refcount_statics::#refcount_static } > 1 {
+                            return;
+                        }
+                    },
+                    quote! {
+                        unsafe { refcount_statics::#refcount_static -= 1 };
+                        if unsafe { refcount_statics::#refcount_static } > 0  {
+                            return;
+                        }
+                    },
+                )
+            } else {
+                (TokenStream::new(), TokenStream::new())
+            };
 
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
@@ -356,6 +385,7 @@ fn main() {
                     }
                     fn enable() {
                         critical_section::with(|_| {
+                            #before_enable
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_add();
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
@@ -364,6 +394,7 @@ fn main() {
                     }
                     fn disable() {
                         critical_section::with(|_| {
+                            #before_disable
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_sub();
@@ -378,6 +409,19 @@ fn main() {
             });
         }
     }
+
+    let mut refcount_mod = TokenStream::new();
+    for refcount_static in refcount_statics {
+        refcount_mod.extend(quote! {
+            pub(crate) static mut #refcount_static: u8 = 0;
+        });
+    }
+
+    g.extend(quote! {
+        mod refcount_statics {
+            #refcount_mod
+        }
+    });
 
     // ========
     // Generate fns to enable GPIO, DMA in RCC

@@ -1,4 +1,5 @@
 use core::future::poll_fn;
+use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -24,12 +25,16 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
         let request = self.rx_dma.request();
         let opts = Default::default();
 
-        let ring_buf = unsafe { ReadableRingBuffer::new_read(self.rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+        // Safety: we forget the struct before this function returns.
+        let rx_dma = unsafe { self.rx_dma.clone_unchecked() };
+        let _peri = unsafe { self._peri.clone_unchecked() };
 
-        RingBufferedUartRx {
-            _peri: self._peri,
-            ring_buf,
-        }
+        let ring_buf = unsafe { ReadableRingBuffer::new_read(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+
+        // Don't disable the clock
+        mem::forget(self);
+
+        RingBufferedUartRx { _peri, ring_buf }
     }
 }
 
@@ -186,6 +191,8 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 impl<T: BasicInstance, RxDma: super::RxDma<T>> Drop for RingBufferedUartRx<'_, T, RxDma> {
     fn drop(&mut self) {
         self.teardown_uart();
+
+        T::disable();
     }
 }
 /// Return an error result if the Sr register has errors
