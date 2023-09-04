@@ -35,32 +35,32 @@ pub enum ReadStatus {
     LeftoverBytes(u16),
 }
 
-/// Device Configuration
+/// Slave Configuration
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct DeviceConfig {
+pub struct SlaveConfig {
     /// Target Address
     pub addr: u16,
 }
 
-impl Default for DeviceConfig {
+impl Default for SlaveConfig {
     fn default() -> Self {
         Self { addr: 0x55 }
     }
 }
 
-pub struct I2cDevice<'d, T: Instance> {
+pub struct I2cSlave<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
-impl<'d, T: Instance> I2cDevice<'d, T> {
+impl<'d, T: Instance> I2cSlave<'d, T> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        config: DeviceConfig,
+        config: SlaveConfig,
     ) -> Self {
         into_ref!(_peri, scl, sda);
 

@@ -1,11 +1,11 @@
 mod i2c;
-mod i2c_device;
+mod i2c_slave;
 
 use core::marker::PhantomData;
 
 use embassy_sync::waitqueue::AtomicWaker;
 pub use i2c::{Config, I2c};
-pub use i2c_device::{Command, DeviceConfig, I2cDevice, ReadStatus};
+pub use i2c_slave::{Command, I2cSlave, ReadStatus, SlaveConfig};
 
 use crate::{interrupt, pac, peripherals};
 
