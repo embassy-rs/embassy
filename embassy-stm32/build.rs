@@ -308,7 +308,8 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
-    let refcounted_peripherals = HashSet::from(["USART", "SPI", "I2C"]);
+    // TODO: maybe get this from peripheral kind? Not sure
+    let refcounted_peripherals = HashSet::from(["UART", "USART", "SPI", "I2C"]);
     let mut refcount_statics = HashSet::new();
 
     for p in METADATA.peripherals {
