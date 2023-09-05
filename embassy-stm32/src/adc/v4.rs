@@ -1,10 +1,7 @@
-use core::sync::atomic::{AtomicU8, Ordering};
-
 use embedded_hal_02::blocking::delay::DelayUs;
 #[allow(unused)]
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
-use paste::paste;
 
 use super::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
 use crate::time::Hertz;
@@ -58,77 +55,6 @@ impl<T: Instance> super::sealed::InternalChannel<T> for Vbat {
         VBAT_CHANNEL
     }
 }
-
-static ADC12_ENABLE_COUNTER: AtomicU8 = AtomicU8::new(0);
-#[cfg(any(stm32g4x3, stm32g4x4))]
-static ADC345_ENABLE_COUNTER: AtomicU8 = AtomicU8::new(0);
-
-macro_rules! rcc_peripheral {
-    ($adc_name:ident, $freqs:ident, $ahb:ident, $reg:ident $(, $counter:ident )? ) => {
-        impl crate::rcc::sealed::RccPeripheral for crate::peripherals::$adc_name {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    match unsafe { crate::rcc::get_freqs() }.$freqs {
-                        Some(ck) => ck,
-                        None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
-                    }
-                })
-            }
-
-            fn enable() {
-                critical_section::with(|_| {
-                    paste!{crate::pac::RCC.[< $ahb enr >]().modify(|w| w.[< set_ $reg en >](true))}
-                });
-                $ ( $counter.fetch_add(1, Ordering::SeqCst); )?
-            }
-
-            fn disable() {
-               $ ( if $counter.load(Ordering::SeqCst) == 1  )? {
-                    critical_section::with(|_| {
-                        paste!{crate::pac::RCC.[< $ahb enr >]().modify(|w| w.[< set_ $reg en >](false))}
-                    })
-               }
-               $ ( $counter.fetch_sub(1, Ordering::SeqCst); )?
-            }
-
-            fn reset() {
-               $ ( if $counter.load(Ordering::SeqCst) == 1 )? {
-                    critical_section::with(|_| {
-                        paste!{crate::pac::RCC.[< $ahb rstr >]().modify(|w| w.[< set_ $reg rst >](true))}
-                        paste!{crate::pac::RCC.[< $ahb rstr >]().modify(|w| w.[< set_ $reg rst >](false))}
-                    });
-               }
-            }
-        }
-
-        impl crate::rcc::RccPeripheral for crate::peripherals::$adc_name {}
-    };
-}
-
-#[cfg(stm32g4)]
-foreach_peripheral!(
-    (adc, ADC1) => { rcc_peripheral!(ADC1, adc, ahb2, adc12, ADC12_ENABLE_COUNTER); };
-    (adc, ADC2) => { rcc_peripheral!(ADC2, adc, ahb2, adc12, ADC12_ENABLE_COUNTER); };
-);
-
-#[cfg(stm32g4x1)]
-foreach_peripheral!(
-    (adc, ADC3) => { rcc_peripheral!(ADC3, adc34, ahb2, adc345); };
-);
-
-#[cfg(any(stm32g4x3, stm32g4x4))]
-foreach_peripheral!(
-    (adc, ADC3) => { rcc_peripheral!(ADC3, adc34, ahb2, adc345, ADC345_ENABLE_COUNTER); };
-    (adc, ADC4) => { rcc_peripheral!(ADC4, adc34, ahb2, adc345, ADC345_ENABLE_COUNTER); };
-    (adc, ADC5) => { rcc_peripheral!(ADC5, adc34, ahb2, adc345, ADC345_ENABLE_COUNTER); };
-);
-
-#[cfg(stm32h7)]
-foreach_peripheral!(
-    (adc, ADC1) => { rcc_peripheral!(ADC1, adc, ahb1, adc12, ADC12_ENABLE_COUNTER); };
-    (adc, ADC2) => { rcc_peripheral!(ADC2, adc, ahb1, adc12, ADC12_ENABLE_COUNTER); };
-    (adc, ADC3) => { rcc_peripheral!(ADC3, adc, ahb4, adc3); };
-);
 
 // NOTE (unused): The prescaler enum closely copies the hardware capabilities,
 // but high prescaling doesn't make a lot of sense in the current implementation and is ommited.
