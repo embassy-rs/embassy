@@ -13,7 +13,7 @@ pub const VREF_CALIB_MV: u32 = 3000;
 /// configuration.
 fn enable() {
     critical_section::with(|_| {
-        #[cfg(stm32h7)]
+        #[cfg(any(stm32h7, stm32wl))]
         crate::pac::RCC.apb2enr().modify(|w| w.set_adcen(true));
         #[cfg(stm32g0)]
         crate::pac::RCC.apbenr2().modify(|w| w.set_adcen(true));
