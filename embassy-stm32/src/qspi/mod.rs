@@ -4,6 +4,7 @@ pub mod enums;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
+use stm32_metapac::quadspi::regs::Cr;
 
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
@@ -119,6 +120,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             Some(nss.map_into()),
             dma,
             config,
+            FlashSelection::Flash2,
         )
     }
 
@@ -139,13 +141,13 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         sck.set_speed(crate::gpio::Speed::VeryHigh);
         nss.set_as_af(nss.af_num(), AFType::OutputPushPull);
         nss.set_speed(crate::gpio::Speed::VeryHigh);
-        d0.set_as_af(d0.af_num(), AFType::OutputPushPull);
+        d0.set_as_af(d0.af_num(), AFType::OutputOpenDrain);
         d0.set_speed(crate::gpio::Speed::VeryHigh);
-        d1.set_as_af(d1.af_num(), AFType::OutputPushPull);
+        d1.set_as_af(d1.af_num(), AFType::OutputOpenDrain);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
-        d2.set_as_af(d2.af_num(), AFType::OutputPushPull);
+        d2.set_as_af(d2.af_num(), AFType::OutputOpenDrain);
         d2.set_speed(crate::gpio::Speed::VeryHigh);
-        d3.set_as_af(d3.af_num(), AFType::OutputPushPull);
+        d3.set_as_af(d3.af_num(), AFType::OutputOpenDrain);
         d3.set_speed(crate::gpio::Speed::VeryHigh);
 
         Self::new_inner(
@@ -158,6 +160,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             Some(nss.map_into()),
             dma,
             config,
+            FlashSelection::Flash2,
         )
     }
 
@@ -171,23 +174,41 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         nss: Option<PeripheralRef<'d, AnyPin>>,
         dma: impl Peripheral<P = Dma> + 'd,
         config: Config,
+        fsel: FlashSelection,
     ) -> Self {
         into_ref!(peri, dma);
 
         T::enable();
-        T::REGS.cr().write(|w| w.set_fthres(config.fifo_threshold.into()));
+        T::reset();
 
         while T::REGS.sr().read().busy() {}
 
-        T::REGS.cr().write(|w| {
-            w.set_prescaler(config.prescaler);
+        // Apply precautionary steps according to the errata...
+        T::REGS.cr().write_value(Cr(0));
+        while T::REGS.sr().read().busy() {}
+        T::REGS.cr().write_value(Cr(0xFF000001));
+        T::REGS.ccr().write(|w| w.set_frcm(true));
+        T::REGS.ccr().write(|w| w.set_frcm(true));
+        T::REGS.cr().write_value(Cr(0));
+        while T::REGS.sr().read().busy() {}
+
+        T::REGS.cr().modify(|w| {
             w.set_en(true);
+            //w.set_tcen(false);
+            w.set_sshift(false);
+            w.set_fthres(config.fifo_threshold.into());
+            w.set_prescaler(config.prescaler);
+            w.set_fsel(fsel.into());
         });
-        T::REGS.dcr().write(|w| {
+        T::REGS.dcr().modify(|w| {
             w.set_fsize(config.memory_size.into());
             w.set_csht(config.cs_high_time.into());
-            w.set_ckmode(false);
+            w.set_ckmode(true);
         });
+
+        // FOR TESTING ONLY
+        //T::REGS.ccr().write(|w| w.set_frcm(true));
+        // END FOR TESTING ONLY
 
         Self {
             _peri: peri,
@@ -203,6 +224,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 
     pub fn command(&mut self, transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
@@ -211,6 +233,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 
     pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
@@ -234,6 +257,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 
     pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
@@ -277,6 +301,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             )
         };
 
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
 
         transfer.blocking_wait();
@@ -303,6 +328,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             )
         };
 
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
 
         transfer.blocking_wait();
