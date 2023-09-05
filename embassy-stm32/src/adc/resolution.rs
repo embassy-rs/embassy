@@ -1,4 +1,4 @@
-#[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0))]
+#[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Resolution {
     TwelveBit,
@@ -19,7 +19,7 @@ pub enum Resolution {
 
 impl Default for Resolution {
     fn default() -> Self {
-        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0))]
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
         {
             Self::TwelveBit
         }
@@ -40,7 +40,7 @@ impl From<Resolution> for crate::pac::adc::vals::Res {
             Resolution::TwelveBit => crate::pac::adc::vals::Res::TWELVEBIT,
             Resolution::TenBit => crate::pac::adc::vals::Res::TENBIT,
             Resolution::EightBit => crate::pac::adc::vals::Res::EIGHTBIT,
-            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0))]
+            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
             Resolution::SixBit => crate::pac::adc::vals::Res::SIXBIT,
         }
     }
@@ -56,7 +56,7 @@ impl Resolution {
             Resolution::TwelveBit => (1 << 12) - 1,
             Resolution::TenBit => (1 << 10) - 1,
             Resolution::EightBit => (1 << 8) - 1,
-            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0))]
+            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
             Resolution::SixBit => (1 << 6) - 1,
         }
     }

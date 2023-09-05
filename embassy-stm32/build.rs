@@ -309,14 +309,17 @@ fn main() {
     // Generate RccPeripheral impls
 
     // TODO: maybe get this from peripheral kind? Not sure
-    let refcounted_peripherals = HashSet::from(["USART"]);
+    let mut refcounted_peripherals = HashSet::from(["usart"]);
     let mut refcount_statics = HashSet::new();
+
+    if chip_name.starts_with("stm32f3") {
+        refcounted_peripherals.insert("adc");
+    }
 
     for p in METADATA.peripherals {
         // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
         if !singletons.contains(&p.name.to_string())
             || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7"))
-            || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "f3"))
             || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "v4"))
         {
             continue;
@@ -348,13 +351,13 @@ fn main() {
                 TokenStream::new()
             };
 
-            let ptype = (if let Some(reg) = &p.registers { reg.kind } else { "" }).to_ascii_uppercase();
+            let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
 
-            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype.as_str()) {
+            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
                 let refcount_static =
                     format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
 

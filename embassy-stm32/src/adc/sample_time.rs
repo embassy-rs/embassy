@@ -1,4 +1,4 @@
-#[cfg(not(any(adc_f3, adc_f3_v2)))]
+#[cfg(not(adc_f3_v2))]
 macro_rules! impl_sample_time {
     ($default_doc:expr, $default:ident, ($(($doc:expr, $variant:ident, $pac_variant:ident)),*)) => {
         #[doc = concat!("ADC sample time\n\nThe default setting is ", $default_doc, " ADC clock cycles.")]
@@ -103,5 +103,21 @@ impl_sample_time!(
         ("64.5", Cycles64_5, CYCLES64_5),
         ("387.5", Cycles387_5, CYCLES387_5),
         ("810.5", Cycles810_5, CYCLES810_5)
+    )
+);
+
+#[cfg(adc_f3)]
+impl_sample_time!(
+    "1.5",
+    Cycles1_5,
+    (
+        ("1.5", Cycles1_5, CYCLES1_5),
+        ("2.5", Cycles2_5, CYCLES2_5),
+        ("4.5", Cycles4_5, CYCLES4_5),
+        ("7.5", Cycles7_5, CYCLES7_5),
+        ("19.5", Cycles19_5, CYCLES19_5),
+        ("61.5", Cycles61_5, CYCLES61_5),
+        ("181.5", Cycles181_5, CYCLES181_5),
+        ("601.5", Cycles601_5, CYCLES601_5)
     )
 );
