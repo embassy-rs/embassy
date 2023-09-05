@@ -1,5 +1,5 @@
 use stm32_metapac::flash::vals::Latency;
-use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
+use stm32_metapac::rcc::vals::{Adcsel, Hpre, Pllsrc, Ppre, Sw};
 use stm32_metapac::FLASH;
 
 pub use super::bus::{AHBPrescaler, APBPrescaler};
@@ -13,6 +13,29 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
+
+#[derive(Clone, Copy)]
+pub enum AdcClockSource {
+    NoClk,
+    SysClk,
+    PllP,
+}
+
+impl AdcClockSource {
+    pub fn adcsel(&self) -> Adcsel {
+        match self {
+            AdcClockSource::NoClk => Adcsel::NOCLK,
+            AdcClockSource::SysClk => Adcsel::SYSCLK,
+            AdcClockSource::PllP => Adcsel::PLLP,
+        }
+    }
+}
+
+impl Default for AdcClockSource {
+    fn default() -> Self {
+        Self::NoClk
+    }
+}
 
 /// System clock mux source
 #[derive(Clone, Copy)]
@@ -327,6 +350,8 @@ pub struct Config {
     pub pll: Option<Pll>,
     /// Sets the clock source for the 48MHz clock used by the USB and RNG peripherals.
     pub clock_48mhz_src: Option<Clock48MhzSrc>,
+    pub adc12_clock_source: AdcClockSource,
+    pub adc345_clock_source: AdcClockSource,
 }
 
 /// Configuration for the Clock Recovery System (CRS) used to trim the HSI48 oscillator.
@@ -346,6 +371,8 @@ impl Default for Config {
             low_power_run: false,
             pll: None,
             clock_48mhz_src: None,
+            adc12_clock_source: Default::default(),
+            adc345_clock_source: Default::default(),
         }
     }
 }
@@ -549,6 +576,29 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.ccipr().modify(|w| w.set_clk48sel(source));
     }
 
+    RCC.ccipr()
+        .modify(|w| w.set_adc12sel(config.adc12_clock_source.adcsel()));
+    RCC.ccipr()
+        .modify(|w| w.set_adc345sel(config.adc345_clock_source.adcsel()));
+
+    let adc12_ck = match config.adc12_clock_source {
+        AdcClockSource::NoClk => None,
+        AdcClockSource::PllP => match &pll_freq {
+            Some(pll) => pll.pll_p,
+            None => None,
+        },
+        AdcClockSource::SysClk => Some(Hertz(sys_clk)),
+    };
+
+    let adc345_ck = match config.adc345_clock_source {
+        AdcClockSource::NoClk => None,
+        AdcClockSource::PllP => match &pll_freq {
+            Some(pll) => pll.pll_p,
+            None => None,
+        },
+        AdcClockSource::SysClk => Some(Hertz(sys_clk)),
+    };
+
     if config.low_power_run {
         assert!(sys_clk <= 2_000_000);
         PWR.cr1().modify(|w| w.set_lpr(true));
@@ -562,5 +612,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim: Hertz(apb1_tim_freq),
         apb2: Hertz(apb2_freq),
         apb2_tim: Hertz(apb2_tim_freq),
+        adc12: adc12_ck,
+        adc345: adc345_ck,
     });
 }
