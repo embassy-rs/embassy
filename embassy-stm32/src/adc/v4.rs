@@ -107,20 +107,20 @@ macro_rules! rcc_peripheral {
 
 #[cfg(stm32g4)]
 foreach_peripheral!(
-    (adc, ADC1) => { rcc_peripheral!(ADC1, adc12, ahb2, adc12, ADC12_ENABLE_COUNTER); };
-    (adc, ADC2) => { rcc_peripheral!(ADC2, adc12, ahb2, adc12, ADC12_ENABLE_COUNTER); };
+    (adc, ADC1) => { rcc_peripheral!(ADC1, adc, ahb2, adc12, ADC12_ENABLE_COUNTER); };
+    (adc, ADC2) => { rcc_peripheral!(ADC2, adc, ahb2, adc12, ADC12_ENABLE_COUNTER); };
 );
 
 #[cfg(stm32g4x1)]
 foreach_peripheral!(
-    (adc, ADC3) => { rcc_peripheral!(ADC3, adc345, ahb2, adc345); };
+    (adc, ADC3) => { rcc_peripheral!(ADC3, adc34, ahb2, adc345); };
 );
 
 #[cfg(any(stm32g4x3, stm32g4x4))]
 foreach_peripheral!(
-    (adc, ADC3) => { rcc_peripheral!(ADC3, adc345, ahb2, adc345, ADC345_ENABLE_COUNTER); };
-    (adc, ADC4) => { rcc_peripheral!(ADC4, adc345, ahb2, adc345, ADC345_ENABLE_COUNTER); };
-    (adc, ADC5) => { rcc_peripheral!(ADC5, adc345, ahb2, adc345, ADC345_ENABLE_COUNTER); };
+    (adc, ADC3) => { rcc_peripheral!(ADC3, adc34, ahb2, adc345, ADC345_ENABLE_COUNTER); };
+    (adc, ADC4) => { rcc_peripheral!(ADC4, adc34, ahb2, adc345, ADC345_ENABLE_COUNTER); };
+    (adc, ADC5) => { rcc_peripheral!(ADC5, adc34, ahb2, adc345, ADC345_ENABLE_COUNTER); };
 );
 
 #[cfg(stm32h7)]

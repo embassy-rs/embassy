@@ -612,7 +612,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim: Hertz(apb1_tim_freq),
         apb2: Hertz(apb2_freq),
         apb2_tim: Hertz(apb2_tim_freq),
-        adc12: adc12_ck,
-        adc345: adc345_ck,
+        adc: adc12_ck,
+        adc34: adc345_ck,
     });
 }
