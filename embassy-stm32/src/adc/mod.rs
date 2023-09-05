@@ -33,7 +33,7 @@ pub struct Adc<'d, T: Instance> {
 pub(crate) mod sealed {
     pub trait Instance {
         fn regs() -> crate::pac::adc::Adc;
-        #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2)))]
+        #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_g0)))]
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
         #[cfg(adc_f3)]
         fn frequency() -> crate::time::Hertz;
@@ -63,7 +63,7 @@ foreach_peripheral!(
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::$inst
             }
-            #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2)))]
+            #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_g0)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 foreach_peripheral!{
                     (adccommon, $common_inst:ident) => {
