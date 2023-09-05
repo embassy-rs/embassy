@@ -308,20 +308,11 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
-    // TODO: maybe get this from peripheral kind? Not sure
-    let mut refcounted_peripherals = HashSet::from(["usart"]);
+    let refcounted_peripherals = HashSet::from(["usart", "adc"]);
     let mut refcount_statics = HashSet::new();
 
-    if chip_name.starts_with("stm32f3") {
-        refcounted_peripherals.insert("adc");
-    }
-
     for p in METADATA.peripherals {
-        // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
-        if !singletons.contains(&p.name.to_string())
-            || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7"))
-            || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "v4"))
-        {
+        if !singletons.contains(&p.name.to_string()) {
             continue;
         }
 
@@ -711,6 +702,10 @@ fn main() {
 
                 // ADC is special
                 if regs.kind == "adc" {
+                    if p.rcc.is_none() {
+                        continue;
+                    }
+
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
 

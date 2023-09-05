@@ -56,7 +56,7 @@ pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc:
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
 pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
 
-#[cfg(not(any(stm32h7, adc_f3)))]
+#[cfg(not(any(stm32h7, adc_f3, adc_v4)))]
 foreach_peripheral!(
     (adc, $inst:ident) => {
         impl crate::adc::sealed::Instance for peripherals::$inst {
@@ -77,9 +77,10 @@ foreach_peripheral!(
     };
 );
 
-#[cfg(any(stm32h7, adc_f3))]
+#[cfg(any(stm32h7, adc_f3, adc_v4))]
 foreach_peripheral!(
     (adc, ADC3) => {
+        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::sealed::Instance for peripherals::ADC3 {
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::ADC3
@@ -99,9 +100,11 @@ foreach_peripheral!(
             }
         }
 
+        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::Instance for peripherals::ADC3 {}
     };
     (adc, ADC4) => {
+        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::sealed::Instance for peripherals::ADC4 {
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::ADC4
@@ -121,7 +124,11 @@ foreach_peripheral!(
             }
         }
 
+        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::Instance for peripherals::ADC4 {}
+    };
+    (adc, ADC5) => {
+
     };
     (adc, $inst:ident) => {
         impl crate::adc::sealed::Instance for peripherals::$inst {
