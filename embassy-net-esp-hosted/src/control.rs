@@ -19,11 +19,25 @@ pub struct Control<'a> {
 }
 
 #[allow(unused)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum WifiMode {
     None = 0,
     Sta = 1,
     Ap = 2,
     ApSta = 3,
+}
+
+pub use proto::CtrlWifiSecProt as Security;
+
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Status {
+    pub ssid: String<32>,
+    pub bssid: [u8; 6],
+    pub rssi: i32,
+    pub channel: u32,
+    pub security: Security,
 }
 
 macro_rules! ioctl {
@@ -34,7 +48,9 @@ macro_rules! ioctl {
             payload: Some(proto::CtrlMsgPayload::$req_variant($req)),
         };
         $self.ioctl(&mut msg).await?;
-        let Some(proto::CtrlMsgPayload::$resp_variant($resp)) = msg.payload else {
+        #[allow(unused_mut)]
+        let Some(proto::CtrlMsgPayload::$resp_variant(mut $resp)) = msg.payload
+        else {
             warn!("unexpected response variant");
             return Err(Error::Internal);
         };
@@ -64,6 +80,19 @@ impl<'a> Control<'a> {
         self.state_ch.set_ethernet_address(mac_addr);
 
         Ok(())
+    }
+
+    pub async fn get_status(&mut self) -> Result<Status, Error> {
+        let req = proto::CtrlMsgReqGetApConfig {};
+        ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp);
+        trim_nulls(&mut resp.ssid);
+        Ok(Status {
+            ssid: resp.ssid,
+            bssid: parse_mac(&resp.bssid)?,
+            rssi: resp.rssi as _,
+            channel: resp.chnl,
+            security: resp.sec_prot,
+        })
     }
 
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
@@ -98,27 +127,7 @@ impl<'a> Control<'a> {
             mode: WifiMode::Sta as _,
         };
         ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp);
-
-        // WHY IS THIS A STRING? WHYYYY
-        fn nibble_from_hex(b: u8) -> u8 {
-            match b {
-                b'0'..=b'9' => b - b'0',
-                b'a'..=b'f' => b + 0xa - b'a',
-                b'A'..=b'F' => b + 0xa - b'A',
-                _ => panic!("invalid hex digit {}", b),
-            }
-        }
-
-        let mac = resp.mac.as_bytes();
-        let mut res = [0; 6];
-        if mac.len() != 17 {
-            warn!("unexpected MAC respnse length");
-            return Err(Error::Internal);
-        }
-        for (i, b) in res.iter_mut().enumerate() {
-            *b = (nibble_from_hex(mac[i * 3]) << 4) | nibble_from_hex(mac[i * 3 + 1])
-        }
-        Ok(res)
+        parse_mac(&resp.mac)
     }
 
     async fn set_wifi_mode(&mut self, mode: u32) -> Result<(), Error> {
@@ -165,5 +174,37 @@ impl<'a> Control<'a> {
         debug!("ioctl resp: {:?}", msg);
 
         Ok(())
+    }
+}
+
+// WHY IS THIS A STRING? WHYYYY
+fn parse_mac(mac: &str) -> Result<[u8; 6], Error> {
+    fn nibble_from_hex(b: u8) -> Result<u8, Error> {
+        match b {
+            b'0'..=b'9' => Ok(b - b'0'),
+            b'a'..=b'f' => Ok(b + 0xa - b'a'),
+            b'A'..=b'F' => Ok(b + 0xa - b'A'),
+            _ => {
+                warn!("invalid hex digit {}", b);
+                Err(Error::Internal)
+            }
+        }
+    }
+
+    let mac = mac.as_bytes();
+    let mut res = [0; 6];
+    if mac.len() != 17 {
+        warn!("unexpected MAC length");
+        return Err(Error::Internal);
+    }
+    for (i, b) in res.iter_mut().enumerate() {
+        *b = (nibble_from_hex(mac[i * 3])? << 4) | nibble_from_hex(mac[i * 3 + 1])?
+    }
+    Ok(res)
+}
+
+fn trim_nulls<const N: usize>(s: &mut String<N>) {
+    while s.chars().rev().next() == Some(0 as char) {
+        s.pop();
     }
 }
