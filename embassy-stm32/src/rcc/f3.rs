@@ -1,5 +1,5 @@
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
+use crate::pac::rcc::vals::{Adcpres, Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -9,6 +9,46 @@ pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(40_000);
+
+#[repr(u16)]
+#[derive(Clone, Copy)]
+pub enum ADCPrescaler {
+    Div1 = 1,
+    Div2 = 2,
+    Div4 = 4,
+    Div6 = 6,
+    Div8 = 8,
+    Div12 = 12,
+    Div16 = 16,
+    Div32 = 32,
+    Div64 = 64,
+    Div128 = 128,
+    Div256 = 256,
+}
+
+impl From<ADCPrescaler> for Adcpres {
+    fn from(value: ADCPrescaler) -> Self {
+        match value {
+            ADCPrescaler::Div1 => Adcpres::DIV1,
+            ADCPrescaler::Div2 => Adcpres::DIV2,
+            ADCPrescaler::Div4 => Adcpres::DIV4,
+            ADCPrescaler::Div6 => Adcpres::DIV6,
+            ADCPrescaler::Div8 => Adcpres::DIV8,
+            ADCPrescaler::Div12 => Adcpres::DIV12,
+            ADCPrescaler::Div16 => Adcpres::DIV16,
+            ADCPrescaler::Div32 => Adcpres::DIV32,
+            ADCPrescaler::Div64 => Adcpres::DIV64,
+            ADCPrescaler::Div128 => Adcpres::DIV128,
+            ADCPrescaler::Div256 => Adcpres::DIV256,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum ADCClock {
+    AHB(ADCPrescaler),
+    PLL(ADCPrescaler),
+}
 
 /// Clocks configutation
 #[non_exhaustive]
@@ -36,9 +76,18 @@ pub struct Config {
     /// - The System clock frequency is either 48MHz or 72MHz
     /// - APB1 clock has a minimum frequency of 10MHz
     pub pll48: bool,
+    #[cfg(rcc_f3)]
+    /// ADC clock setup
+    /// - For AHB, a psc of 4 or less must be used
+    pub adc: Option<ADCClock>,
+    #[cfg(rcc_f3)]
+    /// ADC clock setup
+    /// - For AHB, a psc of 4 or less must be used
+    pub adc34: Option<ADCClock>,
 }
 
 // Information required to setup the PLL clock
+#[derive(Clone, Copy)]
 struct PllConfig {
     pll_src: Pllsrc,
     pll_mul: Pllmul,
@@ -148,6 +197,44 @@ pub(crate) unsafe fn init(config: Config) {
         });
     }
 
+    #[cfg(rcc_f3)]
+    let adc = config.adc.map(|adc| match adc {
+        ADCClock::PLL(psc) => RCC.cfgr2().modify(|w| {
+            // Make sure that we're using the PLL
+            pll_config.unwrap();
+            w.set_adc12pres(psc.into());
+
+            Hertz(sysclk / psc as u32)
+        }),
+        ADCClock::AHB(psc) => {
+            assert!(psc as u16 <= 4);
+            assert!(!(psc as u16 == 1 && hpre_bits != Hpre::DIV1));
+
+            // To select this scheme, bits CKMODE[1:0] of the ADCx_CCR register must be
+            // different from “00”.
+            todo!();
+        }
+    });
+
+    #[cfg(rcc_f3)]
+    let adc34 = config.adc34.map(|adc| match adc {
+        ADCClock::PLL(psc) => RCC.cfgr2().modify(|w| {
+            // Make sure that we're using the PLL
+            pll_config.unwrap();
+            w.set_adc34pres(psc.into());
+
+            Hertz(sysclk / psc as u32)
+        }),
+        ADCClock::AHB(psc) => {
+            assert!(psc as u16 <= 4);
+            assert!(!(psc as u16 == 1 && hpre_bits != Hpre::DIV1));
+
+            // To select this scheme, bits CKMODE[1:0] of the ADCx_CCR register must be
+            // different from “00”.
+            todo!();
+        }
+    });
+
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
     RCC.cfgr().modify(|w| {
@@ -177,6 +264,10 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim: Hertz(pclk1 * timer_mul1),
         apb2_tim: Hertz(pclk2 * timer_mul2),
         ahb1: Hertz(hclk),
+        #[cfg(rcc_f3)]
+        adc: adc,
+        #[cfg(rcc_f3)]
+        adc34: adc34,
     });
 }
 
