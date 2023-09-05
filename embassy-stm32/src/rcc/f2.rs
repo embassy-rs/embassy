@@ -4,8 +4,10 @@ use core::ops::{Div, Mul};
 pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::{Pllp, Pllsrc, Sw};
-use crate::pac::{FLASH, RCC};
+use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::bd::BackupDomain;
 use crate::rcc::{set_freqs, Clocks};
+use crate::rtc::RtcClockSource;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -288,6 +290,7 @@ pub struct Config {
     pub pll_mux: PLLSrc,
     pub pll: PLLConfig,
     pub mux: ClockSrc,
+    pub rtc: Option<RtcClockSource>,
     pub voltage: VoltageScale,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
@@ -304,6 +307,7 @@ impl Default for Config {
             pll: PLLConfig::default(),
             voltage: VoltageScale::Scale3,
             mux: ClockSrc::HSI,
+            rtc: None,
             ahb_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
@@ -412,6 +416,37 @@ pub(crate) unsafe fn init(config: Config) {
     // Turn off HSI to save power if we don't need it
     if !config.hsi {
         RCC.cr().modify(|w| w.set_hsion(false));
+    }
+
+    RCC.apb1enr().modify(|w| w.set_pwren(true));
+    PWR.cr().read();
+
+    match config.rtc {
+        Some(RtcClockSource::LSE) => {
+            // 1. Unlock the backup domain
+            PWR.cr().modify(|w| w.set_dbp(true));
+
+            // 2. Setup the LSE
+            RCC.bdcr().modify(|w| {
+                // Enable LSE
+                w.set_lseon(true);
+            });
+
+            // Wait until LSE is running
+            while !RCC.bdcr().read().lserdy() {}
+
+            BackupDomain::set_rtc_clock_source(RtcClockSource::LSE);
+        }
+        Some(RtcClockSource::LSI) => {
+            // Turn on the internal 32 kHz LSI oscillator
+            RCC.csr().modify(|w| w.set_lsion(true));
+
+            // Wait until LSI is running
+            while !RCC.csr().read().lsirdy() {}
+
+            BackupDomain::set_rtc_clock_source(RtcClockSource::LSI);
+        }
+        _ => todo!(),
     }
 
     set_freqs(Clocks {
