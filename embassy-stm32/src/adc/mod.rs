@@ -127,6 +127,9 @@ foreach_peripheral!(
         #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::Instance for peripherals::ADC4 {}
     };
+    (adc, ADC5) => {
+
+    };
     (adc, $inst:ident) => {
         impl crate::adc::sealed::Instance for peripherals::$inst {
             fn regs() -> crate::pac::adc::Adc {
