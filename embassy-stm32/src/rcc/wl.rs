@@ -1,5 +1,5 @@
 pub use super::bus::{AHBPrescaler, APBPrescaler, VoltageScale};
-use crate::pac::{FLASH, RCC};
+use crate::pac::rcc::vals::Adcsel;
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -106,6 +106,29 @@ impl Into<u8> for MSIRange {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum AdcClockSource {
+    HSI16,
+    PLLPCLK,
+    SYSCLK,
+}
+
+impl AdcClockSource {
+    pub fn adcsel(&self) -> Adcsel {
+        match self {
+            AdcClockSource::HSI16 => Adcsel::HSI16,
+            AdcClockSource::PLLPCLK => Adcsel::PLLPCLK,
+            AdcClockSource::SYSCLK => Adcsel::SYSCLK,
+        }
+    }
+}
+
+impl Default for AdcClockSource {
+    fn default() -> Self {
+        Self::HSI16
+    }
+}
+
 /// Clocks configutation
 pub struct Config {
     pub mux: ClockSrc,
@@ -116,6 +139,7 @@ pub struct Config {
     pub enable_lsi: bool,
     pub enable_rtc_apb: bool,
     pub rtc_mux: RtcClockSource,
+    pub adc_clock_source: AdcClockSource,
 }
 
 impl Default for Config {
@@ -130,6 +154,7 @@ impl Default for Config {
             enable_lsi: false,
             enable_rtc_apb: false,
             rtc_mux: RtcClockSource::LSI,
+            adc_clock_source: AdcClockSource::default(),
         }
     }
 }
@@ -269,6 +294,9 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre1(config.apb1_pre.into());
         w.set_ppre2(config.apb2_pre.into());
     });
+
+    // ADC clock MUX
+    RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
 
     // TODO: switch voltage range
 
