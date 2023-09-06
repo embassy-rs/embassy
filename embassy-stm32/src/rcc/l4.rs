@@ -2,13 +2,13 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::regs::Cfgr;
-use stm32_metapac::rcc::vals::{Lsedrv, Mcopre, Mcosel};
+use stm32_metapac::rcc::vals::{Mcopre, Mcosel};
 
 pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
-use crate::pac::{FLASH, PWR, RCC};
+use crate::pac::{FLASH, RCC};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -407,36 +407,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.apb1enr1().modify(|w| w.set_pwren(true));
 
-    match config.rtc_mux {
-        RtcClockSource::LSE => {
-            // 1. Unlock the backup domain
-            PWR.cr1().modify(|w| w.set_dbp(true));
-
-            // 2. Setup the LSE
-            RCC.bdcr().modify(|w| {
-                // Enable LSE
-                w.set_lseon(true);
-                // Max drive strength
-                // TODO: should probably be settable
-                w.set_lsedrv(Lsedrv::HIGH);
-            });
-
-            // Wait until LSE is running
-            while !RCC.bdcr().read().lserdy() {}
-
-            BackupDomain::set_rtc_clock_source(RtcClockSource::LSE);
-        }
-        RtcClockSource::LSI => {
-            // Turn on the internal 32 kHz LSI oscillator
-            RCC.csr().modify(|w| w.set_lsion(true));
-
-            // Wait until LSI is running
-            while !RCC.csr().read().lsirdy() {}
-
-            BackupDomain::set_rtc_clock_source(RtcClockSource::LSI);
-        }
-        _ => unreachable!(),
-    }
+    BackupDomain::configure_rtc(config.rtc_mux, None);
 
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {

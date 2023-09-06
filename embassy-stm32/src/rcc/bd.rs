@@ -95,7 +95,7 @@ impl BackupDomain {
     }
 
     #[allow(dead_code, unused_variables)]
-    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb))]
+    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3))]
     pub fn enable_lse(lse_drive: LseDrive) {
         Self::modify(|w| {
             #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
@@ -107,7 +107,7 @@ impl BackupDomain {
     }
 
     #[allow(dead_code)]
-    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb))]
+    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3))]
     pub fn enable_lsi() {
         let csr = crate::pac::RCC.csr();
 
@@ -146,7 +146,7 @@ impl BackupDomain {
         });
     }
 
-    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb))]
+    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3))]
     #[allow(dead_code, unused_variables)]
     pub fn configure_rtc(clock_source: RtcClockSource, lse_drive: Option<LseDrive>) {
         match clock_source {
