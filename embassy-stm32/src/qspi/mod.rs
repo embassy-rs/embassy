@@ -8,7 +8,7 @@ use stm32_metapac::quadspi::regs::Cr;
 
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, Pull};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -97,17 +97,17 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     ) -> Self {
         into_ref!(peri, d0, d1, d2, d3, sck, nss);
 
-        sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
         sck.set_speed(crate::gpio::Speed::VeryHigh);
-        nss.set_as_af(nss.af_num(), AFType::OutputPushPull);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
         nss.set_speed(crate::gpio::Speed::VeryHigh);
-        d0.set_as_af(d0.af_num(), AFType::OutputPushPull);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
         d0.set_speed(crate::gpio::Speed::VeryHigh);
-        d1.set_as_af(d1.af_num(), AFType::OutputPushPull);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
-        d2.set_as_af(d2.af_num(), AFType::OutputPushPull);
+        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
         d2.set_speed(crate::gpio::Speed::VeryHigh);
-        d3.set_as_af(d3.af_num(), AFType::OutputPushPull);
+        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
         d3.set_speed(crate::gpio::Speed::VeryHigh);
 
         Self::new_inner(
@@ -137,17 +137,17 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     ) -> Self {
         into_ref!(peri, d0, d1, d2, d3, sck, nss);
 
-        sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
         sck.set_speed(crate::gpio::Speed::VeryHigh);
-        nss.set_as_af(nss.af_num(), AFType::OutputPushPull);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
         nss.set_speed(crate::gpio::Speed::VeryHigh);
-        d0.set_as_af(d0.af_num(), AFType::OutputOpenDrain);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
         d0.set_speed(crate::gpio::Speed::VeryHigh);
-        d1.set_as_af(d1.af_num(), AFType::OutputOpenDrain);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
-        d2.set_as_af(d2.af_num(), AFType::OutputOpenDrain);
+        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
         d2.set_speed(crate::gpio::Speed::VeryHigh);
-        d3.set_as_af(d3.af_num(), AFType::OutputOpenDrain);
+        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
         d3.set_speed(crate::gpio::Speed::VeryHigh);
 
         Self::new_inner(
