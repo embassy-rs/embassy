@@ -427,9 +427,9 @@ impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<SPI> {
     }
 }
 
-/// Background runner for the ADIN110.
+/// Background runner for the ADIN1110.
 ///
-/// You must call `.run()` in a background task for the ADIN1100 to operate.
+/// You must call `.run()` in a background task for the ADIN1110 to operate.
 pub struct Runner<'d, SPI, INT, RST> {
     mac: ADIN1110<SPI>,
     ch: ch::Runner<'d, MTU>,
