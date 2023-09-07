@@ -536,17 +536,17 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io_async::Read for TcpSocket<'d> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             self.io.read(buf).await
         }
     }
 
     impl<'d> embedded_io_async::Write for TcpSocket<'d> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
             self.io.write(buf).await
         }
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Error> {
             self.io.flush().await
         }
     }
@@ -556,7 +556,7 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io_async::Read for TcpReader<'d> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             self.io.read(buf).await
         }
     }
@@ -566,11 +566,11 @@ mod embedded_io_impls {
     }
 
     impl<'d> embedded_io_async::Write for TcpWriter<'d> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
             self.io.write(buf).await
         }
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Error> {
             self.io.flush().await
         }
     }
@@ -612,7 +612,7 @@ pub mod client {
         async fn connect<'a>(
             &'a self,
             remote: embedded_nal_async::SocketAddr,
-        ) -> Result<Self::Connection<'a>, Self::Error>
+        ) -> Result<TcpConnection<'a, N, TX_SZ, RX_SZ>, Error>
         where
             Self: 'a,
         {
@@ -673,7 +673,7 @@ pub mod client {
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::Read
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             self.socket.read(buf).await
         }
     }
@@ -681,11 +681,11 @@ pub mod client {
     impl<'d, const N: usize, const TX_SZ: usize, const RX_SZ: usize> embedded_io_async::Write
         for TcpConnection<'d, N, TX_SZ, RX_SZ>
     {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
             self.socket.write(buf).await
         }
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Error> {
             self.socket.flush().await
         }
     }

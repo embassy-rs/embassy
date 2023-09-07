@@ -390,7 +390,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
 {
     const READ_SIZE: usize = ASYNC_READ_SIZE;
 
-    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         self.read(offset, bytes).await
     }
 
@@ -407,11 +407,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
 
     const ERASE_SIZE: usize = ERASE_SIZE;
 
-    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         self.blocking_erase(from, to)
     }
 
-    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         self.blocking_write(offset, bytes)
     }
 }

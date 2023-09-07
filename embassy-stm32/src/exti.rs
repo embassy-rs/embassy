@@ -167,31 +167,32 @@ mod eh1 {
 }
 #[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
+    use core::convert::Infallible;
 
     use super::*;
 
     impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for ExtiInput<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_high(&mut self) -> Result<(), Infallible> {
             self.wait_for_high().await;
             Ok(())
         }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_low(&mut self) -> Result<(), Infallible> {
             self.wait_for_low().await;
             Ok(())
         }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_rising_edge().await;
             Ok(())
         }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_falling_edge().await;
             Ok(())
         }
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_any_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_any_edge().await;
             Ok(())
         }

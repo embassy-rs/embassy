@@ -49,7 +49,7 @@ impl<M: RawMutex, T: NorFlash> ErrorType for Partition<'_, M, T> {
 impl<M: RawMutex, T: NorFlash> ReadNorFlash for Partition<'_, M, T> {
     const READ_SIZE: usize = T::READ_SIZE;
 
-    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error<T::Error>> {
         if offset + bytes.len() as u32 > self.size {
             return Err(Error::OutOfBounds);
         }
@@ -67,7 +67,7 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
     const WRITE_SIZE: usize = T::WRITE_SIZE;
     const ERASE_SIZE: usize = T::ERASE_SIZE;
 
-    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error<T::Error>> {
         if offset + bytes.len() as u32 > self.size {
             return Err(Error::OutOfBounds);
         }
@@ -76,7 +76,7 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
         flash.write(self.offset + offset, bytes).await.map_err(Error::Flash)
     }
 
-    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error<T::Error>> {
         if to > self.size {
             return Err(Error::OutOfBounds);
         }

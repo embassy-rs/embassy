@@ -8,7 +8,7 @@
 //!     nc 192.168.7.10 1234
 
 #![feature(type_alias_impl_trait)]
-#![feature(async_fn_in_trait, impl_trait_projections)]
+#![feature(async_fn_in_trait)]
 
 #[path = "../serial_port.rs"]
 mod serial_port;

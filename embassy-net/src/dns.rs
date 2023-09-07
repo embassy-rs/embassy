@@ -79,7 +79,7 @@ where
         &self,
         host: &str,
         addr_type: embedded_nal_async::AddrType,
-    ) -> Result<embedded_nal_async::IpAddr, Self::Error> {
+    ) -> Result<embedded_nal_async::IpAddr, Error> {
         use embedded_nal_async::{AddrType, IpAddr};
         let qtype = match addr_type {
             AddrType::IPv6 => DnsQueryType::Aaaa,
@@ -98,10 +98,7 @@ where
         }
     }
 
-    async fn get_host_by_address(
-        &self,
-        _addr: embedded_nal_async::IpAddr,
-    ) -> Result<heapless::String<256>, Self::Error> {
+    async fn get_host_by_address(&self, _addr: embedded_nal_async::IpAddr) -> Result<heapless::String<256>, Error> {
         todo!()
     }
 }

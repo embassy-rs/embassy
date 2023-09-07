@@ -1138,27 +1138,27 @@ mod eh1 {
 
     #[cfg(feature = "nightly")]
     impl<'d, T: Pin> embedded_hal_async::digital::Wait for Flex<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_high(&mut self) -> Result<(), Infallible> {
             self.wait_for_high().await;
             Ok(())
         }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_low(&mut self) -> Result<(), Infallible> {
             self.wait_for_low().await;
             Ok(())
         }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_rising_edge().await;
             Ok(())
         }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_falling_edge().await;
             Ok(())
         }
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_any_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_any_edge().await;
             Ok(())
         }
@@ -1166,27 +1166,27 @@ mod eh1 {
 
     #[cfg(feature = "nightly")]
     impl<'d, T: Pin> embedded_hal_async::digital::Wait for Input<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_high(&mut self) -> Result<(), Infallible> {
             self.wait_for_high().await;
             Ok(())
         }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_low(&mut self) -> Result<(), Infallible> {
             self.wait_for_low().await;
             Ok(())
         }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_rising_edge().await;
             Ok(())
         }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_falling_edge().await;
             Ok(())
         }
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_any_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_any_edge().await;
             Ok(())
         }
@@ -1194,27 +1194,27 @@ mod eh1 {
 
     #[cfg(feature = "nightly")]
     impl<'d, T: Pin> embedded_hal_async::digital::Wait for OutputOpenDrain<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_high(&mut self) -> Result<(), Infallible> {
             self.wait_for_high().await;
             Ok(())
         }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_low(&mut self) -> Result<(), Infallible> {
             self.wait_for_low().await;
             Ok(())
         }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_rising_edge().await;
             Ok(())
         }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_falling_edge().await;
             Ok(())
         }
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_any_edge(&mut self) -> Result<(), Infallible> {
             self.wait_for_any_edge().await;
             Ok(())
         }

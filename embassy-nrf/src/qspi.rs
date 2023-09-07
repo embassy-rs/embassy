@@ -595,11 +595,11 @@ mod _eh1 {
         const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
         const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
 
-        async fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
+        async fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
             self.write(offset, data).await
         }
 
-        async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
             for address in (from..to).step_by(<Self as AsyncNorFlash>::ERASE_SIZE) {
                 self.erase(address).await?
             }
@@ -609,7 +609,7 @@ mod _eh1 {
 
     impl<'d, T: Instance> AsyncReadNorFlash for Qspi<'d, T> {
         const READ_SIZE: usize = 4;
-        async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Self::Error> {
+        async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
             self.read(address, data).await
         }
 

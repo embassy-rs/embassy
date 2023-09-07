@@ -587,19 +587,19 @@ impl<'d, T: Instance> embedded_io_async::ErrorType for BufferedUartTx<'d, T> {
 }
 
 impl<'d, T: Instance + 'd> embedded_io_async::Read for BufferedUart<'d, T> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         BufferedUartRx::<'d, T>::read(buf).await
     }
 }
 
 impl<'d, T: Instance + 'd> embedded_io_async::Read for BufferedUartRx<'d, T> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         Self::read(buf).await
     }
 }
 
 impl<'d, T: Instance + 'd> embedded_io_async::BufRead for BufferedUart<'d, T> {
-    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+    async fn fill_buf(&mut self) -> Result<&[u8], Error> {
         BufferedUartRx::<'d, T>::fill_buf().await
     }
 
@@ -609,7 +609,7 @@ impl<'d, T: Instance + 'd> embedded_io_async::BufRead for BufferedUart<'d, T> {
 }
 
 impl<'d, T: Instance + 'd> embedded_io_async::BufRead for BufferedUartRx<'d, T> {
-    async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+    async fn fill_buf(&mut self) -> Result<&[u8], Error> {
         Self::fill_buf().await
     }
 
@@ -619,21 +619,21 @@ impl<'d, T: Instance + 'd> embedded_io_async::BufRead for BufferedUartRx<'d, T> 
 }
 
 impl<'d, T: Instance + 'd> embedded_io_async::Write for BufferedUart<'d, T> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         BufferedUartTx::<'d, T>::write(buf).await
     }
 
-    async fn flush(&mut self) -> Result<(), Self::Error> {
+    async fn flush(&mut self) -> Result<(), Error> {
         BufferedUartTx::<'d, T>::flush().await
     }
 }
 
 impl<'d, T: Instance + 'd> embedded_io_async::Write for BufferedUartTx<'d, T> {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         Self::write(buf).await
     }
 
-    async fn flush(&mut self) -> Result<(), Self::Error> {
+    async fn flush(&mut self) -> Result<(), Error> {
         Self::flush().await
     }
 }

@@ -488,17 +488,17 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io_async::Read for &Pipe<M, N> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Infallible> {
             Ok(Pipe::read(self, buf).await)
         }
     }
 
     impl<M: RawMutex, const N: usize> embedded_io_async::Write for &Pipe<M, N> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Infallible> {
             Ok(Pipe::write(self, buf).await)
         }
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Infallible> {
             Ok(())
         }
     }
@@ -508,13 +508,13 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io_async::Read for Reader<'_, M, N> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Infallible> {
             Ok(Reader::read(self, buf).await)
         }
     }
 
     impl<M: RawMutex, const N: usize> embedded_io_async::BufRead for Reader<'_, M, N> {
-        async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
+        async fn fill_buf(&mut self) -> Result<&[u8], Infallible> {
             Ok(Reader::fill_buf(self).await)
         }
 
@@ -528,11 +528,11 @@ mod io_impls {
     }
 
     impl<M: RawMutex, const N: usize> embedded_io_async::Write for Writer<'_, M, N> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Infallible> {
             Ok(Writer::write(self, buf).await)
         }
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Infallible> {
             Ok(())
         }
     }

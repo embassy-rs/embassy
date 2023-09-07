@@ -1048,12 +1048,12 @@ mod eio {
         T: BasicInstance,
         TxDma: super::TxDma<T>,
     {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
             self.write(buf).await?;
             Ok(buf.len())
         }
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Error> {
             self.blocking_flush()
         }
     }
@@ -1070,12 +1070,12 @@ mod eio {
         T: BasicInstance,
         TxDma: super::TxDma<T>,
     {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
             self.write(buf).await?;
             Ok(buf.len())
         }
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Error> {
             self.blocking_flush()
         }
     }

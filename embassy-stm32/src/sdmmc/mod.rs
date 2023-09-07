@@ -1491,12 +1491,7 @@ mod sdmmc_rs {
     impl<'d, T: Instance, Dma: SdmmcDma<T>> BlockDevice for Sdmmc<'d, T, Dma> {
         type Error = Error;
 
-        async fn read(
-            &mut self,
-            blocks: &mut [Block],
-            start_block_idx: BlockIdx,
-            _reason: &str,
-        ) -> Result<(), Self::Error> {
+        async fn read(&mut self, blocks: &mut [Block], start_block_idx: BlockIdx, _reason: &str) -> Result<(), Error> {
             let mut address = start_block_idx.0;
 
             for block in blocks.iter_mut() {
@@ -1510,7 +1505,7 @@ mod sdmmc_rs {
             Ok(())
         }
 
-        async fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
+        async fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Error> {
             let mut address = start_block_idx.0;
 
             for block in blocks.iter() {

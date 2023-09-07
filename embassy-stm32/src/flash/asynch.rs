@@ -59,7 +59,7 @@ impl interrupt::typelevel::Handler<crate::interrupt::typelevel::FLASH> for Inter
 impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
     const READ_SIZE: usize = super::READ_SIZE;
 
-    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+    async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         self.read(offset, bytes)
     }
 
@@ -73,11 +73,11 @@ impl embedded_storage_async::nor_flash::NorFlash for Flash<'_, Async> {
     const WRITE_SIZE: usize = WRITE_SIZE;
     const ERASE_SIZE: usize = super::MAX_ERASE_SIZE;
 
-    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+    async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         self.write(offset, bytes).await
     }
 
-    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+    async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         self.erase(from, to).await
     }
 }
@@ -162,7 +162,7 @@ foreach_flash_region! {
         impl embedded_storage_async::nor_flash::ReadNorFlash for crate::_generated::flash_regions::$type_name<'_, Async> {
             const READ_SIZE: usize = super::READ_SIZE;
 
-            async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+            async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                 self.read(offset, bytes).await
             }
 
@@ -176,11 +176,11 @@ foreach_flash_region! {
             const WRITE_SIZE: usize = $write_size;
             const ERASE_SIZE: usize = $erase_size;
 
-            async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+            async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 self.write(offset, bytes).await
             }
 
-            async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+            async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                 self.erase(from, to).await
             }
         }

@@ -146,7 +146,7 @@ mod alt_regions {
             impl embedded_storage_async::nor_flash::ReadNorFlash for $type_name<'_, Async> {
                 const READ_SIZE: usize = crate::flash::READ_SIZE;
 
-                async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+                async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
                     self.read(offset, bytes).await
                 }
 
@@ -160,11 +160,11 @@ mod alt_regions {
                 const WRITE_SIZE: usize = $region.write_size as usize;
                 const ERASE_SIZE: usize = $region.erase_size as usize;
 
-                async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+                async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                     self.write(offset, bytes).await
                 }
 
-                async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+                async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                     self.erase(from, to).await
                 }
             }

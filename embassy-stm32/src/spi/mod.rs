@@ -925,23 +925,23 @@ mod eha {
     use super::*;
 
     impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
-        async fn flush(&mut self) -> Result<(), Self::Error> {
+        async fn flush(&mut self) -> Result<(), Error> {
             Ok(())
         }
 
-        async fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
+        async fn write(&mut self, words: &[W]) -> Result<(), Error> {
             self.write(words).await
         }
 
-        async fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        async fn read(&mut self, words: &mut [W]) -> Result<(), Error> {
             self.read(words).await
         }
 
-        async fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
+        async fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
             self.transfer(read, write).await
         }
 
-        async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Error> {
             self.transfer_in_place(words).await
         }
     }

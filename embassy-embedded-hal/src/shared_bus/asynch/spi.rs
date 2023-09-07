@@ -62,7 +62,10 @@ where
     BUS: spi::SpiBus,
     CS: OutputPin,
 {
-    async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+    async fn transaction(
+        &mut self,
+        operations: &mut [spi::Operation<'_, u8>],
+    ) -> Result<(), SpiDeviceError<BUS::Error, CS::Error>> {
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
@@ -128,7 +131,10 @@ where
     BUS: spi::SpiBus + SetConfig,
     CS: OutputPin,
 {
-    async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+    async fn transaction(
+        &mut self,
+        operations: &mut [spi::Operation<'_, u8>],
+    ) -> Result<(), SpiDeviceError<BUS::Error, CS::Error>> {
         let mut bus = self.bus.lock().await;
         bus.set_config(&self.config);
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;

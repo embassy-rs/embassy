@@ -515,45 +515,45 @@ mod eha {
     use super::*;
 
     impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_high(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_high().await)
         }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_low(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_low().await)
         }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_rising_edge().await)
         }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_falling_edge().await)
         }
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_any_edge(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_any_edge().await)
         }
     }
 
     impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_high(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_high().await)
         }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_low(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_low().await)
         }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_rising_edge(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_rising_edge().await)
         }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_falling_edge(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_falling_edge().await)
         }
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        async fn wait_for_any_edge(&mut self) -> Result<(), Infallible> {
             Ok(self.wait_for_any_edge().await)
         }
     }

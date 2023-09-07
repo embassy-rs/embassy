@@ -245,7 +245,7 @@ mod eio {
         T: BasicInstance,
         Rx: RxDma<T>,
     {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
             self.read(buf).await
         }
     }

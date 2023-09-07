@@ -691,21 +691,21 @@ mod nightly {
         A: AddressMode + Into<u16> + 'static,
         T: Instance + 'd,
     {
-        async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Self::Error> {
+        async fn read(&mut self, address: A, read: &mut [u8]) -> Result<(), Error> {
             let addr: u16 = address.into();
 
             Self::setup(addr)?;
             self.read_async_internal(read, false, true).await
         }
 
-        async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Self::Error> {
+        async fn write(&mut self, address: A, write: &[u8]) -> Result<(), Error> {
             let addr: u16 = address.into();
 
             Self::setup(addr)?;
             self.write_async_internal(write.iter().copied(), true).await
         }
 
-        async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        async fn write_read(&mut self, address: A, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
             let addr: u16 = address.into();
 
             Self::setup(addr)?;
@@ -713,7 +713,7 @@ mod nightly {
             self.read_async_internal(read, false, true).await
         }
 
-        async fn transaction(&mut self, address: A, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
+        async fn transaction(&mut self, address: A, operations: &mut [Operation<'_>]) -> Result<(), Error> {
             let addr: u16 = address.into();
 
             if operations.len() > 0 {

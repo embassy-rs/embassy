@@ -151,7 +151,11 @@ where
         Ok(())
     }
 
-    async fn transaction(&mut self, address: u8, operations: &mut [i2c::Operation<'_>]) -> Result<(), Self::Error> {
+    async fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [i2c::Operation<'_>],
+    ) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
         bus.set_config(&self.config);
         bus.transaction(address, operations)

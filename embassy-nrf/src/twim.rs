@@ -864,14 +864,14 @@ mod eh1 {
 mod eha {
     use super::*;
     impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
-        async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+        async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
             self.read(address, read).await
         }
 
-        async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+        async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
             self.write(address, write).await
         }
-        async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+        async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
             self.write_read(address, write, read).await
         }
 
@@ -879,7 +879,7 @@ mod eha {
             &mut self,
             address: u8,
             operations: &mut [embedded_hal_1::i2c::Operation<'_>],
-        ) -> Result<(), Self::Error> {
+        ) -> Result<(), Error> {
             let _ = address;
             let _ = operations;
             todo!()
