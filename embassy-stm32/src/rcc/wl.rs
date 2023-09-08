@@ -137,8 +137,6 @@ pub struct Config {
     pub shd_ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
-    pub enable_lsi: bool,
-    pub enable_rtc_apb: bool,
     pub rtc_mux: RtcClockSource,
     pub adc_clock_source: AdcClockSource,
 }
@@ -152,8 +150,6 @@ impl Default for Config {
             shd_ahb_pre: AHBPrescaler::NotDivided,
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
-            enable_lsi: false,
-            enable_rtc_apb: false,
             rtc_mux: RtcClockSource::LSI,
             adc_clock_source: AdcClockSource::default(),
         }
@@ -234,7 +230,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     while FLASH.acr().read().latency() != ws {}
 
-    BackupDomain::configure_rtc(config.rtc_mux, None);
+    // Enables the LSI if configured
+    BackupDomain::configure_ls(config.rtc_mux, None);
 
     match config.mux {
         ClockSrc::HSI16 => {
@@ -269,14 +266,6 @@ pub(crate) unsafe fn init(config: Config) {
         }
     }
 
-    if config.enable_rtc_apb {
-        // enable peripheral clock for communication
-        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
-
-        // read to allow the pwr clock to enable
-        crate::pac::PWR.cr1().read();
-    }
-
     RCC.extcfgr().modify(|w| {
         if config.shd_ahb_pre == AHBPrescaler::NotDivided {
             w.set_shdhpre(0);
@@ -300,14 +289,6 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
 
     // TODO: switch voltage range
-
-    if config.enable_lsi {
-        let csr = RCC.csr().read();
-        if !csr.lsion() {
-            RCC.csr().modify(|w| w.set_lsion(true));
-            while !RCC.csr().read().lsirdy() {}
-        }
-    }
 
     set_freqs(Clocks {
         sys: Hertz(sys_clk),

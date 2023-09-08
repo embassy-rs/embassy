@@ -276,7 +276,6 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
 }
 
 pub(crate) fn configure_clocks(config: &Config) {
-    let pwr = crate::pac::PWR;
     let rcc = crate::pac::RCC;
 
     let needs_hsi = if let Some(pll_mux) = &config.mux {
@@ -293,17 +292,11 @@ pub(crate) fn configure_clocks(config: &Config) {
         while !rcc.cr().read().hsirdy() {}
     }
 
-    match &config.lse {
-        Some(_) => {
-            rcc.cfgr().modify(|w| w.set_stopwuck(true));
+    rcc.cfgr().modify(|w| w.set_stopwuck(true));
 
-            pwr.cr1().modify(|w| w.set_dbp(true));
-            pwr.cr1().modify(|w| w.set_dbp(true));
-
-            rcc.bdcr().modify(|w| w.set_lseon(true));
-        }
-        _ => {}
-    }
+    config
+        .rtc
+        .map(|clock_source| BackupDomain::configure_ls(clock_source, None));
 
     match &config.hse {
         Some(hse) => {
@@ -363,8 +356,4 @@ pub(crate) fn configure_clocks(config: &Config) {
         w.set_c2hpre(config.ahb2_pre.into());
         w.set_shdhpre(config.ahb3_pre.into());
     });
-
-    config
-        .rtc
-        .map(|clock_source| BackupDomain::configure_rtc(clock_source, None));
 }

@@ -461,17 +461,9 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
-    match config.rtc {
-        Some(RtcClockSource::LSI) => {
-            RCC.csr().modify(|w| w.set_lsion(true));
-            while !RCC.csr().read().lsirdy() {}
-        }
-        _ => {}
-    }
-
-    config.rtc.map(|clock_source| {
-        BackupDomain::set_rtc_clock_source(clock_source);
-    });
+    config
+        .rtc
+        .map(|clock_source| BackupDomain::configure_ls(clock_source, None));
 
     let rtc = match config.rtc {
         Some(RtcClockSource::LSI) => Some(LSI_FREQ),
