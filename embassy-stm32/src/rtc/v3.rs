@@ -128,6 +128,17 @@ impl super::Rtc {
 impl sealed::Instance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 32;
 
+    fn enable_peripheral_clk() {
+        #[cfg(any(rtc_v3))]
+        {
+            // enable peripheral clock for communication
+            crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+
+            // read to allow the pwr clock to enable
+            crate::pac::PWR.cr1().read();
+        }
+    }
+
     fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]
         if register < Self::BACKUP_REGISTER_COUNT {

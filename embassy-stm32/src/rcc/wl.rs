@@ -138,7 +138,6 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub enable_lsi: bool,
-    pub enable_rtc_apb: bool,
     pub rtc_mux: RtcClockSource,
     pub adc_clock_source: AdcClockSource,
 }
@@ -153,7 +152,6 @@ impl Default for Config {
             apb1_pre: APBPrescaler::NotDivided,
             apb2_pre: APBPrescaler::NotDivided,
             enable_lsi: false,
-            enable_rtc_apb: false,
             rtc_mux: RtcClockSource::LSI,
             adc_clock_source: AdcClockSource::default(),
         }
@@ -267,14 +265,6 @@ pub(crate) unsafe fn init(config: Config) {
             });
             while !RCC.cr().read().msirdy() {}
         }
-    }
-
-    if config.enable_rtc_apb {
-        // enable peripheral clock for communication
-        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
-
-        // read to allow the pwr clock to enable
-        crate::pac::PWR.cr1().read();
     }
 
     RCC.extcfgr().modify(|w| {

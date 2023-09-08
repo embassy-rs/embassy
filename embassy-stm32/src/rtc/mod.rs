@@ -268,7 +268,7 @@ pub(crate) mod sealed {
             crate::pac::RTC
         }
 
-        fn enable_peripheral_clk() {}
+        fn enable_peripheral_clk();
 
         /// Read content of the backup register.
         ///
