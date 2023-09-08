@@ -226,6 +226,7 @@ struct Inner<D: Driver> {
     static_v6: Option<StaticConfigV6>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
+    config_waker: WakerRegistration,
     #[cfg(feature = "dns")]
     dns_socket: SocketHandle,
     #[cfg(feature = "dns")]
@@ -297,6 +298,7 @@ impl<D: Driver + 'static> Stack<D> {
             static_v6: None,
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
+            config_waker: WakerRegistration::new(),
             #[cfg(feature = "dns")]
             dns_socket: socket.sockets.add(dns::Socket::new(
                 &[],
@@ -361,6 +363,28 @@ impl<D: Driver + 'static> Stack<D> {
         }
 
         v4_up || v6_up
+    }
+
+    /// Get for the network stack to obtainer a valid IP configuration.
+    pub async fn wait_config_up(&self) {
+        if self.is_config_up() {
+            return;
+        }
+
+        poll_fn(|cx| {
+            self.with_mut(|_, i| {
+                debug!("poll_fn called");
+                if self.is_config_up() {
+                    debug!("poll_fn ready");
+                    Poll::Ready(())
+                } else {
+                    debug!("poll_fn pending");
+                    i.config_waker.register(cx.waker());
+                    Poll::Pending
+                }
+            })
+        })
+        .await;
     }
 
     /// Get the current IPv4 configuration.
@@ -706,6 +730,8 @@ impl<D: Driver + 'static> Inner<D> {
         s.sockets
             .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
             .update_servers(&dns_servers[..]);
+
+        s.waker.wake();
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
