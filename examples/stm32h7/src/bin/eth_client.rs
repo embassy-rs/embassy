@@ -82,12 +82,12 @@ async fn main(spawner: Spawner) -> ! {
     ));
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(&stack)));
+    unwrap!(spawner.spawn(net_task(stack)));
+
+    // Ensure DHCP configuration is up before trying connect
+    stack.wait_config_up().await;
 
     info!("Network task initialized");
-
-    // To ensure DHCP configuration before trying connect
-    Timer::after(Duration::from_secs(20)).await;
 
     static STATE: TcpClientState<1, 1024, 1024> = TcpClientState::new();
     let client = TcpClient::new(&stack, &STATE);
