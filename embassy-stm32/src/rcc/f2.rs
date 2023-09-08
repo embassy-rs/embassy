@@ -421,33 +421,9 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.apb1enr().modify(|w| w.set_pwren(true));
     PWR.cr().read();
 
-    match config.rtc {
-        Some(RtcClockSource::LSE) => {
-            // 1. Unlock the backup domain
-            PWR.cr().modify(|w| w.set_dbp(true));
-
-            // 2. Setup the LSE
-            RCC.bdcr().modify(|w| {
-                // Enable LSE
-                w.set_lseon(true);
-            });
-
-            // Wait until LSE is running
-            while !RCC.bdcr().read().lserdy() {}
-
-            BackupDomain::set_rtc_clock_source(RtcClockSource::LSE);
-        }
-        Some(RtcClockSource::LSI) => {
-            // Turn on the internal 32 kHz LSI oscillator
-            RCC.csr().modify(|w| w.set_lsion(true));
-
-            // Wait until LSI is running
-            while !RCC.csr().read().lsirdy() {}
-
-            BackupDomain::set_rtc_clock_source(RtcClockSource::LSI);
-        }
-        _ => todo!(),
-    }
+    config
+        .rtc
+        .map(|clock_source| BackupDomain::configure_ls(clock_source, None));
 
     set_freqs(Clocks {
         sys: sys_clk,

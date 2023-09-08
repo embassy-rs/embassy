@@ -407,7 +407,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.apb1enr1().modify(|w| w.set_pwren(true));
 
-    BackupDomain::configure_rtc(config.rtc_mux, None);
+    BackupDomain::configure_ls(config.rtc_mux, None);
 
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {

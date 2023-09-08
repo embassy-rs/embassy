@@ -94,36 +94,49 @@ impl BackupDomain {
         r
     }
 
+    #[cfg(any(
+        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
+        rtc_v3u5
+    ))]
     #[allow(dead_code, unused_variables)]
-    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3))]
-    pub fn enable_lse(lse_drive: LseDrive) {
-        Self::modify(|w| {
-            #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
-            w.set_lsedrv(lse_drive.into());
-            w.set_lseon(true);
-        });
+    pub fn configure_ls(clock_source: RtcClockSource, lse_drive: Option<LseDrive>) {
+        match clock_source {
+            RtcClockSource::LSI => {
+                #[cfg(rtc_v3u5)]
+                let csr = crate::pac::RCC.bdcr();
 
-        while !Self::read().lserdy() {}
-    }
+                #[cfg(not(rtc_v3u5))]
+                let csr = crate::pac::RCC.csr();
 
-    #[allow(dead_code)]
-    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3))]
-    pub fn enable_lsi() {
-        let csr = crate::pac::RCC.csr();
+                Self::modify(|_| {
+                    #[cfg(not(rtc_v2wb))]
+                    csr.modify(|w| w.set_lsion(true));
 
-        Self::modify(|_| {
-            #[cfg(not(rtc_v2wb))]
-            csr.modify(|w| w.set_lsion(true));
+                    #[cfg(rtc_v2wb)]
+                    csr.modify(|w| w.set_lsi1on(true));
+                });
 
-            #[cfg(rtc_v2wb)]
-            csr.modify(|w| w.set_lsi1on(true));
-        });
+                #[cfg(not(rtc_v2wb))]
+                while !csr.read().lsirdy() {}
 
-        #[cfg(not(rtc_v2wb))]
-        while !csr.read().lsirdy() {}
+                #[cfg(rtc_v2wb)]
+                while !csr.read().lsi1rdy() {}
+            }
+            RtcClockSource::LSE => {
+                let lse_drive = lse_drive.unwrap_or_default();
 
-        #[cfg(rtc_v2wb)]
-        while !csr.read().lsi1rdy() {}
+                Self::modify(|w| {
+                    #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
+                    w.set_lsedrv(lse_drive.into());
+                    w.set_lseon(true);
+                });
+
+                while !Self::read().lserdy() {}
+            }
+            _ => {}
+        };
+
+        Self::configure_rtc(clock_source);
     }
 
     #[cfg(any(
@@ -131,7 +144,7 @@ impl BackupDomain {
         rtc_v3u5
     ))]
     #[allow(dead_code, unused_variables)]
-    pub fn set_rtc_clock_source(clock_source: RtcClockSource) {
+    pub fn configure_rtc(clock_source: RtcClockSource) {
         let clock_source = clock_source as u8;
         #[cfg(any(
             not(any(rtc_v3, rtc_v3u5, rtc_v2wb)),
@@ -144,18 +157,6 @@ impl BackupDomain {
             // Select RTC source
             w.set_rtcsel(clock_source);
         });
-    }
-
-    #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3))]
-    #[allow(dead_code, unused_variables)]
-    pub fn configure_rtc(clock_source: RtcClockSource, lse_drive: Option<LseDrive>) {
-        match clock_source {
-            RtcClockSource::LSI => Self::enable_lsi(),
-            RtcClockSource::LSE => Self::enable_lse(lse_drive.unwrap_or_default()),
-            _ => {}
-        };
-
-        Self::set_rtc_clock_source(clock_source);
     }
 
     #[cfg(any(

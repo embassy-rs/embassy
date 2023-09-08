@@ -17,7 +17,6 @@ async fn main(_spawner: Spawner) {
         let mut config = Config::default();
         config.rcc.mux = ClockSrc::HSE32;
         config.rcc.rtc_mux = RtcClockSource::LSE;
-        config.rcc.enable_rtc_apb = true;
         embassy_stm32::init(config)
     };
     info!("Hello World!");
