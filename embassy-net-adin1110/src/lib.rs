@@ -32,6 +32,7 @@ pub use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 use crate::fmt::Bytes;
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
 
+/// ADIN1110 intern PHY ID
 pub const PHYID: u32 = 0x0283_BC91;
 
 /// Error values ADIN1110
@@ -53,7 +54,9 @@ pub enum AdinError<E> {
     MDIO_ACC_TIMEOUT,
 }
 
+/// Type alias `Result` type with `AdinError` as error type.
 pub type AEResult<T, SPIError> = core::result::Result<T, AdinError<SPIError>>;
+
 /// Internet PHY address
 pub const MDIO_PHY_ADDR: u8 = 0x01;
 
@@ -104,6 +107,7 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     }
 }
 
+/// ADIN1110 embassy-net driver
 #[derive(Debug)]
 pub struct ADIN1110<SPI> {
     /// SPI bus
@@ -116,6 +120,7 @@ pub struct ADIN1110<SPI> {
 }
 
 impl<SPI: SpiDevice> ADIN1110<SPI> {
+    /// Create a new ADIN1110 instance.
     pub fn new(spi: SPI, spi_crc: bool, append_fcs_on_tx: bool) -> Self {
         Self {
             spi,
@@ -124,6 +129,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         }
     }
 
+    /// Read a SPI register
     pub async fn read_reg(&mut self, reg: sr) -> AEResult<u32, SPI::Error> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
@@ -162,6 +168,7 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
         Ok(value)
     }
 
+    /// Write a SPI register
     pub async fn write_reg(&mut self, reg: sr, value: u32) -> AEResult<(), SPI::Error> {
         let mut tx_buf = Vec::<u8, 16>::new();
 
@@ -427,9 +434,9 @@ impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<SPI> {
     }
 }
 
-/// Background runner for the ADIN110.
+/// Background runner for the ADIN1110.
 ///
-/// You must call `.run()` in a background task for the ADIN1100 to operate.
+/// You must call `.run()` in a background task for the ADIN1110 to operate.
 pub struct Runner<'d, SPI, INT, RST> {
     mac: ADIN1110<SPI>,
     ch: ch::Runner<'d, MTU>,
