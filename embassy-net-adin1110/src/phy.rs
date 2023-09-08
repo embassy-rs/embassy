@@ -111,6 +111,7 @@ pub mod RegsC45 {
     }
 }
 
+/// 10-BASE-T1x PHY functions.
 pub struct Phy10BaseT1x(u8);
 
 impl Default for Phy10BaseT1x {
