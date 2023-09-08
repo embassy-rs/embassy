@@ -365,7 +365,7 @@ impl<D: Driver + 'static> Stack<D> {
         v4_up || v6_up
     }
 
-    /// Get for the network stack to obtainer a valid IP configuration.
+    /// Wait for the network stack to obtaine a valid IP configuration.
     pub async fn wait_config_up(&self) {
         if self.is_config_up() {
             return;
