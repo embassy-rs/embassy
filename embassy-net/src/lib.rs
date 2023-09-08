@@ -172,6 +172,7 @@ impl Config {
     ///
     /// # Example
     /// ```rust
+    /// # use embassy_net::Config;
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
     #[cfg(feature = "dhcpv4")]
@@ -365,24 +366,52 @@ impl<D: Driver + 'static> Stack<D> {
         v4_up || v6_up
     }
 
-    /// Wait for the network stack to obtaine a valid IP configuration.
+    /// Wait for the network stack to obtain a valid IP configuration.
+    /// Returns instantly if [`Stack::is_config_up`] returns `true`.
+    ///
+    /// ## Watch out:
+    /// The Future is polled only when the [`Stack`] is running,
+    /// e.g. call `spawner.spawn(net_task(stack))`.
+    ///
+    /// `await`ing before will never yield!
+    ///
+    /// ## Example
+    /// ```ignore
+    /// let config = embassy_net::Config::dhcpv4(Default::default());
+    ///// Init network stack
+    /// let stack = &*make_static!(embassy_net::Stack::new(
+    ///    device,
+    ///    config,
+    ///    make_static!(embassy_net::StackResources::<2>::new()),
+    ///    seed
+    /// ));
+    /// // Launch network task
+    /// spawner.spawn(net_task(stack)).unwrap();
+    /// // Wait for DHCP config
+    /// stack.wait_config_up().await;
+    /// // use the network stack
+    /// // ...
+    /// ```
     pub async fn wait_config_up(&self) {
+        // If the config is up already, we can return immediately.
         if self.is_config_up() {
             return;
         }
 
         poll_fn(|cx| {
-            self.with_mut(|_, i| {
-                debug!("poll_fn called");
-                if self.is_config_up() {
-                    debug!("poll_fn ready");
-                    Poll::Ready(())
-                } else {
-                    debug!("poll_fn pending");
+            if self.is_config_up() {
+                Poll::Ready(())
+            } else {
+                // If the config is not up, we register a waker that is woken up
+                // when a config is applied (static or DHCP).
+                trace!("Waiting for config up");
+
+                self.with_mut(|_, i| {
                     i.config_waker.register(cx.waker());
-                    Poll::Pending
-                }
-            })
+                });
+
+                Poll::Pending
+            }
         })
         .await;
     }
@@ -731,7 +760,7 @@ impl<D: Driver + 'static> Inner<D> {
             .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
             .update_servers(&dns_servers[..]);
 
-        s.waker.wake();
+        self.config_waker.wake();
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
