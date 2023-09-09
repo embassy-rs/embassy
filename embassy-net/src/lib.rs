@@ -172,6 +172,7 @@ impl Config {
     ///
     /// # Example
     /// ```rust
+    /// # use embassy_net::Config;
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
     #[cfg(feature = "dhcpv4")]
@@ -226,6 +227,7 @@ struct Inner<D: Driver> {
     static_v6: Option<StaticConfigV6>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
+    config_waker: WakerRegistration,
     #[cfg(feature = "dns")]
     dns_socket: SocketHandle,
     #[cfg(feature = "dns")]
@@ -297,6 +299,7 @@ impl<D: Driver + 'static> Stack<D> {
             static_v6: None,
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
+            config_waker: WakerRegistration::new(),
             #[cfg(feature = "dns")]
             dns_socket: socket.sockets.add(dns::Socket::new(
                 &[],
@@ -361,6 +364,55 @@ impl<D: Driver + 'static> Stack<D> {
         }
 
         v4_up || v6_up
+    }
+
+    /// Wait for the network stack to obtain a valid IP configuration.
+    ///
+    /// ## Notes:
+    /// - Ensure [`Stack::run`] has been called before using this function.
+    ///
+    /// - This function may never return (e.g. if no configuration is obtained through DHCP).
+    /// The caller is supposed to handle a timeout for this case.
+    ///
+    /// ## Example
+    /// ```ignore
+    /// let config = embassy_net::Config::dhcpv4(Default::default());
+    ///// Init network stack
+    /// let stack = &*make_static!(embassy_net::Stack::new(
+    ///    device,
+    ///    config,
+    ///    make_static!(embassy_net::StackResources::<2>::new()),
+    ///    seed
+    /// ));
+    /// // Launch network task that runs `stack.run().await`
+    /// spawner.spawn(net_task(stack)).unwrap();
+    /// // Wait for DHCP config
+    /// stack.wait_config_up().await;
+    /// // use the network stack
+    /// // ...
+    /// ```
+    pub async fn wait_config_up(&self) {
+        // If the config is up already, we can return immediately.
+        if self.is_config_up() {
+            return;
+        }
+
+        poll_fn(|cx| {
+            if self.is_config_up() {
+                Poll::Ready(())
+            } else {
+                // If the config is not up, we register a waker that is woken up
+                // when a config is applied (static or DHCP).
+                trace!("Waiting for config up");
+
+                self.with_mut(|_, i| {
+                    i.config_waker.register(cx.waker());
+                });
+
+                Poll::Pending
+            }
+        })
+        .await;
     }
 
     /// Get the current IPv4 configuration.
@@ -706,6 +758,8 @@ impl<D: Driver + 'static> Inner<D> {
         s.sockets
             .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
             .update_servers(&dns_servers[..]);
+
+        self.config_waker.wake();
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
