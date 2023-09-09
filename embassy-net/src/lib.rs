@@ -371,7 +371,7 @@ impl<D: Driver + 'static> Stack<D> {
     /// ## Notes:
     /// - Ensure [`Stack::run`] has been called before using this function.
     ///
-    /// - This function may never yield (e.g. if no configuration is obtained through DHCP).
+    /// - This function may never return (e.g. if no configuration is obtained through DHCP).
     /// The caller is supposed to handle a timeout for this case.
     ///
     /// ## Example
