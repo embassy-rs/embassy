@@ -367,13 +367,12 @@ impl<D: Driver + 'static> Stack<D> {
     }
 
     /// Wait for the network stack to obtain a valid IP configuration.
-    /// Returns instantly if [`Stack::is_config_up`] returns `true`.
     ///
-    /// ## Watch out:
-    /// The Future is polled only when the [`Stack`] is running,
-    /// e.g. call `spawner.spawn(net_task(stack))`.
+    /// ## Notes:
+    /// - Ensure [`Stack::run`] has been called before using this function.
     ///
-    /// `await`ing before will never yield!
+    /// - This function may never yield (e.g. if no configuration is obtained through DHCP).
+    /// The caller is supposed to handle a timeout for this case.
     ///
     /// ## Example
     /// ```ignore
@@ -385,7 +384,7 @@ impl<D: Driver + 'static> Stack<D> {
     ///    make_static!(embassy_net::StackResources::<2>::new()),
     ///    seed
     /// ));
-    /// // Launch network task
+    /// // Launch network task that runs `stack.run().await`
     /// spawner.spawn(net_task(stack)).unwrap();
     /// // Wait for DHCP config
     /// stack.wait_config_up().await;
