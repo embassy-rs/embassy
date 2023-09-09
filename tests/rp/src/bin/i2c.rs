@@ -5,10 +5,9 @@
 use defmt::{assert_eq, info, panic, unwrap};
 use embassy_executor::Executor;
 use embassy_executor::_export::StaticCell;
-use embassy_rp::bind_interrupts;
-use embassy_rp::i2c::{self, Async, InterruptHandler};
 use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::peripherals::{I2C0, I2C1};
+use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 use embedded_hal_1::i2c::Operation;
 use embedded_hal_async::i2c::I2c;
 use {defmt_rtt as _, panic_probe as _, panic_probe as _, panic_probe as _};
@@ -20,14 +19,14 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 use crate::i2c::AbortReason;
 
 bind_interrupts!(struct Irqs {
-    I2C0_IRQ => InterruptHandler<I2C0>;
-    I2C1_IRQ => InterruptHandler<I2C1>;
+    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
+    I2C1_IRQ => i2c::InterruptHandler<I2C1>;
 });
 
 const DEV_ADDR: u8 = 0x42;
 
 #[embassy_executor::task]
-async fn device_task(mut dev: i2c::I2cDevice<'static, I2C1>) -> ! {
+async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
     info!("Device start");
 
     let mut count = 0xD0;
@@ -35,33 +34,33 @@ async fn device_task(mut dev: i2c::I2cDevice<'static, I2C1>) -> ! {
     loop {
         let mut buf = [0u8; 128];
         match dev.listen(&mut buf).await {
-            Ok(i2c::Command::GeneralCall(len)) => {
+            Ok(i2c_slave::Command::GeneralCall(len)) => {
                 assert_eq!(buf[..len], [0xCA, 0x11], "recieving the general call failed");
                 info!("General Call - OK");
             }
-            Ok(i2c::Command::Read) => {
+            Ok(i2c_slave::Command::Read) => {
                 loop {
                     //info!("Responding to read, count {}", count);
                     let a = dev.respond_to_read(&[count]).await;
                     //info!("x {}", a);
                     match a {
                         Ok(x) => match x {
-                            i2c::ReadStatus::Done => break,
-                            i2c::ReadStatus::NeedMoreBytes => count += 1,
-                            i2c::ReadStatus::LeftoverBytes(x) => {
+                            i2c_slave::ReadStatus::Done => break,
+                            i2c_slave::ReadStatus::NeedMoreBytes => count += 1,
+                            i2c_slave::ReadStatus::LeftoverBytes(x) => {
                                 info!("tried to write {} extra bytes", x);
                                 break;
                             }
                         },
                         Err(e) => match e {
-                            embassy_rp::i2c::Error::Abort(AbortReason::Other(n)) => panic!("Other {:b}", n),
+                            embassy_rp::i2c_slave::Error::Abort(AbortReason::Other(n)) => panic!("Other {:b}", n),
                             _ => panic!("{}", e),
                         },
                     }
                 }
                 count += 1;
             }
-            Ok(i2c::Command::Write(len)) => match len {
+            Ok(i2c_slave::Command::Write(len)) => match len {
                 1 => {
                     assert_eq!(buf[..len], [0xAA], "recieving a single byte failed");
                     info!("Single Byte Write - OK")
@@ -83,7 +82,7 @@ async fn device_task(mut dev: i2c::I2cDevice<'static, I2C1>) -> ! {
                 }
                 _ => panic!("Invalid write length {}", len),
             },
-            Ok(i2c::Command::WriteRead(len)) => {
+            Ok(i2c_slave::Command::WriteRead(len)) => {
                 info!("device recieved write read: {:x}", buf[..len]);
                 match buf[0] {
                     0xC2 => {
@@ -101,7 +100,7 @@ async fn device_task(mut dev: i2c::I2cDevice<'static, I2C1>) -> ! {
                 }
             }
             Err(e) => match e {
-                embassy_rp::i2c::Error::Abort(AbortReason::Other(n)) => panic!("Other {:b}", n),
+                embassy_rp::i2c_slave::Error::Abort(AbortReason::Other(n)) => panic!("Other {:b}", n),
                 _ => panic!("{}", e),
             },
         }
@@ -109,7 +108,7 @@ async fn device_task(mut dev: i2c::I2cDevice<'static, I2C1>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn controller_task(mut con: i2c::I2c<'static, I2C0, Async>) {
+async fn controller_task(mut con: i2c::I2c<'static, I2C0, i2c::Async>) {
     info!("Device start");
 
     {
@@ -194,9 +193,9 @@ fn main() -> ! {
 
     let d_sda = p.PIN_19;
     let d_scl = p.PIN_18;
-    let mut config = i2c::DeviceConfig::default();
+    let mut config = i2c_slave::Config::default();
     config.addr = DEV_ADDR as u16;
-    let device = i2c::I2cDevice::new(p.I2C1, d_sda, d_scl, Irqs, config);
+    let device = i2c_slave::I2cSlave::new(p.I2C1, d_sda, d_scl, Irqs, config);
 
     spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
         let executor1 = EXECUTOR1.init(Executor::new());
