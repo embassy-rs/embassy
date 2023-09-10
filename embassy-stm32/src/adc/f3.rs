@@ -7,8 +7,7 @@ use crate::Peripheral;
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
-// No calibration data for F103, voltage should be 1.2v
-pub const VREF_INT: u32 = 1200;
+pub const VREF_INT: u32 = 1230;
 
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
@@ -102,16 +101,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         while !T::regs().isr().read().eoc() && !T::regs().isr().read().eos() {}
         T::regs().isr().write(|_| {});
 
-        T::regs().dr().read().0 as u16
+        T::regs().dr().read().rdata()
     }
 
     pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
-        // pin.set_as_analog();
-
         Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
         // Configure the channel to sample
-        T::regs().sqr3().write(|w| w.set_sq(0, pin.channel()));
+        T::regs().sqr1().write(|w| w.set_sq(0, pin.channel()));
         self.convert()
     }
 
