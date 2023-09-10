@@ -287,6 +287,18 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         }
     }
 
+    /// Respond to a master read, then fill any remaining read bytes with `fill`
+    pub async fn respond_and_fill(&mut self, buffer: &[u8], fill: u8) -> Result<ReadStatus, Error> {
+        let resp_stat = self.respond_to_read(buffer).await?;
+
+        if resp_stat == ReadStatus::NeedMoreBytes {
+            self.respond_till_stop(fill).await?;
+            Ok(ReadStatus::Done)
+        } else {
+            Ok(resp_stat)
+        }
+    }
+
     #[inline(always)]
     fn read_and_clear_abort_reason(&mut self) -> Result<(), Error> {
         let p = T::regs();
