@@ -4,7 +4,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::Adc;
+use embassy_stm32::adc::{Adc, VREF_INT};
 use embassy_stm32::rcc::{ADCClock, ADCPrescaler};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
@@ -20,15 +20,28 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut p = embassy_stm32::init(config);
 
+    info!("create adc...");
+
     let mut adc = Adc::new(p.ADC1, &mut Delay);
 
-    let mut vrefint = adc.enable_vref(&mut Delay);
+    info!("enable vrefint...");
 
-    let _vref = adc.read(&mut vrefint);
-    let _pin = adc.read(&mut p.PA0);
+    let mut vrefint = adc.enable_vref(&mut Delay);
+    let mut temperature = adc.enable_temperature();
 
     loop {
-        info!("Hello World!");
+        let vref = adc.read(&mut vrefint);
+        info!("read vref: {}", vref);
+
+        let temp = adc.read(&mut temperature);
+        info!("read temperature: {}", temp);
+
+        let pin = adc.read(&mut p.PA0);
+        info!("read pin: {}", pin);
+
+        let pin_mv = pin as u32 * VREF_INT as u32 / vref as u32;
+        info!("computed pin mv: {}", pin_mv);
+
         Timer::after(Duration::from_secs(1)).await;
     }
 }
