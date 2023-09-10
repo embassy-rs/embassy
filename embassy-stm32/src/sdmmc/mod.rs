@@ -33,6 +33,8 @@ impl<T: Instance> InterruptHandler<T> {
             w.set_dtimeoutie(enable);
             w.set_dataendie(enable);
 
+            #[cfg(sdmmc_v1)]
+            w.set_stbiterre(enable);
             #[cfg(sdmmc_v2)]
             w.set_dabortie(enable);
         });
@@ -102,6 +104,8 @@ pub enum Error {
     BadClock,
     SignalingSwitchFailed,
     PeripheralBusy,
+    #[cfg(sdmmc_v1)]
+    StBitErr,
 }
 
 /// A SD command
@@ -707,9 +711,15 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
-            } else if status.dtimeout() {
+            }
+            if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
-            } else if status.dataend() {
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
                 return Poll::Ready(Ok(()));
             }
             Poll::Pending
@@ -782,9 +792,15 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
-            } else if status.dtimeout() {
+            }
+            if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
-            } else if status.dataend() {
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
                 return Poll::Ready(Ok(()));
             }
             Poll::Pending
@@ -836,6 +852,8 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
             w.set_dataendc(true);
             w.set_dbckendc(true);
             w.set_sdioitc(true);
+            #[cfg(sdmmc_v1)]
+            w.set_stbiterrc(true);
 
             #[cfg(sdmmc_v2)]
             {
@@ -873,9 +891,15 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
-            } else if status.dtimeout() {
+            }
+            if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
-            } else if status.dataend() {
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
                 return Poll::Ready(Ok(()));
             }
             Poll::Pending
@@ -1156,9 +1180,15 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
-            } else if status.dtimeout() {
+            }
+            if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
-            } else if status.dataend() {
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
                 return Poll::Ready(Ok(()));
             }
             Poll::Pending
@@ -1207,9 +1237,15 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
-            } else if status.dtimeout() {
+            }
+            if status.dtimeout() {
                 return Poll::Ready(Err(Error::Timeout));
-            } else if status.dataend() {
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                return Poll::Ready(Err(Error::StBitErr));
+            }
+            if status.dataend() {
                 return Poll::Ready(Ok(()));
             }
             Poll::Pending
