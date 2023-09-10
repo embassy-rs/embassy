@@ -40,10 +40,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
             }
             Ok(i2c_slave::Command::Read) => {
                 loop {
-                    //info!("Responding to read, count {}", count);
-                    let a = dev.respond_to_read(&[count]).await;
-                    //info!("x {}", a);
-                    match a {
+                    match dev.respond_to_read(&[count]).await {
                         Ok(x) => match x {
                             i2c_slave::ReadStatus::Done => break,
                             i2c_slave::ReadStatus::NeedMoreBytes => count += 1,
