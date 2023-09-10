@@ -60,7 +60,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     fn freq() -> Hertz {
-        unsafe { get_freqs() }.adc
+        unsafe { get_freqs() }.adc.unwrap()
     }
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {

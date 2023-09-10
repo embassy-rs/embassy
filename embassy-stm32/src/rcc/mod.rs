@@ -71,14 +71,14 @@ pub struct Clocks {
     #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
     pub pllsai: Option<Hertz>,
 
-    #[cfg(stm32f1)]
-    pub adc: Hertz,
-
-    #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_f3, rcc_g4))]
+    #[cfg(any(rcc_f1, rcc_f100, rcc_f1cl, rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_f3, rcc_g4))]
     pub adc: Option<Hertz>,
 
     #[cfg(any(rcc_f3, rcc_g4))]
     pub adc34: Option<Hertz>,
+
+    #[cfg(stm32f334)]
+    pub hrtim: Option<Hertz>,
 
     #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
     /// Set only if the lsi or lse is configured, indicates stop is supported
