@@ -189,42 +189,10 @@ impl<'d, T: Instance> Spim<'d, T> {
         // Enable SPIM instance.
         r.enable.write(|w| w.enable().enabled());
 
-        // Configure mode.
-        let mode = config.mode;
-        r.config.write(|w| {
-            match mode {
-                MODE_0 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().leading();
-                }
-                MODE_1 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().trailing();
-                }
-                MODE_2 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().leading();
-                }
-                MODE_3 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().trailing();
-                }
-            }
+        let mut spim = Self { _p: spim };
 
-            w
-        });
-
-        // Configure frequency.
-        let frequency = config.frequency;
-        r.frequency.write(|w| w.frequency().variant(frequency));
-
-        // Set over-read character
-        let orc = config.orc;
-        r.orc.write(|w| unsafe { w.orc().bits(orc) });
+        // Apply runtime peripheral configuration
+        Self::set_config(&mut spim, &config);
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -232,7 +200,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _p: spim }
+        spim
     }
 
     fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
