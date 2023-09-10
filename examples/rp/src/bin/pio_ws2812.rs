@@ -138,8 +138,9 @@ async fn main(_spawner: Spawner) {
     const NUM_LEDS: usize = 1;
     let mut data = [RGB8::default(); NUM_LEDS];
 
-    // For the thing plus, use pin 8
-    // For the feather, use pin 16
+    // Common neopixel pins:
+    // Thing plus: 8
+    // Adafruit Feather: 16;  Adafruit Feather+RFM95: 4
     let mut ws2812 = Ws2812::new(&mut common, sm0, p.DMA_CH0, p.PIN_16);
 
     // Loop forever making RGB values and pushing them out to the WS2812.
@@ -152,7 +153,7 @@ async fn main(_spawner: Spawner) {
             }
             ws2812.write(&data).await;
 
-            Timer::after(Duration::from_micros(5)).await;
+            Timer::after(Duration::from_millis(10)).await;
         }
     }
 }
