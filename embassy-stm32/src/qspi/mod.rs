@@ -183,14 +183,17 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
 
         while T::REGS.sr().read().busy() {}
 
-        // Apply precautionary steps according to the errata...
-        T::REGS.cr().write_value(Cr(0));
-        while T::REGS.sr().read().busy() {}
-        T::REGS.cr().write_value(Cr(0xFF000001));
-        T::REGS.ccr().write(|w| w.set_frcm(true));
-        T::REGS.ccr().write(|w| w.set_frcm(true));
-        T::REGS.cr().write_value(Cr(0));
-        while T::REGS.sr().read().busy() {}
+        #[cfg(stm32h7)]
+        {
+            // Apply precautionary steps according to the errata...
+            T::REGS.cr().write_value(Cr(0));
+            while T::REGS.sr().read().busy() {}
+            T::REGS.cr().write_value(Cr(0xFF000001));
+            T::REGS.ccr().write(|w| w.set_frcm(true));
+            T::REGS.ccr().write(|w| w.set_frcm(true));
+            T::REGS.cr().write_value(Cr(0));
+            while T::REGS.sr().read().busy() {}
+        }
 
         T::REGS.cr().modify(|w| {
             w.set_en(true);
