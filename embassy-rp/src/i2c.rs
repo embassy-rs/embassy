@@ -3,11 +3,9 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
 use pac::i2c;
 
-use super::{
-    i2c_reserved_addr, AbortReason, Async, Blocking, Error, Instance, InterruptHandler, Mode, SclPin, SdaPin, FIFO_SIZE,
-};
 use crate::gpio::sealed::Pin;
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Binding, Interrupt};
@@ -46,7 +44,6 @@ pub enum Error {
 
 #[non_exhaustive]
 #[derive(Copy, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     pub frequency: u32,
 }
@@ -304,6 +301,20 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
     pub async fn write_async(&mut self, addr: u16, bytes: impl IntoIterator<Item = u8>) -> Result<(), Error> {
         Self::setup(addr)?;
         self.write_async_internal(bytes, true).await
+    }
+}
+
+pub struct InterruptHandler<T: Instance> {
+    _uart: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    // Mask interrupts and wake any task waiting for this interrupt
+    unsafe fn on_interrupt() {
+        let i2c = T::regs();
+        i2c.ic_intr_mask().write_value(pac::i2c::regs::IcIntrMask::default());
+
+        T::waker().wake();
     }
 }
 
@@ -729,8 +740,6 @@ mod nightly {
         }
     }
 }
-<<<<<<< HEAD:embassy-rp/src/i2c/i2c.rs
-=======
 
 pub fn i2c_reserved_addr(addr: u16) -> bool {
     ((addr & 0x78) == 0 || (addr & 0x78) == 0x78) && addr != 0
