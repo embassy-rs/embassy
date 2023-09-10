@@ -16,6 +16,7 @@ pub mod flash;
 mod float;
 pub mod gpio;
 pub mod i2c;
+pub mod i2c_slave;
 pub mod multicore;
 pub mod pwm;
 mod reset;
