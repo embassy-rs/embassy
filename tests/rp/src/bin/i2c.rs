@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
+teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert_eq, info, panic, unwrap};
 use embassy_executor::Executor;
