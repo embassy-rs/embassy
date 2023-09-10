@@ -29,6 +29,8 @@ pub enum BindError {
 pub enum Error {
     /// No route to host.
     NoRoute,
+    /// Socket not bound to an outgoing port.
+    SocketNotBound,
 }
 
 /// An UDP socket.
@@ -155,7 +157,14 @@ impl<'a> UdpSocket<'a> {
                 s.register_send_waker(cx.waker());
                 Poll::Pending
             }
-            Err(udp::SendError::Unaddressable) => Poll::Ready(Err(Error::NoRoute)),
+            Err(udp::SendError::Unaddressable) => {
+                // If no sender/outgoing port is specified, there is not really "no route"
+                if s.endpoint().port == 0 {
+                    Poll::Ready(Err(Error::SocketNotBound))
+                } else {
+                    Poll::Ready(Err(Error::NoRoute))
+                }
+            }
         })
     }
 
