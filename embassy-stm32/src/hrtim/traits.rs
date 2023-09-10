@@ -104,7 +104,13 @@ foreach_interrupt! {
                 use crate::rcc::sealed::RccPeripheral;
 
                 let f = frequency.0;
+                #[cfg(not(stm32f334))]
                 let timer_f = Self::frequency().0;
+                #[cfg(stm32f334)]
+                let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(
+                    Self::frequency()
+                ).0;
+
                 let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
                 let psc = if Self::regs().isr().read().dllrdy() {
                     Prescaler::compute_min_high_res(psc_min)
@@ -125,7 +131,13 @@ foreach_interrupt! {
                 use crate::rcc::sealed::RccPeripheral;
 
                 let f = frequency.0;
+                #[cfg(not(stm32f334))]
                 let timer_f = Self::frequency().0;
+                #[cfg(stm32f334)]
+                let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(
+                    Self::frequency()
+                ).0;
+
                 let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
                 let psc = if Self::regs().isr().read().dllrdy() {
                     Prescaler::compute_min_high_res(psc_min)

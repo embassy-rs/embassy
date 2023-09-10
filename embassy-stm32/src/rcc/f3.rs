@@ -1,3 +1,5 @@
+#[cfg(rcc_f3)]
+use crate::pac::adccommon::vals::Ckmode;
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::{Adcpres, Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
 use crate::pac::{FLASH, RCC};
@@ -10,44 +12,80 @@ pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(40_000);
 
-#[repr(u16)]
-#[derive(Clone, Copy)]
-pub enum ADCPrescaler {
-    Div1 = 1,
-    Div2 = 2,
-    Div4 = 4,
-    Div6 = 6,
-    Div8 = 8,
-    Div12 = 12,
-    Div16 = 16,
-    Div32 = 32,
-    Div64 = 64,
-    Div128 = 128,
-    Div256 = 256,
+impl From<AdcClockSource> for Adcpres {
+    fn from(value: AdcClockSource) -> Self {
+        match value {
+            AdcClockSource::PllDiv1 => Adcpres::DIV1,
+            AdcClockSource::PllDiv2 => Adcpres::DIV2,
+            AdcClockSource::PllDiv4 => Adcpres::DIV4,
+            AdcClockSource::PllDiv6 => Adcpres::DIV6,
+            AdcClockSource::PllDiv8 => Adcpres::DIV8,
+            AdcClockSource::PllDiv12 => Adcpres::DIV12,
+            AdcClockSource::PllDiv16 => Adcpres::DIV16,
+            AdcClockSource::PllDiv32 => Adcpres::DIV32,
+            AdcClockSource::PllDiv64 => Adcpres::DIV64,
+            AdcClockSource::PllDiv128 => Adcpres::DIV128,
+            AdcClockSource::PllDiv256 => Adcpres::DIV256,
+            _ => unreachable!(),
+        }
+    }
 }
 
-impl From<ADCPrescaler> for Adcpres {
-    fn from(value: ADCPrescaler) -> Self {
+#[cfg(rcc_f3)]
+impl From<AdcClockSource> for Ckmode {
+    fn from(value: AdcClockSource) -> Self {
         match value {
-            ADCPrescaler::Div1 => Adcpres::DIV1,
-            ADCPrescaler::Div2 => Adcpres::DIV2,
-            ADCPrescaler::Div4 => Adcpres::DIV4,
-            ADCPrescaler::Div6 => Adcpres::DIV6,
-            ADCPrescaler::Div8 => Adcpres::DIV8,
-            ADCPrescaler::Div12 => Adcpres::DIV12,
-            ADCPrescaler::Div16 => Adcpres::DIV16,
-            ADCPrescaler::Div32 => Adcpres::DIV32,
-            ADCPrescaler::Div64 => Adcpres::DIV64,
-            ADCPrescaler::Div128 => Adcpres::DIV128,
-            ADCPrescaler::Div256 => Adcpres::DIV256,
+            AdcClockSource::BusDiv1 => Ckmode::SYNCDIV1,
+            AdcClockSource::BusDiv2 => Ckmode::SYNCDIV2,
+            AdcClockSource::BusDiv4 => Ckmode::SYNCDIV4,
+            _ => unreachable!(),
         }
     }
 }
 
 #[derive(Clone, Copy)]
-pub enum ADCClock {
-    AHB(ADCPrescaler),
-    PLL(ADCPrescaler),
+pub enum AdcClockSource {
+    PllDiv1 = 1,
+    PllDiv2 = 2,
+    PllDiv4 = 4,
+    PllDiv6 = 6,
+    PllDiv8 = 8,
+    PllDiv12 = 12,
+    PllDiv16 = 16,
+    PllDiv32 = 32,
+    PllDiv64 = 64,
+    PllDiv128 = 128,
+    PllDiv256 = 256,
+    BusDiv1,
+    BusDiv2,
+    BusDiv4,
+}
+
+impl AdcClockSource {
+    pub fn is_bus(&self) -> bool {
+        match self {
+            Self::BusDiv1 => true,
+            Self::BusDiv2 => true,
+            Self::BusDiv4 => true,
+            _ => false,
+        }
+    }
+
+    pub fn bus_div(&self) -> u32 {
+        match self {
+            Self::BusDiv1 => 1,
+            Self::BusDiv2 => 2,
+            Self::BusDiv4 => 4,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub enum HrtimClockSource {
+    #[default]
+    BusClk,
+    PllClk,
 }
 
 /// Clocks configutation
@@ -79,11 +117,13 @@ pub struct Config {
     #[cfg(rcc_f3)]
     /// ADC clock setup
     /// - For AHB, a psc of 4 or less must be used
-    pub adc: Option<ADCClock>,
+    pub adc: Option<AdcClockSource>,
     #[cfg(rcc_f3)]
     /// ADC clock setup
     /// - For AHB, a psc of 4 or less must be used
-    pub adc34: Option<ADCClock>,
+    pub adc34: Option<AdcClockSource>,
+    #[cfg(stm32f334)]
+    pub hrtim: HrtimClockSource,
 }
 
 // Information required to setup the PLL clock
@@ -197,44 +237,6 @@ pub(crate) unsafe fn init(config: Config) {
         });
     }
 
-    #[cfg(rcc_f3)]
-    let adc = config.adc.map(|adc| match adc {
-        ADCClock::PLL(psc) => RCC.cfgr2().modify(|w| {
-            // Make sure that we're using the PLL
-            pll_config.unwrap();
-            w.set_adc12pres(psc.into());
-
-            Hertz(sysclk / psc as u32)
-        }),
-        ADCClock::AHB(psc) => {
-            assert!(psc as u16 <= 4);
-            assert!(!(psc as u16 == 1 && hpre_bits != Hpre::DIV1));
-
-            // To select this scheme, bits CKMODE[1:0] of the ADCx_CCR register must be
-            // different from “00”.
-            todo!();
-        }
-    });
-
-    #[cfg(rcc_f3)]
-    let adc34 = config.adc34.map(|adc| match adc {
-        ADCClock::PLL(psc) => RCC.cfgr2().modify(|w| {
-            // Make sure that we're using the PLL
-            pll_config.unwrap();
-            w.set_adc34pres(psc.into());
-
-            Hertz(sysclk / psc as u32)
-        }),
-        ADCClock::AHB(psc) => {
-            assert!(psc as u16 <= 4);
-            assert!(!(psc as u16 == 1 && hpre_bits != Hpre::DIV1));
-
-            // To select this scheme, bits CKMODE[1:0] of the ADCx_CCR register must be
-            // different from “00”.
-            todo!();
-        }
-    });
-
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
     RCC.cfgr().modify(|w| {
@@ -257,6 +259,61 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
+    #[cfg(rcc_f3)]
+    let adc = config.adc.map(|adc| {
+        if !adc.is_bus() {
+            RCC.cfgr2().modify(|w| {
+                // Make sure that we're using the PLL
+                pll_config.unwrap();
+                w.set_adc12pres(adc.into());
+
+                Hertz(sysclk / adc as u32)
+            })
+        } else {
+            crate::pac::ADC_COMMON.ccr().modify(|w| {
+                assert!(!(adc.bus_div() == 1 && hpre_bits != Hpre::DIV1));
+
+                w.set_ckmode(adc.into());
+
+                Hertz(sysclk / adc.bus_div() as u32)
+            })
+        }
+    });
+
+    #[cfg(rcc_f3)]
+    let adc34 = config.adc.map(|adc| {
+        if !adc.is_bus() {
+            RCC.cfgr2().modify(|w| {
+                // Make sure that we're using the PLL
+                pll_config.unwrap();
+                w.set_adc12pres(adc.into());
+
+                Hertz(sysclk / adc as u32)
+            })
+        } else {
+            // TODO: need to use only if adc32_common is present
+
+            todo!()
+        }
+    });
+
+    #[cfg(stm32f334)]
+    let hrtim = match config.hrtim {
+        // Must be configured after the bus is ready, otherwise it won't work
+        HrtimClockSource::BusClk => None,
+        HrtimClockSource::PllClk => {
+            use crate::pac::rcc::vals::Timsw;
+
+            // Make sure that we're using the PLL
+            pll_config.unwrap();
+            assert!((pclk2 == sysclk) || (pclk2 * 2 == sysclk));
+
+            RCC.cfgr3().modify(|w| w.set_hrtim1sw(Timsw::PLL));
+
+            Some(Hertz(sysclk * 2))
+        }
+    };
+
     set_freqs(Clocks {
         sys: Hertz(sysclk),
         apb1: Hertz(pclk1),
@@ -268,6 +325,8 @@ pub(crate) unsafe fn init(config: Config) {
         adc: adc,
         #[cfg(rcc_f3)]
         adc34: adc34,
+        #[cfg(stm32f334)]
+        hrtim: hrtim,
     });
 }
 

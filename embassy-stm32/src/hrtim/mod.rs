@@ -8,6 +8,8 @@ pub use traits::Instance;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::AnyPin;
+#[cfg(stm32f334)]
+use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -158,17 +160,29 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
         T::enable();
         <T as crate::rcc::sealed::RccPeripheral>::reset();
 
-        //        // Enable and and stabilize the DLL
-        //        T::regs().dllcr().modify(|w| {
-        //            // w.set_calen(true);
-        //            // w.set_calrte(11);
-        //            w.set_cal(true);
-        //        });
-        //
-        //        debug!("wait for dll calibration");
-        //        while !T::regs().isr().read().dllrdy() {}
-        //
-        //        debug!("dll calibration complete");
+        #[cfg(stm32f334)]
+        if unsafe { get_freqs() }.hrtim.is_some() {
+            // Enable and and stabilize the DLL
+            T::regs().dllcr().modify(|w| {
+                w.set_cal(true);
+            });
+
+            trace!("hrtim: wait for dll calibration");
+            while !T::regs().isr().read().dllrdy() {}
+
+            trace!("hrtim: dll calibration complete");
+
+            // Enable periodic calibration
+            // Cal must be disabled before we can enable it
+            T::regs().dllcr().modify(|w| {
+                w.set_cal(false);
+            });
+
+            T::regs().dllcr().modify(|w| {
+                w.set_calen(true);
+                w.set_calrte(11);
+            });
+        }
 
         Self {
             _inner: tim,
