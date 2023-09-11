@@ -133,7 +133,7 @@ impl Ticker {
         Self { expires_at, duration }
     }
 
-    /// Resets the ticker back to its original state. 
+    /// Resets the ticker back to its original state.
     /// This causes the ticker to go back to zero, even if the current tick isn't over yet.
     pub fn reset(&mut self) {
         self.expires_at = Instant::now() + self.duration;
