@@ -48,8 +48,9 @@ kubectl cp webroot/static $POD:/data
 
 # build and upload stm32 last
 # so that it doesn't prevent other crates from getting docs updates when it breaks.
-rm -rf webroot
-docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
 
-POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
-kubectl cp webroot/crates $POD:/data
+# temporarily disabled because it's bringing CI down.
+#rm -rf webroot
+#docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
+#POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
+#kubectl cp webroot/crates $POD:/data
