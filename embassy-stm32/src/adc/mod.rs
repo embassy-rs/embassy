@@ -80,16 +80,20 @@ foreach_peripheral!(
 #[cfg(any(stm32h7, adc_f3, adc_v4))]
 foreach_peripheral!(
     (adc, ADC3) => {
-        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::sealed::Instance for peripherals::ADC3 {
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::ADC3
             }
             #[cfg(all(not(adc_f1), not(adc_v1)))]
+            #[allow(unreachable_code)]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 foreach_peripheral!{
                     (adccommon, ADC3_COMMON) => {
                         return crate::pac::ADC3_COMMON
+                    };
+                    // Fall back to ADC_COMMON if ADC3_COMMON does not exist
+                    (adccommon, ADC_COMMON) => {
+                        return crate::pac::ADC_COMMON
                     };
                 }
             }
@@ -100,20 +104,23 @@ foreach_peripheral!(
             }
         }
 
-        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::Instance for peripherals::ADC3 {}
     };
     (adc, ADC4) => {
-        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::sealed::Instance for peripherals::ADC4 {
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::ADC4
             }
             #[cfg(not(any(adc_f1, adc_v1)))]
+            #[allow(unreachable_code)]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 foreach_peripheral!{
                     (adccommon, ADC3_COMMON) => {
                         return crate::pac::ADC3_COMMON
+                    };
+                    // Fall back to ADC_COMMON if ADC3_COMMON does not exist
+                    (adccommon, ADC_COMMON) => {
+                        return crate::pac::ADC_COMMON
                     };
                 }
             }
@@ -124,11 +131,34 @@ foreach_peripheral!(
             }
         }
 
-        #[cfg(not(any(stm32g4x1, stm32g4x2, stm32g4x3, stm32g4x4)))]
         impl crate::adc::Instance for peripherals::ADC4 {}
     };
     (adc, ADC5) => {
+        impl crate::adc::sealed::Instance for peripherals::ADC5 {
+            fn regs() -> crate::pac::adc::Adc {
+                crate::pac::ADC5
+            }
+            #[cfg(not(any(adc_f1, adc_v1)))]
+            #[allow(unreachable_code)]
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
+                foreach_peripheral!{
+                    (adccommon, ADC3_COMMON) => {
+                        return crate::pac::ADC3_COMMON
+                    };
+                    // Fall back to ADC_COMMON if ADC3_COMMON does not exist
+                    (adccommon, ADC_COMMON) => {
+                        return crate::pac::ADC_COMMON
+                    };
+                }
+            }
 
+            #[cfg(adc_f3)]
+            fn frequency() -> crate::time::Hertz {
+                unsafe { crate::rcc::get_freqs() }.adc34.unwrap()
+            }
+        }
+
+        impl crate::adc::Instance for peripherals::ADC5 {}
     };
     (adc, $inst:ident) => {
         impl crate::adc::sealed::Instance for peripherals::$inst {

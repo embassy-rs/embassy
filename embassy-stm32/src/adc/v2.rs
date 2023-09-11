@@ -102,7 +102,7 @@ where
         let presc = Prescaler::from_pclk2(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
         T::regs().cr2().modify(|reg| {
-            reg.set_adon(crate::pac::adc::vals::Adon::ENABLED);
+            reg.set_adon(true);
         });
 
         delay.delay_us(ADC_POWERUP_TIME_US);
