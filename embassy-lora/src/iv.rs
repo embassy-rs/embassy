@@ -284,11 +284,7 @@ where
         self.busy.wait_for_low().await.map_err(|_| Busy)
     }
     async fn await_irq(&mut self) -> Result<(), RadioError> {
-        if self.board_type != BoardType::RpPicoWaveshareSx1262 {
-            self.dio1.wait_for_high().await.map_err(|_| DIO1)?;
-        } else {
-            self.dio1.wait_for_rising_edge().await.map_err(|_| DIO1)?;
-        }
+        self.dio1.wait_for_high().await.map_err(|_| DIO1)?;
         Ok(())
     }
 
