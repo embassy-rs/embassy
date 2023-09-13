@@ -81,6 +81,16 @@ fn main() {
         singletons.push(c.name.to_string());
     }
 
+    // Extra analog switch pins available on most H7 chips
+    #[cfg(feature = "split-pa0")]
+    singletons.push("PA0_C".into());
+    #[cfg(feature = "split-pa1")]
+    singletons.push("PA1_C".into());
+    #[cfg(feature = "split-pc2")]
+    singletons.push("PC2_C".into());
+    #[cfg(feature = "split-pc3")]
+    singletons.push("PC3_C".into());
+
     // ========
     // Handle time-driver-XXXX features.
 
@@ -670,7 +680,31 @@ fn main() {
                 let key = (regs.kind, pin.signal);
                 if let Some(tr) = signals.get(&key) {
                     let mut peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
+                    let pin_name = {
+                        #[allow(unused_mut)]
+                        let mut pin_name = pin.pin;
+
+                        #[cfg(not(feature = "split-pa0"))]
+                        if pin.pin == "PA0_C" {
+                            pin_name = "PA0";
+                        }
+                        #[cfg(not(feature = "split-pa1"))]
+                        if pin.pin == "PA1_C" {
+                            pin_name = "PA1";
+                        }
+
+                        #[cfg(not(feature = "split-pc2"))]
+                        if pin.pin == "PC2_C" {
+                            pin_name = "PC2";
+                        }
+                        #[cfg(not(feature = "split-pc3"))]
+                        if pin.pin == "PC3_C" {
+                            pin_name = "PC3";
+                        }
+
+                        format_ident!("{}", pin_name)
+                    };
+
                     let af = pin.af.unwrap_or(0);
 
                     // MCO is special
@@ -707,7 +741,30 @@ fn main() {
                     }
 
                     let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
+                    let pin_name = {
+                        #[allow(unused_mut)]
+                        let mut pin_name = pin.pin;
+
+                        #[cfg(not(feature = "split-pa0"))]
+                        if pin.pin == "PA0_C" {
+                            pin_name = "PA0";
+                        }
+                        #[cfg(not(feature = "split-pa1"))]
+                        if pin.pin == "PA1_C" {
+                            pin_name = "PA1";
+                        }
+
+                        #[cfg(not(feature = "split-pc2"))]
+                        if pin.pin == "PC2_C" {
+                            pin_name = "PC2";
+                        }
+                        #[cfg(not(feature = "split-pc3"))]
+                        if pin.pin == "PC3_C" {
+                            pin_name = "PC3";
+                        }
+
+                        format_ident!("{}", pin_name)
+                    };
 
                     // H7 has differential voltage measurements
                     let ch: Option<u8> = if pin.signal.starts_with("INP") {

@@ -180,6 +180,18 @@ pub fn init(config: Config) -> Peripherals {
     }
 
     unsafe {
+        #[cfg(feature = "_split-pins-enabled")]
+        crate::pac::SYSCFG.pmcr().modify(|pmcr| {
+            #[cfg(feature = "split-pa0")]
+            pmcr.set_pa0so(true);
+            #[cfg(feature = "split-pa1")]
+            pmcr.set_pa1so(true);
+            #[cfg(feature = "split-pc2")]
+            pmcr.set_pc2so(true);
+            #[cfg(feature = "split-pc3")]
+            pmcr.set_pc3so(true);
+        });
+
         gpio::init();
         dma::init(
             #[cfg(bdma)]
