@@ -134,6 +134,22 @@ time-driver-tim12 = ["_time-driver"]
 time-driver-tim15 = ["_time-driver"]
 
 
+#! ## Analog Switch Pins (Pxy_C) on STM32H7 series
+#! Get `PXY` and `PXY_C` singletons. Digital impls are on `PXY`, Analog impls are on `PXY_C`
+#! If disabled, you get only the `PXY` singleton. It has both digital and analog impls.
+
+## Split PA0
+split-pa0 = ["_split-pins-enabled"]
+## Split PA1
+split-pa1 = ["_split-pins-enabled"]
+## Split PC2
+split-pc2 = ["_split-pins-enabled"]
+## Split PC3
+split-pc3 = ["_split-pins-enabled"]
+
+## internal use only
+_split-pins-enabled = []
+
 #! ## Chip-selection features
 #! Select your chip by specifying the model as a feature, e.g. `stm32c011d6`.
 #! Check the `Cargo.toml` for the latest list of supported chips.
