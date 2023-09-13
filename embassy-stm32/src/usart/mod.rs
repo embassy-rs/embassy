@@ -545,6 +545,13 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             unsafe { rdr(r).read_volatile() };
             clear_interrupt_flags(r, sr);
 
+            if enable_idle_line_detection {
+                // enable idle interrupt
+                r.cr1().modify(|w| {
+                    w.set_idleie(true);
+                });
+            }
+
             compiler_fence(Ordering::SeqCst);
 
             let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
