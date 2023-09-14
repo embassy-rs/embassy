@@ -34,6 +34,8 @@ use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
 
+/// Task is eligible for allocation
+pub(crate) const STATE_ELIGIBLE: u32 = 0;
 /// Task is spawned (has a future)
 pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
 /// Task is in the executor run queue
@@ -116,7 +118,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     pub const fn new() -> Self {
         Self {
             raw: TaskHeader {
-                state: AtomicU32::new(0),
+                state: AtomicU32::new(STATE_ELIGIBLE),
                 run_queue_item: RunQueueItem::new(),
                 executor: SyncUnsafeCell::new(None),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
@@ -195,7 +197,12 @@ impl<F: Future + 'static> AvailableTask<F> {
     pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
         task.raw
             .state
-            .compare_exchange(0, STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(
+                STATE_ELIGIBLE,
+                STATE_SPAWNED | STATE_RUN_QUEUED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
             .ok()
             .map(|_| Self { task })
     }
