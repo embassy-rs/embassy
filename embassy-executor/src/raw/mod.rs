@@ -199,12 +199,7 @@ impl<F: Future + 'static> AvailableTask<F> {
     pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
         task.raw
             .state
-            .compare_exchange(
-                STATE_ELIGIBLE,
-                STATE_SPAWNED | STATE_RUN_QUEUED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
+            .compare_exchange(STATE_ELIGIBLE, STATE_CLAIMED, Ordering::AcqRel, Ordering::Acquire)
             .ok()
             .map(|_| Self { task })
     }
@@ -213,6 +208,11 @@ impl<F: Future + 'static> AvailableTask<F> {
         unsafe {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
+
+            self.task
+                .raw
+                .state
+                .store(STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::Release);
 
             let task = TaskRef::new(self.task);
 
