@@ -36,13 +36,15 @@ use super::SpawnToken;
 
 /// Task is eligible for allocation
 pub(crate) const STATE_ELIGIBLE: u32 = 0;
+/// Task is claimed (ineligible for allocation, but does not have a valid future)
+pub(crate) const STATE_CLAIMED: u32 = 1 << 0;
 /// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
+pub(crate) const STATE_SPAWNED: u32 = 1 << 1;
 /// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 2;
 /// Task is in the executor timer queue
 #[cfg(feature = "integrated-timers")]
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
+pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 3;
 
 /// Raw task header for use in task pointers.
 pub(crate) struct TaskHeader {
