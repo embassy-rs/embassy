@@ -1,4 +1,6 @@
+use super::bd::BackupDomain;
 pub use super::bus::{AHBPrescaler, APBPrescaler};
+use super::RtcClockSource;
 use crate::pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
 use crate::pac::RCC;
 #[cfg(crs)]
@@ -135,6 +137,7 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
     #[cfg(crs)]
     pub enable_hsi48: bool,
+    pub rtc: Option<RtcClockSource>,
 }
 
 impl Default for Config {
@@ -147,6 +150,7 @@ impl Default for Config {
             apb2_pre: APBPrescaler::NotDivided,
             #[cfg(crs)]
             enable_hsi48: false,
+            rtc: None,
         }
     }
 }
@@ -230,6 +234,10 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, Sw::PLL)
         }
     };
+
+    config.rtc.map(|rtc| {
+        BackupDomain::configure_ls(rtc, None);
+    });
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
