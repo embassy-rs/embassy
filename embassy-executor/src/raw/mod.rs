@@ -189,7 +189,7 @@ impl<F: Future + 'static> TaskStorage<F> {
 
 /// An uninitialized [`TaskStorage`].
 pub struct AvailableTask<F: Future + 'static> {
-    task: &'static TaskStorage<F>,
+    task: Option<&'static TaskStorage<F>>,
 }
 
 impl<F: Future + 'static> AvailableTask<F> {
@@ -201,21 +201,23 @@ impl<F: Future + 'static> AvailableTask<F> {
             .state
             .compare_exchange(STATE_ELIGIBLE, STATE_CLAIMED, Ordering::AcqRel, Ordering::Acquire)
             .ok()
-            .map(|_| Self { task })
+            .map(|_| Self { task: Some(task) })
     }
 
-    fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
+    fn initialize_impl<S>(mut self, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
-            self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
-            self.task.future.write_in_place(future);
+            let task = self.task.take().unwrap();
 
-            self.task
-                .raw
+            // initialize task body
+            task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
+            task.future.write_in_place(future);
+
+            // set state now that task is valid
+            task.raw
                 .state
                 .store(STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::Release);
 
-            let task = TaskRef::new(self.task);
-
+            let task = TaskRef::new(task);
             SpawnToken::new(task)
         }
     }
@@ -259,6 +261,18 @@ impl<F: Future + 'static> AvailableTask<F> {
         // This ONLY holds for `async fn` futures. The other `spawn` methods can be called directly
         // by the user, with arbitrary hand-implemented futures. This is why these return `SpawnToken<F>`.
         self.initialize_impl::<FutFn>(future)
+    }
+}
+
+impl<F: Future + 'static> Drop for AvailableTask<F> {
+    fn drop(&mut self) {
+        if let Some(task) = self.task {
+            // if AvailableTask is dropped before a task is spawned on it,
+            // set task back to STATE_ELIGIBLE so we can re-use the slot.
+            // This also ensures that we can re-use this slot even if the
+            // user callback in initialize_impl panics.
+            task.raw.state.store(STATE_ELIGIBLE, Ordering::Release);
+        }
     }
 }
 
