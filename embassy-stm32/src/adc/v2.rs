@@ -125,7 +125,7 @@ where
     /// [Adc::read_internal()] to perform conversion.
     pub fn enable_vrefint(&self) -> VrefInt {
         T::common_regs().ccr().modify(|reg| {
-            reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
+            reg.set_tsvrefe(true);
         });
 
         VrefInt {}
@@ -138,7 +138,7 @@ where
     /// temperature sensor will return vbat value.
     pub fn enable_temperature(&self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
-            reg.set_tsvrefe(crate::pac::adccommon::vals::Tsvrefe::ENABLED);
+            reg.set_tsvrefe(true);
         });
 
         Temperature {}
@@ -148,7 +148,7 @@ where
     /// [Adc::read_internal()] to perform conversion.
     pub fn enable_vbat(&self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
-            reg.set_vbate(crate::pac::adccommon::vals::Vbate::ENABLED);
+            reg.set_vbate(true);
         });
 
         Vbat {}
