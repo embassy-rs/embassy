@@ -17,8 +17,9 @@ impl<T> UninitCell<T> {
         &mut *self.as_mut_ptr()
     }
 
-    pub unsafe fn write(&self, val: T) {
-        ptr::write(self.as_mut_ptr(), val)
+    #[inline(never)]
+    pub unsafe fn write_in_place(&self, func: impl FnOnce() -> T) {
+        ptr::write(self.as_mut_ptr(), func())
     }
 
     pub unsafe fn drop_in_place(&self) {
