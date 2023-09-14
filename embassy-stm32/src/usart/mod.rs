@@ -1037,20 +1037,61 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eio {
-    use embedded_io_async::{ErrorType, Write};
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
 
-    use super::*;
+impl<T, TxDma, RxDma> embedded_io::ErrorType for Uart<'_, T, TxDma, RxDma>
+where
+    T: BasicInstance,
+{
+    type Error = Error;
+}
 
-    impl<T, TxDma, RxDma> ErrorType for Uart<'_, T, TxDma, RxDma>
-    where
-        T: BasicInstance,
-    {
-        type Error = Error;
+impl<T, TxDma> embedded_io::ErrorType for UartTx<'_, T, TxDma>
+where
+    T: BasicInstance,
+{
+    type Error = Error;
+}
+
+impl<T, TxDma, RxDma> embedded_io::Write for Uart<'_, T, TxDma, RxDma>
+where
+    T: BasicInstance,
+    TxDma: crate::usart::TxDma<T>,
+{
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(buf.len())
     }
 
-    impl<T, TxDma, RxDma> Write for Uart<'_, T, TxDma, RxDma>
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl<T, TxDma> embedded_io::Write for UartTx<'_, T, TxDma>
+where
+    T: BasicInstance,
+    TxDma: crate::usart::TxDma<T>,
+{
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eio {
+    use super::*;
+
+    impl<T, TxDma, RxDma> embedded_io_async::Write for Uart<'_, T, TxDma, RxDma>
     where
         T: BasicInstance,
         TxDma: super::TxDma<T>,
@@ -1065,14 +1106,7 @@ mod eio {
         }
     }
 
-    impl<T, TxDma> ErrorType for UartTx<'_, T, TxDma>
-    where
-        T: BasicInstance,
-    {
-        type Error = Error;
-    }
-
-    impl<T, TxDma> Write for UartTx<'_, T, TxDma>
+    impl<T, TxDma> embedded_io_async::Write for UartTx<'_, T, TxDma>
     where
         T: BasicInstance,
         TxDma: super::TxDma<T>,

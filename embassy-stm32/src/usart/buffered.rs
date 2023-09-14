@@ -410,12 +410,6 @@ impl<'d, T: BasicInstance> Drop for BufferedUartTx<'d, T> {
     }
 }
 
-impl embedded_io_async::Error for Error {
-    fn kind(&self) -> embedded_io_async::ErrorKind {
-        embedded_io_async::ErrorKind::Other
-    }
-}
-
 impl<'d, T: BasicInstance> embedded_io_async::ErrorType for BufferedUart<'d, T> {
     type Error = Error;
 }
