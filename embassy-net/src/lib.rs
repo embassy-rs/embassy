@@ -168,7 +168,7 @@ impl Config {
         }
     }
 
-    /// IPv6 configuration with dynamic addressing.
+    /// IPv4 configuration with dynamic addressing.
     ///
     /// # Example
     /// ```rust
