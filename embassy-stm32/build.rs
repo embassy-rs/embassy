@@ -81,15 +81,36 @@ fn main() {
         singletons.push(c.name.to_string());
     }
 
+    let mut pin_set = std::collections::HashSet::new();
+    for p in METADATA.peripherals {
+        for pin in p.pins {
+            pin_set.insert(pin.pin);
+        }
+    }
+
     // Extra analog switch pins available on most H7 chips
-    #[cfg(feature = "split-pa0")]
-    singletons.push("PA0_C".into());
-    #[cfg(feature = "split-pa1")]
-    singletons.push("PA1_C".into());
-    #[cfg(feature = "split-pc2")]
-    singletons.push("PC2_C".into());
-    #[cfg(feature = "split-pc3")]
-    singletons.push("PC3_C".into());
+    let split_features = [
+        #[cfg(feature = "split-pa0")]
+        ("split-pa0", "PA0_C"),
+        #[cfg(feature = "split-pa1")]
+        ("split-pa1", "PA1_C"),
+        #[cfg(feature = "split-pc2")]
+        ("split-pc2", "PC2_C"),
+        #[cfg(feature = "split-pc3")]
+        ("split-pc3", "PC3_C"),
+    ];
+
+    for (feature_name, pin_name) in split_features {
+        if pin_set.contains(pin_name) {
+            singletons.push(pin_name.into());
+        } else {
+            panic!(
+                "'{}' feature invalid for this chip! No pin '{}' found.\n
+                Found pins: {:#?}",
+                feature_name, pin_name, pin_set
+            )
+        }
+    }
 
     // ========
     // Handle time-driver-XXXX features.
@@ -923,6 +944,20 @@ fn main() {
 
                 for pin_num in 0u32..16 {
                     let pin_name = format!("P{}{}", port_letter, pin_num);
+
+                    // TODO: Here we need to take care of the _C pins properly.
+                    // Maybe it would be better to not iterate over 0..16 but the
+                    // Pin names directly. However, this might have side-effects... :(
+                    if pin_name == "PC2" {
+                        pins_table.push(vec![
+                            "PC2_C".to_string(),
+                            p.name.to_string(),
+                            port_num.to_string(),
+                            "2".to_string(),
+                            format!("EXTI{}", 2),
+                        ]);
+                    }
+
                     pins_table.push(vec![
                         pin_name,
                         p.name.to_string(),
