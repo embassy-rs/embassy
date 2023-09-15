@@ -280,7 +280,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     });
 
-    #[cfg(rcc_f3)]
+    #[cfg(all(rcc_f3, adc3_common))]
     let adc34 = config.adc.map(|adc| {
         if !adc.is_bus() {
             RCC.cfgr2().modify(|w| {
@@ -291,9 +291,13 @@ pub(crate) unsafe fn init(config: Config) {
                 Hertz(sysclk / adc as u32)
             })
         } else {
-            // TODO: need to use only if adc32_common is present
+            crate::pac::ADC3_COMMON.ccr().modify(|w| {
+                assert!(!(adc.bus_div() == 1 && hpre_bits != Hpre::DIV1));
 
-            todo!()
+                w.set_ckmode(adc.into());
+
+                Hertz(sysclk / adc.bus_div() as u32)
+            })
         }
     });
 
@@ -323,8 +327,10 @@ pub(crate) unsafe fn init(config: Config) {
         ahb1: Hertz(hclk),
         #[cfg(rcc_f3)]
         adc: adc,
-        #[cfg(rcc_f3)]
+        #[cfg(all(rcc_f3, adc3_common))]
         adc34: adc34,
+        #[cfg(all(rcc_f3, not(adc3_common)))]
+        adc34: None,
         #[cfg(stm32f334)]
         hrtim: hrtim,
     });
