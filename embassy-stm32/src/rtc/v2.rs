@@ -298,7 +298,7 @@ impl sealed::Instance for crate::peripherals::RTC {
             crate::pac::PWR.cr().read();
         }
 
-        #[cfg(any(rtc_v2f0))]
+        #[cfg(any(rtc_v2f0, rtc_v2l0))]
         {
             // enable peripheral clock for communication
             crate::pac::RCC.apb1enr().modify(|w| w.set_pwren(true));
