@@ -1,5 +1,5 @@
 #!/bin/bash
-## on push branch=main
+## on pull_request
 
 set -euo pipefail
 
@@ -40,17 +40,4 @@ docserver-builder -i ./embassy-net-enc28j60 -o webroot/crates/embassy-net-enc28j
 docserver-builder -i ./embassy-net-esp-hosted -o webroot/crates/embassy-net-esp-hosted/git.zup
 docserver-builder -i ./embassy-stm32-wpan -o webroot/crates/embassy-stm32-wpan/git.zup --output-static webroot/static
 docserver-builder -i ./embassy-net-adin1110 -o webroot/crates/embassy-net-adin1110/git.zup
-
-export KUBECONFIG=/ci/secrets/kubeconfig.yml
-POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
-kubectl cp webroot/crates $POD:/data
-kubectl cp webroot/static $POD:/data
-
-# build and upload stm32 last
-# so that it doesn't prevent other crates from getting docs updates when it breaks.
-
-# temporarily disabled because it's bringing CI down.
-#rm -rf webroot
-#docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
-#POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
-#kubectl cp webroot/crates $POD:/data
+docserver-builder -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
