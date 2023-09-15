@@ -124,9 +124,6 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        use crate::rcc::get_freqs;
-
         RTC::enable_peripheral_clk();
         BackupDomain::enable_rtc();
 
@@ -135,26 +132,29 @@ impl Rtc {
             stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
         };
 
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        let freqs = unsafe { get_freqs() };
-
-        // Load the clock frequency from the rcc mod, if supported
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        let frequency = match freqs.rtc {
-            Some(hertz) => hertz,
-            None => freqs.rtc_hse.unwrap(),
-        };
-
-        // Assume the  default value, if not supported
-        #[cfg(not(any(rcc_wb, rcc_f4, rcc_f410)))]
-        let frequency = Hertz(32_768);
-
+        let frequency = Self::frequency();
         let async_psc = ((frequency.0 / rtc_config.frequency.0) - 1) as u8;
         let sync_psc = (rtc_config.frequency.0 - 1) as u16;
 
         this.configure(async_psc, sync_psc);
 
         this
+    }
+
+    fn frequency() -> Hertz {
+        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+        let freqs = unsafe { crate::rcc::get_freqs() };
+
+        // Load the clock frequency from the rcc mod, if supported
+        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+        match freqs.rtc {
+            Some(hertz) => hertz,
+            None => freqs.rtc_hse.unwrap(),
+        }
+
+        // Assume the  default value, if not supported
+        #[cfg(not(any(rcc_wb, rcc_f4, rcc_f410)))]
+        Hertz(32_768)
     }
 
     /// Set the datetime to a new value.
@@ -263,6 +263,12 @@ pub(crate) mod sealed {
 
     pub trait Instance {
         const BACKUP_REGISTER_COUNT: usize;
+
+        #[cfg(feature = "low-power")]
+        const EXTI_WAKEUP_LINE: usize;
+
+        #[cfg(feature = "low-power")]
+        type WakeupInterrupt: crate::interrupt::typelevel::Interrupt;
 
         fn regs() -> Rtc {
             crate::pac::RTC

@@ -5,7 +5,6 @@ use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::low_power_ready;
 use crate::time_driver::{get_driver, RtcDriver};
 
@@ -19,35 +18,19 @@ foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
         unsafe fn $irq() {
-            unsafe { EXECUTOR.as_mut().unwrap() }.on_wakeup_irq();
+            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
         }
     };
 }
 
-// pub fn timer_driver_pause_time() {
-//     pause_time();
-// }
+#[allow(dead_code)]
+pub(crate) unsafe fn on_wakeup_irq() {
+    EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+}
 
 pub fn stop_with_rtc(rtc: &'static Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
 }
-
-// pub fn start_wakeup_alarm(requested_duration: embassy_time::Duration) {
-//     let rtc_instant = unsafe { EXECUTOR.as_mut().unwrap() }
-//         .rtc
-//         .unwrap()
-//         .start_wakeup_alarm(requested_duration);
-//
-//     unsafe { EXECUTOR.as_mut().unwrap() }.last_stop = Some(rtc_instant);
-// }
-//
-// pub fn set_sleepdeep() {
-//     unsafe { EXECUTOR.as_mut().unwrap() }.scb.set_sleepdeep();
-// }
-//
-// pub fn stop_wakeup_alarm() -> RtcInstant {
-//     unsafe { EXECUTOR.as_mut().unwrap() }.rtc.unwrap().stop_wakeup_alarm()
-// }
 
 /// Thread mode executor, using WFE/SEV.
 ///
@@ -91,27 +74,11 @@ impl Executor {
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
-        trace!("low power: stop with rtc configured");
-
         self.time_driver.set_rtc(rtc);
 
-        #[cfg(not(stm32l0))]
-        crate::interrupt::typelevel::RTC_WKUP::unpend();
-
-        #[cfg(not(stm32l0))]
-        unsafe {
-            crate::interrupt::typelevel::RTC_WKUP::enable()
-        };
-
-        #[cfg(stm32l0)]
-        crate::interrupt::typelevel::RTC::unpend();
-
-        #[cfg(stm32l0)]
-        unsafe {
-            crate::interrupt::typelevel::RTC::enable()
-        };
-
         rtc.enable_wakeup_line();
+
+        trace!("low power: stop with rtc configured");
     }
 
     fn configure_pwr(&mut self) {

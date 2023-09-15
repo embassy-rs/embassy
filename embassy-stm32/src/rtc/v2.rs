@@ -67,15 +67,10 @@ impl super::Rtc {
     pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) {
         use embassy_time::{Duration, TICK_HZ};
 
-        #[cfg(not(stm32l0))]
-        use crate::rcc::get_freqs;
+        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+        unsafe { crate::rcc::get_freqs() }.rtc.unwrap();
 
-        #[cfg(not(stm32l0))]
-        let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
-
-        #[cfg(stm32l0)]
-        let rtc_hz = 32_768u64;
-
+        let rtc_hz = Self::frequency().0 as u64;
         let rtc_ticks = requested_duration.as_ticks() * rtc_hz / TICK_HZ;
         let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
@@ -112,17 +107,14 @@ impl super::Rtc {
 
     #[cfg(feature = "low-power")]
     pub(crate) fn enable_wakeup_line(&self) {
+        use crate::interrupt::typelevel::Interrupt;
         use crate::pac::EXTI;
 
-        #[cfg(stm32l0)]
-        EXTI.rtsr(0).modify(|w| w.set_line(20, true));
-        #[cfg(stm32l0)]
-        EXTI.imr(0).modify(|w| w.set_line(20, true));
+        <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
+        unsafe { <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::enable() };
 
-        #[cfg(not(stm32l0))]
-        EXTI.rtsr(0).modify(|w| w.set_line(22, true));
-        #[cfg(not(stm32l0))]
-        EXTI.imr(0).modify(|w| w.set_line(22, true));
+        EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+        EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
     }
 
     #[cfg(feature = "low-power")]
@@ -138,17 +130,11 @@ impl super::Rtc {
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
 
-            #[cfg(not(stm32l0))]
-            crate::pac::EXTI.pr(0).modify(|w| w.set_line(22, true));
+            crate::pac::EXTI
+                .pr(0)
+                .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
-            #[cfg(stm32l0)]
-            crate::pac::EXTI.pr(0).modify(|w| w.set_line(20, true));
-
-            #[cfg(not(stm32l0))]
-            crate::interrupt::typelevel::RTC_WKUP::unpend();
-
-            #[cfg(stm32l0)]
-            crate::interrupt::typelevel::RTC::unpend();
+            <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
         });
 
         critical_section::with(|cs| {
@@ -279,6 +265,18 @@ impl super::Rtc {
 
 impl sealed::Instance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32f4))]
+    const EXTI_WAKEUP_LINE: usize = 22;
+
+    #[cfg(all(feature = "low-power", stm32l0))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32f4))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+
+    #[cfg(all(feature = "low-power", stm32l0))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
 
     fn enable_peripheral_clk() {
         #[cfg(any(rtc_v2l4, rtc_v2wb))]
