@@ -203,7 +203,7 @@ impl<F: Future + 'static> AvailableTask<F> {
     fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
-            self.task.future.write(future());
+            self.task.future.write_in_place(future);
 
             let task = TaskRef::new(self.task);
 
