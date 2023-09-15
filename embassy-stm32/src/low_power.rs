@@ -95,8 +95,21 @@ impl Executor {
 
         self.time_driver.set_rtc(rtc);
 
+        #[cfg(not(stm32l0))]
         crate::interrupt::typelevel::RTC_WKUP::unpend();
-        unsafe { crate::interrupt::typelevel::RTC_WKUP::enable() };
+
+        #[cfg(not(stm32l0))]
+        unsafe {
+            crate::interrupt::typelevel::RTC_WKUP::enable()
+        };
+
+        #[cfg(stm32l0)]
+        crate::interrupt::typelevel::RTC::unpend();
+
+        #[cfg(stm32l0)]
+        unsafe {
+            crate::interrupt::typelevel::RTC::enable()
+        };
 
         rtc.enable_wakeup_line();
     }

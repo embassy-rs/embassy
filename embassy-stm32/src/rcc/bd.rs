@@ -58,13 +58,13 @@ impl BackupDomain {
     ))]
     #[allow(dead_code, unused_variables)]
     fn modify<R>(f: impl FnOnce(&mut Bdcr) -> R) -> R {
-        #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
+        #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1, rtc_v2l0))]
         let cr = crate::pac::PWR.cr();
         #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
         let cr = crate::pac::PWR.cr1();
 
         // TODO: Missing from PAC for l0 and f0?
-        #[cfg(not(any(rtc_v2f0, rtc_v2l0, rtc_v3u5)))]
+        #[cfg(not(any(rtc_v2f0, rtc_v3u5)))]
         {
             cr.modify(|w| w.set_dbp(true));
             while !cr.read().dbp() {}

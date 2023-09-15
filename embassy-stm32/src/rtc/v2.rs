@@ -15,7 +15,7 @@ pub(crate) enum WakeupPrescaler {
     Div16 = 16,
 }
 
-#[cfg(any(stm32wb, stm32f4))]
+#[cfg(any(stm32wb, stm32f4, stm32l0))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -29,7 +29,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     }
 }
 
-#[cfg(any(stm32wb, stm32f4))]
+#[cfg(any(stm32wb, stm32f4, stm32l0))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -67,9 +67,14 @@ impl super::Rtc {
     pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) {
         use embassy_time::{Duration, TICK_HZ};
 
+        #[cfg(not(stm32l0))]
         use crate::rcc::get_freqs;
 
+        #[cfg(not(stm32l0))]
         let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
+
+        #[cfg(stm32l0)]
+        let rtc_hz = 32_768u64;
 
         let rtc_ticks = requested_duration.as_ticks() * rtc_hz / TICK_HZ;
         let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
@@ -109,7 +114,14 @@ impl super::Rtc {
     pub(crate) fn enable_wakeup_line(&self) {
         use crate::pac::EXTI;
 
+        #[cfg(stm32l0)]
+        EXTI.rtsr(0).modify(|w| w.set_line(20, true));
+        #[cfg(stm32l0)]
+        EXTI.imr(0).modify(|w| w.set_line(20, true));
+
+        #[cfg(not(stm32l0))]
         EXTI.rtsr(0).modify(|w| w.set_line(22, true));
+        #[cfg(not(stm32l0))]
         EXTI.imr(0).modify(|w| w.set_line(22, true));
     }
 
@@ -126,8 +138,17 @@ impl super::Rtc {
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
 
+            #[cfg(not(stm32l0))]
             crate::pac::EXTI.pr(0).modify(|w| w.set_line(22, true));
+
+            #[cfg(stm32l0)]
+            crate::pac::EXTI.pr(0).modify(|w| w.set_line(20, true));
+
+            #[cfg(not(stm32l0))]
             crate::interrupt::typelevel::RTC_WKUP::unpend();
+
+            #[cfg(stm32l0)]
+            crate::interrupt::typelevel::RTC::unpend();
         });
 
         critical_section::with(|cs| {
