@@ -50,7 +50,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         while T::regs().cr().read().adcal() {}
 
         // Wait more than 4 clock cycles after adcal is cleared (RM0364 p. 223)
-        delay.delay_us(6 * 1_000_000 / Self::freq().0);
+        delay.delay_us(1 + (6 * 1_000_000 / Self::freq().0));
 
         // Enable the adc
         T::regs().cr().modify(|w| w.set_aden(true));

@@ -817,6 +817,17 @@ fn main() {
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
+    let mut adc_common_table: Vec<Vec<String>> = Vec::new();
+
+    /*
+        If ADC3_COMMON exists, ADC3 and higher are assigned to it
+        All other ADCs are assigned to ADC_COMMON
+
+        ADC3 and higher are assigned to the adc34 clock in the table
+        The adc3_common cfg directive is added if ADC3_COMMON exists
+    */
+    let has_adc3 = METADATA.peripherals.iter().find(|p| p.name == "ADC3_COMMON").is_some();
+    let set_adc345 = HashSet::from(["ADC3", "ADC4", "ADC5"]);
 
     for m in METADATA
         .memory
@@ -852,6 +863,17 @@ fn main() {
                         format!("EXTI{}", pin_num),
                     ]);
                 }
+            }
+
+            if regs.kind == "adc" {
+                let (adc_common, adc_clock) = if set_adc345.contains(p.name) && has_adc3 {
+                    ("ADC3_COMMON", "adc34")
+                } else {
+                    ("ADC_COMMON", "adc")
+                };
+
+                let row = vec![p.name.to_string(), adc_common.to_string(), adc_clock.to_string()];
+                adc_common_table.push(row);
             }
 
             for irq in p.interrupts {
@@ -932,6 +954,7 @@ fn main() {
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
     make_table(&mut m, "foreach_dma_channel", &dma_channels_table);
+    make_table(&mut m, "foreach_adc", &adc_common_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
@@ -971,6 +994,12 @@ fn main() {
 
     if chip_name.starts_with("stm32f3") {
         println!("cargo:rustc-cfg={}x{}", &chip_name[..9], &chip_name[10..11]);
+    }
+
+    // =======
+    // ADC3_COMMON is present
+    if has_adc3 {
+        println!("cargo:rustc-cfg={}", "adc3_common");
     }
 
     // =======
