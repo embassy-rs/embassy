@@ -372,6 +372,12 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
     pub(crate) fn resume_time(&self) {
+        if T::regs_gp16().cr1().read().cen() {
+            // Time isn't currently stopped
+
+            return;
+        }
+
         self.stop_wakeup_alarm();
 
         T::regs_gp16().cr1().modify(|w| w.set_cen(true));

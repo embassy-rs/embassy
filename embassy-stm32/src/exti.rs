@@ -39,6 +39,9 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 pub unsafe fn on_irq() {
+    #[cfg(feature = "low-power")]
+    crate::low_power::on_wakeup_irq();
+
     #[cfg(not(any(exti_c0, exti_g0, exti_l5, exti_u5, exti_h5, exti_h50)))]
     let bits = EXTI.pr(0).read().0;
     #[cfg(any(exti_c0, exti_g0, exti_l5, exti_u5, exti_h5, exti_h50))]
