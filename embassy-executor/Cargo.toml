@@ -33,7 +33,7 @@ features = ["nightly", "defmt", "arch-cortex-m", "executor-thread", "executor-in
 _arch = [] # some arch was picked
 arch-std = ["_arch", "critical-section/std"]
 arch-cortex-m = ["_arch", "dep:cortex-m"]
-arch-xtensa = ["_arch"]
+arch-xtensa = ["_arch", "critical-section/restore-state-u32"]
 arch-riscv32 = ["_arch"]
 arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
 
