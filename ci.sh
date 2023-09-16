@@ -182,6 +182,4 @@ if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     exit
 fi
 
-rm out/tests/stm32wb55rg/wpan_ble
-
 teleprobe client run -r out/tests
