@@ -146,10 +146,10 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::MSI(MSIRange::default()),
-            ahb_pre: AHBPrescaler::NotDivided,
-            shd_ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            shd_ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
             rtc_mux: RtcClockSource::LSI,
             adc_clock_source: AdcClockSource::default(),
         }
@@ -172,7 +172,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1 << (pre as u32 - 7);
@@ -181,7 +181,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let shd_ahb_freq: u32 = match config.shd_ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1 << (pre as u32 - 7);
@@ -190,7 +190,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -200,7 +200,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -267,7 +267,7 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     RCC.extcfgr().modify(|w| {
-        if config.shd_ahb_pre == AHBPrescaler::NotDivided {
+        if config.shd_ahb_pre == AHBPrescaler::DIV1 {
             w.set_shdhpre(0);
         } else {
             w.set_shdhpre(config.shd_ahb_pre.into());
@@ -276,11 +276,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw.into());
-        if config.ahb_pre == AHBPrescaler::NotDivided {
-            w.set_hpre(0);
-        } else {
-            w.set_hpre(config.ahb_pre.into());
-        }
+        w.set_hpre(config.ahb_pre);
         w.set_ppre1(config.apb1_pre.into());
         w.set_ppre2(config.apb2_pre.into());
     });

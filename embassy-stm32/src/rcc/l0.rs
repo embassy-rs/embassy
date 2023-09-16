@@ -145,9 +145,9 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::MSI(MSIRange::default()),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
             #[cfg(crs)]
             enable_hsi48: false,
             rtc: None,
@@ -247,7 +247,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: Hpre = pre.into();
             let pre = 1 << (pre.to_bits() as u32 - 7);
@@ -256,7 +256,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);
@@ -266,7 +266,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);

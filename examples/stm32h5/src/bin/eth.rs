@@ -48,10 +48,10 @@ async fn main(spawner: Spawner) -> ! {
         divq: Some(2),
         divr: None,
     });
-    config.rcc.ahb_pre = AHBPrescaler::NotDivided;
-    config.rcc.apb1_pre = APBPrescaler::NotDivided;
-    config.rcc.apb2_pre = APBPrescaler::NotDivided;
-    config.rcc.apb3_pre = APBPrescaler::NotDivided;
+    config.rcc.ahb_pre = AHBPrescaler::DIV1;
+    config.rcc.apb1_pre = APBPrescaler::DIV1;
+    config.rcc.apb2_pre = APBPrescaler::DIV1;
+    config.rcc.apb3_pre = APBPrescaler::DIV1;
     config.rcc.sys = Sysclk::Pll1P;
     config.rcc.voltage_scale = VoltageScale::Scale0;
     let p = embassy_stm32::init(config);

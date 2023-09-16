@@ -6,7 +6,7 @@ use stm32_metapac::rcc::vals::{Mco1, Mco2};
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
-use crate::pac::rcc::vals::{Adcsel, Ckpersel, Dppre, Hpre, Hsidiv, Pllsrc, Sw, Timpre};
+use crate::pac::rcc::vals::{Adcsel, Ckpersel, Hpre, Hsidiv, Pllsrc, Ppre, Sw, Timpre};
 use crate::pac::{PWR, RCC, SYSCFG};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -631,7 +631,7 @@ pub(crate) unsafe fn init(mut config: Config) {
     // Core Prescaler / AHB Prescaler / APB3 Prescaler
     RCC.d1cfgr().modify(|w| {
         w.set_d1cpre(Hpre::from_bits(d1cpre_bits));
-        w.set_d1ppre(Dppre::from_bits(ppre3_bits));
+        w.set_d1ppre(Ppre::from_bits(ppre3_bits));
         w.set_hpre(hpre_bits)
     });
     // Ensure core prescaler value is valid before future lower
@@ -642,12 +642,12 @@ pub(crate) unsafe fn init(mut config: Config) {
 
     // APB1 / APB2 Prescaler
     RCC.d2cfgr().modify(|w| {
-        w.set_d2ppre1(Dppre::from_bits(ppre1_bits));
-        w.set_d2ppre2(Dppre::from_bits(ppre2_bits));
+        w.set_d2ppre1(Ppre::from_bits(ppre1_bits));
+        w.set_d2ppre2(Ppre::from_bits(ppre2_bits));
     });
 
     // APB4 Prescaler
-    RCC.d3cfgr().modify(|w| w.set_d3ppre(Dppre::from_bits(ppre4_bits)));
+    RCC.d3cfgr().modify(|w| w.set_d3ppre(Ppre::from_bits(ppre4_bits)));
 
     // Peripheral Clock (per_ck)
     RCC.d1ccipr().modify(|w| w.set_ckpersel(ckpersel));

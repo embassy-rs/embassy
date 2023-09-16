@@ -186,8 +186,8 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::HSI16(HSI16Prescaler::NotDivided),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb_pre: APBPrescaler::DIV1,
             low_power_run: false,
         }
     }
@@ -377,7 +377,7 @@ pub(crate) unsafe fn init(config: Config) {
     let ahb_freq = Hertz(sys_clk) / config.ahb_pre;
 
     let (apb_freq, apb_tim_freq) = match config.apb_pre {
-        APBPrescaler::NotDivided => (ahb_freq.0, ahb_freq.0),
+        APBPrescaler::DIV1 => (ahb_freq.0, ahb_freq.0),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);

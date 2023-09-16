@@ -91,25 +91,25 @@ pub struct Pll {
     pub divr: Option<u16>,
 }
 
-impl APBPrescaler {
-    fn div_tim(&self, clk: Hertz, tim: TimerPrescaler) -> Hertz {
-        match (tim, self) {
-            // The timers kernel clock is equal to rcc_hclk1 if PPRE1 or PPRE2 corresponds to a
-            // division by 1 or 2, else it is equal to 2 x Frcc_pclk1 or 2 x Frcc_pclk2
-            (TimerPrescaler::DefaultX2, Self::NotDivided) => clk,
-            (TimerPrescaler::DefaultX2, Self::Div2) => clk,
-            (TimerPrescaler::DefaultX2, Self::Div4) => clk / 2u32,
-            (TimerPrescaler::DefaultX2, Self::Div8) => clk / 4u32,
-            (TimerPrescaler::DefaultX2, Self::Div16) => clk / 8u32,
-            // The timers kernel clock is equal to 2 x Frcc_pclk1 or 2 x Frcc_pclk2 if PPRE1 or PPRE2
-            // corresponds to a division by 1, 2 or 4, else it is equal to 4 x Frcc_pclk1 or 4 x Frcc_pclk2
-            // this makes NO SENSE and is different than in the H7. Mistake in the RM??
-            (TimerPrescaler::DefaultX4, Self::NotDivided) => clk * 2u32,
-            (TimerPrescaler::DefaultX4, Self::Div2) => clk,
-            (TimerPrescaler::DefaultX4, Self::Div4) => clk / 2u32,
-            (TimerPrescaler::DefaultX4, Self::Div8) => clk / 2u32,
-            (TimerPrescaler::DefaultX4, Self::Div16) => clk / 4u32,
-        }
+fn apb_div_tim(apb: &APBPrescaler, clk: Hertz, tim: TimerPrescaler) -> Hertz {
+    match (tim, apb) {
+        // The timers kernel clock is equal to rcc_hclk1 if PPRE1 or PPRE2 corresponds to a
+        // division by 1 or 2, else it is equal to 2 x Frcc_pclk1 or 2 x Frcc_pclk2
+        (TimerPrescaler::DefaultX2, APBPrescaler::DIV1) => clk,
+        (TimerPrescaler::DefaultX2, APBPrescaler::DIV2) => clk,
+        (TimerPrescaler::DefaultX2, APBPrescaler::DIV4) => clk / 2u32,
+        (TimerPrescaler::DefaultX2, APBPrescaler::DIV8) => clk / 4u32,
+        (TimerPrescaler::DefaultX2, APBPrescaler::DIV16) => clk / 8u32,
+        // The timers kernel clock is equal to 2 x Frcc_pclk1 or 2 x Frcc_pclk2 if PPRE1 or PPRE2
+        // corresponds to a division by 1, 2 or 4, else it is equal to 4 x Frcc_pclk1 or 4 x Frcc_pclk2
+        // this makes NO SENSE and is different than in the H7. Mistake in the RM??
+        (TimerPrescaler::DefaultX4, APBPrescaler::DIV1) => clk * 2u32,
+        (TimerPrescaler::DefaultX4, APBPrescaler::DIV2) => clk,
+        (TimerPrescaler::DefaultX4, APBPrescaler::DIV4) => clk / 2u32,
+        (TimerPrescaler::DefaultX4, APBPrescaler::DIV8) => clk / 2u32,
+        (TimerPrescaler::DefaultX4, APBPrescaler::DIV16) => clk / 4u32,
+
+        _ => unreachable!(),
     }
 }
 
@@ -165,10 +165,10 @@ impl Default for Config {
             #[cfg(rcc_h5)]
             pll3: None,
 
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
-            apb3_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
+            apb3_pre: APBPrescaler::DIV1,
             timer_prescaler: TimerPrescaler::DefaultX2,
 
             voltage_scale: VoltageScale::Scale3,
@@ -317,9 +317,9 @@ pub(crate) unsafe fn init(config: Config) {
     let hclk = sys / config.ahb_pre;
 
     let apb1 = hclk / config.apb1_pre;
-    let apb1_tim = config.apb1_pre.div_tim(hclk, config.timer_prescaler);
+    let apb1_tim = apb_div_tim(&config.apb1_pre, hclk, config.timer_prescaler);
     let apb2 = hclk / config.apb2_pre;
-    let apb2_tim = config.apb2_pre.div_tim(hclk, config.timer_prescaler);
+    let apb2_tim = apb_div_tim(&config.apb2_pre, hclk, config.timer_prescaler);
     let apb3 = hclk / config.apb3_pre;
 
     flash_setup(hclk, config.voltage_scale);

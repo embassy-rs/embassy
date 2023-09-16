@@ -163,8 +163,8 @@ pub(crate) unsafe fn init(config: Config) {
     // Only needed for stm32f103?
     RCC.cfgr().modify(|w| {
         w.set_adcpre(Adcpre::from_bits(apre_bits));
-        w.set_ppre2(Ppre1::from_bits(ppre2_bits));
-        w.set_ppre1(Ppre1::from_bits(ppre1_bits));
+        w.set_ppre2(Ppre::from_bits(ppre2_bits));
+        w.set_ppre1(Ppre::from_bits(ppre1_bits));
         w.set_hpre(Hpre::from_bits(hpre_bits));
         #[cfg(not(rcc_f100))]
         w.set_usbpre(Usbpre::from_bits(usbpre as u8));
