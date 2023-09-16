@@ -4,14 +4,9 @@ Embassy is a project to make async/await a first-class option for embedded devel
 
 == What is async?
 
-Software written without async may block on I/O operations. In an std environment, such as a PC, software can handle this either by using threads or non-blocking operations.
+When handling I/O, software must call functions that block program execution until the I/O operation completes. When running inside of an OS such as Linux, such functions generally transfer control to the kernel so that another task, known as a thread, can be executed if available, or the CPU can be put to sleep until another such task is ready to perform more work. Because an OS cannot presume that threads will behave cooperatively, threads are relatively resource-intensive, and may be forcibly interrupted they do not transfer control back to the kernel within an allotted time. But if tasks could be presumed to behave cooperatively, or at least not maliciously, it would be possible to create tasks that appear to be almost free when compared to a traditional OS thread. In Rust, these lightweight tasks, known as 'coroutines' or 'goroutines' in other languages, are implemented with async.
 
-With threads, one thread blocks on an I/O operation, another is able to take its place. However, even on a PC, threads are relatively heavy, and therefore some programming languages, such as Go, have implemented a concept called coroutines or 'goroutines' that are much lighter and less-intensive than threads.
-
-The other way to handle blocking I/O operations is to support polling the state of the underlying peripherals to check whether it is available to perform the requested operation. In programming languages without builtin async support,
-this requires building a complex loop checking for events.
-
-In Rust, non-blocking operations can be implemented using async-await. Async-await works by transforming each async function into an object called a future. When a future blocks on I/O the future yields, and the scheduler, called an executor, can select a different future to execute. Compared to alternatives such as an RTOS, async can yield better performance and lower power consumption because the executor doesn't have to guess when a future is ready to execute. However, program size may be higher than other alternatives, which may be a problem for certain space-constrained devices with very low memory. On the devices Embassy supports, such as stm32 and nrf, memory is generally large enough to accommodate the modestly-increased program size.
+Async-await works by transforming each async function into an object called a future. When a future blocks on I/O the future yields, and the scheduler, called an executor, can select a different future to execute. Compared to alternatives such as an RTOS, async can yield better performance and lower power consumption because the executor doesn't have to guess when a future is ready to execute. However, program size may be higher than other alternatives, which may be a problem for certain space-constrained devices with very low memory. On the devices Embassy supports, such as stm32 and nrf, memory is generally large enough to accommodate the modestly-increased program size.
 
 == What is Embassy?
 
