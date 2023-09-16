@@ -135,7 +135,7 @@ pub const WPAN_DEFAULT: Config = Config {
         prediv: 2,
     }),
     pll48: None,
-    rtc: None,
+    rtc: Some(RtcClockSource::LSE),
 
     pll: Some(Pll {
         mul: 12,
