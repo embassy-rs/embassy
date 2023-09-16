@@ -1,6 +1,7 @@
 #![macro_use]
 
 pub(crate) mod bd;
+#[cfg(not(rcc_wba))]
 pub mod bus;
 use core::mem::MaybeUninit;
 
@@ -23,6 +24,7 @@ use crate::time::Hertz;
 #[cfg_attr(rcc_l5, path = "l5.rs")]
 #[cfg_attr(rcc_u5, path = "u5.rs")]
 #[cfg_attr(rcc_wb, path = "wb.rs")]
+#[cfg_attr(rcc_wba, path = "wba.rs")]
 #[cfg_attr(any(rcc_wl5, rcc_wle), path = "wl.rs")]
 #[cfg_attr(any(rcc_h5, rcc_h50), path = "h5.rs")]
 mod _version;
@@ -46,12 +48,14 @@ pub struct Clocks {
     pub apb3: Hertz,
     #[cfg(any(rcc_h7, rcc_h7ab))]
     pub apb4: Hertz,
+    #[cfg(any(rcc_wba))]
+    pub apb7: Hertz,
 
     // AHB
     pub ahb1: Hertz,
     #[cfg(any(
         rcc_l4, rcc_l5, rcc_f2, rcc_f4, rcc_f410, rcc_f7, rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_g4, rcc_u5, rcc_wb,
-        rcc_wl5, rcc_wle
+        rcc_wba, rcc_wl5, rcc_wle
     ))]
     pub ahb2: Hertz,
     #[cfg(any(
@@ -59,7 +63,7 @@ pub struct Clocks {
         rcc_wle
     ))]
     pub ahb3: Hertz,
-    #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab))]
+    #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_wba))]
     pub ahb4: Hertz,
 
     #[cfg(any(rcc_f2, rcc_f4, rcc_f410, rcc_f7))]

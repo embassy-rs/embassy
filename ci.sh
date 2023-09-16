@@ -145,6 +145,7 @@ cargo batch  \
     --- build --release --manifest-path examples/stm32l5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32l5 \
     --- build --release --manifest-path examples/stm32u5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32u5 \
     --- build --release --manifest-path examples/stm32wb/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wb \
+    --- build --release --manifest-path examples/stm32wba/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32wba \
     --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabihf --out-dir out/examples/stm32wl \
     --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840,skip-include --out-dir out/examples/boot/nrf52840  \
     --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns,skip-include --out-dir out/examples/boot/nrf9160 \

@@ -165,7 +165,7 @@ impl Into<Sw> for ClockSrc {
             ClockSrc::MSI(..) => Sw::MSIS,
             ClockSrc::HSE(..) => Sw::HSE,
             ClockSrc::HSI16 => Sw::HSI16,
-            ClockSrc::PLL1R(..) => Sw::PLL1R,
+            ClockSrc::PLL1R(..) => Sw::PLL1_R,
         }
     }
 }
