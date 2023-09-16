@@ -145,11 +145,11 @@ pub const WPAN_DEFAULT: Config = Config {
     }),
     pllsai: None,
 
-    ahb1_pre: AHBPrescaler::NotDivided,
-    ahb2_pre: AHBPrescaler::Div2,
-    ahb3_pre: AHBPrescaler::NotDivided,
-    apb1_pre: APBPrescaler::NotDivided,
-    apb2_pre: APBPrescaler::NotDivided,
+    ahb1_pre: AHBPrescaler::DIV1,
+    ahb2_pre: AHBPrescaler::DIV2,
+    ahb3_pre: AHBPrescaler::DIV1,
+    apb1_pre: APBPrescaler::DIV1,
+    apb2_pre: APBPrescaler::DIV1,
 };
 
 impl Default for Config {
@@ -165,11 +165,11 @@ impl Default for Config {
             pllsai: None,
             rtc: None,
 
-            ahb1_pre: AHBPrescaler::NotDivided,
-            ahb2_pre: AHBPrescaler::NotDivided,
-            ahb3_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb1_pre: AHBPrescaler::DIV1,
+            ahb2_pre: AHBPrescaler::DIV1,
+            ahb3_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
         }
     }
 }
@@ -209,7 +209,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let ahb1_clk = match config.ahb1_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1u32 << (pre as u32 - 7);
@@ -218,7 +218,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let ahb2_clk = match config.ahb2_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1u32 << (pre as u32 - 7);
@@ -227,7 +227,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let ahb3_clk = match config.ahb3_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1u32 << (pre as u32 - 7);
@@ -236,7 +236,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let (apb1_clk, apb1_tim_clk) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb1_clk, ahb1_clk),
+        APBPrescaler::DIV1 => (ahb1_clk, ahb1_clk),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -246,7 +246,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let (apb2_clk, apb2_tim_clk) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb1_clk, ahb1_clk),
+        APBPrescaler::DIV1 => (ahb1_clk, ahb1_clk),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);

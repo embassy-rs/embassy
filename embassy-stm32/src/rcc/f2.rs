@@ -308,9 +308,9 @@ impl Default for Config {
             voltage: VoltageScale::Scale3,
             mux: ClockSrc::HSI,
             rtc: None,
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
         }
     }
 }
@@ -383,7 +383,7 @@ pub(crate) unsafe fn init(config: Config) {
     assert!(ahb_freq <= Hertz(120_000_000));
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let freq = ahb_freq / pre;
             (freq, Hertz(freq.0 * 2))
@@ -393,7 +393,7 @@ pub(crate) unsafe fn init(config: Config) {
     assert!(apb1_freq <= Hertz(30_000_000));
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let freq = ahb_freq / pre;
             (freq, Hertz(freq.0 * 2))

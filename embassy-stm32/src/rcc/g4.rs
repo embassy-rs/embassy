@@ -1,5 +1,5 @@
 use stm32_metapac::flash::vals::Latency;
-use stm32_metapac::rcc::vals::{Adcsel, Hpre, Pllsrc, Ppre, Sw};
+use stm32_metapac::rcc::vals::{Adcsel, Pllsrc, Sw};
 use stm32_metapac::FLASH;
 
 pub use super::bus::{AHBPrescaler, APBPrescaler};
@@ -261,59 +261,29 @@ pub struct Pll {
     pub div_r: Option<PllR>,
 }
 
-impl AHBPrescaler {
-    const fn div(self) -> u32 {
-        match self {
-            AHBPrescaler::NotDivided => 1,
-            AHBPrescaler::Div2 => 2,
-            AHBPrescaler::Div4 => 4,
-            AHBPrescaler::Div8 => 8,
-            AHBPrescaler::Div16 => 16,
-            AHBPrescaler::Div64 => 64,
-            AHBPrescaler::Div128 => 128,
-            AHBPrescaler::Div256 => 256,
-            AHBPrescaler::Div512 => 512,
-        }
+fn ahb_div(ahb: AHBPrescaler) -> u32 {
+    match ahb {
+        AHBPrescaler::DIV1 => 1,
+        AHBPrescaler::DIV2 => 2,
+        AHBPrescaler::DIV4 => 4,
+        AHBPrescaler::DIV8 => 8,
+        AHBPrescaler::DIV16 => 16,
+        AHBPrescaler::DIV64 => 64,
+        AHBPrescaler::DIV128 => 128,
+        AHBPrescaler::DIV256 => 256,
+        AHBPrescaler::DIV512 => 512,
+        _ => unreachable!(),
     }
 }
 
-impl APBPrescaler {
-    const fn div(self) -> u32 {
-        match self {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 2,
-            APBPrescaler::Div4 => 4,
-            APBPrescaler::Div8 => 8,
-            APBPrescaler::Div16 => 16,
-        }
-    }
-}
-
-impl Into<Ppre> for APBPrescaler {
-    fn into(self) -> Ppre {
-        match self {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
-    }
-}
-
-impl Into<Hpre> for AHBPrescaler {
-    fn into(self) -> Hpre {
-        match self {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
-        }
+fn apb_div(apb: APBPrescaler) -> u32 {
+    match apb {
+        APBPrescaler::DIV1 => 1,
+        APBPrescaler::DIV2 => 2,
+        APBPrescaler::DIV4 => 4,
+        APBPrescaler::DIV8 => 8,
+        APBPrescaler::DIV16 => 16,
+        _ => unreachable!(),
     }
 }
 
@@ -365,9 +335,9 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::HSI16,
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
             pll: None,
             clock_48mhz_src: None,
@@ -512,22 +482,22 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
-        pre => sys_clk / pre.div(),
+        AHBPrescaler::DIV1 => sys_clk,
+        pre => sys_clk / ahb_div(pre),
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
-            let freq = ahb_freq / pre.div();
+            let freq = ahb_freq / apb_div(pre);
             (freq, freq * 2)
         }
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
-            let freq = ahb_freq / pre.div();
+            let freq = ahb_freq / apb_div(pre);
             (freq, freq * 2)
         }
     };
