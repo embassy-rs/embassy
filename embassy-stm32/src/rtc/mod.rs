@@ -10,7 +10,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
-use crate::rcc::bd::BackupDomain;
 pub use crate::rcc::RtcClockSource;
 use crate::time::Hertz;
 
@@ -125,7 +124,6 @@ impl Default for RtcCalibrationCyclePeriod {
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         RTC::enable_peripheral_clk();
-        BackupDomain::enable_rtc();
 
         let mut this = Self {
             #[cfg(feature = "low-power")]

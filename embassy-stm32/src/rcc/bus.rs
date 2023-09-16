@@ -79,10 +79,7 @@ impl From<AHBPrescaler> for rcc::vals::Hpre {
         use rcc::vals::Hpre;
 
         match val {
-            #[cfg(not(rcc_u5))]
             AHBPrescaler::NotDivided => Hpre::DIV1,
-            #[cfg(rcc_u5)]
-            AHBPrescaler::NotDivided => Hpre::NONE,
             AHBPrescaler::Div2 => Hpre::DIV2,
             AHBPrescaler::Div4 => Hpre::DIV4,
             AHBPrescaler::Div8 => Hpre::DIV8,
@@ -148,10 +145,7 @@ impl From<APBPrescaler> for rcc::vals::Ppre {
         use rcc::vals::Ppre;
 
         match val {
-            #[cfg(not(rcc_u5))]
             APBPrescaler::NotDivided => Ppre::DIV1,
-            #[cfg(rcc_u5)]
-            APBPrescaler::NotDivided => Ppre::NONE,
             APBPrescaler::Div2 => Ppre::DIV2,
             APBPrescaler::Div4 => Ppre::DIV4,
             APBPrescaler::Div8 => Ppre::DIV8,

@@ -26,19 +26,7 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Copy, Clone, Debug, PartialEq)]
-#[repr(u8)]
-pub enum RtcClockSource {
-    /// 00: No clock
-    NoClock = 0b00,
-    /// 01: LSE oscillator clock used as RTC clock
-    LSE = 0b01,
-    /// 10: LSI oscillator clock used as RTC clock
-    LSI = 0b10,
-    /// 11: HSE oscillator clock divided by 32 used as RTC clock
-    HSE = 0b11,
-}
+pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
 
 #[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
 #[allow(dead_code)]
@@ -109,17 +97,17 @@ impl BackupDomain {
                 let csr = crate::pac::RCC.csr();
 
                 Self::modify(|_| {
-                    #[cfg(not(rtc_v2wb))]
+                    #[cfg(not(any(rcc_wb, rcc_wba)))]
                     csr.modify(|w| w.set_lsion(true));
 
-                    #[cfg(rtc_v2wb)]
+                    #[cfg(any(rcc_wb, rcc_wba))]
                     csr.modify(|w| w.set_lsi1on(true));
                 });
 
-                #[cfg(not(rtc_v2wb))]
+                #[cfg(not(any(rcc_wb, rcc_wba)))]
                 while !csr.read().lsirdy() {}
 
-                #[cfg(rtc_v2wb)]
+                #[cfg(any(rcc_wb, rcc_wba))]
                 while !csr.read().lsi1rdy() {}
             }
             RtcClockSource::LSE => {
@@ -136,64 +124,50 @@ impl BackupDomain {
             _ => {}
         };
 
-        Self::configure_rtc(clock_source);
-    }
-
-    #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
-        rtc_v3u5
-    ))]
-    #[allow(dead_code, unused_variables)]
-    pub fn configure_rtc(clock_source: RtcClockSource) {
-        let clock_source = clock_source as u8;
-        #[cfg(any(
-            not(any(rtc_v3, rtc_v3u5, rtc_v2wb)),
-            all(any(rtc_v3, rtc_v3u5), not(any(rcc_wl5, rcc_wle)))
-        ))]
-        let clock_source = crate::pac::rcc::vals::Rtcsel::from_bits(clock_source);
-
-        #[cfg(not(rtc_v2wb))]
-        Self::modify(|w| {
-            // Select RTC source
-            w.set_rtcsel(clock_source);
-        });
-    }
-
-    #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
-        rtc_v3u5
-    ))]
-    #[allow(dead_code)]
-    pub fn enable_rtc() {
-        let reg = Self::read();
-
-        #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
-        if !reg.rtcen() {
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
-            Self::modify(|w| w.set_bdrst(true));
-
+        if clock_source == RtcClockSource::NOCLOCK {
+            // disable it
             Self::modify(|w| {
-                // Reset
-                #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
-                w.set_bdrst(false);
-
-                w.set_rtcen(true);
-                w.set_rtcsel(reg.rtcsel());
-
-                // Restore bcdr
-                #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-                w.set_lscosel(reg.lscosel());
-                #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-                w.set_lscoen(reg.lscoen());
-
-                w.set_lseon(reg.lseon());
-
-                #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-                w.set_lsedrv(reg.lsedrv());
-                w.set_lsebyp(reg.lsebyp());
+                #[cfg(not(rcc_wba))]
+                w.set_rtcen(false);
+                w.set_rtcsel(clock_source);
             });
+        } else {
+            // check if it's already enabled and in the source we want.
+            let reg = Self::read();
+            let ok = reg.rtcsel() == clock_source;
+            #[cfg(not(rcc_wba))]
+            let ok = ok & reg.rtcen();
+
+            // if not, configure it.
+            if !ok {
+                #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
+                assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
+
+                #[cfg(not(any(rcc_l0, rcc_l1)))]
+                Self::modify(|w| w.set_bdrst(true));
+
+                Self::modify(|w| {
+                    // Reset
+                    #[cfg(not(any(rcc_l0, rcc_l1)))]
+                    w.set_bdrst(false);
+
+                    #[cfg(not(rcc_wba))]
+                    w.set_rtcen(true);
+                    w.set_rtcsel(clock_source);
+
+                    // Restore bcdr
+                    #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
+                    w.set_lscosel(reg.lscosel());
+                    #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
+                    w.set_lscoen(reg.lscoen());
+
+                    w.set_lseon(reg.lseon());
+
+                    #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
+                    w.set_lsedrv(reg.lsedrv());
+                    w.set_lsebyp(reg.lsebyp());
+                });
+            }
         }
     }
 }

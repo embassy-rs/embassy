@@ -1005,10 +1005,15 @@ fn main() {
     // =======
     // Features for targeting groups of chips
 
-    println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
-    println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
-    println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
-    println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
+    if &chip_name[..8] == "stm32wba" {
+        println!("cargo:rustc-cfg={}", &chip_name[..8]); // stm32wba
+        println!("cargo:rustc-cfg={}", &chip_name[..10]); // stm32wba52
+    } else {
+        println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
+        println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
+        println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
+        println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
+    }
 
     // Handle time-driver-XXXX features.
     if env::var("CARGO_FEATURE_TIME_DRIVER_ANY").is_ok() {}
