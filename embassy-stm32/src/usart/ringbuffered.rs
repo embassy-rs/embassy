@@ -3,16 +3,25 @@ use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralRef;
 use futures::future::{select, Either};
 
-use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
+use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, Error, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
 pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     _peri: PeripheralRef<'d, T>,
     ring_buf: ReadableRingBuffer<'d, RxDma, u8>,
+}
+
+impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> SetConfig for RingBufferedUartRx<'d, T, RxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.set_config(config);
+    }
 }
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
@@ -52,6 +61,11 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         self.teardown_uart();
 
         Err(err)
+    }
+
+    pub fn set_config(&mut self, config: &Config) {
+        self.teardown_uart();
+        reconfigure::<T>(config)
     }
 
     /// Start uart background receive

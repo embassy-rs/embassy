@@ -114,6 +114,30 @@ pub struct BufferedUartRx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+impl<'d, T: BasicInstance> SetConfig for BufferedUart<'d, T> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.set_config(config)
+    }
+}
+
+impl<'d, T: BasicInstance> SetConfig for BufferedUartRx<'d, T> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.set_config(config)
+    }
+}
+
+impl<'d, T: BasicInstance> SetConfig for BufferedUartTx<'d, T> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.set_config(config)
+    }
+}
+
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
@@ -228,6 +252,10 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn split(self) -> (BufferedUartTx<'d, T>, BufferedUartRx<'d, T>) {
         (self.tx, self.rx)
     }
+
+    pub fn set_config(&mut self, config: &Config) {
+        reconfigure::<T>(config)
+    }
 }
 
 impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
@@ -304,6 +332,10 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
             T::Interrupt::pend();
         }
     }
+
+    pub fn set_config(&mut self, config: &Config) {
+        reconfigure::<T>(config)
+    }
 }
 
 impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
@@ -373,6 +405,10 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
                 return Ok(());
             }
         }
+    }
+
+    pub fn set_config(&mut self, config: &Config) {
+        reconfigure::<T>(config)
     }
 }
 

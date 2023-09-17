@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::future::{select, Either};
@@ -168,9 +169,26 @@ pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
     rx: UartRx<'d, T, RxDma>,
 }
 
+impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.tx.set_config(config);
+        self.rx.set_config(config);
+    }
+}
+
 pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
     tx_dma: PeripheralRef<'d, TxDma>,
+}
+
+impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.set_config(config);
+    }
 }
 
 pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
@@ -179,6 +197,14 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
     buffered_sr: stm32_metapac::usart::regs::Sr,
+}
+
+impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        self.set_config(config);
+    }
 }
 
 impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
@@ -235,6 +261,10 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
             tx_dma,
             phantom: PhantomData,
         }
+    }
+
+    pub fn set_config(&mut self, config: &Config) {
+        reconfigure::<T>(config)
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
@@ -332,6 +362,10 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: stm32_metapac::usart::regs::Sr(0),
         }
+    }
+
+    pub fn set_config(&mut self, config: &Config) {
+        reconfigure::<T>(config)
     }
 
     #[cfg(any(usart_v1, usart_v2))]
@@ -759,6 +793,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         }
     }
 
+    pub fn set_config(&mut self, config: &Config) {
+        reconfigure::<T>(config)
+    }
+
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
     where
         TxDma: crate::usart::TxDma<T>,
@@ -802,6 +840,17 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn split(self) -> (UartTx<'d, T, TxDma>, UartRx<'d, T, RxDma>) {
         (self.tx, self.rx)
     }
+}
+
+fn reconfigure<T: BasicInstance>(config: &Config) {
+    T::Interrupt::disable();
+    let r = T::regs();
+
+    let cr = r.cr1().read();
+    configure(r, config, T::frequency(), T::KIND, cr.re(), cr.te());
+
+    T::Interrupt::unpend();
+    unsafe { T::Interrupt::enable() };
 }
 
 fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: bool, enable_tx: bool) {
