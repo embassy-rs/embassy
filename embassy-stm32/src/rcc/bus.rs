@@ -41,9 +41,13 @@ impl Div<AHBPrescaler> for Hertz {
             AHBPrescaler::DIV16 => 16,
             #[cfg(any(rcc_wb, rcc_wl5, rcc_wle))]
             AHBPrescaler::DIV32 => 32,
+            #[cfg(not(rcc_wba))]
             AHBPrescaler::DIV64 => 64,
+            #[cfg(not(rcc_wba))]
             AHBPrescaler::DIV128 => 128,
+            #[cfg(not(rcc_wba))]
             AHBPrescaler::DIV256 => 256,
+            #[cfg(not(rcc_wba))]
             AHBPrescaler::DIV512 => 512,
             _ => unreachable!(),
         };

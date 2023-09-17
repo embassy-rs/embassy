@@ -1,7 +1,6 @@
 #![macro_use]
 
 pub(crate) mod bd;
-#[cfg(not(rcc_wba))]
 pub mod bus;
 use core::mem::MaybeUninit;
 
