@@ -31,6 +31,16 @@ pub use _version::*;
 #[cfg(feature = "low-power")]
 use atomic_polyfill::{AtomicU32, Ordering};
 
+//  Model Clock Configuration
+//
+//  pub struct Clocks {
+//      hse: Option<Hertz>,
+//      hsi: bool,
+//      lse: Option<Hertz>,
+//      lsi: bool,
+//      rtc: RtcSource,
+//  }
+
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Clocks {

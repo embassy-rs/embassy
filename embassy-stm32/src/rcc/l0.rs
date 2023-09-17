@@ -138,6 +138,8 @@ pub struct Config {
     #[cfg(crs)]
     pub enable_hsi48: bool,
     pub rtc: Option<RtcClockSource>,
+    pub lse: Option<Hertz>,
+    pub lsi: bool,
 }
 
 impl Default for Config {
@@ -151,6 +153,8 @@ impl Default for Config {
             #[cfg(crs)]
             enable_hsi48: false,
             rtc: None,
+            lse: None,
+            lsi: false,
         }
     }
 }
@@ -235,9 +239,11 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    config.rtc.map(|rtc| {
-        BackupDomain::configure_ls(rtc, None);
-    });
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);

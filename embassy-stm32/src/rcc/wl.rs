@@ -138,6 +138,8 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub rtc_mux: RtcClockSource,
+    pub lse: Option<Hertz>,
+    pub lsi: bool,
     pub adc_clock_source: AdcClockSource,
 }
 
@@ -151,6 +153,8 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             rtc_mux: RtcClockSource::LSI,
+            lsi: true,
+            lse: None,
             adc_clock_source: AdcClockSource::default(),
         }
     }
@@ -231,7 +235,7 @@ pub(crate) unsafe fn init(config: Config) {
     while FLASH.acr().read().latency() != ws {}
 
     // Enables the LSI if configured
-    BackupDomain::configure_ls(config.rtc_mux, None);
+    BackupDomain::configure_ls(config.rtc_mux, config.lsi, config.lse.map(|_| Default::default()));
 
     match config.mux {
         ClockSrc::HSI16 => {

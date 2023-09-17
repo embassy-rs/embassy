@@ -291,6 +291,8 @@ pub struct Config {
     pub pll: PLLConfig,
     pub mux: ClockSrc,
     pub rtc: Option<RtcClockSource>,
+    pub lsi: bool,
+    pub lse: Option<Hertz>,
     pub voltage: VoltageScale,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
@@ -308,6 +310,8 @@ impl Default for Config {
             voltage: VoltageScale::Scale3,
             mux: ClockSrc::HSI,
             rtc: None,
+            lsi: false,
+            lse: None,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
@@ -421,9 +425,11 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.apb1enr().modify(|w| w.set_pwren(true));
     PWR.cr().read();
 
-    config
-        .rtc
-        .map(|clock_source| BackupDomain::configure_ls(clock_source, None));
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
 
     set_freqs(Clocks {
         sys: sys_clk,

@@ -241,6 +241,8 @@ pub struct Config {
     #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
     pub hsi48: bool,
     pub rtc_mux: RtcClockSource,
+    pub lse: Option<Hertz>,
+    pub lsi: bool,
 }
 
 impl Default for Config {
@@ -255,6 +257,8 @@ impl Default for Config {
             #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
             hsi48: false,
             rtc_mux: RtcClockSource::LSI,
+            lsi: true,
+            lse: None,
         }
     }
 }
@@ -407,7 +411,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.apb1enr1().modify(|w| w.set_pwren(true));
 
-    BackupDomain::configure_ls(config.rtc_mux, None);
+    BackupDomain::configure_ls(config.rtc_mux, config.lsi, config.lse.map(|_| Default::default()));
 
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
