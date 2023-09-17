@@ -82,12 +82,42 @@ impl core::ops::Sub for RtcInstant {
     }
 }
 
+#[non_exhaustive]
+pub struct RtcTimeProvider;
+
+impl RtcTimeProvider {
+    /// Return the current datetime.
+    ///
+    /// # Errors
+    ///
+    /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
+    pub fn now(&self) -> Result<DateTime, RtcError> {
+        let r = RTC::regs();
+        let tr = r.tr().read();
+        let second = bcd2_to_byte((tr.st(), tr.su()));
+        let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
+        let hour = bcd2_to_byte((tr.ht(), tr.hu()));
+        // Reading either RTC_SSR or RTC_TR locks the values in the higher-order
+        // calendar shadow registers until RTC_DR is read.
+        let dr = r.dr().read();
+
+        let weekday = dr.wdu();
+        let day = bcd2_to_byte((dr.dt(), dr.du()));
+        let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
+        let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
+
+        self::datetime::datetime(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
+    }
+}
+
+#[non_exhaustive]
 /// RTC Abstraction
 pub struct Rtc {
     #[cfg(feature = "low-power")]
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
 }
 
+#[non_exhaustive]
 #[derive(Copy, Clone, PartialEq)]
 pub struct RtcConfig {
     /// The subsecond counter frequency; default is 256
@@ -155,6 +185,11 @@ impl Rtc {
         Hertz(32_768)
     }
 
+    /// Acquire a [`RtcTimeProvider`] instance.
+    pub fn time_provider(&self) -> RtcTimeProvider {
+        RtcTimeProvider
+    }
+
     /// Set the datetime to a new value.
     ///
     /// # Errors
@@ -187,21 +222,7 @@ impl Rtc {
     ///
     /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        let r = RTC::regs();
-        let tr = r.tr().read();
-        let second = bcd2_to_byte((tr.st(), tr.su()));
-        let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
-        let hour = bcd2_to_byte((tr.ht(), tr.hu()));
-        // Reading either RTC_SSR or RTC_TR locks the values in the higher-order
-        // calendar shadow registers until RTC_DR is read.
-        let dr = r.dr().read();
-
-        let weekday = dr.wdu();
-        let day = bcd2_to_byte((dr.dt(), dr.du()));
-        let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
-        let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
-
-        self::datetime::datetime(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
+        RtcTimeProvider.now()
     }
 
     /// Check if daylight savings time is active.
