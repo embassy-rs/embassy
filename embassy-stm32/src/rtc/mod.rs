@@ -82,8 +82,9 @@ impl core::ops::Sub for RtcInstant {
     }
 }
 
-#[non_exhaustive]
-pub struct RtcTimeProvider;
+pub struct RtcTimeProvider {
+    _private: (),
+}
 
 impl RtcTimeProvider {
     /// Return the current datetime.
@@ -186,8 +187,8 @@ impl Rtc {
     }
 
     /// Acquire a [`RtcTimeProvider`] instance.
-    pub fn time_provider(&self) -> RtcTimeProvider {
-        RtcTimeProvider
+    pub const fn time_provider(&self) -> RtcTimeProvider {
+        RtcTimeProvider { _private: () }
     }
 
     /// Set the datetime to a new value.
@@ -222,7 +223,7 @@ impl Rtc {
     ///
     /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        RtcTimeProvider.now()
+        self.time_provider().now()
     }
 
     /// Check if daylight savings time is active.
