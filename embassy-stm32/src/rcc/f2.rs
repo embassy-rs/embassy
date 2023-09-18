@@ -203,7 +203,20 @@ pub struct PLLClocks {
     pub pll48_freq: Hertz,
 }
 
-pub use super::bus::VoltageScale;
+/// Voltage range of the power supply used.
+///
+/// Used to calculate flash waitstates. See
+/// RM0033 - Table 3. Number of wait states according to Cortex®-M3 clock frequency
+pub enum VoltageScale {
+    /// 2.7v to 4.6v
+    Range0,
+    /// 2.4v to 2.7v
+    Range1,
+    /// 2.1v to 2.4v
+    Range2,
+    /// 1.8v to 2.1v
+    Range3,
+}
 
 impl VoltageScale {
     const fn wait_states(&self, ahb_freq: Hertz) -> Option<Latency> {
@@ -211,7 +224,7 @@ impl VoltageScale {
         // Reference: RM0033 - Table 3. Number of wait states according to Cortex®-M3 clock
         // frequency
         match self {
-            VoltageScale::Scale3 => {
+            VoltageScale::Range3 => {
                 if ahb_freq <= 16_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 32_000_000 {
@@ -232,7 +245,7 @@ impl VoltageScale {
                     None
                 }
             }
-            VoltageScale::Scale2 => {
+            VoltageScale::Range2 => {
                 if ahb_freq <= 18_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 36_000_000 {
@@ -251,7 +264,7 @@ impl VoltageScale {
                     None
                 }
             }
-            VoltageScale::Scale1 => {
+            VoltageScale::Range1 => {
                 if ahb_freq <= 24_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 48_000_000 {
@@ -266,7 +279,7 @@ impl VoltageScale {
                     None
                 }
             }
-            VoltageScale::Scale0 => {
+            VoltageScale::Range0 => {
                 if ahb_freq <= 30_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 60_000_000 {
@@ -307,7 +320,7 @@ impl Default for Config {
             hsi: true,
             pll_mux: PLLSrc::HSI,
             pll: PLLConfig::default(),
-            voltage: VoltageScale::Scale3,
+            voltage: VoltageScale::Range3,
             mux: ClockSrc::HSI,
             rtc: None,
             lsi: false,
