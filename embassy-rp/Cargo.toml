@@ -89,7 +89,6 @@ embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional =
 embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
 embedded-hal-nb = { version = "=1.0.0-rc.1", optional = true}
 
-paste = "1.0"
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
