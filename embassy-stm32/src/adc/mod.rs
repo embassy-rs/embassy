@@ -31,12 +31,35 @@ pub struct Adc<'d, T: Instance> {
 }
 
 pub(crate) mod sealed {
-    pub trait Instance {
+    #[cfg(adc_f3)]
+    use embassy_sync::waitqueue::AtomicWaker;
+
+    #[cfg(adc_f3)]
+    pub struct State {
+        pub waker: AtomicWaker,
+    }
+
+    #[cfg(adc_f3)]
+    impl State {
+        pub const fn new() -> Self {
+            Self {
+                waker: AtomicWaker::new(),
+            }
+        }
+    }
+
+    pub trait InterruptableInstance {
+        type Interrupt: crate::interrupt::typelevel::Interrupt;
+    }
+
+    pub trait Instance: InterruptableInstance {
         fn regs() -> crate::pac::adc::Adc;
         #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_g0)))]
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
         #[cfg(adc_f3)]
         fn frequency() -> crate::time::Hertz;
+        #[cfg(adc_f3)]
+        fn state() -> &'static State;
     }
 
     pub trait AdcPin<T: Instance> {
@@ -72,7 +95,21 @@ foreach_adc!(
             fn frequency() -> crate::time::Hertz {
                 unsafe { crate::rcc::get_freqs() }.$clock.unwrap()
             }
+
+            #[cfg(adc_f3)]
+            fn state() -> &'static sealed::State {
+                static STATE: sealed::State = sealed::State::new();
+                &STATE
+            }
         }
+
+        foreach_interrupt!(
+            ($inst,adc,ADC,GLOBAL,$irq:ident) => {
+                impl sealed::InterruptableInstance for peripherals::$inst {
+                    type Interrupt = crate::interrupt::typelevel::$irq;
+                }
+            };
+        );
 
         impl crate::adc::Instance for peripherals::$inst {}
     };
