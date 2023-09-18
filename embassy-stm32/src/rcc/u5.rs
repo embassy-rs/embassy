@@ -11,7 +11,7 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-pub use super::bus::VoltageScale;
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
 
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
@@ -286,12 +286,12 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     // TODO make configurable
-    let power_vos = VoltageScale::Scale3;
+    let power_vos = VoltageScale::RANGE3;
 
     // states and programming delay
     let wait_states = match power_vos {
-        // VOS 0 range VCORE 1.26V - 1.40V
-        VoltageScale::Scale0 => {
+        // VOS 1 range VCORE 1.26V - 1.40V
+        VoltageScale::RANGE1 => {
             if sys_clk < 32_000_000 {
                 0
             } else if sys_clk < 64_000_000 {
@@ -304,8 +304,8 @@ pub(crate) unsafe fn init(config: Config) {
                 4
             }
         }
-        // VOS 1 range VCORE 1.15V - 1.26V
-        VoltageScale::Scale1 => {
+        // VOS 2 range VCORE 1.15V - 1.26V
+        VoltageScale::RANGE2 => {
             if sys_clk < 30_000_000 {
                 0
             } else if sys_clk < 60_000_000 {
@@ -316,8 +316,8 @@ pub(crate) unsafe fn init(config: Config) {
                 3
             }
         }
-        // VOS 2 range VCORE 1.05V - 1.15V
-        VoltageScale::Scale2 => {
+        // VOS 3 range VCORE 1.05V - 1.15V
+        VoltageScale::RANGE3 => {
             if sys_clk < 24_000_000 {
                 0
             } else if sys_clk < 48_000_000 {
@@ -326,8 +326,8 @@ pub(crate) unsafe fn init(config: Config) {
                 2
             }
         }
-        // VOS 3 range VCORE 0.95V - 1.05V
-        VoltageScale::Scale3 => {
+        // VOS 4 range VCORE 0.95V - 1.05V
+        VoltageScale::RANGE4 => {
             if sys_clk < 12_000_000 {
                 0
             } else {

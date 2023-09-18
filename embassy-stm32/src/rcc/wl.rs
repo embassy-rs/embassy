@@ -1,4 +1,5 @@
-pub use super::bus::{AHBPrescaler, APBPrescaler, VoltageScale};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::vals::Adcsel;
 use crate::pac::{FLASH, RCC};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
@@ -75,9 +76,9 @@ impl MSIRange {
 
     fn vos(&self) -> VoltageScale {
         if self > &MSIRange::Range8 {
-            VoltageScale::Scale0
+            VoltageScale::RANGE1
         } else {
-            VoltageScale::Scale1
+            VoltageScale::RANGE2
         }
     }
 }
@@ -170,8 +171,8 @@ pub enum Lsedrv {
 
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
-        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::Scale1),
-        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::Scale0),
+        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::RANGE2),
+        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::RANGE1),
         ClockSrc::MSI(range) => (range.freq(), 0x00, range.vos()),
     };
 
@@ -216,16 +217,17 @@ pub(crate) unsafe fn init(config: Config) {
     // Adjust flash latency
     let flash_clk_src_freq: u32 = shd_ahb_freq;
     let ws = match vos {
-        VoltageScale::Scale0 => match flash_clk_src_freq {
+        VoltageScale::RANGE1 => match flash_clk_src_freq {
             0..=18_000_000 => 0b000,
             18_000_001..=36_000_000 => 0b001,
             _ => 0b010,
         },
-        VoltageScale::Scale1 => match flash_clk_src_freq {
+        VoltageScale::RANGE2 => match flash_clk_src_freq {
             0..=6_000_000 => 0b000,
             6_000_001..=12_000_000 => 0b001,
             _ => 0b010,
         },
+        _ => unreachable!(),
     };
 
     FLASH.acr().modify(|w| {

@@ -67,24 +67,20 @@ where
         self.board_type = board_type;
     }
     async fn set_nss_low(&mut self) -> Result<(), RadioError> {
-        let pwr = pac::PWR;
-        pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::LOW));
+        pac::PWR.subghzspicr().modify(|w| w.set_nss(false));
         Ok(())
     }
     async fn set_nss_high(&mut self) -> Result<(), RadioError> {
-        let pwr = pac::PWR;
-        pwr.subghzspicr().modify(|w| w.set_nss(pac::pwr::vals::Nss::HIGH));
+        pac::PWR.subghzspicr().modify(|w| w.set_nss(true));
         Ok(())
     }
     async fn reset(&mut self, _delay: &mut impl DelayUs) -> Result<(), RadioError> {
-        let rcc = pac::RCC;
-        rcc.csr().modify(|w| w.set_rfrst(true));
-        rcc.csr().modify(|w| w.set_rfrst(false));
+        pac::RCC.csr().modify(|w| w.set_rfrst(true));
+        pac::RCC.csr().modify(|w| w.set_rfrst(false));
         Ok(())
     }
     async fn wait_on_busy(&mut self) -> Result<(), RadioError> {
-        let pwr = pac::PWR;
-        while pwr.sr2().read().rfbusys() == pac::pwr::vals::Rfbusys::BUSY {}
+        while pac::PWR.sr2().read().rfbusys() {}
         Ok(())
     }
 

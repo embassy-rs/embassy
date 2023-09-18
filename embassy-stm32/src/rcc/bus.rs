@@ -5,22 +5,6 @@ use crate::pac::rcc;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 use crate::time::Hertz;
 
-/// Voltage Scale
-///
-/// Represents the voltage range feeding the CPU core. The maximum core
-/// clock frequency depends on this value.
-///
-/// Scale0 represents the highest voltage range
-#[derive(Copy, Clone, PartialEq)]
-pub enum VoltageScale {
-    Scale0,
-    Scale1,
-    #[cfg(not(any(rcc_wl5, rcc_wle)))]
-    Scale2,
-    #[cfg(not(any(rcc_wl5, rcc_wle)))]
-    Scale3,
-}
-
 impl Div<AHBPrescaler> for Hertz {
     type Output = Hertz;
 
