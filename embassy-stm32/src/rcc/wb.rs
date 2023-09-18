@@ -108,6 +108,7 @@ pub struct Pll {
 pub struct Config {
     pub hse: Option<Hse>,
     pub lse: Option<Hertz>,
+    pub lsi: bool,
     pub sys: Sysclk,
     pub mux: Option<PllMux>,
     pub pll48: Option<Pll48Source>,
@@ -136,6 +137,7 @@ pub const WPAN_DEFAULT: Config = Config {
     }),
     pll48: None,
     rtc: Some(RtcClockSource::LSE),
+    lsi: false,
 
     pll: Some(Pll {
         mul: 12,
@@ -164,6 +166,7 @@ impl Default for Config {
             pll: None,
             pllsai: None,
             rtc: None,
+            lsi: false,
 
             ahb1_pre: AHBPrescaler::DIV1,
             ahb2_pre: AHBPrescaler::DIV1,
@@ -294,9 +297,11 @@ pub(crate) fn configure_clocks(config: &Config) {
 
     rcc.cfgr().modify(|w| w.set_stopwuck(true));
 
-    config
-        .rtc
-        .map(|clock_source| BackupDomain::configure_ls(clock_source, None));
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
 
     match &config.hse {
         Some(hse) => {

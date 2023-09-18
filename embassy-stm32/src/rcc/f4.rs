@@ -35,6 +35,8 @@ pub struct Config {
 
     pub pll48: bool,
     pub rtc: Option<RtcClockSource>,
+    pub lsi: bool,
+    pub lse: Option<Hertz>,
 }
 
 #[cfg(stm32f410)]
@@ -461,12 +463,15 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
-    config
-        .rtc
-        .map(|clock_source| BackupDomain::configure_ls(clock_source, None));
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
 
     let rtc = match config.rtc {
         Some(RtcClockSource::LSI) => Some(LSI_FREQ),
+        Some(RtcClockSource::LSE) => Some(config.lse.unwrap()),
         _ => None,
     };
 

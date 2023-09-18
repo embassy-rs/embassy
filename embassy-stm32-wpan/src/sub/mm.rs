@@ -1,6 +1,5 @@
 //! Memory manager routines
 use core::future::poll_fn;
-use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::task::Poll;
 
@@ -21,7 +20,7 @@ static MM_WAKER: AtomicWaker = AtomicWaker::new();
 static mut LOCAL_FREE_BUF_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());
 
 pub struct MemoryManager {
-    phantom: PhantomData<MemoryManager>,
+    _private: (),
 }
 
 impl MemoryManager {
@@ -44,7 +43,7 @@ impl MemoryManager {
             });
         }
 
-        Self { phantom: PhantomData }
+        Self { _private: () }
     }
 
     pub async fn run_queue(&self) {

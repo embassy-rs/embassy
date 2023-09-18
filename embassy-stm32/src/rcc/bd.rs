@@ -1,5 +1,5 @@
 #[allow(dead_code)]
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum LseDrive {
     #[cfg(any(rtc_v2f7, rtc_v2l4))]
     Low = 0,
@@ -87,40 +87,42 @@ impl BackupDomain {
         rtc_v3u5
     ))]
     #[allow(dead_code, unused_variables)]
-    pub fn configure_ls(clock_source: RtcClockSource, lse_drive: Option<LseDrive>) {
-        match clock_source {
-            RtcClockSource::LSI => {
-                #[cfg(rtc_v3u5)]
-                let csr = crate::pac::RCC.bdcr();
+    pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseDrive>) {
+        if lsi {
+            #[cfg(rtc_v3u5)]
+            let csr = crate::pac::RCC.bdcr();
 
-                #[cfg(not(rtc_v3u5))]
-                let csr = crate::pac::RCC.csr();
+            #[cfg(not(rtc_v3u5))]
+            let csr = crate::pac::RCC.csr();
 
-                Self::modify(|_| {
-                    #[cfg(not(any(rcc_wb, rcc_wba)))]
-                    csr.modify(|w| w.set_lsion(true));
-
-                    #[cfg(any(rcc_wb, rcc_wba))]
-                    csr.modify(|w| w.set_lsi1on(true));
-                });
-
+            Self::modify(|_| {
                 #[cfg(not(any(rcc_wb, rcc_wba)))]
-                while !csr.read().lsirdy() {}
+                csr.modify(|w| w.set_lsion(true));
 
                 #[cfg(any(rcc_wb, rcc_wba))]
-                while !csr.read().lsi1rdy() {}
-            }
-            RtcClockSource::LSE => {
-                let lse_drive = lse_drive.unwrap_or_default();
+                csr.modify(|w| w.set_lsi1on(true));
+            });
 
-                Self::modify(|w| {
-                    #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
-                    w.set_lsedrv(lse_drive.into());
-                    w.set_lseon(true);
-                });
+            #[cfg(not(any(rcc_wb, rcc_wba)))]
+            while !csr.read().lsirdy() {}
 
-                while !Self::read().lserdy() {}
-            }
+            #[cfg(any(rcc_wb, rcc_wba))]
+            while !csr.read().lsi1rdy() {}
+        }
+
+        if let Some(lse_drive) = lse {
+            Self::modify(|w| {
+                #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
+                w.set_lsedrv(lse_drive.into());
+                w.set_lseon(true);
+            });
+
+            while !Self::read().lserdy() {}
+        }
+
+        match clock_source {
+            RtcClockSource::LSI => assert!(lsi),
+            RtcClockSource::LSE => assert!(&lse.is_some()),
             _ => {}
         };
 

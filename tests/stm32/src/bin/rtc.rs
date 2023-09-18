@@ -12,13 +12,15 @@ use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::RtcClockSource;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
+use embassy_stm32::time::Hertz;
 use embassy_time::{Duration, Timer};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = config();
 
-    config.rcc.rtc = Some(RtcClockSource::LSI);
+    config.rcc.lse = Some(Hertz(32_768));
+    config.rcc.rtc = Some(RtcClockSource::LSE);
 
     let p = embassy_stm32::init(config);
     info!("Hello World!");
