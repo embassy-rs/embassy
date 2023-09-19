@@ -1,11 +1,16 @@
 #![macro_use]
 
-pub(crate) mod bd;
-pub mod bus;
 use core::mem::MaybeUninit;
 
 pub use crate::rcc::bd::RtcClockSource;
 use crate::time::Hertz;
+
+pub(crate) mod bd;
+mod bus;
+#[cfg(any(stm32h5, stm32h7))]
+mod mco;
+#[cfg(any(stm32h5, stm32h7))]
+pub use mco::*;
 
 #[cfg_attr(rcc_f0, path = "f0.rs")]
 #[cfg_attr(any(rcc_f1, rcc_f100, rcc_f1cl), path = "f1.rs")]
@@ -16,7 +21,7 @@ use crate::time::Hertz;
 #[cfg_attr(rcc_c0, path = "c0.rs")]
 #[cfg_attr(rcc_g0, path = "g0.rs")]
 #[cfg_attr(rcc_g4, path = "g4.rs")]
-#[cfg_attr(any(rcc_h7, rcc_h7ab), path = "h7.rs")]
+#[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab), path = "h.rs")]
 #[cfg_attr(rcc_l0, path = "l0.rs")]
 #[cfg_attr(rcc_l1, path = "l1.rs")]
 #[cfg_attr(rcc_l4, path = "l4.rs")]
@@ -25,7 +30,6 @@ use crate::time::Hertz;
 #[cfg_attr(rcc_wb, path = "wb.rs")]
 #[cfg_attr(rcc_wba, path = "wba.rs")]
 #[cfg_attr(any(rcc_wl5, rcc_wle), path = "wl.rs")]
-#[cfg_attr(any(rcc_h5, rcc_h50), path = "h5.rs")]
 mod _version;
 pub use _version::*;
 #[cfg(feature = "low-power")]
@@ -53,7 +57,7 @@ pub struct Clocks {
     pub apb2: Hertz,
     #[cfg(not(any(rcc_c0, rcc_g0)))]
     pub apb2_tim: Hertz,
-    #[cfg(any(rcc_wl5, rcc_wle, rcc_h5, rcc_h50, rcc_u5))]
+    #[cfg(any(rcc_wl5, rcc_wle, rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_u5))]
     pub apb3: Hertz,
     #[cfg(any(rcc_h7, rcc_h7ab))]
     pub apb4: Hertz,

@@ -53,7 +53,7 @@ async fn main(spawner: Spawner) -> ! {
     config.rcc.apb2_pre = APBPrescaler::DIV1;
     config.rcc.apb3_pre = APBPrescaler::DIV1;
     config.rcc.sys = Sysclk::Pll1P;
-    config.rcc.voltage_scale = VoltageScale::SCALE0;
+    config.rcc.voltage_scale = VoltageScale::Scale0;
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
@@ -128,7 +128,7 @@ async fn main(spawner: Spawner) -> ! {
             let r = socket.write_all(b"Hello\n").await;
             if let Err(e) = r {
                 info!("write error: {:?}", e);
-                continue;
+                break;
             }
             Timer::after(Duration::from_secs(1)).await;
         }

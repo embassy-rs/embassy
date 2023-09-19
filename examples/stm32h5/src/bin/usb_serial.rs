@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner) {
     config.rcc.apb2_pre = APBPrescaler::DIV2;
     config.rcc.apb3_pre = APBPrescaler::DIV4;
     config.rcc.sys = Sysclk::Pll1P;
-    config.rcc.voltage_scale = VoltageScale::SCALE0;
+    config.rcc.voltage_scale = VoltageScale::Scale0;
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");

@@ -100,6 +100,7 @@ async fn main(spawner: Spawner) -> ! {
         let r = socket.connect(remote_endpoint).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
+            Timer::after(Duration::from_secs(1)).await;
             continue;
         }
         info!("connected!");
@@ -108,7 +109,7 @@ async fn main(spawner: Spawner) -> ! {
             let r = socket.write_all(&buf).await;
             if let Err(e) = r {
                 info!("write error: {:?}", e);
-                continue;
+                break;
             }
             Timer::after(Duration::from_secs(1)).await;
         }

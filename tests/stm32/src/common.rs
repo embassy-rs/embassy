@@ -31,9 +31,32 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32h755zi")]
     {
-        config.rcc.sys_ck = Some(Hertz(400_000_000));
-        config.rcc.pll1.q_ck = Some(Hertz(100_000_000));
-        config.rcc.adc_clock_source = embassy_stm32::rcc::AdcClockSource::PerCk;
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.csi = true;
+        config.rcc.pll_src = PllSource::Hsi;
+        config.rcc.pll1 = Some(Pll {
+            prediv: 4,
+            mul: 50,
+            divp: Some(2),
+            divq: Some(8), // SPI1 cksel defaults to pll1_q
+            divr: None,
+        });
+        config.rcc.pll2 = Some(Pll {
+            prediv: 4,
+            mul: 50,
+            divp: Some(8), // 100mhz
+            divq: None,
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale1;
+        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
     }
 
     #[cfg(feature = "stm32u585ai")]
