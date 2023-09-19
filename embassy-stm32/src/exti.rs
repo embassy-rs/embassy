@@ -6,7 +6,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::impl_peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Input, Pin as GpioPin};
+use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin};
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
 use crate::{interrupt, pac, peripherals, Peripheral};
@@ -99,6 +99,10 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
 
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
+    }
+
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
     }
 
     pub async fn wait_for_high<'a>(&'a mut self) {
