@@ -1,10 +1,13 @@
 //! CDC-ACM class implementation, aka Serial over USB.
 
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
+use core::future::poll_fn;
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::Poll;
 
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
@@ -76,6 +79,9 @@ struct ControlShared {
     line_coding: CriticalSectionMutex<Cell<LineCoding>>,
     dtr: AtomicBool,
     rts: AtomicBool,
+
+    waker: RefCell<WakerRegistration>,
+    changed: AtomicBool,
 }
 
 impl Default for ControlShared {
@@ -89,7 +95,25 @@ impl Default for ControlShared {
                 parity_type: ParityType::None,
                 data_rate: 8_000,
             })),
+            waker: RefCell::new(WakerRegistration::new()),
+            changed: AtomicBool::new(false),
         }
+    }
+}
+
+impl ControlShared {
+    async fn changed(&self) {
+        poll_fn(|cx| match self.changed.load(Ordering::Relaxed) {
+            true => {
+                self.changed.store(false, Ordering::Relaxed);
+                Poll::Ready(())
+            }
+            false => {
+                self.waker.borrow_mut().register(cx.waker());
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 
@@ -105,6 +129,9 @@ impl<'d> Handler for Control<'d> {
         shared.line_coding.lock(|x| x.set(LineCoding::default()));
         shared.dtr.store(false, Ordering::Relaxed);
         shared.rts.store(false, Ordering::Relaxed);
+
+        shared.changed.store(true, Ordering::Relaxed);
+        shared.waker.borrow_mut().wake();
     }
 
     fn control_out(&mut self, req: control::Request, data: &[u8]) -> Option<OutResponse> {
@@ -127,8 +154,12 @@ impl<'d> Handler for Control<'d> {
                     parity_type: data[5].into(),
                     data_bits: data[6],
                 };
-                self.shared().line_coding.lock(|x| x.set(coding));
+                let shared = self.shared();
+                shared.line_coding.lock(|x| x.set(coding));
                 debug!("Set line coding to: {:?}", coding);
+
+                shared.changed.store(true, Ordering::Relaxed);
+                shared.waker.borrow_mut().wake();
 
                 Some(OutResponse::Accepted)
             }
@@ -140,6 +171,9 @@ impl<'d> Handler for Control<'d> {
                 shared.dtr.store(dtr, Ordering::Relaxed);
                 shared.rts.store(rts, Ordering::Relaxed);
                 debug!("Set dtr {}, rts {}", dtr, rts);
+
+                shared.changed.store(true, Ordering::Relaxed);
+                shared.waker.borrow_mut().wake();
 
                 Some(OutResponse::Accepted)
             }
@@ -291,6 +325,38 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
                 control: self.control,
             },
         )
+    }
+
+    /// Split the class into sender, receiver and control
+    ///
+    /// Allows concurrently sending and receiving packets whilst monitoring for
+    /// control changes (dtr, rts)
+    pub fn split_with_control(self) -> (Sender<'d, D>, Receiver<'d, D>, ControlChanged<'d>) {
+        (
+            Sender {
+                write_ep: self.write_ep,
+                control: self.control,
+            },
+            Receiver {
+                read_ep: self.read_ep,
+                control: self.control,
+            },
+            ControlChanged { control: self.control },
+        )
+    }
+}
+
+/// CDC ACM Control status change monitor
+///
+/// You can obtain a `ControlChanged` with [`CdcAcmClass::split_with_control`]
+pub struct ControlChanged<'d> {
+    control: &'d ControlShared,
+}
+
+impl<'d> ControlChanged<'d> {
+    /// Return a future for when the control settings change
+    pub async fn control_changed(&self) {
+        self.control.changed().await
     }
 }
 
