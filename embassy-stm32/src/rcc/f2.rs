@@ -208,13 +208,13 @@ pub struct PLLClocks {
 /// Used to calculate flash waitstates. See
 /// RM0033 - Table 3. Number of wait states according to Cortex®-M3 clock frequency
 pub enum VoltageScale {
-    /// 2.7v to 4.6v
+    /// 2.7 to 3.6 V
     Range0,
-    /// 2.4v to 2.7v
+    /// 2.4 to 2.7 V
     Range1,
-    /// 2.1v to 2.4v
+    /// 2.1 to 2.4 V
     Range2,
-    /// 1.8v to 2.1v
+    /// 1.8 to 2.1 V
     Range3,
 }
 
