@@ -31,15 +31,15 @@ pub struct Adc<'d, T: Instance> {
 }
 
 pub(crate) mod sealed {
-    #[cfg(adc_f3)]
+    #[cfg(any(adc_f3, adc_v1))]
     use embassy_sync::waitqueue::AtomicWaker;
 
-    #[cfg(adc_f3)]
+    #[cfg(any(adc_f3, adc_v1))]
     pub struct State {
         pub waker: AtomicWaker,
     }
 
-    #[cfg(adc_f3)]
+    #[cfg(any(adc_f3, adc_v1))]
     impl State {
         pub const fn new() -> Self {
             Self {
@@ -58,7 +58,7 @@ pub(crate) mod sealed {
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
         #[cfg(adc_f3)]
         fn frequency() -> crate::time::Hertz;
-        #[cfg(adc_f3)]
+        #[cfg(any(adc_f3, adc_v1))]
         fn state() -> &'static State;
     }
 
@@ -96,7 +96,7 @@ foreach_adc!(
                 unsafe { crate::rcc::get_freqs() }.$clock.unwrap()
             }
 
-            #[cfg(adc_f3)]
+            #[cfg(any(adc_f3, adc_v1))]
             fn state() -> &'static sealed::State {
                 static STATE: sealed::State = sealed::State::new();
                 &STATE
