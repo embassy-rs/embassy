@@ -1,4 +1,4 @@
-//! CDC-ACM class implementation, aka Serial over USB.
+//! Low-level (packet-level) CDC-ACM class implementation.
 
 use core::cell::Cell;
 use core::mem::{self, MaybeUninit};

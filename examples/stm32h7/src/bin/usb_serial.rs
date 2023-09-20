@@ -5,9 +5,9 @@
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::time::mhz;
-use embassy_stm32::usb_otg::{Driver, Instance};
+use embassy_stm32::usb_otg::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::{SerialPort, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
 use futures::future::join;
@@ -16,6 +16,9 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct Irqs {
     OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
 });
+
+const TX_BUF: usize = 256;
+const RX_BUF: usize = 256;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -53,7 +56,7 @@ async fn main(_spawner: Spawner) {
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
 
-    let mut state = State::new();
+    let mut state = State::<TX_BUF, RX_BUF>::new();
 
     let mut builder = Builder::new(
         driver,
@@ -65,27 +68,21 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+    let (mut serial, serial_runner) = SerialPort::new(&mut builder, &mut state, 64);
 
     // Build the builder.
     let mut usb = builder.build();
 
     // Run the USB device.
     let usb_fut = usb.run();
+    let serial_fut = serial_runner.run();
 
     // Do stuff with the class!
-    let echo_fut = async {
-        loop {
-            class.wait_connection().await;
-            info!("Connected");
-            let _ = echo(&mut class).await;
-            info!("Disconnected");
-        }
-    };
+    let echo_fut = echo(&mut serial);
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
-    join(usb_fut, echo_fut).await;
+    join(join(usb_fut, serial_fut), echo_fut).await;
 }
 
 struct Disconnected {}
@@ -99,12 +96,12 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
+async fn echo(serial: &mut SerialPort<'_, TX_BUF, RX_BUF>) -> ! {
+    let mut buf = [0; 256];
     loop {
-        let n = class.read_packet(&mut buf).await?;
+        let n = serial.read(&mut buf).await;
         let data = &buf[..n];
         info!("data: {:x}", data);
-        class.write_packet(data).await?;
+        serial.write(data).await;
     }
 }
