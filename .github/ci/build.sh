@@ -11,7 +11,6 @@ if [ -f /ci/secrets/teleprobe-token.txt ]; then
     echo Got teleprobe token!
     export TELEPROBE_HOST=https://teleprobe.embassy.dev
     export TELEPROBE_TOKEN=$(cat /ci/secrets/teleprobe-token.txt)
-    export TELEPROBE_CACHE=/ci/cache/teleprobe_cache.json
 fi
 
 # needed for "dumb HTTP" transport support
