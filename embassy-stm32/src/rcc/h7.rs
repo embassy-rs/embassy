@@ -464,14 +464,14 @@ pub(crate) unsafe fn init(mut config: Config) {
     // RM0433 Rev 7 6.8.4. This is partially enforced by dropping
     // `self` at the end of this method, but of course we cannot
     // know what happened between the previous POR and here.
-    #[cfg(pwr_h7)]
+    #[cfg(pwr_h7rm0433)]
     PWR.cr3().modify(|w| {
         w.set_scuen(true);
         w.set_ldoen(true);
         w.set_bypass(false);
     });
 
-    #[cfg(pwr_h7smps)]
+    #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
     PWR.cr3().modify(|w| {
         // hardcode "Direct SPMS" for now, this is what works on nucleos with the
         // default solderbridge configuration.
@@ -484,7 +484,9 @@ pub(crate) unsafe fn init(mut config: Config) {
     // in the D3CR.VOS and CR3.SDLEVEL fields. By default after reset
     // VOS = Scale 3, so check that the voltage on the VCAP pins =
     // 1.0V.
+    info!("a");
     while !PWR.csr1().read().actvosrdy() {}
+    info!("b");
 
     #[cfg(syscfg_h7)]
     {
