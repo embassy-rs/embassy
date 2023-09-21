@@ -6,8 +6,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::rcc::{Mco, Mco1Source, McoClock};
-use embassy_stm32::time::{khz, mhz};
+use embassy_stm32::rcc::{Mco, Mco1Source};
+use embassy_stm32::time::khz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
 use embassy_time::{Duration, Timer};
 use ov7725::*;
@@ -26,17 +26,30 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(400));
-    config.rcc.hclk = Some(mhz(400));
-    config.rcc.pll1.q_ck = Some(mhz(100));
-    config.rcc.pclk1 = Some(mhz(100));
-    config.rcc.pclk2 = Some(mhz(100));
-    config.rcc.pclk3 = Some(mhz(100));
-    config.rcc.pclk4 = Some(mhz(100));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.csi = true;
+        config.rcc.pll_src = PllSource::Hsi;
+        config.rcc.pll1 = Some(Pll {
+            prediv: 4,
+            mul: 50,
+            divp: Some(2),
+            divq: Some(8), // 100mhz
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale1;
+    }
     let p = embassy_stm32::init(config);
 
     defmt::info!("Hello World!");
-    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, McoClock::Divided(3));
+    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, 3);
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let cam_i2c = I2c::new(

@@ -10,7 +10,6 @@ use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
-use embassy_stm32::time::mhz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
@@ -34,9 +33,27 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(400));
-    config.rcc.hclk = Some(mhz(200));
-    config.rcc.pll1.q_ck = Some(mhz(100));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.csi = true;
+        config.rcc.hsi48 = true; // needed for RNG
+        config.rcc.pll_src = PllSource::Hsi;
+        config.rcc.pll1 = Some(Pll {
+            prediv: 4,
+            mul: 50,
+            divp: Some(2),
+            divq: None,
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale1;
+    }
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
@@ -108,7 +125,7 @@ async fn main(spawner: Spawner) -> ! {
             let r = connection.write_all(b"Hello\n").await;
             if let Err(e) = r {
                 info!("write error: {:?}", e);
-                continue;
+                break;
             }
             Timer::after(Duration::from_secs(1)).await;
         }

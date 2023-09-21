@@ -5,7 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rng::Rng;
-use embassy_stm32::{bind_interrupts, peripherals, rng};
+use embassy_stm32::{bind_interrupts, peripherals, rng, Config};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -14,7 +14,9 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut config = Config::default();
+    config.rcc.hsi48 = true; // needed for RNG.
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let mut rng = Rng::new(p.RNG, Irqs);
