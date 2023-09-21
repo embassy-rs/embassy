@@ -154,8 +154,6 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
-        RTC::enable_peripheral_clk();
-
         let mut this = Self {
             #[cfg(feature = "low-power")]
             stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
