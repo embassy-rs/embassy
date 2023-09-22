@@ -64,7 +64,11 @@ impl super::Rtc {
     #[cfg(feature = "low-power")]
     /// start the wakeup alarm and wtih a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
-    pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) {
+    pub(crate) fn start_wakeup_alarm(
+        &self,
+        requested_duration: embassy_time::Duration,
+        cs: critical_section::CriticalSection,
+    ) {
         use embassy_time::{Duration, TICK_HZ};
 
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
@@ -102,25 +106,13 @@ impl super::Rtc {
             self.instant(),
         );
 
-        critical_section::with(|cs| assert!(self.stop_time.borrow(cs).replace(Some(self.instant())).is_none()))
-    }
-
-    #[cfg(feature = "low-power")]
-    pub(crate) fn enable_wakeup_line(&self) {
-        use crate::interrupt::typelevel::Interrupt;
-        use crate::pac::EXTI;
-
-        <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
-        unsafe { <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::enable() };
-
-        EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
-        EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+        assert!(self.stop_time.borrow(cs).replace(Some(self.instant())).is_none())
     }
 
     #[cfg(feature = "low-power")]
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
-    pub(crate) fn stop_wakeup_alarm(&self) -> Option<embassy_time::Duration> {
+    pub(crate) fn stop_wakeup_alarm(&self, cs: critical_section::CriticalSection) -> Option<embassy_time::Duration> {
         use crate::interrupt::typelevel::Interrupt;
 
         trace!("rtc: stop wakeup alarm at {}", self.instant());
@@ -137,13 +129,23 @@ impl super::Rtc {
             <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
         });
 
-        critical_section::with(|cs| {
-            if let Some(stop_time) = self.stop_time.borrow(cs).take() {
-                Some(self.instant() - stop_time)
-            } else {
-                None
-            }
-        })
+        if let Some(stop_time) = self.stop_time.borrow(cs).take() {
+            Some(self.instant() - stop_time)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "low-power")]
+    pub(crate) fn enable_wakeup_line(&self) {
+        use crate::interrupt::typelevel::Interrupt;
+        use crate::pac::EXTI;
+
+        <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
+        unsafe { <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::enable() };
+
+        EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+        EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
     }
 
     /// Applies the RTC config

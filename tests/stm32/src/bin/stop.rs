@@ -19,14 +19,32 @@ use static_cell::make_static;
 
 #[entry]
 fn main() -> ! {
-    let executor = Executor::take();
-    executor.run(|spawner| {
+    Executor::take().run(|spawner| {
         unwrap!(spawner.spawn(async_main(spawner)));
     });
 }
 
 #[embassy_executor::task]
-async fn async_main(_spawner: Spawner) {
+async fn task_1() {
+    for _ in 0..9 {
+        info!("task 1: waiting for 500ms...");
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn task_2() {
+    for _ in 0..5 {
+        info!("task 2: waiting for 1000ms...");
+        Timer::after(Duration::from_millis(1000)).await;
+    }
+
+    info!("Test OK");
+    cortex_m::asm::bkpt();
+}
+
+#[embassy_executor::task]
+async fn async_main(spawner: Spawner) {
     let mut config = config();
 
     config.rcc.lse = Some(Hertz(32_768));
@@ -48,11 +66,6 @@ async fn async_main(_spawner: Spawner) {
 
     stop_with_rtc(rtc);
 
-    info!("Waiting...");
-    Timer::after(Duration::from_secs(2)).await;
-    info!("Waiting...");
-    Timer::after(Duration::from_secs(3)).await;
-
-    info!("Test OK");
-    cortex_m::asm::bkpt();
+    spawner.spawn(task_1()).unwrap();
+    spawner.spawn(task_2()).unwrap();
 }
