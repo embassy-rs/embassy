@@ -68,7 +68,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        #[cfg(feature = "nrf52832")]
+        #[cfg(feature = "_nrf52832_anomaly_109")]
         if r.events_started.read().bits() != 0 {
             s.waker.wake();
             r.intenclr.write(|w| w.started().clear());
@@ -206,8 +206,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx_len as _) });
 
-        // ANOMALY 109 workaround
-        #[cfg(feature = "nrf52832")]
+        #[cfg(feature = "_nrf52832_anomaly_109")]
         {
             let s = T::state();
 
@@ -238,7 +237,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
 
-        #[cfg(feature = "nrf52832")]
+        #[cfg(feature = "_nrf52832_anomaly_109")]
         while let Poll::Pending = self.nrf52832_dma_workaround_status() {}
 
         // Wait for 'end' event.
@@ -265,7 +264,7 @@ impl<'d, T: Instance> Spim<'d, T> {
     async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
 
-        #[cfg(feature = "nrf52832")]
+        #[cfg(feature = "_nrf52832_anomaly_109")]
         poll_fn(|cx| {
             let s = T::state();
 
@@ -369,7 +368,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         self.async_inner_from_ram(&mut [], data).await
     }
 
-    #[cfg(feature = "nrf52832")]
+    #[cfg(feature = "_nrf52832_anomaly_109")]
     fn nrf52832_dma_workaround_status(&mut self) -> Poll<()> {
         let r = T::regs();
         if r.events_started.read().bits() != 0 {
@@ -418,7 +417,7 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
 }
 
 pub(crate) mod sealed {
-    #[cfg(feature = "nrf52832")]
+    #[cfg(feature = "_nrf52832_anomaly_109")]
     use core::sync::atomic::AtomicU8;
 
     use embassy_sync::waitqueue::AtomicWaker;
@@ -427,9 +426,9 @@ pub(crate) mod sealed {
 
     pub struct State {
         pub waker: AtomicWaker,
-        #[cfg(feature = "nrf52832")]
+        #[cfg(feature = "_nrf52832_anomaly_109")]
         pub rx: AtomicU8,
-        #[cfg(feature = "nrf52832")]
+        #[cfg(feature = "_nrf52832_anomaly_109")]
         pub tx: AtomicU8,
     }
 
@@ -437,9 +436,9 @@ pub(crate) mod sealed {
         pub const fn new() -> Self {
             Self {
                 waker: AtomicWaker::new(),
-                #[cfg(feature = "nrf52832")]
+                #[cfg(feature = "_nrf52832_anomaly_109")]
                 rx: AtomicU8::new(0),
-                #[cfg(feature = "nrf52832")]
+                #[cfg(feature = "_nrf52832_anomaly_109")]
                 tx: AtomicU8::new(0),
             }
         }
