@@ -71,21 +71,27 @@ impl super::Rtc {
     ) {
         use embassy_time::{Duration, TICK_HZ};
 
+        // Panic if the rcc mod knows we're not using low-power rtc
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
         unsafe { crate::rcc::get_freqs() }.rtc.unwrap();
 
+        /*
+            If the requested duration is u64::MAX, don't even set the alarm
+
+            Otherwise clamp the requested duration to u32::MAX so that we can do math
+        */
+        if requested_duration.as_ticks() == u64::MAX {
+            return;
+        }
+
+        let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
         let rtc_hz = Self::frequency().0 as u64;
-        let rtc_ticks = requested_duration.as_ticks() * rtc_hz / TICK_HZ;
+        let rtc_ticks = requested_duration * rtc_hz / TICK_HZ;
         let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
         // adjust the rtc ticks to the prescaler and subtract one rtc tick
         let rtc_ticks = rtc_ticks / prescaler as u64;
-        let rtc_ticks = if rtc_ticks >= u16::MAX as u64 {
-            u16::MAX - 1
-        } else {
-            rtc_ticks as u16
-        }
-        .saturating_sub(1);
+        let rtc_ticks = rtc_ticks.clamp(0, (u16::MAX - 1) as u64).saturating_sub(1) as u16;
 
         self.write(false, |regs| {
             regs.cr().modify(|w| w.set_wute(false));
