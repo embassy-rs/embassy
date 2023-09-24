@@ -13,6 +13,7 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
+    config.rcc.lsi = true;
     config.rcc.rtc = Option::Some(RtcClockSource::LSI);
     let p = embassy_stm32::init(config);
 
