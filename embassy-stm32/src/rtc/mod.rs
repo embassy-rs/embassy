@@ -292,8 +292,6 @@ pub(crate) mod sealed {
             crate::pac::RTC
         }
 
-        fn enable_peripheral_clk();
-
         /// Read content of the backup register.
         ///
         /// The registers retain their values during wakes from standby mode or system resets. They also

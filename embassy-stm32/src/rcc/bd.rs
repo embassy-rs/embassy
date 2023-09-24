@@ -82,6 +82,31 @@ impl BackupDomain {
         r
     }
 
+    fn enable_peripheral_clk() {
+        #[cfg(any(rtc_v2l4, rtc_v2wb))]
+        {
+            crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+            crate::pac::PWR.cr1().read();
+        }
+        #[cfg(any(rtc_v2f2))]
+        {
+            crate::pac::RCC.apb1enr().modify(|w| w.set_pwren(true));
+            crate::pac::PWR.cr().read();
+        }
+
+        #[cfg(any(rtc_v2f0, rtc_v2l0))]
+        crate::pac::RCC.apb1enr().modify(|w| w.set_pwren(true));
+
+        #[cfg(any(rcc_wle, rcc_wl5, rcc_g4))]
+        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+
+        #[cfg(rcc_g0)]
+        crate::pac::RCC.apbenr1().modify(|w| w.set_rtcapben(true));
+
+        #[cfg(any(rtc_v3, rtc_v3u5))]
+        crate::pac::PWR.cr1().read();
+    }
+
     #[cfg(any(
         rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
         rtc_v3u5
@@ -89,8 +114,7 @@ impl BackupDomain {
     #[allow(dead_code, unused_variables)]
     pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseDrive>) {
         if lsi || lse.is_some() {
-            use crate::rtc::sealed::Instance;
-            crate::peripherals::RTC::enable_peripheral_clk();
+            Self::enable_peripheral_clk();
         }
 
         if lsi {
