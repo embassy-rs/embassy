@@ -12,7 +12,7 @@ embassy-executor = { version = "0.3.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.3", path = "../../embassy-time", features = ["nightly", "unstable-traits", "defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["stm32wl", "time", "defmt"] }
-lora-phy = { version = "1" }
+lora-phy = { version = "2" }
 lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"] }
 lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"] }
 
@@ -32,4 +32,5 @@ chrono = { version = "^0.4", default-features = false }
 debug = 2
 
 [patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "1323eccc1c470d4259f95f4f315d1be830d572a3"}
+lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan", rev = "b0502c1a802427638cc8bcd928fc632d13b778b6"}
+lorawan = { git = "https://github.com/ivajloip/rust-lorawan", rev = "b0502c1a802427638cc8bcd928fc632d13b778b6"}
