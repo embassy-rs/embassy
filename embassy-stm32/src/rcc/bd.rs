@@ -82,6 +82,7 @@ impl BackupDomain {
         r
     }
 
+    #[allow(dead_code, unused_variables)]
     fn enable_peripheral_clk() {
         #[cfg(any(rtc_v2l4, rtc_v2wb))]
         {
