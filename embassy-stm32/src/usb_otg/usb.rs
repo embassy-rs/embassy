@@ -540,10 +540,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 impl<'d, T: Instance> Bus<'d, T> {
     fn init(&mut self) {
         #[cfg(stm32l4)]
-        {
-            crate::peripherals::PWR::enable();
-            critical_section::with(|_| crate::pac::PWR.cr2().modify(|w| w.set_usv(true)));
-        }
+        critical_section::with(|_| crate::pac::PWR.cr2().modify(|w| w.set_usv(true)));
 
         #[cfg(stm32f7)]
         {
@@ -618,15 +615,10 @@ impl<'d, T: Instance> Bus<'d, T> {
         {
             // Enable USB power
             critical_section::with(|_| {
-                crate::pac::RCC.ahb3enr().modify(|w| {
-                    w.set_pwren(true);
-                });
-                cortex_m::asm::delay(2);
-
                 crate::pac::PWR.svmcr().modify(|w| {
                     w.set_usv(true);
                     w.set_uvmen(true);
-                });
+                })
             });
 
             // Wait for USB power to stabilize

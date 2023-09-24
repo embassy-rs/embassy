@@ -264,10 +264,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         let regs = T::regs();
 
         #[cfg(stm32l5)]
-        {
-            crate::peripherals::PWR::enable();
-            crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
-        }
+        crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
 
         #[cfg(pwr_h5)]
         crate::pac::PWR.usbscr().modify(|w| w.set_usb33sv(true));

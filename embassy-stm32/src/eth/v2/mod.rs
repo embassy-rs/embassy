@@ -80,7 +80,6 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         // Enable the necessary Clocks
         #[cfg(not(rcc_h5))]
         critical_section::with(|_| {
-            crate::pac::RCC.apb4enr().modify(|w| w.set_syscfgen(true));
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_eth1macen(true);
                 w.set_eth1txen(true);

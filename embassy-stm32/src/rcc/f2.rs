@@ -4,7 +4,7 @@ use core::ops::{Div, Mul};
 pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::{Pllp, Pllsrc, Sw};
-use crate::pac::{FLASH, PWR, RCC};
+use crate::pac::{FLASH, RCC};
 use crate::rcc::bd::BackupDomain;
 use crate::rcc::{set_freqs, Clocks};
 use crate::rtc::RtcClockSource;
@@ -434,9 +434,6 @@ pub(crate) unsafe fn init(config: Config) {
     if !config.hsi {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
-
-    RCC.apb1enr().modify(|w| w.set_pwren(true));
-    PWR.cr().read();
 
     BackupDomain::configure_ls(
         config.rtc.unwrap_or(RtcClockSource::NOCLOCK),

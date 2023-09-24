@@ -1,4 +1,3 @@
-use super::sealed::RccPeripheral;
 use crate::pac::pwr::vals::Vos;
 use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
@@ -111,8 +110,6 @@ fn flash_setup(sysclk: u32) {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    crate::peripherals::PWR::enable();
-
     if let Some(hse) = config.hse {
         if config.bypass_hse {
             assert!((max::HSE_BYPASS_MIN..=max::HSE_BYPASS_MAX).contains(&hse.0));
@@ -212,10 +209,7 @@ pub(crate) unsafe fn init(config: Config) {
     if plls.use_pll {
         RCC.cr().modify(|w| w.set_pllon(false));
 
-        // enable PWR and setup VOSScale
-
-        RCC.apb1enr().modify(|w| w.set_pwren(true));
-
+        // setup VOSScale
         let vos_scale = if sysclk <= 144_000_000 {
             3
         } else if sysclk <= 168_000_000 {

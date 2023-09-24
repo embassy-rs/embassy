@@ -3,7 +3,6 @@ use core::marker::PhantomData;
 use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::vals::{Mco1, Mco2, Mcopre};
 
-use super::sealed::RccPeripheral;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
@@ -332,8 +331,6 @@ fn flash_setup(sysclk: u32) {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    crate::peripherals::PWR::enable();
-
     let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0);
     let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
     let sysclk_on_pll = sysclk != pllsrcclk;

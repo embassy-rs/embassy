@@ -283,13 +283,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(crs)]
     if config.enable_hsi48 {
-        // Reset SYSCFG peripheral
-        RCC.apb2rstr().modify(|w| w.set_syscfgrst(true));
-        RCC.apb2rstr().modify(|w| w.set_syscfgrst(false));
-
-        // Enable SYSCFG peripheral
-        RCC.apb2enr().modify(|w| w.set_syscfgen(true));
-
         // Reset CRS peripheral
         RCC.apb1rstr().modify(|w| w.set_crsrst(true));
         RCC.apb1rstr().modify(|w| w.set_crsrst(false));

@@ -295,20 +295,6 @@ impl sealed::Instance for crate::peripherals::RTC {
             // read to allow the pwr clock to enable
             crate::pac::PWR.cr1().read();
         }
-        #[cfg(any(rtc_v2f2))]
-        {
-            // enable peripheral clock for communication
-            crate::pac::RCC.apb1enr().modify(|w| w.set_pwren(true));
-
-            // read to allow the pwr clock to enable
-            crate::pac::PWR.cr().read();
-        }
-
-        #[cfg(any(rtc_v2f0, rtc_v2l0))]
-        {
-            // enable peripheral clock for communication
-            crate::pac::RCC.apb1enr().modify(|w| w.set_pwren(true));
-        }
     }
 
     fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
