@@ -371,9 +371,4 @@ pub(crate) unsafe fn init() {
     use crate::interrupt::typelevel::Interrupt;
 
     foreach_exti_irq!(enable_irq);
-
-    #[cfg(not(any(rcc_wb, rcc_wl5, rcc_wle, stm32f1, exti_h5, exti_h50)))]
-    <crate::peripherals::SYSCFG as crate::rcc::sealed::RccPeripheral>::enable();
-    #[cfg(stm32f1)]
-    <crate::peripherals::AFIO as crate::rcc::sealed::RccPeripheral>::enable();
 }

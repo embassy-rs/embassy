@@ -117,6 +117,7 @@ pub(crate) use stm32_metapac as pac;
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
+use crate::rcc::sealed::RccPeripheral;
 
 #[non_exhaustive]
 pub struct Config {
@@ -178,6 +179,15 @@ pub fn init(config: Config) -> Peripherals {
             }
         });
     }
+
+    #[cfg(not(any(stm32f1, stm32h5, stm32wb, stm32wl)))]
+    peripherals::SYSCFG::enable();
+    #[cfg(sbs)]
+    peripherals::SBS::enable();
+    #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
+    peripherals::PWR::enable();
+    #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
+    peripherals::FLASH::enable();
 
     unsafe {
         gpio::init();

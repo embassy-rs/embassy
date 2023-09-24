@@ -215,11 +215,6 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    #[cfg(stm32h7)]
-    RCC.apb4enr().modify(|w| w.set_syscfgen(true));
-    #[cfg(stm32h5)]
-    RCC.apb3enr().modify(|w| w.set_sbsen(true));
-
     // NB. The lower bytes of CR3 can only be written once after
     // POR, and must be written with a valid combination. Refer to
     // RM0433 Rev 7 6.8.4. This is partially enforced by dropping

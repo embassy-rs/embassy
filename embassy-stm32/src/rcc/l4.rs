@@ -409,8 +409,6 @@ pub(crate) unsafe fn init(config: Config) {
         while RCC.cfgr().read().sws() != Sw::MSI {}
     }
 
-    RCC.apb1enr1().modify(|w| w.set_pwren(true));
-
     BackupDomain::configure_ls(config.rtc_mux, config.lsi, config.lse.map(|_| Default::default()));
 
     let (sys_clk, sw) = match config.mux {
@@ -607,8 +605,6 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, freq * 2)
         }
     };
-
-    RCC.apb1enr1().modify(|w| w.set_pwren(true));
 
     set_freqs(Clocks {
         sys: Hertz(sys_clk),
