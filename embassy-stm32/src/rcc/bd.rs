@@ -100,12 +100,12 @@ impl BackupDomain {
             #[cfg(not(rtc_v3u5))]
             let csr = crate::pac::RCC.csr();
 
-            Self::modify(|_| {
+            Self::modify(|w| {
                 #[cfg(not(any(rcc_wb, rcc_wba)))]
-                csr.modify(|w| w.set_lsion(true));
+                w.set_lsion(true);
 
                 #[cfg(any(rcc_wb, rcc_wba))]
-                csr.modify(|w| w.set_lsi1on(true));
+                w.set_lsi1on(true);
             });
 
             #[cfg(not(any(rcc_wb, rcc_wba)))]
