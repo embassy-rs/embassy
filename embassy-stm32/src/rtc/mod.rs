@@ -111,11 +111,12 @@ impl RtcTimeProvider {
     }
 }
 
-#[non_exhaustive]
 /// RTC Abstraction
 pub struct Rtc {
     #[cfg(feature = "low-power")]
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
+    #[cfg(not(feature = "low-power"))]
+    _private: (),
 }
 
 #[non_exhaustive]
@@ -154,9 +155,14 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
+        #[cfg(any(rcc_wle, rcc_wl5, rcc_g4, rcc_g0, rtc_v2l4, rtc_v2wb))]
+        <RTC as crate::rcc::sealed::RccPeripheral>::enable();
+
         let mut this = Self {
             #[cfg(feature = "low-power")]
             stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+            #[cfg(not(feature = "low-power"))]
+            _private: (),
         };
 
         let frequency = Self::frequency();
@@ -291,8 +297,6 @@ pub(crate) mod sealed {
         fn regs() -> Rtc {
             crate::pac::RTC
         }
-
-        fn enable_peripheral_clk();
 
         /// Read content of the backup register.
         ///

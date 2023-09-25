@@ -88,11 +88,6 @@ impl BackupDomain {
     ))]
     #[allow(dead_code, unused_variables)]
     pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseDrive>) {
-        if lsi || lse.is_some() {
-            use crate::rtc::sealed::Instance;
-            crate::peripherals::RTC::enable_peripheral_clk();
-        }
-
         if lsi {
             #[cfg(rtc_v3u5)]
             let csr = crate::pac::RCC.bdcr();
