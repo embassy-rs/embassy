@@ -10,6 +10,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
+use crate::rcc::sealed::RccPeripheral;
 pub use crate::rcc::RtcClockSource;
 use crate::time::Hertz;
 
@@ -111,11 +112,12 @@ impl RtcTimeProvider {
     }
 }
 
-#[non_exhaustive]
 /// RTC Abstraction
 pub struct Rtc {
     #[cfg(feature = "low-power")]
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
+    #[cfg(not(feature = "low-power"))]
+    _private: (),
 }
 
 #[non_exhaustive]
@@ -154,9 +156,13 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
+        RTC::enable();
+
         let mut this = Self {
             #[cfg(feature = "low-power")]
             stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+            #[cfg(not(feature = "low-power"))]
+            _private: (),
         };
 
         let frequency = Self::frequency();
@@ -291,8 +297,6 @@ pub(crate) mod sealed {
         fn regs() -> Rtc {
             crate::pac::RTC
         }
-
-        fn enable_peripheral_clk();
 
         /// Read content of the backup register.
         ///
