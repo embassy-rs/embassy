@@ -23,7 +23,7 @@ async fn main_task() {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.DMA1_CH0, NoDma, config);
+    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.DMA1_CH0, NoDma, config).unwrap();
 
     for n in 0u32.. {
         let mut s: String<128> = String::new();

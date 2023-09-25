@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
 
     {
         let config = Config::default();
-        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config);
+        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config).unwrap();
 
         // We can't send too many bytes, they have to fit in the FIFO.
         // This is because we aren't sending+receiving at the same time.
@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) {
     // Test error handling with with an overflow error
     {
         let config = Config::default();
-        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config);
+        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config).unwrap();
 
         // Send enough bytes to fill the RX FIFOs off all USART versions.
         let data = [0xC0, 0xDE, 0x12, 0x23, 0x34];
@@ -75,7 +75,7 @@ async fn main(_spawner: Spawner) {
 
         let mut config = Config::default();
         config.baudrate = baudrate;
-        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config);
+        let mut usart = Uart::new(&mut usart, &mut rx, &mut tx, irq, NoDma, NoDma, config).unwrap();
 
         let n = (baudrate as usize / 100).max(64);
 
