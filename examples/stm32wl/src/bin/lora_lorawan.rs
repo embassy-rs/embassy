@@ -20,6 +20,7 @@ use lora_phy::LoRa;
 use lorawan::default_crypto::DefaultFactory as Crypto;
 use lorawan_device::async_device::lora_radio::LoRaRadio;
 use lorawan_device::async_device::{region, Device, JoinMode};
+use lorawan_device::{AppEui, AppKey, DevEui};
 use {defmt_rtt as _, panic_probe as _};
 
 const LORAWAN_REGION: region::Region = region::Region::EU868; // warning: set this appropriately for the region
@@ -46,10 +47,8 @@ async fn main(_spawner: Spawner) {
     let _ctrl3 = Output::new(p.PC3.degrade(), Level::High, Speed::High);
     let iv = Stm32wlInterfaceVariant::new(Irqs, None, Some(ctrl2)).unwrap();
 
-    let mut delay = Delay;
-
     let lora = {
-        match LoRa::new(SX1261_2::new(BoardType::Stm32wlSx1262, spi, iv), true, &mut delay).await {
+        match LoRa::new(SX1261_2::new(BoardType::Stm32wlSx1262, spi, iv), true, Delay).await {
             Ok(l) => l,
             Err(err) => {
                 info!("Radio error = {}", err);
@@ -66,9 +65,9 @@ async fn main(_spawner: Spawner) {
     // TODO: Adjust the EUI and Keys according to your network credentials
     match device
         .join(&JoinMode::OTAA {
-            deveui: [0, 0, 0, 0, 0, 0, 0, 0],
-            appeui: [0, 0, 0, 0, 0, 0, 0, 0],
-            appkey: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            deveui: DevEui::from([0, 0, 0, 0, 0, 0, 0, 0]),
+            appeui: AppEui::from([0, 0, 0, 0, 0, 0, 0, 0]),
+            appkey: AppKey::from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
         })
         .await
     {
