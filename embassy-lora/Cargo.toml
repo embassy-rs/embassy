@@ -28,7 +28,4 @@ embedded-hal = { version = "0.2", features = ["unproven"] }
 
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 lora-phy = { version = "2" }
-lorawan-device = { version = "0.10.0", default-features = false, features = ["async"], optional = true }
-
-[patch.crates-io]
-lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan", rev = "b0502c1a802427638cc8bcd928fc632d13b778b6"}
+lorawan-device = { version = "0.11.0", default-features = false, features = ["async"], optional = true }

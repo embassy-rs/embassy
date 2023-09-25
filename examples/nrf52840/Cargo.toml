@@ -39,8 +39,8 @@ embedded-io = { version = "0.5.0", features = ["defmt-03"]  }
 embedded-io-async = { version = "0.5.0", optional = true, features = ["defmt-03"] }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"], optional = true }
 lora-phy = { version = "2", optional = true }
-lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
-lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"], optional = true }
+lorawan-device = { version = "0.11.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
+lorawan = { version = "0.7.4", default-features = false, features = ["default-crypto"], optional = true }
 embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"], optional = true }
 embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60", features = ["defmt"], optional = true }
 
@@ -65,7 +65,3 @@ microfft = "0.5.0"
 
 [profile.release]
 debug = 2
-
-[patch.crates-io]
-lorawan-device = { git = "https://github.com/ivajloip/rust-lorawan", rev = "b0502c1a802427638cc8bcd928fc632d13b778b6"}
-lorawan = { git = "https://github.com/ivajloip/rust-lorawan", rev = "b0502c1a802427638cc8bcd928fc632d13b778b6"}
