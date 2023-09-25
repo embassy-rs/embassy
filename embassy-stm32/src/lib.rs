@@ -88,6 +88,7 @@ pub use crate::_generated::interrupt;
 #[macro_export]
 macro_rules! bind_interrupts {
     ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+        #[derive(Copy, Clone)]
         $vis struct $name;
 
         $(
