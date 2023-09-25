@@ -75,15 +75,6 @@ impl super::Rtc {
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
         unsafe { crate::rcc::get_freqs() }.rtc.unwrap();
 
-        /*
-            If the requested duration is u64::MAX, don't even set the alarm
-
-            Otherwise clamp the requested duration to u32::MAX so that we can do math
-        */
-        if requested_duration.as_ticks() == u64::MAX {
-            return;
-        }
-
         let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
         let rtc_hz = Self::frequency().0 as u64;
         let rtc_ticks = requested_duration * rtc_hz / TICK_HZ;
