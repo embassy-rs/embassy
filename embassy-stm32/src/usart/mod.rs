@@ -13,11 +13,10 @@ use futures::future::{select, Either};
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
 use crate::interrupt::typelevel::Interrupt;
-#[cfg(not(any(usart_v1, usart_v2)))]
 #[allow(unused_imports)]
+#[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::regs::Isr as Sr;
 #[cfg(any(usart_v1, usart_v2))]
-#[allow(unused_imports)]
 use crate::pac::usart::regs::Sr;
 #[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::Lpuart as Regs;
@@ -76,12 +75,14 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DataBits {
     DataBits8,
     DataBits9,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Parity {
     ParityNone,
     ParityEven,
@@ -89,6 +90,7 @@ pub enum Parity {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopBits {
     #[doc = "1 stop bit"]
     STOP1,
@@ -98,6 +100,14 @@ pub enum StopBits {
     STOP2,
     #[doc = "1.5 stop bits"]
     STOP1P5,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ConfigError {
+    BaudrateTooLow,
+    BaudrateTooHigh,
 }
 
 #[non_exhaustive]
@@ -173,8 +183,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma>
     type Config = Config;
 
     fn set_config(&mut self, config: &Self::Config) {
-        self.tx.set_config(config);
-        self.rx.set_config(config);
+        unwrap!(self.tx.set_config(config));
+        unwrap!(self.rx.set_config(config));
     }
 }
 
@@ -187,7 +197,7 @@ impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
     type Config = Config;
 
     fn set_config(&mut self, config: &Self::Config) {
-        self.set_config(config);
+        unwrap!(self.set_config(config));
     }
 }
 
@@ -203,7 +213,7 @@ impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
     type Config = Config;
 
     fn set_config(&mut self, config: &Self::Config) {
-        self.set_config(config);
+        unwrap!(self.set_config(config));
     }
 }
 
@@ -214,7 +224,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         T::enable();
         T::reset();
 
@@ -227,7 +237,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(cts);
 
         T::enable();
@@ -245,25 +255,25 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(_peri, tx, tx_dma);
 
         let r = T::regs();
 
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        configure(r, &config, T::frequency(), T::KIND, false, true);
+        configure(r, &config, T::frequency(), T::KIND, false, true)?;
 
         // create state once!
         let _s = T::state();
 
-        Self {
+        Ok(Self {
             tx_dma,
             phantom: PhantomData,
-        }
+        })
     }
 
-    pub fn set_config(&mut self, config: &Config) {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 
@@ -307,7 +317,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         T::enable();
         T::reset();
 
@@ -321,7 +331,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(rts);
 
         T::enable();
@@ -340,14 +350,14 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(peri, rx, rx_dma);
 
         let r = T::regs();
 
         rx.set_as_af(rx.af_num(), AFType::Input);
 
-        configure(r, &config, T::frequency(), T::KIND, true, false);
+        configure(r, &config, T::frequency(), T::KIND, true, false)?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -355,16 +365,16 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         // create state once!
         let _s = T::state();
 
-        Self {
+        Ok(Self {
             _peri: peri,
             rx_dma,
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: stm32_metapac::usart::regs::Sr(0),
-        }
+        })
     }
 
-    pub fn set_config(&mut self, config: &Config) {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 
@@ -680,7 +690,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         // UartRx and UartTx have one refcount ea.
         T::enable();
         T::enable();
@@ -699,7 +709,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(cts, rts);
 
         // UartRx and UartTx have one refcount ea.
@@ -726,7 +736,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(de);
 
         // UartRx and UartTx have one refcount ea.
@@ -748,7 +758,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(peri, rx, tx, tx_dma, rx_dma);
 
         let r = T::regs();
@@ -770,7 +780,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             }
         }
 
-        configure(r, &config, T::frequency(), T::KIND, true, true);
+        configure(r, &config, T::frequency(), T::KIND, true, true)?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -778,7 +788,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         // create state once!
         let _s = T::state();
 
-        Self {
+        Ok(Self {
             tx: UartTx {
                 tx_dma,
                 phantom: PhantomData,
@@ -790,10 +800,10 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 #[cfg(any(usart_v1, usart_v2))]
                 buffered_sr: stm32_metapac::usart::regs::Sr(0),
             },
-        }
+        })
     }
 
-    pub fn set_config(&mut self, config: &Config) {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 
@@ -842,18 +852,27 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-fn reconfigure<T: BasicInstance>(config: &Config) {
+fn reconfigure<T: BasicInstance>(config: &Config) -> Result<(), ConfigError> {
     T::Interrupt::disable();
     let r = T::regs();
 
     let cr = r.cr1().read();
-    configure(r, config, T::frequency(), T::KIND, cr.re(), cr.te());
+    configure(r, config, T::frequency(), T::KIND, cr.re(), cr.te())?;
 
     T::Interrupt::unpend();
     unsafe { T::Interrupt::enable() };
+
+    Ok(())
 }
 
-fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: bool, enable_tx: bool) {
+fn configure(
+    r: Regs,
+    config: &Config,
+    pclk_freq: Hertz,
+    kind: Kind,
+    enable_rx: bool,
+    enable_tx: bool,
+) -> Result<(), ConfigError> {
     if !enable_rx && !enable_tx {
         panic!("USART: At least one of RX or TX should be enabled");
     }
@@ -921,7 +940,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
                 found_brr = Some(brr);
                 break;
             }
-            panic!("USART: baudrate too high");
+            return Err(ConfigError::BaudrateTooHigh);
         }
 
         if brr < brr_max {
@@ -933,7 +952,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
         }
     }
 
-    let brr = found_brr.expect("USART: baudrate too low");
+    let brr = found_brr.ok_or(ConfigError::BaudrateTooLow)?;
 
     #[cfg(not(usart_v1))]
     let oversampling = if over8 { "8 bit" } else { "16 bit" };
@@ -985,6 +1004,8 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
     r.cr3().modify(|w| {
         w.set_onebit(config.assume_noise_free);
     });
+
+    Ok(())
 }
 
 mod eh02 {

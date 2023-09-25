@@ -7,7 +7,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralRef;
 use futures::future::{select, Either};
 
-use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, Error, UartRx};
+use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, ConfigError, Error, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
@@ -20,7 +20,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> SetConfig for RingBufferedUar
     type Config = Config;
 
     fn set_config(&mut self, config: &Self::Config) {
-        self.set_config(config);
+        unwrap!(self.set_config(config));
     }
 }
 
@@ -63,7 +63,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         Err(err)
     }
 
-    pub fn set_config(&mut self, config: &Config) {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         self.teardown_uart();
         reconfigure::<T>(config)
     }

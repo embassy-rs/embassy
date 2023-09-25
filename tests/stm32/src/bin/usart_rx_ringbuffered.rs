@@ -40,7 +40,7 @@ async fn main(spawner: Spawner) {
     config.stop_bits = StopBits::STOP1;
     config.parity = Parity::ParityNone;
 
-    let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config);
+    let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config).unwrap();
     let (tx, rx) = usart.split();
     static mut DMA_BUF: [u8; DMA_BUF_SIZE] = [0; DMA_BUF_SIZE];
     let dma_buf = unsafe { DMA_BUF.as_mut() };
