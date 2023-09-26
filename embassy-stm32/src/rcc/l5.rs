@@ -317,11 +317,6 @@ pub(crate) unsafe fn init(config: Config) {
 
             let freq = (src_freq / prediv.to_div() * mul.to_mul()) / div.to_div();
 
-            #[cfg(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx))]
-            assert!(freq <= 120_000_000);
-            #[cfg(not(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx)))]
-            assert!(freq <= 80_000_000);
-
             RCC.pllcfgr().write(move |w| {
                 w.set_plln(mul.into());
                 w.set_pllm(prediv.into());

@@ -1,10 +1,11 @@
 use super::bd::BackupDomain;
 pub use super::bus::{AHBPrescaler, APBPrescaler};
 use super::RtcClockSource;
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
-use crate::pac::RCC;
 #[cfg(crs)]
 use crate::pac::{crs, CRS, SYSCFG};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -140,6 +141,7 @@ pub struct Config {
     pub rtc: Option<RtcClockSource>,
     pub lse: Option<Hertz>,
     pub lsi: bool,
+    pub voltage_scale: VoltageScale,
 }
 
 impl Default for Config {
@@ -155,11 +157,17 @@ impl Default for Config {
             rtc: None,
             lse: None,
             lsi: false,
+            voltage_scale: VoltageScale::RANGE1,
         }
     }
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Set voltage scale
+    while PWR.csr().read().vosf() {}
+    PWR.cr().write(|w| w.set_vos(config.voltage_scale));
+    while PWR.csr().read().vosf() {}
+
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
             // Set MSI range
@@ -244,6 +252,22 @@ pub(crate) unsafe fn init(config: Config) {
         config.lsi,
         config.lse.map(|_| Default::default()),
     );
+
+    let wait_states = match config.voltage_scale {
+        VoltageScale::RANGE1 => match sys_clk {
+            ..=16_000_000 => 0,
+            _ => 1,
+        },
+        VoltageScale::RANGE2 => match sys_clk {
+            ..=8_000_000 => 0,
+            _ => 1,
+        },
+        VoltageScale::RANGE3 => 0,
+        _ => unreachable!(),
+    };
+    FLASH.acr().modify(|w| {
+        w.set_latency(wait_states != 0);
+    });
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
