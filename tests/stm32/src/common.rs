@@ -24,6 +24,16 @@ teleprobe_meta::target!(b"iot-stm32u585ai");
 teleprobe_meta::target!(b"nucleo-stm32h563zi");
 #[cfg(feature = "stm32c031c6")]
 teleprobe_meta::target!(b"nucleo-stm32c031c6");
+#[cfg(feature = "stm32l073rz")]
+teleprobe_meta::target!(b"nucleo-stm32l073rz");
+#[cfg(feature = "stm32l152re")]
+teleprobe_meta::target!(b"nucleo-stm32l152re");
+#[cfg(feature = "stm32l4a6zg")]
+teleprobe_meta::target!(b"nucleo-stm32l4a6zg");
+#[cfg(feature = "stm32l4r5zi")]
+teleprobe_meta::target!(b"nucleo-stm32l4r5zi");
+#[cfg(feature = "stm32l552ze")]
+teleprobe_meta::target!(b"nucleo-stm32l552ze");
 
 macro_rules! define_peris {
     ($($name:ident = $peri:ident,)* $(@irq $irq_name:ident = $irq_code:tt,)*) => {
@@ -109,6 +119,36 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
+#[cfg(feature = "stm32l4a6zg")]
+define_peris!(
+    UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
+);
+#[cfg(feature = "stm32l4r5zi")]
+define_peris!(
+    UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
+);
+#[cfg(feature = "stm32l073rz")]
+define_peris!(
+    UART = USART4, UART_TX = PA0, UART_RX = PA1, UART_TX_DMA = DMA1_CH3, UART_RX_DMA = DMA1_CH2,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART4_5 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART4>;},
+);
+#[cfg(feature = "stm32l152re")]
+define_peris!(
+    UART = USART3, UART_TX = PB10, UART_RX = PB11, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
+);
+#[cfg(feature = "stm32l552ze")]
+define_peris!(
+    UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
+);
 
 pub fn config() -> Config {
     #[allow(unused_mut)]
@@ -144,9 +184,58 @@ pub fn config() -> Config {
         config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
     }
 
+    #[cfg(any(feature = "stm32l4a6zg", feature = "stm32l4r5zi"))]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux = ClockSrc::PLL(
+            // 72Mhz clock (16 / 1 * 18 / 4)
+            PLLSource::HSI16,
+            PLLClkDiv::Div4,
+            PLLSrcDiv::Div1,
+            PLLMul::Mul18,
+            Some(PLLClkDiv::Div6), // 48Mhz (16 / 1 * 18 / 6)
+        );
+    }
+
+    #[cfg(any(feature = "stm32l552ze"))]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux = ClockSrc::PLL(
+            // 110Mhz clock (16 / 4 * 55 / 2)
+            PLLSource::HSI16,
+            PLLClkDiv::Div2,
+            PLLSrcDiv::Div4,
+            PLLMul::Mul55,
+            None,
+        );
+    }
+
     #[cfg(feature = "stm32u585ai")]
     {
-        config.rcc.mux = embassy_stm32::rcc::ClockSrc::MSI(embassy_stm32::rcc::MSIRange::Range48mhz);
+        use embassy_stm32::rcc::*;
+        config.rcc.mux = ClockSrc::MSI(MSIRange::Range48mhz);
+    }
+
+    #[cfg(feature = "stm32l073rz")]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux = ClockSrc::PLL(
+            // 32Mhz clock (16 * 4 / 2)
+            PLLSource::HSI16,
+            PLLMul::Mul4,
+            PLLDiv::Div2,
+        );
+    }
+
+    #[cfg(any(feature = "stm32l152re"))]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux = ClockSrc::PLL(
+            // 32Mhz clock (16 * 4 / 2)
+            PLLSource::HSI,
+            PLLMul::Mul4,
+            PLLDiv::Div2,
+        );
     }
 
     config

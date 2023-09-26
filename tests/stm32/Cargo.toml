@@ -15,6 +15,11 @@ stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-gpdma", "dac-adc-pin"] # Nu
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "not-gpdma", "ble", "mac" ]     # Nucleo
 stm32h563zi = ["embassy-stm32/stm32h563zi"]     # Nucleo
 stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
+stm32l073rz = ["embassy-stm32/stm32l073rz", "not-gpdma"]     # Nucleo
+stm32l152re = ["embassy-stm32/stm32l152re", "not-gpdma"]     # Nucleo
+stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "not-gpdma"]     # Nucleo
+stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "not-gpdma"]     # Nucleo
+stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma"]     # Nucleo
 
 sdmmc = []
 stop = ["embassy-stm32/low-power"]
