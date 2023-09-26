@@ -998,6 +998,8 @@ fn configure(
         });
         #[cfg(not(usart_v1))]
         w.set_over8(vals::Over8::from_bits(over8 as _));
+        #[cfg(usart_v4)]
+        w.set_fifoen(true);
     });
 
     #[cfg(not(usart_v1))]
