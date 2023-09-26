@@ -22,7 +22,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn wifi_task(
+async fn cyw43_runner_task(
     runner: cyw43::Runner<'static, Output<'static, PIN_23>, PioSpi<'static, PIN_25, PIO0, 0, DMA_CH0>>,
 ) -> ! {
     runner.run().await
@@ -33,6 +33,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let fw = include_bytes!("../../../../cyw43-firmware/43439A0.bin");
     let clm = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
+    let btfw = include_bytes!("../../../../cyw43-firmware/43439A0_btfw.bin");
 
     // To make flashing faster for development, you may want to flash the firmwares independently
     // at hardcoded addresses, instead of baking them into the program with `include_bytes!`:
@@ -47,10 +48,10 @@ async fn main(spawner: Spawner) {
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
     let state = make_static!(cyw43::State::new());
-    let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    let (_net_device, mut control, runner) = cyw43::new_with_bluetooth(state, pwr, spi, fw, btfw).await;
+    unwrap!(spawner.spawn(cyw43_runner_task(runner)));
 
-    control.init(clm, true, false).await;
+    control.init(clm, false, true).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;

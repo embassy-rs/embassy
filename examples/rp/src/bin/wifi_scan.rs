@@ -61,7 +61,7 @@ async fn main(spawner: Spawner) {
     let (_net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
     unwrap!(spawner.spawn(wifi_task(runner)));
 
-    control.init(clm).await;
+    control.init(clm, true, false).await;
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
