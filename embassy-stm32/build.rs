@@ -88,26 +88,48 @@ fn main() {
         }
     }
 
+    struct SplitFeature {
+        feature_name: String,
+        pin_name_with_c: String,
+        pin_name_without_c: String,
+    }
+
     // Extra analog switch pins available on most H7 chips
     let split_features = [
         #[cfg(feature = "split-pa0")]
-        ("split-pa0", "PA0_C"),
+        SplitFeature {
+            feature_name: "split-pa0".to_string(),
+            pin_name_with_c: "PA0_C".to_string(),
+            pin_name_without_c: "PA0".to_string(),
+        },
         #[cfg(feature = "split-pa1")]
-        ("split-pa1", "PA1_C"),
+        SplitFeature {
+            feature_name: "split-pa1".to_string(),
+            pin_name_with_c: "PA1_C".to_string(),
+            pin_name_without_c: "PA1".to_string(),
+        },
         #[cfg(feature = "split-pc2")]
-        ("split-pc2", "PC2_C"),
+        SplitFeature {
+            feature_name: "split-pc2".to_string(),
+            pin_name_with_c: "PC2_C".to_string(),
+            pin_name_without_c: "PC2".to_string(),
+        },
         #[cfg(feature = "split-pc3")]
-        ("split-pc3", "PC3_C"),
+        SplitFeature {
+            feature_name: "split-pc3".to_string(),
+            pin_name_with_c: "PC3_C".to_string(),
+            pin_name_without_c: "PC3".to_string(),
+        },
     ];
 
-    for (feature_name, pin_name) in split_features {
-        if pin_set.contains(pin_name) {
-            singletons.push(pin_name.into());
+    for split_feature in &split_features {
+        if pin_set.contains(split_feature.pin_name_with_c.as_str()) {
+            singletons.push(split_feature.pin_name_with_c.clone());
         } else {
             panic!(
                 "'{}' feature invalid for this chip! No pin '{}' found.\n
                 Found pins: {:#?}",
-                feature_name, pin_name, pin_set
+                split_feature.feature_name, split_feature.pin_name_with_c, pin_set
             )
         }
     }
@@ -702,25 +724,13 @@ fn main() {
                 if let Some(tr) = signals.get(&key) {
                     let mut peri = format_ident!("{}", p.name);
                     let pin_name = {
-                        #[allow(unused_mut)]
-                        let mut pin_name = pin.pin;
-
-                        #[cfg(not(feature = "split-pa0"))]
-                        if pin.pin == "PA0_C" {
-                            pin_name = "PA0";
-                        }
-                        #[cfg(not(feature = "split-pa1"))]
-                        if pin.pin == "PA1_C" {
-                            pin_name = "PA1";
-                        }
-
-                        #[cfg(not(feature = "split-pc2"))]
-                        if pin.pin == "PC2_C" {
-                            pin_name = "PC2";
-                        }
-                        #[cfg(not(feature = "split-pc3"))]
-                        if pin.pin == "PC3_C" {
-                            pin_name = "PC3";
+                        // If we encounter a "_C" pin, we remove the suffix
+                        let mut pin_name = pin.pin.strip_suffix("_C").unwrap_or(pin.pin).to_string();
+                        // However, if the corresponding split_feature is enabled, we actually do want the pin name including "_C"
+                        for split_feature in &split_features {
+                            if pin.pin == split_feature.pin_name_with_c {
+                                pin_name = split_feature.pin_name_with_c.clone();
+                            }
                         }
 
                         format_ident!("{}", pin_name)
@@ -763,25 +773,13 @@ fn main() {
 
                     let peri = format_ident!("{}", p.name);
                     let pin_name = {
-                        #[allow(unused_mut)]
-                        let mut pin_name = pin.pin;
-
-                        #[cfg(not(feature = "split-pa0"))]
-                        if pin.pin == "PA0_C" {
-                            pin_name = "PA0";
-                        }
-                        #[cfg(not(feature = "split-pa1"))]
-                        if pin.pin == "PA1_C" {
-                            pin_name = "PA1";
-                        }
-
-                        #[cfg(not(feature = "split-pc2"))]
-                        if pin.pin == "PC2_C" {
-                            pin_name = "PC2";
-                        }
-                        #[cfg(not(feature = "split-pc3"))]
-                        if pin.pin == "PC3_C" {
-                            pin_name = "PC3";
+                        // If we encounter a "_C" pin, we remove the suffix
+                        let mut pin_name = pin.pin.strip_suffix("_C").unwrap_or(pin.pin).to_string();
+                        // However, if the corresponding split_feature is enabled, we actually do want the pin name including "_C"
+                        for split_feature in &split_features {
+                            if pin.pin == split_feature.pin_name_with_c {
+                                pin_name = split_feature.pin_name_with_c.clone();
+                            }
                         }
 
                         format_ident!("{}", pin_name)
@@ -923,26 +921,30 @@ fn main() {
                 for pin_num in 0u32..16 {
                     let pin_name = format!("P{}{}", port_letter, pin_num);
 
-                    // TODO: Here we need to take care of the _C pins properly.
-                    // Maybe it would be better to not iterate over 0..16 but the
-                    // Pin names directly. However, this might have side-effects... :(
-                    if pin_name == "PC2" {
-                        pins_table.push(vec![
-                            "PC2_C".to_string(),
-                            p.name.to_string(),
-                            port_num.to_string(),
-                            "2".to_string(),
-                            format!("EXTI{}", 2),
-                        ]);
-                    }
-
                     pins_table.push(vec![
-                        pin_name,
+                        pin_name.clone(),
                         p.name.to_string(),
                         port_num.to_string(),
                         pin_num.to_string(),
                         format!("EXTI{}", pin_num),
                     ]);
+
+                    // If we have the split pins, we need to do a little extra work:
+                    // Add the "_C" variant to the table. The solution is not optimal, though.
+                    // Adding them only when the corresponding GPIOx also appears.
+                    // This should avoid unintended side-effects as much as possible.
+                    #[cfg(feature = "_split-pins-enabled")]
+                    for split_feature in &split_features {
+                        if split_feature.pin_name_without_c == pin_name {
+                            pins_table.push(vec![
+                                split_feature.pin_name_with_c.to_string(),
+                                p.name.to_string(),
+                                port_num.to_string(),
+                                pin_num.to_string(),
+                                format!("EXTI{}", pin_num),
+                            ]);
+                        }
+                    }
                 }
             }
 
