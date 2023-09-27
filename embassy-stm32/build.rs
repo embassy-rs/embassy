@@ -95,7 +95,7 @@ fn main() {
     }
 
     // Extra analog switch pins available on most H7 chips
-    let split_features = [
+    let split_features: Vec<SplitFeature> = vec![
         #[cfg(feature = "split-pa0")]
         SplitFeature {
             feature_name: "split-pa0".to_string(),
