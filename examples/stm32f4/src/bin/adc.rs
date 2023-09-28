@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     // Startup delay can be combined to the maximum of either
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
-    let vrefint_sample = adc.read_internal(&mut vrefint);
+    let vrefint_sample = adc.read(&mut vrefint);
 
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/DM00071990.pdf
@@ -55,12 +55,12 @@ async fn main(_spawner: Spawner) {
         info!("PC1: {} ({} mV)", v, convert_to_millivolts(v));
 
         // Read internal temperature
-        let v = adc.read_internal(&mut temp);
+        let v = adc.read(&mut temp);
         let celcius = convert_to_celcius(v);
         info!("Internal temp: {} ({} C)", v, celcius);
 
         // Read internal voltage reference
-        let v = adc.read_internal(&mut vrefint);
+        let v = adc.read(&mut vrefint);
         info!("VrefInt: {}", v);
 
         Timer::after(Duration::from_millis(100)).await;

@@ -31,15 +31,15 @@ pub struct Adc<'d, T: Instance> {
 }
 
 pub(crate) mod sealed {
-    #[cfg(any(adc_f3, adc_v1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1))]
     use embassy_sync::waitqueue::AtomicWaker;
 
-    #[cfg(any(adc_f3, adc_v1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1))]
     pub struct State {
         pub waker: AtomicWaker,
     }
 
-    #[cfg(any(adc_f3, adc_v1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1))]
     impl State {
         pub const fn new() -> Self {
             Self {
@@ -58,11 +58,14 @@ pub(crate) mod sealed {
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
         #[cfg(adc_f3)]
         fn frequency() -> crate::time::Hertz;
-        #[cfg(any(adc_f3, adc_v1))]
+        #[cfg(any(adc_f1, adc_f3, adc_v1))]
         fn state() -> &'static State;
     }
 
     pub trait AdcPin<T: Instance> {
+        #[cfg(any(adc_v1, adc_v2))]
+        fn set_as_analog(&mut self) {}
+
         fn channel(&self) -> u8;
     }
 
@@ -96,7 +99,7 @@ foreach_adc!(
                 unsafe { crate::rcc::get_freqs() }.$clock.unwrap()
             }
 
-            #[cfg(any(adc_f3, adc_v1))]
+            #[cfg(any(adc_f1, adc_f3, adc_v1))]
             fn state() -> &'static sealed::State {
                 static STATE: sealed::State = sealed::State::new();
                 &STATE
@@ -120,6 +123,11 @@ macro_rules! impl_adc_pin {
         impl crate::adc::AdcPin<peripherals::$inst> for crate::peripherals::$pin {}
 
         impl crate::adc::sealed::AdcPin<peripherals::$inst> for crate::peripherals::$pin {
+            #[cfg(any(adc_v1, adc_v2))]
+            fn set_as_analog(&mut self) {
+                <Self as crate::gpio::sealed::Pin>::set_as_analog(self);
+            }
+
             fn channel(&self) -> u8 {
                 $ch
             }
