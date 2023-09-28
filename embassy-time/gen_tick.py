@@ -17,6 +17,7 @@ for i in range(1, 10):
     ticks.append(2**i * 1000000)
     ticks.append(2**i * 9 // 8 * 1000000)
     ticks.append(2**i * 3 // 2 * 1000000)
+ticks.append(80_000_000)
 
 seen = set()
 ticks = [x for x in ticks if not (x in seen or seen.add(x))]
