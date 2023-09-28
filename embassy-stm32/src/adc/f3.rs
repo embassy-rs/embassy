@@ -173,3 +173,23 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 }
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        use crate::pac::adc::vals;
+
+        T::regs().cr().modify(|w| w.set_adstp(true));
+
+        while T::regs().cr().read().adstp() {}
+
+        T::regs().cr().modify(|w| w.set_addis(true));
+
+        while T::regs().cr().read().aden() {}
+
+        // Disable the adc regulator
+        T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));
+        T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::DISABLED));
+
+        T::disable();
+    }
+}
