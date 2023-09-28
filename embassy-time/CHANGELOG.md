@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.1.4 - ???
 
-- Added `tick-hz-80_000_000`
+- Added more tick rates
 
 ## 0.1.3 - 2023-08-28
 
