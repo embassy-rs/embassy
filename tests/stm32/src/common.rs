@@ -154,11 +154,46 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
+    #[cfg(feature = "stm32f429zi")]
+    {
+        // TODO: stm32f429zi can do up to 180mhz, but that makes tests fail.
+        // perhaps we have some bug w.r.t overdrive.
+        config.rcc.sys_ck = Some(Hertz(168_000_000));
+        config.rcc.pclk1 = Some(Hertz(42_000_000));
+        config.rcc.pclk2 = Some(Hertz(84_000_000));
+    }
+
+    #[cfg(feature = "stm32h563zi")]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = None;
+        config.rcc.hsi48 = true; // needed for rng
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::BypassDigital,
+        });
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::Hse,
+            prediv: 2,
+            mul: 125,
+            divp: Some(2),
+            divq: Some(2),
+            divr: None,
+        });
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.apb3_pre = APBPrescaler::DIV1;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.voltage_scale = VoltageScale::Scale0;
+    }
+
     #[cfg(feature = "stm32h755zi")]
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(Hsi::Mhz64);
         config.rcc.csi = true;
+        config.rcc.hsi48 = true; // needed for RNG
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
             prediv: 4,
