@@ -197,7 +197,7 @@ where
     /// Flushes the transmit buffer, ensuring all pending transmissions have completed
     /// NOTE: The returned packet *must* be `read` or `ignore`-d, otherwise this method will always
     /// return `None` on subsequent invocations
-    pub fn receive<'a>(&mut self, buf: &'a mut [u8]) -> Option<&'a mut [u8]> {
+    pub fn receive(&mut self, buf: &mut [u8]) -> Option<usize> {
         if self.pending_packets() == 0 {
             // Errata #6: we can't rely on PKTIF so we check PKTCNT
             return None;
@@ -241,7 +241,7 @@ where
 
         self.next_packet = next_packet;
 
-        Some(&mut buf[..len as usize])
+        Some(len as usize)
     }
 
     fn wait_tx_ready(&mut self) {
@@ -642,9 +642,8 @@ where
     fn receive(&mut self, cx: &mut core::task::Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let rx_buf = unsafe { &mut RX_BUF };
         let tx_buf = unsafe { &mut TX_BUF };
-        if let Some(pkt) = self.receive(rx_buf) {
-            let n = pkt.len();
-            Some((RxToken { buf: &mut pkt[..n] }, TxToken { buf: tx_buf, eth: self }))
+        if let Some(n) = self.receive(rx_buf) {
+            Some((RxToken { buf: &mut rx_buf[..n] }, TxToken { buf: tx_buf, eth: self }))
         } else {
             cx.waker().wake_by_ref();
             None
