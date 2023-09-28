@@ -56,6 +56,8 @@ pub(crate) mod sealed {
     }
 
     pub trait CaptureCompare16bitInstance: GeneralPurpose16bitInstance {
+        fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::Icf);
+
         fn clear_input_interrupt(&mut self, channel: Channel);
 
         fn enable_input_interrupt(&mut self, channel: Channel, enable: bool);
@@ -93,6 +95,8 @@ pub(crate) mod sealed {
     }
 
     pub trait CaptureCompare32bitInstance: GeneralPurpose32bitInstance {
+        fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::Icf);
+
         fn clear_input_interrupt(&mut self, channel: Channel);
 
         fn enable_input_interrupt(&mut self, channel: Channel, enable: bool);
@@ -338,6 +342,14 @@ macro_rules! impl_32bit_timer {
 macro_rules! impl_compare_capable_16bit {
     ($inst:ident) => {
         impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::Icf) {
+                use sealed::GeneralPurpose16bitInstance;
+                let raw_channel = channel.raw();
+                Self::regs_gp16()
+                    .ccmr_input(raw_channel / 2)
+                    .modify(|r| r.set_icf(raw_channel % 2, icf));
+            }
+
             fn clear_input_interrupt(&mut self, channel: Channel) {
                 use sealed::GeneralPurpose16bitInstance;
                 Self::regs_gp16()
@@ -463,6 +475,14 @@ foreach_interrupt! {
         impl GeneralPurpose32bitInstance for crate::peripherals::$inst {}
 
         impl sealed::CaptureCompare32bitInstance for crate::peripherals::$inst {
+            fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::Icf) {
+                use sealed::GeneralPurpose32bitInstance;
+                let raw_channel = channel.raw();
+                Self::regs_gp32()
+                    .ccmr_input(raw_channel / 2)
+                    .modify(|r| r.set_icf(raw_channel % 2, icf));
+            }
+
             fn clear_input_interrupt(&mut self, channel: Channel) {
                 use sealed::GeneralPurpose32bitInstance;
                 Self::regs_gp32()
@@ -591,6 +611,14 @@ foreach_interrupt! {
         }
 
         impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::Icf) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                let raw_channel = channel.raw();
+                Self::regs_advanced()
+                    .ccmr_input(raw_channel / 2)
+                    .modify(|r| r.set_icf(raw_channel % 2, icf));
+            }
+
             fn clear_input_interrupt(&mut self, channel: Channel) {
                 use crate::timer::sealed::AdvancedControlInstance;
                 Self::regs_advanced()
