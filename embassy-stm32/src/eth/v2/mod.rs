@@ -34,8 +34,6 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
     }
 }
 
-const MTU: usize = 1514; // 14 Ethernet header + 1500 IP packet
-
 pub struct Ethernet<'d, T: Instance, P: PHY> {
     _peri: PeripheralRef<'d, T>,
     pub(crate) tx: TDesRing<'d>,
@@ -163,7 +161,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
         dma.dmacrx_cr().modify(|w| {
             w.set_rxpbl(1); // 32 ?
-            w.set_rbsz(MTU as u16);
+            w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
         // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
