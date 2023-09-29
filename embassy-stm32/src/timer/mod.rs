@@ -49,10 +49,6 @@ pub(crate) mod sealed {
         fn regs_gp32() -> crate::pac::timer::TimGp32;
 
         fn set_frequency(&mut self, frequency: Hertz);
-
-        fn set_count_direction(&mut self, direction: vals::Dir);
-
-        fn set_clock_division(&mut self, ckd: vals::Ckd);
     }
 
     pub trait AdvancedControlInstance: GeneralPurpose16bitInstance {
@@ -319,14 +315,6 @@ macro_rules! impl_32bit_timer {
         impl sealed::GeneralPurpose32bitInstance for crate::peripherals::$inst {
             fn regs_gp32() -> crate::pac::timer::TimGp32 {
                 crate::pac::$inst
-            }
-
-            fn set_count_direction(&mut self, direction: vals::Dir) {
-                Self::regs_gp32().cr1().modify(|r| r.set_dir(direction));
-            }
-
-            fn set_clock_division(&mut self, ckd: vals::Ckd) {
-                Self::regs_gp32().cr1().modify(|r| r.set_ckd(ckd));
             }
 
             fn set_frequency(&mut self, frequency: Hertz) {
