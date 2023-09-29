@@ -99,9 +99,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             });
 
             // RMII
-            crate::pac::SBS
+            crate::pac::SYSCFG
                 .pmcr()
-                .modify(|w| w.set_eth_sel_phy(crate::pac::sbs::vals::EthSelPhy::B_0X4));
+                .modify(|w| w.set_eth_sel_phy(crate::pac::syscfg::vals::EthSelPhy::B_0X4));
         });
 
         config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
