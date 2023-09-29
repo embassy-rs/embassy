@@ -194,6 +194,11 @@ where
         self.bit_field_set(common::Register::ECON1, common::ECON1::mask().rxen());
     }
 
+    /// Returns the device's MAC address
+    pub fn address(&self) -> [u8; 6] {
+        self.mac_addr
+    }
+
     /// Flushes the transmit buffer, ensuring all pending transmissions have completed
     /// NOTE: The returned packet *must* be `read` or `ignore`-d, otherwise this method will always
     /// return `None` on subsequent invocations
