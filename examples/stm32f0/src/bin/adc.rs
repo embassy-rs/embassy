@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PA1;
 
     let mut vrefint = adc.enable_vref(&mut Delay);
-    let vrefint_sample = adc.read_internal(&mut vrefint).await;
+    let vrefint_sample = adc.read(&mut vrefint).await;
     let convert_to_millivolts = |sample| {
         // From https://www.st.com/resource/en/datasheet/stm32f031c6.pdf
         // 6.3.4 Embedded reference voltage

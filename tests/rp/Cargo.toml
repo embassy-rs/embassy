@@ -16,6 +16,7 @@ embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defm
 embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { path = "../../cyw43-pio", features = ["defmt", "overclock"] }
+perf-client = { path = "../perf-client" }
 
 defmt = "0.3.0"
 defmt-rtt = "0.4"

@@ -19,6 +19,7 @@ embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60",
 embedded-hal-async = { version = "1.0.0-rc.1" }
 embedded-hal-bus = { version = "0.1.0-rc.1", features = ["async"] }
 static_cell = { version = "1.1", features = [ "nightly" ] }
+perf-client = { path = "../perf-client" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"

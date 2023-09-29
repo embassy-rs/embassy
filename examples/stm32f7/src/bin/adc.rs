@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PA3;
 
     let mut vrefint = adc.enable_vrefint();
-    let vrefint_sample = adc.read_internal(&mut vrefint);
+    let vrefint_sample = adc.read(&mut vrefint);
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/DM00273119.pdf
         // 6.3.27 Reference voltage

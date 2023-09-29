@@ -1,15 +1,36 @@
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
+
 use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
 use crate::rcc::get_freqs;
 use crate::time::Hertz;
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
 // No calibration data for F103, voltage should be 1.2v
 pub const VREF_INT: u32 = 1200;
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::regs().sr().read().eoc() {
+            T::regs().cr1().modify(|w| w.set_eocie(false));
+        } else {
+            return;
+        }
+
+        T::state().waker.wake();
+    }
+}
 
 pub struct Vref;
 impl<T: Instance> AdcPin<T> for Vref {}
@@ -95,18 +116,28 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
+    async fn convert(&mut self) -> u16 {
         T::regs().cr2().modify(|reg| {
             reg.set_adon(true);
             reg.set_swstart(true);
         });
-        while T::regs().cr2().read().swstart() {}
-        while !T::regs().sr().read().eoc() {}
+        T::regs().cr1().modify(|w| w.set_eocie(true));
+
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+
+            if !T::regs().cr2().read().swstart() && T::regs().sr().read().eoc() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
         Self::set_channel_sample_time(pin.channel(), self.sample_time);
         T::regs().cr1().modify(|reg| {
             reg.set_scan(false);
@@ -123,7 +154,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Configure the channel to sample
         T::regs().sqr3().write(|reg| reg.set_sq(0, pin.channel()));
-        self.convert()
+        self.convert().await
     }
 
     fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
@@ -133,5 +164,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         } else {
             T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
+    }
+}
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        T::regs().cr2().modify(|reg| reg.set_adon(false));
+
+        T::disable();
     }
 }

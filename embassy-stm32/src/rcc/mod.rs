@@ -97,7 +97,7 @@ pub struct Clocks {
     #[cfg(stm32f334)]
     pub hrtim: Option<Hertz>,
 
-    #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_f7))]
     /// Set only if the lsi or lse is configured, indicates stop is supported
     pub rtc: Option<Hertz>,
 

@@ -78,12 +78,76 @@ pub(crate) mod sealed {
     pub trait Instance: RccPeripheral {
         fn regs() -> crate::pac::hrtim::Hrtim;
 
-        fn set_master_frequency(frequency: Hertz);
+        fn set_master_frequency(frequency: Hertz) {
+            let f = frequency.0;
+            #[cfg(not(stm32f334))]
+            let timer_f = Self::frequency().0;
+            #[cfg(stm32f334)]
+            let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(Self::frequency()).0;
 
-        fn set_channel_frequency(channnel: usize, frequency: Hertz);
+            let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
+            let psc = if Self::regs().isr().read().dllrdy() {
+                Prescaler::compute_min_high_res(psc_min)
+            } else {
+                Prescaler::compute_min_low_res(psc_min)
+            };
+
+            let timer_f = 32 * (timer_f / psc as u32);
+            let per: u16 = (timer_f / f) as u16;
+
+            let regs = Self::regs();
+
+            regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
+            regs.mper().modify(|w| w.set_mper(per));
+        }
+
+        fn set_channel_frequency(channel: usize, frequency: Hertz) {
+            let f = frequency.0;
+            #[cfg(not(stm32f334))]
+            let timer_f = Self::frequency().0;
+            #[cfg(stm32f334)]
+            let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(Self::frequency()).0;
+
+            let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
+            let psc = if Self::regs().isr().read().dllrdy() {
+                Prescaler::compute_min_high_res(psc_min)
+            } else {
+                Prescaler::compute_min_low_res(psc_min)
+            };
+
+            let timer_f = 32 * (timer_f / psc as u32);
+            let per: u16 = (timer_f / f) as u16;
+
+            let regs = Self::regs();
+
+            regs.tim(channel).cr().modify(|w| w.set_ckpsc(psc.into()));
+            regs.tim(channel).per().modify(|w| w.set_per(per));
+        }
 
         /// Set the dead time as a proportion of max_duty
-        fn set_channel_dead_time(channnel: usize, dead_time: u16);
+
+        fn set_channel_dead_time(channel: usize, dead_time: u16) {
+            let regs = Self::regs();
+
+            let channel_psc: Prescaler = regs.tim(channel).cr().read().ckpsc().into();
+
+            // The dead-time base clock runs 4 times slower than the hrtim base clock
+            // u9::MAX = 511
+            let psc_min = (channel_psc as u32 * dead_time as u32) / (4 * 511);
+            let psc = if Self::regs().isr().read().dllrdy() {
+                Prescaler::compute_min_high_res(psc_min)
+            } else {
+                Prescaler::compute_min_low_res(psc_min)
+            };
+
+            let dt_val = (psc as u32 * dead_time as u32) / (4 * channel_psc as u32);
+
+            regs.tim(channel).dt().modify(|w| {
+                w.set_dtprsc(psc.into());
+                w.set_dtf(dt_val as u16);
+                w.set_dtr(dt_val as u16);
+            });
+        }
 
         //        fn enable_outputs(enable: bool);
         //
@@ -98,84 +162,6 @@ foreach_interrupt! {
         impl sealed::Instance for crate::peripherals::$inst {
             fn regs() -> crate::pac::hrtim::Hrtim {
                 crate::pac::$inst
-            }
-
-            fn set_master_frequency(frequency: Hertz) {
-                use crate::rcc::sealed::RccPeripheral;
-
-                let f = frequency.0;
-                #[cfg(not(stm32f334))]
-                let timer_f = Self::frequency().0;
-                #[cfg(stm32f334)]
-                let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(
-                    Self::frequency()
-                ).0;
-
-                let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
-                let psc = if Self::regs().isr().read().dllrdy() {
-                    Prescaler::compute_min_high_res(psc_min)
-                } else {
-                    Prescaler::compute_min_low_res(psc_min)
-                };
-
-                let timer_f = 32 * (timer_f / psc as u32);
-                let per: u16 = (timer_f / f) as u16;
-
-                let regs = Self::regs();
-
-                regs.mcr().modify(|w| w.set_ckpsc(psc.into()));
-                regs.mper().modify(|w| w.set_mper(per));
-            }
-
-            fn set_channel_frequency(channel: usize, frequency: Hertz) {
-                use crate::rcc::sealed::RccPeripheral;
-
-                let f = frequency.0;
-                #[cfg(not(stm32f334))]
-                let timer_f = Self::frequency().0;
-                #[cfg(stm32f334)]
-                let timer_f = unsafe { crate::rcc::get_freqs() }.hrtim.unwrap_or(
-                    Self::frequency()
-                ).0;
-
-                let psc_min = (timer_f / f) / (u16::MAX as u32 / 32);
-                let psc = if Self::regs().isr().read().dllrdy() {
-                    Prescaler::compute_min_high_res(psc_min)
-                } else {
-                    Prescaler::compute_min_low_res(psc_min)
-                };
-
-                let timer_f = 32 * (timer_f / psc as u32);
-                let per: u16 = (timer_f / f) as u16;
-
-                let regs = Self::regs();
-
-                regs.tim(channel).cr().modify(|w| w.set_ckpsc(psc.into()));
-                regs.tim(channel).per().modify(|w| w.set_per(per));
-            }
-
-            fn set_channel_dead_time(channel: usize, dead_time: u16) {
-
-                let regs = Self::regs();
-
-                let channel_psc: Prescaler = regs.tim(channel).cr().read().ckpsc().into();
-
-                // The dead-time base clock runs 4 times slower than the hrtim base clock
-                // u9::MAX = 511
-                let psc_min = (channel_psc as u32 * dead_time as u32) / (4 * 511);
-                let psc = if Self::regs().isr().read().dllrdy() {
-                    Prescaler::compute_min_high_res(psc_min)
-                } else {
-                    Prescaler::compute_min_low_res(psc_min)
-                };
-
-                let dt_val = (psc as u32 * dead_time as u32) / (4 * channel_psc as u32);
-
-                regs.tim(channel).dt().modify(|w| {
-                    w.set_dtprsc(psc.into());
-                    w.set_dtf(dt_val as u16);
-                    w.set_dtr(dt_val as u16);
-                });
             }
         }
 

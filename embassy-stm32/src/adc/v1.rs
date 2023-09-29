@@ -5,7 +5,7 @@ use core::task::Poll;
 use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC;
 use crate::{interrupt, Peripheral};
@@ -31,24 +31,24 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 pub struct Vbat;
-impl InternalChannel<ADC> for Vbat {}
-impl super::sealed::InternalChannel<ADC> for Vbat {
+impl AdcPin<ADC> for Vbat {}
+impl super::sealed::AdcPin<ADC> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl InternalChannel<ADC> for Vref {}
-impl super::sealed::InternalChannel<ADC> for Vref {
+impl AdcPin<ADC> for Vref {}
+impl super::sealed::AdcPin<ADC> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl InternalChannel<ADC> for Temperature {}
-impl super::sealed::InternalChannel<ADC> for Temperature {
+impl AdcPin<ADC> for Temperature {}
+impl super::sealed::AdcPin<ADC> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
@@ -134,18 +134,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
-    pub async fn read<P>(&mut self, pin: &mut P) -> u16
-    where
-        P: AdcPin<T> + crate::gpio::sealed::Pin,
-    {
+    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
         let channel = pin.channel();
         pin.set_as_analog();
-        self.read_channel(channel).await
-    }
 
-    pub async fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        let channel = channel.channel();
-        self.read_channel(channel).await
+        // A.7.5 Single conversion sequence code example - Software trigger
+        T::regs().chselr().write(|reg| reg.set_chselx(channel as usize, true));
+
+        self.convert().await
     }
 
     async fn convert(&mut self) -> u16 {
@@ -170,13 +166,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         .await;
 
         T::regs().dr().read().data()
-    }
-
-    async fn read_channel(&mut self, channel: u8) -> u16 {
-        // A.7.5 Single conversion sequence code example - Software trigger
-        T::regs().chselr().write(|reg| reg.set_chselx(channel as usize, true));
-
-        self.convert().await
     }
 }
 

@@ -258,7 +258,7 @@ fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress
     }
 }
 
-impl<D: Driver + 'static> Stack<D> {
+impl<D: Driver> Stack<D> {
     /// Create a new network stack.
     pub fn new<const SOCK: usize>(
         mut device: D,
@@ -555,7 +555,7 @@ impl<D: Driver + 'static> Stack<D> {
 }
 
 #[cfg(feature = "igmp")]
-impl<D: Driver + 'static> Stack<D> {
+impl<D: Driver> Stack<D> {
     /// Join a multicast group.
     pub async fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
     where
@@ -645,7 +645,7 @@ impl SocketStack {
     }
 }
 
-impl<D: Driver + 'static> Inner<D> {
+impl<D: Driver> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
     pub fn set_config_v4(&mut self, _s: &mut SocketStack, config: ConfigV4) {
         // Handle static config.

@@ -1,6 +1,7 @@
 use crate::pac::pwr::vals::Vos;
 use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -22,6 +23,9 @@ pub struct Config {
     pub pclk2: Option<Hertz>,
 
     pub pll48: bool,
+    pub rtc: Option<RtcClockSource>,
+    pub lsi: bool,
+    pub lse: Option<Hertz>,
 }
 
 fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bool) -> PllResults {
@@ -259,6 +263,18 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
+
+    let rtc = match config.rtc {
+        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
+        Some(RtcClockSource::LSE) => Some(config.lse.unwrap()),
+        _ => None,
+    };
+
     set_freqs(Clocks {
         sys: Hertz(sysclk),
         apb1: Hertz(pclk1),
@@ -272,6 +288,8 @@ pub(crate) unsafe fn init(config: Config) {
         ahb3: Hertz(hclk),
 
         pll48: plls.pll48clk.map(Hertz),
+
+        rtc,
     });
 }
 
