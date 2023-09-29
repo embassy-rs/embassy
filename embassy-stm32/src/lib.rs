@@ -181,10 +181,8 @@ pub fn init(config: Config) -> Peripherals {
         });
     }
 
-    #[cfg(not(any(stm32f1, stm32h5, stm32wb, stm32wl)))]
+    #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
     peripherals::SYSCFG::enable();
-    #[cfg(sbs)]
-    peripherals::SBS::enable();
     #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
     peripherals::PWR::enable();
     #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
