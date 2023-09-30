@@ -323,7 +323,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     /// Reconfigures it with the supplied config.
-    pub fn reconfigure(&mut self, config: Config) {
+    pub fn set_config(&mut self, config: Config) {
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
 
@@ -646,6 +646,8 @@ impl<'d, T: Instance, Tx, Rx> Drop for Spi<'d, T, Tx, Rx> {
         self.sck.as_ref().map(|x| x.set_as_disconnected());
         self.mosi.as_ref().map(|x| x.set_as_disconnected());
         self.miso.as_ref().map(|x| x.set_as_disconnected());
+
+        T::disable();
     }
 }
 
@@ -1060,6 +1062,6 @@ foreach_peripheral!(
 impl<'d, T: Instance, Tx, Rx> SetConfig for Spi<'d, T, Tx, Rx> {
     type Config = Config;
     fn set_config(&mut self, config: &Self::Config) {
-        self.reconfigure(*config);
+        self.set_config(*config);
     }
 }

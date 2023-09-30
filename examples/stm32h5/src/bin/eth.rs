@@ -48,10 +48,10 @@ async fn main(spawner: Spawner) -> ! {
         divq: Some(2),
         divr: None,
     });
-    config.rcc.ahb_pre = AHBPrescaler::NotDivided;
-    config.rcc.apb1_pre = APBPrescaler::NotDivided;
-    config.rcc.apb2_pre = APBPrescaler::NotDivided;
-    config.rcc.apb3_pre = APBPrescaler::NotDivided;
+    config.rcc.ahb_pre = AHBPrescaler::DIV1;
+    config.rcc.apb1_pre = APBPrescaler::DIV1;
+    config.rcc.apb2_pre = APBPrescaler::DIV1;
+    config.rcc.apb3_pre = APBPrescaler::DIV1;
     config.rcc.sys = Sysclk::Pll1P;
     config.rcc.voltage_scale = VoltageScale::Scale0;
     let p = embassy_stm32::init(config);
@@ -101,6 +101,9 @@ async fn main(spawner: Spawner) -> ! {
     // Launch network task
     unwrap!(spawner.spawn(net_task(&stack)));
 
+    // Ensure DHCP configuration is up before trying connect
+    stack.wait_config_up().await;
+
     info!("Network task initialized");
 
     // Then we can use it!
@@ -125,7 +128,7 @@ async fn main(spawner: Spawner) -> ! {
             let r = socket.write_all(b"Hello\n").await;
             if let Err(e) = r {
                 info!("write error: {:?}", e);
-                continue;
+                break;
             }
             Timer::after(Duration::from_secs(1)).await;
         }

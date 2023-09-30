@@ -5,9 +5,9 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-embassy-sync = { version = "0.2.0", path = "../../../../embassy-sync" }
+embassy-sync = { version = "0.3.0", path = "../../../../embassy-sync" }
 embassy-executor = { version = "0.3.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "nightly", "integrated-timers", "arch-cortex-m", "executor-thread"] }
-embassy-time = { version = "0.1.2", path = "../../../../embassy-time", features = ["nightly"] }
+embassy-time = { version = "0.1.3", path = "../../../../embassy-time", features = ["nightly"] }
 embassy-rp = { version = "0.1.0", path = "../../../../embassy-rp", features = ["time-driver", "unstable-traits", "nightly"] }
 embassy-boot-rp = { version = "0.1.0", path = "../../../../embassy-boot/rp", features = ["nightly"] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }
@@ -27,6 +27,7 @@ default = ["panic-reset"]
 debug = [
     "embassy-rp/defmt",
     "embassy-boot-rp/defmt",
+    "embassy-sync/defmt",
     "panic-probe"
 ]
 skip-include = []

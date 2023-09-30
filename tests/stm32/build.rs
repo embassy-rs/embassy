@@ -12,7 +12,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     if cfg!(any(
         feature = "stm32f103c8",
         feature = "stm32c031c6",
-        feature = "stm32wb55rg"
+        feature = "stm32wb55rg",
+        feature = "stm32l073rz",
     )) {
         println!("cargo:rustc-link-arg-bins=-Tlink.x");
         println!("cargo:rerun-if-changed=link.x");

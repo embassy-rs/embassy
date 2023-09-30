@@ -8,3 +8,5 @@
 * xref:bootloader.adoc[Bootloader]
 
 * xref:examples.adoc[Examples]
+* xref:developer.adoc[Developer]
+** xref:developer_stm32.adoc[Developer: STM32]

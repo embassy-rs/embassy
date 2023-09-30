@@ -167,9 +167,10 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Enable TWIM instance.
         r.enable.write(|w| w.enable().enabled());
 
-        // Configure frequency.
-        r.frequency
-            .write(|w| unsafe { w.frequency().bits(config.frequency as u32) });
+        let mut twim = Self { _p: twim };
+
+        // Apply runtime peripheral configuration
+        Self::set_config(&mut twim, &config);
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -177,7 +178,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _p: twim }
+        twim
     }
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.

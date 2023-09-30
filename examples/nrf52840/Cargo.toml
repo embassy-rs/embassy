@@ -29,18 +29,18 @@ nightly = [
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.3.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.1.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-time = { version = "0.1.3", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"], optional = true }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt", "msos-descriptor",], optional = true }
 embedded-io = { version = "0.5.0", features = ["defmt-03"]  }
 embedded-io-async = { version = "0.5.0", optional = true, features = ["defmt-03"] }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"], optional = true }
-lora-phy = { version = "1", optional = true }
-lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
-lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"], optional = true }
+lora-phy = { version = "2", optional = true }
+lorawan-device = { version = "0.11.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
+lorawan = { version = "0.7.4", default-features = false, features = ["default-crypto"], optional = true }
 embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"], optional = true }
 embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60", features = ["defmt"], optional = true }
 
@@ -65,6 +65,3 @@ microfft = "0.5.0"
 
 [profile.release]
 debug = 2
-
-[patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "1323eccc1c470d4259f95f4f315d1be830d572a3"}

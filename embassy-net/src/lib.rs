@@ -3,6 +3,9 @@
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
+#[cfg(not(any(feature = "proto-ipv4", feature = "proto-ipv6")))]
+compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6");
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
@@ -20,7 +23,7 @@ use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
-use embassy_net_driver::{Driver, LinkState, Medium};
+use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use futures::pin_mut;
@@ -133,6 +136,8 @@ impl Default for DhcpConfig {
 }
 
 /// Network stack configuration.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Config {
     /// IPv4 configuration
     #[cfg(feature = "proto-ipv4")]
@@ -163,10 +168,11 @@ impl Config {
         }
     }
 
-    /// IPv6 configuration with dynamic addressing.
+    /// IPv4 configuration with dynamic addressing.
     ///
     /// # Example
     /// ```rust
+    /// # use embassy_net::Config;
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
     #[cfg(feature = "dhcpv4")]
@@ -181,23 +187,27 @@ impl Config {
 
 /// Network stack IPv4 configuration.
 #[cfg(feature = "proto-ipv4")]
+#[derive(Debug, Clone, Default)]
 pub enum ConfigV4 {
+    /// Do not configure IPv4.
+    #[default]
+    None,
     /// Use a static IPv4 address configuration.
     Static(StaticConfigV4),
     /// Use DHCP to obtain an IP address configuration.
     #[cfg(feature = "dhcpv4")]
     Dhcp(DhcpConfig),
-    /// Do not configure IPv6.
-    None,
 }
 
 /// Network stack IPv6 configuration.
 #[cfg(feature = "proto-ipv6")]
+#[derive(Debug, Clone, Default)]
 pub enum ConfigV6 {
+    /// Do not configure IPv6.
+    #[default]
+    None,
     /// Use a static IPv6 address configuration.
     Static(StaticConfigV6),
-    /// Do not configure IPv6.
-    None,
 }
 
 /// A network stack.
@@ -217,6 +227,7 @@ struct Inner<D: Driver> {
     static_v6: Option<StaticConfigV6>,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
+    config_waker: WakerRegistration,
     #[cfg(feature = "dns")]
     dns_socket: SocketHandle,
     #[cfg(feature = "dns")]
@@ -240,11 +251,14 @@ fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress
         driver::HardwareAddress::Ip => HardwareAddress::Ip,
 
         #[allow(unreachable_patterns)]
-        _ => panic!("Unsupported address {:?}. Make sure to enable medium-ethernet or medium-ieee802154 in embassy-net's Cargo features.", addr),
+        _ => panic!(
+            "Unsupported medium {:?}. Make sure to enable the right medium feature in embassy-net's Cargo features.",
+            addr
+        ),
     }
 }
 
-impl<D: Driver + 'static> Stack<D> {
+impl<D: Driver> Stack<D> {
     /// Create a new network stack.
     pub fn new<const SOCK: usize>(
         mut device: D,
@@ -276,7 +290,6 @@ impl<D: Driver + 'static> Stack<D> {
             next_local_port,
         };
 
-        #[cfg_attr(feature = "medium-ieee802154", allow(unused_mut))]
         let mut inner = Inner {
             device,
             link_up: false,
@@ -286,6 +299,7 @@ impl<D: Driver + 'static> Stack<D> {
             static_v6: None,
             #[cfg(feature = "dhcpv4")]
             dhcp_socket: None,
+            config_waker: WakerRegistration::new(),
             #[cfg(feature = "dns")]
             dns_socket: socket.sockets.add(dns::Socket::new(
                 &[],
@@ -295,30 +309,11 @@ impl<D: Driver + 'static> Stack<D> {
             dns_waker: WakerRegistration::new(),
         };
 
-        #[cfg(feature = "medium-ieee802154")]
-        let _ = config;
-
         #[cfg(feature = "proto-ipv4")]
-        match config.ipv4 {
-            ConfigV4::Static(config) => {
-                inner.apply_config_v4(&mut socket, config);
-            }
-            #[cfg(feature = "dhcpv4")]
-            ConfigV4::Dhcp(config) => {
-                let mut dhcp_socket = smoltcp::socket::dhcpv4::Socket::new();
-                inner.apply_dhcp_config(&mut dhcp_socket, config);
-                let handle = socket.sockets.add(dhcp_socket);
-                inner.dhcp_socket = Some(handle);
-            }
-            ConfigV4::None => {}
-        }
+        inner.set_config_v4(&mut socket, config.ipv4);
         #[cfg(feature = "proto-ipv6")]
-        match config.ipv6 {
-            ConfigV6::Static(config) => {
-                inner.apply_config_v6(&mut socket, config);
-            }
-            ConfigV6::None => {}
-        }
+        inner.set_config_v6(&mut socket, config.ipv6);
+        inner.apply_static_config(&mut socket);
 
         Self {
             socket: RefCell::new(socket),
@@ -371,16 +366,86 @@ impl<D: Driver + 'static> Stack<D> {
         v4_up || v6_up
     }
 
+    /// Wait for the network stack to obtain a valid IP configuration.
+    ///
+    /// ## Notes:
+    /// - Ensure [`Stack::run`] has been called before using this function.
+    ///
+    /// - This function may never return (e.g. if no configuration is obtained through DHCP).
+    /// The caller is supposed to handle a timeout for this case.
+    ///
+    /// ## Example
+    /// ```ignore
+    /// let config = embassy_net::Config::dhcpv4(Default::default());
+    ///// Init network stack
+    /// let stack = &*make_static!(embassy_net::Stack::new(
+    ///    device,
+    ///    config,
+    ///    make_static!(embassy_net::StackResources::<2>::new()),
+    ///    seed
+    /// ));
+    /// // Launch network task that runs `stack.run().await`
+    /// spawner.spawn(net_task(stack)).unwrap();
+    /// // Wait for DHCP config
+    /// stack.wait_config_up().await;
+    /// // use the network stack
+    /// // ...
+    /// ```
+    pub async fn wait_config_up(&self) {
+        // If the config is up already, we can return immediately.
+        if self.is_config_up() {
+            return;
+        }
+
+        poll_fn(|cx| {
+            if self.is_config_up() {
+                Poll::Ready(())
+            } else {
+                // If the config is not up, we register a waker that is woken up
+                // when a config is applied (static or DHCP).
+                trace!("Waiting for config up");
+
+                self.with_mut(|_, i| {
+                    i.config_waker.register(cx.waker());
+                });
+
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+
     /// Get the current IPv4 configuration.
+    ///
+    /// If using DHCP, this will be None if DHCP hasn't been able to
+    /// acquire an IP address, or Some if it has.
     #[cfg(feature = "proto-ipv4")]
     pub fn config_v4(&self) -> Option<StaticConfigV4> {
-        self.with(|_s, i| i.static_v4.clone())
+        self.with(|_, i| i.static_v4.clone())
     }
 
     /// Get the current IPv6 configuration.
     #[cfg(feature = "proto-ipv6")]
     pub fn config_v6(&self) -> Option<StaticConfigV6> {
-        self.with(|_s, i| i.static_v6.clone())
+        self.with(|_, i| i.static_v6.clone())
+    }
+
+    /// Set the IPv4 configuration.
+    #[cfg(feature = "proto-ipv4")]
+    pub fn set_config_v4(&self, config: ConfigV4) {
+        self.with_mut(|s, i| {
+            i.set_config_v4(s, config);
+            i.apply_static_config(s);
+        })
+    }
+
+    /// Set the IPv6 configuration.
+    #[cfg(feature = "proto-ipv6")]
+    pub fn set_config_v6(&self, config: ConfigV6) {
+        self.with_mut(|s, i| {
+            i.set_config_v6(s, config);
+            i.apply_static_config(s);
+        })
     }
 
     /// Run the network stack.
@@ -490,7 +555,7 @@ impl<D: Driver + 'static> Stack<D> {
 }
 
 #[cfg(feature = "igmp")]
-impl<D: Driver + 'static> Stack<D> {
+impl<D: Driver> Stack<D> {
     /// Join a multicast group.
     pub async fn join_multicast_group<T>(&self, addr: T) -> Result<bool, MulticastError>
     where
@@ -580,168 +645,129 @@ impl SocketStack {
     }
 }
 
-impl<D: Driver + 'static> Inner<D> {
+impl<D: Driver> Inner<D> {
     #[cfg(feature = "proto-ipv4")]
-    fn apply_config_v4(&mut self, s: &mut SocketStack, config: StaticConfigV4) {
-        debug!("Acquired IP configuration:");
-
-        debug!("   IP address:      {}", config.address);
-        s.iface.update_ip_addrs(|addrs| {
-            if let Some((index, _)) = addrs
-                .iter()
-                .enumerate()
-                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv4(_)))
-            {
-                addrs.remove(index);
-            }
-            addrs.push(IpCidr::Ipv4(config.address)).unwrap();
-        });
-
-        #[cfg(feature = "medium-ip")]
-        let skip_gateway = self.device.capabilities().medium != Medium::Ip;
-        #[cfg(not(feature = "medium-ip"))]
-        let skip_gateway = false;
-
-        if !skip_gateway {
-            if let Some(gateway) = config.gateway {
-                debug!("   Default gateway: {}", gateway);
-                s.iface.routes_mut().add_default_ipv4_route(gateway).unwrap();
-            } else {
-                debug!("   Default gateway: None");
-                s.iface.routes_mut().remove_default_ipv4_route();
-            }
-        }
-        for (i, s) in config.dns_servers.iter().enumerate() {
-            debug!("   DNS server {}:    {}", i, s);
-        }
-
-        self.static_v4 = Some(config);
-
-        #[cfg(feature = "dns")]
-        {
-            self.update_dns_servers(s)
-        }
-    }
-
-    /// Replaces the current IPv6 static configuration with a newly supplied config.
-    #[cfg(feature = "proto-ipv6")]
-    fn apply_config_v6(&mut self, s: &mut SocketStack, config: StaticConfigV6) {
-        #[cfg(feature = "medium-ethernet")]
-        let medium = self.device.capabilities().medium;
-
-        debug!("Acquired IPv6 configuration:");
-
-        debug!("   IP address:      {}", config.address);
-        s.iface.update_ip_addrs(|addrs| {
-            if let Some((index, _)) = addrs
-                .iter()
-                .enumerate()
-                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv6(_)))
-            {
-                addrs.remove(index);
-            }
-            addrs.push(IpCidr::Ipv6(config.address)).unwrap();
-        });
-
-        #[cfg(feature = "medium-ethernet")]
-        if Medium::Ethernet == medium {
-            if let Some(gateway) = config.gateway {
-                debug!("   Default gateway: {}", gateway);
-                s.iface.routes_mut().add_default_ipv6_route(gateway).unwrap();
-            } else {
-                debug!("   Default gateway: None");
-                s.iface.routes_mut().remove_default_ipv6_route();
-            }
-        }
-        for (i, s) in config.dns_servers.iter().enumerate() {
-            debug!("   DNS server {}:    {}", i, s);
-        }
-
-        self.static_v6 = Some(config);
-
-        #[cfg(feature = "dns")]
-        {
-            self.update_dns_servers(s)
-        }
-    }
-
-    #[cfg(feature = "dns")]
-    fn update_dns_servers(&mut self, s: &mut SocketStack) {
-        let socket = s.sockets.get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket);
-
-        let servers_v4;
-        #[cfg(feature = "proto-ipv4")]
-        {
-            servers_v4 = self
-                .static_v4
-                .iter()
-                .flat_map(|cfg| cfg.dns_servers.iter().map(|c| IpAddress::Ipv4(*c)));
+    pub fn set_config_v4(&mut self, _s: &mut SocketStack, config: ConfigV4) {
+        // Handle static config.
+        self.static_v4 = match config.clone() {
+            ConfigV4::None => None,
+            #[cfg(feature = "dhcpv4")]
+            ConfigV4::Dhcp(_) => None,
+            ConfigV4::Static(c) => Some(c),
         };
-        #[cfg(not(feature = "proto-ipv4"))]
-        {
-            servers_v4 = core::iter::empty();
-        }
 
-        let servers_v6;
-        #[cfg(feature = "proto-ipv6")]
-        {
-            servers_v6 = self
-                .static_v6
-                .iter()
-                .flat_map(|cfg| cfg.dns_servers.iter().map(|c| IpAddress::Ipv6(*c)));
-        }
-        #[cfg(not(feature = "proto-ipv6"))]
-        {
-            servers_v6 = core::iter::empty();
-        }
+        // Handle DHCP config.
+        #[cfg(feature = "dhcpv4")]
+        match config {
+            ConfigV4::Dhcp(c) => {
+                // Create the socket if it doesn't exist.
+                if self.dhcp_socket.is_none() {
+                    let socket = smoltcp::socket::dhcpv4::Socket::new();
+                    let handle = _s.sockets.add(socket);
+                    self.dhcp_socket = Some(handle);
+                }
 
-        // Prefer the v6 DNS servers over the v4 servers
-        let servers: Vec<IpAddress, 6> = servers_v6.chain(servers_v4).collect();
-        socket.update_servers(&servers[..]);
-    }
-
-    #[cfg(feature = "dhcpv4")]
-    fn apply_dhcp_config(&self, socket: &mut smoltcp::socket::dhcpv4::Socket, config: DhcpConfig) {
-        socket.set_ignore_naks(config.ignore_naks);
-        socket.set_max_lease_duration(config.max_lease_duration.map(crate::time::duration_to_smoltcp));
-        socket.set_ports(config.server_port, config.client_port);
-        socket.set_retry_config(config.retry_config);
-    }
-
-    #[cfg(feature = "dhcpv4")]
-    fn unapply_config_v4(&mut self, s: &mut SocketStack) {
-        #[cfg(feature = "medium-ethernet")]
-        let medium = self.device.capabilities().medium;
-        debug!("Lost IP configuration");
-        s.iface.update_ip_addrs(|ip_addrs| {
-            #[cfg(feature = "proto-ipv4")]
-            if let Some((index, _)) = ip_addrs
-                .iter()
-                .enumerate()
-                .find(|(_, &addr)| matches!(addr, IpCidr::Ipv4(_)))
-            {
-                ip_addrs.remove(index);
+                // Configure it
+                let socket = _s.sockets.get_mut::<dhcpv4::Socket>(unwrap!(self.dhcp_socket));
+                socket.set_ignore_naks(c.ignore_naks);
+                socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
+                socket.set_ports(c.server_port, c.client_port);
+                socket.set_retry_config(c.retry_config);
+                socket.reset();
             }
-        });
-        #[cfg(feature = "medium-ethernet")]
-        if medium == Medium::Ethernet {
-            #[cfg(feature = "proto-ipv4")]
-            {
-                s.iface.routes_mut().remove_default_ipv4_route();
+            _ => {
+                // Remove DHCP socket if any.
+                if let Some(socket) = self.dhcp_socket {
+                    _s.sockets.remove(socket);
+                    self.dhcp_socket = None;
+                }
             }
         }
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    pub fn set_config_v6(&mut self, _s: &mut SocketStack, config: ConfigV6) {
+        self.static_v6 = match config {
+            ConfigV6::None => None,
+            ConfigV6::Static(c) => Some(c),
+        };
+    }
+
+    fn apply_static_config(&mut self, s: &mut SocketStack) {
+        let mut addrs = Vec::new();
+        #[cfg(feature = "dns")]
+        let mut dns_servers: Vec<_, 6> = Vec::new();
         #[cfg(feature = "proto-ipv4")]
-        {
-            self.static_v4 = None
+        let mut gateway_v4 = None;
+        #[cfg(feature = "proto-ipv6")]
+        let mut gateway_v6 = None;
+
+        #[cfg(feature = "proto-ipv4")]
+        if let Some(config) = &self.static_v4 {
+            debug!("IPv4: UP");
+            debug!("   IP address:      {:?}", config.address);
+            debug!("   Default gateway: {:?}", config.gateway);
+
+            unwrap!(addrs.push(IpCidr::Ipv4(config.address)).ok());
+            gateway_v4 = config.gateway.into();
+            #[cfg(feature = "dns")]
+            for s in &config.dns_servers {
+                debug!("   DNS server:      {:?}", s);
+                unwrap!(dns_servers.push(s.clone().into()).ok());
+            }
+        } else {
+            info!("IPv4: DOWN");
         }
+
+        #[cfg(feature = "proto-ipv6")]
+        if let Some(config) = &self.static_v6 {
+            debug!("IPv6: UP");
+            debug!("   IP address:      {:?}", config.address);
+            debug!("   Default gateway: {:?}", config.gateway);
+
+            unwrap!(addrs.push(IpCidr::Ipv6(config.address)).ok());
+            gateway_v6 = config.gateway.into();
+            #[cfg(feature = "dns")]
+            for s in &config.dns_servers {
+                debug!("   DNS server:      {:?}", s);
+                unwrap!(dns_servers.push(s.clone().into()).ok());
+            }
+        } else {
+            info!("IPv6: DOWN");
+        }
+
+        // Apply addresses
+        s.iface.update_ip_addrs(|a| *a = addrs);
+
+        // Apply gateways
+        #[cfg(feature = "proto-ipv4")]
+        if let Some(gateway) = gateway_v4 {
+            unwrap!(s.iface.routes_mut().add_default_ipv4_route(gateway));
+        } else {
+            s.iface.routes_mut().remove_default_ipv4_route();
+        }
+        #[cfg(feature = "proto-ipv6")]
+        if let Some(gateway) = gateway_v6 {
+            unwrap!(s.iface.routes_mut().add_default_ipv6_route(gateway));
+        } else {
+            s.iface.routes_mut().remove_default_ipv6_route();
+        }
+
+        // Apply DNS servers
+        #[cfg(feature = "dns")]
+        s.sockets
+            .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
+            .update_servers(&dns_servers[..]);
+
+        self.config_waker.wake();
     }
 
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
         s.waker.register(cx.waker());
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        if self.device.capabilities().medium == Medium::Ethernet
-            || self.device.capabilities().medium == Medium::Ieee802154
+        if self.device.capabilities().medium == embassy_net_driver::Medium::Ethernet
+            || self.device.capabilities().medium == embassy_net_driver::Medium::Ieee802154
         {
             s.iface
                 .set_hardware_addr(to_smoltcp_hardware_address(self.device.hardware_address()));
@@ -763,6 +789,9 @@ impl<D: Driver + 'static> Inner<D> {
             info!("link_up = {:?}", self.link_up);
         }
 
+        #[allow(unused_mut)]
+        let mut apply_config = false;
+
         #[cfg(feature = "dhcpv4")]
         if let Some(dhcp_handle) = self.dhcp_socket {
             let socket = s.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
@@ -770,25 +799,29 @@ impl<D: Driver + 'static> Inner<D> {
             if self.link_up {
                 match socket.poll() {
                     None => {}
-                    Some(dhcpv4::Event::Deconfigured) => self.unapply_config_v4(s),
+                    Some(dhcpv4::Event::Deconfigured) => {
+                        self.static_v4 = None;
+                        apply_config = true;
+                    }
                     Some(dhcpv4::Event::Configured(config)) => {
-                        let config = StaticConfigV4 {
+                        self.static_v4 = Some(StaticConfigV4 {
                             address: config.address,
                             gateway: config.router,
                             dns_servers: config.dns_servers,
-                        };
-                        self.apply_config_v4(s, config)
+                        });
+                        apply_config = true;
                     }
                 }
             } else if old_link_up {
                 socket.reset();
-                self.unapply_config_v4(s);
+                self.static_v4 = None;
+                apply_config = true;
             }
         }
-        //if old_link_up || self.link_up {
-        //    self.poll_configurator(timestamp)
-        //}
-        //
+
+        if apply_config {
+            self.apply_static_config(s);
+        }
 
         if let Some(poll_at) = s.iface.poll_at(timestamp, &mut s.sockets) {
             let t = Timer::at(instant_from_smoltcp(poll_at));

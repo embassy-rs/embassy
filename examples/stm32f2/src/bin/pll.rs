@@ -39,9 +39,9 @@ async fn main(_spawner: Spawner) {
     // System clock comes from PLL (= the 120 MHz main PLL output)
     config.rcc.mux = ClockSrc::PLL;
     // 120 MHz / 4 = 30 MHz APB1 frequency
-    config.rcc.apb1_pre = APBPrescaler::Div4;
+    config.rcc.apb1_pre = APBPrescaler::DIV4;
     // 120 MHz / 2 = 60 MHz APB2 frequency
-    config.rcc.apb2_pre = APBPrescaler::Div2;
+    config.rcc.apb2_pre = APBPrescaler::DIV2;
 
     let _p = embassy_stm32::init(config);
 

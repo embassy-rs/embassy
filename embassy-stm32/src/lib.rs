@@ -90,6 +90,7 @@ pub use crate::_generated::interrupt;
 #[macro_export]
 macro_rules! bind_interrupts {
     ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
+        #[derive(Copy, Clone)]
         $vis struct $name;
 
         $(
@@ -119,6 +120,7 @@ pub(crate) use stm32_metapac as pac;
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
+use crate::rcc::sealed::RccPeripheral;
 
 #[non_exhaustive]
 pub struct Config {
@@ -156,7 +158,7 @@ pub fn init(config: Config) -> Peripherals {
     #[cfg(dbgmcu)]
     if config.enable_debug_during_sleep {
         crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5))]
+            #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5, dbgmcu_wba))]
             {
                 cr.set_dbg_stop(true);
                 cr.set_dbg_standby(true);
@@ -181,6 +183,13 @@ pub fn init(config: Config) -> Peripherals {
         });
     }
 
+    #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
+    peripherals::SYSCFG::enable();
+    #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
+    peripherals::PWR::enable();
+    #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
+    peripherals::FLASH::enable();
+
     unsafe {
         gpio::init();
         dma::init(
@@ -199,6 +208,11 @@ pub fn init(config: Config) -> Peripherals {
         // must be after rcc init
         #[cfg(feature = "_time-driver")]
         time_driver::init();
+
+        #[cfg(feature = "low-power")]
+        while !crate::rcc::low_power_ready() {
+            crate::rcc::clock_refcount_sub();
+        }
     }
 
     p

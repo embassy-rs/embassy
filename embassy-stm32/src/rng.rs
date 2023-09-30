@@ -119,7 +119,31 @@ impl<'d, T: Instance> Rng<'d, T> {
 
     pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
         for chunk in dest.chunks_mut(4) {
-            let bits = T::regs().sr().read();
+            let mut bits = T::regs().sr().read();
+            if !bits.seis() && !bits.ceis() && !bits.drdy() {
+                // wait for interrupt
+                poll_fn(|cx| {
+                    // quick check to avoid registration if already done.
+                    let bits = T::regs().sr().read();
+                    if bits.drdy() || bits.seis() || bits.ceis() {
+                        return Poll::Ready(());
+                    }
+                    RNG_WAKER.register(cx.waker());
+                    T::regs().cr().modify(|reg| reg.set_ie(true));
+                    // Need to check condition **after** `register` to avoid a race
+                    // condition that would result in lost notifications.
+                    let bits = T::regs().sr().read();
+                    if bits.drdy() || bits.seis() || bits.ceis() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+
+                // Re-read the status register after wait.
+                bits = T::regs().sr().read()
+            }
             if bits.seis() {
                 // in case of noise-source or seed error we try to recover here
                 // but we must not use the data in DR and we return an error
@@ -143,26 +167,6 @@ impl<'d, T: Instance> Rng<'d, T> {
                 for (dest, src) in chunk.iter_mut().zip(random_word.to_be_bytes().iter()) {
                     *dest = *src
                 }
-            } else {
-                // wait for interrupt
-                poll_fn(|cx| {
-                    // quick check to avoid registration if already done.
-                    let bits = T::regs().sr().read();
-                    if bits.drdy() || bits.seis() || bits.ceis() {
-                        return Poll::Ready(());
-                    }
-                    RNG_WAKER.register(cx.waker());
-                    T::regs().cr().modify(|reg| reg.set_ie(true));
-                    // Need to check condition **after** `register` to avoid a race
-                    // condition that would result in lost notifications.
-                    let bits = T::regs().sr().read();
-                    if bits.drdy() || bits.seis() || bits.ceis() {
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                })
-                .await;
             }
         }
 

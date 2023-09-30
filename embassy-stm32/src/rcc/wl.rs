@@ -1,8 +1,9 @@
-pub use super::common::{AHBPrescaler, APBPrescaler, VoltageScale};
-use crate::pac::pwr::vals::Dbp;
-use crate::pac::{FLASH, PWR, RCC};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
+use crate::pac::rcc::vals::Adcsel;
+use crate::pac::{FLASH, RCC};
+use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
-use crate::rtc::{Rtc, RtcClockSource as RCS};
 use crate::time::Hertz;
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
@@ -75,9 +76,9 @@ impl MSIRange {
 
     fn vos(&self) -> VoltageScale {
         if self > &MSIRange::Range8 {
-            VoltageScale::Scale0
+            VoltageScale::RANGE1
         } else {
-            VoltageScale::Scale1
+            VoltageScale::RANGE2
         }
     }
 }
@@ -107,6 +108,29 @@ impl Into<u8> for MSIRange {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum AdcClockSource {
+    HSI16,
+    PLLPCLK,
+    SYSCLK,
+}
+
+impl AdcClockSource {
+    pub fn adcsel(&self) -> Adcsel {
+        match self {
+            AdcClockSource::HSI16 => Adcsel::HSI16,
+            AdcClockSource::PLLPCLK => Adcsel::PLLPCLK,
+            AdcClockSource::SYSCLK => Adcsel::SYSCLK,
+        }
+    }
+}
+
+impl Default for AdcClockSource {
+    fn default() -> Self {
+        Self::HSI16
+    }
+}
+
 /// Clocks configutation
 pub struct Config {
     pub mux: ClockSrc,
@@ -114,9 +138,10 @@ pub struct Config {
     pub shd_ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
-    pub enable_lsi: bool,
-    pub enable_rtc_apb: bool,
     pub rtc_mux: RtcClockSource,
+    pub lse: Option<Hertz>,
+    pub lsi: bool,
+    pub adc_clock_source: AdcClockSource,
 }
 
 impl Default for Config {
@@ -124,20 +149,16 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::MSI(MSIRange::default()),
-            ahb_pre: AHBPrescaler::NotDivided,
-            shd_ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
-            enable_lsi: false,
-            enable_rtc_apb: false,
-            rtc_mux: RtcClockSource::LSI32,
+            ahb_pre: AHBPrescaler::DIV1,
+            shd_ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
+            rtc_mux: RtcClockSource::LSI,
+            lsi: true,
+            lse: None,
+            adc_clock_source: AdcClockSource::default(),
         }
     }
-}
-
-pub enum RtcClockSource {
-    LSE32,
-    LSI32,
 }
 
 #[repr(u8)]
@@ -150,13 +171,13 @@ pub enum Lsedrv {
 
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
-        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::Scale1),
-        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::Scale0),
+        ClockSrc::HSI16 => (HSI_FREQ.0, 0x01, VoltageScale::RANGE2),
+        ClockSrc::HSE32 => (HSE32_FREQ.0, 0x02, VoltageScale::RANGE1),
         ClockSrc::MSI(range) => (range.freq(), 0x00, range.vos()),
     };
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1 << (pre as u32 - 7);
@@ -165,7 +186,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let shd_ahb_freq: u32 = match config.shd_ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1 << (pre as u32 - 7);
@@ -174,7 +195,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -184,7 +205,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -196,16 +217,17 @@ pub(crate) unsafe fn init(config: Config) {
     // Adjust flash latency
     let flash_clk_src_freq: u32 = shd_ahb_freq;
     let ws = match vos {
-        VoltageScale::Scale0 => match flash_clk_src_freq {
+        VoltageScale::RANGE1 => match flash_clk_src_freq {
             0..=18_000_000 => 0b000,
             18_000_001..=36_000_000 => 0b001,
             _ => 0b010,
         },
-        VoltageScale::Scale1 => match flash_clk_src_freq {
+        VoltageScale::RANGE2 => match flash_clk_src_freq {
             0..=6_000_000 => 0b000,
             6_000_001..=12_000_000 => 0b001,
             _ => 0b010,
         },
+        _ => unreachable!(),
     };
 
     FLASH.acr().modify(|w| {
@@ -214,35 +236,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     while FLASH.acr().read().latency() != ws {}
 
-    match config.rtc_mux {
-        RtcClockSource::LSE32 => {
-            // 1. Unlock the backup domain
-            PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
-
-            // 2. Setup the LSE
-            RCC.bdcr().modify(|w| {
-                // Enable LSE
-                w.set_lseon(true);
-                // Max drive strength
-                // TODO: should probably be settable
-                w.set_lsedrv(Lsedrv::High as u8); //---// PAM - should not be commented
-            });
-
-            // Wait until LSE is running
-            while !RCC.bdcr().read().lserdy() {}
-
-            Rtc::set_clock_source(RCS::LSE);
-        }
-        RtcClockSource::LSI32 => {
-            // Turn on the internal 32 kHz LSI oscillator
-            RCC.csr().modify(|w| w.set_lsion(true));
-
-            // Wait until LSI is running
-            while !RCC.csr().read().lsirdy() {}
-
-            Rtc::set_clock_source(RCS::LSI);
-        }
-    }
+    // Enables the LSI if configured
+    BackupDomain::configure_ls(config.rtc_mux, config.lsi, config.lse.map(|_| Default::default()));
 
     match config.mux {
         ClockSrc::HSI16 => {
@@ -266,7 +261,7 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_msirange(range.into());
                 w.set_msion(true);
 
-                if let RtcClockSource::LSE32 = config.rtc_mux {
+                if let RtcClockSource::LSE = config.rtc_mux {
                     // If LSE is enabled, enable calibration of MSI
                     w.set_msipllen(true);
                 } else {
@@ -277,16 +272,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
     }
 
-    if config.enable_rtc_apb {
-        // enable peripheral clock for communication
-        crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
-
-        // read to allow the pwr clock to enable
-        crate::pac::PWR.cr1().read();
-    }
-
     RCC.extcfgr().modify(|w| {
-        if config.shd_ahb_pre == AHBPrescaler::NotDivided {
+        if config.shd_ahb_pre == AHBPrescaler::DIV1 {
             w.set_shdhpre(0);
         } else {
             w.set_shdhpre(config.shd_ahb_pre.into());
@@ -295,24 +282,15 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw.into());
-        if config.ahb_pre == AHBPrescaler::NotDivided {
-            w.set_hpre(0);
-        } else {
-            w.set_hpre(config.ahb_pre.into());
-        }
+        w.set_hpre(config.ahb_pre);
         w.set_ppre1(config.apb1_pre.into());
         w.set_ppre2(config.apb2_pre.into());
     });
 
-    // TODO: switch voltage range
+    // ADC clock MUX
+    RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
 
-    if config.enable_lsi {
-        let csr = RCC.csr().read();
-        if !csr.lsion() {
-            RCC.csr().modify(|w| w.set_lsion(true));
-            while !RCC.csr().read().lsirdy() {}
-        }
-    }
+    // TODO: switch voltage range
 
     set_freqs(Clocks {
         sys: Hertz(sys_clk),

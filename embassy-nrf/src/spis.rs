@@ -169,47 +169,10 @@ impl<'d, T: Instance> Spis<'d, T> {
         // Enable SPIS instance.
         r.enable.write(|w| w.enable().enabled());
 
-        // Configure mode.
-        let mode = config.mode;
-        r.config.write(|w| {
-            match mode {
-                MODE_0 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().leading();
-                }
-                MODE_1 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().trailing();
-                }
-                MODE_2 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().leading();
-                }
-                MODE_3 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().trailing();
-                }
-            }
+        let mut spis = Self { _p: spis };
 
-            w
-        });
-
-        // Set over-read character.
-        let orc = config.orc;
-        r.orc.write(|w| unsafe { w.orc().bits(orc) });
-
-        // Set default character.
-        let def = config.def;
-        r.def.write(|w| unsafe { w.def().bits(def) });
-
-        // Configure auto-acquire on 'transfer end' event.
-        if config.auto_acquire {
-            r.shorts.write(|w| w.end_acquire().bit(true));
-        }
+        // Apply runtime peripheral configuration
+        Self::set_config(&mut spis, &config);
 
         // Disable all events interrupts.
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -217,7 +180,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _p: spis }
+        spis
     }
 
     fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {

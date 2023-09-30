@@ -8,31 +8,32 @@ license = "MIT OR Apache-2.0"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32/src/"
 
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time", "low-power"]
+features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32f2.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32f3.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32f4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32wba.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
 ]
 
 [dependencies]
-embassy-sync = { version = "0.2.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.2", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
+embassy-time = { version = "0.1.3", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
@@ -58,11 +59,11 @@ sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "a4f293d3a6f72158385f79c98634cb8a14d0d2fc", optional = true }
 critical-section = "1.1"
 atomic-polyfill = "1.0.1"
-stm32-metapac = "12"
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-735cab337aad6161f3d6bcf3e49cd1f034bc3130" }
 vcell = "0.1.3"
 bxcan = "0.7.0"
 nb = "1.0.0"
-stm32-fmc = "0.2.4"
+stm32-fmc = "0.3.0"
 seq-macro = "0.3.0"
 cfg-if = "1.0.0"
 embedded-io = { version = "0.5.0" }
@@ -77,7 +78,7 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { path = "../../stm32-data-generated/stm32-metapac", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-735cab337aad6161f3d6bcf3e49cd1f034bc3130", default-features = false, features = ["metadata"]}
 
 [features]
 default = ["rt"]
@@ -1454,6 +1455,10 @@ stm32wb55vc = [ "stm32-metapac/stm32wb55vc" ]
 stm32wb55ve = [ "stm32-metapac/stm32wb55ve" ]
 stm32wb55vg = [ "stm32-metapac/stm32wb55vg" ]
 stm32wb55vy = [ "stm32-metapac/stm32wb55vy" ]
+stm32wba52ce = [ "stm32-metapac/stm32wba52ce" ]
+stm32wba52cg = [ "stm32-metapac/stm32wba52cg" ]
+stm32wba52ke = [ "stm32-metapac/stm32wba52ke" ]
+stm32wba52kg = [ "stm32-metapac/stm32wba52kg" ]
 stm32wl54cc-cm4 = [ "stm32-metapac/stm32wl54cc-cm4" ]
 stm32wl54cc-cm0p = [ "stm32-metapac/stm32wl54cc-cm0p" ]
 stm32wl54jc-cm4 = [ "stm32-metapac/stm32wl54jc-cm4" ]

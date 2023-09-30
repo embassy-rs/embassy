@@ -114,6 +114,30 @@ pub struct BufferedUartRx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+impl<'d, T: BasicInstance> SetConfig for BufferedUart<'d, T> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        unwrap!(self.set_config(config))
+    }
+}
+
+impl<'d, T: BasicInstance> SetConfig for BufferedUartRx<'d, T> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        unwrap!(self.set_config(config))
+    }
+}
+
+impl<'d, T: BasicInstance> SetConfig for BufferedUartTx<'d, T> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        unwrap!(self.set_config(config))
+    }
+}
+
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
@@ -123,7 +147,9 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
-    ) -> BufferedUart<'d, T> {
+    ) -> Result<Self, ConfigError> {
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -140,9 +166,11 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
-    ) -> BufferedUart<'d, T> {
+    ) -> Result<Self, ConfigError> {
         into_ref!(cts, rts);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -166,9 +194,11 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
-    ) -> BufferedUart<'d, T> {
+    ) -> Result<Self, ConfigError> {
         into_ref!(de);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -187,7 +217,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
-    ) -> BufferedUart<'d, T> {
+    ) -> Result<Self, ConfigError> {
         into_ref!(_peri, rx, tx);
 
         let state = T::buffered_state();
@@ -200,7 +230,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        configure(r, &config, T::frequency(), T::KIND, true, true);
+        configure(r, &config, T::frequency(), T::KIND, true, true)?;
 
         r.cr1().modify(|w| {
             #[cfg(lpuart_v2)]
@@ -213,14 +243,18 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self {
+        Ok(Self {
             rx: BufferedUartRx { phantom: PhantomData },
             tx: BufferedUartTx { phantom: PhantomData },
-        }
+        })
     }
 
     pub fn split(self) -> (BufferedUartTx<'d, T>, BufferedUartRx<'d, T>) {
         (self.tx, self.rx)
+    }
+
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        reconfigure::<T>(config)
     }
 }
 
@@ -298,6 +332,10 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
             T::Interrupt::pend();
         }
     }
+
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        reconfigure::<T>(config)
+    }
 }
 
 impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
@@ -368,6 +406,10 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
             }
         }
     }
+
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        reconfigure::<T>(config)
+    }
 }
 
 impl<'d, T: BasicInstance> Drop for BufferedUartRx<'d, T> {
@@ -382,6 +424,8 @@ impl<'d, T: BasicInstance> Drop for BufferedUartRx<'d, T> {
                 T::Interrupt::disable();
             }
         }
+
+        T::disable();
     }
 }
 
@@ -397,12 +441,8 @@ impl<'d, T: BasicInstance> Drop for BufferedUartTx<'d, T> {
                 T::Interrupt::disable();
             }
         }
-    }
-}
 
-impl embedded_io_async::Error for Error {
-    fn kind(&self) -> embedded_io_async::ErrorKind {
-        embedded_io_async::ErrorKind::Other
+        T::disable();
     }
 }
 

@@ -1,5 +1,3 @@
-const THREAD_PENDER: usize = usize::MAX;
-
 #[export_name = "__pender"]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
@@ -48,13 +46,14 @@ fn __pender(context: *mut ()) {
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
+    pub(super) const THREAD_PENDER: usize = usize::MAX;
+
     use core::arch::asm;
     use core::marker::PhantomData;
 
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_cortex_m as main;
 
-    use crate::arch::THREAD_PENDER;
     use crate::{raw, Spawner};
 
     /// Thread mode executor, using WFE/SEV.

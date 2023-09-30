@@ -11,7 +11,12 @@ if [ -f /ci/secrets/teleprobe-token.txt ]; then
     echo Got teleprobe token!
     export TELEPROBE_HOST=https://teleprobe.embassy.dev
     export TELEPROBE_TOKEN=$(cat /ci/secrets/teleprobe-token.txt)
+    export TELEPROBE_CACHE=/ci/cache/teleprobe_cache.json
 fi
+
+# needed for "dumb HTTP" transport support
+# used when pointing stm32-metapac to a CI-built one.
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
