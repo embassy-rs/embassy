@@ -14,8 +14,10 @@ use stm32_metapac::timer::regs;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
+use crate::rtc::alarm::Alarm;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
+use crate::rtc::RtcAlarmHandle;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
 use crate::{interrupt, peripherals};
 
@@ -375,6 +377,24 @@ impl RtcDriver {
         self.stop_wakeup_alarm();
 
         T::regs_gp16().cr1().modify(|w| w.set_cen(true));
+    }
+
+    /// sets a rtc alarm
+    /// returns an error when no rtc alarms are available or rtc is not set
+    pub(crate) fn set_rtc_alarm(&self, alarm: Alarm, callback: fn()) -> Result<RtcAlarmHandle, ()> {
+        critical_section::with(|cs| {
+            if let Some(rtc) = self.rtc.borrow(cs).get() {
+                rtc.set_rtc_alarm(alarm, callback)
+            } else {
+                Err(())
+            }
+        })
+    }
+
+    pub(crate) fn on_rtc_alarm_interrupt(&self) {
+        critical_section::with(|cs| {
+            self.rtc.borrow(cs).get().unwrap().on_rtc_alarm_interrupt();
+        })
     }
 }
 

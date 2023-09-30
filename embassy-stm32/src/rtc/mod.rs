@@ -1,4 +1,6 @@
 //! RTC peripheral abstraction
+#[cfg(feature = "chrono")]
+pub mod alarm;
 mod datetime;
 
 #[cfg(feature = "low-power")]
@@ -85,6 +87,7 @@ impl core::ops::Sub for RtcInstant {
 
 /// RTC Abstraction
 pub struct Rtc {
+    rtc_alarms: Mutex<CriticalSectionRawMutex, [RtcAlarmState; RTC_ALARM_COUNT]>,
     #[cfg(feature = "low-power")]
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
 }
@@ -122,6 +125,12 @@ impl Default for RtcCalibrationCyclePeriod {
     }
 }
 
+#[cfg(any(stm32l0))]
+const RTC_STATES: [RtcAlarmState; 2] = [RtcAlarmState::new(), RtcAlarmState::new()];
+
+#[cfg(not(any(stm32l0)))]
+const RTC_STATES: [RtcAlarmState; 0] = [];
+
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
@@ -131,6 +140,7 @@ impl Rtc {
         BackupDomain::enable_rtc();
 
         let mut this = Self {
+            rtc_alarms: Mutex::const_new(CriticalSectionRawMutex::new(), RTC_STATES),
             #[cfg(feature = "low-power")]
             stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
         };

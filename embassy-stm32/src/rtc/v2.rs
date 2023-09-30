@@ -1,9 +1,32 @@
-use stm32_metapac::rtc::vals::{Init, Osel, Pol};
+use core::borrow::BorrowMut;
+use core::cell::{Cell, OnceCell};
+use core::ptr::NonNull;
+use core::{mem, ptr};
 
-use super::sealed;
+use stm32_metapac::rtc::vals::{Alrwf, Init, Osel, Pol};
+
+use super::alarm::{Alarm, AlarmDate};
+use super::datetime::day_of_week_to_u8;
+use super::{byte_to_bcd2, sealed};
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
+
+#[cfg(stm32l0)]
+pub(crate) const RTC_ALARM_COUNT: usize = 2;
+
+// todo: change to correct count for other chips
+#[cfg(not(stm32l0))]
+pub(crate) const RTC_ALARM_COUNT: usize = 0;
+
+#[cfg(stm32l0)]
+pub(crate) const EXTI_LINE_RTC_WKUP: usize = 20;
+
+#[cfg(not(stm32l0))]
+pub(crate) const EXTI_LINE_RTC_WKUP: usize = 22;
+
+#[cfg(stm32l0)]
+pub(crate) const EXIT_LINE_RTC_ALARM: usize = 17;
 
 #[allow(dead_code)]
 #[repr(u8)]
@@ -60,7 +83,169 @@ impl WakeupPrescaler {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct RtcAlarmState {
+    callback: Cell<Option<NonNull<*const ()>>>,
+}
+
+unsafe impl Send for RtcAlarmState {}
+
+impl RtcAlarmState {
+    pub(crate) const fn new() -> Self {
+        Self {
+            callback: Cell::new(None),
+        }
+    }
+
+    pub(crate) fn call_callback(&self) {
+        // call the callback
+        let f: fn() = unsafe { mem::transmute(self.callback.get()) };
+        f();
+
+        self.clear_callback();
+    }
+
+    pub(crate) fn clear_callback(&self) {
+        // set the pointer back to None
+        self.callback.set(None);
+    }
+}
+
+pub struct RtcAlarmHandle {
+    n: usize,
+}
+
+impl RtcAlarmHandle {
+    const fn new(n: usize) -> Self {
+        Self { n }
+    }
+}
+
 impl super::Rtc {
+    pub(crate) fn set_rtc_alarm(&self, rtc_alarm: Alarm, callback: fn()) -> Result<RtcAlarmHandle, ()> {
+        critical_section::with(|cs| {
+            // search for one alarm which is unused (callback==null)
+            let alarm = self
+                .rtc_alarms
+                .borrow(cs)
+                .iter()
+                .enumerate()
+                .find(|alarm| alarm.1.callback.get().is_none());
+
+            if let Some((n, alarm)) = alarm {
+                alarm.callback.set(NonNull::new(callback as *mut *const ()));
+
+                let rtc = RTC::regs();
+
+                if rtc.isr().read().alrwf(n) == Alrwf::UPDATENOTALLOWED {
+                    // we aren't allowed to update the alarm
+                    return Err(());
+                }
+
+                if let Some(date) = rtc_alarm.date {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk4(stm32_metapac::rtc::vals::AlrmrMsk::MASK));
+                    match date {
+                        AlarmDate::Date(date) => {
+                            let (dt, du) = byte_to_bcd2(date);
+                            rtc.alrmr(0).modify(|w| w.set_dt(dt));
+                            rtc.alrmr(0).modify(|w| w.set_du(du));
+                        }
+                        AlarmDate::WeekDay(day_of_week) => {
+                            rtc.alrmr(0).modify(|w| w.set_du(day_of_week_to_u8(day_of_week)));
+                        }
+                    }
+                } else {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk4(stm32_metapac::rtc::vals::AlrmrMsk::NOTMASK));
+                }
+
+                if let Some(hour) = rtc_alarm.hour {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk3(stm32_metapac::rtc::vals::AlrmrMsk::MASK));
+                    let (ht, hu) = byte_to_bcd2(hour);
+                    rtc.alrmr(0).modify(|w| w.set_ht(ht));
+                    rtc.alrmr(0).modify(|w| w.set_hu(hu));
+                } else {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk3(stm32_metapac::rtc::vals::AlrmrMsk::NOTMASK));
+                }
+
+                // always set am/24h notation
+                rtc.alrmr(0).modify(|w| w.set_pm(stm32_metapac::rtc::vals::AlrmrPm::AM));
+
+                if let Some(minute) = rtc_alarm.minute {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk2(stm32_metapac::rtc::vals::AlrmrMsk::MASK));
+                    let (mnt, mnu) = byte_to_bcd2(minute);
+                    rtc.alrmr(0).modify(|w| w.set_mnt(mnt));
+                    rtc.alrmr(0).modify(|w| w.set_mnu(mnu));
+                } else {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk2(stm32_metapac::rtc::vals::AlrmrMsk::NOTMASK));
+                }
+
+                if let Some(second) = rtc_alarm.second {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk1(stm32_metapac::rtc::vals::AlrmrMsk::MASK));
+                    let (st, su) = byte_to_bcd2(second);
+                    rtc.alrmr(0).modify(|w| w.set_st(st));
+                    rtc.alrmr(0).modify(|w| w.set_su(su));
+                } else {
+                    rtc.alrmr(0)
+                        .modify(|w| w.set_msk1(stm32_metapac::rtc::vals::AlrmrMsk::NOTMASK));
+                }
+
+                // enable the alarm
+                rtc.cr().write(|w| w.set_alre(n, true));
+
+                // enable the alarm interrupt
+                rtc.cr().write(|w| w.set_alrie(n, true));
+
+                Ok(RtcAlarmHandle::new(n))
+            } else {
+                // no unused alarm found
+                Err(())
+            }
+        })
+    }
+
+    pub(crate) fn abort_rtc_alarm(&self, rtc_alarm: RtcAlarmHandle) {
+        let rtc = RTC::regs();
+
+        let n = rtc_alarm.n;
+
+        // disable the alarm interrupt
+        rtc.cr().write(|w| w.set_alrie(n, false));
+
+        // disable the alarm
+        rtc.cr().write(|w| w.set_alre(n, false));
+
+        // clear the callback
+        critical_section::with(|cs| self.rtc_alarms.borrow(cs).get(n).unwrap().clear_callback());
+    }
+
+    pub(crate) fn on_rtc_alarm_interrupt(&self) {
+        let rtc = RTC::regs();
+        for n in 0..=1 {
+            let alarm_triggered = rtc.isr().read().alrf(n);
+
+            if alarm_triggered {
+                // reset the alarm flag
+                rtc.isr().write(|w| w.set_alrf(n, false));
+
+                // disable the alarm interrupt
+                rtc.cr().write(|w| w.set_alrie(n, false));
+
+                // disable the alarm
+                rtc.cr().write(|w| w.set_alre(n, false));
+
+                // call the callback
+                critical_section::with(|cs| self.rtc_alarms.borrow(cs).get(n).unwrap().call_callback());
+            }
+        }
+    }
+
     #[cfg(feature = "low-power")]
     /// start the wakeup alarm and wtih a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
@@ -114,15 +299,8 @@ impl super::Rtc {
     pub(crate) fn enable_wakeup_line(&self) {
         use crate::pac::EXTI;
 
-        #[cfg(stm32l0)]
-        EXTI.rtsr(0).modify(|w| w.set_line(20, true));
-        #[cfg(stm32l0)]
-        EXTI.imr(0).modify(|w| w.set_line(20, true));
-
-        #[cfg(not(stm32l0))]
-        EXTI.rtsr(0).modify(|w| w.set_line(22, true));
-        #[cfg(not(stm32l0))]
-        EXTI.imr(0).modify(|w| w.set_line(22, true));
+        EXTI.rtsr(0).modify(|w| w.set_line(EXTI_LINE_RTC_WKUP, true));
+        EXTI.imr(0).modify(|w| w.set_line(EXTI_LINE_RTC_WKUP, true));
     }
 
     #[cfg(feature = "low-power")]
@@ -138,11 +316,7 @@ impl super::Rtc {
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
 
-            #[cfg(not(stm32l0))]
-            crate::pac::EXTI.pr(0).modify(|w| w.set_line(22, true));
-
-            #[cfg(stm32l0)]
-            crate::pac::EXTI.pr(0).modify(|w| w.set_line(20, true));
+            crate::pac::EXTI.pr(0).modify(|w| w.set_line(EXTI_LINE_RTC_WKUP, true));
 
             #[cfg(not(stm32l0))]
             crate::interrupt::typelevel::RTC_WKUP::unpend();

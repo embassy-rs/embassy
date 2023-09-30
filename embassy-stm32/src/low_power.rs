@@ -11,7 +11,7 @@ use crate::time_driver::{get_driver, RtcDriver};
 
 const THREAD_PENDER: usize = usize::MAX;
 
-use crate::rtc::Rtc;
+use crate::rtc::{Rtc, EXIT_LINE_RTC_ALARM, EXTI_LINE_RTC_WKUP};
 
 static mut EXECUTOR: Option<Executor> = None;
 
@@ -19,10 +19,19 @@ foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
         unsafe fn $irq() {
-            unsafe { EXECUTOR.as_mut().unwrap() }.on_wakeup_irq();
+            // check which EXTI line triggered
+            if crate::pac::EXTI.pr(0).read().line(EXTI_LINE_RTC_WKUP) {
+                unsafe { EXECUTOR.as_mut().unwrap() }.on_wakeup_irq();
+            }
+
+            if crate::pac::EXTI.pr(0).read().line(EXIT_LINE_RTC_ALARM) {
+                unsafe { EXECUTOR.as_ref().unwrap() }.on_rtc_alarm_irq();
+            }
         }
     };
 }
+
+fn test() {}
 
 // pub fn timer_driver_pause_time() {
 //     pause_time();
@@ -81,6 +90,10 @@ impl Executor {
 
             EXECUTOR.as_mut().unwrap()
         }
+    }
+
+    unsafe fn on_rtc_alarm_irq(&self) {
+        self.time_driver.on_rtc_alarm_interrupt();
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
