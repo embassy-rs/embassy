@@ -217,7 +217,7 @@ pub(crate) mod sealed {
         }
 
         fn get_max_compare_value(&self) -> u32 {
-            Self::regs_gp32().arr().read().arr() as u32
+            Self::regs_gp32().arr().read().arr()
         }
     }
 }
