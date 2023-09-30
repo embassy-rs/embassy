@@ -16,6 +16,7 @@ pub mod flash;
 mod float;
 pub mod gpio;
 pub mod i2c;
+pub mod i2c_slave;
 pub mod multicore;
 pub mod pwm;
 mod reset;
@@ -89,7 +90,8 @@ embassy_hal_internal::interrupt_mod!(
 #[macro_export]
 macro_rules! bind_interrupts {
     ($vis:vis struct $name:ident { $($irq:ident => $($handler:ty),*;)* }) => {
-        $vis struct $name;
+            #[derive(Copy, Clone)]
+            $vis struct $name;
 
         $(
             #[allow(non_snake_case)]

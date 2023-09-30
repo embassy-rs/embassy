@@ -1079,18 +1079,43 @@ impl_pio!(PIO1, 1, PIO1, PIO1_0, PIO1_IRQ_0);
 pub trait PioPin: sealed::PioPin + gpio::Pin {}
 
 macro_rules! impl_pio_pin {
-    ($( $num:tt )*) => {
+    ($( $pin:ident, )*) => {
         $(
-            paste::paste!{
-                impl sealed::PioPin for peripherals::[< PIN_ $num >] {}
-                impl PioPin for peripherals::[< PIN_ $num >] {}
-            }
+            impl sealed::PioPin for peripherals::$pin {}
+            impl PioPin for peripherals::$pin {}
         )*
     };
 }
 
 impl_pio_pin! {
-    0 1 2 3 4 5 6 7 8 9
-    10 11 12 13 14 15 16 17 18 19
-    20 21 22 23 24 25 26 27 28 29
+    PIN_0,
+    PIN_1,
+    PIN_2,
+    PIN_3,
+    PIN_4,
+    PIN_5,
+    PIN_6,
+    PIN_7,
+    PIN_8,
+    PIN_9,
+    PIN_10,
+    PIN_11,
+    PIN_12,
+    PIN_13,
+    PIN_14,
+    PIN_15,
+    PIN_16,
+    PIN_17,
+    PIN_18,
+    PIN_19,
+    PIN_20,
+    PIN_21,
+    PIN_22,
+    PIN_23,
+    PIN_24,
+    PIN_25,
+    PIN_26,
+    PIN_27,
+    PIN_28,
+    PIN_29,
 }

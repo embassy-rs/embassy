@@ -133,7 +133,13 @@ impl Ticker {
         Self { expires_at, duration }
     }
 
-    /// Waits for the next tick
+    /// Resets the ticker back to its original state.
+    /// This causes the ticker to go back to zero, even if the current tick isn't over yet.
+    pub fn reset(&mut self) {
+        self.expires_at = Instant::now() + self.duration;
+    }
+
+    /// Waits for the next tick.
     pub fn next(&mut self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {

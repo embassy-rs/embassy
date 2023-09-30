@@ -1,11 +1,13 @@
 use core::convert::TryFrom;
 use core::ops::{Div, Mul};
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::{Pllp, Pllsrc, Sw};
 use crate::pac::{FLASH, RCC};
+use crate::rcc::bd::BackupDomain;
 use crate::rcc::{set_freqs, Clocks};
+use crate::rtc::RtcClockSource;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -201,7 +203,20 @@ pub struct PLLClocks {
     pub pll48_freq: Hertz,
 }
 
-pub use super::common::VoltageScale;
+/// Voltage range of the power supply used.
+///
+/// Used to calculate flash waitstates. See
+/// RM0033 - Table 3. Number of wait states according to Cortex®-M3 clock frequency
+pub enum VoltageScale {
+    /// 2.7 to 3.6 V
+    Range0,
+    /// 2.4 to 2.7 V
+    Range1,
+    /// 2.1 to 2.4 V
+    Range2,
+    /// 1.8 to 2.1 V
+    Range3,
+}
 
 impl VoltageScale {
     const fn wait_states(&self, ahb_freq: Hertz) -> Option<Latency> {
@@ -209,7 +224,7 @@ impl VoltageScale {
         // Reference: RM0033 - Table 3. Number of wait states according to Cortex®-M3 clock
         // frequency
         match self {
-            VoltageScale::Scale3 => {
+            VoltageScale::Range3 => {
                 if ahb_freq <= 16_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 32_000_000 {
@@ -230,7 +245,7 @@ impl VoltageScale {
                     None
                 }
             }
-            VoltageScale::Scale2 => {
+            VoltageScale::Range2 => {
                 if ahb_freq <= 18_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 36_000_000 {
@@ -249,7 +264,7 @@ impl VoltageScale {
                     None
                 }
             }
-            VoltageScale::Scale1 => {
+            VoltageScale::Range1 => {
                 if ahb_freq <= 24_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 48_000_000 {
@@ -264,7 +279,7 @@ impl VoltageScale {
                     None
                 }
             }
-            VoltageScale::Scale0 => {
+            VoltageScale::Range0 => {
                 if ahb_freq <= 30_000_000 {
                     Some(Latency::WS0)
                 } else if ahb_freq <= 60_000_000 {
@@ -288,6 +303,9 @@ pub struct Config {
     pub pll_mux: PLLSrc,
     pub pll: PLLConfig,
     pub mux: ClockSrc,
+    pub rtc: Option<RtcClockSource>,
+    pub lsi: bool,
+    pub lse: Option<Hertz>,
     pub voltage: VoltageScale,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
@@ -302,11 +320,14 @@ impl Default for Config {
             hsi: true,
             pll_mux: PLLSrc::HSI,
             pll: PLLConfig::default(),
-            voltage: VoltageScale::Scale3,
+            voltage: VoltageScale::Range3,
             mux: ClockSrc::HSI,
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            rtc: None,
+            lsi: false,
+            lse: None,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
         }
     }
 }
@@ -379,7 +400,7 @@ pub(crate) unsafe fn init(config: Config) {
     assert!(ahb_freq <= Hertz(120_000_000));
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let freq = ahb_freq / pre;
             (freq, Hertz(freq.0 * 2))
@@ -389,7 +410,7 @@ pub(crate) unsafe fn init(config: Config) {
     assert!(apb1_freq <= Hertz(30_000_000));
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let freq = ahb_freq / pre;
             (freq, Hertz(freq.0 * 2))
@@ -413,6 +434,12 @@ pub(crate) unsafe fn init(config: Config) {
     if !config.hsi {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
+
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
 
     set_freqs(Clocks {
         sys: sys_clk,

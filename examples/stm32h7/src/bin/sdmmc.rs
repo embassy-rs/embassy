@@ -16,7 +16,26 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(200));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.csi = true;
+        config.rcc.pll_src = PllSource::Hsi;
+        config.rcc.pll1 = Some(Pll {
+            prediv: 4,
+            mul: 50,
+            divp: Some(2),
+            divq: Some(4), // default clock chosen by SDMMCSEL. 200 Mhz
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale1;
+    }
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 

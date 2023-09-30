@@ -16,24 +16,8 @@ async fn main(_spawner: Spawner) {
 
     // Arduino pins D0 and D1
     // They're connected together with a 1K resistor.
-    #[cfg(feature = "stm32f103c8")]
-    let (mut a, mut b) = (p.PA9, p.PA10);
-    #[cfg(feature = "stm32g491re")]
-    let (mut a, mut b) = (p.PC4, p.PC5);
-    #[cfg(feature = "stm32g071rb")]
-    let (mut a, mut b) = (p.PC4, p.PC5);
-    #[cfg(feature = "stm32f429zi")]
-    let (mut a, mut b) = (p.PG14, p.PG9);
-    #[cfg(feature = "stm32wb55rg")]
-    let (mut a, mut b) = (p.PA3, p.PA2);
-    #[cfg(feature = "stm32h755zi")]
-    let (mut a, mut b) = (p.PB6, p.PB7);
-    #[cfg(feature = "stm32u585ai")]
-    let (mut a, mut b) = (p.PD9, p.PD8);
-    #[cfg(feature = "stm32h563zi")]
-    let (mut a, mut b) = (p.PB6, p.PB7);
-    #[cfg(feature = "stm32c031c6")]
-    let (mut a, mut b) = (p.PB6, p.PB7);
+    let mut a = peri!(p, UART_RX);
+    let mut b = peri!(p, UART_TX);
 
     // Test initial output
     {

@@ -4,7 +4,6 @@
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_stm32::time::mhz;
 use embassy_stm32::usb_otg::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -22,9 +21,27 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.sys_ck = Some(mhz(400));
-    config.rcc.hclk = Some(mhz(200));
-    config.rcc.pll1.q_ck = Some(mhz(100));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.csi = true;
+        config.rcc.hsi48 = true; // needed for USB
+        config.rcc.pll_src = PllSource::Hsi;
+        config.rcc.pll1 = Some(Pll {
+            prediv: 4,
+            mul: 50,
+            divp: Some(2),
+            divq: None,
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale1;
+    }
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.

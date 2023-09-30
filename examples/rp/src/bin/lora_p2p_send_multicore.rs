@@ -69,16 +69,9 @@ async fn core1_task(
     iv: GenericSx126xInterfaceVariant<Output<'static, AnyPin>, Input<'static, AnyPin>>,
 ) {
     info!("Hello from core 1");
-    let mut delay = Delay;
 
     let mut lora = {
-        match LoRa::new(
-            SX1261_2::new(BoardType::RpPicoWaveshareSx1262, spi, iv),
-            false,
-            &mut delay,
-        )
-        .await
-        {
+        match LoRa::new(SX1261_2::new(BoardType::RpPicoWaveshareSx1262, spi, iv), false, Delay).await {
             Ok(l) => l,
             Err(err) => {
                 info!("Radio error = {}", err);
@@ -132,7 +125,7 @@ async fn core1_task(
             }
         };
 
-        match lora.sleep(&mut delay).await {
+        match lora.sleep(false).await {
             Ok(()) => info!("Sleep successful"),
             Err(err) => info!("Sleep unsuccessful = {}", err),
         }

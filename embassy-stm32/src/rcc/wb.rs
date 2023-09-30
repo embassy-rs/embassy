@@ -1,6 +1,6 @@
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
+use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::Clocks;
-use crate::rtc::{Rtc, RtcClockSource};
 use crate::time::{khz, mhz, Hertz};
 
 /// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
@@ -108,6 +108,7 @@ pub struct Pll {
 pub struct Config {
     pub hse: Option<Hse>,
     pub lse: Option<Hertz>,
+    pub lsi: bool,
     pub sys: Sysclk,
     pub mux: Option<PllMux>,
     pub pll48: Option<Pll48Source>,
@@ -135,7 +136,8 @@ pub const WPAN_DEFAULT: Config = Config {
         prediv: 2,
     }),
     pll48: None,
-    rtc: None,
+    rtc: Some(RtcClockSource::LSE),
+    lsi: false,
 
     pll: Some(Pll {
         mul: 12,
@@ -145,11 +147,11 @@ pub const WPAN_DEFAULT: Config = Config {
     }),
     pllsai: None,
 
-    ahb1_pre: AHBPrescaler::NotDivided,
-    ahb2_pre: AHBPrescaler::Div2,
-    ahb3_pre: AHBPrescaler::NotDivided,
-    apb1_pre: APBPrescaler::NotDivided,
-    apb2_pre: APBPrescaler::NotDivided,
+    ahb1_pre: AHBPrescaler::DIV1,
+    ahb2_pre: AHBPrescaler::DIV2,
+    ahb3_pre: AHBPrescaler::DIV1,
+    apb1_pre: APBPrescaler::DIV1,
+    apb2_pre: APBPrescaler::DIV1,
 };
 
 impl Default for Config {
@@ -164,12 +166,13 @@ impl Default for Config {
             pll: None,
             pllsai: None,
             rtc: None,
+            lsi: false,
 
-            ahb1_pre: AHBPrescaler::NotDivided,
-            ahb2_pre: AHBPrescaler::NotDivided,
-            ahb3_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb1_pre: AHBPrescaler::DIV1,
+            ahb2_pre: AHBPrescaler::DIV1,
+            ahb3_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
         }
     }
 }
@@ -209,7 +212,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let ahb1_clk = match config.ahb1_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1u32 << (pre as u32 - 7);
@@ -218,7 +221,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let ahb2_clk = match config.ahb2_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1u32 << (pre as u32 - 7);
@@ -227,7 +230,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let ahb3_clk = match config.ahb3_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1u32 << (pre as u32 - 7);
@@ -236,7 +239,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let (apb1_clk, apb1_tim_clk) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb1_clk, ahb1_clk),
+        APBPrescaler::DIV1 => (ahb1_clk, ahb1_clk),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -246,7 +249,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     };
 
     let (apb2_clk, apb2_tim_clk) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb1_clk, ahb1_clk),
+        APBPrescaler::DIV1 => (ahb1_clk, ahb1_clk),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -271,11 +274,11 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
         apb1_tim: apb1_tim_clk,
         apb2_tim: apb2_tim_clk,
         rtc: rtc_clk,
+        rtc_hse: None,
     }
 }
 
 pub(crate) fn configure_clocks(config: &Config) {
-    let pwr = crate::pac::PWR;
     let rcc = crate::pac::RCC;
 
     let needs_hsi = if let Some(pll_mux) = &config.mux {
@@ -292,29 +295,13 @@ pub(crate) fn configure_clocks(config: &Config) {
         while !rcc.cr().read().hsirdy() {}
     }
 
-    let needs_lsi = if let Some(rtc_mux) = &config.rtc {
-        *rtc_mux == RtcClockSource::LSI
-    } else {
-        false
-    };
+    rcc.cfgr().modify(|w| w.set_stopwuck(true));
 
-    if needs_lsi {
-        rcc.csr().modify(|w| w.set_lsi1on(true));
-
-        while !rcc.csr().read().lsi1rdy() {}
-    }
-
-    match &config.lse {
-        Some(_) => {
-            rcc.cfgr().modify(|w| w.set_stopwuck(true));
-
-            pwr.cr1().modify(|w| w.set_dbp(true));
-            pwr.cr1().modify(|w| w.set_dbp(true));
-
-            rcc.bdcr().modify(|w| w.set_lseon(true));
-        }
-        _ => {}
-    }
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
 
     match &config.hse {
         Some(hse) => {
@@ -374,6 +361,4 @@ pub(crate) fn configure_clocks(config: &Config) {
         w.set_c2hpre(config.ahb2_pre.into());
         w.set_shdhpre(config.ahb3_pre.into());
     });
-
-    config.rtc.map(|clock_source| Rtc::set_clock_source(clock_source));
 }

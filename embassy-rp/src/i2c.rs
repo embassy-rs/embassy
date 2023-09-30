@@ -21,6 +21,8 @@ pub enum AbortReason {
     NoAcknowledge,
     /// The arbitration was lost, e.g. electrical problems with the clock signal
     ArbitrationLoss,
+    /// Transmit ended with data still in fifo
+    TxNotEmpty(u16),
     Other(u32),
 }
 
@@ -52,7 +54,7 @@ impl Default for Config {
     }
 }
 
-const FIFO_SIZE: u8 = 16;
+pub const FIFO_SIZE: u8 = 16;
 
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
@@ -636,6 +638,7 @@ mod eh1 {
                 Self::Abort(AbortReason::NoAcknowledge) => {
                     embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
                 }
+                Self::Abort(AbortReason::TxNotEmpty(_)) => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Abort(AbortReason::Other(_)) => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::InvalidReadBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::InvalidWriteBufferLength => embedded_hal_1::i2c::ErrorKind::Other,
@@ -738,8 +741,8 @@ mod nightly {
     }
 }
 
-fn i2c_reserved_addr(addr: u16) -> bool {
-    (addr & 0x78) == 0 || (addr & 0x78) == 0x78
+pub fn i2c_reserved_addr(addr: u16) -> bool {
+    ((addr & 0x78) == 0 || (addr & 0x78) == 0x78) && addr != 0
 }
 
 mod sealed {

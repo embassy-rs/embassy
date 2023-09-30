@@ -1,0 +1,79 @@
+= Developer Documentation: STM32
+
+== Understanding metapac
+
+When a project that imports `embassy-stm32` is compiled, that project selects the feature corresponding to the chip that project is using. Based on that feature, `embassy-stm32` selects supported link:https://anysilicon.com/ip-intellectual-property-core-semiconductors/[IP] for the chip, and enables the corresponding HAL implementations. But how does `embassy-stm32` know what IP the chip contains, out of the hundreds of chips that we support? It's a long story that starts with `stm32-data-sources`.
+
+== `stm32-data-sources`
+
+link:https://github.com/embassy-rs/stm32-data-sources[`stm32-data-sources`] is as mostly barren repository. It has no README, no documentation, and few watchers. But it's the core of what makes `embassy-stm32` possible. The data for every chip that we support is taken in part from a corresponding XML file like link:https://github.com/embassy-rs/stm32-data-sources/blob/b8b85202e22a954d6c59d4a43d9795d34cff05cf/cubedb/mcu/STM32F051K4Ux.xml[`STM32F051K4Ux.xml`]. In that file, you'll see lines like the following:
+
+[source,xml]
+----
+    <IP InstanceName="I2C1" Name="I2C" Version="i2c2_v1_1_Cube"/>
+    <!-- snip  -->
+    <IP ConfigFile="TIM-STM32F0xx" InstanceName="TIM1" Name="TIM1_8F0" Version="gptimer2_v2_x_Cube"/>
+----
+
+These lines indicate that this chip has an i2c, and that it's version is "v1_1". It also indicates that it has a general purpose timer that with a version of "v2_x". From this data, it's possible to determine which implementations should be included in `embassy-stm32`. But actually doing that is another matter.
+
+
+== `stm32-data`
+
+While all users of this project are familiar with `embassy-stm32`, fewer are familiar with the project that powers it: `stm32-data`. This project doesn't just aim to generate data for `embassy-stm32`, but for machine consumption in general. To acheive this, information from multiple files from the `stm32-data-sources` project are combined and parsed to assign register block implementations for each supported IP. The core of this matching resides in `chips.rs`:
+
+[source,rust]
+----
+    (".*:I2C:i2c2_v1_1", ("i2c", "v2", "I2C")),
+    // snip
+    (r".*TIM\d.*:gptimer.*", ("timer", "v1", "TIM_GP16")),
+----
+
+In this case, the i2c version corresponds to our "v2" and the general purpose timer version corresponds to our "v1". Therefore, the `i2c_v2.yaml` and `timer_v1.yaml` register block implementations are assigned to those IP, respectively. The result is that these lines arr generated in `STM32F051K4.json`:
+
+[source,json]
+----
+    {
+        "name": "I2C1",
+        "address": 1073763328,
+        "registers": {
+            "kind": "i2c",
+            "version": "v2",
+            "block": "I2C"
+        },
+        // snip
+    }
+    // snip
+    {
+        "name": "TIM1",
+        "address": 1073818624,
+        "registers": {
+            "kind": "timer",
+            "version": "v1",
+            "block": "TIM_ADV"
+        },
+        // snip
+    }
+----
+
+In addition to register blocks, data for pin and RCC mapping is also generated and consumed by `embassy-stm32`. `stm32-metapac-gen` is used to package and publish the data as a crate.
+
+
+== `embassy-stm32`
+
+In the `lib.rs` file located in the root of `embassy-stm32`, you'll see this line:
+
+[source,rust]
+----
+#[cfg(i2c)]
+pub mod i2c;
+----
+
+And in the `mod.rs` of the i2c mod, you'll see this:
+
+[source,rust]
+----
+#[cfg_attr(i2c_v2, path = "v2.rs")]
+----
+
+Because i2c is supported for STM32F051K4 and its version corresponds to our "v2", the `i2c` and `i2c_v2`, configuration directives will be present, and `embassy-stm32` will include these files, respectively. This and other configuration directives and tables are generated from the data for chip, allowing `embassy-stm32` to expressively and clearly adapt logic and implementations to what is required for each chip. Compared to other projects across the embedded ecosystem, `embassy-stm32` is the only project that can re-use code across the entire stm32 lineup and remove difficult-to-implement unsafe logic to the HAL.

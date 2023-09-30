@@ -35,16 +35,8 @@ async fn main(_spawner: Spawner) {
 
     let iv = GenericSx126xInterfaceVariant::new(nss, reset, dio1, busy, None, None).unwrap();
 
-    let mut delay = Delay;
-
     let mut lora = {
-        match LoRa::new(
-            SX1261_2::new(BoardType::RpPicoWaveshareSx1262, spi, iv),
-            false,
-            &mut delay,
-        )
-        .await
-        {
+        match LoRa::new(SX1261_2::new(BoardType::RpPicoWaveshareSx1262, spi, iv), false, Delay).await {
             Ok(l) => l,
             Err(err) => {
                 info!("Radio error = {}", err);
@@ -83,7 +75,7 @@ async fn main(_spawner: Spawner) {
     };
 
     match lora
-        .prepare_for_rx(&mdltn_params, &rx_pkt_params, None, true, false, 0, 0x00ffffffu32)
+        .prepare_for_rx(&mdltn_params, &rx_pkt_params, None, None, false)
         .await
     {
         Ok(()) => {}

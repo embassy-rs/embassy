@@ -1,5 +1,7 @@
+#[cfg(rcc_f3)]
+use crate::pac::adccommon::vals::Ckmode;
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
+use crate::pac::rcc::vals::{Adcpres, Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -9,6 +11,82 @@ pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(40_000);
+
+impl From<AdcClockSource> for Adcpres {
+    fn from(value: AdcClockSource) -> Self {
+        match value {
+            AdcClockSource::PllDiv1 => Adcpres::DIV1,
+            AdcClockSource::PllDiv2 => Adcpres::DIV2,
+            AdcClockSource::PllDiv4 => Adcpres::DIV4,
+            AdcClockSource::PllDiv6 => Adcpres::DIV6,
+            AdcClockSource::PllDiv8 => Adcpres::DIV8,
+            AdcClockSource::PllDiv12 => Adcpres::DIV12,
+            AdcClockSource::PllDiv16 => Adcpres::DIV16,
+            AdcClockSource::PllDiv32 => Adcpres::DIV32,
+            AdcClockSource::PllDiv64 => Adcpres::DIV64,
+            AdcClockSource::PllDiv128 => Adcpres::DIV128,
+            AdcClockSource::PllDiv256 => Adcpres::DIV256,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[cfg(rcc_f3)]
+impl From<AdcClockSource> for Ckmode {
+    fn from(value: AdcClockSource) -> Self {
+        match value {
+            AdcClockSource::BusDiv1 => Ckmode::SYNCDIV1,
+            AdcClockSource::BusDiv2 => Ckmode::SYNCDIV2,
+            AdcClockSource::BusDiv4 => Ckmode::SYNCDIV4,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum AdcClockSource {
+    PllDiv1 = 1,
+    PllDiv2 = 2,
+    PllDiv4 = 4,
+    PllDiv6 = 6,
+    PllDiv8 = 8,
+    PllDiv12 = 12,
+    PllDiv16 = 16,
+    PllDiv32 = 32,
+    PllDiv64 = 64,
+    PllDiv128 = 128,
+    PllDiv256 = 256,
+    BusDiv1,
+    BusDiv2,
+    BusDiv4,
+}
+
+impl AdcClockSource {
+    pub fn is_bus(&self) -> bool {
+        match self {
+            Self::BusDiv1 => true,
+            Self::BusDiv2 => true,
+            Self::BusDiv4 => true,
+            _ => false,
+        }
+    }
+
+    pub fn bus_div(&self) -> u32 {
+        match self {
+            Self::BusDiv1 => 1,
+            Self::BusDiv2 => 2,
+            Self::BusDiv4 => 4,
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub enum HrtimClockSource {
+    #[default]
+    BusClk,
+    PllClk,
+}
 
 /// Clocks configutation
 #[non_exhaustive]
@@ -36,9 +114,20 @@ pub struct Config {
     /// - The System clock frequency is either 48MHz or 72MHz
     /// - APB1 clock has a minimum frequency of 10MHz
     pub pll48: bool,
+    #[cfg(rcc_f3)]
+    /// ADC clock setup
+    /// - For AHB, a psc of 4 or less must be used
+    pub adc: Option<AdcClockSource>,
+    #[cfg(rcc_f3)]
+    /// ADC clock setup
+    /// - For AHB, a psc of 4 or less must be used
+    pub adc34: Option<AdcClockSource>,
+    #[cfg(stm32f334)]
+    pub hrtim: HrtimClockSource,
 }
 
 // Information required to setup the PLL clock
+#[derive(Clone, Copy)]
 struct PllConfig {
     pll_src: Pllsrc,
     pll_mul: Pllmul,
@@ -170,6 +259,65 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
+    #[cfg(rcc_f3)]
+    let adc = config.adc.map(|adc| {
+        if !adc.is_bus() {
+            RCC.cfgr2().modify(|w| {
+                // Make sure that we're using the PLL
+                pll_config.unwrap();
+                w.set_adc12pres(adc.into());
+
+                Hertz(sysclk / adc as u32)
+            })
+        } else {
+            crate::pac::ADC_COMMON.ccr().modify(|w| {
+                assert!(!(adc.bus_div() == 1 && hpre_bits != Hpre::DIV1));
+
+                w.set_ckmode(adc.into());
+
+                Hertz(sysclk / adc.bus_div() as u32)
+            })
+        }
+    });
+
+    #[cfg(all(rcc_f3, adc3_common))]
+    let adc34 = config.adc.map(|adc| {
+        if !adc.is_bus() {
+            RCC.cfgr2().modify(|w| {
+                // Make sure that we're using the PLL
+                pll_config.unwrap();
+                w.set_adc12pres(adc.into());
+
+                Hertz(sysclk / adc as u32)
+            })
+        } else {
+            crate::pac::ADC3_COMMON.ccr().modify(|w| {
+                assert!(!(adc.bus_div() == 1 && hpre_bits != Hpre::DIV1));
+
+                w.set_ckmode(adc.into());
+
+                Hertz(sysclk / adc.bus_div() as u32)
+            })
+        }
+    });
+
+    #[cfg(stm32f334)]
+    let hrtim = match config.hrtim {
+        // Must be configured after the bus is ready, otherwise it won't work
+        HrtimClockSource::BusClk => None,
+        HrtimClockSource::PllClk => {
+            use crate::pac::rcc::vals::Timsw;
+
+            // Make sure that we're using the PLL
+            pll_config.unwrap();
+            assert!((pclk2 == sysclk) || (pclk2 * 2 == sysclk));
+
+            RCC.cfgr3().modify(|w| w.set_hrtim1sw(Timsw::PLL));
+
+            Some(Hertz(sysclk * 2))
+        }
+    };
+
     set_freqs(Clocks {
         sys: Hertz(sysclk),
         apb1: Hertz(pclk1),
@@ -177,6 +325,14 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim: Hertz(pclk1 * timer_mul1),
         apb2_tim: Hertz(pclk2 * timer_mul2),
         ahb1: Hertz(hclk),
+        #[cfg(rcc_f3)]
+        adc: adc,
+        #[cfg(all(rcc_f3, adc3_common))]
+        adc34: adc34,
+        #[cfg(all(rcc_f3, not(adc3_common)))]
+        adc34: None,
+        #[cfg(stm32f334)]
+        hrtim: hrtim,
     });
 }
 
@@ -201,9 +357,9 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
     // Calculates the Multiplier and the Divisor to arrive at
     // the required System clock from PLL source frequency
     let get_mul_div = |sysclk, pllsrcclk| {
-        let common_div = gcd(sysclk, pllsrcclk);
-        let mut multiplier = sysclk / common_div;
-        let mut divisor = pllsrcclk / common_div;
+        let bus_div = gcd(sysclk, pllsrcclk);
+        let mut multiplier = sysclk / bus_div;
+        let mut divisor = pllsrcclk / bus_div;
         // Minimum PLL multiplier is two
         if multiplier == 1 {
             multiplier *= 2;

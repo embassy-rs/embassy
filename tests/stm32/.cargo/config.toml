@@ -14,7 +14,10 @@ rustflags = [
 ]
 
 [build]
-target = "thumbv7m-none-eabi"
+target = "thumbv6m-none-eabi"
+#target = "thumbv7m-none-eabi"
+#target = "thumbv7em-none-eabi"
+#target = "thumbv8m.main-none-eabihf"
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,smoltcp=info"

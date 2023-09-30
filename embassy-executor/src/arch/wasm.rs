@@ -73,9 +73,10 @@ mod thread {
         pub fn start(&'static mut self, init: impl FnOnce(Spawner)) {
             unsafe {
                 let executor = &self.inner;
-                self.ctx.closure.write(Closure::new(move |_| {
+                let future = Closure::new(move |_| {
                     executor.poll();
-                }));
+                });
+                self.ctx.closure.write_in_place(|| future);
                 init(self.inner.spawner());
             }
         }

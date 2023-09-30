@@ -68,8 +68,14 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        if r.events_started.read().bits() != 0 {
+            s.waker.wake();
+            r.intenclr.write(|w| w.started().clear());
+        }
+
         if r.events_end.read().bits() != 0 {
-            s.end_waker.wake();
+            s.waker.wake();
             r.intenclr.write(|w| w.end().clear());
         }
     }
@@ -167,42 +173,10 @@ impl<'d, T: Instance> Spim<'d, T> {
         // Enable SPIM instance.
         r.enable.write(|w| w.enable().enabled());
 
-        // Configure mode.
-        let mode = config.mode;
-        r.config.write(|w| {
-            match mode {
-                MODE_0 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().leading();
-                }
-                MODE_1 => {
-                    w.order().msb_first();
-                    w.cpol().active_high();
-                    w.cpha().trailing();
-                }
-                MODE_2 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().leading();
-                }
-                MODE_3 => {
-                    w.order().msb_first();
-                    w.cpol().active_low();
-                    w.cpha().trailing();
-                }
-            }
+        let mut spim = Self { _p: spim };
 
-            w
-        });
-
-        // Configure frequency.
-        let frequency = config.frequency;
-        r.frequency.write(|w| w.frequency().variant(frequency));
-
-        // Set over-read character
-        let orc = config.orc;
-        r.orc.write(|w| unsafe { w.orc().bits(orc) });
+        // Apply runtime peripheral configuration
+        Self::set_config(&mut spim, &config);
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -210,7 +184,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _p: spim }
+        spim
     }
 
     fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
@@ -223,14 +197,32 @@ impl<'d, T: Instance> Spim<'d, T> {
         let r = T::regs();
 
         // Set up the DMA write.
-        let (ptr, len) = slice_ptr_parts(tx);
+        let (ptr, tx_len) = slice_ptr_parts(tx);
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx_len as _) });
 
         // Set up the DMA read.
-        let (ptr, len) = slice_ptr_parts_mut(rx);
+        let (ptr, rx_len) = slice_ptr_parts_mut(rx);
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
+        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx_len as _) });
+
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        {
+            let s = T::state();
+
+            r.events_started.reset();
+
+            // Set rx/tx buffer lengths to 0...
+            r.txd.maxcnt.reset();
+            r.rxd.maxcnt.reset();
+
+            // ...and keep track of original buffer lengths...
+            s.tx.store(tx_len as _, Ordering::Relaxed);
+            s.rx.store(rx_len as _, Ordering::Relaxed);
+
+            // ...signalling the start of the fake transfer.
+            r.intenset.write(|w| w.started().bit(true));
+        }
 
         // Reset and enable the event
         r.events_end.reset();
@@ -244,6 +236,9 @@ impl<'d, T: Instance> Spim<'d, T> {
 
     fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
+
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        while let Poll::Pending = self.nrf52832_dma_workaround_status() {}
 
         // Wait for 'end' event.
         while T::regs().events_end.read().bits() == 0 {}
@@ -269,9 +264,19 @@ impl<'d, T: Instance> Spim<'d, T> {
     async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         self.prepare(rx, tx)?;
 
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        poll_fn(|cx| {
+            let s = T::state();
+
+            s.waker.register(cx.waker());
+
+            self.nrf52832_dma_workaround_status()
+        })
+        .await;
+
         // Wait for 'end' event.
         poll_fn(|cx| {
-            T::state().end_waker.register(cx.waker());
+            T::state().waker.register(cx.waker());
             if T::regs().events_end.read().bits() != 0 {
                 return Poll::Ready(());
             }
@@ -362,6 +367,32 @@ impl<'d, T: Instance> Spim<'d, T> {
     pub async fn write_from_ram(&mut self, data: &[u8]) -> Result<(), Error> {
         self.async_inner_from_ram(&mut [], data).await
     }
+
+    #[cfg(feature = "_nrf52832_anomaly_109")]
+    fn nrf52832_dma_workaround_status(&mut self) -> Poll<()> {
+        let r = T::regs();
+        if r.events_started.read().bits() != 0 {
+            let s = T::state();
+
+            // Handle the first "fake" transmission
+            r.events_started.reset();
+            r.events_end.reset();
+
+            // Update DMA registers with correct rx/tx buffer sizes
+            r.rxd
+                .maxcnt
+                .write(|w| unsafe { w.maxcnt().bits(s.rx.load(Ordering::Relaxed)) });
+            r.txd
+                .maxcnt
+                .write(|w| unsafe { w.maxcnt().bits(s.tx.load(Ordering::Relaxed)) });
+
+            r.intenset.write(|w| w.end().set());
+            // ... and start actual, hopefully glitch-free transmission
+            r.tasks_start.write(|w| unsafe { w.bits(1) });
+            return Poll::Ready(());
+        }
+        Poll::Pending
+    }
 }
 
 impl<'d, T: Instance> Drop for Spim<'d, T> {
@@ -386,18 +417,29 @@ impl<'d, T: Instance> Drop for Spim<'d, T> {
 }
 
 pub(crate) mod sealed {
+    #[cfg(feature = "_nrf52832_anomaly_109")]
+    use core::sync::atomic::AtomicU8;
+
     use embassy_sync::waitqueue::AtomicWaker;
 
     use super::*;
 
     pub struct State {
-        pub end_waker: AtomicWaker,
+        pub waker: AtomicWaker,
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        pub rx: AtomicU8,
+        #[cfg(feature = "_nrf52832_anomaly_109")]
+        pub tx: AtomicU8,
     }
 
     impl State {
         pub const fn new() -> Self {
             Self {
-                end_waker: AtomicWaker::new(),
+                waker: AtomicWaker::new(),
+                #[cfg(feature = "_nrf52832_anomaly_109")]
+                rx: AtomicU8::new(0),
+                #[cfg(feature = "_nrf52832_anomaly_109")]
+                tx: AtomicU8::new(0),
             }
         }
     }

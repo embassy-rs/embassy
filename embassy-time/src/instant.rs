@@ -71,7 +71,7 @@ impl Instant {
     /// Panics on over/underflow.
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         Duration {
-            ticks: self.ticks.checked_sub(earlier.ticks).unwrap(),
+            ticks: unwrap!(self.ticks.checked_sub(earlier.ticks)),
         }
     }
 
