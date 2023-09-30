@@ -33,6 +33,9 @@ pub struct Config {
     #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
     pub plli2s: Option<Hertz>,
 
+    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+    pub pllsai: Option<Hertz>,
+
     pub pll48: bool,
     pub rtc: Option<RtcClockSource>,
 }
@@ -48,11 +51,9 @@ fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
-#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
-fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+fn calculate_sai_i2s_pll_values(vco_in: u32, max_div: u32, target: Option<u32>, ) -> Option<(u32, u32, u32)> {
     let min_div = 2;
-    let max_div = 7;
-    let target = match plli2s {
+    let target = match target {
         Some(target) => target,
         None => return None,
     };
@@ -76,15 +77,41 @@ fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
         })
         .min_by_key(|(_, _, _, error)| *error)?;
 
+    Some((n, outdiv, output))
+}
+
+#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
+    let (n, outdiv, output) = calculate_sai_i2s_pll_values(vco_in, 7, plli2s)?;
+
     RCC.plli2scfgr().modify(|w| {
         w.set_plli2sn(n as u16);
         w.set_plli2sr(outdiv as u8);
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        w.set_plli2sq(outdiv as u8); //set sai divider same as i2s
     });
 
     Some(output)
 }
 
-fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Option<u32>, pll48clk: bool) -> PllResults {
+#[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479)))]
+fn setup_sai_pll(vco_in: u32, pllsai: Option<u32>) -> Option<u32> {
+    None
+}
+
+#[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+fn setup_sai_pll(vco_in: u32, pllsai: Option<u32>) -> Option<u32> {
+    let (n, outdiv, output) = calculate_sai_i2s_pll_values(vco_in, 15, pllsai)?;
+
+    RCC.pllsaicfgr().modify(|w| {
+        w.set_pllsain(n as u16);
+        w.set_pllsaiq(outdiv as u8);
+    });
+
+    Some(output)
+}
+
+fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Option<u32>, pllsai: Option<u32>, pll48clk: bool) -> PllResults {
     use crate::pac::rcc::vals::{Pllp, Pllsrc};
 
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
@@ -96,6 +123,7 @@ fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Opti
             pllsysclk: None,
             pll48clk: None,
             plli2sclk: None,
+            pllsaiclk: None,
         };
     }
     // Input divisor from PLL source clock, must result to frequency in
@@ -146,6 +174,7 @@ fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Opti
         w.set_pllp(Pllp::from_bits(pllp as u8));
         w.set_pllq(pllq as u8);
         w.set_pllsrc(Pllsrc::from_bits(use_hse as u8));
+        w.set_pllr(0);
     });
 
     let real_pllsysclk = vco_in * plln / sysclk_div;
@@ -155,6 +184,7 @@ fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, plli2s: Opti
         pllsysclk: Some(real_pllsysclk),
         pll48clk: if pll48clk { Some(real_pll48clk) } else { None },
         plli2sclk: setup_i2s_pll(vco_in, plli2s),
+        pllsaiclk: setup_sai_pll(vco_in, pllsai),
     }
 }
 
@@ -344,6 +374,10 @@ pub(crate) unsafe fn init(config: Config) {
         config.plli2s.map(|i2s| i2s.0),
         #[cfg(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
         None,
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        config.pllsai.map(|sai| sai.0),
+        #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479)))]
+        None,
         config.pll48,
     );
 
@@ -441,6 +475,12 @@ pub(crate) unsafe fn init(config: Config) {
         while !RCC.cr().read().plli2srdy() {}
     }
 
+    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+    if plls.pllsaiclk.is_some() {
+        RCC.cr().modify(|w| w.set_pllsaion(true));
+        while !RCC.cr().read().pllsairdy() {}
+    }
+
     RCC.cfgr().modify(|w| {
         w.set_ppre2(Ppre::from_bits(ppre2_bits));
         w.set_ppre1(Ppre::from_bits(ppre1_bits));
@@ -496,7 +536,7 @@ pub(crate) unsafe fn init(config: Config) {
         plli2s: plls.plli2sclk.map(Hertz),
 
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-        pllsai: None,
+        pllsai: plls.pllsaiclk.map(Hertz),
 
         rtc: rtc,
     });
@@ -508,6 +548,8 @@ struct PllResults {
     pll48clk: Option<u32>,
     #[allow(dead_code)]
     plli2sclk: Option<u32>,
+    #[allow(dead_code)]
+    pllsaiclk: Option<u32>,
 }
 
 mod max {
