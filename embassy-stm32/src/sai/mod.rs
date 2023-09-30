@@ -8,7 +8,6 @@ use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::RccPeripheral;
-use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
 pub use crate::dma::word;
@@ -702,8 +701,8 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
 
         #[cfg(any(sai_v4))]
         {
-            /// Not totally clear from the datasheet if this is right
-            /// This is only used if using SyncEnable::External
+            // Not totally clear from the datasheet if this is right
+            // This is only used if using SyncEnable::External
             let value: u8 = if T::REGS.as_ptr() == stm32_metapac::SAI1.as_ptr() {
                 1 //this is SAI1, so sync with SAI2
             } else {
@@ -789,7 +788,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         }
     }
 
-    fn flush(&mut self) {
+    pub fn flush(&mut self) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
         #[cfg(any(sai_v1, sai_v2))]
@@ -803,13 +802,13 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         ch.cr1().modify(|w| w.set_saien(true));
     }
 
-    fn set_mute(&mut self, value: bool) {
+    pub fn set_mute(&mut self, value: bool) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
     /// Reconfigures it with the supplied config.
-    pub fn reconfigure(&mut self, config: Config) {}
+    pub fn reconfigure(&mut self, _config: Config) {}
 
     pub fn get_current_config(&self) -> Config {
         Config::default()
@@ -818,7 +817,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
-                buffer.write_exact(data).await;
+                buffer.write_exact(data).await?;
                 Ok(())
             }
             _ => return Err(Error::NotATransmitter),
@@ -828,7 +827,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
     pub async fn read(&mut self, data: &mut [W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Readable(buffer) => {
-                buffer.read_exact(data).await;
+                buffer.read_exact(data).await?;
                 Ok(())
             }
             _ => Err(Error::NotAReceiver),
