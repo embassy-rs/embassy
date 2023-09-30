@@ -97,7 +97,7 @@ fn setup_i2s_pll(vco_in: u32, plli2s: Option<u32>) -> Option<u32> {
 }
 
 #[cfg(not(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479)))]
-fn setup_sai_pll(vco_in: u32, _pllsai: Option<u32>) -> Option<u32> {
+fn setup_sai_pll(_vco_in: u32, _pllsai: Option<u32>) -> Option<u32> {
     None
 }
 

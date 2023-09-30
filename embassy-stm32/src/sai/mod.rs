@@ -3,7 +3,7 @@
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use crate::dma::{Channel, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
+use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::sai::{vals, Sai as Regs};
@@ -17,6 +17,13 @@ pub use crate::dma::word;
 pub enum Error {
     NotATransmitter,
     NotAReceiver,
+    OverrunError,
+}
+
+impl From<ringbuffer::OverrunError> for Error {
+    fn from(_: ringbuffer::OverrunError) -> Self {
+        Self::OverrunError
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -499,6 +506,7 @@ pub enum SubBlock {
 
 enum RingBuffer<'d, C: Channel, W: word::Word> {
     Writable(WritableRingBuffer<'d, C, W>),
+    #[allow(dead_code)] // remove this after implementing new_* functions for receiver
     Readable(ReadableRingBuffer<'d, C, W>),
 }
 
