@@ -88,7 +88,23 @@ pub(crate) mod sealed {
     pub trait GeneralPurpose32bitInstance: GeneralPurpose16bitInstance {
         fn regs_gp32() -> crate::pac::timer::TimGp32;
 
-        fn set_frequency(&mut self, frequency: Hertz);
+        fn set_frequency(&mut self, frequency: Hertz) {
+            use core::convert::TryInto;
+            let f = frequency.0;
+            assert!(f > 0);
+            let timer_f = Self::frequency().0;
+            let pclk_ticks_per_timer_period = (timer_f / f) as u64;
+            let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());
+            let arr: u32 = unwrap!(((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into()));
+
+            let regs = Self::regs_gp32();
+            regs.psc().write(|r| r.set_psc(psc));
+            regs.arr().write(|r| r.set_arr(arr));
+
+            regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
+            regs.egr().write(|r| r.set_ug(true));
+            regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
+        }
     }
 
     pub trait AdvancedControlInstance: GeneralPurpose16bitInstance {
@@ -351,24 +367,6 @@ macro_rules! impl_32bit_timer {
         impl sealed::GeneralPurpose32bitInstance for crate::peripherals::$inst {
             fn regs_gp32() -> crate::pac::timer::TimGp32 {
                 crate::pac::$inst
-            }
-
-            fn set_frequency(&mut self, frequency: Hertz) {
-                use core::convert::TryInto;
-                let f = frequency.0;
-                assert!(f > 0);
-                let timer_f = Self::frequency().0;
-                let pclk_ticks_per_timer_period = (timer_f / f) as u64;
-                let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());
-                let arr: u32 = unwrap!(((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into()));
-
-                let regs = Self::regs_gp32();
-                regs.psc().write(|r| r.set_psc(psc));
-                regs.arr().write(|r| r.set_arr(arr));
-
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
             }
         }
     };
