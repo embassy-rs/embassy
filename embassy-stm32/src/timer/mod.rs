@@ -94,25 +94,7 @@ pub(crate) mod sealed {
         fn enable_complementary_channel(&mut self, channel: Channel, enable: bool);
     }
 
-    pub trait CaptureCompare32bitInstance: GeneralPurpose32bitInstance {
-        fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::Icf);
-
-        fn clear_input_interrupt(&mut self, channel: Channel);
-
-        fn enable_input_interrupt(&mut self, channel: Channel, enable: bool);
-
-        fn set_input_capture_prescaler(&mut self, channel: Channel, val: u8);
-
-        fn set_input_ti_selection(&mut self, channel: Channel, tisel: InputTISelection);
-
-        fn set_input_capture_mode(&mut self, channel: Channel, mode: InputCaptureMode);
-
-        fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode);
-
-        fn set_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity);
-
-        fn enable_channel(&mut self, channel: Channel, enable: bool);
-
+    pub trait CaptureCompare32bitInstance: GeneralPurpose32bitInstance + CaptureCompare16bitInstance {
         fn set_compare_value(&mut self, channel: Channel, value: u32);
 
         fn get_capture_value(&mut self, channel: Channel) -> u32;
@@ -228,7 +210,6 @@ pub trait CaptureCompare32bitInstance:
     sealed::CaptureCompare32bitInstance + CaptureCompare16bitInstance + GeneralPurpose32bitInstance + 'static
 {
 }
-
 pin_trait!(Channel1Pin, CaptureCompare16bitInstance);
 pin_trait!(Channel1ComplementaryPin, CaptureCompare16bitInstance);
 pin_trait!(Channel2Pin, CaptureCompare16bitInstance);
@@ -475,81 +456,6 @@ foreach_interrupt! {
         impl GeneralPurpose32bitInstance for crate::peripherals::$inst {}
 
         impl sealed::CaptureCompare32bitInstance for crate::peripherals::$inst {
-            fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::Icf) {
-                use sealed::GeneralPurpose32bitInstance;
-                let raw_channel = channel.raw();
-                Self::regs_gp32()
-                    .ccmr_input(raw_channel / 2)
-                    .modify(|r| r.set_icf(raw_channel % 2, icf));
-            }
-
-            fn clear_input_interrupt(&mut self, channel: Channel) {
-                use sealed::GeneralPurpose32bitInstance;
-                Self::regs_gp32()
-                    .sr()
-                    .modify(|r| r.set_ccif(channel.raw(), false));
-            }
-            fn enable_input_interrupt(&mut self, channel: Channel, enable: bool) {
-                use sealed::GeneralPurpose32bitInstance;
-                Self::regs_gp32()
-                    .dier()
-                    .modify(|r| r.set_ccie(channel.raw(), enable));
-            }
-            fn set_input_capture_prescaler(&mut self, channel: Channel, factor: u8) {
-                use crate::timer::sealed::GeneralPurpose32bitInstance;
-                let raw_channel = channel.raw();
-                Self::regs_gp32()
-                    .ccmr_input(raw_channel / 2)
-                    .modify(|r| r.set_icpsc(raw_channel % 2, factor));
-            }
-
-            fn set_input_ti_selection(&mut self, channel: Channel, tisel: InputTISelection) {
-                use crate::timer::sealed::GeneralPurpose32bitInstance;
-                let raw_channel = channel.raw();
-                Self::regs_gp32()
-                    .ccmr_input(raw_channel / 2)
-                    .modify(|r| r.set_ccs(raw_channel % 2, tisel.into()));
-            }
-
-            fn set_input_capture_mode(&mut self, channel: Channel, mode: InputCaptureMode) {
-                use crate::timer::sealed::GeneralPurpose32bitInstance;
-                Self::regs_gp32().ccer().modify(|r| match mode {
-                    InputCaptureMode::Rising => {
-                        r.set_ccnp(channel.raw(), false);
-                        r.set_ccp(channel.raw(), false);
-                    }
-                    InputCaptureMode::Falling => {
-                        r.set_ccnp(channel.raw(), false);
-                        r.set_ccp(channel.raw(), true);
-                    }
-                    InputCaptureMode::BothEdges => {
-                        r.set_ccnp(channel.raw(), true);
-                        r.set_ccp(channel.raw(), true);
-                    }
-                });
-            }
-            fn set_output_compare_mode(
-                &mut self,
-                channel: Channel,
-                mode: OutputCompareMode,
-            ) {
-                use crate::timer::sealed::GeneralPurpose32bitInstance;
-                let raw_channel = channel.raw();
-                Self::regs_gp32().ccmr_output(raw_channel / 2).modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
-            }
-
-            fn set_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
-                use crate::timer::sealed::GeneralPurpose32bitInstance;
-                Self::regs_gp32()
-                    .ccer()
-                    .modify(|w| w.set_ccp(channel.raw(), polarity.into()));
-            }
-
-            fn enable_channel(&mut self, channel: Channel, enable: bool) {
-                use crate::timer::sealed::GeneralPurpose32bitInstance;
-                Self::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), enable));
-            }
-
             fn set_compare_value(&mut self, channel: Channel, value: u32) {
                 use crate::timer::sealed::GeneralPurpose32bitInstance;
                 Self::regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(value));
