@@ -732,17 +732,14 @@ fn main() {
                 let key = (regs.kind, pin.signal);
                 if let Some(tr) = signals.get(&key) {
                     let mut peri = format_ident!("{}", p.name);
+
                     let pin_name = {
-                        // If we encounter a "_C" pin, we remove the suffix
-                        let mut pin_name = pin.pin.strip_suffix("_C").unwrap_or(pin.pin).to_string();
-                        // However, if the corresponding split_feature is enabled, we actually do want the pin name including "_C"
-                        for split_feature in &split_features {
-                            if pin.pin == split_feature.pin_name_with_c {
-                                pin_name = split_feature.pin_name_with_c.clone();
-                            }
+                        // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
+                        if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
+                            continue;
                         }
 
-                        format_ident!("{}", pin_name)
+                        format_ident!("{}", pin.pin)
                     };
 
                     let af = pin.af.unwrap_or(0);
@@ -782,16 +779,11 @@ fn main() {
 
                     let peri = format_ident!("{}", p.name);
                     let pin_name = {
-                        // If we encounter a "_C" pin, we remove the suffix
-                        let mut pin_name = pin.pin.strip_suffix("_C").unwrap_or(pin.pin).to_string();
-                        // However, if the corresponding split_feature is enabled, we actually do want the pin name including "_C"
-                        for split_feature in &split_features {
-                            if pin.pin == split_feature.pin_name_with_c {
-                                pin_name = split_feature.pin_name_with_c.clone();
-                            }
+                        // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
+                        if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
+                            continue;
                         }
-
-                        format_ident!("{}", pin_name)
+                        format_ident!("{}", pin.pin)
                     };
 
                     // H7 has differential voltage measurements
