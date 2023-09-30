@@ -5,7 +5,6 @@ pub mod simple_pwm;
 use stm32_metapac::timer::vals;
 
 use crate::interrupt;
-use crate::rcc::sealed::RccPeripheral as __RccPeri;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
@@ -89,7 +88,6 @@ pub(crate) mod sealed {
         fn regs_gp32() -> crate::pac::timer::TimGp32;
 
         fn set_frequency(&mut self, frequency: Hertz) {
-            use core::convert::TryInto;
             let f = frequency.0;
             assert!(f > 0);
             let timer_f = Self::frequency().0;
