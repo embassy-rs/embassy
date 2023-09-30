@@ -48,9 +48,7 @@ fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
 
 // Not currently implemented, but will be in the future
 #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
-fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
-    None
-}
+fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> { None }
 
 #[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
 fn calculate_sai_i2s_pll_values(vco_in: u32, max_div: u32, target: Option<u32>, ) -> Option<(u32, u32, u32)> {
