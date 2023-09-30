@@ -1,5 +1,6 @@
+use core::ops::Range;
+
 pub struct RingBuffer<const N: usize> {
-    buf: [u8; N],
     start: usize,
     end: usize,
     empty: bool,
@@ -8,27 +9,26 @@ pub struct RingBuffer<const N: usize> {
 impl<const N: usize> RingBuffer<N> {
     pub const fn new() -> Self {
         Self {
-            buf: [0; N],
             start: 0,
             end: 0,
             empty: true,
         }
     }
 
-    pub fn push_buf(&mut self) -> &mut [u8] {
+    pub fn push_buf(&mut self) -> Range<usize> {
         if self.start == self.end && !self.empty {
             trace!("  ringbuf: push_buf empty");
-            return &mut self.buf[..0];
+            return 0..0;
         }
 
         let n = if self.start <= self.end {
-            self.buf.len() - self.end
+            N - self.end
         } else {
             self.start - self.end
         };
 
         trace!("  ringbuf: push_buf {:?}..{:?}", self.end, self.end + n);
-        &mut self.buf[self.end..self.end + n]
+        self.end..self.end + n
     }
 
     pub fn push(&mut self, n: usize) {
@@ -41,20 +41,20 @@ impl<const N: usize> RingBuffer<N> {
         self.empty = false;
     }
 
-    pub fn pop_buf(&mut self) -> &mut [u8] {
+    pub fn pop_buf(&mut self) -> Range<usize> {
         if self.empty {
             trace!("  ringbuf: pop_buf empty");
-            return &mut self.buf[..0];
+            return 0..0;
         }
 
         let n = if self.end <= self.start {
-            self.buf.len() - self.start
+            N - self.start
         } else {
             self.end - self.start
         };
 
         trace!("  ringbuf: pop_buf {:?}..{:?}", self.start, self.start + n);
-        &mut self.buf[self.start..self.start + n]
+        self.start..self.start + n
     }
 
     pub fn pop(&mut self, n: usize) {
@@ -93,8 +93,8 @@ impl<const N: usize> RingBuffer<N> {
     }
 
     fn wrap(&self, n: usize) -> usize {
-        assert!(n <= self.buf.len());
-        if n == self.buf.len() {
+        assert!(n <= N);
+        if n == N {
             0
         } else {
             n
@@ -110,37 +110,29 @@ mod tests {
     fn push_pop() {
         let mut rb: RingBuffer<4> = RingBuffer::new();
         let buf = rb.push_buf();
-        assert_eq!(4, buf.len());
-        buf[0] = 1;
-        buf[1] = 2;
-        buf[2] = 3;
-        buf[3] = 4;
+        assert_eq!(0..4, buf);
         rb.push(4);
 
         let buf = rb.pop_buf();
-        assert_eq!(4, buf.len());
-        assert_eq!(1, buf[0]);
+        assert_eq!(0..4, buf);
         rb.pop(1);
 
         let buf = rb.pop_buf();
-        assert_eq!(3, buf.len());
-        assert_eq!(2, buf[0]);
+        assert_eq!(1..4, buf);
         rb.pop(1);
 
         let buf = rb.pop_buf();
-        assert_eq!(2, buf.len());
-        assert_eq!(3, buf[0]);
+        assert_eq!(2..4, buf);
         rb.pop(1);
 
         let buf = rb.pop_buf();
-        assert_eq!(1, buf.len());
-        assert_eq!(4, buf[0]);
+        assert_eq!(3..4, buf);
         rb.pop(1);
 
         let buf = rb.pop_buf();
-        assert_eq!(0, buf.len());
+        assert_eq!(0..0, buf);
 
         let buf = rb.push_buf();
-        assert_eq!(4, buf.len());
+        assert_eq!(0..4, buf);
     }
 }

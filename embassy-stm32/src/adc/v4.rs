@@ -1,6 +1,5 @@
-use core::sync::atomic::{AtomicU8, Ordering};
-
 use embedded_hal_02::blocking::delay::DelayUs;
+#[allow(unused)]
 use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
@@ -13,12 +12,31 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-// NOTE: Vrefint/Temperature/Vbat are only available on ADC3 on H7, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
+/// Max single ADC operation clock frequency
+#[cfg(stm32g4)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
+#[cfg(stm32h7)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
+
+#[cfg(stm32g4)]
+const VREF_CHANNEL: u8 = 18;
+#[cfg(stm32g4)]
+const TEMP_CHANNEL: u8 = 16;
+
+#[cfg(stm32h7)]
+const VREF_CHANNEL: u8 = 19;
+#[cfg(stm32h7)]
+const TEMP_CHANNEL: u8 = 18;
+
+// TODO this should be 14 for H7a/b/35
+const VBAT_CHANNEL: u8 = 17;
+
+// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 pub struct VrefInt;
 impl<T: Instance> InternalChannel<T> for VrefInt {}
 impl<T: Instance> super::sealed::InternalChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
-        19
+        VREF_CHANNEL
     }
 }
 
@@ -26,7 +44,7 @@ pub struct Temperature;
 impl<T: Instance> InternalChannel<T> for Temperature {}
 impl<T: Instance> super::sealed::InternalChannel<T> for Temperature {
     fn channel(&self) -> u8 {
-        18
+        TEMP_CHANNEL
     }
 }
 
@@ -34,127 +52,9 @@ pub struct Vbat;
 impl<T: Instance> InternalChannel<T> for Vbat {}
 impl<T: Instance> super::sealed::InternalChannel<T> for Vbat {
     fn channel(&self) -> u8 {
-        // TODO this should be 14 for H7a/b/35
-        17
+        VBAT_CHANNEL
     }
 }
-
-static ADC12_ENABLE_COUNTER: AtomicU8 = AtomicU8::new(0);
-
-#[cfg(stm32h7)]
-foreach_peripheral!(
-    (adc, ADC1) => {
-        impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC1 {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    match unsafe { crate::rcc::get_freqs() }.adc {
-                        Some(ck) => ck,
-                        None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
-                    }
-                })
-            }
-
-            fn enable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(true))
-                });
-                ADC12_ENABLE_COUNTER.fetch_add(1, Ordering::SeqCst);
-            }
-
-            fn disable() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(false));
-                    })
-                }
-                ADC12_ENABLE_COUNTER.fetch_sub(1, Ordering::SeqCst);
-            }
-
-            fn reset() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(true));
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(false));
-                    });
-                }
-            }
-        }
-
-        impl crate::rcc::RccPeripheral for crate::peripherals::ADC1 {}
-    };
-    (adc, ADC2) => {
-        impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC2 {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    match unsafe { crate::rcc::get_freqs() }.adc {
-                        Some(ck) => ck,
-                        None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
-                    }
-                })
-            }
-
-            fn enable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(true))
-                });
-                ADC12_ENABLE_COUNTER.fetch_add(1, Ordering::SeqCst);
-            }
-
-            fn disable() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1enr().modify(|w| w.set_adc12en(false));
-                    })
-                }
-                ADC12_ENABLE_COUNTER.fetch_sub(1, Ordering::SeqCst);
-            }
-
-            fn reset() {
-                if ADC12_ENABLE_COUNTER.load(Ordering::SeqCst) == 1 {
-                    critical_section::with(|_| {
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(true));
-                        crate::pac::RCC.ahb1rstr().modify(|w| w.set_adc12rst(false));
-                    });
-                }
-            }
-        }
-
-        impl crate::rcc::RccPeripheral for crate::peripherals::ADC2 {}
-    };
-    (adc, ADC3) => {
-        impl crate::rcc::sealed::RccPeripheral for crate::peripherals::ADC3 {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| {
-                    match unsafe { crate::rcc::get_freqs() }.adc {
-                        Some(ck) => ck,
-                        None => panic!("Invalid ADC clock configuration, AdcClockSource was likely not properly configured.")
-                    }
-                })
-            }
-
-            fn enable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb4enr().modify(|w| w.set_adc3en(true))
-                });
-            }
-
-            fn disable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb4enr().modify(|w| w.set_adc3en(false));
-                })
-            }
-
-            fn reset() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(true));
-                    crate::pac::RCC.ahb4rstr().modify(|w| w.set_adc3rst(false));
-                });
-            }
-        }
-
-        impl crate::rcc::RccPeripheral for crate::peripherals::ADC3 {}
-    };
-);
 
 // NOTE (unused): The prescaler enum closely copies the hardware capabilities,
 // but high prescaling doesn't make a lot of sense in the current implementation and is ommited.
@@ -176,7 +76,7 @@ enum Prescaler {
 
 impl Prescaler {
     fn from_ker_ck(frequency: Hertz) -> Self {
-        let raw_prescaler = frequency.0 / 50_000_000;
+        let raw_prescaler = frequency.0 / MAX_ADC_CLK_FREQ.0;
         match raw_prescaler {
             0 => Self::NotDivided,
             1 => Self::DividedBy2,
@@ -237,20 +137,23 @@ impl<'d, T: Instance> Adc<'d, T> {
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
         info!("ADC frequency set to {} Hz", frequency.0);
 
-        if frequency > Hertz::mhz(50) {
-            panic!("Maximal allowed frequency for the ADC is 50 MHz and it varies with different packages, refer to ST docs for more information.");
+        if frequency > MAX_ADC_CLK_FREQ {
+            panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
         }
-        let boost = if frequency < Hertz::khz(6_250) {
-            Boost::LT6_25
-        } else if frequency < Hertz::khz(12_500) {
-            Boost::LT12_5
-        } else if frequency < Hertz::mhz(25) {
-            Boost::LT25
-        } else {
-            Boost::LT50
-        };
-        T::regs().cr().modify(|w| w.set_boost(boost));
 
+        #[cfg(stm32h7)]
+        {
+            let boost = if frequency < Hertz::khz(6_250) {
+                Boost::LT6_25
+            } else if frequency < Hertz::khz(12_500) {
+                Boost::LT12_5
+            } else if frequency < Hertz::mhz(25) {
+                Boost::LT25
+            } else {
+                Boost::LT50
+            };
+            T::regs().cr().modify(|w| w.set_boost(boost));
+        }
         let mut s = Self {
             adc,
             sample_time: Default::default(),
@@ -379,10 +282,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         // Configure channel
         Self::set_channel_sample_time(channel, self.sample_time);
 
-        T::regs().cfgr2().modify(|w| w.set_lshift(0));
-        T::regs()
-            .pcsel()
-            .write(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+        #[cfg(stm32h7)]
+        {
+            T::regs().cfgr2().modify(|w| w.set_lshift(0));
+            T::regs()
+                .pcsel()
+                .write(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+        }
+
         T::regs().sqr1().write(|reg| {
             reg.set_sq(0, channel);
             reg.set_l(0);

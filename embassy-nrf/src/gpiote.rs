@@ -86,7 +86,6 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     unsafe { irq.enable() };
 
     let g = regs();
-    g.events_port.write(|w| w);
     g.intenset.write(|w| w.port().set());
 }
 

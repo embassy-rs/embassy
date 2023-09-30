@@ -1,77 +1,21 @@
 use stm32_metapac::rtc::vals::{Init, Osel, Pol};
 
-use super::{sealed, RtcClockSource, RtcConfig};
+use super::sealed;
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
 
-#[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-pub struct RtcInstant {
-    ssr: u16,
-    st: u8,
-}
-
-#[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-impl RtcInstant {
-    pub fn now() -> Self {
-        // TODO: read value twice
-        use crate::rtc::bcd2_to_byte;
-
-        let tr = RTC::regs().tr().read();
-        let tr2 = RTC::regs().tr().read();
-        let ssr = RTC::regs().ssr().read().ss();
-        let ssr2 = RTC::regs().ssr().read().ss();
-
-        let st = bcd2_to_byte((tr.st(), tr.su()));
-        let st2 = bcd2_to_byte((tr2.st(), tr2.su()));
-
-        assert!(st == st2);
-        assert!(ssr == ssr2);
-
-        let _ = RTC::regs().dr().read();
-
-        trace!("ssr: {}", ssr);
-        trace!("st: {}", st);
-
-        Self { ssr, st }
-    }
-}
-
-#[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-impl core::ops::Sub for RtcInstant {
-    type Output = embassy_time::Duration;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        use embassy_time::{Duration, TICK_HZ};
-
-        let st = if self.st < rhs.st { self.st + 60 } else { self.st };
-
-        // TODO: read prescaler
-
-        let self_ticks = st as u32 * 256 + (255 - self.ssr as u32);
-        let other_ticks = rhs.st as u32 * 256 + (255 - rhs.ssr as u32);
-        let rtc_ticks = self_ticks - other_ticks;
-
-        trace!("self, other, rtc ticks: {}, {}, {}", self_ticks, other_ticks, rtc_ticks);
-
-        Duration::from_ticks(
-            ((((st as u32 * 256 + (255u32 - self.ssr as u32)) - (rhs.st as u32 * 256 + (255u32 - rhs.ssr as u32)))
-                * TICK_HZ as u32) as u32
-                / 256u32) as u64,
-        )
-    }
-}
-
 #[allow(dead_code)]
+#[repr(u8)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum WakeupPrescaler {
-    Div2,
-    Div4,
-    Div8,
-    Div16,
+    Div2 = 2,
+    Div4 = 4,
+    Div8 = 8,
+    Div16 = 16,
 }
 
-#[cfg(any(stm32wb, stm32f4))]
+#[cfg(any(stm32wb, stm32f4, stm32l0))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -85,7 +29,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     }
 }
 
-#[cfg(any(stm32wb, stm32f4))]
+#[cfg(any(stm32wb, stm32f4, stm32l0))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -100,17 +44,6 @@ impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     }
 }
 
-impl From<WakeupPrescaler> for u32 {
-    fn from(val: WakeupPrescaler) -> Self {
-        match val {
-            WakeupPrescaler::Div2 => 2,
-            WakeupPrescaler::Div4 => 4,
-            WakeupPrescaler::Div8 => 8,
-            WakeupPrescaler::Div16 => 16,
-        }
-    }
-}
-
 #[allow(dead_code)]
 impl WakeupPrescaler {
     pub fn compute_min(val: u32) -> Self {
@@ -121,158 +54,100 @@ impl WakeupPrescaler {
             WakeupPrescaler::Div16,
         ]
         .iter()
-        .skip_while(|psc| <WakeupPrescaler as Into<u32>>::into(**psc) <= val)
+        .skip_while(|psc| **psc as u32 <= val)
         .next()
         .unwrap_or(&WakeupPrescaler::Div16)
     }
 }
 
 impl super::Rtc {
-    fn unlock_registers() {
-        #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1))]
-        let cr = crate::pac::PWR.cr();
-        #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-        let cr = crate::pac::PWR.cr1();
-
-        // TODO: Missing from PAC for l0 and f0?
-        #[cfg(not(any(rtc_v2f0, rtc_v2l0)))]
-        {
-            if !cr.read().dbp() {
-                cr.modify(|w| w.set_dbp(true));
-                while !cr.read().dbp() {}
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    #[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-    /// start the wakeup alarm and return the actual duration of the alarm
-    /// the actual duration will be the closest value possible that is less
-    /// than the requested duration.
-    ///
-    /// note: this api is exposed for testing purposes until low power is implemented.
-    /// it is not intended to be public
-    pub(crate) fn start_wakeup_alarm(&self, requested_duration: embassy_time::Duration) -> RtcInstant {
+    #[cfg(feature = "low-power")]
+    /// start the wakeup alarm and wtih a duration that is as close to but less than
+    /// the requested duration, and record the instant the wakeup alarm was started
+    pub(crate) fn start_wakeup_alarm(
+        &self,
+        requested_duration: embassy_time::Duration,
+        cs: critical_section::CriticalSection,
+    ) {
         use embassy_time::{Duration, TICK_HZ};
 
-        use crate::rcc::get_freqs;
+        // Panic if the rcc mod knows we're not using low-power rtc
+        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+        unsafe { crate::rcc::get_freqs() }.rtc.unwrap();
 
-        let rtc_hz = unsafe { get_freqs() }.rtc.unwrap().0 as u64;
-
-        let rtc_ticks = requested_duration.as_ticks() * rtc_hz / TICK_HZ;
+        let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
+        let rtc_hz = Self::frequency().0 as u64;
+        let rtc_ticks = requested_duration * rtc_hz / TICK_HZ;
         let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
-        // adjust the rtc ticks to the prescaler
-        let rtc_ticks = rtc_ticks / (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64);
-        let rtc_ticks = if rtc_ticks >= u16::MAX as u64 {
-            u16::MAX - 1
-        } else {
-            rtc_ticks as u16
-        };
-
-        let duration = Duration::from_ticks(
-            rtc_ticks as u64 * TICK_HZ * (<WakeupPrescaler as Into<u32>>::into(prescaler) as u64) / rtc_hz,
-        );
-
-        trace!("set wakeup timer for {} ms", duration.as_millis());
+        // adjust the rtc ticks to the prescaler and subtract one rtc tick
+        let rtc_ticks = rtc_ticks / prescaler as u64;
+        let rtc_ticks = rtc_ticks.clamp(0, (u16::MAX - 1) as u64).saturating_sub(1) as u16;
 
         self.write(false, |regs| {
-            regs.cr().modify(|w| w.set_wutie(true));
-
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
             while !regs.isr().read().wutwf() {}
 
             regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
+            regs.wutr().write(|w| w.set_wut(rtc_ticks));
             regs.cr().modify(|w| w.set_wute(true));
+            regs.cr().modify(|w| w.set_wutie(true));
         });
 
-        RtcInstant::now()
+        trace!(
+            "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {}) at {}",
+            Duration::from_ticks(rtc_ticks as u64 * TICK_HZ * prescaler as u64 / rtc_hz).as_millis(),
+            prescaler as u32,
+            rtc_ticks,
+            self.instant(),
+        );
+
+        assert!(self.stop_time.borrow(cs).replace(Some(self.instant())).is_none())
     }
 
-    #[allow(dead_code)]
-    #[cfg(all(feature = "time", any(stm32wb, stm32f4)))]
-    /// stop the wakeup alarm and return the time remaining
-    ///
-    /// note: this api is exposed for testing purposes until low power is implemented.
-    /// it is not intended to be public
-    pub(crate) fn stop_wakeup_alarm(&self) -> RtcInstant {
-        trace!("disable wakeup timer...");
+    #[cfg(feature = "low-power")]
+    /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
+    /// was called, otherwise none
+    pub(crate) fn stop_wakeup_alarm(&self, cs: critical_section::CriticalSection) -> Option<embassy_time::Duration> {
+        use crate::interrupt::typelevel::Interrupt;
+
+        trace!("rtc: stop wakeup alarm at {}", self.instant());
 
         self.write(false, |regs| {
+            regs.cr().modify(|w| w.set_wutie(false));
             regs.cr().modify(|w| w.set_wute(false));
             regs.isr().modify(|w| w.set_wutf(false));
+
+            crate::pac::EXTI
+                .pr(0)
+                .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+
+            <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
         });
 
-        RtcInstant::now()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_clock_source(clock_source: RtcClockSource) {
-        #[cfg(not(rtc_v2wb))]
-        use stm32_metapac::rcc::vals::Rtcsel;
-
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let cr = crate::pac::RCC.bdcr();
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let cr = crate::pac::RCC.csr();
-
-        Self::unlock_registers();
-
-        cr.modify(|w| {
-            // Select RTC source
-            #[cfg(not(rtc_v2wb))]
-            w.set_rtcsel(Rtcsel::from_bits(clock_source as u8));
-            #[cfg(rtc_v2wb)]
-            w.set_rtcsel(clock_source as u8);
-        });
-    }
-
-    pub(super) fn enable() {
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let reg = crate::pac::RCC.bdcr().read();
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let reg = crate::pac::RCC.csr().read();
-
-        #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
-        if !reg.rtcen() {
-            Self::unlock_registers();
-
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1, rtc_v2f2)))]
-            crate::pac::RCC.bdcr().modify(|w| w.set_bdrst(true));
-            #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-            let cr = crate::pac::RCC.bdcr();
-            #[cfg(any(rtc_v2l0, rtc_v2l1))]
-            let cr = crate::pac::RCC.csr();
-
-            cr.modify(|w| {
-                // Reset
-                #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-                w.set_bdrst(false);
-
-                w.set_rtcen(true);
-                w.set_rtcsel(reg.rtcsel());
-
-                // Restore bcdr
-                #[cfg(any(rtc_v2l4, rtc_v2wb))]
-                w.set_lscosel(reg.lscosel());
-                #[cfg(any(rtc_v2l4, rtc_v2wb))]
-                w.set_lscoen(reg.lscoen());
-
-                w.set_lseon(reg.lseon());
-
-                #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb))]
-                w.set_lsedrv(reg.lsedrv());
-                w.set_lsebyp(reg.lsebyp());
-            });
+        if let Some(stop_time) = self.stop_time.borrow(cs).take() {
+            Some(self.instant() - stop_time)
+        } else {
+            None
         }
+    }
+
+    #[cfg(feature = "low-power")]
+    pub(crate) fn enable_wakeup_line(&self) {
+        use crate::interrupt::typelevel::Interrupt;
+        use crate::pac::EXTI;
+
+        <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
+        unsafe { <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::enable() };
+
+        EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+        EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
     }
 
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
-    pub(super) fn configure(&mut self, rtc_config: RtcConfig) {
+    pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 #[cfg(rtc_v2f2)]
@@ -284,8 +159,8 @@ impl super::Rtc {
             });
 
             rtc.prer().modify(|w| {
-                w.set_prediv_s(rtc_config.sync_prescaler);
-                w.set_prediv_a(rtc_config.async_prescaler);
+                w.set_prediv_s(sync_psc);
+                w.set_prediv_a(async_psc);
             });
         });
     }
@@ -390,21 +265,17 @@ impl super::Rtc {
 impl sealed::Instance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 20;
 
-    fn enable_peripheral_clk() {
-        #[cfg(any(rtc_v2l4, rtc_v2wb))]
-        {
-            // enable peripheral clock for communication
-            crate::pac::RCC.apb1enr1().modify(|w| w.set_rtcapben(true));
+    #[cfg(all(feature = "low-power", stm32f4))]
+    const EXTI_WAKEUP_LINE: usize = 22;
 
-            // read to allow the pwr clock to enable
-            crate::pac::PWR.cr1().read();
-        }
-        #[cfg(any(rtc_v2f2))]
-        {
-            crate::pac::RCC.apb1enr().modify(|w| w.set_pwren(true));
-            crate::pac::PWR.cr().read();
-        }
-    }
+    #[cfg(all(feature = "low-power", stm32l0))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32f4))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+
+    #[cfg(all(feature = "low-power", stm32l0))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
 
     fn read_backup_register(rtc: &Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {

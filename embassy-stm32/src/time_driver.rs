@@ -14,6 +14,8 @@ use stm32_metapac::timer::regs;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
+#[cfg(feature = "low-power")]
+use crate::rtc::Rtc;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
 use crate::{interrupt, peripherals};
 
@@ -130,12 +132,14 @@ impl AlarmState {
     }
 }
 
-struct RtcDriver {
+pub(crate) struct RtcDriver {
     /// Number of 2^15 periods elapsed since boot.
     period: AtomicU32,
     alarm_count: AtomicU8,
     /// Timestamp at which to fire alarm. u64::MAX if no alarm is scheduled.
     alarms: Mutex<CriticalSectionRawMutex, [AlarmState; ALARM_COUNT]>,
+    #[cfg(feature = "low-power")]
+    rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
 }
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
@@ -144,6 +148,8 @@ embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),
+    #[cfg(feature = "low-power")]
+    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
 });
 
 impl RtcDriver {
@@ -259,6 +265,127 @@ impl RtcDriver {
         let f: fn(*mut ()) = unsafe { mem::transmute(alarm.callback.get()) };
         f(alarm.ctx.get());
     }
+
+    /*
+        Low-power private functions: all operate within a critical seciton
+    */
+
+    #[cfg(feature = "low-power")]
+    /// Compute the approximate amount of time until the next alarm
+    fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
+        let now = self.now() + 32;
+
+        embassy_time::Duration::from_ticks(
+            self.alarms
+                .borrow(cs)
+                .iter()
+                .map(|alarm: &AlarmState| alarm.timestamp.get().saturating_sub(now))
+                .min()
+                .unwrap_or(u64::MAX),
+        )
+    }
+
+    #[cfg(feature = "low-power")]
+    /// Add the given offset to the current time
+    fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
+        let offset = offset.as_ticks();
+        let cnt = T::regs_gp16().cnt().read().cnt() as u32;
+        let period = self.period.load(Ordering::SeqCst);
+
+        // Correct the race, if it exists
+        let period = if period & 1 == 1 && cnt < u16::MAX as u32 / 2 {
+            period + 1
+        } else {
+            period
+        };
+
+        // Normalize to the full overflow
+        let period = (period / 2) * 2;
+
+        // Add the offset
+        let period = period + 2 * (offset / u16::MAX as u64) as u32;
+        let cnt = cnt + (offset % u16::MAX as u64) as u32;
+
+        let (cnt, period) = if cnt > u16::MAX as u32 {
+            (cnt - u16::MAX as u32, period + 2)
+        } else {
+            (cnt, period)
+        };
+
+        let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
+
+        self.period.store(period, Ordering::SeqCst);
+        T::regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
+
+        // Now, recompute all alarms
+        for i in 0..ALARM_COUNT {
+            let alarm_handle = unsafe { AlarmHandle::new(i as u8) };
+            let alarm = self.get_alarm(cs, alarm_handle);
+
+            self.set_alarm(alarm_handle, alarm.timestamp.get());
+        }
+    }
+
+    #[cfg(feature = "low-power")]
+    /// Stop the wakeup alarm, if enabled, and add the appropriate offset
+    fn stop_wakeup_alarm(&self, cs: CriticalSection) {
+        if let Some(offset) = self.rtc.borrow(cs).get().unwrap().stop_wakeup_alarm(cs) {
+            self.add_time(offset, cs);
+        }
+    }
+
+    /*
+        Low-power public functions: all create a critical section
+    */
+    #[cfg(feature = "low-power")]
+    /// Set the rtc but panic if it's already been set
+    pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
+        critical_section::with(|cs| assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none()));
+    }
+
+    #[cfg(feature = "low-power")]
+    /// Pause the timer if ready; return err if not
+    pub(crate) fn pause_time(&self) -> Result<(), ()> {
+        critical_section::with(|cs| {
+            /*
+                If the wakeup timer is currently running, then we need to stop it and
+                add the elapsed time to the current time, as this will impact the result
+                of `time_until_next_alarm`.
+            */
+            self.stop_wakeup_alarm(cs);
+
+            let time_until_next_alarm = self.time_until_next_alarm(cs);
+            if time_until_next_alarm < embassy_time::Duration::from_millis(250) {
+                Err(())
+            } else {
+                self.rtc
+                    .borrow(cs)
+                    .get()
+                    .unwrap()
+                    .start_wakeup_alarm(time_until_next_alarm, cs);
+
+                T::regs_gp16().cr1().modify(|w| w.set_cen(false));
+
+                Ok(())
+            }
+        })
+    }
+
+    #[cfg(feature = "low-power")]
+    /// Resume the timer with the given offset
+    pub(crate) fn resume_time(&self) {
+        if T::regs_gp16().cr1().read().cen() {
+            // Time isn't currently stopped
+
+            return;
+        }
+
+        critical_section::with(|cs| {
+            self.stop_wakeup_alarm(cs);
+
+            T::regs_gp16().cr1().modify(|w| w.set_cen(true));
+        })
+    }
 }
 
 impl Driver for RtcDriver {
@@ -327,6 +454,11 @@ impl Driver for RtcDriver {
             true
         })
     }
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn get_driver() -> &'static RtcDriver {
+    &DRIVER
 }
 
 pub(crate) fn init() {

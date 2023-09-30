@@ -24,7 +24,7 @@ defmt = [
     "embassy-boot-stm32/defmt",
     "embassy-stm32/defmt",
 ]
-debug = ["defmt-rtt"]
+debug = ["defmt-rtt", "defmt"]
 
 [profile.dev]
 debug = 2

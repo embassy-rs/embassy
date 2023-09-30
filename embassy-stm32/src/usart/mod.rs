@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::future::{select, Either};
@@ -12,11 +13,10 @@ use futures::future::{select, Either};
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
 use crate::interrupt::typelevel::Interrupt;
-#[cfg(not(any(usart_v1, usart_v2)))]
 #[allow(unused_imports)]
+#[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::regs::Isr as Sr;
 #[cfg(any(usart_v1, usart_v2))]
-#[allow(unused_imports)]
 use crate::pac::usart::regs::Sr;
 #[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::Lpuart as Regs;
@@ -75,12 +75,14 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DataBits {
     DataBits8,
     DataBits9,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Parity {
     ParityNone,
     ParityEven,
@@ -88,6 +90,7 @@ pub enum Parity {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopBits {
     #[doc = "1 stop bit"]
     STOP1,
@@ -97,6 +100,14 @@ pub enum StopBits {
     STOP2,
     #[doc = "1.5 stop bits"]
     STOP1P5,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ConfigError {
+    BaudrateTooLow,
+    BaudrateTooHigh,
 }
 
 #[non_exhaustive]
@@ -168,9 +179,26 @@ pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
     rx: UartRx<'d, T, RxDma>,
 }
 
+impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        unwrap!(self.tx.set_config(config));
+        unwrap!(self.rx.set_config(config));
+    }
+}
+
 pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
     tx_dma: PeripheralRef<'d, TxDma>,
+}
+
+impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        unwrap!(self.set_config(config));
+    }
 }
 
 pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
@@ -181,6 +209,14 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
     buffered_sr: stm32_metapac::usart::regs::Sr,
 }
 
+impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        unwrap!(self.set_config(config));
+    }
+}
+
 impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
     /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
     pub fn new(
@@ -188,7 +224,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         T::enable();
         T::reset();
 
@@ -201,7 +237,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(cts);
 
         T::enable();
@@ -219,22 +255,26 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(_peri, tx, tx_dma);
 
         let r = T::regs();
 
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        configure(r, &config, T::frequency(), T::KIND, false, true);
+        configure(r, &config, T::frequency(), T::KIND, false, true)?;
 
         // create state once!
         let _s = T::state();
 
-        Self {
+        Ok(Self {
             tx_dma,
             phantom: PhantomData,
-        }
+        })
+    }
+
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        reconfigure::<T>(config)
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
@@ -277,7 +317,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         T::enable();
         T::reset();
 
@@ -291,7 +331,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(rts);
 
         T::enable();
@@ -310,14 +350,14 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(peri, rx, rx_dma);
 
         let r = T::regs();
 
         rx.set_as_af(rx.af_num(), AFType::Input);
 
-        configure(r, &config, T::frequency(), T::KIND, true, false);
+        configure(r, &config, T::frequency(), T::KIND, true, false)?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -325,13 +365,17 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         // create state once!
         let _s = T::state();
 
-        Self {
+        Ok(Self {
             _peri: peri,
             rx_dma,
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: stm32_metapac::usart::regs::Sr(0),
-        }
+        })
+    }
+
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        reconfigure::<T>(config)
     }
 
     #[cfg(any(usart_v1, usart_v2))]
@@ -545,6 +589,13 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             unsafe { rdr(r).read_volatile() };
             clear_interrupt_flags(r, sr);
 
+            if enable_idle_line_detection {
+                // enable idle interrupt
+                r.cr1().modify(|w| {
+                    w.set_idleie(true);
+                });
+            }
+
             compiler_fence(Ordering::SeqCst);
 
             let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
@@ -618,6 +669,18 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     }
 }
 
+impl<'d, T: BasicInstance, TxDma> Drop for UartTx<'d, T, TxDma> {
+    fn drop(&mut self) {
+        T::disable();
+    }
+}
+
+impl<'d, T: BasicInstance, TxDma> Drop for UartRx<'d, T, TxDma> {
+    fn drop(&mut self) {
+        T::disable();
+    }
+}
+
 impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
@@ -627,7 +690,9 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -644,9 +709,11 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(cts, rts);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -669,9 +736,11 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(de);
 
+        // UartRx and UartTx have one refcount ea.
+        T::enable();
         T::enable();
         T::reset();
 
@@ -689,7 +758,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         into_ref!(peri, rx, tx, tx_dma, rx_dma);
 
         let r = T::regs();
@@ -711,7 +780,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             }
         }
 
-        configure(r, &config, T::frequency(), T::KIND, true, true);
+        configure(r, &config, T::frequency(), T::KIND, true, true)?;
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -719,7 +788,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         // create state once!
         let _s = T::state();
 
-        Self {
+        Ok(Self {
             tx: UartTx {
                 tx_dma,
                 phantom: PhantomData,
@@ -731,7 +800,11 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 #[cfg(any(usart_v1, usart_v2))]
                 buffered_sr: stm32_metapac::usart::regs::Sr(0),
             },
-        }
+        })
+    }
+
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        reconfigure::<T>(config)
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>
@@ -779,7 +852,27 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
     }
 }
 
-fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: bool, enable_tx: bool) {
+fn reconfigure<T: BasicInstance>(config: &Config) -> Result<(), ConfigError> {
+    T::Interrupt::disable();
+    let r = T::regs();
+
+    let cr = r.cr1().read();
+    configure(r, config, T::frequency(), T::KIND, cr.re(), cr.te())?;
+
+    T::Interrupt::unpend();
+    unsafe { T::Interrupt::enable() };
+
+    Ok(())
+}
+
+fn configure(
+    r: Regs,
+    config: &Config,
+    pclk_freq: Hertz,
+    kind: Kind,
+    enable_rx: bool,
+    enable_tx: bool,
+) -> Result<(), ConfigError> {
     if !enable_rx && !enable_tx {
         panic!("USART: At least one of RX or TX should be enabled");
     }
@@ -847,7 +940,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
                 found_brr = Some(brr);
                 break;
             }
-            panic!("USART: baudrate too high");
+            return Err(ConfigError::BaudrateTooHigh);
         }
 
         if brr < brr_max {
@@ -859,7 +952,7 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
         }
     }
 
-    let brr = found_brr.expect("USART: baudrate too low");
+    let brr = found_brr.ok_or(ConfigError::BaudrateTooLow)?;
 
     #[cfg(not(usart_v1))]
     let oversampling = if over8 { "8 bit" } else { "16 bit" };
@@ -905,12 +998,16 @@ fn configure(r: Regs, config: &Config, pclk_freq: Hertz, kind: Kind, enable_rx: 
         });
         #[cfg(not(usart_v1))]
         w.set_over8(vals::Over8::from_bits(over8 as _));
+        #[cfg(usart_v4)]
+        w.set_fifoen(true);
     });
 
     #[cfg(not(usart_v1))]
     r.cr3().modify(|w| {
         w.set_onebit(config.assume_noise_free);
     });
+
+    Ok(())
 }
 
 mod eh02 {
@@ -1012,20 +1109,61 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eio {
-    use embedded_io_async::{ErrorType, Write};
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
 
-    use super::*;
+impl<T, TxDma, RxDma> embedded_io::ErrorType for Uart<'_, T, TxDma, RxDma>
+where
+    T: BasicInstance,
+{
+    type Error = Error;
+}
 
-    impl<T, TxDma, RxDma> ErrorType for Uart<'_, T, TxDma, RxDma>
-    where
-        T: BasicInstance,
-    {
-        type Error = Error;
+impl<T, TxDma> embedded_io::ErrorType for UartTx<'_, T, TxDma>
+where
+    T: BasicInstance,
+{
+    type Error = Error;
+}
+
+impl<T, TxDma, RxDma> embedded_io::Write for Uart<'_, T, TxDma, RxDma>
+where
+    T: BasicInstance,
+    TxDma: crate::usart::TxDma<T>,
+{
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(buf.len())
     }
 
-    impl<T, TxDma, RxDma> Write for Uart<'_, T, TxDma, RxDma>
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl<T, TxDma> embedded_io::Write for UartTx<'_, T, TxDma>
+where
+    T: BasicInstance,
+    TxDma: crate::usart::TxDma<T>,
+{
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eio {
+    use super::*;
+
+    impl<T, TxDma, RxDma> embedded_io_async::Write for Uart<'_, T, TxDma, RxDma>
     where
         T: BasicInstance,
         TxDma: super::TxDma<T>,
@@ -1040,14 +1178,7 @@ mod eio {
         }
     }
 
-    impl<T, TxDma> ErrorType for UartTx<'_, T, TxDma>
-    where
-        T: BasicInstance,
-    {
-        type Error = Error;
-    }
-
-    impl<T, TxDma> Write for UartTx<'_, T, TxDma>
+    impl<T, TxDma> embedded_io_async::Write for UartTx<'_, T, TxDma>
     where
         T: BasicInstance,
         TxDma: super::TxDma<T>,

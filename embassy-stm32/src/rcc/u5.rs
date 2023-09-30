@@ -1,6 +1,6 @@
 use stm32_metapac::rcc::vals::{Msirange, Msirgsel, Pllm, Pllsrc, Sw};
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -11,7 +11,7 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-pub use super::common::VoltageScale;
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
 
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
@@ -119,53 +119,13 @@ impl Into<Pllm> for PllM {
     }
 }
 
-impl Into<u8> for AHBPrescaler {
-    fn into(self) -> u8 {
-        match self {
-            AHBPrescaler::NotDivided => 1,
-            AHBPrescaler::Div2 => 0x08,
-            AHBPrescaler::Div4 => 0x09,
-            AHBPrescaler::Div8 => 0x0a,
-            AHBPrescaler::Div16 => 0x0b,
-            AHBPrescaler::Div64 => 0x0c,
-            AHBPrescaler::Div128 => 0x0d,
-            AHBPrescaler::Div256 => 0x0e,
-            AHBPrescaler::Div512 => 0x0f,
-        }
-    }
-}
-
-impl Default for AHBPrescaler {
-    fn default() -> Self {
-        AHBPrescaler::NotDivided
-    }
-}
-
-impl Default for APBPrescaler {
-    fn default() -> Self {
-        APBPrescaler::NotDivided
-    }
-}
-
-impl Into<u8> for APBPrescaler {
-    fn into(self) -> u8 {
-        match self {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 0x04,
-            APBPrescaler::Div4 => 0x05,
-            APBPrescaler::Div8 => 0x06,
-            APBPrescaler::Div16 => 0x07,
-        }
-    }
-}
-
 impl Into<Sw> for ClockSrc {
     fn into(self) -> Sw {
         match self {
             ClockSrc::MSI(..) => Sw::MSIS,
             ClockSrc::HSE(..) => Sw::HSE,
             ClockSrc::HSI16 => Sw::HSI16,
-            ClockSrc::PLL1R(..) => Sw::PLL1R,
+            ClockSrc::PLL1R(..) => Sw::PLL1_R,
         }
     }
 }
@@ -239,10 +199,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mux: ClockSrc::MSI(MSIRange::default()),
-            ahb_pre: Default::default(),
-            apb1_pre: Default::default(),
-            apb2_pre: Default::default(),
-            apb3_pre: Default::default(),
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
+            apb3_pre: APBPrescaler::DIV1,
             hsi48: false,
         }
     }
@@ -326,12 +286,12 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     // TODO make configurable
-    let power_vos = VoltageScale::Scale3;
+    let power_vos = VoltageScale::RANGE3;
 
     // states and programming delay
     let wait_states = match power_vos {
-        // VOS 0 range VCORE 1.26V - 1.40V
-        VoltageScale::Scale0 => {
+        // VOS 1 range VCORE 1.26V - 1.40V
+        VoltageScale::RANGE1 => {
             if sys_clk < 32_000_000 {
                 0
             } else if sys_clk < 64_000_000 {
@@ -344,8 +304,8 @@ pub(crate) unsafe fn init(config: Config) {
                 4
             }
         }
-        // VOS 1 range VCORE 1.15V - 1.26V
-        VoltageScale::Scale1 => {
+        // VOS 2 range VCORE 1.15V - 1.26V
+        VoltageScale::RANGE2 => {
             if sys_clk < 30_000_000 {
                 0
             } else if sys_clk < 60_000_000 {
@@ -356,8 +316,8 @@ pub(crate) unsafe fn init(config: Config) {
                 3
             }
         }
-        // VOS 2 range VCORE 1.05V - 1.15V
-        VoltageScale::Scale2 => {
+        // VOS 3 range VCORE 1.05V - 1.15V
+        VoltageScale::RANGE3 => {
             if sys_clk < 24_000_000 {
                 0
             } else if sys_clk < 48_000_000 {
@@ -366,8 +326,8 @@ pub(crate) unsafe fn init(config: Config) {
                 2
             }
         }
-        // VOS 3 range VCORE 0.95V - 1.05V
-        VoltageScale::Scale3 => {
+        // VOS 4 range VCORE 0.95V - 1.05V
+        VoltageScale::RANGE4 => {
             if sys_clk < 12_000_000 {
                 0
             } else {
@@ -395,7 +355,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: u8 = pre.into();
             let pre = 1 << (pre as u32 - 7);
@@ -404,7 +364,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -414,7 +374,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);
@@ -424,7 +384,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb3_freq, _apb3_tim_freq) = match config.apb3_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: u8 = pre.into();
             let pre: u8 = 1 << (pre - 3);

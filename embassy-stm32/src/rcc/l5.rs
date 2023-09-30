@@ -1,6 +1,6 @@
 use stm32_metapac::PWR;
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -238,9 +238,9 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::MSI(MSIRange::Range6),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
             pllsai1: None,
             hsi48: false,
         }
@@ -316,11 +316,6 @@ pub(crate) unsafe fn init(config: Config) {
             while RCC.cr().read().pllrdy() {}
 
             let freq = (src_freq / prediv.to_div() * mul.to_mul()) / div.to_div();
-
-            #[cfg(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx))]
-            assert!(freq <= 120_000_000);
-            #[cfg(not(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx)))]
-            assert!(freq <= 80_000_000);
 
             RCC.pllcfgr().write(move |w| {
                 w.set_plln(mul.into());
@@ -407,7 +402,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: Hpre = pre.into();
             let pre = 1 << (pre.to_bits() as u32 - 7);
@@ -416,7 +411,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);
@@ -426,7 +421,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);

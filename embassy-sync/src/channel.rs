@@ -471,7 +471,7 @@ where
     }
 
     fn lock<R>(&self, f: impl FnOnce(&mut ChannelState<T, N>) -> R) -> R {
-        self.inner.lock(|rc| f(&mut *rc.borrow_mut()))
+        self.inner.lock(|rc| f(&mut *unwrap!(rc.try_borrow_mut())))
     }
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {

@@ -34,8 +34,6 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
     }
 }
 
-const MTU: usize = 1514; // 14 Ethernet header + 1500 IP packet
-
 pub struct Ethernet<'d, T: Instance, P: PHY> {
     _peri: PeripheralRef<'d, T>,
     pub(crate) tx: TDesRing<'d>,
@@ -80,7 +78,6 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         // Enable the necessary Clocks
         #[cfg(not(rcc_h5))]
         critical_section::with(|_| {
-            crate::pac::RCC.apb4enr().modify(|w| w.set_syscfgen(true));
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_eth1macen(true);
                 w.set_eth1txen(true);
@@ -102,9 +99,9 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             });
 
             // RMII
-            crate::pac::SBS
+            crate::pac::SYSCFG
                 .pmcr()
-                .modify(|w| w.set_eth_sel_phy(crate::pac::sbs::vals::EthSelPhy::B_0X4));
+                .modify(|w| w.set_eth_sel_phy(crate::pac::syscfg::vals::EthSelPhy::B_0X4));
         });
 
         config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
@@ -164,7 +161,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         dma.dmactx_cr().modify(|w| w.set_txpbl(1)); // 32 ?
         dma.dmacrx_cr().modify(|w| {
             w.set_rxpbl(1); // 32 ?
-            w.set_rbsz(MTU as u16);
+            w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
         // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called

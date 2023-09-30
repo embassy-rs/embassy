@@ -37,10 +37,8 @@ async fn main(_spawner: Spawner) {
     let _ctrl3 = Output::new(p.PC3.degrade(), Level::High, Speed::High);
     let iv = Stm32wlInterfaceVariant::new(Irqs, None, Some(ctrl2)).unwrap();
 
-    let mut delay = Delay;
-
     let mut lora = {
-        match LoRa::new(SX1261_2::new(BoardType::Stm32wlSx1262, spi, iv), false, &mut delay).await {
+        match LoRa::new(SX1261_2::new(BoardType::Stm32wlSx1262, spi, iv), false, Delay).await {
             Ok(l) => l,
             Err(err) => {
                 info!("Radio error = {}", err);
@@ -93,7 +91,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    match lora.sleep(&mut delay).await {
+    match lora.sleep(false).await {
         Ok(()) => info!("Sleep successful"),
         Err(err) => info!("Sleep unsuccessful = {}", err),
     }

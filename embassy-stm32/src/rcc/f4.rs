@@ -3,13 +3,12 @@ use core::marker::PhantomData;
 use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::vals::{Mco1, Mco2, Mcopre};
 
-use super::sealed::RccPeripheral;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
+use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
-use crate::rtc::{Rtc, RtcClockSource};
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
@@ -38,6 +37,8 @@ pub struct Config {
 
     pub pll48: bool,
     pub rtc: Option<RtcClockSource>,
+    pub lsi: bool,
+    pub lse: Option<Hertz>,
 }
 
 #[cfg(stm32f410)]
@@ -360,8 +361,6 @@ fn flash_setup(sysclk: u32) {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    crate::peripherals::PWR::enable();
-
     let pllsrcclk = config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0);
     let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
     let sysclk_on_pll = sysclk != pllsrcclk;
@@ -501,20 +500,15 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
-    match config.rtc {
-        Some(RtcClockSource::LSI) => {
-            RCC.csr().modify(|w| w.set_lsion(true));
-            while !RCC.csr().read().lsirdy() {}
-        }
-        _ => {}
-    }
-
-    config.rtc.map(|clock_source| {
-        Rtc::set_clock_source(clock_source);
-    });
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
 
     let rtc = match config.rtc {
         Some(RtcClockSource::LSI) => Some(LSI_FREQ),
+        Some(RtcClockSource::LSE) => Some(config.lse.unwrap()),
         _ => None,
     };
 
@@ -539,6 +533,7 @@ pub(crate) unsafe fn init(config: Config) {
         pllsai: plls.pllsaiclk.map(Hertz),
 
         rtc: rtc,
+        rtc_hse: None,
     });
 }
 

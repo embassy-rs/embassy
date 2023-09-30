@@ -6,7 +6,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::impl_peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Input, Pin as GpioPin};
+use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin};
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
 use crate::{interrupt, pac, peripherals, Peripheral};
@@ -39,6 +39,9 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 pub unsafe fn on_irq() {
+    #[cfg(feature = "low-power")]
+    crate::low_power::on_wakeup_irq();
+
     #[cfg(not(any(exti_c0, exti_g0, exti_l5, exti_u5, exti_h5, exti_h50)))]
     let bits = EXTI.pr(0).read().0;
     #[cfg(any(exti_c0, exti_g0, exti_l5, exti_u5, exti_h5, exti_h50))]
@@ -96,6 +99,10 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
 
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
+    }
+
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
     }
 
     pub async fn wait_for_high<'a>(&'a mut self) {
@@ -364,9 +371,4 @@ pub(crate) unsafe fn init() {
     use crate::interrupt::typelevel::Interrupt;
 
     foreach_exti_irq!(enable_irq);
-
-    #[cfg(not(any(rcc_wb, rcc_wl5, rcc_wle, stm32f1, exti_h5, exti_h50)))]
-    <crate::peripherals::SYSCFG as crate::rcc::sealed::RccPeripheral>::enable();
-    #[cfg(stm32f1)]
-    <crate::peripherals::AFIO as crate::rcc::sealed::RccPeripheral>::enable();
 }

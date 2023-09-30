@@ -1,39 +1,65 @@
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
+
 use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{Adc, AdcPin, Instance, InternalChannel, Resolution, SampleTime};
+use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
+use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC;
-use crate::Peripheral;
+use crate::{interrupt, Peripheral};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
 
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::regs().isr().read().eoc() {
+            T::regs().ier().modify(|w| w.set_eocie(false));
+        } else {
+            return;
+        }
+
+        T::state().waker.wake();
+    }
+}
+
 pub struct Vbat;
-impl InternalChannel<ADC> for Vbat {}
-impl super::sealed::InternalChannel<ADC> for Vbat {
+impl AdcPin<ADC> for Vbat {}
+impl super::sealed::AdcPin<ADC> for Vbat {
     fn channel(&self) -> u8 {
         18
     }
 }
 
 pub struct Vref;
-impl InternalChannel<ADC> for Vref {}
-impl super::sealed::InternalChannel<ADC> for Vref {
+impl AdcPin<ADC> for Vref {}
+impl super::sealed::AdcPin<ADC> for Vref {
     fn channel(&self) -> u8 {
         17
     }
 }
 
 pub struct Temperature;
-impl InternalChannel<ADC> for Temperature {}
-impl super::sealed::InternalChannel<ADC> for Temperature {
+impl AdcPin<ADC> for Temperature {}
+impl super::sealed::AdcPin<ADC> for Temperature {
     fn channel(&self) -> u8 {
         16
     }
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
+    pub fn new(
+        adc: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        delay: &mut impl DelayUs<u32>,
+    ) -> Self {
         into_ref!(adc);
         T::enable();
         T::reset();
@@ -44,12 +70,32 @@ impl<'d, T: Instance> Adc<'d, T> {
         // tstab = 14 * 1/fadc
         delay.delay_us(1);
 
-        let s = Self {
+        // A.7.1 ADC calibration code example
+        T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
+        T::regs().cr().modify(|reg| reg.set_adcal(true));
+        while T::regs().cr().read().adcal() {}
+
+        // A.7.2 ADC enable sequence code example
+        if T::regs().isr().read().adrdy() {
+            T::regs().isr().modify(|reg| reg.set_adrdy(true));
+        }
+        T::regs().cr().modify(|reg| reg.set_aden(true));
+        while !T::regs().isr().read().adrdy() {
+            // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
+            // Workaround: When the ADC calibration is complete (ADCAL = 0), keep setting the
+            // ADEN bit until the ADRDY flag goes high.
+            T::regs().cr().modify(|reg| reg.set_aden(true));
+        }
+
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Self {
             adc,
             sample_time: Default::default(),
-        };
-        s.calibrate();
-        s
+        }
     }
 
     pub fn enable_vbat(&self, _delay: &mut impl DelayUs<u32>) -> Vbat {
@@ -80,21 +126,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature
     }
 
-    fn calibrate(&self) {
-        // A.7.1 ADC calibration code example
-        if T::regs().cr().read().aden() {
-            T::regs().cr().modify(|reg| reg.set_addis(true));
-        }
-        while T::regs().cr().read().aden() {
-            // spin
-        }
-        T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
-        T::regs().cr().modify(|reg| reg.set_adcal(true));
-        while T::regs().cr().read().adcal() {
-            // spin
-        }
-    }
-
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
     }
@@ -103,57 +134,50 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
-    pub fn read<P>(&mut self, pin: &mut P) -> u16
-    where
-        P: AdcPin<T> + crate::gpio::sealed::Pin,
-    {
+    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
         let channel = pin.channel();
         pin.set_as_analog();
-        self.read_channel(channel)
+
+        // A.7.5 Single conversion sequence code example - Software trigger
+        T::regs().chselr().write(|reg| reg.set_chselx(channel as usize, true));
+
+        self.convert().await
     }
 
-    pub fn read_internal(&mut self, channel: &mut impl InternalChannel<T>) -> u16 {
-        let channel = channel.channel();
-        self.read_channel(channel)
-    }
-
-    fn read_channel(&mut self, channel: u8) -> u16 {
-        // A.7.2 ADC enable sequence code example
-        if T::regs().isr().read().adrdy() {
-            T::regs().isr().modify(|reg| reg.set_adrdy(true));
-        }
-        T::regs().cr().modify(|reg| reg.set_aden(true));
-        while !T::regs().isr().read().adrdy() {
-            // ES0233, 2.4.3 ADEN bit cannot be set immediately after the ADC calibration
-            // Workaround: When the ADC calibration is complete (ADCAL = 0), keep setting the
-            // ADEN bit until the ADRDY flag goes high.
-            T::regs().cr().modify(|reg| reg.set_aden(true));
-        }
-
+    async fn convert(&mut self) -> u16 {
         T::regs().isr().modify(|reg| {
             reg.set_eoc(true);
             reg.set_eosmp(true);
         });
 
-        // A.7.5 Single conversion sequence code example - Software trigger
-        T::regs().chselr().write(|reg| reg.set_chselx(channel as usize, true));
         T::regs().smpr().modify(|reg| reg.set_smp(self.sample_time.into()));
+        T::regs().ier().modify(|w| w.set_eocie(true));
         T::regs().cr().modify(|reg| reg.set_adstart(true));
-        while !T::regs().isr().read().eoc() {
-            // spin
-        }
-        let value = T::regs().dr().read().0 as u16;
 
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+
+            if T::regs().isr().read().eoc() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        T::regs().dr().read().data()
+    }
+}
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
         // A.7.3 ADC disable code example
         T::regs().cr().modify(|reg| reg.set_adstp(true));
-        while T::regs().cr().read().adstp() {
-            // spin
-        }
-        T::regs().cr().modify(|reg| reg.set_addis(true));
-        while T::regs().cr().read().aden() {
-            // spin
-        }
+        while T::regs().cr().read().adstp() {}
 
-        value
+        T::regs().cr().modify(|reg| reg.set_addis(true));
+        while T::regs().cr().read().aden() {}
+
+        T::disable();
     }
 }

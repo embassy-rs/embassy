@@ -6,4 +6,4 @@ runner = "teleprobe client run"
 target = "thumbv7em-none-eabi"
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,smoltcp=info"

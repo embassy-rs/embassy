@@ -5,6 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::hrtim::*;
+use embassy_stm32::rcc::HrtimClockSource;
 use embassy_stm32::time::{khz, mhz};
 use embassy_stm32::Config;
 use embassy_time::{Duration, Timer};
@@ -17,6 +18,7 @@ async fn main(_spawner: Spawner) {
     config.rcc.hclk = Some(mhz(64));
     config.rcc.pclk1 = Some(mhz(32));
     config.rcc.pclk2 = Some(mhz(64));
+    config.rcc.hrtim = HrtimClockSource::PllClk;
 
     let p = embassy_stm32::init(config);
     info!("Hello World!");

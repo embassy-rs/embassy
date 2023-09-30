@@ -1,8 +1,8 @@
 use stm32_metapac::flash::vals::Latency;
-use stm32_metapac::rcc::vals::{Hpre, Pllsrc, Ppre, Sw};
+use stm32_metapac::rcc::vals::{Adcsel, Pllsrc, Sw};
 use stm32_metapac::FLASH;
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::{PWR, RCC};
 use crate::rcc::sealed::RccPeripheral;
 use crate::rcc::{set_freqs, Clocks};
@@ -13,6 +13,29 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
+
+#[derive(Clone, Copy)]
+pub enum AdcClockSource {
+    NoClk,
+    SysClk,
+    PllP,
+}
+
+impl AdcClockSource {
+    pub fn adcsel(&self) -> Adcsel {
+        match self {
+            AdcClockSource::NoClk => Adcsel::NOCLK,
+            AdcClockSource::SysClk => Adcsel::SYSCLK,
+            AdcClockSource::PllP => Adcsel::PLLP,
+        }
+    }
+}
+
+impl Default for AdcClockSource {
+    fn default() -> Self {
+        Self::NoClk
+    }
+}
 
 /// System clock mux source
 #[derive(Clone, Copy)]
@@ -238,59 +261,29 @@ pub struct Pll {
     pub div_r: Option<PllR>,
 }
 
-impl AHBPrescaler {
-    const fn div(self) -> u32 {
-        match self {
-            AHBPrescaler::NotDivided => 1,
-            AHBPrescaler::Div2 => 2,
-            AHBPrescaler::Div4 => 4,
-            AHBPrescaler::Div8 => 8,
-            AHBPrescaler::Div16 => 16,
-            AHBPrescaler::Div64 => 64,
-            AHBPrescaler::Div128 => 128,
-            AHBPrescaler::Div256 => 256,
-            AHBPrescaler::Div512 => 512,
-        }
+fn ahb_div(ahb: AHBPrescaler) -> u32 {
+    match ahb {
+        AHBPrescaler::DIV1 => 1,
+        AHBPrescaler::DIV2 => 2,
+        AHBPrescaler::DIV4 => 4,
+        AHBPrescaler::DIV8 => 8,
+        AHBPrescaler::DIV16 => 16,
+        AHBPrescaler::DIV64 => 64,
+        AHBPrescaler::DIV128 => 128,
+        AHBPrescaler::DIV256 => 256,
+        AHBPrescaler::DIV512 => 512,
+        _ => unreachable!(),
     }
 }
 
-impl APBPrescaler {
-    const fn div(self) -> u32 {
-        match self {
-            APBPrescaler::NotDivided => 1,
-            APBPrescaler::Div2 => 2,
-            APBPrescaler::Div4 => 4,
-            APBPrescaler::Div8 => 8,
-            APBPrescaler::Div16 => 16,
-        }
-    }
-}
-
-impl Into<Ppre> for APBPrescaler {
-    fn into(self) -> Ppre {
-        match self {
-            APBPrescaler::NotDivided => Ppre::DIV1,
-            APBPrescaler::Div2 => Ppre::DIV2,
-            APBPrescaler::Div4 => Ppre::DIV4,
-            APBPrescaler::Div8 => Ppre::DIV8,
-            APBPrescaler::Div16 => Ppre::DIV16,
-        }
-    }
-}
-
-impl Into<Hpre> for AHBPrescaler {
-    fn into(self) -> Hpre {
-        match self {
-            AHBPrescaler::NotDivided => Hpre::DIV1,
-            AHBPrescaler::Div2 => Hpre::DIV2,
-            AHBPrescaler::Div4 => Hpre::DIV4,
-            AHBPrescaler::Div8 => Hpre::DIV8,
-            AHBPrescaler::Div16 => Hpre::DIV16,
-            AHBPrescaler::Div64 => Hpre::DIV64,
-            AHBPrescaler::Div128 => Hpre::DIV128,
-            AHBPrescaler::Div256 => Hpre::DIV256,
-            AHBPrescaler::Div512 => Hpre::DIV512,
-        }
+fn apb_div(apb: APBPrescaler) -> u32 {
+    match apb {
+        APBPrescaler::DIV1 => 1,
+        APBPrescaler::DIV2 => 2,
+        APBPrescaler::DIV4 => 4,
+        APBPrescaler::DIV8 => 8,
+        APBPrescaler::DIV16 => 16,
+        _ => unreachable!(),
     }
 }
 
@@ -327,6 +320,8 @@ pub struct Config {
     pub pll: Option<Pll>,
     /// Sets the clock source for the 48MHz clock used by the USB and RNG peripherals.
     pub clock_48mhz_src: Option<Clock48MhzSrc>,
+    pub adc12_clock_source: AdcClockSource,
+    pub adc345_clock_source: AdcClockSource,
 }
 
 /// Configuration for the Clock Recovery System (CRS) used to trim the HSI48 oscillator.
@@ -340,12 +335,14 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::HSI16,
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
             pll: None,
             clock_48mhz_src: None,
+            adc12_clock_source: Default::default(),
+            adc345_clock_source: Default::default(),
         }
     }
 }
@@ -485,22 +482,22 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
-        pre => sys_clk / pre.div(),
+        AHBPrescaler::DIV1 => sys_clk,
+        pre => sys_clk / ahb_div(pre),
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
-            let freq = ahb_freq / pre.div();
+            let freq = ahb_freq / apb_div(pre);
             (freq, freq * 2)
         }
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
-            let freq = ahb_freq / pre.div();
+            let freq = ahb_freq / apb_div(pre);
             (freq, freq * 2)
         }
     };
@@ -549,6 +546,29 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.ccipr().modify(|w| w.set_clk48sel(source));
     }
 
+    RCC.ccipr()
+        .modify(|w| w.set_adc12sel(config.adc12_clock_source.adcsel()));
+    RCC.ccipr()
+        .modify(|w| w.set_adc345sel(config.adc345_clock_source.adcsel()));
+
+    let adc12_ck = match config.adc12_clock_source {
+        AdcClockSource::NoClk => None,
+        AdcClockSource::PllP => match &pll_freq {
+            Some(pll) => pll.pll_p,
+            None => None,
+        },
+        AdcClockSource::SysClk => Some(Hertz(sys_clk)),
+    };
+
+    let adc345_ck = match config.adc345_clock_source {
+        AdcClockSource::NoClk => None,
+        AdcClockSource::PllP => match &pll_freq {
+            Some(pll) => pll.pll_p,
+            None => None,
+        },
+        AdcClockSource::SysClk => Some(Hertz(sys_clk)),
+    };
+
     if config.low_power_run {
         assert!(sys_clk <= 2_000_000);
         PWR.cr1().modify(|w| w.set_lpr(true));
@@ -562,5 +582,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim: Hertz(apb1_tim_freq),
         apb2: Hertz(apb2_freq),
         apb2_tim: Hertz(apb2_tim_freq),
+        adc: adc12_ck,
+        adc34: adc345_ck,
     });
 }

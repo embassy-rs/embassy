@@ -758,6 +758,9 @@ foreach_pin!(
 );
 
 pub(crate) unsafe fn init() {
+    #[cfg(afio)]
+    <crate::peripherals::AFIO as crate::rcc::sealed::RccPeripheral>::enable();
+
     crate::_generated::init_gpio();
 }
 

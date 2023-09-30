@@ -129,7 +129,6 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         #[cfg(any(eth_v1b, eth_v1c))]
         critical_section::with(|_| {
-            RCC.apb2enr().modify(|w| w.set_syscfgen(true));
             RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);

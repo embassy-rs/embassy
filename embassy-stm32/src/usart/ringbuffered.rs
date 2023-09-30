@@ -1,17 +1,27 @@
 use core::future::poll_fn;
+use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralRef;
 use futures::future::{select, Either};
 
-use super::{clear_interrupt_flags, rdr, sr, BasicInstance, Error, UartRx};
+use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, ConfigError, Error, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
 pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     _peri: PeripheralRef<'d, T>,
     ring_buf: ReadableRingBuffer<'d, RxDma, u8>,
+}
+
+impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> SetConfig for RingBufferedUartRx<'d, T, RxDma> {
+    type Config = Config;
+
+    fn set_config(&mut self, config: &Self::Config) {
+        unwrap!(self.set_config(config));
+    }
 }
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
@@ -24,12 +34,16 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
         let request = self.rx_dma.request();
         let opts = Default::default();
 
-        let ring_buf = unsafe { ReadableRingBuffer::new_read(self.rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+        // Safety: we forget the struct before this function returns.
+        let rx_dma = unsafe { self.rx_dma.clone_unchecked() };
+        let _peri = unsafe { self._peri.clone_unchecked() };
 
-        RingBufferedUartRx {
-            _peri: self._peri,
-            ring_buf,
-        }
+        let ring_buf = unsafe { ReadableRingBuffer::new_read(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+
+        // Don't disable the clock
+        mem::forget(self);
+
+        RingBufferedUartRx { _peri, ring_buf }
     }
 }
 
@@ -47,6 +61,11 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         self.teardown_uart();
 
         Err(err)
+    }
+
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        self.teardown_uart();
+        reconfigure::<T>(config)
     }
 
     /// Start uart background receive
@@ -186,6 +205,8 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
 impl<T: BasicInstance, RxDma: super::RxDma<T>> Drop for RingBufferedUartRx<'_, T, RxDma> {
     fn drop(&mut self) {
         self.teardown_uart();
+
+        T::disable();
     }
 }
 /// Return an error result if the Sr register has errors

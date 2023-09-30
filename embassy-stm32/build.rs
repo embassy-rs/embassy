@@ -308,13 +308,11 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
+    let refcounted_peripherals = HashSet::from(["usart", "adc"]);
+    let mut refcount_statics = HashSet::new();
+
     for p in METADATA.peripherals {
-        // generating RccPeripheral impl for H7 ADC3 would result in bad frequency
-        if !singletons.contains(&p.name.to_string())
-            || (p.name == "ADC3" && METADATA.line.starts_with("STM32H7"))
-            || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "f3"))
-            || (p.name.starts_with("ADC") && p.registers.as_ref().map_or(false, |r| r.version == "v4"))
-        {
+        if !singletons.contains(&p.name.to_string()) {
             continue;
         }
 
@@ -344,10 +342,35 @@ fn main() {
                 TokenStream::new()
             };
 
+            let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
             let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+
+            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
+                let refcount_static =
+                    format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
+
+                refcount_statics.insert(refcount_static.clone());
+
+                (
+                    quote! {
+                        unsafe { refcount_statics::#refcount_static += 1 };
+                        if unsafe { refcount_statics::#refcount_static } > 1 {
+                            return;
+                        }
+                    },
+                    quote! {
+                        unsafe { refcount_statics::#refcount_static -= 1 };
+                        if unsafe { refcount_statics::#refcount_static } > 0  {
+                            return;
+                        }
+                    },
+                )
+            } else {
+                (TokenStream::new(), TokenStream::new())
+            };
 
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
@@ -356,6 +379,7 @@ fn main() {
                     }
                     fn enable() {
                         critical_section::with(|_| {
+                            #before_enable
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_add();
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
@@ -364,6 +388,7 @@ fn main() {
                     }
                     fn disable() {
                         critical_section::with(|_| {
+                            #before_disable
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_sub();
@@ -378,6 +403,19 @@ fn main() {
             });
         }
     }
+
+    let mut refcount_mod = TokenStream::new();
+    for refcount_static in refcount_statics {
+        refcount_mod.extend(quote! {
+            pub(crate) static mut #refcount_static: u8 = 0;
+        });
+    }
+
+    g.extend(quote! {
+        mod refcount_statics {
+            #refcount_mod
+        }
+    });
 
     // ========
     // Generate fns to enable GPIO, DMA in RCC
@@ -673,6 +711,10 @@ fn main() {
 
                 // ADC is special
                 if regs.kind == "adc" {
+                    if p.rcc.is_none() {
+                        continue;
+                    }
+
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
 
@@ -786,6 +828,17 @@ fn main() {
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
+    let mut adc_common_table: Vec<Vec<String>> = Vec::new();
+
+    /*
+        If ADC3_COMMON exists, ADC3 and higher are assigned to it
+        All other ADCs are assigned to ADC_COMMON
+
+        ADC3 and higher are assigned to the adc34 clock in the table
+        The adc3_common cfg directive is added if ADC3_COMMON exists
+    */
+    let has_adc3 = METADATA.peripherals.iter().find(|p| p.name == "ADC3_COMMON").is_some();
+    let set_adc345 = HashSet::from(["ADC3", "ADC4", "ADC5"]);
 
     for m in METADATA
         .memory
@@ -821,6 +874,17 @@ fn main() {
                         format!("EXTI{}", pin_num),
                     ]);
                 }
+            }
+
+            if regs.kind == "adc" {
+                let (adc_common, adc_clock) = if set_adc345.contains(p.name) && has_adc3 {
+                    ("ADC3_COMMON", "adc34")
+                } else {
+                    ("ADC_COMMON", "adc")
+                };
+
+                let row = vec![p.name.to_string(), adc_common.to_string(), adc_clock.to_string()];
+                adc_common_table.push(row);
             }
 
             for irq in p.interrupts {
@@ -901,6 +965,7 @@ fn main() {
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
     make_table(&mut m, "foreach_dma_channel", &dma_channels_table);
+    make_table(&mut m, "foreach_adc", &adc_common_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_macros.rs").to_string_lossy().to_string();
@@ -943,12 +1008,23 @@ fn main() {
     }
 
     // =======
+    // ADC3_COMMON is present
+    if has_adc3 {
+        println!("cargo:rustc-cfg={}", "adc3_common");
+    }
+
+    // =======
     // Features for targeting groups of chips
 
-    println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
-    println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
-    println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
-    println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
+    if &chip_name[..8] == "stm32wba" {
+        println!("cargo:rustc-cfg={}", &chip_name[..8]); // stm32wba
+        println!("cargo:rustc-cfg={}", &chip_name[..10]); // stm32wba52
+    } else {
+        println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
+        println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
+        println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
+        println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
+    }
 
     // Handle time-driver-XXXX features.
     if env::var("CARGO_FEATURE_TIME_DRIVER_ANY").is_ok() {}

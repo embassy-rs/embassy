@@ -1,8 +1,11 @@
-pub use super::common::{AHBPrescaler, APBPrescaler};
+use super::bd::BackupDomain;
+pub use super::bus::{AHBPrescaler, APBPrescaler};
+use super::RtcClockSource;
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
-use crate::pac::RCC;
 #[cfg(crs)]
 use crate::pac::{crs, CRS, SYSCFG};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -135,6 +138,10 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
     #[cfg(crs)]
     pub enable_hsi48: bool,
+    pub rtc: Option<RtcClockSource>,
+    pub lse: Option<Hertz>,
+    pub lsi: bool,
+    pub voltage_scale: VoltageScale,
 }
 
 impl Default for Config {
@@ -142,16 +149,25 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::MSI(MSIRange::default()),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
             #[cfg(crs)]
             enable_hsi48: false,
+            rtc: None,
+            lse: None,
+            lsi: false,
+            voltage_scale: VoltageScale::RANGE1,
         }
     }
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Set voltage scale
+    while PWR.csr().read().vosf() {}
+    PWR.cr().write(|w| w.set_vos(config.voltage_scale));
+    while PWR.csr().read().vosf() {}
+
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
             // Set MSI range
@@ -231,6 +247,28 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    BackupDomain::configure_ls(
+        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
+        config.lsi,
+        config.lse.map(|_| Default::default()),
+    );
+
+    let wait_states = match config.voltage_scale {
+        VoltageScale::RANGE1 => match sys_clk {
+            ..=16_000_000 => 0,
+            _ => 1,
+        },
+        VoltageScale::RANGE2 => match sys_clk {
+            ..=8_000_000 => 0,
+            _ => 1,
+        },
+        VoltageScale::RANGE3 => 0,
+        _ => unreachable!(),
+    };
+    FLASH.acr().modify(|w| {
+        w.set_latency(wait_states != 0);
+    });
+
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
         w.set_hpre(config.ahb_pre.into());
@@ -239,7 +277,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: Hpre = pre.into();
             let pre = 1 << (pre.to_bits() as u32 - 7);
@@ -248,7 +286,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);
@@ -258,7 +296,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);
@@ -269,13 +307,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(crs)]
     if config.enable_hsi48 {
-        // Reset SYSCFG peripheral
-        RCC.apb2rstr().modify(|w| w.set_syscfgrst(true));
-        RCC.apb2rstr().modify(|w| w.set_syscfgrst(false));
-
-        // Enable SYSCFG peripheral
-        RCC.apb2enr().modify(|w| w.set_syscfgen(true));
-
         // Reset CRS peripheral
         RCC.apb1rstr().modify(|w| w.set_crsrst(true));
         RCC.apb1rstr().modify(|w| w.set_crsrst(false));

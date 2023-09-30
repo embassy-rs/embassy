@@ -838,6 +838,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 }
 
+impl<'d, T: Instance, TXDMA, RXDMA> Drop for I2c<'d, T, TXDMA, RXDMA> {
+    fn drop(&mut self) {
+        T::disable();
+    }
+}
+
 mod eh02 {
     use super::*;
 

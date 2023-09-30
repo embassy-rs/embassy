@@ -2,15 +2,15 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::regs::Cfgr;
-use stm32_metapac::rcc::vals::{Lsedrv, Mcopre, Mcosel};
+use stm32_metapac::rcc::vals::{Mcopre, Mcosel};
 
-pub use super::common::{AHBPrescaler, APBPrescaler};
+pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
-use crate::pac::{FLASH, PWR, RCC};
+use crate::pac::{FLASH, RCC};
+use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
-use crate::rtc::{Rtc, RtcClockSource as RCS};
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
@@ -241,6 +241,8 @@ pub struct Config {
     #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
     pub hsi48: bool,
     pub rtc_mux: RtcClockSource,
+    pub lse: Option<Hertz>,
+    pub lsi: bool,
 }
 
 impl Default for Config {
@@ -248,20 +250,17 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mux: ClockSrc::MSI(MSIRange::Range6),
-            ahb_pre: AHBPrescaler::NotDivided,
-            apb1_pre: APBPrescaler::NotDivided,
-            apb2_pre: APBPrescaler::NotDivided,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
             pllsai1: None,
             #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
             hsi48: false,
-            rtc_mux: RtcClockSource::LSI32,
+            rtc_mux: RtcClockSource::LSI,
+            lsi: true,
+            lse: None,
         }
     }
-}
-
-pub enum RtcClockSource {
-    LSE32,
-    LSI32,
 }
 
 pub enum McoClock {
@@ -410,37 +409,7 @@ pub(crate) unsafe fn init(config: Config) {
         while RCC.cfgr().read().sws() != Sw::MSI {}
     }
 
-    RCC.apb1enr1().modify(|w| w.set_pwren(true));
-
-    match config.rtc_mux {
-        RtcClockSource::LSE32 => {
-            // 1. Unlock the backup domain
-            PWR.cr1().modify(|w| w.set_dbp(true));
-
-            // 2. Setup the LSE
-            RCC.bdcr().modify(|w| {
-                // Enable LSE
-                w.set_lseon(true);
-                // Max drive strength
-                // TODO: should probably be settable
-                w.set_lsedrv(Lsedrv::HIGH);
-            });
-
-            // Wait until LSE is running
-            while !RCC.bdcr().read().lserdy() {}
-
-            Rtc::set_clock_source(RCS::LSE);
-        }
-        RtcClockSource::LSI32 => {
-            // Turn on the internal 32 kHz LSI oscillator
-            RCC.csr().modify(|w| w.set_lsion(true));
-
-            // Wait until LSI is running
-            while !RCC.csr().read().lsirdy() {}
-
-            Rtc::set_clock_source(RCS::LSI);
-        }
-    }
+    BackupDomain::configure_ls(config.rtc_mux, config.lsi, config.lse.map(|_| Default::default()));
 
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
@@ -451,7 +420,7 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_msirgsel(true);
                 w.set_msion(true);
 
-                if let RtcClockSource::LSE32 = config.rtc_mux {
+                if let RtcClockSource::LSE = config.rtc_mux {
                     // If LSE is enabled, enable calibration of MSI
                     w.set_msipllen(true);
                 } else {
@@ -609,7 +578,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::NotDivided => sys_clk,
+        AHBPrescaler::DIV1 => sys_clk,
         pre => {
             let pre: Hpre = pre.into();
             let pre = 1 << (pre.to_bits() as u32 - 7);
@@ -618,7 +587,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);
@@ -628,7 +597,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::NotDivided => (ahb_freq, ahb_freq),
+        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
             let pre: Ppre = pre.into();
             let pre: u8 = 1 << (pre.to_bits() - 3);
@@ -636,8 +605,6 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, freq * 2)
         }
     };
-
-    RCC.apb1enr1().modify(|w| w.set_pwren(true));
 
     set_freqs(Clocks {
         sys: Hertz(sys_clk),

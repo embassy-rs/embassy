@@ -7,9 +7,9 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
-embassy-sync = { version = "0.2.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.3.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["nightly", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.1.2", path = "../../embassy-time", features = ["nightly", "unstable-traits", "defmt", "defmt-timestamp-uptime"] }
+embassy-time = { version = "0.1.3", path = "../../embassy-time", features = ["nightly", "unstable-traits", "defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["defmt", "unstable-traits", "nightly", "unstable-pac", "time-driver", "critical-section-impl"] }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
@@ -17,9 +17,9 @@ embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", fea
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-usb-logger = { version = "0.1.0", path = "../../embassy-usb-logger" }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"] }
-lora-phy = { version = "1" }
-lorawan-device = { version = "0.10.0", default-features = false, features = ["async", "external-lora-phy"] }
-lorawan = { version = "0.7.3", default-features = false, features = ["default-crypto"] }
+lora-phy = { version = "2" }
+lorawan-device = { version = "0.11.0", default-features = false, features = ["async", "external-lora-phy"] }
+lorawan = { version = "0.7.4", default-features = false, features = ["default-crypto"] }
 cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { path = "../../cyw43-pio", features = ["defmt", "overclock"] }
 
@@ -55,6 +55,3 @@ rand = { version = "0.8.5", default-features = false }
 
 [profile.release]
 debug = 2
-
-[patch.crates-io]
-lora-phy = { git = "https://github.com/embassy-rs/lora-phy", rev = "1323eccc1c470d4259f95f4f315d1be830d572a3"}

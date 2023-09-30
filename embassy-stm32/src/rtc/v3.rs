@@ -1,77 +1,14 @@
 use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Init, Key, Osel, Pol, TampalrmPu, TampalrmType};
 
-use super::{sealed, RtcCalibrationCyclePeriod, RtcClockSource, RtcConfig};
+use super::{sealed, RtcCalibrationCyclePeriod};
 use crate::pac::rtc::Rtc;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
 
 impl super::Rtc {
-    fn unlock_registers() {
-        // Unlock the backup domain
-        #[cfg(not(any(rtc_v3u5, rcc_wl5, rcc_wle)))]
-        {
-            if !crate::pac::PWR.cr1().read().dbp() {
-                crate::pac::PWR.cr1().modify(|w| w.set_dbp(true));
-                while !crate::pac::PWR.cr1().read().dbp() {}
-            }
-        }
-        #[cfg(any(rcc_wl5, rcc_wle))]
-        {
-            use crate::pac::pwr::vals::Dbp;
-
-            if crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {
-                crate::pac::PWR.cr1().modify(|w| w.set_dbp(Dbp::ENABLED));
-                while crate::pac::PWR.cr1().read().dbp() != Dbp::ENABLED {}
-            }
-        }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn set_clock_source(clock_source: RtcClockSource) {
-        let clock_source = clock_source as u8;
-        #[cfg(not(any(rcc_wl5, rcc_wle)))]
-        let clock_source = crate::pac::rcc::vals::Rtcsel::from_bits(clock_source);
-
-        Self::unlock_registers();
-
-        crate::pac::RCC.bdcr().modify(|w| {
-            // Select RTC source
-            w.set_rtcsel(clock_source);
-        });
-    }
-
-    pub(super) fn enable() {
-        let bdcr = crate::pac::RCC.bdcr();
-
-        let reg = bdcr.read();
-        assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
-        if !reg.rtcen() {
-            Self::unlock_registers();
-
-            bdcr.modify(|w| w.set_bdrst(true));
-
-            bdcr.modify(|w| {
-                // Reset
-                w.set_bdrst(false);
-
-                w.set_rtcen(true);
-                w.set_rtcsel(reg.rtcsel());
-
-                // Restore bcdr
-                w.set_lscosel(reg.lscosel());
-                w.set_lscoen(reg.lscoen());
-
-                w.set_lseon(reg.lseon());
-                w.set_lsedrv(reg.lsedrv());
-                w.set_lsebyp(reg.lsebyp());
-            });
-        }
-    }
-
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
-    pub(super) fn configure(&mut self, rtc_config: RtcConfig) {
+    pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
                 w.set_fmt(Fmt::TWENTYFOURHOUR);
@@ -80,8 +17,8 @@ impl super::Rtc {
             });
 
             rtc.prer().modify(|w| {
-                w.set_prediv_s(rtc_config.sync_prescaler);
-                w.set_prediv_a(rtc_config.async_prescaler);
+                w.set_prediv_s(sync_psc);
+                w.set_prediv_a(async_psc);
             });
 
             // TODO: configuration for output pins
