@@ -3,7 +3,7 @@
 Examples use a CLI tool named `wasm-pack` to build this example:
 
 ```
-cargo install wasm-pack --version 0.9.1
+cargo install wasm-pack --version 0.12.1
 ```
 
 ## Building
