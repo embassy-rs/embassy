@@ -210,6 +210,7 @@ pub trait CaptureCompare32bitInstance:
     sealed::CaptureCompare32bitInstance + CaptureCompare16bitInstance + GeneralPurpose32bitInstance + 'static
 {
 }
+
 pin_trait!(Channel1Pin, CaptureCompare16bitInstance);
 pin_trait!(Channel1ComplementaryPin, CaptureCompare16bitInstance);
 pin_trait!(Channel2Pin, CaptureCompare16bitInstance);
