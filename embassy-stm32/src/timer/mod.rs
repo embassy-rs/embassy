@@ -93,7 +93,7 @@ pub(crate) mod sealed {
             let timer_f = Self::frequency().0;
             let pclk_ticks_per_timer_period = (timer_f / f) as u64;
             let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 32)).try_into());
-            let arr: u32 = unwrap!(((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into()));
+            let arr: u32 = unwrap!((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into());
 
             let regs = Self::regs_gp32();
             regs.psc().write(|r| r.set_psc(psc));
