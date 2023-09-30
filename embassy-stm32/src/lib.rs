@@ -55,6 +55,8 @@ pub mod qspi;
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
+#[cfg(sai)]
+pub mod sai;
 #[cfg(sdmmc)]
 pub mod sdmmc;
 #[cfg(spi)]
