@@ -3,14 +3,13 @@
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
+pub use crate::dma::word;
 use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::AnyPin;
 use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
-
-pub use crate::dma::word;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
