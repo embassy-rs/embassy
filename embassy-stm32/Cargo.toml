@@ -59,7 +59,7 @@ sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "a4f293d3a6f72158385f79c98634cb8a14d0d2fc", optional = true }
 critical-section = "1.1"
 atomic-polyfill = "1.0.1"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-735cab337aad6161f3d6bcf3e49cd1f034bc3130" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-8ee2862086886cd8ebaf5fd5e3bd6cfbe5baa840" }
 vcell = "0.1.3"
 bxcan = "0.7.0"
 nb = "1.0.0"
@@ -78,7 +78,8 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-735cab337aad6161f3d6bcf3e49cd1f034bc3130", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-8ee2862086886cd8ebaf5fd5e3bd6cfbe5baa840", default-features = false, features = ["metadata"]}
+
 
 [features]
 default = ["rt"]
@@ -133,6 +134,22 @@ time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
 
+
+#! ## Analog Switch Pins (Pxy_C) on STM32H7 series
+#! Get `PXY` and `PXY_C` singletons. Digital impls are on `PXY`, Analog impls are on `PXY_C`
+#! If disabled, you get only the `PXY` singleton. It has both digital and analog impls.
+
+## Split PA0
+split-pa0 = ["_split-pins-enabled"]
+## Split PA1
+split-pa1 = ["_split-pins-enabled"]
+## Split PC2
+split-pc2 = ["_split-pins-enabled"]
+## Split PC3
+split-pc3 = ["_split-pins-enabled"]
+
+## internal use only
+_split-pins-enabled = []
 
 #! ## Chip-selection features
 #! Select your chip by specifying the model as a feature, e.g. `stm32c011d6`.
