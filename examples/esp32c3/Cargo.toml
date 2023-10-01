@@ -1,0 +1,131 @@
+[package]
+name    = "esp32c3-hal"
+version = "0.12.0"
+authors = [
+    "Jesse Braham <jesse@beta7.io>",
+    "Björn Quentin <bjoern.quentin@mobile-j.de>",
+]
+edition      = "2021"
+rust-version = "1.67.0"
+description  = "HAL for ESP32-C3 microcontrollers"
+repository   = "https://github.com/esp-rs/esp-hal"
+license      = "MIT OR Apache-2.0"
+
+keywords = [
+    "embedded",
+    "embedded-hal",
+    "esp",
+    "esp32c3",
+    "no-std",
+]
+categories = [
+    "embedded",
+    "hardware-support",
+    "no-std",
+]
+
+[dependencies]
+cfg-if         = "1.0.0"
+esp-hal-common = { version = "0.12.0", features = ["esp-riscv-rt","esp32c3"], git="https://github.com/esp-rs/esp-hal" }
+embassy-time   = { version = "0.1.3",  path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"], optional = true }
+
+[dev-dependencies]
+aes                = "0.8.3"
+critical-section   = "1.1.2"
+crypto-bigint      = { version = "0.5.3", default-features = false }
+embassy-sync = { version = "0.3.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["nightly","integrated-timers","arch-riscv32","executor-thread"] }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
+
+embedded-can       = "0.4.1"
+embedded-graphics  = "0.8.1"
+embedded-hal       = { version = "0.2.7", features = ["unproven"] }
+embedded-hal-1     = { version = "=1.0.0-rc.1", package = "embedded-hal" }
+embedded-hal-async = "=1.0.0-rc.1"
+embedded-io-async  = "0.5.0"
+esp-backtrace      = { version = "0.8.0", features = ["esp32c3", "panic-handler", "exception-handler", "print-uart"] }
+esp-hal-smartled   = { version = "0.5.0", features = ["esp32c3"], git="https://github.com/esp-rs/esp-hal" }
+esp-println        = { version = "0.6.0", features = ["esp32c3", "log"] }
+heapless           = "0.7.16"
+hmac               = { version = "0.12.1", default-features = false }
+lis3dh-async       = "0.8.0"
+sha2               = { version = "0.10.7", default-features = false }
+#smart-leds         = "0.3.0"
+#ssd1306            = "0.8.1"
+static_cell        = { version = "1.2.0", features = ["nightly"] }
+
+[features]
+default              = ["rt", "vectored", "esp-hal-common/rv-zero-rtc-bss"]
+async                = ["esp-hal-common/async"]
+debug                = ["esp-hal-common/debug"]
+defmt                = ["esp-hal-common/defmt"]
+direct-boot          = ["esp-hal-common/rv-init-data", "esp-hal-common/rv-init-rtc-data"]
+direct-vectoring     = ["esp-hal-common/direct-vectoring"]
+eh1                  = ["esp-hal-common/eh1"]
+interrupt-preemption = ["esp-hal-common/interrupt-preemption"]
+log                  = ["esp-hal-common/log"]
+mcu-boot             = []
+rt                   = []
+ufmt                 = ["esp-hal-common/ufmt"]
+vectored             = ["esp-hal-common/vectored"]
+
+# Embassy support
+embassy              = ["esp-hal-common/embassy"]
+embassy-time-systick = ["esp-hal-common/embassy-time-systick", "embassy-time/tick-hz-16_000_000"]
+embassy-time-timg0   = ["esp-hal-common/embassy-time-timg0", "embassy-time/tick-hz-1_000_000"]
+
+[profile.release]
+debug = true
+
+# [[example]]
+# name              = "spi_eh1_loopback"
+# required-features = ["eh1"]
+
+# [[example]]
+# name              = "spi_eh1_device_loopback"
+# required-features = ["eh1"]
+
+[[example]]
+name              = "embassy_hello_world"
+required-features = ["embassy"]
+
+# [[example]]
+# name              = "embassy_wait"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name = "interrupt_preemption"
+# required-features = ["interrupt-preemption"]
+
+# [[example]]
+# name              = "embassy_spi"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name              = "embassy_serial"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name              = "embassy_i2c"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name              = "embassy_rmt_tx"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name              = "embassy_rmt_rx"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name              = "embassy_i2s_sound"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name              = "embassy_i2s_read"
+# required-features = ["embassy", "async"]
+
+# [[example]]
+# name = "direct-vectoring"
+# required-features = ["direct-vectoring"]
