@@ -597,7 +597,8 @@ mod eha {
 
 impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
     type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
         let p = self.inner.regs();
         let (presc, postdiv) = calc_prescs(config.frequency);
         p.cpsr().write(|w| w.set_cpsdvsr(presc));
@@ -607,5 +608,7 @@ impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
             w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
             w.set_scr(postdiv);
         });
+
+        Ok(())
     }
 }

@@ -130,7 +130,7 @@ where
 {
     async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
         let op_res: Result<(), BUS::Error> = try {

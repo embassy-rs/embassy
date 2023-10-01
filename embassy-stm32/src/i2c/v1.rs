@@ -518,7 +518,8 @@ impl Timings {
 
 impl<'d, T: Instance> SetConfig for I2c<'d, T> {
     type Config = Hertz;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
         let timings = Timings::new(T::frequency(), *config);
         T::regs().cr2().modify(|reg| {
             reg.set_freq(timings.freq);
@@ -531,5 +532,7 @@ impl<'d, T: Instance> SetConfig for I2c<'d, T> {
         T::regs().trise().modify(|reg| {
             reg.set_trise(timings.trise);
         });
+
+        Ok(())
     }
 }

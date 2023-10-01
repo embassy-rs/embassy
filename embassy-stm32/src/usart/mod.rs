@@ -181,10 +181,11 @@ pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.tx.set_config(config));
-        unwrap!(self.rx.set_config(config));
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.tx.set_config(config).map_err(|_| ())?;
+        self.rx.set_config(config).map_err(|_| ())
     }
 }
 
@@ -195,9 +196,10 @@ pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config));
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
@@ -211,9 +213,10 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config));
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
@@ -273,7 +276,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         })
     }
 
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 
@@ -374,7 +377,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         })
     }
 
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 
@@ -801,10 +804,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 buffered_sr: stm32_metapac::usart::regs::Sr(0),
             },
         })
-    }
-
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        reconfigure::<T>(config)
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>

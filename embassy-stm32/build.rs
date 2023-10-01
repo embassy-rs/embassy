@@ -91,6 +91,7 @@ fn main() {
     struct SplitFeature {
         feature_name: String,
         pin_name_with_c: String,
+        #[cfg(feature = "_split-pins-enabled")]
         pin_name_without_c: String,
     }
 

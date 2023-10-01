@@ -163,7 +163,7 @@ where
     fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
-            bus.set_config(&self.config);
+            bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
             self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
             let op_res = operations.iter_mut().try_for_each(|op| match op {

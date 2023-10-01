@@ -18,9 +18,10 @@ pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> SetConfig for RingBufferedUartRx<'d, T, RxDma> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config));
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
@@ -63,7 +64,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         Err(err)
     }
 
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         self.teardown_uart();
         reconfigure::<T>(config)
     }

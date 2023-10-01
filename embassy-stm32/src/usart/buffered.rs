@@ -116,25 +116,28 @@ pub struct BufferedUartRx<'d, T: BasicInstance> {
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUart<'d, T> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config))
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUartRx<'d, T> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config))
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUartTx<'d, T> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config))
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
@@ -253,7 +256,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         (self.tx, self.rx)
     }
 
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
@@ -333,7 +336,7 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
         }
     }
 
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
@@ -407,7 +410,7 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
         }
     }
 
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
