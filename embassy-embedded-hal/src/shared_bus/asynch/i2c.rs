@@ -125,14 +125,14 @@ where
 {
     async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.read(address, buffer).await.map_err(I2cDeviceError::I2c)?;
         Ok(())
     }
 
     async fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.write(address, bytes).await.map_err(I2cDeviceError::I2c)?;
         Ok(())
     }
@@ -144,7 +144,7 @@ where
         rd_buffer: &mut [u8],
     ) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.write_read(address, wr_buffer, rd_buffer)
             .await
             .map_err(I2cDeviceError::I2c)?;
@@ -153,7 +153,7 @@ where
 
     async fn transaction(&mut self, address: u8, operations: &mut [i2c::Operation<'_>]) -> Result<(), Self::Error> {
         let mut bus = self.bus.lock().await;
-        bus.set_config(&self.config);
+        bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
         bus.transaction(address, operations)
             .await
             .map_err(I2cDeviceError::I2c)?;

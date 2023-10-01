@@ -26,6 +26,18 @@ pub trait SetConfig {
     /// The configuration type used by this driver.
     type Config;
 
+    /// The error type that can occur if `set_config` fails.
+    type ConfigError;
+
     /// Set the configuration of the driver.
-    fn set_config(&mut self, config: &Self::Config);
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError>;
+}
+
+/// Get the configuration of a peripheral driver.
+pub trait GetConfig {
+    /// The configuration type used by this driver.
+    type Config;
+
+    /// Get the configuration of the driver.
+    fn get_config(&self) -> Self::Config;
 }
