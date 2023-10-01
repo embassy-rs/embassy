@@ -1075,7 +1075,8 @@ mod eha {
 
 impl<'d, T: Instance> SetConfig for I2c<'d, T> {
     type Config = Hertz;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
         let timings = Timings::new(T::frequency(), *config);
         T::regs().timingr().write(|reg| {
             reg.set_presc(timings.prescale);
@@ -1084,5 +1085,7 @@ impl<'d, T: Instance> SetConfig for I2c<'d, T> {
             reg.set_sdadel(timings.sdadel);
             reg.set_scldel(timings.scldel);
         });
+
+        Ok(())
     }
 }

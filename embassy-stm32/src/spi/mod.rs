@@ -323,7 +323,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     /// Reconfigures it with the supplied config.
-    pub fn set_config(&mut self, config: Config) {
+    fn set_config(&mut self, config: Config) {
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
 
@@ -1061,7 +1061,10 @@ foreach_peripheral!(
 
 impl<'d, T: Instance, Tx, Rx> SetConfig for Spi<'d, T, Tx, Rx> {
     type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
         self.set_config(*config);
+
+        Ok(())
     }
 }

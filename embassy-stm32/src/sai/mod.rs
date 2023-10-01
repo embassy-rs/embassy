@@ -982,8 +982,9 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
+    #[allow(dead_code)]
     /// Reconfigures it with the supplied config.
-    pub fn reconfigure(&mut self, _config: Config) {}
+    fn reconfigure(&mut self, _config: Config) {}
 
     pub fn get_current_config(&self) -> Config {
         Config::default()
@@ -1056,7 +1057,10 @@ foreach_peripheral!(
 
 impl<'d, T: Instance> SetConfig for Sai<'d, T> {
     type Config = Config;
-    fn set_config(&mut self, _config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, _config: &Self::Config) -> Result<(), ()> {
         // self.reconfigure(*config);
+
+        Ok(())
     }
 }
