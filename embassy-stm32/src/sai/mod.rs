@@ -880,8 +880,8 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
 
             if config.is_sync_output {
                 let syncout: u8 = match sub_block {
-                    SubBlock::A => 0b01,
-                    SubBlock::B => 0b10,
+                    WhichSubBlock::A => 0b01,
+                    WhichSubBlock::B => 0b10,
                 };
                 T::REGS.gcr().modify(|w| {
                     w.set_syncout(syncout);
@@ -1056,7 +1056,7 @@ foreach_peripheral!(
 
 impl<'d, T: Instance> SetConfig for Sai<'d, T> {
     type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
+    fn set_config(&mut self, _config: &Self::Config) {
         // self.reconfigure(*config);
     }
 }
