@@ -206,7 +206,7 @@ impl Protocol {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum SyncEnable {
     Asynchronous,
     /// Syncs with the other A/B sub-block within the SAI unit
