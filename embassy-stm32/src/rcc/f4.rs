@@ -52,7 +52,7 @@ fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
-#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423)))]
 fn calculate_sai_i2s_pll_values(vco_in: u32, max_div: u32, target: Option<u32>) -> Option<(u32, u32, u32)> {
     let min_div = 2;
     let target = match target {
