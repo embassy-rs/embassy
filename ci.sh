@@ -14,7 +14,7 @@ fi
 
 find . -name '*.rs' -not -path '*target*' | xargs rustfmt --check  --skip-children --unstable-features --edition 2021
 
-cargo batch  \
+cargo batch \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,log \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,defmt \
