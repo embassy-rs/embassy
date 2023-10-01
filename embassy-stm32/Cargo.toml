@@ -78,7 +78,6 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-
 stm32-metapac = { git = "https://ci.embassy.dev/jobs/8f9e48d47e3f/artifacts/generated.git", default-features = false, features = ["metadata"]}
 
 [features]
