@@ -56,11 +56,12 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         _ch3: Option<PwmPin<'d, T, Ch3>>,
         _ch4: Option<PwmPin<'d, T, Ch4>>,
         freq: Hertz,
+        counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq)
+        Self::new_inner(tim, freq, counting_mode)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz) -> Self {
+    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
         into_ref!(tim);
 
         T::enable();
@@ -69,6 +70,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         let mut this = Self { inner: tim };
 
         this.inner.set_frequency(freq);
+        this.inner.set_counting_mode(counting_mode);
         this.inner.start();
 
         this.inner.enable_outputs(true);

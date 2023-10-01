@@ -75,8 +75,16 @@ pub(crate) mod sealed {
     pub trait GeneralPurpose16bitInstance: Basic16bitInstance {
         fn regs_gp16() -> crate::pac::timer::TimGp16;
 
-        fn set_count_direction(&mut self, direction: vals::Dir) {
-            Self::regs_gp16().cr1().modify(|r| r.set_dir(direction));
+        fn set_counting_mode(&mut self, mode: CountingMode) {
+            let (cms, dir) = mode.values();
+
+            let timer_enabled = Self::regs().cr1().read().cen();
+            // Changing from edge aligned to center aligned (and vice versa) is not allowed while the timer is running.
+            // Changing direction is discouraged while the timer is running.
+            assert!(timer_enabled);
+
+            Self::regs_gp16().cr1().modify(|r| r.set_dir(dir));
+            Self::regs_gp16().cr1().modify(|r| r.set_cms(cms))
         }
 
         fn set_clock_division(&mut self, ckd: vals::Ckd) {
@@ -261,6 +269,43 @@ impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
             InputTISelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::TI4,
             InputTISelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::TI3,
             InputTISelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::TRC,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CountingMode {
+    #[default]
+    /// The timer counts up to the reload value and then resets back to 0.
+    EdgeAlignedUp,
+    /// The timer counts down to 0 and then resets back to the reload value.
+    EdgeAlignedDown,
+    /// The timer counts up to the reload value and then counts back to 0.
+    ///
+    /// The output compare interrupt flags of channels configured in output are
+    /// set when the counter is counting down.
+    CenterAlignedDownInterrupts,
+    /// The timer counts up to the reload value and then counts back to 0.
+    ///
+    /// The output compare interrupt flags of channels configured in output are
+    /// set when the counter is counting up.
+    CenterAlignedUpInterrupts,
+    /// The timer counts up to the reload value and then counts back to 0.
+    ///
+    /// The output compare interrupt flags of channels configured in output are
+    /// set when the counter is counting both up or down.
+    CenterAlignedBothInterrupts,
+}
+
+impl CountingMode {
+    /// Get the register values to set the timer mode to the current variant
+    pub fn values(&self) -> (vals::Cms, vals::Dir) {
+        match self {
+            CountingMode::EdgeAlignedUp => (vals::Cms::EDGEALIGNED, vals::Dir::UP),
+            CountingMode::EdgeAlignedDown => (vals::Cms::EDGEALIGNED, vals::Dir::DOWN),
+            CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CENTERALIGNED1, vals::Dir::UP),
+            CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CENTERALIGNED2, vals::Dir::UP),
+            CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CENTERALIGNED3, vals::Dir::UP),
         }
     }
 }
