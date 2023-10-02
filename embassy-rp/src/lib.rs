@@ -1,5 +1,5 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
