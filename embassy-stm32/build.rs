@@ -736,7 +736,6 @@ fn main() {
         if let Some(regs) = &p.registers {
             for pin in p.pins {
                 let key = (regs.kind, pin.signal);
-                eprintln!("key: {:#?}", &key);
                 if let Some(tr) = signals.get(&key) {
                     let mut peri = format_ident!("{}", p.name);
 
