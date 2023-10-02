@@ -196,8 +196,6 @@ cargo batch  \
     --- build --release --manifest-path tests/riscv32/Cargo.toml --target riscv32imac-unknown-none-elf \
     $BUILD_EXTRA
 
-# temporarily disabled: broken by nightly update and/or clock settings update.
-rm out/tests/stm32f429zi/stop
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
