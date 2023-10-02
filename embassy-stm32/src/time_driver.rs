@@ -340,7 +340,11 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Set the rtc but panic if it's already been set
     pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
-        critical_section::with(|cs| assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none()));
+        critical_section::with(|cs| {
+            rtc.stop_wakeup_alarm(cs);
+
+            assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none())
+        });
     }
 
     #[cfg(feature = "low-power")]
