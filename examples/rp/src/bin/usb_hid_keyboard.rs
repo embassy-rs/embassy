@@ -78,6 +78,9 @@ async fn main(_spawner: Spawner) {
     // Set up the signal pin that will be used to trigger the keyboard.
     let mut signal_pin = Input::new(p.PIN_16, Pull::None);
 
+    // Enable the schmitt trigger to slightly debounce.
+    signal_pin.set_schmitt(true);
+
     let (reader, mut writer) = hid.split();
 
     // Do stuff with the class!

@@ -97,6 +97,12 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
+    /// Set the pin's Schmitt trigger.
+    #[inline]
+    pub fn set_schmitt(&mut self, enable: bool) {
+        self.pin.set_schmitt(enable)
+    }
+
     #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
@@ -326,6 +332,18 @@ impl<'d, T: Pin> Output<'d, T> {
         Self { pin }
     }
 
+    /// Set the pin's drive strength.
+    #[inline]
+    pub fn set_drive_strength(&mut self, strength: Drive) {
+        self.pin.set_drive_strength(strength)
+    }
+
+    // Set the pin's slew rate.
+    #[inline]
+    pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
+        self.pin.set_slew_rate(slew_rate)
+    }
+
     /// Set the output as high.
     #[inline]
     pub fn set_high(&mut self) {
@@ -384,6 +402,18 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
             Level::Low => pin.set_as_output(),
         }
         Self { pin }
+    }
+
+    /// Set the pin's drive strength.
+    #[inline]
+    pub fn set_drive_strength(&mut self, strength: Drive) {
+        self.pin.set_drive_strength(strength)
+    }
+
+    // Set the pin's slew rate.
+    #[inline]
+    pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
+        self.pin.set_slew_rate(slew_rate)
     }
 
     /// Set the output as high.
@@ -538,6 +568,14 @@ impl<'d, T: Pin> Flex<'d, T> {
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_slewfast(slew_rate == SlewRate::Fast);
+        });
+    }
+
+    /// Set the pin's Schmitt trigger.
+    #[inline]
+    pub fn set_schmitt(&mut self, enable: bool) {
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_schmitt(enable);
         });
     }
 
