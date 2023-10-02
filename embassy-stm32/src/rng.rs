@@ -164,7 +164,7 @@ impl<'d, T: Instance> Rng<'d, T> {
                     return Err(Error::SeedError);
                 }
                 // write bytes to chunk
-                for (dest, src) in chunk.iter_mut().zip(random_word.to_be_bytes().iter()) {
+                for (dest, src) in chunk.iter_mut().zip(random_word.to_ne_bytes().iter()) {
                     *dest = *src
                 }
             }
@@ -195,7 +195,7 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         for chunk in dest.chunks_mut(4) {
             let rand = self.next_u32();
-            for (slot, num) in chunk.iter_mut().zip(rand.to_be_bytes().iter()) {
+            for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
                 *slot = *num
             }
         }
