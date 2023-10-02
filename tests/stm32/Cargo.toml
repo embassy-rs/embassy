@@ -7,13 +7,13 @@ autobins = false
 
 [features]
 stm32f103c8 = ["embassy-stm32/stm32f103c8", "not-gpdma"]     # Blue Pill
-stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "stop", "can", "not-gpdma", "dac-adc-pin"]     # Nucleo "sdmmc"
+stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "eth", "stop", "can", "not-gpdma", "dac-adc-pin"]     # Nucleo "sdmmc"
 stm32g071rb = ["embassy-stm32/stm32g071rb", "not-gpdma", "dac-adc-pin"]     # Nucleo
 stm32c031c6 = ["embassy-stm32/stm32c031c6", "not-gpdma"]     # Nucleo
 stm32g491re = ["embassy-stm32/stm32g491re", "not-gpdma"]     # Nucleo
-stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-gpdma", "dac-adc-pin"] # Nucleo
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "not-gpdma", "eth", "dac-adc-pin"] # Nucleo
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "not-gpdma", "ble", "mac" ]     # Nucleo
-stm32h563zi = ["embassy-stm32/stm32h563zi"]     # Nucleo
+stm32h563zi = ["embassy-stm32/stm32h563zi", "eth"]     # Nucleo
 stm32u585ai = ["embassy-stm32/stm32u585ai"]     # IoT board
 stm32l073rz = ["embassy-stm32/stm32l073rz", "not-gpdma"]     # Nucleo
 stm32l152re = ["embassy-stm32/stm32l152re", "not-gpdma"]     # Nucleo
@@ -21,6 +21,7 @@ stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "not-gpdma"]     # Nucleo
 stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "not-gpdma"]     # Nucleo
 stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma"]     # Nucleo
 
+eth = []
 sdmmc = []
 stop = ["embassy-stm32/low-power"]
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
@@ -40,6 +41,8 @@ embassy-time = { version = "0.1.3", path = "../../embassy-time", features = ["de
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt", "stm32wb55rg", "ble"] }
+embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+perf-client = { path = "../perf-client" }
 
 defmt = "0.3.0"
 defmt-rtt = "0.4"
@@ -68,6 +71,11 @@ required-features = [ "can",]
 name = "dac"
 path = "src/bin/dac.rs"
 required-features = [ "dac-adc-pin",]
+
+[[bin]]
+name = "eth"
+path = "src/bin/eth.rs"
+required-features = [ "eth",]
 
 [[bin]]
 name = "gpio"
