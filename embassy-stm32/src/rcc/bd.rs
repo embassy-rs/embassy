@@ -88,6 +88,12 @@ impl BackupDomain {
     ))]
     #[allow(dead_code, unused_variables)]
     pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseDrive>) {
+        match clock_source {
+            RtcClockSource::LSI => assert!(lsi),
+            RtcClockSource::LSE => assert!(&lse.is_some()),
+            _ => {}
+        };
+
         if lsi {
             #[cfg(rtc_v3u5)]
             let csr = crate::pac::RCC.bdcr();
@@ -111,6 +117,40 @@ impl BackupDomain {
             while !csr.read().lsi1rdy() {}
         }
 
+        // backup domain configuration (LSEON, RTCEN, RTCSEL) is kept across resets.
+        // once set, changing it requires a backup domain reset.
+        // first check if the configuration matches what we want.
+
+        // check if it's already enabled and in the source we want.
+        let reg = Self::read();
+        let mut ok = true;
+        ok &= reg.rtcsel() == clock_source;
+        #[cfg(not(rcc_wba))]
+        {
+            ok &= reg.rtcen() == (clock_source != RtcClockSource::NOCLOCK);
+        }
+        ok &= reg.lseon() == lse.is_some();
+        #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
+        if let Some(lse_drive) = lse {
+            ok &= reg.lsedrv() == lse_drive.into();
+        }
+
+        // if configuration is OK, we're done.
+        if ok {
+            // RTC code assumes backup domain is unlocked
+            Self::modify(|w| {});
+
+            trace!("BDCR ok: {:08x}", Self::read().0);
+            return;
+        }
+
+        // If not OK, reset backup domain and configure it.
+        #[cfg(not(any(rcc_l0, rcc_l1)))]
+        {
+            Self::modify(|w| w.set_bdrst(true));
+            Self::modify(|w| w.set_bdrst(false));
+        }
+
         if let Some(lse_drive) = lse {
             Self::modify(|w| {
                 #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
@@ -121,56 +161,17 @@ impl BackupDomain {
             while !Self::read().lserdy() {}
         }
 
-        match clock_source {
-            RtcClockSource::LSI => assert!(lsi),
-            RtcClockSource::LSE => assert!(&lse.is_some()),
-            _ => {}
-        };
-
-        if clock_source == RtcClockSource::NOCLOCK {
-            // disable it
+        if clock_source != RtcClockSource::NOCLOCK {
             Self::modify(|w| {
+                #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
+                assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
+
                 #[cfg(not(rcc_wba))]
-                w.set_rtcen(false);
+                w.set_rtcen(true);
                 w.set_rtcsel(clock_source);
             });
-        } else {
-            // check if it's already enabled and in the source we want.
-            let reg = Self::read();
-            let ok = reg.rtcsel() == clock_source;
-            #[cfg(not(rcc_wba))]
-            let ok = ok & reg.rtcen();
-
-            // if not, configure it.
-            if !ok {
-                #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-                assert!(!reg.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
-
-                #[cfg(not(any(rcc_l0, rcc_l1)))]
-                Self::modify(|w| w.set_bdrst(true));
-
-                Self::modify(|w| {
-                    // Reset
-                    #[cfg(not(any(rcc_l0, rcc_l1)))]
-                    w.set_bdrst(false);
-
-                    #[cfg(not(rcc_wba))]
-                    w.set_rtcen(true);
-                    w.set_rtcsel(clock_source);
-
-                    // Restore bcdr
-                    #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-                    w.set_lscosel(reg.lscosel());
-                    #[cfg(any(rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-                    w.set_lscoen(reg.lscoen());
-
-                    w.set_lseon(reg.lseon());
-
-                    #[cfg(any(rtc_v2f0, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-                    w.set_lsedrv(reg.lsedrv());
-                    w.set_lsebyp(reg.lsebyp());
-                });
-            }
         }
+
+        trace!("BDCR configured: {:08x}", Self::read().0);
     }
 }
