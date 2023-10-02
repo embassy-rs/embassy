@@ -14,6 +14,7 @@ use embassy_stm32::low_power::{stop_with_rtc, Executor};
 use embassy_stm32::rcc::RtcClockSource;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::Config;
 use embassy_time::{Duration, Timer};
 use static_cell::make_static;
 
@@ -45,7 +46,9 @@ async fn task_2() {
 
 #[embassy_executor::task]
 async fn async_main(spawner: Spawner) {
-    let mut config = config();
+    let _ = config();
+
+    let mut config = Config::default();
 
     config.rcc.lse = Some(Hertz(32_768));
     config.rcc.rtc = Some(RtcClockSource::LSE);
