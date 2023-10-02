@@ -209,10 +209,6 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             w.set_ckmode(true);
         });
 
-        // FOR TESTING ONLY
-        //T::REGS.ccr().write(|w| w.set_frcm(true));
-        // END FOR TESTING ONLY
-
         Self {
             _peri: peri,
             sck,
@@ -260,8 +256,10 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 
     pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) {
+        // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
+
         self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
         if let Some(len) = transaction.data_len {
@@ -304,6 +302,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             )
         };
 
+        // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
 
@@ -331,6 +330,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             )
         };
 
+        // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
 
