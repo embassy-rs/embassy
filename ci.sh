@@ -197,6 +197,9 @@ cargo batch  \
     $BUILD_EXTRA
 
 
+rm out/tests/stm32wb55rg/wpan_mac
+rm out/tests/stm32wb55rg/wpan_ble
+
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
     exit
