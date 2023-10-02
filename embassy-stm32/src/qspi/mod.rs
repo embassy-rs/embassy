@@ -4,7 +4,6 @@ pub mod enums;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use enums::*;
-use stm32_metapac::quadspi::regs::Cr;
 
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
@@ -185,6 +184,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
 
         #[cfg(stm32h7)]
         {
+            use stm32_metapac::quadspi::regs::Cr;
             // Apply precautionary steps according to the errata...
             T::REGS.cr().write_value(Cr(0));
             while T::REGS.sr().read().busy() {}
