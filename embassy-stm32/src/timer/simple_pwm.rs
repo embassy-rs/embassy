@@ -69,8 +69,8 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
 
         let mut this = Self { inner: tim };
 
-        this.inner.set_frequency(freq);
         this.inner.set_counting_mode(counting_mode);
+        this.set_freq(freq);
         this.inner.start();
 
         this.inner.enable_outputs(true);
@@ -95,7 +95,12 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 
     pub fn set_freq(&mut self, freq: Hertz) {
-        self.inner.set_frequency(freq);
+        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
+            2u8
+        } else {
+            1u8
+        };
+        self.inner.set_frequency(freq * multiplier);
     }
 
     pub fn get_max_duty(&self) -> u16 {

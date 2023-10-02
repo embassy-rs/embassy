@@ -76,7 +76,7 @@ pub(crate) mod sealed {
         fn regs_gp16() -> crate::pac::timer::TimGp16;
 
         fn set_counting_mode(&mut self, mode: CountingMode) {
-            let (cms, dir) = mode.values();
+            let (cms, dir) = mode.into();
 
             let timer_enabled = Self::regs().cr1().read().cen();
             // Changing from edge aligned to center aligned (and vice versa) is not allowed while the timer is running.
@@ -85,6 +85,11 @@ pub(crate) mod sealed {
 
             Self::regs_gp16().cr1().modify(|r| r.set_dir(dir));
             Self::regs_gp16().cr1().modify(|r| r.set_cms(cms))
+        }
+
+        fn get_counting_mode(&self) -> CountingMode {
+            let cr1 = Self::regs_gp16().cr1().read();
+            (cr1.cms(), cr1.dir()).into()
         }
 
         fn set_clock_division(&mut self, ckd: vals::Ckd) {
@@ -273,6 +278,7 @@ impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
     }
 }
 
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CountingMode {
     #[default]
@@ -298,14 +304,43 @@ pub enum CountingMode {
 }
 
 impl CountingMode {
-    /// Get the register values to set the timer mode to the current variant
-    pub fn values(&self) -> (vals::Cms, vals::Dir) {
+    pub fn is_edge_aligned(&self) -> bool {
         match self {
+            CountingMode::EdgeAlignedUp | CountingMode::EdgeAlignedDown => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_center_aligned(&self) -> bool {
+        match self {
+            CountingMode::CenterAlignedDownInterrupts
+            | CountingMode::CenterAlignedUpInterrupts
+            | CountingMode::CenterAlignedBothInterrupts => true,
+            _ => false,
+        }
+    }
+}
+
+impl From<CountingMode> for (vals::Cms, vals::Dir) {
+    fn from(value: CountingMode) -> Self {
+        match value {
             CountingMode::EdgeAlignedUp => (vals::Cms::EDGEALIGNED, vals::Dir::UP),
             CountingMode::EdgeAlignedDown => (vals::Cms::EDGEALIGNED, vals::Dir::DOWN),
             CountingMode::CenterAlignedDownInterrupts => (vals::Cms::CENTERALIGNED1, vals::Dir::UP),
             CountingMode::CenterAlignedUpInterrupts => (vals::Cms::CENTERALIGNED2, vals::Dir::UP),
             CountingMode::CenterAlignedBothInterrupts => (vals::Cms::CENTERALIGNED3, vals::Dir::UP),
+        }
+    }
+}
+
+impl From<(vals::Cms, vals::Dir)> for CountingMode {
+    fn from(value: (vals::Cms, vals::Dir)) -> Self {
+        match value {
+            (vals::Cms::EDGEALIGNED, vals::Dir::UP) => CountingMode::EdgeAlignedUp,
+            (vals::Cms::EDGEALIGNED, vals::Dir::DOWN) => CountingMode::EdgeAlignedDown,
+            (vals::Cms::CENTERALIGNED1, _) => CountingMode::CenterAlignedDownInterrupts,
+            (vals::Cms::CENTERALIGNED2, _) => CountingMode::CenterAlignedUpInterrupts,
+            (vals::Cms::CENTERALIGNED3, _) => CountingMode::CenterAlignedBothInterrupts,
         }
     }
 }
