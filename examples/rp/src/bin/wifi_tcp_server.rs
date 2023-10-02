@@ -18,7 +18,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_time::Duration;
+use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
@@ -101,6 +101,13 @@ async fn main(spawner: Spawner) {
             }
         }
     }
+
+    // Wait for DHCP, not necessary when using static IP
+    info!("waiting for DHCP...");
+    while !stack.is_config_up() {
+        Timer::after(Duration::from_millis(100)).await;
+    }
+    info!("DHCP is now up!");
 
     // And now we can use it!
 
