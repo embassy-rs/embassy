@@ -88,6 +88,8 @@ impl BackupDomain {
     ))]
     #[allow(dead_code, unused_variables)]
     pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseDrive>) {
+        use atomic_polyfill::{compiler_fence, Ordering};
+
         match clock_source {
             RtcClockSource::LSI => assert!(lsi),
             RtcClockSource::LSE => assert!(&lse.is_some()),
@@ -173,5 +175,7 @@ impl BackupDomain {
         }
 
         trace!("BDCR configured: {:08x}", Self::read().0);
+
+        compiler_fence(Ordering::SeqCst);
     }
 }
