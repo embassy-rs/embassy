@@ -10,7 +10,7 @@ The Embassy executor is an async/await executor designed for embedded usage alon
 * No busy-loop polling: CPU sleeps when there's no work to do, using interrupts or `WFE/SEV`.
 * Efficient polling: a wake will only poll the woken task, not all of them.
 * Fair: a task can't monopolize CPU time even if it's constantly being woken. All other tasks get a chance to run before a given task gets polled for the second time.
-* Creating multiple executor instances is supported, to run tasks with multiple priority levels. This allows higher-priority tasks to preempt lower-priority tasks.
+* Creating multiple executor instances is supported, to run tasks at different priority levels. This allows higher-priority tasks to preempt lower-priority tasks.
 
 == Executor
 
