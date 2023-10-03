@@ -93,15 +93,26 @@ pub struct Ipcc;
 
 impl Ipcc {
     pub fn enable(_config: Config) {
+        // TODO: move these lines to the rcc mod
+
+        // set LPTIM1 & LPTIM2 clock source
+        crate::pac::RCC.ccipr().modify(|w| {
+            w.set_lptim1sel(0b00); // PCLK
+            w.set_lptim2sel(0b00); // PCLK
+        });
+
+        // set RF wake-up clock = LSE
+        crate::pac::RCC.csr().modify(|w| w.set_rfwkpsel(0b01));
+
         IPCC::enable();
         IPCC::reset();
+        // insert bus access and fence for delay
+        IPCC::enable();
+
+        compiler_fence(Ordering::SeqCst);
         IPCC::set_cpu2(true);
 
-        _configure_pwr();
-
-        let regs = IPCC::regs();
-
-        regs.cpu(0).cr().modify(|w| {
+        IPCC::regs().cpu(0).cr().modify(|w| {
             w.set_rxoie(true);
             w.set_txfie(true);
         });
@@ -262,19 +273,4 @@ pub(crate) mod sealed {
         fn set_cpu2(enabled: bool);
         fn state() -> &'static State;
     }
-}
-
-fn _configure_pwr() {
-    // TODO: move the rest of this to rcc
-    let rcc = crate::pac::RCC;
-
-    // TODO: required
-    // set RF wake-up clock = LSE
-    rcc.csr().modify(|w| w.set_rfwkpsel(0b01));
-
-    // set LPTIM1 & LPTIM2 clock source
-    rcc.ccipr().modify(|w| {
-        w.set_lptim1sel(0b00); // PCLK
-        w.set_lptim2sel(0b00); // PCLK
-    });
 }
