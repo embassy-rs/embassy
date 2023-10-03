@@ -14,6 +14,7 @@ use embassy_stm32::time::mhz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
+use embedded_io_async::Read;
 use rand_core::RngCore;
 use static_cell::make_static;
 use {defmt_rtt as _, panic_probe as _};
@@ -57,7 +58,7 @@ async fn main(spawner: Spawner) -> ! {
         p.PC4,
         p.PC5,
         p.PG13,
-        p.PB13,
+        p.PG14,
         p.PG11,
         GenericSMI::new(),
         mac_addr,
@@ -88,31 +89,22 @@ async fn main(spawner: Spawner) -> ! {
     info!("Network task initialized");
 
     // Then we can use it!
-    let mut rx_buffer = [0; 4096];
-    let mut tx_buffer = [0; 4096];
+    let mut rx_buffer = [0; 1024];
+    let mut tx_buffer = [0; 1024];
+
 
     loop {
+        let mut parse_buf = [0;2048];
         let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
 
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
-        let remote_endpoint = (Ipv4Address::new(10, 42, 0, 1), 8000);
-        info!("connecting...");
-        let r = socket.connect(remote_endpoint).await;
-        if let Err(e) = r {
-            info!("connect error: {:?}", e);
-            Timer::after(Duration::from_secs(1)).await;
-            continue;
-        }
-        info!("connected!");
-        let buf = [0; 1024];
-        loop {
-            let r = socket.write_all(&buf).await;
-            if let Err(e) = r {
-                info!("write error: {:?}", e);
-                break;
-            }
-            Timer::after(Duration::from_secs(1)).await;
+        let addr = stack.config_v4().unwrap().address.address();
+        socket.accept((addr, 1234)).await.unwrap();
+        if let Err(e) = socket.read_exact(&mut parse_buf).await {
+            info!("Got read error: {}", e);
+        } else {
+            info!("Filled the buffer");
         }
     }
 }
