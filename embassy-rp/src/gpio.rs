@@ -222,7 +222,6 @@ fn IO_IRQ_QSPI() {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'a, T: Pin> {
     pin: PeripheralRef<'a, T>,
-    level: InterruptTrigger,
 }
 
 impl<'d, T: Pin> InputFuture<'d, T> {
@@ -249,7 +248,6 @@ impl<'d, T: Pin> InputFuture<'d, T> {
             .inte((pin.pin() / 8) as usize)
             .write_set(|w| match level {
                 InterruptTrigger::LevelHigh => {
-                    trace!("InputFuture::new enable LevelHigh for pin {}", pin.pin());
                     w.set_level_high(pin_group, true);
                 }
                 InterruptTrigger::LevelLow => {
@@ -267,7 +265,7 @@ impl<'d, T: Pin> InputFuture<'d, T> {
                 }
             });
 
-        Self { pin, level }
+        Self { pin }
     }
 }
 
@@ -303,14 +301,8 @@ impl<'d, T: Pin> Future for InputFuture<'d, T> {
             && !inte.level_high(pin_group)
             && !inte.level_low(pin_group)
         {
-            trace!(
-                "{:?} for pin {} was cleared, return Poll::Ready",
-                self.level,
-                self.pin.pin()
-            );
             return Poll::Ready(());
         }
-        trace!("InputFuture::poll return Poll::Pending");
         Poll::Pending
     }
 }
