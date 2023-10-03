@@ -18,6 +18,7 @@ use embassy_stm32_wpan::mac::typedefs::{
 };
 use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -37,6 +38,8 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_stm32::init(config);
     info!("Hello World!");
+
+    Timer::after(Duration::from_millis(30)).await;
 
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);

@@ -143,6 +143,8 @@ impl BackupDomain {
             Self::modify(|w| {});
 
             trace!("BDCR ok: {:08x}", Self::read().0);
+
+            compiler_fence(Ordering::SeqCst);
             return;
         }
 
