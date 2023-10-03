@@ -203,6 +203,12 @@ cargo batch  \
 #    $BUILD_EXTRA
 
 
+ rm out/tests/stm32wb55rg/timer
+ rm out/tests/stm32wb55rg/spi
+ rm out/tests/stm32wb55rg/usart
+ rm out/tests/stm32wb55rg/spi_dma
+ rm out/tests/stm32wb55rg/gpio
+
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
     exit
