@@ -112,6 +112,10 @@ impl Ipcc {
         compiler_fence(Ordering::SeqCst);
         IPCC::set_cpu2(true);
 
+        // insert bus access and fence for delay
+        IPCC::set_cpu2(true);
+        compiler_fence(Ordering::SeqCst);
+
         IPCC::regs().cpu(0).cr().modify(|w| {
             w.set_rxoie(true);
             w.set_txfie(true);
