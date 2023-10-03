@@ -100,6 +100,7 @@ async fn main(spawner: Spawner) -> ! {
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
         let addr = stack.config_v4().unwrap().address.address();
+        info!("Binding {}", addr);
         socket.accept((addr, 1234)).await.unwrap();
         if let Err(e) = socket.read_exact(&mut parse_buf).await {
             info!("Got read error: {}", e);
