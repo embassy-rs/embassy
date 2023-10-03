@@ -719,12 +719,17 @@ fn main() {
         (("sdmmc", "D6"), quote!(crate::sdmmc::D6Pin)),
         (("sdmmc", "D6"), quote!(crate::sdmmc::D7Pin)),
         (("sdmmc", "D8"), quote!(crate::sdmmc::D8Pin)),
-        (("quadspi", "BK1_IO0"), quote!(crate::qspi::D0Pin)),
-        (("quadspi", "BK1_IO1"), quote!(crate::qspi::D1Pin)),
-        (("quadspi", "BK1_IO2"), quote!(crate::qspi::D2Pin)),
-        (("quadspi", "BK1_IO3"), quote!(crate::qspi::D3Pin)),
+        (("quadspi", "BK1_IO0"), quote!(crate::qspi::BK1D0Pin)),
+        (("quadspi", "BK1_IO1"), quote!(crate::qspi::BK1D1Pin)),
+        (("quadspi", "BK1_IO2"), quote!(crate::qspi::BK1D2Pin)),
+        (("quadspi", "BK1_IO3"), quote!(crate::qspi::BK1D3Pin)),
+        (("quadspi", "BK1_NCS"), quote!(crate::qspi::BK1NSSPin)),
+        (("quadspi", "BK2_IO0"), quote!(crate::qspi::BK2D0Pin)),
+        (("quadspi", "BK2_IO1"), quote!(crate::qspi::BK2D1Pin)),
+        (("quadspi", "BK2_IO2"), quote!(crate::qspi::BK2D2Pin)),
+        (("quadspi", "BK2_IO3"), quote!(crate::qspi::BK2D3Pin)),
+        (("quadspi", "BK2_NCS"), quote!(crate::qspi::BK2NSSPin)),
         (("quadspi", "CLK"), quote!(crate::qspi::SckPin)),
-        (("quadspi", "BK1_NCS"), quote!(crate::qspi::NSSPin)),
     ].into();
 
     for p in METADATA.peripherals {
