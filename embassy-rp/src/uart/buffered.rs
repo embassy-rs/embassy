@@ -490,8 +490,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for BufferedInterr
             w.set_oeic(ris.oeris());
         });
 
-        trace!("on_interrupt ris={:#X}", ris.0);
-
         // Errors
         if ris.feris() {
             warn!("Framing error");
