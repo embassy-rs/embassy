@@ -19,12 +19,12 @@ use {defmt_rtt as _, panic_probe as _};
 
 teleprobe_meta::timeout!(120);
 
-#[cfg(not(feature = "stm32h563zi"))]
+#[cfg(not(any(feature = "stm32h563zi", feature = "stm32f767zi", feature = "stm32f207zg")))]
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
-#[cfg(feature = "stm32h563zi")]
+#[cfg(any(feature = "stm32h563zi", feature = "stm32f767zi", feature = "stm32f207zg"))]
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -56,11 +56,21 @@ async fn main(spawner: Spawner) {
     let n = 2;
     #[cfg(feature = "stm32h563zi")]
     let n = 3;
+    #[cfg(feature = "stm32f767zi")]
+    let n = 4;
+    #[cfg(feature = "stm32f207zg")]
+    let n = 5;
 
     let mac_addr = [0x00, n, 0xDE, 0xAD, 0xBE, 0xEF];
 
+    // F2 runs out of RAM
+    #[cfg(feature = "stm32f207zg")]
+    const PACKET_QUEUE_SIZE: usize = 2;
+    #[cfg(not(feature = "stm32f207zg"))]
+    const PACKET_QUEUE_SIZE: usize = 4;
+
     let device = Ethernet::new(
-        make_static!(PacketQueue::<4, 4>::new()),
+        make_static!(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
         Irqs,
         p.PA1,

@@ -20,6 +20,10 @@ stm32l152re = ["embassy-stm32/stm32l152re", "not-gpdma"]     # Nucleo
 stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "not-gpdma"]     # Nucleo
 stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "not-gpdma"]     # Nucleo
 stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma"]     # Nucleo
+stm32f767zi = ["embassy-stm32/stm32f767zi", "not-gpdma", "eth"]     # Nucleo
+stm32f207zg = ["embassy-stm32/stm32f207zg", "not-gpdma", "eth"]     # Nucleo
+stm32f303ze = ["embassy-stm32/stm32f303ze", "not-gpdma"]     # Nucleo
+stm32l496zg = ["embassy-stm32/stm32l496zg", "not-gpdma"]     # Nucleo
 
 eth = []
 sdmmc = []

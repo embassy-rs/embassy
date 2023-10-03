@@ -34,6 +34,14 @@ teleprobe_meta::target!(b"nucleo-stm32l4a6zg");
 teleprobe_meta::target!(b"nucleo-stm32l4r5zi");
 #[cfg(feature = "stm32l552ze")]
 teleprobe_meta::target!(b"nucleo-stm32l552ze");
+#[cfg(feature = "stm32f767zi")]
+teleprobe_meta::target!(b"nucleo-stm32f767zi");
+#[cfg(feature = "stm32f207zg")]
+teleprobe_meta::target!(b"nucleo-stm32f207zg");
+#[cfg(feature = "stm32f303ze")]
+teleprobe_meta::target!(b"nucleo-stm32f303ze");
+#[cfg(feature = "stm32l496zg")]
+teleprobe_meta::target!(b"nucleo-stm32l496zg");
 
 macro_rules! define_peris {
     ($($name:ident = $peri:ident,)* $(@irq $irq_name:ident = $irq_code:tt,)*) => {
@@ -119,6 +127,12 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
+#[cfg(feature = "stm32l496zg")]
+define_peris!(
+    UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
+);
 #[cfg(feature = "stm32l4a6zg")]
 define_peris!(
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
@@ -149,10 +163,56 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
 );
+#[cfg(feature = "stm32f767zi")]
+define_peris!(
+    UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
+    @irq UART = {USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>;},
+);
+#[cfg(feature = "stm32f207zg")]
+define_peris!(
+    UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
+    @irq UART = {USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>;},
+);
+#[cfg(feature = "stm32f303ze")]
+define_peris!(
+    UART = USART1, UART_TX = PC4, UART_RX = PC5, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
 
 pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
+
+    #[cfg(feature = "stm32f207zg")]
+    {
+        use embassy_stm32::rcc::*;
+        // By default, HSE on the board comes from a 8 MHz clock signal (not a crystal)
+        config.rcc.hse = Some(HSEConfig {
+            frequency: Hertz(8_000_000),
+            source: HSESrc::Bypass,
+        });
+        // PLL uses HSE as the clock source
+        config.rcc.pll_mux = PLLSrc::HSE;
+        config.rcc.pll = PLLConfig {
+            // 8 MHz clock source / 8 = 1 MHz PLL input
+            pre_div: unwrap!(PLLPreDiv::try_from(8)),
+            // 1 MHz PLL input * 240 = 240 MHz PLL VCO
+            mul: unwrap!(PLLMul::try_from(240)),
+            // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
+            main_div: PLLMainDiv::Div2,
+            // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
+            pll48_div: unwrap!(PLL48Div::try_from(5)),
+        };
+        // System clock comes from PLL (= the 120 MHz main PLL output)
+        config.rcc.mux = ClockSrc::PLL;
+        // 120 MHz / 4 = 30 MHz APB1 frequency
+        config.rcc.apb1_pre = APBPrescaler::DIV4;
+        // 120 MHz / 2 = 60 MHz APB2 frequency
+        config.rcc.apb2_pre = APBPrescaler::DIV2;
+    }
 
     #[cfg(feature = "stm32f429zi")]
     {
@@ -161,6 +221,11 @@ pub fn config() -> Config {
         config.rcc.sys_ck = Some(Hertz(168_000_000));
         config.rcc.pclk1 = Some(Hertz(42_000_000));
         config.rcc.pclk2 = Some(Hertz(84_000_000));
+    }
+
+    #[cfg(feature = "stm32f767zi")]
+    {
+        config.rcc.sys_ck = Some(Hertz(200_000_000));
     }
 
     #[cfg(feature = "stm32h563zi")]
