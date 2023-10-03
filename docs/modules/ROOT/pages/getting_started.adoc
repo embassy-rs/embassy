@@ -3,7 +3,7 @@
 So you want to try Embassy, great! To get started, there are a few tools you need to install:
 
 * link:https://rustup.rs/[rustup] - the Rust toolchain is needed to compile Rust code.
-* link:https://crates.io/crates/probe-run[probe-run] - to flash the firmware on your device. If you already have other tools like `OpenOCD` setup, you can use that as well.
+* link:https://crates.io/crates/probe-rs[probe-rs] - to flash the firmware on your device. If you already have other tools like `OpenOCD` setup, you can use that as well.
 
 If you don't have any supported board, don't worry: you can also run embassy on your PC using the `std` examples.
 
@@ -30,6 +30,10 @@ Embassy supports many microcontroller families, but the easiest ways to get star
 
 * link:https://www.raspberrypi.com/products/raspberry-pi-pico/[Raspberry Pi Pico]
 
+=== ESP32
+
+* link:https://github.com/esp-rs/esp-rust-board[ESP32C3]
+
 == Running an example
 
 First you need to clone the [github repository];
@@ -38,7 +42,6 @@ First you need to clone the [github repository];
 ----
 git clone https://github.com/embassy-rs/embassy.git
 cd embassy
-git submodule update --init
 ----
 
 You can run an example by opening a terminal and entering the following commands:

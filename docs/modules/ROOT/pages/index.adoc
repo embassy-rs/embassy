@@ -17,13 +17,26 @@ The Embassy project consists of several crates that you can use together or inde
 * **Hardware Abstraction Layers** - HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed. The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
 ** link:https://docs.embassy.dev/embassy-stm32/[embassy-stm32], for all STM32 microcontroller families.
 ** link:https://docs.embassy.dev/embassy-nrf/[embassy-nrf], for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
+** link:https://docs.embassy.dev/embassy-rp/[embassy-rp], for the Raspberry Pi RP2040 microcontroller.
+** link:https://github.com/esp-rs[esp-rs], for the Espressif Systems ESP32 series of chips.
++
+NOTE: A common question is if one can use the Embassy HALs standalone. Yes, it is possible! There are no dependency on the executor within the HALs. You can even use them without async,
+as they implement both the link:https://github.com/rust-embedded/embedded-hal[Embedded HAL] blocking and async traits.
 
-* **Networking** - The link:https://docs.embassy.dev/embassy-net/[embassy-net] network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently.
+* **Networking** - The link:https://docs.embassy.dev/embassy-net/[embassy-net] network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently. Several drivers for WiFi and Ethernet chips can be found.
 
 * **Bluetooth** - The link:https://github.com/embassy-rs/nrf-softdevice[nrf-softdevice] crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
 
-* **LoRa** - link:https://docs.embassy.dev/embassy-lora/[embassy-lora] supports LoRa networking on STM32WL wireless microcontrollers and Semtech SX127x transceivers.
+* **LoRa** - link:https://github.com/embassy-rs/lora-phy[lora-phy] and link:https://docs.embassy.dev/embassy-lora/[embassy-lora] supports LoRa networking on a wide range of LoRa radios, fully integrated with a Rust link:https://github.com/ivajloip/rust-lorawan[LoRaWAN] implementation.
 
 * **USB** - link:https://docs.embassy.dev/embassy-usb/[embassy-usb] implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
 
 * **Bootloader and DFU** - link:https://github.com/embassy-rs/embassy/tree/master/embassy-boot[embassy-boot] is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+
+== Resources
+
+For more reading material on async Rust and Embassy:
+
+* link:https://tweedegolf.nl/en/blog/65/async-rust-vs-rtos-showdown[Comparsion of FreeRTOS and Embassy]
+* link:https://dev.to/apollolabsbin/series/20707[Tutorials]
+* link:https://blog.drogue.io/firmware-updates-part-1/[Firmware Updates with Embassy]

@@ -8,7 +8,7 @@ The nRF timer driver operates at 32768 Hz by default.
 
 == Peripherals
 
-The following peripherals have a HAL implementation at present:
+The following peripherals have a HAL implementation at present
 
 * PWM
 * SPIM
@@ -23,3 +23,7 @@ The following peripherals have a HAL implementation at present:
 * UARTE
 * TWIM
 * SAADC
+
+== Bluetooth
+
+For bluetooth, you can use the link:https://github.com/embassy-rs/nrf-softdevice[nrf-softdevice] crate.
