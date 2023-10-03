@@ -11,8 +11,8 @@ embassy-time = { version = "0.1.3", path = "../../embassy-time", features = ["lo
 embassy-net = { version = "0.1.0", path = "../../embassy-net", features=[ "std", "nightly", "log", "medium-ethernet", "medium-ip", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6"] }
 embassy-net-tuntap = { version = "0.1.0", path = "../../embassy-net-tuntap" }
 embassy-net-ppp = { version = "0.1.0", path = "../../embassy-net-ppp", features = ["log"]}
-embedded-io-async = { version = "0.5.0" }
-embedded-io-adapters = { version = "0.5.0", features = ["futures-03"] }
+embedded-io-async = { version = "0.6.0" }
+embedded-io-adapters = { version = "0.6.0", features = ["futures-03"] }
 critical-section = { version = "1.1", features = ["std"] }
 smoltcp = { version = "0.10.0", features = ["dns-max-server-count-4"] }
 
