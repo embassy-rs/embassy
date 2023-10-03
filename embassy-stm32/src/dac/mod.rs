@@ -564,7 +564,7 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 foreach_peripheral!(
     (dac, $inst:ident) => {
         // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
-        #[cfg(rcc_h7)]
+        #[cfg(any(rcc_h7, rcc_h7rm0433))]
         impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
             fn frequency() -> crate::time::Hertz {
                 critical_section::with(|_| unsafe { crate::rcc::get_freqs().apb1 })
@@ -590,7 +590,7 @@ foreach_peripheral!(
             }
         }
 
-        #[cfg(rcc_h7)]
+        #[cfg(any(rcc_h7, rcc_h7rm0433))]
         impl crate::rcc::RccPeripheral for peripherals::$inst {}
 
         impl crate::dac::sealed::Instance for peripherals::$inst {

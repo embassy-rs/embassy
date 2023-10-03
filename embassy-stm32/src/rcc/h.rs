@@ -9,6 +9,8 @@ pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
 pub use crate::pac::rcc::vals::Ckpersel as PerClockSource;
 use crate::pac::rcc::vals::{Ckpersel, Hsidiv, Pllrge, Pllsrc, Pllvcosel, Sw, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
+#[cfg(stm32h7)]
+use crate::rcc::bd::{BackupDomain, LseCfg, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -46,9 +48,9 @@ pub enum VoltageScale {
 pub enum HseMode {
     /// crystal/ceramic oscillator (HSEBYP=0)
     Oscillator,
-    ///  external analog clock (low swing) (HSEBYP=1, HSEEXT=0)
+    /// external analog clock (low swing) (HSEBYP=1, HSEEXT=0)
     Bypass,
-    ///  external digital clock (full swing) (HSEBYP=1, HSEEXT=1)
+    /// external digital clock (full swing) (HSEBYP=1, HSEEXT=1)
     #[cfg(any(rcc_h5, rcc_h50))]
     BypassDigital,
 }
@@ -59,6 +61,15 @@ pub struct Hse {
     pub freq: Hertz,
     /// HSE mode.
     pub mode: HseMode,
+}
+
+#[cfg(stm32h7)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum Lse {
+    /// 32.768 kHz crystal/ceramic oscillator (LSEBYP=0)
+    Oscillator,
+    /// external clock input up to 1MHz (LSEBYP=1)
+    Bypass(Hertz),
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -157,6 +168,10 @@ impl From<TimerPrescaler> for Timpre {
 pub struct Config {
     pub hsi: Option<Hsi>,
     pub hse: Option<Hse>,
+    #[cfg(stm32h7)]
+    pub lse: Option<Lse>,
+    #[cfg(stm32h7)]
+    pub lsi: bool,
     pub csi: bool,
     pub hsi48: bool,
     pub sys: Sysclk,
@@ -181,6 +196,8 @@ pub struct Config {
     pub adc_clock_source: AdcClockSource,
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
+    #[cfg(stm32h7)]
+    pub rtc_mux: Option<RtcClockSource>,
 }
 
 impl Default for Config {
@@ -188,6 +205,10 @@ impl Default for Config {
         Self {
             hsi: Some(Hsi::Mhz64),
             hse: None,
+            #[cfg(stm32h7)]
+            lse: None,
+            #[cfg(stm32h7)]
+            lsi: false,
             csi: false,
             hsi48: false,
             sys: Sysclk::HSI,
@@ -210,6 +231,8 @@ impl Default for Config {
             adc_clock_source: AdcClockSource::from_bits(0), // PLL2_P on H7, HCLK on H5
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
+            #[cfg(stm32h7)]
+            rtc_mux: None,
         }
     }
 }
@@ -450,6 +473,19 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(stm32h7)]
     {
+        let lsecfg = config.lse.map(|lse| match lse {
+            Lse::Bypass(freq) => {
+                assert!(freq <= Hertz(1_000_000));
+                LseCfg::Bypass
+            }
+            Lse::Oscillator => LseCfg::Oscillator(Default::default()),
+        });
+
+        BackupDomain::configure_ls(config.rtc_mux.unwrap_or(RtcClockSource::NOCLOCK), config.lsi, lsecfg);
+    }
+
+    #[cfg(stm32h7)]
+    {
         RCC.d1cfgr().modify(|w| {
             w.set_d1cpre(config.d1c_pre);
             w.set_d1ppre(config.apb3_pre);
@@ -512,6 +548,17 @@ pub(crate) unsafe fn init(config: Config) {
         while !pac::SYSCFG.cccsr().read().ready() {}
     }
 
+    #[cfg(stm32h7)]
+    let rtc_clk = match config.rtc_mux {
+        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
+        Some(RtcClockSource::LSE) => Some(match config.lse {
+            Some(Lse::Oscillator) => Hertz(32768),
+            Some(Lse::Bypass(freq)) => freq,
+            None => panic!("LSE not configured"),
+        }),
+        _ => None,
+    };
+
     set_freqs(Clocks {
         sys,
         ahb1: hclk,
@@ -525,7 +572,11 @@ pub(crate) unsafe fn init(config: Config) {
         apb4,
         apb1_tim,
         apb2_tim,
-        adc: adc,
+        adc,
+        #[cfg(stm32h7)]
+        rtc: rtc_clk,
+        #[cfg(stm32h7)]
+        rtc_hse: None,
     });
 }
 
