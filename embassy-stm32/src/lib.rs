@@ -49,6 +49,8 @@ pub mod i2s;
 pub mod ipcc;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(opamp)]
+pub mod opamp;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]

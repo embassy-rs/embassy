@@ -810,6 +810,20 @@ fn main() {
                     }
                 }
 
+                if regs.kind == "opamp" {
+                    if !pin.signal.starts_with("VP") {
+                        continue;
+                    }
+
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
+
+                    g.extend(quote! {
+                        impl_opamp_pin!( #peri, #pin_name, #ch);
+                    })
+                }
+
                 // DAC is special
                 if regs.kind == "dac" {
                     let peri = format_ident!("{}", p.name);
