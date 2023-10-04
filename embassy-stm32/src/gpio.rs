@@ -974,6 +974,18 @@ mod eh1 {
         type Error = Infallible;
     }
 
+    impl<'d, T: Pin> InputPin for OutputOpenDrain<'d, T> {
+        #[inline]
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        #[inline]
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
+    }
+
     impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {
         #[inline]
         fn set_high(&mut self) -> Result<(), Self::Error> {
