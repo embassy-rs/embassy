@@ -4,7 +4,15 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::Peripheral;
 
-#[cfg(opamp_f3)]
+#[derive(Clone, Copy)]
+pub enum OpAmpGain {
+    Mul1,
+    Mul2,
+    Mul4,
+    Mul8,
+    Mul16,
+}
+
 pub struct OpAmpOutput<'d, 'p, T: Instance, P: NonInvertingPin<T>> {
     _inner: &'d OpAmp<'d, T>,
     _input: &'p mut P,
@@ -35,14 +43,32 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         Self { _inner: opamp }
     }
 
-    #[cfg(opamp_f3)]
-    pub fn buffer_for<'a, 'b, P>(&'a mut self, pin: &'b mut P) -> OpAmpOutput<'a, 'b, T, P>
+    pub fn buffer_for<'a, 'b, P>(&'a mut self, pin: &'b mut P, gain: OpAmpGain) -> OpAmpOutput<'a, 'b, T, P>
     where
         P: NonInvertingPin<T>,
     {
+        let (vm_sel, pga_gain) = match gain {
+            OpAmpGain::Mul1 => (0b11, 0b00),
+            OpAmpGain::Mul2 => (0b10, 0b00),
+            OpAmpGain::Mul4 => (0b10, 0b01),
+            OpAmpGain::Mul8 => (0b10, 0b10),
+            OpAmpGain::Mul16 => (0b10, 0b11),
+        };
+
         #[cfg(opamp_f3)]
         T::regs().opampcsr().modify(|w| {
             w.set_vp_sel(pin.channel());
+            w.set_vm_sel(vm_sel);
+            w.set_pga_gain(pga_gain);
+        });
+
+        #[cfg(opamp_g4)]
+        T::regs().opamp_csr().modify(|w| {
+            use crate::pac::opamp::vals::*;
+
+            w.set_vp_sel(OpampCsrVpSel::from_bits(pin.channel()));
+            w.set_vm_sel(OpampCsrVmSel::from_bits(vm_sel));
+            w.set_pga_gain(OpampCsrPgaGain::from_bits(pga_gain));
         });
 
         OpAmpOutput {

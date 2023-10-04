@@ -5,7 +5,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::opamp::OpAmp;
+use embassy_stm32::opamp::{OpAmp, OpAmpGain};
 use embassy_stm32::peripherals::ADC2;
 use embassy_stm32::rcc::AdcClockSource;
 use embassy_stm32::time::mhz;
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut vrefint = adc.enable_vref(&mut Delay);
     let mut temperature = adc.enable_temperature();
-    let mut buffer = opamp.buffer_for(&mut p.PA7);
+    let mut buffer = opamp.buffer_for(&mut p.PA7, OpAmpGain::Mul1);
 
     loop {
         let vref = adc.read(&mut vrefint).await;
