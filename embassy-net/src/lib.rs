@@ -39,7 +39,7 @@ use smoltcp::socket::dhcpv4::{self, RetryConfig};
 pub use smoltcp::wire::EthernetAddress;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
 pub use smoltcp::wire::HardwareAddress;
-#[cfg(feature = "udp")]
+#[cfg(any(feature = "udp", feature = "tcp"))]
 pub use smoltcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ieee802154")]
 pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
