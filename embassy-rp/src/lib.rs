@@ -194,6 +194,7 @@ embassy_hal_internal::peripherals! {
     PIO1,
 
     WATCHDOG,
+    BOOTSEL,
 }
 
 macro_rules! select_bootloader {
