@@ -14,7 +14,7 @@ pub use timeout::*;
 
 use crate::peripherals;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Bus,

@@ -15,7 +15,7 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Framing,

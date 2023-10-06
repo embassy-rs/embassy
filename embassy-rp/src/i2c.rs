@@ -27,7 +27,7 @@ pub enum AbortReason {
 }
 
 /// I2C error
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// I2C abort with error
