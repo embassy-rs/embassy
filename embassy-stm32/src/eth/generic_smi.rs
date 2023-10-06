@@ -41,39 +41,40 @@ mod phy_consts {
 }
 use self::phy_consts::*;
 
-/// Generic SMI Ethernet PHY
+/// Generic SMI Ethernet PHY implementation
 pub struct GenericSMI {
+    phy_addr: u8,
     #[cfg(feature = "time")]
     poll_interval: Duration,
-    #[cfg(not(feature = "time"))]
-    _private: (),
 }
 
 impl GenericSMI {
-    pub fn new() -> Self {
+    /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
+    pub fn new(phy_addr: u8) -> Self {
         Self {
+            phy_addr,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
-            #[cfg(not(feature = "time"))]
-            _private: (),
         }
     }
 }
 
 unsafe impl PHY for GenericSMI {
-    /// Reset PHY and wait for it to come out of reset.
     fn phy_reset<S: StationManagement>(&mut self, sm: &mut S) {
-        sm.smi_write(PHY_REG_BCR, PHY_REG_BCR_RESET);
-        while sm.smi_read(PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
+        sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
+        while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
     }
 
-    /// PHY initialisation.
     fn phy_init<S: StationManagement>(&mut self, sm: &mut S) {
         // Clear WU CSR
         self.smi_write_ext(sm, PHY_REG_WUCSR, 0);
 
         // Enable auto-negotiation
-        sm.smi_write(PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M);
+        sm.smi_write(
+            self.phy_addr,
+            PHY_REG_BCR,
+            PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M,
+        );
     }
 
     fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool {
@@ -83,7 +84,7 @@ unsafe impl PHY for GenericSMI {
         #[cfg(feature = "time")]
         let _ = Timer::after(self.poll_interval).poll_unpin(cx);
 
-        let bsr = sm.smi_read(PHY_REG_BSR);
+        let bsr = sm.smi_read(self.phy_addr, PHY_REG_BSR);
 
         // No link without autonegotiate
         if bsr & PHY_REG_BSR_ANDONE == 0 {
@@ -108,9 +109,9 @@ impl GenericSMI {
 
     // Writes a value to an extended PHY register in MMD address space
     fn smi_write_ext<S: StationManagement>(&mut self, sm: &mut S, reg_addr: u16, reg_data: u16) {
-        sm.smi_write(PHY_REG_CTL, 0x0003); // set address
-        sm.smi_write(PHY_REG_ADDAR, reg_addr);
-        sm.smi_write(PHY_REG_CTL, 0x4003); // set data
-        sm.smi_write(PHY_REG_ADDAR, reg_data);
+        sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x0003); // set address
+        sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_addr);
+        sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x4003); // set data
+        sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_data);
     }
 }

@@ -107,7 +107,6 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         tx_en: impl Peripheral<P = impl TXEnPin<T>> + 'd,
         phy: P,
         mac_addr: [u8; 6],
-        phy_addr: u8,
     ) -> Self {
         into_ref!(peri, ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
@@ -227,7 +226,6 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             station_management: EthernetStationManagement {
                 peri: PhantomData,
                 clock_range: clock_range,
-                phy_addr: phy_addr,
             },
             mac_addr,
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
@@ -271,15 +269,14 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 pub struct EthernetStationManagement<T: Instance> {
     peri: PhantomData<T>,
     clock_range: Cr,
-    phy_addr: u8,
 }
 
 unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
-    fn smi_read(&mut self, reg: u8) -> u16 {
+    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
         let mac = ETH.ethernet_mac();
 
         mac.macmiiar().modify(|w| {
-            w.set_pa(self.phy_addr);
+            w.set_pa(phy_addr);
             w.set_mr(reg);
             w.set_mw(Mw::READ); // read operation
             w.set_cr(self.clock_range);
@@ -289,12 +286,12 @@ unsafe impl<T: Instance> StationManagement for EthernetStationManagement<T> {
         mac.macmiidr().read().md()
     }
 
-    fn smi_write(&mut self, reg: u8, val: u16) {
+    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
         let mac = ETH.ethernet_mac();
 
         mac.macmiidr().write(|w| w.set_md(val));
         mac.macmiiar().modify(|w| {
-            w.set_pa(self.phy_addr);
+            w.set_pa(phy_addr);
             w.set_mr(reg);
             w.set_mw(Mw::WRITE); // write
             w.set_cr(self.clock_range);
