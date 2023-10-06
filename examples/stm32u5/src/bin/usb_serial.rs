@@ -23,7 +23,12 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL1R(PllSrc::HSI16, PllM::Div2, PllN::Mul10, PllClkDiv::NotDivided);
+    config.rcc.mux = ClockSrc::PLL1R(PllConfig {
+        source: PllSrc::HSI16,
+        m: PllM::Div2,
+        n: PllN::Mul10,
+        r: PllClkDiv::NotDivided,
+    });
     //config.rcc.mux = ClockSrc::MSI(MSIRange::Range48mhz);
     config.rcc.hsi48 = true;
 
