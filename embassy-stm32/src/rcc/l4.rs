@@ -1,18 +1,11 @@
-use core::marker::PhantomData;
-
-use embassy_hal_internal::into_ref;
 use stm32_metapac::rcc::regs::Cfgr;
-use stm32_metapac::rcc::vals::{Mcopre, Mcosel};
 
 pub use super::bus::{AHBPrescaler, APBPrescaler};
-use crate::gpio::sealed::AFType;
-use crate::gpio::Speed;
 use crate::pac::rcc::vals::{Hpre, Msirange, Pllsrc, Ppre, Sw};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
-use crate::{peripherals, Peripheral};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
@@ -260,131 +253,6 @@ impl Default for Config {
             lsi: true,
             lse: None,
         }
-    }
-}
-
-pub enum McoClock {
-    DIV1,
-    DIV2,
-    DIV4,
-    DIV8,
-    DIV16,
-}
-
-impl McoClock {
-    fn into_raw(&self) -> Mcopre {
-        match self {
-            McoClock::DIV1 => Mcopre::DIV1,
-            McoClock::DIV2 => Mcopre::DIV2,
-            McoClock::DIV4 => Mcopre::DIV4,
-            McoClock::DIV8 => Mcopre::DIV8,
-            McoClock::DIV16 => Mcopre::DIV16,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub enum Mco1Source {
-    Disabled,
-    Lse,
-    Lsi,
-    Hse,
-    Hsi16,
-    PllClk,
-    SysClk,
-    Msi,
-    #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
-    Hsi48,
-}
-
-impl Default for Mco1Source {
-    fn default() -> Self {
-        Self::Hsi16
-    }
-}
-
-pub trait McoSource {
-    type Raw;
-
-    fn into_raw(&self) -> Self::Raw;
-}
-
-impl McoSource for Mco1Source {
-    type Raw = Mcosel;
-    fn into_raw(&self) -> Self::Raw {
-        match self {
-            Mco1Source::Disabled => Mcosel::NOCLOCK,
-            Mco1Source::Lse => Mcosel::LSE,
-            Mco1Source::Lsi => Mcosel::LSI,
-            Mco1Source::Hse => Mcosel::HSE,
-            Mco1Source::Hsi16 => Mcosel::HSI16,
-            Mco1Source::PllClk => Mcosel::PLL,
-            Mco1Source::SysClk => Mcosel::SYSCLK,
-            Mco1Source::Msi => Mcosel::MSI,
-            #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
-            Mco1Source::Hsi48 => Mcosel::HSI48,
-        }
-    }
-}
-
-pub(crate) mod sealed {
-    use stm32_metapac::rcc::vals::Mcopre;
-    pub trait McoInstance {
-        type Source;
-        unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre);
-    }
-}
-
-pub trait McoInstance: sealed::McoInstance + 'static {}
-
-pin_trait!(McoPin, McoInstance);
-
-impl sealed::McoInstance for peripherals::MCO {
-    type Source = Mcosel;
-
-    unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre) {
-        RCC.cfgr().modify(|w| {
-            w.set_mcosel(source);
-            w.set_mcopre(prescaler);
-        });
-
-        match source {
-            Mcosel::HSI16 => {
-                RCC.cr().modify(|w| w.set_hsion(true));
-                while !RCC.cr().read().hsirdy() {}
-            }
-            #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
-            Mcosel::HSI48 => {
-                RCC.crrcr().modify(|w| w.set_hsi48on(true));
-                while !RCC.crrcr().read().hsi48rdy() {}
-            }
-            _ => {}
-        }
-    }
-}
-
-impl McoInstance for peripherals::MCO {}
-
-pub struct Mco<'d, T: McoInstance> {
-    phantom: PhantomData<&'d mut T>,
-}
-
-impl<'d, T: McoInstance> Mco<'d, T> {
-    pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
-        pin: impl Peripheral<P = impl McoPin<T>> + 'd,
-        source: impl McoSource<Raw = T::Source>,
-        prescaler: McoClock,
-    ) -> Self {
-        into_ref!(pin);
-
-        critical_section::with(|_| unsafe {
-            T::apply_clock_settings(source.into_raw(), prescaler.into_raw());
-            pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-            pin.set_speed(Speed::VeryHigh);
-        });
-
-        Self { phantom: PhantomData }
     }
 }
 

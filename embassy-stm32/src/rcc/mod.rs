@@ -7,9 +7,7 @@ use crate::time::Hertz;
 
 pub(crate) mod bd;
 mod bus;
-#[cfg(any(stm32h5, stm32h7, stm32wl))]
 mod mco;
-#[cfg(any(stm32h5, stm32h7, stm32wl))]
 pub use mco::*;
 
 #[cfg_attr(rcc_f0, path = "f0.rs")]

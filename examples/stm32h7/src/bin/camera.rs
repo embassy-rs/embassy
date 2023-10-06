@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::rcc::{Mco, Mco1Source};
+use embassy_stm32::rcc::{Mco, Mco1Source, McoPrescaler};
 use embassy_stm32::time::khz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
 use embassy_time::{Duration, Timer};
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     defmt::info!("Hello World!");
-    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, 3);
+    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, McoPrescaler::DIV3);
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let cam_i2c = I2c::new(

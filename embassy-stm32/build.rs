@@ -52,7 +52,11 @@ fn main() {
                 "rcc" => {
                     for pin in p.pins {
                         if pin.signal.starts_with("MCO") {
-                            singletons.push(pin.signal.replace('_', "").to_string());
+                            let name = pin.signal.replace('_', "").to_string();
+                            if !singletons.contains(&name) {
+                                println!("cargo:rustc-cfg={}", name.to_ascii_lowercase());
+                                singletons.push(name);
+                            }
                         }
                     }
                     singletons.push(p.name.to_string());
