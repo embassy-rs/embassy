@@ -21,7 +21,7 @@ pub use mco::*;
 #[cfg_attr(rcc_c0, path = "c0.rs")]
 #[cfg_attr(rcc_g0, path = "g0.rs")]
 #[cfg_attr(rcc_g4, path = "g4.rs")]
-#[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab), path = "h.rs")]
+#[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab), path = "h.rs")]
 #[cfg_attr(rcc_l0, path = "l0.rs")]
 #[cfg_attr(rcc_l1, path = "l1.rs")]
 #[cfg_attr(rcc_l4, path = "l4.rs")]
@@ -57,9 +57,9 @@ pub struct Clocks {
     pub apb2: Hertz,
     #[cfg(not(any(rcc_c0, rcc_g0)))]
     pub apb2_tim: Hertz,
-    #[cfg(any(rcc_wl5, rcc_wle, rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_u5))]
+    #[cfg(any(rcc_wl5, rcc_wle, rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab, rcc_u5))]
     pub apb3: Hertz,
-    #[cfg(any(rcc_h7, rcc_h7ab))]
+    #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7ab))]
     pub apb4: Hertz,
     #[cfg(any(rcc_wba))]
     pub apb7: Hertz,
@@ -67,16 +67,44 @@ pub struct Clocks {
     // AHB
     pub ahb1: Hertz,
     #[cfg(any(
-        rcc_l4, rcc_l5, rcc_f2, rcc_f4, rcc_f410, rcc_f7, rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_g4, rcc_u5, rcc_wb,
-        rcc_wba, rcc_wl5, rcc_wle
+        rcc_l4,
+        rcc_l5,
+        rcc_f2,
+        rcc_f4,
+        rcc_f410,
+        rcc_f7,
+        rcc_h5,
+        rcc_h50,
+        rcc_h7,
+        rcc_h7rm0433,
+        rcc_h7ab,
+        rcc_g4,
+        rcc_u5,
+        rcc_wb,
+        rcc_wba,
+        rcc_wl5,
+        rcc_wle
     ))]
     pub ahb2: Hertz,
     #[cfg(any(
-        rcc_l4, rcc_l5, rcc_f2, rcc_f4, rcc_f410, rcc_f7, rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_u5, rcc_wb, rcc_wl5,
+        rcc_l4,
+        rcc_l5,
+        rcc_f2,
+        rcc_f4,
+        rcc_f410,
+        rcc_f7,
+        rcc_h5,
+        rcc_h50,
+        rcc_h7,
+        rcc_h7rm0433,
+        rcc_h7ab,
+        rcc_u5,
+        rcc_wb,
+        rcc_wl5,
         rcc_wle
     ))]
     pub ahb3: Hertz,
-    #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_wba))]
+    #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab, rcc_wba))]
     pub ahb4: Hertz,
 
     #[cfg(any(rcc_f2, rcc_f4, rcc_f410, rcc_f7))]
@@ -88,7 +116,18 @@ pub struct Clocks {
     #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
     pub pllsai: Option<Hertz>,
 
-    #[cfg(any(rcc_f1, rcc_f100, rcc_f1cl, rcc_h5, rcc_h50, rcc_h7, rcc_h7ab, rcc_f3, rcc_g4))]
+    #[cfg(any(
+        rcc_f1,
+        rcc_f100,
+        rcc_f1cl,
+        rcc_h5,
+        rcc_h50,
+        rcc_h7,
+        rcc_h7rm0433,
+        rcc_h7ab,
+        rcc_f3,
+        rcc_g4
+    ))]
     pub adc: Option<Hertz>,
 
     #[cfg(any(rcc_f3, rcc_g4))]
@@ -97,11 +136,11 @@ pub struct Clocks {
     #[cfg(stm32f334)]
     pub hrtim: Option<Hertz>,
 
-    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_f7))]
+    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
     /// Set only if the lsi or lse is configured, indicates stop is supported
     pub rtc: Option<Hertz>,
 
-    #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
+    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
     /// Set if the hse is configured, indicates stop is not supported
     pub rtc_hse: Option<Hertz>,
 }

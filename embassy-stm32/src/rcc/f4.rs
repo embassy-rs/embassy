@@ -540,7 +540,7 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
         pllsai: plls.pllsaiclk.map(Hertz),
 
-        rtc: rtc,
+        rtc,
         rtc_hse: None,
     });
 }

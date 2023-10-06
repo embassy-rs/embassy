@@ -261,7 +261,7 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_msirange(range.into());
                 w.set_msion(true);
 
-                if let RtcClockSource::LSE = config.rtc_mux {
+                if config.rtc_mux == RtcClockSource::LSE {
                     // If LSE is enabled, enable calibration of MSI
                     w.set_msipllen(true);
                 } else {

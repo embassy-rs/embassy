@@ -1,26 +1,36 @@
 #[allow(dead_code)]
+#[derive(Clone, Copy)]
+pub enum LseCfg {
+    Oscillator(LseDrive),
+    Bypass,
+}
+
+impl Default for LseCfg {
+    fn default() -> Self {
+        Self::Oscillator(Default::default())
+    }
+}
+
+#[allow(dead_code)]
 #[derive(Default, Clone, Copy)]
 pub enum LseDrive {
-    #[cfg(any(rtc_v2f7, rtc_v2l4))]
     Low = 0,
     MediumLow = 0x01,
     #[default]
     MediumHigh = 0x02,
-    #[cfg(any(rtc_v2f7, rtc_v2l4))]
     High = 0x03,
 }
 
-#[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
+// All families but these have the LSEDRV register
+#[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f400, rcc_f410, rcc_l1)))]
 impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     fn from(value: LseDrive) -> Self {
         use crate::pac::rcc::vals::Lsedrv;
 
         match value {
-            #[cfg(any(rtc_v2f7, rtc_v2l4))]
             LseDrive::Low => Lsedrv::LOW,
             LseDrive::MediumLow => Lsedrv::MEDIUMLOW,
             LseDrive::MediumHigh => Lsedrv::MEDIUMHIGH,
-            #[cfg(any(rtc_v2f7, rtc_v2l4))]
             LseDrive::High => Lsedrv::HIGH,
         }
     }
@@ -87,13 +97,18 @@ impl BackupDomain {
         rtc_v3u5
     ))]
     #[allow(dead_code, unused_variables)]
-    pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseDrive>) {
+    pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseCfg>) {
         use atomic_polyfill::{compiler_fence, Ordering};
 
         match clock_source {
             RtcClockSource::LSI => assert!(lsi),
-            RtcClockSource::LSE => assert!(&lse.is_some()),
+            RtcClockSource::LSE => assert!(lse.is_some()),
             _ => {}
+        };
+        let (lse_en, lse_byp, lse_drv) = match lse {
+            Some(LseCfg::Oscillator(lse_drv)) => (true, false, Some(lse_drv)),
+            Some(LseCfg::Bypass) => (true, true, None),
+            None => (false, false, None),
         };
 
         if lsi {
@@ -131,10 +146,11 @@ impl BackupDomain {
         {
             ok &= reg.rtcen() == (clock_source != RtcClockSource::NOCLOCK);
         }
-        ok &= reg.lseon() == lse.is_some();
-        #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
-        if let Some(lse_drive) = lse {
-            ok &= reg.lsedrv() == lse_drive.into();
+        ok &= reg.lseon() == lse_en;
+        ok &= reg.lsebyp() == lse_byp;
+        #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f400, rcc_f410, rcc_l1)))]
+        if let Some(lse_drv) = lse_drv {
+            ok &= reg.lsedrv() == lse_drv.into();
         }
 
         // if configuration is OK, we're done.
@@ -153,10 +169,13 @@ impl BackupDomain {
             Self::modify(|w| w.set_bdrst(false));
         }
 
-        if let Some(lse_drive) = lse {
+        if lse_en {
             Self::modify(|w| {
-                #[cfg(any(rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l4))]
-                w.set_lsedrv(lse_drive.into());
+                #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f400, rcc_f410, rcc_l1)))]
+                if let Some(lse_drv) = lse_drv {
+                    w.set_lsedrv(lse_drv.into());
+                }
+                w.set_lsebyp(lse_byp);
                 w.set_lseon(true);
             });
 
