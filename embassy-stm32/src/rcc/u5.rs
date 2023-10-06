@@ -1,7 +1,7 @@
-use stm32_metapac::rcc::vals::{Msirange, Msirgsel, Pllm, Pllsrc, Sw};
+use stm32_metapac::rcc::vals::{Msirange, Msirgsel, Pllm, Pllmboost, Pllrge, Pllsrc, Sw};
 
 pub use super::bus::{AHBPrescaler, APBPrescaler};
-use crate::pac::{FLASH, RCC};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -15,23 +15,86 @@ pub use crate::pac::pwr::vals::Vos as VoltageScale;
 
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
+    /// Use an internal medium speed oscillator (MSIS) as the system clock.
     MSI(MSIRange),
+    /// Use the external high speed clock as the system clock.
+    ///
+    /// HSE clocks faster than 25 MHz require at least `VoltageScale::RANGE3`, and HSE clocks must
+    /// never exceed 50 MHz.
     HSE(Hertz),
+    /// Use the 16 MHz internal high speed oscillator as the system clock.
     HSI16,
-    PLL1R(PllSrc, PllM, PllN, PllClkDiv),
+    /// Use PLL1 as the system clock.
+    PLL1R(PllConfig),
+}
+
+impl Default for ClockSrc {
+    fn default() -> Self {
+        // The default system clock source is MSIS @ 4 MHz, per RM0456 § 11.4.9
+        ClockSrc::MSI(MSIRange::Range4mhz)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PllConfig {
+    /// The clock source for the PLL.
+    pub source: PllSrc,
+    /// The PLL prescaler.
+    ///
+    /// The clock speed of the `source` divided by `m` must be between 4 and 16 MHz.
+    pub m: PllM,
+    /// The PLL multiplier.
+    ///
+    /// The multiplied clock – `source` divided by `m` times `n` – must be between 128 and 544
+    /// MHz. The upper limit may be lower depending on the `Config { voltage_range }`.
+    pub n: PllN,
+    /// The divider for the R output.
+    ///
+    /// When used to drive the system clock, `source` divided by `m` times `n` divided by `r`
+    /// must not exceed 160 MHz. System clocks above 55 MHz require a non-default
+    /// `Config { voltage_range }`.
+    pub r: PllClkDiv,
+}
+
+impl PllConfig {
+    /// A configuration for HSI16 / 1 * 10 / 1 = 160 MHz
+    pub const fn hsi16_160mhz() -> Self {
+        PllConfig {
+            source: PllSrc::HSI16,
+            m: PllM::NotDivided,
+            n: PllN::Mul10,
+            r: PllClkDiv::NotDivided,
+        }
+    }
+
+    /// A configuration for MSIS @ 48 MHz / 3 * 10 / 1 = 160 MHz
+    pub const fn msis_160mhz() -> Self {
+        PllConfig {
+            source: PllSrc::MSIS(MSIRange::Range48mhz),
+            m: PllM::Div3,
+            n: PllN::Mul10,
+            r: PllClkDiv::NotDivided,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum PllSrc {
-    MSI(MSIRange),
+    /// Use an internal medium speed oscillator as the PLL source.
+    MSIS(MSIRange),
+    /// Use the external high speed clock as the system PLL source.
+    ///
+    /// HSE clocks faster than 25 MHz require at least `VoltageScale::RANGE3`, and HSE clocks must
+    /// never exceed 50 MHz.
     HSE(Hertz),
+    /// Use the 16 MHz internal high speed oscillator as the PLL source.
     HSI16,
 }
 
 impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::MSI(..) => Pllsrc::MSIS,
+            PllSrc::MSIS(..) => Pllsrc::MSIS,
             PllSrc::HSE(..) => Pllsrc::HSE,
             PllSrc::HSI16 => Pllsrc::HSI16,
         }
@@ -41,56 +104,44 @@ impl Into<Pllsrc> for PllSrc {
 seq_macro::seq!(N in 2..=128 {
     #[derive(Copy, Clone, Debug)]
     pub enum PllClkDiv {
-        NotDivided,
+        NotDivided = 1,
         #(
-            Div~N = (N-1),
+            Div~N = N,
         )*
     }
 
     impl PllClkDiv {
         fn to_div(&self) -> u8 {
             match self {
-                PllClkDiv::NotDivided => 1,
+                PllClkDiv::NotDivided => 0,
                 #(
-                    PllClkDiv::Div~N => N + 1,
+                    PllClkDiv::Div~N => N - 1,
                 )*
             }
         }
     }
 });
 
-impl Into<u8> for PllClkDiv {
-    fn into(self) -> u8 {
-        (self as u8) + 1
-    }
-}
-
 seq_macro::seq!(N in 4..=512 {
     #[derive(Copy, Clone, Debug)]
     pub enum PllN {
-        NotMultiplied,
+        NotMultiplied = 1,
         #(
-            Mul~N = N-1,
+            Mul~N = N,
         )*
     }
 
     impl PllN {
         fn to_mul(&self) -> u16 {
             match self {
-                PllN::NotMultiplied => 1,
+                PllN::NotMultiplied => 0,
                 #(
-                    PllN::Mul~N => N + 1,
+                    PllN::Mul~N => N - 1,
                 )*
             }
         }
     }
 });
-
-impl Into<u16> for PllN {
-    fn into(self) -> u16 {
-        (self as u16) + 1
-    }
-}
 
 // Pre-division
 #[derive(Copy, Clone, Debug)]
@@ -132,6 +183,7 @@ impl Into<Sw> for ClockSrc {
 
 #[derive(Debug, Copy, Clone)]
 pub enum MSIRange {
+    /// The 48 MHz MSI speed is unavailable in `VoltageScale::RANGE4`.
     Range48mhz = 48_000_000,
     Range24mhz = 24_000_000,
     Range16mhz = 16_000_000,
@@ -179,12 +231,6 @@ impl Into<Msirange> for MSIRange {
     }
 }
 
-impl Default for MSIRange {
-    fn default() -> Self {
-        MSIRange::Range4mhz
-    }
-}
-
 #[derive(Copy, Clone)]
 pub struct Config {
     pub mux: ClockSrc,
@@ -193,103 +239,220 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
     pub hsi48: bool,
+    /// The voltage range influences the maximum clock frequencies for different parts of the
+    /// device. In particular, system clocks exceeding 110 MHz require `RANGE1`, and system clocks
+    /// exceeding 55 MHz require at least `RANGE2`.
+    ///
+    /// See RM0456 § 10.5.4 for a general overview and § 11.4.10 for clock source frequency limits.
+    pub voltage_range: VoltageScale,
+}
+
+impl Config {
+    unsafe fn init_hsi16(&self) -> Hertz {
+        RCC.cr().write(|w| w.set_hsion(true));
+        while !RCC.cr().read().hsirdy() {}
+
+        HSI_FREQ
+    }
+
+    unsafe fn init_hse(&self, frequency: Hertz) -> Hertz {
+        // Check frequency limits per RM456 § 11.4.10
+        match self.voltage_range {
+            VoltageScale::RANGE1 | VoltageScale::RANGE2 | VoltageScale::RANGE3 => {
+                assert!(frequency.0 <= 50_000_000);
+            }
+            VoltageScale::RANGE4 => {
+                assert!(frequency.0 <= 25_000_000);
+            }
+        }
+
+        // Enable HSE, and wait for it to stabilize
+        RCC.cr().write(|w| w.set_hseon(true));
+        while !RCC.cr().read().hserdy() {}
+
+        frequency
+    }
+
+    unsafe fn init_msis(&self, range: MSIRange) -> Hertz {
+        // Check MSI output per RM0456 § 11.4.10
+        match self.voltage_range {
+            VoltageScale::RANGE4 => {
+                assert!(range as u32 <= 24_000_000);
+            }
+            _ => {}
+        }
+
+        // RM0456 § 11.8.2: spin until MSIS is off or MSIS is ready before setting its range
+        loop {
+            let cr = RCC.cr().read();
+            if cr.msison() == false || cr.msisrdy() == true {
+                break;
+            }
+        }
+
+        RCC.icscr1().modify(|w| {
+            let bits: Msirange = range.into();
+            w.set_msisrange(bits);
+            w.set_msirgsel(Msirgsel::RCC_ICSCR1);
+        });
+        RCC.cr().write(|w| {
+            w.set_msipllen(false);
+            w.set_msison(true);
+        });
+        while !RCC.cr().read().msisrdy() {}
+        Hertz(range as u32)
+    }
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            mux: ClockSrc::MSI(MSIRange::default()),
+            mux: ClockSrc::default(),
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb3_pre: APBPrescaler::DIV1,
             hsi48: false,
+            voltage_range: VoltageScale::RANGE3,
         }
     }
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Ensure PWR peripheral clock is enabled
+    RCC.ahb3enr().modify(|w| {
+        w.set_pwren(true);
+    });
+    RCC.ahb3enr().read(); // synchronize
+
+    // Set the requested power mode
+    PWR.vosr().modify(|w| {
+        w.set_vos(config.voltage_range);
+    });
+    while !PWR.vosr().read().vosrdy() {}
+
     let sys_clk = match config.mux {
-        ClockSrc::MSI(range) => {
-            RCC.icscr1().modify(|w| {
-                let bits: Msirange = range.into();
-                w.set_msisrange(bits);
-                w.set_msirgsel(Msirgsel::RCC_ICSCR1);
-            });
-            RCC.cr().write(|w| {
-                w.set_msipllen(false);
-                w.set_msison(true);
-            });
-            while !RCC.cr().read().msisrdy() {}
-
-            range.into()
-        }
-        ClockSrc::HSE(freq) => {
-            RCC.cr().write(|w| w.set_hseon(true));
-            while !RCC.cr().read().hserdy() {}
-
-            freq.0
-        }
-        ClockSrc::HSI16 => {
-            RCC.cr().write(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-
-            HSI_FREQ.0
-        }
-        ClockSrc::PLL1R(src, m, n, div) => {
-            let freq = match src {
-                PllSrc::MSI(_) => {
-                    // TODO: enable MSI
-                    MSIRange::default().into()
-                }
-                PllSrc::HSE(hertz) => {
-                    // TODO: enable HSE
-                    hertz.0
-                }
-                PllSrc::HSI16 => {
-                    RCC.cr().write(|w| w.set_hsion(true));
-                    while !RCC.cr().read().hsirdy() {}
-
-                    HSI_FREQ.0
-                }
+        ClockSrc::MSI(range) => config.init_msis(range),
+        ClockSrc::HSE(freq) => config.init_hse(freq),
+        ClockSrc::HSI16 => config.init_hsi16(),
+        ClockSrc::PLL1R(pll) => {
+            // Configure the PLL source
+            let source_clk = match pll.source {
+                PllSrc::MSIS(range) => config.init_msis(range),
+                PllSrc::HSE(hertz) => config.init_hse(hertz),
+                PllSrc::HSI16 => config.init_hsi16(),
             };
 
-            // disable
+            // Calculate the reference clock, which is the source divided by m
+            let reference_clk = source_clk / (pll.m as u8 as u32 + 1);
+
+            // Check limits per RM0456 § 11.4.6
+            assert!(Hertz::mhz(4) <= reference_clk && reference_clk <= Hertz::mhz(16));
+
+            // Calculate the PLL1 VCO clock and PLL1 R output clock
+            let pll1_clk = reference_clk * (pll.n as u8 as u32);
+            let pll1r_clk = pll1_clk / (pll.r as u8 as u32);
+
+            // Check system clock per RM0456 § 11.4.9
+            assert!(pll1r_clk <= Hertz::mhz(160));
+
+            // Check PLL clocks per RM0456 § 11.4.10
+            match config.voltage_range {
+                VoltageScale::RANGE1 => {
+                    assert!(pll1_clk >= Hertz::mhz(128) && pll1_clk <= Hertz::mhz(544));
+                    assert!(pll1r_clk <= Hertz::mhz(208));
+                }
+                VoltageScale::RANGE2 => {
+                    assert!(pll1_clk >= Hertz::mhz(128) && pll1_clk <= Hertz::mhz(544));
+                    assert!(pll1r_clk <= Hertz::mhz(110));
+                }
+                VoltageScale::RANGE3 => {
+                    assert!(pll1_clk >= Hertz::mhz(128) && pll1_clk <= Hertz::mhz(330));
+                    assert!(pll1r_clk <= Hertz::mhz(55));
+                }
+                VoltageScale::RANGE4 => {
+                    panic!("PLL is unavailable in voltage range 4");
+                }
+            }
+
+            // § 10.5.4: if we're targeting >= 55 MHz, we must configure PLL1MBOOST to a prescaler
+            // value that results in an output between 4 and 16 MHz for the PWR EPOD boost
+            let mboost = if pll1r_clk >= Hertz::mhz(55) {
+                // source_clk can be up to 50 MHz, so there's just a few cases:
+                if source_clk > Hertz::mhz(32) {
+                    // Divide by 4, giving EPOD 8-12.5 MHz
+                    Pllmboost::DIV4
+                } else if source_clk > Hertz::mhz(16) {
+                    // Divide by 2, giving EPOD 8-16 MHz
+                    Pllmboost::DIV2
+                } else {
+                    // Bypass, giving EPOD 4-16 MHz
+                    Pllmboost::BYPASS
+                }
+            } else {
+                // Nothing to do
+                Pllmboost::BYPASS
+            };
+
+            // Disable the PLL, and wait for it to disable
             RCC.cr().modify(|w| w.set_pllon(0, false));
             while RCC.cr().read().pllrdy(0) {}
 
-            let vco = freq * n as u8 as u32;
-            let pll_ck = vco / (div as u8 as u32 + 1);
-
+            // Configure the PLL
             RCC.pll1cfgr().write(|w| {
-                w.set_pllm(m.into());
-                w.set_pllsrc(src.into());
+                // Configure PLL1 source and prescaler
+                w.set_pllsrc(pll.source.into());
+                w.set_pllm(pll.m.into());
+
+                // Configure PLL1 input frequncy range
+                let input_range = if reference_clk <= Hertz::mhz(8) {
+                    Pllrge::FREQ_4TO8MHZ
+                } else {
+                    Pllrge::FREQ_8TO16MHZ
+                };
+                w.set_pllrge(input_range);
+
+                // Set the prescaler for PWR EPOD
+                w.set_pllmboost(mboost);
+
+                // Enable PLL1R output
                 w.set_pllren(true);
             });
 
+            // Configure the PLL divisors
             RCC.pll1divr().modify(|w| {
-                w.set_pllr(div.to_div());
-                w.set_plln(n.to_mul());
+                // Set the VCO multiplier
+                w.set_plln(pll.n.to_mul());
+                // Set the R output divisor
+                w.set_pllr(pll.r.to_div());
             });
 
-            // Enable PLL
+            // Do we need the EPOD booster to reach the target clock speed per § 10.5.4?
+            if pll1r_clk >= Hertz::mhz(55) {
+                // Enable the booster
+                PWR.vosr().modify(|w| {
+                    w.set_boosten(true);
+                });
+                while !PWR.vosr().read().boostrdy() {}
+            }
+
+            // Enable the PLL
             RCC.cr().modify(|w| w.set_pllon(0, true));
             while !RCC.cr().read().pllrdy(0) {}
 
-            pll_ck
+            pll1r_clk
         }
-    };
+    }
+    .0;
 
     if config.hsi48 {
         RCC.cr().modify(|w| w.set_hsi48on(true));
         while !RCC.cr().read().hsi48rdy() {}
     }
 
-    // TODO make configurable
-    let power_vos = VoltageScale::RANGE3;
-
-    // states and programming delay
-    let wait_states = match power_vos {
+    // The clock source is ready
+    // Calculate and set the flash wait states
+    let wait_states = match config.voltage_range {
         // VOS 1 range VCORE 1.26V - 1.40V
         VoltageScale::RANGE1 => {
             if sys_clk < 32_000_000 {
@@ -335,21 +498,34 @@ pub(crate) unsafe fn init(config: Config) {
             }
         }
     };
-
     FLASH.acr().modify(|w| {
         w.set_latency(wait_states);
     });
 
+    // Switch the system clock source
     RCC.cfgr1().modify(|w| {
         w.set_sw(config.mux.into());
     });
 
+    // RM0456 § 11.4.9 specifies maximum bus frequencies per voltage range, but the maximum bus
+    // frequency for each voltage range exactly matches the maximum permitted PLL output frequency.
+    // Given that:
+    //
+    //   1. Any bus frequency can never exceed the system clock frequency;
+    //   2. We checked the PLL output frequency if we're using it as a system clock;
+    //   3. The maximum HSE frequencies at each voltage range are lower than the bus limits, and
+    //      we checked the HSE frequency if configured as a system clock; and
+    //   4. The maximum frequencies from the other clock sources are lower than the lowest bus
+    //      frequency limit
+    //
+    // ...then we do not need to perform additional bus-related frequency checks.
+
+    // Configure the bus prescalers
     RCC.cfgr2().modify(|w| {
         w.set_hpre(config.ahb_pre.into());
         w.set_ppre1(config.apb1_pre.into());
         w.set_ppre2(config.apb2_pre.into());
     });
-
     RCC.cfgr3().modify(|w| {
         w.set_ppre3(config.apb3_pre.into());
     });
