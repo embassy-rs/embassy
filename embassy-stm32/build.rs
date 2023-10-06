@@ -50,12 +50,10 @@ fn main() {
                 // We *shouldn't* have singletons for these, but the HAL currently requires
                 // singletons, for using with RccPeripheral to enable/disable clocks to them.
                 "rcc" => {
-                    if r.version.starts_with("h5") || r.version.starts_with("h7") || r.version.starts_with("f4") {
-                        singletons.push("MCO1".to_string());
-                        singletons.push("MCO2".to_string());
-                    }
-                    if r.version.starts_with("l4") {
-                        singletons.push("MCO".to_string());
+                    for pin in p.pins {
+                        if pin.signal.starts_with("MCO") {
+                            singletons.push(pin.signal.replace('_', "").to_string());
+                        }
                     }
                     singletons.push(p.name.to_string());
                 }
@@ -751,25 +749,8 @@ fn main() {
                     let af = pin.af.unwrap_or(0);
 
                     // MCO is special
-                    if pin.signal.starts_with("MCO_") {
-                        // Supported in H7 only for now
-                        if regs.version.starts_with("h5")
-                            || regs.version.starts_with("h7")
-                            || regs.version.starts_with("f4")
-                        {
-                            peri = format_ident!("{}", pin.signal.replace('_', ""));
-                        } else {
-                            continue;
-                        }
-                    }
-
-                    if pin.signal == "MCO" {
-                        // Supported in H7 only for now
-                        if regs.version.starts_with("l4") {
-                            peri = format_ident!("MCO");
-                        } else {
-                            continue;
-                        }
+                    if pin.signal.starts_with("MCO") {
+                        peri = format_ident!("{}", pin.signal.replace('_', ""));
                     }
 
                     g.extend(quote! {
