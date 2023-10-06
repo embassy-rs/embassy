@@ -12,15 +12,24 @@ use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::RtcClockSource;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
-use embassy_stm32::time::Hertz;
 use embassy_time::{Duration, Timer};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = config();
 
-    config.rcc.lse = Some(Hertz(32_768));
-    config.rcc.rtc = Some(RtcClockSource::LSE);
+    #[cfg(feature = "stm32h755zi")]
+    {
+        use embassy_stm32::rcc::Lse;
+        config.rcc.lse = Some(Lse::Oscillator);
+        config.rcc.rtc_mux = Some(RtcClockSource::LSE);
+    }
+    #[cfg(not(feature = "stm32h755zi"))]
+    {
+        use embassy_stm32::time::Hertz;
+        config.rcc.lse = Some(Hertz(32_768));
+        config.rcc.rtc = Some(RtcClockSource::LSE);
+    }
 
     let p = embassy_stm32::init(config);
     info!("Hello World!");
@@ -40,7 +49,7 @@ async fn main(_spawner: Spawner) {
     let then: NaiveDateTime = rtc.now().unwrap().into();
     let seconds = (then - now).num_seconds();
 
-    defmt::info!("measured = {}", seconds);
+    info!("measured = {}", seconds);
 
     assert!(seconds > 3 && seconds < 7);
 
