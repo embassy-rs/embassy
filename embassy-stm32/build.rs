@@ -494,6 +494,7 @@ fn main() {
                     quote! {
                         use crate::pac::rcc::vals::#enum_name;
 
+                        #[allow(unreachable_patterns)]
                         match crate::pac::RCC.#fieldset_name().read().#field_name() {
                             #match_arms
 
