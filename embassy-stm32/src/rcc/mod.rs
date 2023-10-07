@@ -141,6 +141,54 @@ pub struct Clocks {
     #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
     /// Set if the hse is configured, indicates stop is not supported
     pub rtc_hse: Option<Hertz>,
+
+    #[cfg(stm32h5)]
+    pub mux_rcc_pclk1: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_pll2_q: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_pll3_q: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_hsi_ker: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_csi_ker: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_lse: Option<Hertz>,
+
+    #[cfg(stm32h5)]
+    pub mux_pll1_q: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_pll2_p: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_pll3_p: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_audioclk: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_per: Option<Hertz>,
+
+    #[cfg(stm32h5)]
+    pub mux_pll3_r: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_rcc_pclk3: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_pll3_1: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_hsi48_ker: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_lsi_ker: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_pll2_r: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_rcc_pclk2: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_rcc_pclk4: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_hse: Option<Hertz>,
+
+    #[cfg(stm32h5)]
+    pub mux_disable: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_hsi48: Option<Hertz>,
 }
 
 #[cfg(feature = "low-power")]

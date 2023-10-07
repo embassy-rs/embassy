@@ -577,6 +577,53 @@ pub(crate) unsafe fn init(config: Config) {
         rtc: rtc_clk,
         #[cfg(stm32h7)]
         rtc_hse: None,
+
+        #[cfg(stm32h5)]
+        mux_rcc_pclk1: None,
+        #[cfg(stm32h5)]
+        mux_pll2_q: None,
+        #[cfg(stm32h5)]
+        mux_pll3_q: None,
+        #[cfg(stm32h5)]
+        mux_hsi_ker: None,
+        #[cfg(stm32h5)]
+        mux_csi_ker: None,
+        #[cfg(stm32h5)]
+        mux_lse: None,
+        #[cfg(stm32h5)]
+        mux_pll1_q: None,
+        #[cfg(stm32h5)]
+        mux_pll2_p: None,
+        #[cfg(stm32h5)]
+        mux_pll3_p: None,
+        #[cfg(stm32h5)]
+        mux_audioclk: None,
+        #[cfg(stm32h5)]
+        mux_per: None,
+
+        #[cfg(stm32h5)]
+        mux_pll3_r: None,
+        #[cfg(stm32h5)]
+        mux_rcc_pclk3: None,
+        #[cfg(stm32h5)]
+        mux_pll3_1: None,
+        #[cfg(stm32h5)]
+        mux_hsi48_ker: None,
+        #[cfg(stm32h5)]
+        mux_lsi_ker: None,
+        #[cfg(stm32h5)]
+        mux_pll2_r: None,
+        #[cfg(stm32h5)]
+        mux_rcc_pclk2: None,
+        #[cfg(stm32h5)]
+        mux_rcc_pclk4: None,
+        #[cfg(stm32h5)]
+        mux_hse: None,
+
+        #[cfg(stm32h5)]
+        mux_disable: None,
+        #[cfg(stm32h5)]
+        mux_hsi48: None,
     });
 }
 

@@ -5,7 +5,8 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::{MemoryRegionKind, METADATA};
+use stm32_metapac::metadata::ir::{Enum, Field};
+use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, METADATA};
 
 fn main() {
     let chip_name = match env::vars()
@@ -362,6 +363,32 @@ fn main() {
     }
 
     // ========
+    // Generate rcc fieldset and enum maps
+    let rcc_registers = METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| p.registers.as_ref())
+        .find(|r| r.kind == "rcc")
+        .unwrap()
+        .ir;
+
+    let rcc_fieldset_map: HashMap<String, HashMap<String, &Field>> = rcc_registers
+        .fieldsets
+        .iter()
+        .map(|f| {
+            (
+                f.name.to_ascii_uppercase(),
+                f.fields.iter().map(|f| (f.name.to_ascii_uppercase(), f)).collect(),
+            )
+        })
+        .collect();
+    let rcc_enum_map: HashMap<String, &Enum> = rcc_registers
+        .enums
+        .iter()
+        .map(|e| (e.name.to_ascii_uppercase(), e))
+        .collect();
+
+    // ========
     // Generate RccPeripheral impls
 
     let refcounted_peripherals = HashSet::from(["usart", "adc"]);
@@ -428,10 +455,61 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
+            let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
+                // temporary hack to restrict the scope of the implementation to h5
+                if !&chip_name.starts_with("stm32h5") {
+                    return None;
+                }
+
+                let mux = mux?;
+                let fieldset = rcc_fieldset_map.get(mux.register)?;
+                let field = fieldset.get(mux.field)?;
+                let enum_name = field.enumm?;
+                let enumm = rcc_enum_map.get(enum_name.to_ascii_uppercase().as_str())?;
+
+                Some((mux, enumm))
+            };
+
+            let clock_frequency = match mux_for(rcc.mux.as_ref()) {
+                Some((mux, rcc_enumm)) => {
+                    let fieldset_name = format_ident!("{}", mux.register.to_ascii_lowercase());
+                    let field_name = format_ident!("{}", mux.field.to_ascii_lowercase());
+                    let enum_name = format_ident!("{}", rcc_enumm.name);
+
+                    let match_arms: TokenStream = rcc_enumm
+                        .variants
+                        .iter()
+                        .map(|v| {
+                            let variant_name = format_ident!("{}", v.name);
+
+                            // temporary hack to restrict the scope of the implementation until clock names can be stabilized
+                            let clock_name = format_ident!("mux_{}", v.name.to_ascii_lowercase());
+
+                            quote! {
+                                #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
+                            }
+                        })
+                        .collect();
+
+                    quote! {
+                        use crate::pac::rcc::vals::#enum_name;
+
+                        match crate::pac::RCC.#fieldset_name().read().#field_name() {
+                            #match_arms
+
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                None => quote! {
+                    unsafe { crate::rcc::get_freqs().#clk }
+                },
+            };
+
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
-                        unsafe { crate::rcc::get_freqs().#clk }
+                        #clock_frequency
                     }
                     fn enable() {
                         critical_section::with(|_| {
