@@ -10,7 +10,7 @@ use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{pac, Peripheral};
 
 /// I2C error
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {

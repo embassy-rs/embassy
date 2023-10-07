@@ -366,7 +366,7 @@ pub struct ADT7422<'d, BUS: I2cBus> {
     bus: BUS,
 }
 
-#[derive(Debug, Format)]
+#[derive(Debug, Format, PartialEq, Eq)]
 pub enum Error<I2cError: Format> {
     I2c(I2cError),
     Address,

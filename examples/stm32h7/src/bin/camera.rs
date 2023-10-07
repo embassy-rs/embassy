@@ -184,7 +184,7 @@ mod ov7725 {
 
     const CAM_ADDR: u8 = 0x21;
 
-    #[derive(Format)]
+    #[derive(Format, PartialEq, Eq)]
     pub enum Error<I2cError: Format> {
         I2c(I2cError),
     }
