@@ -382,11 +382,7 @@ fn main() {
             )
         })
         .collect();
-    let rcc_enum_map: HashMap<String, &Enum> = rcc_registers
-        .enums
-        .iter()
-        .map(|e| (e.name.to_ascii_uppercase(), e))
-        .collect();
+    let rcc_enum_map: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
 
     // ========
     // Generate RccPeripheral impls
@@ -465,7 +461,7 @@ fn main() {
                 let fieldset = rcc_fieldset_map.get(mux.register)?;
                 let field = fieldset.get(mux.field)?;
                 let enum_name = field.enumm?;
-                let enumm = rcc_enum_map.get(enum_name.to_ascii_uppercase().as_str())?;
+                let enumm = rcc_enum_map.get(enum_name)?;
 
                 Some((mux, enumm))
             };
@@ -539,12 +535,14 @@ fn main() {
         }
     }
 
-    let mut refcount_mod = TokenStream::new();
-    for refcount_static in refcount_statics {
-        refcount_mod.extend(quote! {
-            pub(crate) static mut #refcount_static: u8 = 0;
-        });
-    }
+    let refcount_mod: TokenStream = refcount_statics
+        .iter()
+        .map(|refcount_static| {
+            quote! {
+                pub(crate) static mut #refcount_static: u8 = 0;
+            }
+        })
+        .collect();
 
     g.extend(quote! {
         mod refcount_statics {
