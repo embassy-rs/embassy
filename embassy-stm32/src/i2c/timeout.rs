@@ -219,7 +219,9 @@ mod eha {
         }
 
         async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-            self.i2c.write_read_timeout(address, write, read, timeout_fn(timeout)).await
+            self.i2c
+                .write_read_timeout(address, write, read, timeout_fn(timeout))
+                .await
         }
 
         async fn transaction(
