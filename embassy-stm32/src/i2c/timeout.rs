@@ -6,8 +6,8 @@ use super::{Error, I2c, Instance};
 ///
 /// This is useful for recovering from a shorted bus or a device stuck in a clock stretching state.
 /// A regular [I2c] would freeze until condition is removed.
-pub struct TimeoutI2c<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> {
-    i2c: &'a mut I2c<'d, T, TXDMA, RXDMA>,
+pub struct TimeoutI2c<'a, T: Instance, TXDMA, RXDMA> {
+    i2c: I2c<'a, T, TXDMA, RXDMA>,
     timeout: Duration,
 }
 
@@ -22,8 +22,8 @@ fn timeout_fn(timeout: Duration) -> impl Fn() -> Result<(), Error> {
     }
 }
 
-impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
-    pub fn new(i2c: &'a mut I2c<'d, T, TXDMA, RXDMA>, timeout: Duration) -> Self {
+impl<'a, T: Instance, TXDMA, RXDMA> TimeoutI2c<'a, T, TXDMA, RXDMA> {
+    pub fn new(i2c: I2c<'d, T, TXDMA, RXDMA>, timeout: Duration) -> Self {
         Self { i2c, timeout }
     }
 
@@ -157,8 +157,8 @@ impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Read
     }
 }
 
-impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Write
-    for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA>
+impl<'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Write
+    for TimeoutI2c<'a, T, TXDMA, RXDMA>
 {
     type Error = Error;
 
@@ -181,11 +181,11 @@ impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Writ
 mod eh1 {
     use super::*;
 
-    impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::ErrorType for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
+    impl<'a, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::ErrorType for TimeoutI2c<'a, T, TXDMA, RXDMA> {
         type Error = Error;
     }
 
-    impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::I2c for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA> {
+    impl<'a, T: Instance, TXDMA, RXDMA> embedded_hal_1::i2c::I2c for TimeoutI2c<'a, T, TXDMA, RXDMA> {
         fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
             self.blocking_read(address, read)
         }
