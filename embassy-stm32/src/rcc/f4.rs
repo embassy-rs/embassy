@@ -1,3 +1,5 @@
+use stm32_metapac::rcc::vals::{Pllm, Plln, Pllq, Pllr};
+
 use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
@@ -170,12 +172,12 @@ fn setup_pll(
     let real_pll48clk = vco_in * plln / pllq;
 
     RCC.pllcfgr().modify(|w| {
-        w.set_pllm(pllm as u8);
-        w.set_plln(plln as u16);
+        w.set_pllm(Pllm::from_bits(pllm as u8));
+        w.set_plln(Plln::from_bits(plln as u16));
         w.set_pllp(Pllp::from_bits(pllp as u8));
-        w.set_pllq(pllq as u8);
+        w.set_pllq(Pllq::from_bits(pllq as u8));
         w.set_pllsrc(Pllsrc::from_bits(use_hse as u8));
-        w.set_pllr(0);
+        w.set_pllr(Pllr::from_bits(0));
     });
 
     let real_pllsysclk = vco_in * plln / sysclk_div;

@@ -202,9 +202,9 @@ pub fn config() -> Config {
             // 1 MHz PLL input * 240 = 240 MHz PLL VCO
             mul: unwrap!(PLLMul::try_from(240)),
             // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
-            main_div: PLLMainDiv::Div2,
+            p_div: PLLPDiv::DIV2,
             // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
-            pll48_div: unwrap!(PLL48Div::try_from(5)),
+            q_div: PLLQDiv::DIV5,
         };
         // System clock comes from PLL (= the 120 MHz main PLL output)
         config.rcc.mux = ClockSrc::PLL;
@@ -239,10 +239,10 @@ pub fn config() -> Config {
         });
         config.rcc.pll1 = Some(Pll {
             source: PllSource::Hse,
-            prediv: 2,
-            mul: 125,
-            divp: Some(2),
-            divq: Some(2),
+            prediv: PllPreDiv::DIV2,
+            mul: PllMul::MUL125,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV2),
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
@@ -261,16 +261,16 @@ pub fn config() -> Config {
         config.rcc.hsi48 = true; // needed for RNG
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
-            divq: Some(8), // SPI1 cksel defaults to pll1_q
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV8), // SPI1 cksel defaults to pll1_q
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(8), // 100mhz
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV8), // 100mhz
             divq: None,
             divr: None,
         });
@@ -290,10 +290,10 @@ pub fn config() -> Config {
         config.rcc.mux = ClockSrc::PLL(
             // 72Mhz clock (16 / 1 * 18 / 4)
             PLLSource::HSI16,
-            PLLClkDiv::Div4,
-            PLLSrcDiv::Div1,
-            PLLMul::Mul18,
-            Some(PLLClkDiv::Div6), // 48Mhz (16 / 1 * 18 / 6)
+            PllRDiv::DIV4,
+            PllPreDiv::DIV1,
+            PllMul::MUL18,
+            Some(PllQDiv::DIV6), // 48Mhz (16 / 1 * 18 / 6)
         );
     }
 
@@ -303,9 +303,9 @@ pub fn config() -> Config {
         config.rcc.mux = ClockSrc::PLL(
             // 110Mhz clock (16 / 4 * 55 / 2)
             PLLSource::HSI16,
-            PLLClkDiv::Div2,
-            PLLSrcDiv::Div4,
-            PLLMul::Mul55,
+            PllRDiv::DIV2,
+            PllPreDiv::DIV4,
+            PllMul::MUL55,
             None,
         );
     }
@@ -313,7 +313,7 @@ pub fn config() -> Config {
     #[cfg(feature = "stm32u585ai")]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::MSI(MSIRange::Range48mhz);
+        config.rcc.mux = ClockSrc::MSI(Msirange::RANGE_48MHZ);
     }
 
     #[cfg(feature = "stm32l073rz")]

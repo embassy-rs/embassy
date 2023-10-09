@@ -49,7 +49,7 @@ use embassy_net_adin1110::{self, Device, Runner, ADIN1110};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hal::gpio::Pull;
 use hal::i2c::Config as I2C_Config;
-use hal::rcc::{ClockSrc, PLLClkDiv, PLLMul, PLLSource, PLLSrcDiv};
+use hal::rcc::{ClockSrc, PLLSource, PllMul, PllPreDiv, PllRDiv};
 use hal::spi::{Config as SPI_Config, Spi};
 use hal::time::Hertz;
 
@@ -80,9 +80,9 @@ async fn main(spawner: Spawner) {
     // 80MHz highest frequency for flash 0 wait.
     config.rcc.mux = ClockSrc::PLL(
         PLLSource::HSE(Hertz(8_000_000)),
-        PLLClkDiv::Div2,
-        PLLSrcDiv::Div1,
-        PLLMul::Mul20,
+        PllRDiv::DIV2,
+        PllPreDiv::DIV1,
+        PllMul::MUL20,
         None,
     );
     config.rcc.hsi48 = true; // needed for rng

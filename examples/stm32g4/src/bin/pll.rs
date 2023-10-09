@@ -15,12 +15,12 @@ async fn main(_spawner: Spawner) {
 
     config.rcc.pll = Some(Pll {
         source: PllSrc::HSI16,
-        prediv_m: PllM::Div4,
-        mul_n: PllN::Mul85,
+        prediv_m: PllM::DIV4,
+        mul_n: PllN::MUL85,
         div_p: None,
         div_q: None,
         // Main system clock at 170 MHz
-        div_r: Some(PllR::Div2),
+        div_r: Some(PllR::DIV2),
     });
 
     config.rcc.mux = ClockSrc::PLL;

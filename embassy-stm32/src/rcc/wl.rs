@@ -1,6 +1,6 @@
-pub use super::bus::{AHBPrescaler, APBPrescaler};
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::vals::Adcsel;
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
