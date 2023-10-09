@@ -213,7 +213,7 @@ mod eha {
     use super::super::{RxDma, TxDma};
     use super::*;
 
-    impl<'a, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c for I2c<'a, T, TXDMA, RXDMA> {
+    impl<'a, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c for TimeoutI2c<'a, T, TXDMA, RXDMA> {
         async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
             self.read(address, read).await
         }
