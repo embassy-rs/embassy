@@ -23,7 +23,7 @@ fn timeout_fn(timeout: Duration) -> impl Fn() -> Result<(), Error> {
 }
 
 impl<'a, T: Instance, TXDMA, RXDMA> TimeoutI2c<'a, T, TXDMA, RXDMA> {
-    pub fn new(i2c: I2c<'d, T, TXDMA, RXDMA>, timeout: Duration) -> Self {
+    pub fn new(i2c: I2c<'a, T, TXDMA, RXDMA>, timeout: Duration) -> Self {
         Self { i2c, timeout }
     }
 
@@ -147,8 +147,8 @@ impl<'a, T: Instance, TXDMA, RXDMA> TimeoutI2c<'a, T, TXDMA, RXDMA> {
     }
 }
 
-impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Read
-    for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA>
+impl<'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Read
+    for TimeoutI2c<'a, T, TXDMA, RXDMA>
 {
     type Error = Error;
 
@@ -167,8 +167,8 @@ impl<'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::Write
     }
 }
 
-impl<'a, 'd: 'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::WriteRead
-    for TimeoutI2c<'a, 'd, T, TXDMA, RXDMA>
+impl<'a, T: Instance, TXDMA, RXDMA> embedded_hal_02::blocking::i2c::WriteRead
+    for TimeoutI2c<'a, T, TXDMA, RXDMA>
 {
     type Error = Error;
 
