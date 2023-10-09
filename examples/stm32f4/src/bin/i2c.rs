@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
 
     // I2C bus can freeze if SCL line is shorted or due to a broken device that clock stretches for too long.
     // TimeoutI2c allows recovering from such errors by throwing `Error::Timeout` after a given delay.
-    let mut timeout_i2c = TimeoutI2c::new(&mut i2c, Duration::from_millis(1000));
+    let mut timeout_i2c = TimeoutI2c::new(i2c, Duration::from_millis(1000));
 
     let mut data = [0u8; 1];
 
