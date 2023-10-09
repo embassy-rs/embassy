@@ -211,15 +211,15 @@ mod eha {
         for TimeoutI2c<'a, T, TXDMA, RXDMA>
     {
         async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
-            self.read(address, read).await
+            self.i2c.read_timeout(address, read, timeout_fn(timeout)).await
         }
 
         async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-            self.write(address, write).await
+            self.i2c.write_timeout(address, write, timeout_fn(timeout)).await
         }
 
         async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-            self.write_read(address, write, read).await
+            self.i2c.write_read_timeout(address, write, read, timeout_fn(timeout)).await
         }
 
         async fn transaction(
