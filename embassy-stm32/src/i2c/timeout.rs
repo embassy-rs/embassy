@@ -202,7 +202,7 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+#[cfg(all(feature = "unstable-traits", feature = "nightly", i2c_v2))]
 mod eha {
     use super::super::{RxDma, TxDma};
     use super::*;
