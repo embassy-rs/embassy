@@ -2,7 +2,9 @@ use stm32_metapac::flash::vals::Latency;
 use stm32_metapac::rcc::vals::{Adcsel, Pllsrc, Sw};
 use stm32_metapac::FLASH;
 
-pub use super::bus::{AHBPrescaler, APBPrescaler};
+pub use crate::pac::rcc::vals::{
+    Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN, Pllp as PllP, Pllq as PllQ, Pllr as PllR, Ppre as APBPrescaler,
+};
 use crate::pac::{PWR, RCC};
 use crate::rcc::sealed::RccPeripheral;
 use crate::rcc::{set_freqs, Clocks};
@@ -57,181 +59,6 @@ impl Into<Pllsrc> for PllSrc {
         match self {
             PllSrc::HSE(..) => Pllsrc::HSE,
             PllSrc::HSI16 => Pllsrc::HSI16,
-        }
-    }
-}
-
-seq_macro::seq!(P in 2..=31 {
-    /// Output divider for the PLL P output.
-    #[derive(Clone, Copy)]
-    pub enum PllP {
-        // Note: If PLL P is set to 0 the PLLP bit controls the output division. There does not seem to
-        // a good reason to do this so the API does not support it.
-        // Div1 is invalid
-        #(
-            Div~P,
-        )*
-    }
-
-    impl From<PllP> for u8 {
-        /// Returns the register value for the P output divider.
-        fn from(val: PllP) -> u8 {
-            match val {
-                #(
-                    PllP::Div~P => P,
-                )*
-            }
-        }
-    }
-});
-
-impl PllP {
-    /// Returns the numeric value of the P output divider.
-    pub fn to_div(self) -> u32 {
-        let val: u8 = self.into();
-        val as u32
-    }
-}
-
-/// Output divider for the PLL Q output.
-#[derive(Clone, Copy)]
-pub enum PllQ {
-    Div2,
-    Div4,
-    Div6,
-    Div8,
-}
-
-impl PllQ {
-    /// Returns the numeric value of the Q output divider.
-    pub fn to_div(self) -> u32 {
-        let val: u8 = self.into();
-        (val as u32 + 1) * 2
-    }
-}
-
-impl From<PllQ> for u8 {
-    /// Returns the register value for the Q output divider.
-    fn from(val: PllQ) -> u8 {
-        match val {
-            PllQ::Div2 => 0b00,
-            PllQ::Div4 => 0b01,
-            PllQ::Div6 => 0b10,
-            PllQ::Div8 => 0b11,
-        }
-    }
-}
-
-/// Output divider for the PLL R output.
-#[derive(Clone, Copy)]
-pub enum PllR {
-    Div2,
-    Div4,
-    Div6,
-    Div8,
-}
-
-impl PllR {
-    /// Returns the numeric value of the R output divider.
-    pub fn to_div(self) -> u32 {
-        let val: u8 = self.into();
-        (val as u32 + 1) * 2
-    }
-}
-
-impl From<PllR> for u8 {
-    /// Returns the register value for the R output divider.
-    fn from(val: PllR) -> u8 {
-        match val {
-            PllR::Div2 => 0b00,
-            PllR::Div4 => 0b01,
-            PllR::Div6 => 0b10,
-            PllR::Div8 => 0b11,
-        }
-    }
-}
-
-seq_macro::seq!(N in 8..=127 {
-    /// Multiplication factor for the PLL VCO input clock.
-    #[derive(Clone, Copy)]
-    pub enum PllN {
-        #(
-            Mul~N,
-        )*
-    }
-
-    impl From<PllN> for u8 {
-        /// Returns the register value for the N multiplication factor.
-        fn from(val: PllN) -> u8 {
-            match val {
-                #(
-                    PllN::Mul~N => N,
-                )*
-            }
-        }
-    }
-
-    impl PllN {
-        /// Returns the numeric value of the N multiplication factor.
-        pub fn to_mul(self) -> u32 {
-            match self {
-                #(
-                    PllN::Mul~N => N,
-                )*
-            }
-        }
-    }
-});
-
-/// PLL Pre-division. This must be set such that the PLL input is between 2.66 MHz and 16 MHz.
-#[derive(Copy, Clone)]
-pub enum PllM {
-    Div1,
-    Div2,
-    Div3,
-    Div4,
-    Div5,
-    Div6,
-    Div7,
-    Div8,
-    Div9,
-    Div10,
-    Div11,
-    Div12,
-    Div13,
-    Div14,
-    Div15,
-    Div16,
-}
-
-impl PllM {
-    /// Returns the numeric value of the M pre-division.
-    pub fn to_div(self) -> u32 {
-        let val: u8 = self.into();
-        val as u32 + 1
-    }
-}
-
-impl From<PllM> for u8 {
-    /// Returns the register value for the M pre-division.
-    fn from(val: PllM) -> u8 {
-        match val {
-            PllM::Div1 => 0b0000,
-            PllM::Div2 => 0b0001,
-            PllM::Div3 => 0b0010,
-            PllM::Div4 => 0b0011,
-            PllM::Div5 => 0b0100,
-            PllM::Div6 => 0b0101,
-            PllM::Div7 => 0b0110,
-            PllM::Div8 => 0b0111,
-            PllM::Div9 => 0b1000,
-            PllM::Div10 => 0b1001,
-            PllM::Div11 => 0b1010,
-            PllM::Div12 => 0b1011,
-            PllM::Div13 => 0b1100,
-            PllM::Div14 => 0b1101,
-            PllM::Div15 => 0b1110,
-            PllM::Div16 => 0b1111,
         }
     }
 }
@@ -360,12 +187,12 @@ pub(crate) unsafe fn init(config: Config) {
                 RCC.cr().write(|w| w.set_hsion(true));
                 while !RCC.cr().read().hsirdy() {}
 
-                HSI_FREQ.0
+                HSI_FREQ
             }
             PllSrc::HSE(freq) => {
                 RCC.cr().write(|w| w.set_hseon(true));
                 while !RCC.cr().read().hserdy() {}
-                freq.0
+                freq
             }
         };
 
@@ -373,7 +200,7 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| w.set_pllon(false));
         while RCC.cr().read().pllrdy() {}
 
-        let internal_freq = src_freq / pll_config.prediv_m.to_div() * pll_config.mul_n.to_mul();
+        let internal_freq = src_freq / pll_config.prediv_m * pll_config.mul_n;
 
         RCC.pllcfgr().write(|w| {
             w.set_plln(pll_config.mul_n.into());
@@ -383,26 +210,26 @@ pub(crate) unsafe fn init(config: Config) {
 
         let pll_p_freq = pll_config.div_p.map(|div_p| {
             RCC.pllcfgr().modify(|w| {
-                w.set_pllpdiv(div_p.into());
+                w.set_pllp(div_p);
                 w.set_pllpen(true);
             });
-            Hertz(internal_freq / div_p.to_div())
+            internal_freq / div_p
         });
 
         let pll_q_freq = pll_config.div_q.map(|div_q| {
             RCC.pllcfgr().modify(|w| {
-                w.set_pllq(div_q.into());
+                w.set_pllq(div_q);
                 w.set_pllqen(true);
             });
-            Hertz(internal_freq / div_q.to_div())
+            internal_freq / div_q
         });
 
         let pll_r_freq = pll_config.div_r.map(|div_r| {
             RCC.pllcfgr().modify(|w| {
-                w.set_pllr(div_r.into());
+                w.set_pllr(div_r);
                 w.set_pllren(true);
             });
-            Hertz(internal_freq / div_r.to_div())
+            internal_freq / div_r
         });
 
         // Enable the PLL

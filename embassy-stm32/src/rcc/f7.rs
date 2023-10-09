@@ -1,5 +1,5 @@
 use crate::pac::pwr::vals::Vos;
-use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
+use crate::pac::rcc::vals::{Hpre, Pllm, Plln, Pllp, Pllq, Pllsrc, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
@@ -29,8 +29,6 @@ pub struct Config {
 }
 
 fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bool) -> PllResults {
-    use crate::pac::rcc::vals::{Pllp, Pllsrc};
-
     let sysclk = pllsysclk.unwrap_or(pllsrcclk);
     if pllsysclk.is_none() && !pll48clk {
         RCC.pllcfgr().modify(|w| w.set_pllsrc(Pllsrc::from_bits(use_hse as u8)));
@@ -84,10 +82,10 @@ fn setup_pll(pllsrcclk: u32, use_hse: bool, pllsysclk: Option<u32>, pll48clk: bo
     let real_pll48clk = vco_in * plln / pllq;
 
     RCC.pllcfgr().modify(|w| {
-        w.set_pllm(pllm as u8);
-        w.set_plln(plln as u16);
+        w.set_pllm(Pllm::from_bits(pllm as u8));
+        w.set_plln(Plln::from_bits(plln as u16));
         w.set_pllp(Pllp::from_bits(pllp as u8));
-        w.set_pllq(pllq as u8);
+        w.set_pllq(Pllq::from_bits(pllq as u8));
         w.set_pllsrc(Pllsrc::from_bits(use_hse as u8));
     });
 

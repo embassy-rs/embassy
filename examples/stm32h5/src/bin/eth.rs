@@ -9,7 +9,9 @@ use embassy_net::{Ipv4Address, Stack, StackResources};
 use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
-use embassy_stm32::rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllSource, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{
+    AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
+};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
@@ -42,10 +44,10 @@ async fn main(spawner: Spawner) -> ! {
     });
     config.rcc.pll1 = Some(Pll {
         source: PllSource::Hse,
-        prediv: 2,
-        mul: 125,
-        divp: Some(2),
-        divq: Some(2),
+        prediv: PllPreDiv::DIV2,
+        mul: PllMul::MUL125,
+        divp: Some(PllDiv::DIV2),
+        divq: Some(PllDiv::DIV2),
         divr: None,
     });
     config.rcc.ahb_pre = AHBPrescaler::DIV1;

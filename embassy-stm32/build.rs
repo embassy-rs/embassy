@@ -894,6 +894,105 @@ fn main() {
     }
 
     // ========
+    // Generate Div/Mul impls for RCC prescalers/dividers/multipliers.
+    let rcc_registers = METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| p.registers.as_ref())
+        .find(|r| r.kind == "rcc")
+        .unwrap()
+        .ir;
+
+    for e in rcc_registers.enums {
+        fn is_rcc_name(e: &str) -> bool {
+            match e {
+                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" => true,
+                "Timpre" | "Pllrclkpre" => false,
+                e if e.ends_with("pre") || e.ends_with("div") || e.ends_with("mul") => true,
+                _ => false,
+            }
+        }
+
+        #[derive(Copy, Clone, Debug)]
+        struct Frac {
+            num: u32,
+            denom: u32,
+        }
+
+        impl Frac {
+            fn simplify(self) -> Self {
+                let d = gcd(self.num, self.denom);
+                Self {
+                    num: self.num / d,
+                    denom: self.denom / d,
+                }
+            }
+        }
+
+        fn gcd(a: u32, b: u32) -> u32 {
+            if b == 0 {
+                return a;
+            }
+            gcd(b, a % b)
+        }
+
+        fn parse_num(n: &str) -> Result<Frac, ()> {
+            for prefix in ["DIV", "MUL"] {
+                if let Some(n) = n.strip_prefix(prefix) {
+                    let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
+                    let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
+                    let f = Frac {
+                        num: mantissa,
+                        denom: 10u32.pow(exponent),
+                    };
+                    return Ok(f.simplify());
+                }
+            }
+            Err(())
+        }
+
+        if is_rcc_name(e.name) {
+            let enum_name = format_ident!("{}", e.name);
+            let mut muls = Vec::new();
+            let mut divs = Vec::new();
+            for v in e.variants {
+                let Ok(val) = parse_num(v.name) else {
+                    panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
+                };
+                let variant_name = format_ident!("{}", v.name);
+                let variant = quote!(crate::pac::rcc::vals::#enum_name::#variant_name);
+                let num = val.num;
+                let denom = val.denom;
+                muls.push(quote!(#variant => self * #num / #denom,));
+                divs.push(quote!(#variant => self * #denom / #num,));
+            }
+
+            g.extend(quote! {
+                impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
+                    type Output = crate::time::Hertz;
+                    fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
+                        match rhs {
+                            #(#divs)*
+                            #[allow(unreachable_patterns)]
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
+                    type Output = crate::time::Hertz;
+                    fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
+                        match rhs {
+                            #(#muls)*
+                            #[allow(unreachable_patterns)]
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // ========
     // Write foreach_foo! macrotables
 
     let mut flash_regions_table: Vec<Vec<String>> = Vec::new();
