@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello world!");
     let p = embassy_stm32::init(Default::default());
 
-    let mut i2c = I2c::new(
+    let i2c = I2c::new(
         p.I2C2,
         p.PB10,
         p.PB11,
