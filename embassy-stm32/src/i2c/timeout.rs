@@ -207,3 +207,33 @@ mod eh1 {
         }
     }
 }
+
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+mod eha {
+    use super::super::{RxDma, TxDma};
+    use super::*;
+
+    impl<'a, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c::I2c for I2c<'a, T, TXDMA, RXDMA> {
+        async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
+            self.read(address, read).await
+        }
+
+        async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
+            self.write(address, write).await
+        }
+
+        async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
+            self.write_read(address, write, read).await
+        }
+
+        async fn transaction(
+            &mut self,
+            address: u8,
+            operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            let _ = address;
+            let _ = operations;
+            todo!()
+        }
+    }
+}
