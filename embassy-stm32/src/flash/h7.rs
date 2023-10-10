@@ -26,11 +26,15 @@ pub(crate) unsafe fn lock() {
 }
 
 pub(crate) unsafe fn unlock() {
-    pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0x4567_0123));
-    pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+    if pac::FLASH.bank(0).cr().read().lock() {
+        pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0x4567_0123));
+        pac::FLASH.bank(0).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+    }
     if is_dual_bank() {
-        pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0x4567_0123));
-        pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+        if pac::FLASH.bank(1).cr().read().lock() {
+            pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0x4567_0123));
+            pac::FLASH.bank(1).keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+        }
     }
 }
 

@@ -28,17 +28,23 @@ pub(crate) unsafe fn lock() {
 pub(crate) unsafe fn unlock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     {
-        pac::FLASH.keyr().write(|w| w.set_keyr(0x4567_0123));
-        pac::FLASH.keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+        if pac::FLASH.cr().read().lock() {
+            pac::FLASH.keyr().write(|w| w.set_keyr(0x4567_0123));
+            pac::FLASH.keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+        }
     }
 
     #[cfg(any(flash_l0, flash_l1))]
     {
-        pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x89ABCDEF));
-        pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x02030405));
+        if pac::FLASH.pecr().read().pelock() {
+            pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x89ABCDEF));
+            pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x02030405));
+        }
 
-        pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x8C9DAEBF));
-        pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x13141516));
+        if pac::FLASH.pecr().read().prglock() {
+            pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x8C9DAEBF));
+            pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x13141516));
+        }
     }
 }
 
