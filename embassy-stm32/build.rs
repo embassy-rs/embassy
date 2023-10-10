@@ -5,7 +5,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::ir::{Enum, Field};
+use stm32_metapac::metadata::ir::{BlockItemInner, Enum};
 use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, METADATA};
 
 fn main() {
@@ -364,25 +364,48 @@ fn main() {
 
     // ========
     // Generate rcc fieldset and enum maps
-    let rcc_registers = METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| p.registers.as_ref())
-        .find(|r| r.kind == "rcc")
-        .unwrap()
-        .ir;
+    let rcc_enum_map: HashMap<&str, HashMap<&str, &Enum>> = {
+        let rcc_registers = METADATA
+            .peripherals
+            .iter()
+            .filter_map(|p| p.registers.as_ref())
+            .find(|r| r.kind == "rcc")
+            .unwrap()
+            .ir;
 
-    let rcc_fieldset_map: HashMap<String, HashMap<String, &Field>> = rcc_registers
-        .fieldsets
-        .iter()
-        .map(|f| {
-            (
-                f.name.to_ascii_uppercase(),
-                f.fields.iter().map(|f| (f.name.to_ascii_uppercase(), f)).collect(),
-            )
-        })
-        .collect();
-    let rcc_enum_map: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
+        let rcc_blocks = rcc_registers.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
+
+        let rcc_block_item_map: HashMap<&str, &str> = rcc_blocks
+            .iter()
+            .filter_map(|b| match &b.inner {
+                BlockItemInner::Register(register) => register.fieldset.map(|f| (f, b.name)),
+                _ => None,
+            })
+            .collect();
+
+        let rcc_enum_map: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
+
+        rcc_registers
+            .fieldsets
+            .iter()
+            .filter_map(|f| {
+                rcc_block_item_map.get(f.name).map(|b| {
+                    (
+                        *b,
+                        f.fields
+                            .iter()
+                            .filter_map(|f| {
+                                let enumm = f.enumm?;
+                                let enumm = rcc_enum_map.get(enumm)?;
+
+                                Some((f.name, *enumm))
+                            })
+                            .collect(),
+                    )
+                })
+            })
+            .collect()
+    };
 
     // ========
     // Generate RccPeripheral impls
@@ -458,18 +481,16 @@ fn main() {
                 }
 
                 let mux = mux?;
-                let fieldset = rcc_fieldset_map.get(mux.register)?;
-                let field = fieldset.get(mux.field)?;
-                let enum_name = field.enumm?;
-                let enumm = rcc_enum_map.get(enum_name)?;
+                let fieldset = rcc_enum_map.get(mux.register)?;
+                let enumm = fieldset.get(mux.field)?;
 
-                Some((mux, enumm))
+                Some((mux, *enumm))
             };
 
             let clock_frequency = match mux_for(rcc.mux.as_ref()) {
                 Some((mux, rcc_enumm)) => {
-                    let fieldset_name = format_ident!("{}", mux.register.to_ascii_lowercase());
-                    let field_name = format_ident!("{}", mux.field.to_ascii_lowercase());
+                    let fieldset_name = format_ident!("{}", mux.register);
+                    let field_name = format_ident!("{}", mux.field);
                     let enum_name = format_ident!("{}", rcc_enumm.name);
 
                     let match_arms: TokenStream = rcc_enumm
