@@ -15,14 +15,14 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-/// HSE32 speed
-pub const HSE32_FREQ: Hertz = Hertz(32_000_000);
+/// HSE speed
+pub const HSE_FREQ: Hertz = Hertz(32_000_000);
 
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
     MSI(MSIRange),
-    HSE32,
+    HSE,
     HSI16,
 }
 
@@ -59,7 +59,7 @@ impl Default for Config {
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
         ClockSrc::HSI16 => (HSI_FREQ, Sw::HSI16, VoltageScale::RANGE2),
-        ClockSrc::HSE32 => (HSE32_FREQ, Sw::HSE32, VoltageScale::RANGE1),
+        ClockSrc::HSE => (HSE_FREQ, Sw::HSE, VoltageScale::RANGE1),
         ClockSrc::MSI(range) => (msirange_to_hertz(range), Sw::MSI, msirange_to_vos(range)),
     };
 
@@ -113,8 +113,8 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
         }
-        ClockSrc::HSE32 => {
-            // Enable HSE32
+        ClockSrc::HSE => {
+            // Enable HSE
             RCC.cr().write(|w| {
                 w.set_hsebyppwr(true);
                 w.set_hseon(true);
