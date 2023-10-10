@@ -1,12 +1,10 @@
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
+pub use crate::pac::rcc::vals::{
+    Hpre as AHBPrescaler, Hsepre as HsePrescaler, Pllm, Plln, Pllp, Pllq, Pllr, Pllsrc as PllSource,
+    Ppre as APBPrescaler, Sw as Sysclk,
+};
 use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::Clocks;
 use crate::time::{khz, mhz, Hertz};
-
-/// Most of clock setup is copied from stm32l0xx-hal, and adopted to the generated PAC,
-/// and with the addition of the init function to configure a system clock.
-
-/// Only the basic setup using the HSE and HSI clocks are supported as of now.
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
@@ -14,73 +12,10 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-#[derive(Clone, Copy)]
-pub enum HsePrescaler {
-    NotDivided,
-    Div2,
-}
-
-impl From<HsePrescaler> for bool {
-    fn from(value: HsePrescaler) -> Self {
-        match value {
-            HsePrescaler::NotDivided => false,
-            HsePrescaler::Div2 => true,
-        }
-    }
-}
-
 pub struct Hse {
     pub prediv: HsePrescaler,
 
     pub frequency: Hertz,
-}
-
-/// System clock mux source
-#[derive(Clone, Copy, PartialEq)]
-pub enum Sysclk {
-    /// MSI selected as sysclk
-    MSI,
-    /// HSI selected as sysclk
-    HSI,
-    /// HSE selected as sysclk
-    HSE,
-    /// PLL selected as sysclk
-    Pll,
-}
-
-impl From<Sysclk> for u8 {
-    fn from(value: Sysclk) -> Self {
-        match value {
-            Sysclk::MSI => 0b00,
-            Sysclk::HSI => 0b01,
-            Sysclk::HSE => 0b10,
-            Sysclk::Pll => 0b11,
-        }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum PllSource {
-    Hsi,
-    Msi,
-    Hse,
-}
-
-impl From<PllSource> for u8 {
-    fn from(value: PllSource) -> Self {
-        match value {
-            PllSource::Msi => 0b01,
-            PllSource::Hsi => 0b10,
-            PllSource::Hse => 0b11,
-        }
-    }
-}
-
-pub enum Pll48Source {
-    PllSai,
-    Pll,
-    Msi,
-    Hsi48,
 }
 
 pub struct PllMux {
@@ -88,20 +23,20 @@ pub struct PllMux {
     pub source: PllSource,
 
     /// PLL pre-divider (DIVM). Must be between 1 and 63.
-    pub prediv: u8,
+    pub prediv: Pllm,
 }
 
 pub struct Pll {
     /// PLL multiplication factor. Must be between 4 and 512.
-    pub mul: u16,
+    pub mul: Plln,
 
     /// PLL P division factor. If None, PLL P output is disabled. Must be between 1 and 128.
     /// On PLL1, it must be even (in particular, it cannot be 1.)
-    pub divp: Option<u16>,
+    pub divp: Option<Pllp>,
     /// PLL Q division factor. If None, PLL Q output is disabled. Must be between 1 and 128.
-    pub divq: Option<u16>,
+    pub divq: Option<Pllq>,
     /// PLL R division factor. If None, PLL R output is disabled. Must be between 1 and 128.
-    pub divr: Option<u16>,
+    pub divr: Option<Pllr>,
 }
 
 /// Clocks configutation
@@ -111,7 +46,6 @@ pub struct Config {
     pub lsi: bool,
     pub sys: Sysclk,
     pub mux: Option<PllMux>,
-    pub pll48: Option<Pll48Source>,
     pub rtc: Option<RtcClockSource>,
 
     pub pll: Option<Pll>,
@@ -127,23 +61,22 @@ pub struct Config {
 pub const WPAN_DEFAULT: Config = Config {
     hse: Some(Hse {
         frequency: mhz(32),
-        prediv: HsePrescaler::NotDivided,
+        prediv: HsePrescaler::DIV1,
     }),
     lse: Some(khz(32)),
-    sys: Sysclk::Pll,
+    sys: Sysclk::PLL,
     mux: Some(PllMux {
-        source: PllSource::Hse,
-        prediv: 2,
+        source: PllSource::HSE,
+        prediv: Pllm::DIV2,
     }),
-    pll48: None,
     rtc: Some(RtcClockSource::LSE),
     lsi: false,
 
     pll: Some(Pll {
-        mul: 12,
-        divp: Some(3),
-        divq: Some(4),
-        divr: Some(3),
+        mul: Plln::MUL12,
+        divp: Some(Pllp::DIV3),
+        divq: Some(Pllq::DIV4),
+        divr: Some(Pllr::DIV3),
     }),
     pllsai: None,
 
@@ -160,9 +93,8 @@ impl Default for Config {
         Config {
             hse: None,
             lse: None,
-            sys: Sysclk::HSI,
+            sys: Sysclk::HSI16,
             mux: None,
-            pll48: None,
             pll: None,
             pllsai: None,
             rtc: None,
@@ -178,15 +110,12 @@ impl Default for Config {
 }
 
 pub(crate) fn compute_clocks(config: &Config) -> Clocks {
-    let hse_clk = config.hse.as_ref().map(|hse| match hse.prediv {
-        HsePrescaler::NotDivided => hse.frequency,
-        HsePrescaler::Div2 => hse.frequency / 2u32,
-    });
+    let hse_clk = config.hse.as_ref().map(|hse| hse.frequency / hse.prediv);
 
     let mux_clk = config.mux.as_ref().map(|pll_mux| {
         (match pll_mux.source {
-            PllSource::Hse => hse_clk.unwrap(),
-            PllSource::Hsi => HSI_FREQ,
+            PllSource::HSE => hse_clk.unwrap(),
+            PllSource::HSI16 => HSI_FREQ,
             _ => unreachable!(),
         } / pll_mux.prediv)
     });
@@ -206,44 +135,19 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
 
     let sys_clk = match config.sys {
         Sysclk::HSE => hse_clk.unwrap(),
-        Sysclk::HSI => HSI_FREQ,
-        Sysclk::Pll => pll_r.unwrap(),
+        Sysclk::HSI16 => HSI_FREQ,
+        Sysclk::PLL => pll_r.unwrap(),
         _ => unreachable!(),
     };
 
-    let ahb1_clk = match config.ahb1_pre {
-        AHBPrescaler::DIV1 => sys_clk,
-        pre => {
-            let pre: u8 = pre.into();
-            let pre = 1u32 << (pre as u32 - 7);
-            sys_clk / pre
-        }
-    };
-
-    let ahb2_clk = match config.ahb2_pre {
-        AHBPrescaler::DIV1 => sys_clk,
-        pre => {
-            let pre: u8 = pre.into();
-            let pre = 1u32 << (pre as u32 - 7);
-            sys_clk / pre
-        }
-    };
-
-    let ahb3_clk = match config.ahb3_pre {
-        AHBPrescaler::DIV1 => sys_clk,
-        pre => {
-            let pre: u8 = pre.into();
-            let pre = 1u32 << (pre as u32 - 7);
-            sys_clk / pre
-        }
-    };
+    let ahb1_clk = sys_clk / config.ahb1_pre;
+    let ahb2_clk = sys_clk / config.ahb2_pre;
+    let ahb3_clk = sys_clk / config.ahb3_pre;
 
     let (apb1_clk, apb1_tim_clk) = match config.apb1_pre {
         APBPrescaler::DIV1 => (ahb1_clk, ahb1_clk),
         pre => {
-            let pre: u8 = pre.into();
-            let pre: u8 = 1 << (pre - 3);
-            let freq = ahb1_clk / pre as u32;
+            let freq = ahb1_clk / pre;
             (freq, freq * 2u32)
         }
     };
@@ -251,9 +155,7 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
     let (apb2_clk, apb2_tim_clk) = match config.apb2_pre {
         APBPrescaler::DIV1 => (ahb1_clk, ahb1_clk),
         pre => {
-            let pre: u8 = pre.into();
-            let pre: u8 = 1 << (pre - 3);
-            let freq = ahb1_clk / pre as u32;
+            let freq = ahb1_clk / pre;
             (freq, freq * 2u32)
         }
     };
@@ -282,12 +184,12 @@ pub(crate) fn configure_clocks(config: &Config) {
     let rcc = crate::pac::RCC;
 
     let needs_hsi = if let Some(pll_mux) = &config.mux {
-        pll_mux.source == PllSource::Hsi
+        pll_mux.source == PllSource::HSI16
     } else {
         false
     };
 
-    if needs_hsi || config.sys == Sysclk::HSI {
+    if needs_hsi || config.sys == Sysclk::HSI16 {
         rcc.cr().modify(|w| {
             w.set_hsion(true);
         });
@@ -306,7 +208,7 @@ pub(crate) fn configure_clocks(config: &Config) {
     match &config.hse {
         Some(hse) => {
             rcc.cr().modify(|w| {
-                w.set_hsepre(hse.prediv.into());
+                w.set_hsepre(hse.prediv);
                 w.set_hseon(true);
             });
 
@@ -328,18 +230,18 @@ pub(crate) fn configure_clocks(config: &Config) {
     match &config.pll {
         Some(pll) => {
             rcc.pllcfgr().modify(|w| {
-                w.set_plln(pll.mul as u8);
+                w.set_plln(pll.mul);
                 pll.divp.map(|divp| {
                     w.set_pllpen(true);
-                    w.set_pllp((divp - 1) as u8)
+                    w.set_pllp(divp)
                 });
                 pll.divq.map(|divq| {
                     w.set_pllqen(true);
-                    w.set_pllq((divq - 1) as u8)
+                    w.set_pllq(divq)
                 });
                 pll.divr.map(|divr| {
-                    // w.set_pllren(true);
-                    w.set_pllr((divr - 1) as u8);
+                    w.set_pllren(true);
+                    w.set_pllr(divr);
                 });
             });
 
@@ -352,13 +254,13 @@ pub(crate) fn configure_clocks(config: &Config) {
 
     rcc.cfgr().modify(|w| {
         w.set_sw(config.sys.into());
-        w.set_hpre(config.ahb1_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb1_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
 
     rcc.extcfgr().modify(|w| {
-        w.set_c2hpre(config.ahb2_pre.into());
-        w.set_shdhpre(config.ahb3_pre.into());
+        w.set_c2hpre(config.ahb2_pre);
+        w.set_shdhpre(config.ahb3_pre);
     });
 }

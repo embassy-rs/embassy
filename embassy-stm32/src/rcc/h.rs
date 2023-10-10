@@ -26,13 +26,13 @@ pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-const VCO_RANGE: RangeInclusive<u32> = 150_000_000..=420_000_000;
+const VCO_RANGE: RangeInclusive<Hertz> = Hertz(150_000_000)..=Hertz(420_000_000);
 #[cfg(any(stm32h5, pwr_h7rm0455))]
-const VCO_WIDE_RANGE: RangeInclusive<u32> = 128_000_000..=560_000_000;
+const VCO_WIDE_RANGE: RangeInclusive<Hertz> = Hertz(128_000_000)..=Hertz(560_000_000);
 #[cfg(pwr_h7rm0468)]
-const VCO_WIDE_RANGE: RangeInclusive<u32> = 192_000_000..=836_000_000;
+const VCO_WIDE_RANGE: RangeInclusive<Hertz> = Hertz(192_000_000)..=Hertz(836_000_000);
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0433))]
-const VCO_WIDE_RANGE: RangeInclusive<u32> = 192_000_000..=960_000_000;
+const VCO_WIDE_RANGE: RangeInclusive<Hertz> = Hertz(192_000_000)..=Hertz(960_000_000);
 
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 
@@ -641,9 +641,9 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     let wide_allowed = ref_range != Pllrge::RANGE1;
 
     let vco_clk = ref_clk * config.mul;
-    let vco_range = if VCO_RANGE.contains(&vco_clk.0) {
+    let vco_range = if VCO_RANGE.contains(&vco_clk) {
         Pllvcosel::MEDIUMVCO
-    } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk.0) {
+    } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
         Pllvcosel::WIDEVCO
     } else {
         panic!("pll vco_clk out of range: {} mhz", vco_clk.0)

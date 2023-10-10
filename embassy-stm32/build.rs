@@ -908,7 +908,7 @@ fn main() {
             match e {
                 "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" => true,
                 "Timpre" | "Pllrclkpre" => false,
-                e if e.ends_with("pre") || e.ends_with("div") || e.ends_with("mul") => true,
+                e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
                 _ => false,
             }
         }

@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::opamp::{OpAmp, OpAmpGain};
 use embassy_stm32::peripherals::ADC2;
-use embassy_stm32::rcc::AdcClockSource;
+use embassy_stm32::rcc::{AdcClockSource, Adcpres};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{adc, bind_interrupts, Config};
 use embassy_time::{Delay, Duration, Timer};
@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) -> ! {
     config.rcc.hclk = Some(mhz(64));
     config.rcc.pclk1 = Some(mhz(32));
     config.rcc.pclk2 = Some(mhz(64));
-    config.rcc.adc = Some(AdcClockSource::PllDiv1);
+    config.rcc.adc = Some(AdcClockSource::Pll(Adcpres::DIV1));
 
     let mut p = embassy_stm32::init(config);
 

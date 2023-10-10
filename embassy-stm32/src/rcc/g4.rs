@@ -3,7 +3,8 @@ use stm32_metapac::rcc::vals::{Adcsel, Pllsrc, Sw};
 use stm32_metapac::FLASH;
 
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN, Pllp as PllP, Pllq as PllQ, Pllr as PllR, Ppre as APBPrescaler,
+    Adcsel as AdcClockSource, Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN, Pllp as PllP, Pllq as PllQ,
+    Pllr as PllR, Ppre as APBPrescaler,
 };
 use crate::pac::{PWR, RCC};
 use crate::rcc::sealed::RccPeripheral;
@@ -15,29 +16,6 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
 /// LSI speed
 pub const LSI_FREQ: Hertz = Hertz(32_000);
-
-#[derive(Clone, Copy)]
-pub enum AdcClockSource {
-    NoClk,
-    SysClk,
-    PllP,
-}
-
-impl AdcClockSource {
-    pub fn adcsel(&self) -> Adcsel {
-        match self {
-            AdcClockSource::NoClk => Adcsel::NOCLK,
-            AdcClockSource::SysClk => Adcsel::SYSCLK,
-            AdcClockSource::PllP => Adcsel::PLLP,
-        }
-    }
-}
-
-impl Default for AdcClockSource {
-    fn default() -> Self {
-        Self::NoClk
-    }
-}
 
 /// System clock mux source
 #[derive(Clone, Copy)]
@@ -86,32 +64,6 @@ pub struct Pll {
 
     /// PLL division factor for R clock (SYSCLK)
     pub div_r: Option<PllR>,
-}
-
-fn ahb_div(ahb: AHBPrescaler) -> u32 {
-    match ahb {
-        AHBPrescaler::DIV1 => 1,
-        AHBPrescaler::DIV2 => 2,
-        AHBPrescaler::DIV4 => 4,
-        AHBPrescaler::DIV8 => 8,
-        AHBPrescaler::DIV16 => 16,
-        AHBPrescaler::DIV64 => 64,
-        AHBPrescaler::DIV128 => 128,
-        AHBPrescaler::DIV256 => 256,
-        AHBPrescaler::DIV512 => 512,
-        _ => unreachable!(),
-    }
-}
-
-fn apb_div(apb: APBPrescaler) -> u32 {
-    match apb {
-        APBPrescaler::DIV1 => 1,
-        APBPrescaler::DIV2 => 2,
-        APBPrescaler::DIV4 => 4,
-        APBPrescaler::DIV8 => 8,
-        APBPrescaler::DIV16 => 16,
-        _ => unreachable!(),
-    }
 }
 
 /// Sets the source for the 48MHz clock to the USB and RNG peripherals.
@@ -168,8 +120,8 @@ impl Default for Config {
             low_power_run: false,
             pll: None,
             clock_48mhz_src: None,
-            adc12_clock_source: Default::default(),
-            adc345_clock_source: Default::default(),
+            adc12_clock_source: Adcsel::NOCLK,
+            adc345_clock_source: Adcsel::NOCLK,
         }
     }
 }
@@ -203,8 +155,8 @@ pub(crate) unsafe fn init(config: Config) {
         let internal_freq = src_freq / pll_config.prediv_m * pll_config.mul_n;
 
         RCC.pllcfgr().write(|w| {
-            w.set_plln(pll_config.mul_n.into());
-            w.set_pllm(pll_config.prediv_m.into());
+            w.set_plln(pll_config.mul_n);
+            w.set_pllm(pll_config.prediv_m);
             w.set_pllsrc(pll_config.source.into());
         });
 
@@ -249,14 +201,14 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 
-            (HSI_FREQ.0, Sw::HSI16)
+            (HSI_FREQ, Sw::HSI16)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE
             RCC.cr().write(|w| w.set_hseon(true));
             while !RCC.cr().read().hserdy() {}
 
-            (freq.0, Sw::HSE)
+            (freq, Sw::HSE)
         }
         ClockSrc::PLL => {
             assert!(pll_freq.is_some());
@@ -297,35 +249,32 @@ pub(crate) unsafe fn init(config: Config) {
                 }
             }
 
-            (freq, Sw::PLLRCLK)
+            (Hertz(freq), Sw::PLLRCLK)
         }
     };
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
 
-    let ahb_freq: u32 = match config.ahb_pre {
-        AHBPrescaler::DIV1 => sys_clk,
-        pre => sys_clk / ahb_div(pre),
-    };
+    let ahb_freq = sys_clk / config.ahb_pre;
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
         APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
-            let freq = ahb_freq / apb_div(pre);
-            (freq, freq * 2)
+            let freq = ahb_freq / pre;
+            (freq, freq * 2u32)
         }
     };
 
     let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
         APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
         pre => {
-            let freq = ahb_freq / apb_div(pre);
-            (freq, freq * 2)
+            let freq = ahb_freq / pre;
+            (freq, freq * 2u32)
         }
     };
 
@@ -373,42 +322,36 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.ccipr().modify(|w| w.set_clk48sel(source));
     }
 
-    RCC.ccipr()
-        .modify(|w| w.set_adc12sel(config.adc12_clock_source.adcsel()));
-    RCC.ccipr()
-        .modify(|w| w.set_adc345sel(config.adc345_clock_source.adcsel()));
+    RCC.ccipr().modify(|w| w.set_adc12sel(config.adc12_clock_source));
+    RCC.ccipr().modify(|w| w.set_adc345sel(config.adc345_clock_source));
 
     let adc12_ck = match config.adc12_clock_source {
-        AdcClockSource::NoClk => None,
-        AdcClockSource::PllP => match &pll_freq {
-            Some(pll) => pll.pll_p,
-            None => None,
-        },
-        AdcClockSource::SysClk => Some(Hertz(sys_clk)),
+        AdcClockSource::NOCLK => None,
+        AdcClockSource::PLLP => pll_freq.as_ref().unwrap().pll_p,
+        AdcClockSource::SYSCLK => Some(sys_clk),
+        _ => unreachable!(),
     };
 
     let adc345_ck = match config.adc345_clock_source {
-        AdcClockSource::NoClk => None,
-        AdcClockSource::PllP => match &pll_freq {
-            Some(pll) => pll.pll_p,
-            None => None,
-        },
-        AdcClockSource::SysClk => Some(Hertz(sys_clk)),
+        AdcClockSource::NOCLK => None,
+        AdcClockSource::PLLP => pll_freq.as_ref().unwrap().pll_p,
+        AdcClockSource::SYSCLK => Some(sys_clk),
+        _ => unreachable!(),
     };
 
     if config.low_power_run {
-        assert!(sys_clk <= 2_000_000);
+        assert!(sys_clk <= Hertz(2_000_000));
         PWR.cr1().modify(|w| w.set_lpr(true));
     }
 
     set_freqs(Clocks {
-        sys: Hertz(sys_clk),
-        ahb1: Hertz(ahb_freq),
-        ahb2: Hertz(ahb_freq),
-        apb1: Hertz(apb1_freq),
-        apb1_tim: Hertz(apb1_tim_freq),
-        apb2: Hertz(apb2_freq),
-        apb2_tim: Hertz(apb2_tim_freq),
+        sys: sys_clk,
+        ahb1: ahb_freq,
+        ahb2: ahb_freq,
+        apb1: apb1_freq,
+        apb1_tim: apb1_tim_freq,
+        apb2: apb2_freq,
+        apb2_tim: apb2_tim_freq,
         adc: adc12_ck,
         adc34: adc345_ck,
     });

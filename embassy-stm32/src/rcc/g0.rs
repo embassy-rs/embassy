@@ -1,6 +1,8 @@
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{self, Hsidiv, Sw};
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Pllm, Plln, Pllp, Pllq, Pllr, Ppre as APBPrescaler};
+use crate::pac::rcc::vals::{self, Sw};
+pub use crate::pac::rcc::vals::{
+    Hpre as AHBPrescaler, Hsidiv as HSI16Prescaler, Pllm, Plln, Pllp, Pllq, Pllr, Ppre as APBPrescaler,
+};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -18,33 +20,6 @@ pub enum ClockSrc {
     HSI16(HSI16Prescaler),
     PLL(PllConfig),
     LSI,
-}
-
-#[derive(Clone, Copy)]
-pub enum HSI16Prescaler {
-    NotDivided,
-    Div2,
-    Div4,
-    Div8,
-    Div16,
-    Div32,
-    Div64,
-    Div128,
-}
-
-impl Into<Hsidiv> for HSI16Prescaler {
-    fn into(self) -> Hsidiv {
-        match self {
-            HSI16Prescaler::NotDivided => Hsidiv::DIV1,
-            HSI16Prescaler::Div2 => Hsidiv::DIV2,
-            HSI16Prescaler::Div4 => Hsidiv::DIV4,
-            HSI16Prescaler::Div8 => Hsidiv::DIV8,
-            HSI16Prescaler::Div16 => Hsidiv::DIV16,
-            HSI16Prescaler::Div32 => Hsidiv::DIV32,
-            HSI16Prescaler::Div64 => Hsidiv::DIV64,
-            HSI16Prescaler::Div128 => Hsidiv::DIV128,
-        }
-    }
 }
 
 /// The PLL configuration.
@@ -104,7 +79,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI16(HSI16Prescaler::NotDivided),
+            mux: ClockSrc::HSI16(HSI16Prescaler::DIV1),
             ahb_pre: AHBPrescaler::DIV1,
             apb_pre: APBPrescaler::DIV1,
             low_power_run: false,
@@ -195,7 +170,6 @@ pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw) = match config.mux {
         ClockSrc::HSI16(div) => {
             // Enable HSI16
-            let div: Hsidiv = div.into();
             RCC.cr().write(|w| {
                 w.set_hsidiv(div);
                 w.set_hsion(true)
@@ -262,7 +236,7 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     // Configure SYSCLK source, HCLK divisor, and PCLK divisor all at once
-    let (sw, hpre, ppre) = (sw.into(), config.ahb_pre.into(), config.apb_pre.into());
+    let (sw, hpre, ppre) = (sw.into(), config.ahb_pre, config.apb_pre);
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
         w.set_hpre(hpre);
