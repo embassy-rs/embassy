@@ -16,7 +16,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = {
         let mut config = Config::default();
-        config.rcc.mux = ClockSrc::HSE32;
+        config.rcc.mux = ClockSrc::HSE;
         config.rcc.lse = Some(Hertz(32_768));
         config.rcc.rtc_mux = RtcClockSource::LSE;
         embassy_stm32::init(config)

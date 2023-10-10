@@ -28,7 +28,7 @@ pub enum PllSrc {
 impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::HSE(..) => Pllsrc::HSE32,
+            PllSrc::HSE(..) => Pllsrc::HSE,
             PllSrc::HSI16 => Pllsrc::HSI16,
         }
     }
@@ -37,7 +37,7 @@ impl Into<Pllsrc> for PllSrc {
 impl Into<Sw> for ClockSrc {
     fn into(self) -> Sw {
         match self {
-            ClockSrc::HSE(..) => Sw::HSE32,
+            ClockSrc::HSE(..) => Sw::HSE,
             ClockSrc::HSI16 => Sw::HSI16,
         }
     }

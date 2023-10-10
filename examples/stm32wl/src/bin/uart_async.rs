@@ -21,7 +21,7 @@ but can be surely changed for your needs.
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE;
     let p = embassy_stm32::init(config);
 
     defmt::info!("Starting system");
