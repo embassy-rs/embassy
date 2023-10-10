@@ -95,7 +95,7 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::HSI16 => {
             // Enable HSI16
             RCC.cr().write(|w| w.set_hsi16on(true));
-            while !RCC.cr().read().hsi16rdyf() {}
+            while !RCC.cr().read().hsi16rdy() {}
 
             (HSI_FREQ, Sw::HSI16)
         }
@@ -117,7 +117,7 @@ pub(crate) unsafe fn init(config: Config) {
                 PLLSource::HSI16 => {
                     // Enable HSI
                     RCC.cr().write(|w| w.set_hsi16on(true));
-                    while !RCC.cr().read().hsi16rdyf() {}
+                    while !RCC.cr().read().hsi16rdy() {}
                     HSI_FREQ
                 }
             };
@@ -150,21 +150,17 @@ pub(crate) unsafe fn init(config: Config) {
         config.lse.map(|_| Default::default()),
     );
 
-    let wait_states = match config.voltage_scale {
-        VoltageScale::RANGE1 => match sys_clk.0 {
-            ..=16_000_000 => 0,
-            _ => 1,
-        },
-        VoltageScale::RANGE2 => match sys_clk.0 {
-            ..=8_000_000 => 0,
-            _ => 1,
-        },
-        VoltageScale::RANGE3 => 0,
-        _ => unreachable!(),
+    let wait_states = match (config.voltage_scale, sys_clk.0) {
+        (VoltageScale::RANGE1, ..=16_000_000) => 0,
+        (VoltageScale::RANGE2, ..=8_000_000) => 0,
+        (VoltageScale::RANGE3, ..=4_200_000) => 0,
+        _ => 1,
     };
-    FLASH.acr().modify(|w| {
-        w.set_latency(wait_states != 0);
-    });
+
+    #[cfg(stm32l1)]
+    FLASH.acr().write(|w| w.set_acc64(true));
+    FLASH.acr().modify(|w| w.set_prften(true));
+    FLASH.acr().modify(|w| w.set_latency(wait_states != 0));
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);

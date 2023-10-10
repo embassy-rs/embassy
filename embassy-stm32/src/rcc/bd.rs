@@ -163,7 +163,7 @@ impl BackupDomain {
         }
 
         // If not OK, reset backup domain and configure it.
-        #[cfg(not(any(rcc_l0, rcc_l1)))]
+        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1)))]
         {
             Self::modify(|w| w.set_bdrst(true));
             Self::modify(|w| w.set_bdrst(false));
