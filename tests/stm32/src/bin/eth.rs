@@ -85,9 +85,8 @@ async fn main(spawner: Spawner) {
         #[cfg(feature = "stm32h563zi")]
         p.PB15,
         p.PG11,
-        GenericSMI::new(),
+        GenericSMI::new(0),
         mac_addr,
-        0,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());
