@@ -6,7 +6,6 @@ pub use crate::rcc::bd::RtcClockSource;
 use crate::time::Hertz;
 
 pub(crate) mod bd;
-mod bus;
 mod mco;
 pub use mco::*;
 

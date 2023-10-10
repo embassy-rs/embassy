@@ -70,6 +70,16 @@ pub(crate) mod sealed {
         fn set_autoreload_preload(&mut self, enable: vals::Arpe) {
             Self::regs().cr1().modify(|r| r.set_arpe(enable));
         }
+
+        fn get_frequency(&self) -> Hertz {
+            let timer_f = Self::frequency();
+
+            let regs = Self::regs();
+            let arr = regs.arr().read().arr();
+            let psc = regs.psc().read().psc();
+
+            timer_f / arr / (psc + 1)
+        }
     }
 
     pub trait GeneralPurpose16bitInstance: Basic16bitInstance {
@@ -102,6 +112,16 @@ pub(crate) mod sealed {
             regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
             regs.egr().write(|r| r.set_ug(true));
             regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
+        }
+
+        fn get_frequency(&self) -> Hertz {
+            let timer_f = Self::frequency();
+
+            let regs = Self::regs_gp32();
+            let arr = regs.arr().read().arr();
+            let psc = regs.psc().read().psc();
+
+            timer_f / arr / (psc + 1)
         }
     }
 
@@ -183,6 +203,10 @@ pub(crate) mod sealed {
         fn get_max_compare_value(&self) -> u16 {
             Self::regs_gp16().arr().read().arr()
         }
+
+        fn get_compare_value(&self, channel: Channel) -> u16 {
+            Self::regs_gp16().ccr(channel.raw()).read().ccr()
+        }
     }
 
     pub trait ComplementaryCaptureCompare16bitInstance: CaptureCompare16bitInstance + AdvancedControlInstance {
@@ -218,6 +242,10 @@ pub(crate) mod sealed {
 
         fn get_max_compare_value(&self) -> u32 {
             Self::regs_gp32().arr().read().arr()
+        }
+
+        fn get_compare_value(&self, channel: Channel) -> u32 {
+            Self::regs_gp32().ccr(channel.raw()).read().ccr()
         }
     }
 }

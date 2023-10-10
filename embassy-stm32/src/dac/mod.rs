@@ -11,7 +11,7 @@ use crate::{peripherals, Peripheral};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Curstom Errors
+/// Custom Errors
 pub enum Error {
     UnconfiguredChannel,
     InvalidValue,

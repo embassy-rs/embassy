@@ -11,7 +11,7 @@ use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     NotATransmitter,

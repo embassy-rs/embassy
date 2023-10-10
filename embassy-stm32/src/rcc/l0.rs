@@ -1,8 +1,8 @@
 use super::bd::BackupDomain;
-pub use super::bus::{AHBPrescaler, APBPrescaler};
 use super::RtcClockSource;
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::vals::{Hpre, Msirange, Plldiv, Pllmul, Pllsrc, Ppre, Sw};
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 #[cfg(crs)]
 use crate::pac::{crs, CRS, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};

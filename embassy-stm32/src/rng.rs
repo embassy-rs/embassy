@@ -13,6 +13,7 @@ use crate::{interrupt, pac, peripherals, Peripheral};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     SeedError,

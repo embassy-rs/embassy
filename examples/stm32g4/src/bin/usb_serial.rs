@@ -25,16 +25,16 @@ async fn main(_spawner: Spawner) {
     // Change this to `false` to use the HSE clock source for the USB. This example assumes an 8MHz HSE.
     const USE_HSI48: bool = true;
 
-    let pllq_div = if USE_HSI48 { None } else { Some(PllQ::Div6) };
+    let pllq_div = if USE_HSI48 { None } else { Some(PllQ::DIV6) };
 
     config.rcc.pll = Some(Pll {
         source: PllSrc::HSE(Hertz(8_000_000)),
-        prediv_m: PllM::Div2,
-        mul_n: PllN::Mul72,
+        prediv_m: PllM::DIV2,
+        mul_n: PllN::MUL72,
         div_p: None,
         div_q: pllq_div,
         // Main system clock at 144 MHz
-        div_r: Some(PllR::Div2),
+        div_r: Some(PllR::DIV2),
     });
 
     config.rcc.mux = ClockSrc::PLL;

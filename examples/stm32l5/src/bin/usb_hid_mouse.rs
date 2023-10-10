@@ -22,7 +22,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
+    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PllRDiv::DIV2, PllPreDiv::DIV1, PllMul::MUL10, None);
     config.rcc.hsi48 = true;
     let p = embassy_stm32::init(config);
 

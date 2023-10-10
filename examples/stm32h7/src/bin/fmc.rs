@@ -18,10 +18,10 @@ async fn main(_spawner: Spawner) {
         config.rcc.csi = true;
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
-            divq: Some(8), // 100mhz
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,
         });
         config.rcc.sys = Sysclk::Pll1P; // 400 Mhz

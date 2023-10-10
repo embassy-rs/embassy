@@ -6,8 +6,8 @@ use crate::pac::pwr::vals::Vos;
 pub use crate::pac::rcc::vals::Adcdacsel as AdcClockSource;
 #[cfg(stm32h7)]
 pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
-pub use crate::pac::rcc::vals::Ckpersel as PerClockSource;
 use crate::pac::rcc::vals::{Ckpersel, Hsidiv, Pllrge, Pllsrc, Pllvcosel, Sw, Timpre};
+pub use crate::pac::rcc::vals::{Ckpersel as PerClockSource, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul};
 use crate::pac::{FLASH, PWR, RCC};
 #[cfg(stm32h7)]
 use crate::rcc::bd::{BackupDomain, LseCfg, RtcClockSource};
@@ -34,7 +34,7 @@ const VCO_WIDE_RANGE: RangeInclusive<u32> = 192_000_000..=836_000_000;
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0433))]
 const VCO_WIDE_RANGE: RangeInclusive<u32> = 192_000_000..=960_000_000;
 
-pub use super::bus::{AHBPrescaler, APBPrescaler};
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum VoltageScale {
@@ -109,19 +109,19 @@ pub struct Pll {
     #[cfg(stm32h5)]
     pub source: PllSource,
 
-    /// PLL pre-divider (DIVM). Must be between 1 and 63.
-    pub prediv: u8,
+    /// PLL pre-divider (DIVM).
+    pub prediv: PllPreDiv,
 
-    /// PLL multiplication factor. Must be between 4 and 512.
-    pub mul: u16,
+    /// PLL multiplication factor.
+    pub mul: PllMul,
 
-    /// PLL P division factor. If None, PLL P output is disabled. Must be between 1 and 128.
+    /// PLL P division factor. If None, PLL P output is disabled.
     /// On PLL1, it must be even (in particular, it cannot be 1.)
-    pub divp: Option<u16>,
-    /// PLL Q division factor. If None, PLL Q output is disabled. Must be between 1 and 128.
-    pub divq: Option<u16>,
-    /// PLL R division factor. If None, PLL R output is disabled. Must be between 1 and 128.
-    pub divr: Option<u16>,
+    pub divp: Option<PllDiv>,
+    /// PLL Q division factor. If None, PLL Q output is disabled.
+    pub divq: Option<PllDiv>,
+    /// PLL R division factor. If None, PLL R output is disabled.
+    pub divr: Option<PllDiv>,
 }
 
 fn apb_div_tim(apb: &APBPrescaler, clk: Hertz, tim: TimerPrescaler) -> Hertz {
@@ -651,9 +651,9 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
         // "To save power when PLL1 is not used, the value of PLL1M must be set to 0.""
         #[cfg(stm32h7)]
-        RCC.pllckselr().write(|w| w.set_divm(num, 0));
+        RCC.pllckselr().write(|w| w.set_divm(num, PllPreDiv::from_bits(0)));
         #[cfg(stm32h5)]
-        RCC.pllcfgr(num).write(|w| w.set_divm(0));
+        RCC.pllcfgr(num).write(|w| w.set_divm(PllPreDiv::from_bits(0)));
 
         return PllOutput {
             p: None,
@@ -661,9 +661,6 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             r: None,
         };
     };
-
-    assert!(1 <= config.prediv && config.prediv <= 63);
-    assert!(4 <= config.mul && config.mul <= 512);
 
     #[cfg(stm32h5)]
     let source = config.source;
@@ -700,22 +697,16 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     };
 
     let p = config.divp.map(|div| {
-        assert!(1 <= div && div <= 128);
         if num == 0 {
             // on PLL1, DIVP must be even.
-            assert!(div % 2 == 0);
+            // The enum value is 1 less than the divider, so check it's odd.
+            assert!(div.to_bits() % 2 == 1);
         }
 
         vco_clk / div
     });
-    let q = config.divq.map(|div| {
-        assert!(1 <= div && div <= 128);
-        vco_clk / div
-    });
-    let r = config.divr.map(|div| {
-        assert!(1 <= div && div <= 128);
-        vco_clk / div
-    });
+    let q = config.divq.map(|div| vco_clk / div);
+    let r = config.divr.map(|div| vco_clk / div);
 
     #[cfg(stm32h5)]
     RCC.pllcfgr(num).write(|w| {
@@ -746,10 +737,10 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     }
 
     RCC.plldivr(num).write(|w| {
-        w.set_plln(config.mul - 1);
-        w.set_pllp((config.divp.unwrap_or(1) - 1) as u8);
-        w.set_pllq((config.divq.unwrap_or(1) - 1) as u8);
-        w.set_pllr((config.divr.unwrap_or(1) - 1) as u8);
+        w.set_plln(config.mul);
+        w.set_pllp(config.divp.unwrap_or(PllDiv::DIV2));
+        w.set_pllq(config.divq.unwrap_or(PllDiv::DIV2));
+        w.set_pllr(config.divr.unwrap_or(PllDiv::DIV2));
     });
 
     RCC.cr().modify(|w| w.set_pllon(num, true));

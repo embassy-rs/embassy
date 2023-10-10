@@ -10,6 +10,7 @@ mod critical_section_impl;
 mod intrinsics;
 
 pub mod adc;
+pub mod bootsel;
 pub mod clocks;
 pub mod dma;
 pub mod flash;
@@ -193,6 +194,7 @@ embassy_hal_internal::peripherals! {
     PIO1,
 
     WATCHDOG,
+    BOOTSEL,
 }
 
 macro_rules! select_bootloader {
