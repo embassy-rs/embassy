@@ -101,8 +101,7 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::MSI(range) => {
             // Enable MSI
             RCC.cr().write(|w| {
-                let bits: Msirange = range.into();
-                w.set_msirange(bits);
+                w.set_msirange(range);
                 w.set_msirgsel(true);
                 w.set_msion(true);
 
@@ -154,8 +153,7 @@ pub(crate) unsafe fn init(config: Config) {
                 PLLSource::MSI(range) => {
                     // Enable MSI
                     RCC.cr().write(|w| {
-                        let bits: Msirange = range.into();
-                        w.set_msirange(bits);
+                        w.set_msirange(range);
                         w.set_msipllen(false); // should be turned on if LSE is started
                         w.set_msirgsel(true);
                         w.set_msion(true);
@@ -255,9 +253,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
 
     let ahb_freq = sys_clk / config.ahb_pre;

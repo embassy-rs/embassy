@@ -301,9 +301,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw.into());
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
     while RCC.cfgr().read().sws().to_bits() != sw.to_bits() {}
 

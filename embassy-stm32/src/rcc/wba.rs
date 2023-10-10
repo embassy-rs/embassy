@@ -108,13 +108,13 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     RCC.cfgr2().modify(|w| {
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
 
     RCC.cfgr3().modify(|w| {
-        w.set_ppre7(config.apb7_pre.into());
+        w.set_ppre7(config.apb7_pre);
     });
 
     let ahb_freq = sys_clk / config.ahb_pre;
