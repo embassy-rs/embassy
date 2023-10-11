@@ -1,14 +1,24 @@
+use core::sync::atomic::{compiler_fence, Ordering};
+
+use crate::pac::common::{Reg, RW};
+pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
+use crate::time::Hertz;
+
+#[cfg(any(stm32f0, stm32f1, stm32f3))]
+pub const LSI_FREQ: Hertz = Hertz(40_000);
+#[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
+pub const LSI_FREQ: Hertz = Hertz(32_000);
+
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
-pub enum LseCfg {
+pub enum LseMode {
     Oscillator(LseDrive),
     Bypass,
 }
 
-impl Default for LseCfg {
-    fn default() -> Self {
-        Self::Oscillator(Default::default())
-    }
+pub struct LseConfig {
+    pub frequency: Hertz,
+    pub mode: LseMode,
 }
 
 #[allow(dead_code)]
@@ -36,90 +46,116 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
-
 #[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
-#[allow(dead_code)]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
-
 #[cfg(any(rtc_v2l0, rtc_v2l1))]
-#[allow(dead_code)]
 type Bdcr = crate::pac::rcc::regs::Csr;
+#[cfg(any(stm32c0))]
+type Bdcr = crate::pac::rcc::regs::Csr1;
 
-#[allow(dead_code)]
-pub struct BackupDomain {}
+#[cfg(any(stm32c0))]
+fn unlock() {}
 
-impl BackupDomain {
-    #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
-        rtc_v3u5
-    ))]
-    #[allow(dead_code, unused_variables)]
-    fn modify<R>(f: impl FnOnce(&mut Bdcr) -> R) -> R {
-        #[cfg(any(rtc_v2f2, rtc_v2f3, rtc_v2l1, rtc_v2l0))]
-        let cr = crate::pac::PWR.cr();
-        #[cfg(any(rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
-        let cr = crate::pac::PWR.cr1();
+#[cfg(not(any(stm32c0)))]
+fn unlock() {
+    #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
+    let cr = crate::pac::PWR.cr();
+    #[cfg(not(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32h5, stm32wba)))]
+    let cr = crate::pac::PWR.cr1();
+    #[cfg(any(stm32u5, stm32h5, stm32wba))]
+    let cr = crate::pac::PWR.dbpcr();
 
-        // TODO: Missing from PAC for l0 and f0?
-        #[cfg(not(any(rtc_v2f0, rtc_v3u5)))]
-        {
-            cr.modify(|w| w.set_dbp(true));
-            while !cr.read().dbp() {}
+    cr.modify(|w| w.set_dbp(true));
+    while !cr.read().dbp() {}
+}
+
+fn bdcr() -> Reg<Bdcr, RW> {
+    #[cfg(any(rtc_v2l0, rtc_v2l1))]
+    return crate::pac::RCC.csr();
+    #[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
+    return crate::pac::RCC.bdcr();
+    #[cfg(any(stm32c0))]
+    return crate::pac::RCC.csr1();
+}
+
+pub struct LsConfig {
+    pub rtc: RtcClockSource,
+    pub lsi: bool,
+    pub lse: Option<LseConfig>,
+}
+
+impl LsConfig {
+    pub const fn default_lse() -> Self {
+        Self {
+            rtc: RtcClockSource::LSE,
+            lse: Some(LseConfig {
+                frequency: Hertz(32_000),
+                mode: LseMode::Oscillator(LseDrive::MediumHigh),
+            }),
+            lsi: false,
         }
-
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let cr = crate::pac::RCC.csr();
-
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let cr = crate::pac::RCC.bdcr();
-
-        cr.modify(|w| f(w))
     }
 
-    #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
-        rtc_v3u5
-    ))]
-    #[allow(dead_code)]
-    fn read() -> Bdcr {
-        #[cfg(any(rtc_v2l0, rtc_v2l1))]
-        let r = crate::pac::RCC.csr().read();
-
-        #[cfg(not(any(rtc_v2l0, rtc_v2l1)))]
-        let r = crate::pac::RCC.bdcr().read();
-
-        r
+    pub const fn default_lsi() -> Self {
+        Self {
+            rtc: RtcClockSource::LSI,
+            lsi: true,
+            lse: None,
+        }
     }
 
-    #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb, rtc_v3,
-        rtc_v3u5
-    ))]
-    #[allow(dead_code, unused_variables)]
-    pub fn configure_ls(clock_source: RtcClockSource, lsi: bool, lse: Option<LseCfg>) {
-        use atomic_polyfill::{compiler_fence, Ordering};
+    pub const fn off() -> Self {
+        Self {
+            rtc: RtcClockSource::NOCLOCK,
+            lsi: false,
+            lse: None,
+        }
+    }
+}
 
-        match clock_source {
-            RtcClockSource::LSI => assert!(lsi),
-            RtcClockSource::LSE => assert!(lse.is_some()),
-            _ => {}
+impl Default for LsConfig {
+    fn default() -> Self {
+        // on L5, just the fact that LSI is enabled makes things crash.
+        // TODO: investigate.
+
+        #[cfg(not(stm32l5))]
+        return Self::default_lsi();
+        #[cfg(stm32l5)]
+        return Self::off();
+    }
+}
+
+impl LsConfig {
+    pub(crate) fn init(&self) -> Option<Hertz> {
+        let rtc_clk = match self.rtc {
+            RtcClockSource::LSI => {
+                assert!(self.lsi);
+                Some(LSI_FREQ)
+            }
+            RtcClockSource::LSE => Some(self.lse.as_ref().unwrap().frequency),
+            RtcClockSource::NOCLOCK => None,
+            _ => todo!(),
         };
-        let (lse_en, lse_byp, lse_drv) = match lse {
-            Some(LseCfg::Oscillator(lse_drv)) => (true, false, Some(lse_drv)),
-            Some(LseCfg::Bypass) => (true, true, None),
+
+        let (lse_en, lse_byp, lse_drv) = match &self.lse {
+            Some(c) => match c.mode {
+                LseMode::Oscillator(lse_drv) => (true, false, Some(lse_drv)),
+                LseMode::Bypass => (true, true, None),
+            },
             None => (false, false, None),
         };
+        _ = lse_drv; // not all chips have it.
 
-        if lsi {
-            #[cfg(rtc_v3u5)]
+        // Disable backup domain write protection
+        unlock();
+
+        if self.lsi {
+            #[cfg(any(stm32u5, stm32h5, stm32wba))]
             let csr = crate::pac::RCC.bdcr();
-
-            #[cfg(not(rtc_v3u5))]
+            #[cfg(not(any(stm32u5, stm32h5, stm32wba, stm32c0)))]
             let csr = crate::pac::RCC.csr();
-
-            // Disable backup domain write protection
-            Self::modify(|_| {});
+            #[cfg(any(stm32c0))]
+            let csr = crate::pac::RCC.csr2();
 
             #[cfg(not(any(rcc_wb, rcc_wba)))]
             csr.modify(|w| w.set_lsion(true));
@@ -139,12 +175,12 @@ impl BackupDomain {
         // first check if the configuration matches what we want.
 
         // check if it's already enabled and in the source we want.
-        let reg = Self::read();
+        let reg = bdcr().read();
         let mut ok = true;
-        ok &= reg.rtcsel() == clock_source;
+        ok &= reg.rtcsel() == self.rtc;
         #[cfg(not(rcc_wba))]
         {
-            ok &= reg.rtcen() == (clock_source != RtcClockSource::NOCLOCK);
+            ok &= reg.rtcen() == (self.rtc != RtcClockSource::NOCLOCK);
         }
         ok &= reg.lseon() == lse_en;
         ok &= reg.lsebyp() == lse_byp;
@@ -155,22 +191,29 @@ impl BackupDomain {
 
         // if configuration is OK, we're done.
         if ok {
-            // RTC code assumes backup domain is unlocked
-            Self::modify(|w| {});
-
-            trace!("BDCR ok: {:08x}", Self::read().0);
-            return;
+            trace!("BDCR ok: {:08x}", bdcr().read().0);
+            return rtc_clk;
         }
 
         // If not OK, reset backup domain and configure it.
-        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1)))]
+        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32c0)))]
         {
-            Self::modify(|w| w.set_bdrst(true));
-            Self::modify(|w| w.set_bdrst(false));
+            bdcr().modify(|w| w.set_bdrst(true));
+            bdcr().modify(|w| w.set_bdrst(false));
+        }
+        #[cfg(any(stm32h5))]
+        {
+            bdcr().modify(|w| w.set_vswrst(true));
+            bdcr().modify(|w| w.set_vswrst(false));
+        }
+        #[cfg(any(stm32c0))]
+        {
+            bdcr().modify(|w| w.set_rtcrst(true));
+            bdcr().modify(|w| w.set_rtcrst(false));
         }
 
         if lse_en {
-            Self::modify(|w| {
+            bdcr().modify(|w| {
                 #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f400, rcc_f410, rcc_l1)))]
                 if let Some(lse_drv) = lse_drv {
                     w.set_lsedrv(lse_drv.into());
@@ -179,22 +222,24 @@ impl BackupDomain {
                 w.set_lseon(true);
             });
 
-            while !Self::read().lserdy() {}
+            while !bdcr().read().lserdy() {}
         }
 
-        if clock_source != RtcClockSource::NOCLOCK {
-            Self::modify(|w| {
+        if self.rtc != RtcClockSource::NOCLOCK {
+            bdcr().modify(|w| {
                 #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
                 assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
                 #[cfg(not(rcc_wba))]
                 w.set_rtcen(true);
-                w.set_rtcsel(clock_source);
+                w.set_rtcsel(self.rtc);
             });
         }
 
-        trace!("BDCR configured: {:08x}", Self::read().0);
+        trace!("BDCR configured: {:08x}", bdcr().read().0);
 
         compiler_fence(Ordering::SeqCst);
+
+        rtc_clk
     }
 }

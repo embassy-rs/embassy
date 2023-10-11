@@ -2,11 +2,11 @@
 
 use core::mem::MaybeUninit;
 
-pub use crate::rcc::bd::RtcClockSource;
 use crate::time::Hertz;
 
-pub(crate) mod bd;
+mod bd;
 mod mco;
+pub use bd::*;
 pub use mco::*;
 
 #[cfg_attr(rcc_f0, path = "f0.rs")]
@@ -132,13 +132,7 @@ pub struct Clocks {
     #[cfg(stm32f334)]
     pub hrtim: Option<Hertz>,
 
-    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
-    /// Set only if the lsi or lse is configured, indicates stop is supported
     pub rtc: Option<Hertz>,
-
-    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
-    /// Set if the hse is configured, indicates stop is not supported
-    pub rtc_hse: Option<Hertz>,
 }
 
 #[cfg(feature = "low-power")]
@@ -165,14 +159,6 @@ pub(crate) fn clock_refcount_sub() {
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
-
-#[cfg(stm32wb)]
-/// RCC initialization function
-pub(crate) unsafe fn init(config: Config) {
-    set_freqs(compute_clocks(&config));
-
-    configure_clocks(&config);
-}
 
 /// Sets the clock frequencies
 ///

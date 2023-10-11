@@ -10,7 +10,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
-pub use crate::rcc::RtcClockSource;
 use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
@@ -184,7 +183,7 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
-        #[cfg(any(rcc_wle, rcc_wl5, rcc_g4, rcc_g0, rtc_v2l4, rtc_v2wb))]
+        #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         <RTC as crate::rcc::sealed::RccPeripheral>::enable();
 
         let mut this = Self {
@@ -204,19 +203,8 @@ impl Rtc {
     }
 
     fn frequency() -> Hertz {
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
         let freqs = unsafe { crate::rcc::get_freqs() };
-
-        // Load the clock frequency from the rcc mod, if supported
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
-        match freqs.rtc {
-            Some(hertz) => hertz,
-            None => freqs.rtc_hse.unwrap(),
-        }
-
-        // Assume the  default value, if not supported
-        #[cfg(not(any(rcc_wb, rcc_f4, rcc_f410, rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab)))]
-        Hertz(32_768)
+        freqs.rtc.unwrap()
     }
 
     /// Acquire a [`RtcTimeProvider`] instance.

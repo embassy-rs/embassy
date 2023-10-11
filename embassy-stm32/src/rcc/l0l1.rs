@@ -1,5 +1,3 @@
-use super::bd::BackupDomain;
-use super::RtcClockSource;
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange as MSIRange, Plldiv as PLLDiv, Pllmul as PLLMul, Ppre as APBPrescaler,
@@ -13,9 +11,6 @@ use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// System clock mux source
 #[derive(Clone, Copy)]
@@ -50,9 +45,7 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
     #[cfg(crs)]
     pub enable_hsi48: bool,
-    pub rtc: Option<RtcClockSource>,
-    pub lse: Option<Hertz>,
-    pub lsi: bool,
+    pub ls: super::LsConfig,
     pub voltage_scale: VoltageScale,
 }
 
@@ -66,10 +59,8 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             #[cfg(crs)]
             enable_hsi48: false,
-            rtc: None,
-            lse: None,
-            lsi: false,
             voltage_scale: VoltageScale::RANGE1,
+            ls: Default::default(),
         }
     }
 }
@@ -144,11 +135,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    BackupDomain::configure_ls(
-        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
-        config.lsi,
-        config.lse.map(|_| Default::default()),
-    );
+    let rtc = config.ls.init();
 
     let wait_states = match (config.voltage_scale, sys_clk.0) {
         (VoltageScale::RANGE1, ..=16_000_000) => 0,
@@ -227,5 +214,6 @@ pub(crate) unsafe fn init(config: Config) {
         apb2: apb2_freq,
         apb1_tim: apb1_tim_freq,
         apb2_tim: apb2_tim_freq,
+        rtc,
     });
 }

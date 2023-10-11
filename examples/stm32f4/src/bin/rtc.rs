@@ -5,16 +5,14 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rtc::{Rtc, RtcClockSource, RtcConfig};
+use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut config = Config::default();
-    config.rcc.lsi = true;
-    config.rcc.rtc = Option::Some(RtcClockSource::LSI);
+    let config = Config::default();
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");

@@ -32,7 +32,6 @@ use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
 use hal::gpio::{Input, Level, Output, Speed};
 use hal::i2c::{self, I2c};
-use hal::rcc::{self};
 use hal::rng::{self, Rng};
 use hal::{bind_interrupts, exti, pac, peripherals};
 use heapless::Vec;
@@ -86,7 +85,6 @@ async fn main(spawner: Spawner) {
         None,
     );
     config.rcc.hsi48 = true; // needed for rng
-    config.rcc.rtc_mux = rcc::RtcClockSource::LSI;
 
     let dp = embassy_stm32::init(config);
 
