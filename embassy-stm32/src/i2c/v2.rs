@@ -1,16 +1,22 @@
 use core::cmp;
+#[cfg(feature = "time")]
 use core::future::poll_fn;
 use core::marker::PhantomData;
+#[cfg(feature = "time")]
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
+#[cfg(feature = "time")]
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
 
-use crate::dma::{NoDma, Transfer};
+use crate::dma::NoDma;
+#[cfg(feature = "time")]
+use crate::dma::Transfer;
+
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
