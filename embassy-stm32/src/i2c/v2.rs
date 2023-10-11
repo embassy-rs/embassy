@@ -16,7 +16,6 @@ use embassy_time::{Duration, Instant};
 use crate::dma::NoDma;
 #[cfg(feature = "time")]
 use crate::dma::Transfer;
-
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
 use crate::i2c::{Error, Instance, SclPin, SdaPin};
