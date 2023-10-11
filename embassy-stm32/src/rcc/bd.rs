@@ -89,7 +89,7 @@ impl LsConfig {
         Self {
             rtc: RtcClockSource::LSE,
             lse: Some(LseConfig {
-                frequency: Hertz(32_000),
+                frequency: Hertz(32_768),
                 mode: LseMode::Oscillator(LseDrive::MediumHigh),
             }),
             lsi: false,
