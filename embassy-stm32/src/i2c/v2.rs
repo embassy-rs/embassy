@@ -749,7 +749,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     #[cfg(not(feature = "time"))]
-    pub fn blocking_read_timeout(&mut self, address: u8, read: &mut [u8], check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
+    pub fn blocking_read_timeout(
+        &mut self,
+        address: u8,
+        read: &mut [u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
         self.read_internal(address, read, false, check_timeout)
         // Automatic Stop
     }
@@ -768,7 +773,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     #[cfg(not(feature = "time"))]
-    pub fn blocking_write_timeout(&mut self, address: u8, write: &[u8], check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
+    pub fn blocking_write_timeout(
+        &mut self,
+        address: u8,
+        write: &[u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
         self.write_internal(address, write, true, check_timeout)
     }
 
