@@ -93,6 +93,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             w.set_master_mode(false);
             w.set_ic_slave_disable(false);
             w.set_tx_empty_ctrl(true);
+            w.set_rx_fifo_full_hld_ctrl(true);
         });
 
         // Set FIFO watermarks to 1 to make things simpler. This is encoded
@@ -166,7 +167,6 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     pub async fn listen(&mut self, buffer: &mut [u8]) -> Result<Command, Error> {
         let p = T::regs();
 
-        p.ic_clr_intr().read();
         // set rx fifo watermark to 1 byte
         p.ic_rx_tl().write(|w| w.set_rx_tl(0));
 
@@ -181,14 +181,28 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                         p.ic_rx_tl().write(|w| w.set_rx_tl(11));
                     }
 
+                    // rd_req is not cleared so that the clock is stretched into `respond_to_read`.
                     if stat.restart_det() && stat.rd_req() {
+                        p.ic_clr_restart_det().read();
                         Poll::Ready(Ok(Command::WriteRead(len)))
                     } else if stat.gen_call() && stat.stop_det() && len > 0 {
+                        p.ic_clr_gen_call().read();
+                        p.ic_clr_stop_det().read();
                         Poll::Ready(Ok(Command::GeneralCall(len)))
-                    } else if stat.stop_det() {
+                    } else if stat.stop_det() && len > 0 {
+                        p.ic_clr_stop_det().read();
                         Poll::Ready(Ok(Command::Write(len)))
                     } else if stat.rd_req() {
                         Poll::Ready(Ok(Command::Read))
+                    // If restart_det() is set but not rd_req() the register can
+                    // get stuck, and we can enter a tight loop.
+                    } else if stat.restart_det() && !stat.rd_req() {
+                        p.ic_clr_restart_det().read();
+                        Poll::Pending
+                    // Likewise if stop_det() is set and len is 0.
+                    } else if stat.stop_det() && p.ic_rxflr().read().rxflr() == 0 {
+                        p.ic_clr_stop_det().read();
+                        Poll::Pending
                     } else {
                         Poll::Pending
                     }
@@ -205,7 +219,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             )
             .await;
 
-        p.ic_clr_intr().read();
+        p.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
 
         ret
     }
@@ -234,13 +248,19 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                     if let Some(chunk) = chunks.next() {
                         me.write_to_fifo(chunk);
 
+                        // stop stretching the clk
+                        p.ic_clr_rd_req().read();
+
                         Poll::Pending
                     } else {
                         let stat = p.ic_raw_intr_stat().read();
 
                         if stat.rx_done() && stat.stop_det() {
+                            p.ic_clr_rx_done().read();
+                            p.ic_clr_stop_det().read();
                             Poll::Ready(Ok(ReadStatus::Done))
                         } else if stat.rd_req() {
+                            p.ic_clr_rd_req().read();
                             Poll::Ready(Ok(ReadStatus::NeedMoreBytes))
                         } else {
                             Poll::Pending
@@ -248,6 +268,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                     }
                 },
                 |_me| {
+                    p.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
                     p.ic_intr_mask().modify(|w| {
                         w.set_m_stop_det(true);
                         w.set_m_rx_done(true);
@@ -258,7 +279,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             )
             .await;
 
-        p.ic_clr_intr().read();
+        p.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
 
         ret
     }
