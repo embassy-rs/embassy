@@ -295,12 +295,23 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
     pub async fn read_async(&mut self, addr: u16, buffer: &mut [u8]) -> Result<(), Error> {
         Self::setup(addr)?;
-        self.read_async_internal(buffer, false, true).await
+        self.read_async_internal(buffer, true, true).await
     }
 
     pub async fn write_async(&mut self, addr: u16, bytes: impl IntoIterator<Item = u8>) -> Result<(), Error> {
         Self::setup(addr)?;
         self.write_async_internal(bytes, true).await
+    }
+
+    pub async fn write_read_async(
+        &mut self,
+        addr: u16,
+        bytes: impl IntoIterator<Item = u8>,
+        buffer: &mut [u8],
+    ) -> Result<(), Error> {
+        Self::setup(addr)?;
+        self.write_async_internal(bytes, false).await?;
+        self.read_async_internal(buffer, true, true).await
     }
 }
 
@@ -713,7 +724,7 @@ mod nightly {
 
             Self::setup(addr)?;
             self.write_async_internal(write.iter().cloned(), false).await?;
-            self.read_async_internal(read, false, true).await
+            self.read_async_internal(read, true, true).await
         }
 
         async fn transaction(&mut self, address: A, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
