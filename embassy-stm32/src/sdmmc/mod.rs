@@ -452,8 +452,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     ) -> Self {
         into_ref!(sdmmc, dma);
 
-        T::enable();
-        T::reset();
+        T::reset_and_enable();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };

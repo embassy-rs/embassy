@@ -632,8 +632,7 @@ impl<'d, T: Instance> Bus<'d, T> {
             });
         }
 
-        <T as RccPeripheral>::enable();
-        <T as RccPeripheral>::reset();
+        <T as RccPeripheral>::reset_and_enable();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };

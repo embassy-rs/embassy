@@ -69,16 +69,13 @@ impl<'d> Crc<'d> {
     /// Instantiates the CRC32 peripheral and initializes it to default values.
     pub fn new(peripheral: impl Peripheral<P = CRC> + 'd, config: Config) -> Self {
         // Note: enable and reset come from RccPeripheral.
-        // enable CRC clock in RCC.
-        CRC::enable();
-        // Reset CRC to default values.
-        CRC::reset();
+        // reset to default values and enable CRC clock in RCC.
+        CRC::reset_and_enable();
         into_ref!(peripheral);
         let mut instance = Self {
             _peripheral: peripheral,
             _config: config,
         };
-        CRC::reset();
         instance.reconfigure();
         instance.reset();
         instance

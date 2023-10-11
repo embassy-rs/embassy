@@ -152,9 +152,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::reset_and_enable();
+        T::reset_and_enable();
 
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
@@ -173,9 +172,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         into_ref!(cts, rts);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::reset_and_enable();
+        T::reset_and_enable();
 
         rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
         cts.set_as_af(cts.af_num(), AFType::Input);
@@ -201,9 +199,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         into_ref!(de);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::reset_and_enable();
+        T::reset_and_enable();
 
         de.set_as_af(de.af_num(), AFType::OutputPushPull);
         T::regs().cr3().write(|w| {

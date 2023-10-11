@@ -186,11 +186,11 @@ pub fn init(config: Config) -> Peripherals {
     }
 
     #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
-    peripherals::SYSCFG::enable();
+    peripherals::SYSCFG::reset_and_enable();
     #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
-    peripherals::PWR::enable();
+    peripherals::PWR::reset_and_enable();
     #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
-    peripherals::FLASH::enable();
+    peripherals::FLASH::reset_and_enable();
 
     unsafe {
         #[cfg(feature = "_split-pins-enabled")]

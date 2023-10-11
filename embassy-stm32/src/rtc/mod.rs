@@ -184,7 +184,7 @@ impl Default for RtcCalibrationCyclePeriod {
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
-        <RTC as crate::rcc::sealed::RccPeripheral>::enable();
+        <RTC as crate::rcc::sealed::RccPeripheral>::reset_and_enable();
 
         let mut this = Self {
             #[cfg(feature = "low-power")]

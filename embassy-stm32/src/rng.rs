@@ -43,8 +43,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         inner: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        T::enable();
-        T::reset();
+        T::reset_and_enable();
         into_ref!(inner);
         let mut random = Self { _inner: inner };
         random.reset();

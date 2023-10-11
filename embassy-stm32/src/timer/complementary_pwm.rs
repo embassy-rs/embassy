@@ -64,8 +64,7 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
     fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz) -> Self {
         into_ref!(tim);
 
-        T::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
+        T::reset_and_enable();
 
         let mut this = Self { inner: tim };
 

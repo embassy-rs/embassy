@@ -19,8 +19,7 @@ where
     const REGISTERS: *const () = T::REGS.as_ptr() as *const _;
 
     fn enable(&mut self) {
-        <T as crate::rcc::sealed::RccPeripheral>::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
+        T::reset_and_enable();
     }
 
     fn memory_controller_enable(&mut self) {

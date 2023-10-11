@@ -55,8 +55,7 @@ impl<'d, T: CaptureCompare16bitInstance> Qei<'d, T> {
     fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
-        T::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
+        T::reset_and_enable();
 
         // Configure TxC1 and TxC2 as captures
         T::regs_gp16().ccmr_input(0).modify(|w| {

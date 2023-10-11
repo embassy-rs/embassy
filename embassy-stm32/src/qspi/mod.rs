@@ -177,8 +177,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     ) -> Self {
         into_ref!(peri, dma);
 
-        T::enable();
-        T::reset();
+        T::reset_and_enable();
 
         while T::REGS.sr().read().busy() {}
 
