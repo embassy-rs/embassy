@@ -61,7 +61,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         delay: &mut impl DelayUs<u32>,
     ) -> Self {
         into_ref!(adc);
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         // Delay 1μs when using HSI14 as the ADC clock.
         //

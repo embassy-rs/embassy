@@ -64,7 +64,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         into_ref!(adc);
 
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         // Enable the adc regulator
         T::regs().cr().modify(|w| w.set_advregen(vals::Advregen::INTERMEDIATE));

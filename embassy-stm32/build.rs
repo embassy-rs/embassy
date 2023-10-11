@@ -556,14 +556,14 @@ fn main() {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
-                    fn enable() {
+                    fn enable_and_reset() {
                         critical_section::with(|_cs| {
                             #before_enable
-                            #rst
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_add(_cs);
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                             #after_enable
+                            #rst
                         })
                     }
                     fn disable() {

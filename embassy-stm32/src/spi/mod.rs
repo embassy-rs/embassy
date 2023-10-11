@@ -230,7 +230,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         let lsbfirst = config.raw_byte_order();
 
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         #[cfg(any(spi_v1, spi_f1))]
         {

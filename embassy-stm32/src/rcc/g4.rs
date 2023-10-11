@@ -296,7 +296,7 @@ pub(crate) unsafe fn init(config: Config) {
 
                 // Enable and setup CRS if needed
                 if let Some(crs_config) = crs_config {
-                    crate::peripherals::CRS::reset_and_enable();
+                    crate::peripherals::CRS::enable_and_reset();
 
                     let sync_src = match crs_config.sync_src {
                         CrsSyncSource::Gpio => crate::pac::crs::vals::Syncsrc::GPIO,

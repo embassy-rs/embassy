@@ -127,7 +127,7 @@ impl Prescaler {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u16>) -> Self {
         embassy_hal_internal::into_ref!(adc);
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
 

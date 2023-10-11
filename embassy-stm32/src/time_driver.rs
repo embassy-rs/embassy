@@ -155,7 +155,7 @@ impl RtcDriver {
     fn init(&'static self) {
         let r = T::regs_gp16();
 
-        <T as RccPeripheral>::reset_and_enable();
+        <T as RccPeripheral>::enable_and_reset();
 
         let timer_freq = T::frequency();
 

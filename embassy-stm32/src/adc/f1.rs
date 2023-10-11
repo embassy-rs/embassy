@@ -51,7 +51,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(adc);
-        T::reset_and_enable();
+        T::enable_and_reset();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
         // 11.4: Before starting a calibration, the ADC must have been in power-on state (ADON bit = ‘1’)

@@ -79,7 +79,7 @@ async fn dac_task1(mut dac: Dac1Type) {
     dac.select_trigger(embassy_stm32::dac::Ch1Trigger::Tim6).unwrap();
     dac.enable_channel().unwrap();
 
-    TIM6::reset_and_enable();
+    TIM6::enable_and_reset();
     TIM6::regs().arr().modify(|w| w.set_arr(reload as u16 - 1));
     TIM6::regs().cr2().modify(|w| w.set_mms(Mms::UPDATE));
     TIM6::regs().cr1().modify(|w| {
@@ -118,7 +118,7 @@ async fn dac_task2(mut dac: Dac2Type) {
         error!("Reload value {} below threshold!", reload);
     }
 
-    TIM7::reset_and_enable();
+    TIM7::enable_and_reset();
     TIM7::regs().arr().modify(|w| w.set_arr(reload as u16 - 1));
     TIM7::regs().cr2().modify(|w| w.set_mms(Mms::UPDATE));
     TIM7::regs().cr1().modify(|w| {

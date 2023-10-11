@@ -231,7 +231,7 @@ pub mod low_level {
 pub(crate) mod sealed {
     pub trait RccPeripheral {
         fn frequency() -> crate::time::Hertz;
-        fn reset_and_enable();
+        fn enable_and_reset();
         fn disable();
     }
 }

@@ -136,7 +136,7 @@ impl<'d, T: Instance> Can<'d, T> {
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         {
             use crate::pac::can::vals::{Errie, Fmpie, Tmeie};

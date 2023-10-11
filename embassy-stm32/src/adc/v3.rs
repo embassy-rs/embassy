@@ -48,7 +48,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(adc);
-        T::reset_and_enable();
+        T::enable_and_reset();
         T::regs().cr().modify(|reg| {
             #[cfg(not(adc_g0))]
             reg.set_deeppwd(false);

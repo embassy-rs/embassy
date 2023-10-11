@@ -93,7 +93,7 @@ pub struct Ipcc;
 
 impl Ipcc {
     pub fn enable(_config: Config) {
-        IPCC::reset_and_enable();
+        IPCC::enable_and_reset();
         IPCC::set_cpu2(true);
 
         _configure_pwr();

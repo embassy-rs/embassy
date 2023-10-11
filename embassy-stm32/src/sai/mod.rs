@@ -580,7 +580,7 @@ fn get_ring_buffer<'d, T: Instance, C: Channel, W: word::Word>(
 
 impl<'d, T: Instance> Sai<'d, T> {
     pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         Self {
             _peri: unsafe { peri.clone_unchecked().into_ref() },
@@ -960,7 +960,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
     }
 
     pub fn reset() {
-        T::reset_and_enable();
+        T::enable_and_reset();
     }
 
     pub fn flush(&mut self) {

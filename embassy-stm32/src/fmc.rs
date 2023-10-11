@@ -19,7 +19,7 @@ where
     const REGISTERS: *const () = T::REGS.as_ptr() as *const _;
 
     fn enable(&mut self) {
-        T::reset_and_enable();
+        T::enable_and_reset();
     }
 
     fn memory_controller_enable(&mut self) {

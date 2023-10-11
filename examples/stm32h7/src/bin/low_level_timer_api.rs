@@ -73,7 +73,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     ) -> Self {
         into_ref!(tim, ch1, ch2, ch3, ch4);
 
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         ch1.set_speed(Speed::VeryHigh);
         ch1.set_as_af(ch1.af_num(), AFType::OutputPushPull);

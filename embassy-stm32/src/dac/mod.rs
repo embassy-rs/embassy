@@ -255,7 +255,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     ) -> Self {
         pin.set_as_analog();
         into_ref!(peri, dma);
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         let mut dac = Self { _peri: peri, dma };
 
@@ -365,7 +365,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     ) -> Self {
         pin.set_as_analog();
         into_ref!(_peri, dma);
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         let mut dac = Self {
             phantom: PhantomData,
@@ -481,7 +481,7 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
         into_ref!(peri, dma_ch1, dma_ch2);
-        T::reset_and_enable();
+        T::enable_and_reset();
 
         let mut dac_ch1 = DacCh1 {
             _peri: peri,
@@ -567,7 +567,7 @@ foreach_peripheral!(
                         critical_section::with(|_| unsafe { crate::rcc::get_freqs().apb1 })
                     }
 
-                    fn reset_and_enable() {
+                    fn enable_and_reset() {
                         critical_section::with(|_| {
                             crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
                             crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
