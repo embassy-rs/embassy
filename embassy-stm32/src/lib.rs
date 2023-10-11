@@ -41,7 +41,7 @@ pub mod flash;
 pub mod fmc;
 #[cfg(hrtim)]
 pub mod hrtim;
-#[cfg(i2c)]
+#[cfg(all(i2c, any(i2c_v1, all(i2c_v2, feature = "time"))))]
 pub mod i2c;
 #[cfg(all(spi_v1, rcc_f4))]
 pub mod i2s;
