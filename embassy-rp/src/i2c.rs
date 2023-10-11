@@ -101,13 +101,15 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         G: FnMut(&mut Self),
     {
         future::poll_fn(|cx| {
-            let r = f(self);
+            critical_section::with(|_| {
+                let r = f(self);
 
-            if r.is_pending() {
-                T::waker().register(cx.waker());
-                g(self);
-            }
-            r
+                if r.is_pending() {
+                    T::waker().register(cx.waker());
+                    g(self);
+                }
+                r
+            })
         })
         .await
     }
