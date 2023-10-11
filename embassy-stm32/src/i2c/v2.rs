@@ -74,6 +74,7 @@ impl State {
 
 pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     _peri: PeripheralRef<'d, T>,
+    #[allow(dead_code)]
     tx_dma: PeripheralRef<'d, TXDMA>,
     #[allow(dead_code)]
     rx_dma: PeripheralRef<'d, RXDMA>,
@@ -432,6 +433,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         result
     }
 
+    #[cfg(feature = "time")]
     async fn write_dma_internal(
         &mut self,
         address: u8,
@@ -522,6 +524,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
+    #[cfg(feature = "time")]
     async fn read_dma_internal(
         &mut self,
         address: u8,
