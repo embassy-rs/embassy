@@ -2,10 +2,9 @@
 
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
 
-use atomic_polyfill::AtomicUsize;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -127,7 +126,13 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::bdma::Dma, channel_num: usize, index
     } else if isr.tcif(channel_num) && cr.read().tcie() {
         // Acknowledge transfer complete interrupt
         dma.ifcr().write(|w| w.set_tcif(channel_num, true));
+        #[cfg(not(armv6m))]
         STATE.complete_count[index].fetch_add(1, Ordering::Release);
+        #[cfg(armv6m)]
+        critical_section::with(|_| {
+            let x = STATE.complete_count[index].load(Ordering::Relaxed);
+            STATE.complete_count[index].store(x + 1, Ordering::Release);
+        })
     } else {
         return;
     }
@@ -391,7 +396,14 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     }
 
     fn reset_complete_count(&mut self) -> usize {
-        STATE.complete_count[self.0.index()].swap(0, Ordering::AcqRel)
+        #[cfg(not(armv6m))]
+        return STATE.complete_count[self.0.index()].swap(0, Ordering::AcqRel);
+        #[cfg(armv6m)]
+        return critical_section::with(|_| {
+            let x = STATE.complete_count[self.0.index()].load(Ordering::Acquire);
+            STATE.complete_count[self.0.index()].store(0, Ordering::Release);
+            x
+        });
     }
 
     fn set_waker(&mut self, waker: &Waker) {

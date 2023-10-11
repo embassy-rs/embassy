@@ -1,9 +1,8 @@
 use core::cell::Cell;
 use core::convert::TryInto;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
-use atomic_polyfill::{AtomicU32, AtomicU8};
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
@@ -229,7 +228,9 @@ impl RtcDriver {
     fn next_period(&self) {
         let r = T::regs_gp16();
 
-        let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
+        // We only modify the period from the timer interrupt, so we know this can't race.
+        let period = self.period.load(Ordering::Relaxed) + 1;
+        self.period.store(period, Ordering::Relaxed);
         let t = (period as u64) << 15;
 
         critical_section::with(move |cs| {
@@ -403,18 +404,15 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-            if x < ALARM_COUNT as u8 {
-                Some(x + 1)
+        critical_section::with(|_| {
+            let id = self.alarm_count.load(Ordering::Relaxed);
+            if id < ALARM_COUNT as u8 {
+                self.alarm_count.store(id + 1, Ordering::Relaxed);
+                Some(AlarmHandle::new(id))
             } else {
                 None
             }
-        });
-
-        match id {
-            Ok(id) => Some(AlarmHandle::new(id)),
-            Err(_) => None,
-        }
+        })
     }
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {

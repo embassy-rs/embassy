@@ -8,6 +8,32 @@ use quote::{format_ident, quote};
 use stm32_metapac::metadata::{MemoryRegionKind, METADATA};
 
 fn main() {
+    let target = env::var("TARGET").unwrap();
+
+    if target.starts_with("thumbv6m-") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv6m");
+    } else if target.starts_with("thumbv7m-") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv7m");
+    } else if target.starts_with("thumbv7em-") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv7m");
+        println!("cargo:rustc-cfg=armv7em"); // (not currently used)
+    } else if target.starts_with("thumbv8m.base") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv8m");
+        println!("cargo:rustc-cfg=armv8m_base");
+    } else if target.starts_with("thumbv8m.main") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv8m");
+        println!("cargo:rustc-cfg=armv8m_main");
+    }
+
+    if target.ends_with("-eabihf") {
+        println!("cargo:rustc-cfg=has_fpu");
+    }
+
     let chip_name = match env::vars()
         .map(|(a, _)| a)
         .filter(|x| x.starts_with("CARGO_FEATURE_STM32"))
@@ -434,20 +460,20 @@ fn main() {
                         unsafe { crate::rcc::get_freqs().#clk }
                     }
                     fn enable() {
-                        critical_section::with(|_| {
+                        critical_section::with(|_cs| {
                             #before_enable
                             #[cfg(feature = "low-power")]
-                            crate::rcc::clock_refcount_add();
+                            crate::rcc::clock_refcount_add(_cs);
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                             #after_enable
                         })
                     }
                     fn disable() {
-                        critical_section::with(|_| {
+                        critical_section::with(|_cs| {
                             #before_disable
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                             #[cfg(feature = "low-power")]
-                            crate::rcc::clock_refcount_sub();
+                            crate::rcc::clock_refcount_sub(_cs);
                         })
                     }
                     fn reset() {

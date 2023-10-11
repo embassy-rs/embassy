@@ -225,7 +225,9 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(feature = "low-power")]
         while !crate::rcc::low_power_ready() {
-            crate::rcc::clock_refcount_sub();
+            critical_section::with(|cs| {
+                crate::rcc::clock_refcount_sub(cs);
+            });
         }
     }
 
