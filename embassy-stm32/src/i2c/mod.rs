@@ -2,6 +2,8 @@
 
 use crate::interrupt;
 
+// I2C V2 is gated on the `time` feature because timing facilities are necessary
+// to provide timeout functionality in order to prevent some APIs from stalling indefinitely
 #[cfg_attr(i2c_v1, path = "v1.rs")]
 #[cfg_attr(all(i2c_v2, feature = "time"), path = "v2.rs")]
 mod _version;
