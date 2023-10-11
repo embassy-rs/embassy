@@ -7,6 +7,8 @@ use crate::interrupt;
 #[cfg_attr(i2c_v1, path = "v1.rs")]
 #[cfg_attr(all(i2c_v2, feature = "time"), path = "v2.rs")]
 mod _version;
+
+#[cfg(any(i2c_v1, all(i2c_v2, feature = "time")))]
 pub use _version::*;
 
 use crate::peripherals;
