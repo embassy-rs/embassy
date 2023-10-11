@@ -554,23 +554,19 @@ fn main() {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
-                    fn enable_and_reset() {
-                        critical_section::with(|_cs| {
-                            #before_enable
-                            #[cfg(feature = "low-power")]
-                            crate::rcc::clock_refcount_add(_cs);
-                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-                            #after_enable
-                            #rst
-                        })
+                    fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
+                        #before_enable
+                        #[cfg(feature = "low-power")]
+                        crate::rcc::clock_refcount_add(_cs);
+                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
+                        #after_enable
+                        #rst
                     }
-                    fn disable() {
-                        critical_section::with(|_cs| {
-                            #before_disable
-                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
-                            #[cfg(feature = "low-power")]
-                            crate::rcc::clock_refcount_sub(_cs);
-                        })
+                    fn disable_with_cs(_cs: critical_section::CriticalSection) {
+                        #before_disable
+                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
+                        #[cfg(feature = "low-power")]
+                        crate::rcc::clock_refcount_sub(_cs);
                     }
                 }
 

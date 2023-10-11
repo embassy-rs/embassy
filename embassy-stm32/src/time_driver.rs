@@ -152,45 +152,43 @@ embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 });
 
 impl RtcDriver {
-    fn init(&'static self) {
+    fn init(&'static self, cs: critical_section::CriticalSection) {
         let r = T::regs_gp16();
 
-        <T as RccPeripheral>::enable_and_reset();
+        <T as RccPeripheral>::enable_and_reset_with_cs(cs);
 
         let timer_freq = T::frequency();
 
-        critical_section::with(|_| {
-            r.cr1().modify(|w| w.set_cen(false));
-            r.cnt().write(|w| w.set_cnt(0));
+        r.cr1().modify(|w| w.set_cen(false));
+        r.cnt().write(|w| w.set_cnt(0));
 
-            let psc = timer_freq.0 / TICK_HZ as u32 - 1;
-            let psc: u16 = match psc.try_into() {
-                Err(_) => panic!("psc division overflow: {}", psc),
-                Ok(n) => n,
-            };
+        let psc = timer_freq.0 / TICK_HZ as u32 - 1;
+        let psc: u16 = match psc.try_into() {
+            Err(_) => panic!("psc division overflow: {}", psc),
+            Ok(n) => n,
+        };
 
-            r.psc().write(|w| w.set_psc(psc));
-            r.arr().write(|w| w.set_arr(u16::MAX));
+        r.psc().write(|w| w.set_psc(psc));
+        r.arr().write(|w| w.set_arr(u16::MAX));
 
-            // Set URS, generate update and clear URS
-            r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTERONLY));
-            r.egr().write(|w| w.set_ug(true));
-            r.cr1().modify(|w| w.set_urs(vals::Urs::ANYEVENT));
+        // Set URS, generate update and clear URS
+        r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTERONLY));
+        r.egr().write(|w| w.set_ug(true));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::ANYEVENT));
 
-            // Mid-way point
-            r.ccr(0).write(|w| w.set_ccr(0x8000));
+        // Mid-way point
+        r.ccr(0).write(|w| w.set_ccr(0x8000));
 
-            // Enable overflow and half-overflow interrupts
-            r.dier().write(|w| {
-                w.set_uie(true);
-                w.set_ccie(0, true);
-            });
+        // Enable overflow and half-overflow interrupts
+        r.dier().write(|w| {
+            w.set_uie(true);
+            w.set_ccie(0, true);
+        });
 
-            <T as BasicInstance>::Interrupt::unpend();
-            unsafe { <T as BasicInstance>::Interrupt::enable() };
+        <T as BasicInstance>::Interrupt::unpend();
+        unsafe { <T as BasicInstance>::Interrupt::enable() };
 
-            r.cr1().modify(|w| w.set_cen(true));
-        })
+        r.cr1().modify(|w| w.set_cen(true));
     }
 
     fn on_interrupt(&self) {
@@ -462,6 +460,6 @@ pub(crate) fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
 
-pub(crate) fn init() {
-    DRIVER.init()
+pub(crate) fn init(cs: CriticalSection) {
+    DRIVER.init(cs)
 }
