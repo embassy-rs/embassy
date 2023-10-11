@@ -44,6 +44,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct Config {
     pub sda_pullup: bool,
     pub scl_pullup: bool,
+    #[cfg(feature = "time")]
     pub transaction_timeout: Duration,
 }
 
@@ -52,6 +53,7 @@ impl Default for Config {
         Self {
             sda_pullup: false,
             scl_pullup: false,
+            #[cfg(feature = "time")]
             transaction_timeout: Duration::from_millis(100),
         }
     }
@@ -74,6 +76,7 @@ pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     tx_dma: PeripheralRef<'d, TXDMA>,
     #[allow(dead_code)]
     rx_dma: PeripheralRef<'d, RXDMA>,
+    #[cfg(feature = "time")]
     timeout: Duration,
 }
 
@@ -136,6 +139,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             _peri: peri,
             tx_dma,
             rx_dma,
+            #[cfg(feature = "time")]
             timeout: config.transaction_timeout,
         }
     }
@@ -599,6 +603,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     // =========================
     //  Async public API
 
+    #[cfg(feature = "time")]
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -606,6 +611,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         self.write_timeout(address, write, self.timeout).await
     }
 
+    #[cfg(feature = "time")]
     pub async fn write_timeout(&mut self, address: u8, write: &[u8], timeout: Duration) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -622,6 +628,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
+    #[cfg(feature = "time")]
     pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -629,6 +636,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         self.write_vectored_timeout(address, write, self.timeout).await
     }
 
+    #[cfg(feature = "time")]
     pub async fn write_vectored_timeout(&mut self, address: u8, write: &[&[u8]], timeout: Duration) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -656,6 +664,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
+    #[cfg(feature = "time")]
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
@@ -663,6 +672,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         self.read_timeout(address, buffer, self.timeout).await
     }
 
+    #[cfg(feature = "time")]
     pub async fn read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
@@ -679,6 +689,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
+    #[cfg(feature = "time")]
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
     where
         TXDMA: super::TxDma<T>,
@@ -687,6 +698,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         self.write_read_timeout(address, write, read, self.timeout).await
     }
 
+    #[cfg(feature = "time")]
     pub async fn write_read_timeout(
         &mut self,
         address: u8,
@@ -730,23 +742,43 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     // =========================
     //  Blocking public API
 
+    #[cfg(feature = "time")]
     pub fn blocking_read_timeout(&mut self, address: u8, read: &mut [u8], timeout: Duration) -> Result<(), Error> {
         self.read_internal(address, read, false, timeout_fn(timeout))
         // Automatic Stop
     }
 
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_timeout(address, read, self.timeout)
+    #[cfg(not(feature = "time"))]
+    pub fn blocking_read_timeout(&mut self, address: u8, read: &mut [u8], check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
+        self.read_internal(address, read, false, check_timeout)
+        // Automatic Stop
     }
 
+    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
+        self.blocking_read_timeout(address, read, self.timeout)
+        #[cfg(not(feature = "time"))]
+        self.blocking_read_timeout(address, read, || Ok(()))
+    }
+
+    #[cfg(feature = "time")]
     pub fn blocking_write_timeout(&mut self, address: u8, write: &[u8], timeout: Duration) -> Result<(), Error> {
         self.write_internal(address, write, true, timeout_fn(timeout))
     }
 
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.blocking_write_timeout(address, write, self.timeout)
+    #[cfg(not(feature = "time"))]
+    pub fn blocking_write_timeout(&mut self, address: u8, write: &[u8], check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
+        self.write_internal(address, write, true, check_timeout)
     }
 
+    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
+        self.blocking_write_timeout(address, write, self.timeout)
+        #[cfg(not(feature = "time"))]
+        self.blocking_write_timeout(address, write, || Ok(()))
+    }
+
+    #[cfg(feature = "time")]
     pub fn blocking_write_read_timeout(
         &mut self,
         address: u8,
@@ -760,21 +792,37 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         // Automatic Stop
     }
 
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_read_timeout(address, write, read, self.timeout)
+    #[cfg(not(feature = "time"))]
+    pub fn blocking_write_read_timeout(
+        &mut self,
+        address: u8,
+        write: &[u8],
+        read: &mut [u8],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let check_timeout = timeout_fn(timeout);
+        self.write_internal(address, write, false, &check_timeout)?;
+        self.read_internal(address, read, true, &check_timeout)
+        // Automatic Stop
     }
 
-    pub fn blocking_write_vectored_timeout(
+    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
+        self.blocking_write_read_timeout(address, write, read, self.timeout)
+        #[cfg(not(feature = "time"))]
+        self.blocking_write_read_timeout(address, write, read, || Ok(()))
+    }
+
+    fn blocking_write_vectored_with_timeout(
         &mut self,
         address: u8,
         write: &[&[u8]],
-        timeout: Duration,
+        check_timeout: impl Fn() -> Result<(), Error>,
     ) -> Result<(), Error> {
         if write.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
 
-        let check_timeout = timeout_fn(timeout);
         let first_length = write[0].len();
         let last_slice_index = write.len() - 1;
 
@@ -843,8 +891,32 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         result
     }
 
+    #[cfg(feature = "time")]
+    pub fn blocking_write_vectored_timeout(
+        &mut self,
+        address: u8,
+        write: &[&[u8]],
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let check_timeout = timeout_fn(timeout);
+        self.blocking_write_vectored_with_timeout(address, write, check_timeout)
+    }
+
+    #[cfg(not(feature = "time"))]
+    pub fn blocking_write_vectored_timeout(
+        &mut self,
+        address: u8,
+        write: &[&[u8]],
+        check_timeout: impl Fn() -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        self.blocking_write_vectored_with_timeout(address, write, check_timeout)
+    }
+
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
+        #[cfg(feature = "time")]
         self.blocking_write_vectored_timeout(address, write, self.timeout)
+        #[cfg(not(feature = "time"))]
+        self.blocking_write_vectored_timeout(address, write, || Ok(()))
     }
 }
 
@@ -854,6 +926,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> Drop for I2c<'d, T, TXDMA, RXDMA> {
     }
 }
 
+#[cfg(feature = "time")]
 mod eh02 {
     use super::*;
 
@@ -1053,7 +1126,7 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
+#[cfg(all(feature = "unstable-traits", feature = "nightly", feature = "time"))]
 mod eha {
     use super::super::{RxDma, TxDma};
     use super::*;
@@ -1100,6 +1173,7 @@ impl<'d, T: Instance> SetConfig for I2c<'d, T> {
     }
 }
 
+#[cfg(feature = "time")]
 fn timeout_fn(timeout: Duration) -> impl Fn() -> Result<(), Error> {
     let deadline = Instant::now() + timeout;
     move || {
