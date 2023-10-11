@@ -8,9 +8,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(48_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
-
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
@@ -24,6 +21,7 @@ pub struct Config {
     pub mux: ClockSrc,
     pub ahb_pre: AHBPrescaler,
     pub apb_pre: APBPrescaler,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -33,6 +31,7 @@ impl Default for Config {
             mux: ClockSrc::HSI(HSIPrescaler::DIV1),
             ahb_pre: AHBPrescaler::DIV1,
             apb_pre: APBPrescaler::DIV1,
+            ls: Default::default(),
         }
     }
 }
@@ -60,9 +59,11 @@ pub(crate) unsafe fn init(config: Config) {
             // Enable LSI
             RCC.csr2().write(|w| w.set_lsion(true));
             while !RCC.csr2().read().lsirdy() {}
-            (LSI_FREQ, Sw::LSI)
+            (super::LSI_FREQ, Sw::LSI)
         }
     };
+
+    let rtc = config.ls.init();
 
     // Determine the flash latency implied by the target clock speed
     // RM0454 § 3.3.4:
@@ -137,5 +138,6 @@ pub(crate) unsafe fn init(config: Config) {
         ahb1: ahb_freq,
         apb1: apb_freq,
         apb1_tim: apb_tim_freq,
+        rtc,
     });
 }

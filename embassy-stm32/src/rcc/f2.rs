@@ -5,16 +5,11 @@ pub use crate::pac::rcc::vals::{
     Ppre as APBPrescaler,
 };
 use crate::pac::{FLASH, RCC};
-use crate::rcc::bd::BackupDomain;
 use crate::rcc::{set_freqs, Clocks};
-use crate::rtc::RtcClockSource;
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 #[derive(Clone, Copy)]
 pub struct HSEConfig {
@@ -180,13 +175,11 @@ pub struct Config {
     pub pll_mux: PLLSrc,
     pub pll: PLLConfig,
     pub mux: ClockSrc,
-    pub rtc: Option<RtcClockSource>,
-    pub lsi: bool,
-    pub lse: Option<Hertz>,
     pub voltage: VoltageScale,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -199,12 +192,10 @@ impl Default for Config {
             pll: PLLConfig::default(),
             voltage: VoltageScale::Range3,
             mux: ClockSrc::HSI,
-            rtc: None,
-            lsi: false,
-            lse: None,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
+            ls: Default::default(),
         }
     }
 }
@@ -312,11 +303,7 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
-    BackupDomain::configure_ls(
-        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
-        config.lsi,
-        config.lse.map(|_| Default::default()),
-    );
+    let rtc = config.ls.init();
 
     set_freqs(Clocks {
         sys: sys_clk,
@@ -328,5 +315,6 @@ pub(crate) unsafe fn init(config: Config) {
         apb2: apb2_freq,
         apb2_tim: apb2_tim_freq,
         pll48: Some(pll_clocks.pll48_freq),
+        rtc,
     });
 }

@@ -7,9 +7,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
-
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 
@@ -43,13 +40,13 @@ impl Into<Sw> for ClockSrc {
     }
 }
 
-#[derive(Copy, Clone)]
 pub struct Config {
     pub mux: ClockSrc,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb7_pre: APBPrescaler,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -60,6 +57,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
+            ls: Default::default(),
         }
     }
 }
@@ -140,6 +138,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: sys_clk,
         ahb1: ahb_freq,
@@ -150,5 +150,6 @@ pub(crate) unsafe fn init(config: Config) {
         apb7: apb7_freq,
         apb1_tim: apb1_tim_freq,
         apb2_tim: apb2_tim_freq,
+        rtc,
     });
 }

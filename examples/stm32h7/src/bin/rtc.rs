@@ -5,20 +5,18 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::Lse;
-use embassy_stm32::rtc::{Rtc, RtcClockSource, RtcConfig};
+use embassy_stm32::rcc::LsConfig;
+use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
 use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = {
-        let mut config = Config::default();
-        config.rcc.lse = Some(Lse::Oscillator);
-        config.rcc.rtc_mux = Some(RtcClockSource::LSE);
-        embassy_stm32::init(config)
-    };
+    let mut config = Config::default();
+    config.rcc.ls = LsConfig::default_lse();
+
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let now = NaiveDate::from_ymd_opt(2020, 5, 15)

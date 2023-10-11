@@ -10,9 +10,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(40_000);
-
 #[cfg(rcc_f3)]
 impl From<AdcClockSource> for Ckmode {
     fn from(value: AdcClockSource) -> Self {
@@ -87,6 +84,7 @@ pub struct Config {
     pub adc34: Option<AdcClockSource>,
     #[cfg(stm32f334)]
     pub hrtim: HrtimClockSource,
+    pub ls: super::LsConfig,
 }
 
 // Information required to setup the PLL clock
@@ -279,6 +277,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: sysclk,
         apb1: pclk1,
@@ -294,6 +294,7 @@ pub(crate) unsafe fn init(config: Config) {
         adc34: None,
         #[cfg(stm32f334)]
         hrtim: hrtim,
+        rtc,
     });
 }
 

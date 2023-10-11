@@ -14,9 +14,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
-
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
@@ -101,6 +98,8 @@ pub struct Config {
     pub clock_48mhz_src: Option<Clock48MhzSrc>,
     pub adc12_clock_source: AdcClockSource,
     pub adc345_clock_source: AdcClockSource,
+
+    pub ls: super::LsConfig,
 }
 
 /// Configuration for the Clock Recovery System (CRS) used to trim the HSI48 oscillator.
@@ -122,6 +121,7 @@ impl Default for Config {
             clock_48mhz_src: None,
             adc12_clock_source: Adcsel::NOCLK,
             adc345_clock_source: Adcsel::NOCLK,
+            ls: Default::default(),
         }
     }
 }
@@ -344,6 +344,8 @@ pub(crate) unsafe fn init(config: Config) {
         PWR.cr1().modify(|w| w.set_lpr(true));
     }
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: sys_clk,
         ahb1: ahb_freq,
@@ -354,5 +356,6 @@ pub(crate) unsafe fn init(config: Config) {
         apb2_tim: apb2_tim_freq,
         adc: adc12_ck,
         adc34: adc345_ck,
+        rtc,
     });
 }

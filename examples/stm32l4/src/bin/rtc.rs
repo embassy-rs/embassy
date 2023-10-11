@@ -5,7 +5,7 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{self, ClockSrc, PLLSource, PllMul, PllPreDiv, PllRDiv};
+use embassy_stm32::rcc::{ClockSrc, LsConfig, PLLSource, PllMul, PllPreDiv, PllRDiv};
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
@@ -23,8 +23,7 @@ async fn main(_spawner: Spawner) {
             PllMul::MUL20,
             None,
         );
-        config.rcc.lse = Some(Hertz(32_768));
-        config.rcc.rtc_mux = rcc::RtcClockSource::LSE;
+        config.rcc.ls = LsConfig::default_lse();
         embassy_stm32::init(config)
     };
     info!("Hello World!");

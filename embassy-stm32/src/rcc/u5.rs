@@ -7,9 +7,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
-
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 
 #[derive(Copy, Clone)]
@@ -111,7 +108,6 @@ impl Into<Sw> for ClockSrc {
     }
 }
 
-#[derive(Copy, Clone)]
 pub struct Config {
     pub mux: ClockSrc,
     pub ahb_pre: AHBPrescaler,
@@ -125,6 +121,7 @@ pub struct Config {
     ///
     /// See RM0456 § 10.5.4 for a general overview and § 11.4.10 for clock source frequency limits.
     pub voltage_range: VoltageScale,
+    pub ls: super::LsConfig,
 }
 
 impl Config {
@@ -193,6 +190,7 @@ impl Default for Config {
             apb3_pre: APBPrescaler::DIV1,
             hsi48: false,
             voltage_range: VoltageScale::RANGE3,
+            ls: Default::default(),
         }
     }
 }
@@ -434,6 +432,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: sys_clk,
         ahb1: ahb_freq,
@@ -444,6 +444,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb3: apb3_freq,
         apb1_tim: apb1_tim_freq,
         apb2_tim: apb2_tim_freq,
+        rtc,
     });
 }
 

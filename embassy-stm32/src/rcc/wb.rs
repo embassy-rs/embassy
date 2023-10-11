@@ -2,15 +2,11 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Hsepre as HsePrescaler, Pllm, Plln, Pllp, Pllq, Pllr, Pllsrc as PllSource,
     Ppre as APBPrescaler, Sw as Sysclk,
 };
-use crate::rcc::bd::{BackupDomain, RtcClockSource};
-use crate::rcc::Clocks;
-use crate::time::{khz, mhz, Hertz};
+use crate::rcc::{set_freqs, Clocks};
+use crate::time::{mhz, Hertz};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 pub struct Hse {
     pub prediv: HsePrescaler,
@@ -42,11 +38,8 @@ pub struct Pll {
 /// Clocks configutation
 pub struct Config {
     pub hse: Option<Hse>,
-    pub lse: Option<Hertz>,
-    pub lsi: bool,
     pub sys: Sysclk,
     pub mux: Option<PllMux>,
-    pub rtc: Option<RtcClockSource>,
 
     pub pll: Option<Pll>,
     pub pllsai: Option<Pll>,
@@ -56,6 +49,8 @@ pub struct Config {
     pub ahb3_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+
+    pub ls: super::LsConfig,
 }
 
 pub const WPAN_DEFAULT: Config = Config {
@@ -63,14 +58,13 @@ pub const WPAN_DEFAULT: Config = Config {
         frequency: mhz(32),
         prediv: HsePrescaler::DIV1,
     }),
-    lse: Some(khz(32)),
     sys: Sysclk::PLL,
     mux: Some(PllMux {
         source: PllSource::HSE,
         prediv: Pllm::DIV2,
     }),
-    rtc: Some(RtcClockSource::LSE),
-    lsi: false,
+
+    ls: super::LsConfig::default_lse(),
 
     pll: Some(Pll {
         mul: Plln::MUL12,
@@ -92,13 +86,12 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             hse: None,
-            lse: None,
             sys: Sysclk::HSI16,
             mux: None,
             pll: None,
             pllsai: None,
-            rtc: None,
-            lsi: false,
+
+            ls: Default::default(),
 
             ahb1_pre: AHBPrescaler::DIV1,
             ahb2_pre: AHBPrescaler::DIV1,
@@ -109,7 +102,9 @@ impl Default for Config {
     }
 }
 
-pub(crate) fn compute_clocks(config: &Config) -> Clocks {
+#[cfg(stm32wb)]
+/// RCC initialization function
+pub(crate) unsafe fn init(config: Config) {
     let hse_clk = config.hse.as_ref().map(|hse| hse.frequency / hse.prediv);
 
     let mux_clk = config.mux.as_ref().map(|pll_mux| {
@@ -160,27 +155,6 @@ pub(crate) fn compute_clocks(config: &Config) -> Clocks {
         }
     };
 
-    let rtc_clk = match config.rtc {
-        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
-        Some(RtcClockSource::LSE) => Some(config.lse.unwrap()),
-        _ => None,
-    };
-
-    Clocks {
-        sys: sys_clk,
-        ahb1: ahb1_clk,
-        ahb2: ahb2_clk,
-        ahb3: ahb3_clk,
-        apb1: apb1_clk,
-        apb2: apb2_clk,
-        apb1_tim: apb1_tim_clk,
-        apb2_tim: apb2_tim_clk,
-        rtc: rtc_clk,
-        rtc_hse: None,
-    }
-}
-
-pub(crate) fn configure_clocks(config: &Config) {
     let rcc = crate::pac::RCC;
 
     let needs_hsi = if let Some(pll_mux) = &config.mux {
@@ -199,11 +173,7 @@ pub(crate) fn configure_clocks(config: &Config) {
 
     rcc.cfgr().modify(|w| w.set_stopwuck(true));
 
-    BackupDomain::configure_ls(
-        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
-        config.lsi,
-        config.lse.map(|_| Default::default()),
-    );
+    let rtc = config.ls.init();
 
     match &config.hse {
         Some(hse) => {
@@ -263,4 +233,16 @@ pub(crate) fn configure_clocks(config: &Config) {
         w.set_c2hpre(config.ahb2_pre);
         w.set_shdhpre(config.ahb3_pre);
     });
+
+    set_freqs(Clocks {
+        sys: sys_clk,
+        ahb1: ahb1_clk,
+        ahb2: ahb2_clk,
+        ahb3: ahb3_clk,
+        apb1: apb1_clk,
+        apb2: apb2_clk,
+        apb1_tim: apb1_tim_clk,
+        apb2_tim: apb2_tim_clk,
+        rtc,
+    })
 }

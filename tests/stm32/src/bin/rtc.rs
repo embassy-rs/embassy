@@ -10,26 +10,14 @@ use chrono::{NaiveDate, NaiveDateTime};
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::RtcClockSource;
+use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::{Duration, Timer};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = config();
-
-    #[cfg(feature = "stm32h755zi")]
-    {
-        use embassy_stm32::rcc::Lse;
-        config.rcc.lse = Some(Lse::Oscillator);
-        config.rcc.rtc_mux = Some(RtcClockSource::LSE);
-    }
-    #[cfg(not(feature = "stm32h755zi"))]
-    {
-        use embassy_stm32::time::Hertz;
-        config.rcc.lse = Some(Hertz(32_768));
-        config.rcc.rtc = Some(RtcClockSource::LSE);
-    }
+    config.rcc.ls = LsConfig::default_lse();
 
     let p = embassy_stm32::init(config);
     info!("Hello World!");

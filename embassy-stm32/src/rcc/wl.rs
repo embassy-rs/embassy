@@ -5,15 +5,11 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler,
 };
 use crate::pac::{FLASH, RCC};
-use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// HSE speed
 pub const HSE_FREQ: Hertz = Hertz(32_000_000);
@@ -33,10 +29,8 @@ pub struct Config {
     pub shd_ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
-    pub rtc_mux: RtcClockSource,
-    pub lse: Option<Hertz>,
-    pub lsi: bool,
     pub adc_clock_source: AdcClockSource,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -48,10 +42,8 @@ impl Default for Config {
             shd_ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
-            rtc_mux: RtcClockSource::LSI,
-            lsi: true,
-            lse: None,
             adc_clock_source: AdcClockSource::HSI16,
+            ls: Default::default(),
         }
     }
 }
@@ -104,9 +96,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     while FLASH.acr().read().latency() != ws {}
 
-    // Enables the LSI if configured
-    BackupDomain::configure_ls(config.rtc_mux, config.lsi, config.lse.map(|_| Default::default()));
-
     match config.mux {
         ClockSrc::HSI16 => {
             // Enable HSI16
@@ -129,12 +118,8 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_msirange(range);
                 w.set_msion(true);
 
-                if config.rtc_mux == RtcClockSource::LSE {
-                    // If LSE is enabled, enable calibration of MSI
-                    w.set_msipllen(true);
-                } else {
-                    w.set_msipllen(false);
-                }
+                // If LSE is enabled, enable calibration of MSI
+                w.set_msipllen(config.ls.lse.is_some());
             });
             while !RCC.cr().read().msirdy() {}
         }
@@ -156,6 +141,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     // TODO: switch voltage range
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: sys_clk,
         ahb1: ahb_freq,
@@ -166,6 +153,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb3: shd_ahb_freq,
         apb1_tim: apb1_tim_freq,
         apb2_tim: apb2_tim_freq,
+        rtc,
     });
 }
 
