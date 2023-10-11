@@ -755,10 +755,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
-        #[cfg(feature = "time")]
-        self.blocking_read_timeout(address, read, self.timeout)
-        #[cfg(not(feature = "time"))]
-        self.blocking_read_timeout(address, read, || Ok(()))
+        if cfg!(feature = "time") {
+            self.blocking_read_timeout(address, read, self.timeout)
+        } else {
+            self.blocking_read_timeout(address, read, || Ok(()))
+        }
     }
 
     #[cfg(feature = "time")]
@@ -772,10 +773,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        #[cfg(feature = "time")]
-        self.blocking_write_timeout(address, write, self.timeout)
-        #[cfg(not(feature = "time"))]
-        self.blocking_write_timeout(address, write, || Ok(()))
+        if cfg!(feature = "time") {
+            self.blocking_write_timeout(address, write, self.timeout)
+        } else {
+            self.blocking_write_timeout(address, write, || Ok(()))
+        }
     }
 
     #[cfg(feature = "time")]
@@ -807,10 +809,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        #[cfg(feature = "time")]
-        self.blocking_write_read_timeout(address, write, read, self.timeout)
-        #[cfg(not(feature = "time"))]
-        self.blocking_write_read_timeout(address, write, read, || Ok(()))
+        if cfg!(feature = "time") {
+            self.blocking_write_read_timeout(address, write, read, self.timeout)
+        } else {
+            self.blocking_write_read_timeout(address, write, read, || Ok(()))
+        }
     }
 
     fn blocking_write_vectored_with_timeout(
@@ -913,10 +916,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
-        #[cfg(feature = "time")]
-        self.blocking_write_vectored_timeout(address, write, self.timeout)
-        #[cfg(not(feature = "time"))]
-        self.blocking_write_vectored_timeout(address, write, || Ok(()))
+        if cfg!(feature = "time") {
+            self.blocking_write_vectored_timeout(address, write, self.timeout)
+        } else {
+            self.blocking_write_vectored_timeout(address, write, || Ok(()))
+        }
     }
 }
 
