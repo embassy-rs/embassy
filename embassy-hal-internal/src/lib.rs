@@ -10,7 +10,6 @@ pub mod drop;
 mod macros;
 mod peripheral;
 pub mod ratio;
-pub mod ring_buffer;
 pub use peripheral::{Peripheral, PeripheralRef};
 
 #[cfg(feature = "cortex-m")]
