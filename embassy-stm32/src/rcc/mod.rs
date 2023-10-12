@@ -152,14 +152,14 @@ pub struct Clocks {
     pub mux_pll1_q: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_pll2_p: Option<Hertz>,
-    #[cfg(stm32h5)]
+    #[cfg(rcc_h5)]
     pub mux_pll3_p: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_audioclk: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_per: Option<Hertz>,
 
-    #[cfg(stm32h5)]
+    #[cfg(rcc_h5)]
     pub mux_pll3_r: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_rcc_pclk3: Option<Hertz>,
