@@ -367,7 +367,7 @@ macro_rules! enable_irq {
 }
 
 /// safety: must be called only once
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn init(_cs: critical_section::CriticalSection) {
     use crate::interrupt::typelevel::Interrupt;
 
     foreach_exti_irq!(enable_irq);

@@ -567,18 +567,14 @@ foreach_peripheral!(
                         critical_section::with(|_| unsafe { crate::rcc::get_freqs().apb1 })
                     }
 
-                    fn enable_and_reset() {
-                        critical_section::with(|_| {
-                            crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
-                            crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
-                            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-                        })
+                    fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
+                        crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
+                        crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
+                        crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
                     }
 
-                    fn disable() {
-                        critical_section::with(|_| {
-                            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
-                        })
+                    fn disable_with_cs(_cs: critical_section::CriticalSection) {
+                        crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
                     }
                 }
 
