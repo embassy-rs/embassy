@@ -571,6 +571,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         #[cfg(rcc_h5)]
         mux_pll3_r: pll3.r,
+        #[cfg(all(not(rcc_h5), stm32h5))]
+        mux_pll3_r: None,
         #[cfg(stm32h5)]
         mux_rcc_pclk3: None,
         #[cfg(stm32h5)]
