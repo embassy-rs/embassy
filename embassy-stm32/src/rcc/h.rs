@@ -544,7 +544,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim,
         apb2_tim,
         adc,
-        rtc: rtc_clk,
+        rtc,
 
         #[cfg(stm32h5)]
         mux_rcc_pclk1: None,
