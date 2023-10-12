@@ -447,7 +447,7 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32h7)]
     let adc = match config.adc_clock_source {
         AdcClockSource::PLL2_P => pll2.p,
-        AdcClockSource::PLL3_R => _pll3.r,
+        AdcClockSource::PLL3_R => pll3.r,
         AdcClockSource::PER => _per_ck,
         _ => unreachable!(),
     };
