@@ -253,7 +253,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         (self.tx, self.rx)
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
@@ -333,7 +333,7 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
         }
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
@@ -407,7 +407,7 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
         }
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
