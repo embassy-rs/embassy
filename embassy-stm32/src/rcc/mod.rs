@@ -27,9 +27,10 @@ pub use mco::*;
 #[cfg_attr(rcc_wba, path = "wba.rs")]
 #[cfg_attr(any(rcc_wl5, rcc_wle), path = "wl.rs")]
 mod _version;
-pub use _version::*;
 #[cfg(feature = "low-power")]
-use atomic_polyfill::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
+
+pub use _version::*;
 
 //  Model Clock Configuration
 //
@@ -145,14 +146,17 @@ pub fn low_power_ready() -> bool {
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_add() {
+pub(crate) fn clock_refcount_add(_cs: critical_section::CriticalSection) {
     // We don't check for overflow because constructing more than u32 peripherals is unlikely
-    CLOCK_REFCOUNT.fetch_add(1, Ordering::Relaxed);
+    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
+    CLOCK_REFCOUNT.store(n + 1, Ordering::Relaxed);
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_sub() {
-    assert!(CLOCK_REFCOUNT.fetch_sub(1, Ordering::Relaxed) != 0);
+pub(crate) fn clock_refcount_sub(_cs: critical_section::CriticalSection) {
+    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
+    assert!(n != 0);
+    CLOCK_REFCOUNT.store(n - 1, Ordering::Relaxed);
 }
 
 /// Frozen clock frequencies

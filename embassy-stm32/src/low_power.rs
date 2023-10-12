@@ -1,7 +1,7 @@
 use core::arch::asm;
 use core::marker::PhantomData;
+use core::sync::atomic::{compiler_fence, Ordering};
 
-use atomic_polyfill::{compiler_fence, Ordering};
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
