@@ -64,7 +64,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         Err(err)
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         self.teardown_uart();
         reconfigure::<T>(config)
     }

@@ -274,7 +274,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         })
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 
@@ -373,7 +373,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         })
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 

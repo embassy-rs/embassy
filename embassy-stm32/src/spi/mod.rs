@@ -322,7 +322,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
     }
 
     /// Reconfigures it with the supplied config.
-    fn set_config(&mut self, config: Config) {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
 
@@ -351,6 +351,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_mbr(br);
             });
         }
+        Ok(())
     }
 
     pub fn get_current_config(&self) -> Config {
@@ -1062,8 +1063,6 @@ impl<'d, T: Instance, Tx, Rx> SetConfig for Spi<'d, T, Tx, Rx> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(*config);
-
-        Ok(())
+        self.set_config(config)
     }
 }
