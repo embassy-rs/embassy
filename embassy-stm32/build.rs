@@ -5,7 +5,8 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::{MemoryRegionKind, METADATA};
+use stm32_metapac::metadata::ir::{BlockItemInner, Enum};
+use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, METADATA};
 
 fn main() {
     let target = env::var("TARGET").unwrap();
@@ -388,6 +389,51 @@ fn main() {
     }
 
     // ========
+    // Generate rcc fieldset and enum maps
+    let rcc_enum_map: HashMap<&str, HashMap<&str, &Enum>> = {
+        let rcc_registers = METADATA
+            .peripherals
+            .iter()
+            .filter_map(|p| p.registers.as_ref())
+            .find(|r| r.kind == "rcc")
+            .unwrap()
+            .ir;
+
+        let rcc_blocks = rcc_registers.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
+
+        let rcc_block_item_map: HashMap<&str, &str> = rcc_blocks
+            .iter()
+            .filter_map(|b| match &b.inner {
+                BlockItemInner::Register(register) => register.fieldset.map(|f| (f, b.name)),
+                _ => None,
+            })
+            .collect();
+
+        let rcc_enum_map: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
+
+        rcc_registers
+            .fieldsets
+            .iter()
+            .filter_map(|f| {
+                rcc_block_item_map.get(f.name).map(|b| {
+                    (
+                        *b,
+                        f.fields
+                            .iter()
+                            .filter_map(|f| {
+                                let enumm = f.enumm?;
+                                let enumm = rcc_enum_map.get(enumm)?;
+
+                                Some((f.name, *enumm))
+                            })
+                            .collect(),
+                    )
+                })
+            })
+            .collect()
+    };
+
+    // ========
     // Generate RccPeripheral impls
 
     let refcounted_peripherals = HashSet::from(["usart", "adc"]);
@@ -454,10 +500,61 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
+            let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
+                // temporary hack to restrict the scope of the implementation to h5
+                if !&chip_name.starts_with("stm32h5") {
+                    return None;
+                }
+
+                let mux = mux?;
+                let fieldset = rcc_enum_map.get(mux.register)?;
+                let enumm = fieldset.get(mux.field)?;
+
+                Some((mux, *enumm))
+            };
+
+            let clock_frequency = match mux_for(rcc.mux.as_ref()) {
+                Some((mux, rcc_enumm)) => {
+                    let fieldset_name = format_ident!("{}", mux.register);
+                    let field_name = format_ident!("{}", mux.field);
+                    let enum_name = format_ident!("{}", rcc_enumm.name);
+
+                    let match_arms: TokenStream = rcc_enumm
+                        .variants
+                        .iter()
+                        .filter(|v| v.name != "DISABLE")
+                        .map(|v| {
+                            let variant_name = format_ident!("{}", v.name);
+
+                            // temporary hack to restrict the scope of the implementation until clock names can be stabilized
+                            let clock_name = format_ident!("mux_{}", v.name.to_ascii_lowercase());
+
+                            quote! {
+                                #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
+                            }
+                        })
+                        .collect();
+
+                    quote! {
+                        use crate::pac::rcc::vals::#enum_name;
+
+                        #[allow(unreachable_patterns)]
+                        match crate::pac::RCC.#fieldset_name().read().#field_name() {
+                            #match_arms
+
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                None => quote! {
+                    unsafe { crate::rcc::get_freqs().#clk }
+                },
+            };
+
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
-                        unsafe { crate::rcc::get_freqs().#clk }
+                        #clock_frequency
                     }
                     fn enable() {
                         critical_section::with(|_cs| {
@@ -486,12 +583,14 @@ fn main() {
         }
     }
 
-    let mut refcount_mod = TokenStream::new();
-    for refcount_static in refcount_statics {
-        refcount_mod.extend(quote! {
-            pub(crate) static mut #refcount_static: u8 = 0;
-        });
-    }
+    let refcount_mod: TokenStream = refcount_statics
+        .iter()
+        .map(|refcount_static| {
+            quote! {
+                pub(crate) static mut #refcount_static: u8 = 0;
+            }
+        })
+        .collect();
 
     g.extend(quote! {
         mod refcount_statics {
