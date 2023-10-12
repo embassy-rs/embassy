@@ -388,7 +388,7 @@ pub(crate) unsafe fn init(config: Config) {
     let pll1 = init_pll(0, config.pll1, &pll_input);
     let pll2 = init_pll(1, config.pll2, &pll_input);
     #[cfg(any(rcc_h5, stm32h7))]
-    let _pll3 = init_pll(2, config.pll3, &pll_input);
+    let pll3 = init_pll(2, config.pll3, &pll_input);
 
     // Configure sysclk
     let (sys, sw) = match config.sys {
@@ -559,18 +559,18 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h5)]
         mux_lse: None,
         #[cfg(stm32h5)]
-        mux_pll1_q: None,
+        mux_pll1_q: pll1.q,
         #[cfg(stm32h5)]
-        mux_pll2_p: None,
-        #[cfg(stm32h5)]
-        mux_pll3_p: None,
+        mux_pll2_p: pll2.p,
+        #[cfg(rcc_h5)]
+        mux_pll3_p: pll3.p,
         #[cfg(stm32h5)]
         mux_audioclk: None,
         #[cfg(stm32h5)]
         mux_per: None,
 
-        #[cfg(stm32h5)]
-        mux_pll3_r: None,
+        #[cfg(rcc_h5)]
+        mux_pll3_r: pll3.r,
         #[cfg(stm32h5)]
         mux_rcc_pclk3: None,
         #[cfg(stm32h5)]
@@ -580,7 +580,7 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h5)]
         mux_lsi_ker: None,
         #[cfg(stm32h5)]
-        mux_pll2_r: None,
+        mux_pll2_r: pll2.r,
         #[cfg(stm32h5)]
         mux_rcc_pclk2: None,
         #[cfg(stm32h5)]
