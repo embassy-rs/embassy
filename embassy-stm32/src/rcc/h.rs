@@ -388,7 +388,7 @@ pub(crate) unsafe fn init(config: Config) {
     let pll1 = init_pll(0, config.pll1, &pll_input);
     let pll2 = init_pll(1, config.pll2, &pll_input);
     #[cfg(any(rcc_h5, stm32h7))]
-    let _pll3 = init_pll(2, config.pll3, &pll_input);
+    let pll3 = init_pll(2, config.pll3, &pll_input);
 
     // Configure sysclk
     let (sys, sw) = match config.sys {
@@ -447,7 +447,7 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32h7)]
     let adc = match config.adc_clock_source {
         AdcClockSource::PLL2_P => pll2.p,
-        AdcClockSource::PLL3_R => _pll3.r,
+        AdcClockSource::PLL3_R => pll3.r,
         AdcClockSource::PER => _per_ck,
         _ => unreachable!(),
     };
@@ -545,6 +545,53 @@ pub(crate) unsafe fn init(config: Config) {
         apb2_tim,
         adc,
         rtc,
+
+        #[cfg(stm32h5)]
+        mux_rcc_pclk1: Some(apb1),
+        #[cfg(stm32h5)]
+        mux_pll2_q: None,
+        #[cfg(stm32h5)]
+        mux_pll3_q: None,
+        #[cfg(stm32h5)]
+        mux_hsi_ker: None,
+        #[cfg(stm32h5)]
+        mux_csi_ker: None,
+        #[cfg(stm32h5)]
+        mux_lse: None,
+        #[cfg(stm32h5)]
+        mux_pll1_q: pll1.q,
+        #[cfg(stm32h5)]
+        mux_pll2_p: pll2.p,
+        #[cfg(rcc_h5)]
+        mux_pll3_p: pll3.p,
+        #[cfg(stm32h5)]
+        mux_audioclk: None,
+        #[cfg(stm32h5)]
+        mux_per: None,
+
+        #[cfg(rcc_h5)]
+        mux_pll3_r: pll3.r,
+        #[cfg(all(not(rcc_h5), stm32h5))]
+        mux_pll3_r: None,
+        #[cfg(stm32h5)]
+        mux_rcc_pclk3: Some(apb3),
+        #[cfg(stm32h5)]
+        mux_pll3_1: None,
+        #[cfg(stm32h5)]
+        mux_hsi48_ker: None,
+        #[cfg(stm32h5)]
+        mux_lsi_ker: None,
+        #[cfg(stm32h5)]
+        mux_pll2_r: pll2.r,
+        #[cfg(stm32h5)]
+        mux_rcc_pclk2: Some(apb2),
+        #[cfg(stm32h5)]
+        mux_rcc_pclk4: None,
+        #[cfg(stm32h5)]
+        mux_hse: hse,
+
+        #[cfg(stm32h5)]
+        mux_hsi48: None,
     });
 }
 
