@@ -157,8 +157,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
     fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(tim);
 
-        T::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
+        T::enable_and_reset();
 
         #[cfg(stm32f334)]
         if unsafe { get_freqs() }.hrtim.is_some() {

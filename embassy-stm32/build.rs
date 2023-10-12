@@ -452,10 +452,8 @@ fn main() {
                     let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
                     let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
                     quote! {
-                        critical_section::with(|_| {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
-                        });
+                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
+                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
                     }
                 }
                 None => TokenStream::new(),
@@ -556,13 +554,14 @@ fn main() {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
                     }
-                    fn enable() {
+                    fn enable_and_reset() {
                         critical_section::with(|_cs| {
                             #before_enable
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_add(_cs);
                             crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                             #after_enable
+                            #rst
                         })
                     }
                     fn disable() {
@@ -572,9 +571,6 @@ fn main() {
                             #[cfg(feature = "low-power")]
                             crate::rcc::clock_refcount_sub(_cs);
                         })
-                    }
-                    fn reset() {
-                        #rst
                     }
                 }
 

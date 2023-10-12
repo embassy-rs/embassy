@@ -16,9 +16,7 @@ impl<'d> Crc<'d> {
 
         // Note: enable and reset come from RccPeripheral.
         // enable CRC clock in RCC.
-        CRC::enable();
-        // Reset CRC to default values.
-        CRC::reset();
+        CRC::enable_and_reset();
         // Peripheral the peripheral
         let mut instance = Self { _peri: peripheral };
         instance.reset();

@@ -63,8 +63,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz) -> Self {
         into_ref!(tim);
 
-        T::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
+        T::enable_and_reset();
 
         let mut this = Self { inner: tim };
 

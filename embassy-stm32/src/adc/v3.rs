@@ -9,19 +9,6 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3000;
 
-/// Sadly we cannot use `RccPeripheral::enable` since devices are quite inconsistent ADC clock
-/// configuration.
-fn enable() {
-    critical_section::with(|_| {
-        #[cfg(any(stm32h7, stm32wl))]
-        crate::pac::RCC.apb2enr().modify(|w| w.set_adcen(true));
-        #[cfg(stm32g0)]
-        crate::pac::RCC.apbenr2().modify(|w| w.set_adcen(true));
-        #[cfg(any(stm32l4, stm32l5, stm32wb))]
-        crate::pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
-    });
-}
-
 pub struct VrefInt;
 impl<T: Instance> AdcPin<T> for VrefInt {}
 impl<T: Instance> super::sealed::AdcPin<T> for VrefInt {
@@ -61,7 +48,7 @@ impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: impl Peripheral<P = T> + 'd, delay: &mut impl DelayUs<u32>) -> Self {
         into_ref!(adc);
-        enable();
+        T::enable_and_reset();
         T::regs().cr().modify(|reg| {
             #[cfg(not(adc_g0))]
             reg.set_deeppwd(false);

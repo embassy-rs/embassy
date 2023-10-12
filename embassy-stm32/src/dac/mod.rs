@@ -255,8 +255,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     ) -> Self {
         pin.set_as_analog();
         into_ref!(peri, dma);
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         let mut dac = Self { _peri: peri, dma };
 
@@ -366,8 +365,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     ) -> Self {
         pin.set_as_analog();
         into_ref!(_peri, dma);
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         let mut dac = Self {
             phantom: PhantomData,
@@ -483,8 +481,7 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
         into_ref!(peri, dma_ch1, dma_ch2);
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         let mut dac_ch1 = DacCh1 {
             _peri: peri,
@@ -563,35 +560,30 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
-        // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe { crate::rcc::get_freqs().apb1 })
-            }
+                // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
+                #[cfg(any(rcc_h7, rcc_h7rm0433))]
+                impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
+                    fn frequency() -> crate::time::Hertz {
+                        critical_section::with(|_| unsafe { crate::rcc::get_freqs().apb1 })
+                    }
 
-            fn reset() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
-                    crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
-                })
-            }
+                    fn enable_and_reset() {
+                        critical_section::with(|_| {
+                            crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
+                            crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
+                            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
+                        })
+                    }
 
-            fn enable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-                })
-            }
+                    fn disable() {
+                        critical_section::with(|_| {
+                            crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
+                        })
+                    }
+                }
 
-            fn disable() {
-                critical_section::with(|_| {
-                    crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
-                })
-            }
-        }
-
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::RccPeripheral for peripherals::$inst {}
+                #[cfg(any(rcc_h7, rcc_h7rm0433))]
+                impl crate::rcc::RccPeripheral for peripherals::$inst {}
 
         impl crate::dac::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::dac::Dac {
