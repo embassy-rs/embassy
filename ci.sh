@@ -83,6 +83,12 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,nightly,defmt,exti,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,nightly,defmt,exti,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,nightly,defmt,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,nightly,defmt,exti \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,nightly,defmt,exti,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,nightly,defmt \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f401ve,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f405zg,defmt,exti,time-driver-any,unstable-traits \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f407zg,defmt,exti,time-driver-any,unstable-traits \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f401ve,defmt,exti,time-driver-any,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f405zg,defmt,exti,time-driver-any,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32f407zg,defmt,exti,time-driver-any,unstable-traits,time \
