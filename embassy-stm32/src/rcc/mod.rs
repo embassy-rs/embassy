@@ -2,11 +2,11 @@
 
 use core::mem::MaybeUninit;
 
-pub use crate::rcc::bd::RtcClockSource;
 use crate::time::Hertz;
 
-pub(crate) mod bd;
+mod bd;
 mod mco;
+pub use bd::*;
 pub use mco::*;
 
 #[cfg_attr(rcc_f0, path = "f0.rs")]
@@ -19,8 +19,7 @@ pub use mco::*;
 #[cfg_attr(rcc_g0, path = "g0.rs")]
 #[cfg_attr(rcc_g4, path = "g4.rs")]
 #[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab), path = "h.rs")]
-#[cfg_attr(rcc_l0, path = "l0.rs")]
-#[cfg_attr(rcc_l1, path = "l1.rs")]
+#[cfg_attr(any(rcc_l0, rcc_l0_v2, rcc_l1), path = "l0l1.rs")]
 #[cfg_attr(rcc_l4, path = "l4.rs")]
 #[cfg_attr(rcc_l5, path = "l5.rs")]
 #[cfg_attr(rcc_u5, path = "u5.rs")]
@@ -28,9 +27,10 @@ pub use mco::*;
 #[cfg_attr(rcc_wba, path = "wba.rs")]
 #[cfg_attr(any(rcc_wl5, rcc_wle), path = "wl.rs")]
 mod _version;
-pub use _version::*;
 #[cfg(feature = "low-power")]
-use atomic_polyfill::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
+
+pub use _version::*;
 
 //  Model Clock Configuration
 //
@@ -133,13 +133,7 @@ pub struct Clocks {
     #[cfg(stm32f334)]
     pub hrtim: Option<Hertz>,
 
-    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_f7, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
-    /// Set only if the lsi or lse is configured, indicates stop is supported
     pub rtc: Option<Hertz>,
-
-    #[cfg(any(rcc_wb, rcc_f4, rcc_f410, rcc_h7, rcc_h7rm0433, rcc_h7ab))]
-    /// Set if the hse is configured, indicates stop is not supported
-    pub rtc_hse: Option<Hertz>,
 
     #[cfg(stm32h5)]
     pub mux_rcc_pclk1: Option<Hertz>,
@@ -198,28 +192,23 @@ pub fn low_power_ready() -> bool {
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_add() {
+pub(crate) fn clock_refcount_add(_cs: critical_section::CriticalSection) {
     // We don't check for overflow because constructing more than u32 peripherals is unlikely
-    CLOCK_REFCOUNT.fetch_add(1, Ordering::Relaxed);
+    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
+    CLOCK_REFCOUNT.store(n + 1, Ordering::Relaxed);
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_sub() {
-    assert!(CLOCK_REFCOUNT.fetch_sub(1, Ordering::Relaxed) != 0);
+pub(crate) fn clock_refcount_sub(_cs: critical_section::CriticalSection) {
+    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
+    assert!(n != 0);
+    CLOCK_REFCOUNT.store(n - 1, Ordering::Relaxed);
 }
 
 /// Frozen clock frequencies
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
-
-#[cfg(stm32wb)]
-/// RCC initialization function
-pub(crate) unsafe fn init(config: Config) {
-    set_freqs(compute_clocks(&config));
-
-    configure_clocks(&config);
-}
 
 /// Sets the clock frequencies
 ///

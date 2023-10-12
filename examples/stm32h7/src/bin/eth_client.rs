@@ -78,9 +78,8 @@ async fn main(spawner: Spawner) -> ! {
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericSMI::new(),
+        GenericSMI::new(0),
         mac_addr,
-        0,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -106,8 +105,8 @@ async fn main(spawner: Spawner) -> ! {
 
     info!("Network task initialized");
 
-    static STATE: TcpClientState<1, 1024, 1024> = TcpClientState::new();
-    let client = TcpClient::new(&stack, &STATE);
+    let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
+    let client = TcpClient::new(&stack, &state);
 
     loop {
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 42, 0, 1), 8000));

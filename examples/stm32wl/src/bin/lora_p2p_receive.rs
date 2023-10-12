@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs{
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE;
     let p = embassy_stm32::init(config);
 
     let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2);

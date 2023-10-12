@@ -322,8 +322,8 @@ pub fn config() -> Config {
         config.rcc.mux = ClockSrc::PLL(
             // 32Mhz clock (16 * 4 / 2)
             PLLSource::HSI16,
-            PLLMul::Mul4,
-            PLLDiv::Div2,
+            PLLMul::MUL4,
+            PLLDiv::DIV2,
         );
     }
 
@@ -332,9 +332,9 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL(
             // 32Mhz clock (16 * 4 / 2)
-            PLLSource::HSI,
-            PLLMul::Mul4,
-            PLLDiv::Div2,
+            PLLSource::HSI16,
+            PLLMul::MUL4,
+            PLLDiv::DIV2,
         );
     }
 

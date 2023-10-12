@@ -9,8 +9,6 @@ pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
 use crate::pac::rcc::vals::{Ckpersel, Hsidiv, Pllrge, Pllsrc, Pllvcosel, Sw, Timpre};
 pub use crate::pac::rcc::vals::{Ckpersel as PerClockSource, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul};
 use crate::pac::{FLASH, PWR, RCC};
-#[cfg(stm32h7)]
-use crate::rcc::bd::{BackupDomain, LseCfg, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -23,16 +21,13 @@ pub const CSI_FREQ: Hertz = Hertz(4_000_000);
 /// HSI48 speed
 pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
-
-const VCO_RANGE: RangeInclusive<u32> = 150_000_000..=420_000_000;
+const VCO_RANGE: RangeInclusive<Hertz> = Hertz(150_000_000)..=Hertz(420_000_000);
 #[cfg(any(stm32h5, pwr_h7rm0455))]
-const VCO_WIDE_RANGE: RangeInclusive<u32> = 128_000_000..=560_000_000;
+const VCO_WIDE_RANGE: RangeInclusive<Hertz> = Hertz(128_000_000)..=Hertz(560_000_000);
 #[cfg(pwr_h7rm0468)]
-const VCO_WIDE_RANGE: RangeInclusive<u32> = 192_000_000..=836_000_000;
+const VCO_WIDE_RANGE: RangeInclusive<Hertz> = Hertz(192_000_000)..=Hertz(836_000_000);
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0433))]
-const VCO_WIDE_RANGE: RangeInclusive<u32> = 192_000_000..=960_000_000;
+const VCO_WIDE_RANGE: RangeInclusive<Hertz> = Hertz(192_000_000)..=Hertz(960_000_000);
 
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 
@@ -196,8 +191,7 @@ pub struct Config {
     pub adc_clock_source: AdcClockSource,
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
-    #[cfg(stm32h7)]
-    pub rtc_mux: Option<RtcClockSource>,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -231,8 +225,7 @@ impl Default for Config {
             adc_clock_source: AdcClockSource::from_bits(0), // PLL2_P on H7, HCLK on H5
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
-            #[cfg(stm32h7)]
-            rtc_mux: None,
+            ls: Default::default(),
         }
     }
 }
@@ -471,18 +464,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     flash_setup(hclk, config.voltage_scale);
 
-    #[cfg(stm32h7)]
-    {
-        let lsecfg = config.lse.map(|lse| match lse {
-            Lse::Bypass(freq) => {
-                assert!(freq <= Hertz(1_000_000));
-                LseCfg::Bypass
-            }
-            Lse::Oscillator => LseCfg::Oscillator(Default::default()),
-        });
-
-        BackupDomain::configure_ls(config.rtc_mux.unwrap_or(RtcClockSource::NOCLOCK), config.lsi, lsecfg);
-    }
+    let rtc = config.ls.init();
 
     #[cfg(stm32h7)]
     {
@@ -548,17 +530,6 @@ pub(crate) unsafe fn init(config: Config) {
         while !pac::SYSCFG.cccsr().read().ready() {}
     }
 
-    #[cfg(stm32h7)]
-    let rtc_clk = match config.rtc_mux {
-        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
-        Some(RtcClockSource::LSE) => Some(match config.lse {
-            Some(Lse::Oscillator) => Hertz(32768),
-            Some(Lse::Bypass(freq)) => freq,
-            None => panic!("LSE not configured"),
-        }),
-        _ => None,
-    };
-
     set_freqs(Clocks {
         sys,
         ahb1: hclk,
@@ -573,10 +544,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim,
         apb2_tim,
         adc,
-        #[cfg(stm32h7)]
         rtc: rtc_clk,
-        #[cfg(stm32h7)]
-        rtc_hse: None,
 
         #[cfg(stm32h5)]
         mux_rcc_pclk1: None,
@@ -686,9 +654,9 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     let wide_allowed = ref_range != Pllrge::RANGE1;
 
     let vco_clk = ref_clk * config.mul;
-    let vco_range = if VCO_RANGE.contains(&vco_clk.0) {
+    let vco_range = if VCO_RANGE.contains(&vco_clk) {
         Pllvcosel::MEDIUMVCO
-    } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk.0) {
+    } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
         Pllvcosel::WIDEVCO
     } else {
         panic!("pll vco_clk out of range: {} mhz", vco_clk.0)

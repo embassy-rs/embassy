@@ -1,16 +1,10 @@
-use stm32_metapac::rcc::vals::{Pllm, Plln, Pllq, Pllr};
-
-use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
+use crate::pac::rcc::vals::{Hpre, Pllm, Plln, Pllq, Pllr, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// Clocks configuration
 #[non_exhaustive]
@@ -30,9 +24,7 @@ pub struct Config {
     pub pllsai: Option<Hertz>,
 
     pub pll48: bool,
-    pub rtc: Option<RtcClockSource>,
-    pub lsi: bool,
-    pub lse: Option<Hertz>,
+    pub ls: super::LsConfig,
 }
 
 #[cfg(stm32f410)]
@@ -344,17 +336,7 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
-    BackupDomain::configure_ls(
-        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
-        config.lsi,
-        config.lse.map(|_| Default::default()),
-    );
-
-    let rtc = match config.rtc {
-        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
-        Some(RtcClockSource::LSE) => Some(config.lse.unwrap()),
-        _ => None,
-    };
+    let rtc = config.ls.init();
 
     set_freqs(Clocks {
         sys: Hertz(sysclk),
@@ -377,7 +359,6 @@ pub(crate) unsafe fn init(config: Config) {
         pllsai: plls.pllsaiclk.map(Hertz),
 
         rtc,
-        rtc_hse: None,
     });
 }
 

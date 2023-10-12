@@ -5,15 +5,11 @@ pub use crate::pac::rcc::vals::{
 };
 use crate::pac::rcc::vals::{Msirange, Pllsrc, Sw};
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::bd::RtcClockSource;
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// System clock mux source
 #[derive(Clone, Copy)]
@@ -50,9 +46,7 @@ pub struct Config {
     pub apb2_pre: APBPrescaler,
     pub pllsai1: Option<(PllMul, PllPreDiv, Option<PllRDiv>, Option<PllQDiv>, Option<PllPDiv>)>,
     pub hsi48: bool,
-    pub rtc_mux: RtcClockSource,
-    pub lse: Option<Hertz>,
-    pub lsi: bool,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -65,9 +59,7 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             pllsai1: None,
             hsi48: false,
-            rtc_mux: RtcClockSource::LSI,
-            lsi: true,
-            lse: None,
+            ls: Default::default(),
         }
     }
 }
@@ -93,24 +85,19 @@ pub(crate) unsafe fn init(config: Config) {
         while RCC.cfgr().read().sws() != Sw::MSI {}
     }
 
-    //BackupDomain::configure_ls(config.rtc_mux, config.lsi, config.lse.map(|_| Default::default()));
+    let rtc = config.ls.init();
 
     PWR.cr1().modify(|w| w.set_vos(stm32_metapac::pwr::vals::Vos::RANGE0));
     let (sys_clk, sw) = match config.mux {
         ClockSrc::MSI(range) => {
             // Enable MSI
             RCC.cr().write(|w| {
-                let bits: Msirange = range.into();
-                w.set_msirange(bits);
+                w.set_msirange(range);
                 w.set_msirgsel(true);
                 w.set_msion(true);
 
-                if config.rtc_mux == RtcClockSource::LSE {
-                    // If LSE is enabled, enable calibration of MSI
-                    w.set_msipllen(true);
-                } else {
-                    w.set_msipllen(false);
-                }
+                // If LSE is enabled, enable calibration of MSI
+                w.set_msipllen(config.ls.lse.is_some());
             });
             while !RCC.cr().read().msirdy() {}
 
@@ -153,8 +140,7 @@ pub(crate) unsafe fn init(config: Config) {
                 PLLSource::MSI(range) => {
                     // Enable MSI
                     RCC.cr().write(|w| {
-                        let bits: Msirange = range.into();
-                        w.set_msirange(bits);
+                        w.set_msirange(range);
                         w.set_msipllen(false); // should be turned on if LSE is started
                         w.set_msirgsel(true);
                         w.set_msion(true);
@@ -250,9 +236,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
 
     let ahb_freq = sys_clk / config.ahb_pre;
@@ -282,6 +268,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb2: apb2_freq,
         apb1_tim: apb1_tim_freq,
         apb2_tim: apb2_tim_freq,
+        rtc,
     });
 }
 
