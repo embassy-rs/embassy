@@ -452,10 +452,8 @@ fn main() {
                     let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
                     let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
                     quote! {
-                        critical_section::with(|_| {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
-                        });
+                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
+                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
                     }
                 }
                 None => TokenStream::new(),
