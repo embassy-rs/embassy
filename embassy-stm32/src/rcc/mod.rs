@@ -185,8 +185,6 @@ pub struct Clocks {
     pub mux_hse: Option<Hertz>,
 
     #[cfg(stm32h5)]
-    pub mux_disable: Option<Hertz>,
-    #[cfg(stm32h5)]
     pub mux_hsi48: Option<Hertz>,
 }
 

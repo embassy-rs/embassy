@@ -618,10 +618,8 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h5)]
         mux_rcc_pclk4: None,
         #[cfg(stm32h5)]
-        mux_hse: None,
+        mux_hse: hse,
 
-        #[cfg(stm32h5)]
-        mux_disable: None,
         #[cfg(stm32h5)]
         mux_hsi48: None,
     });

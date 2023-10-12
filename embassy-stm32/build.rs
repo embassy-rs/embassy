@@ -496,6 +496,7 @@ fn main() {
                     let match_arms: TokenStream = rcc_enumm
                         .variants
                         .iter()
+                        .filter(|v| v.name != "DISABLE")
                         .map(|v| {
                             let variant_name = format_ident!("{}", v.name);
 
