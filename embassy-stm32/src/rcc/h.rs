@@ -547,7 +547,7 @@ pub(crate) unsafe fn init(config: Config) {
         rtc,
 
         #[cfg(stm32h5)]
-        mux_rcc_pclk1: None,
+        mux_rcc_pclk1: Some(apb1),
         #[cfg(stm32h5)]
         mux_pll2_q: None,
         #[cfg(stm32h5)]
@@ -574,7 +574,7 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(all(not(rcc_h5), stm32h5))]
         mux_pll3_r: None,
         #[cfg(stm32h5)]
-        mux_rcc_pclk3: None,
+        mux_rcc_pclk3: Some(apb3),
         #[cfg(stm32h5)]
         mux_pll3_1: None,
         #[cfg(stm32h5)]
@@ -584,7 +584,7 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h5)]
         mux_pll2_r: pll2.r,
         #[cfg(stm32h5)]
-        mux_rcc_pclk2: None,
+        mux_rcc_pclk2: Some(apb2),
         #[cfg(stm32h5)]
         mux_rcc_pclk4: None,
         #[cfg(stm32h5)]
