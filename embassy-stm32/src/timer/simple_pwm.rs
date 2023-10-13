@@ -70,7 +70,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         this.inner.set_frequency(freq);
         this.inner.start();
 
-        this.inner.enable_outputs(true);
+        this.inner.enable_outputs();
 
         this.inner
             .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
