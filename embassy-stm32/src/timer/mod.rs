@@ -173,7 +173,7 @@ pub(crate) mod sealed {
                 }
             });
         }
-        fn enable_outputs(&mut self, _enable: bool) {}
+        fn enable_outputs(&mut self, _enable: bool);
 
         fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
             let r = Self::regs_gp16();
@@ -401,7 +401,9 @@ macro_rules! impl_32bit_timer {
 #[allow(unused)]
 macro_rules! impl_compare_capable_16bit {
     ($inst:ident) => {
-        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn enable_outputs(&mut self, _enable: bool) {}
+        }
     };
 }
 
@@ -450,7 +452,13 @@ foreach_interrupt! {
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl AdvancedControlInstance for crate::peripherals::$inst {}
-        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn enable_outputs(&mut self, enable: bool) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                let r = Self::regs_advanced();
+                r.bdtr().modify(|w| w.set_moe(enable));
+            }
+        }
         impl sealed::ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
             fn regs_gp16() -> crate::pac::timer::TimGp16 {
