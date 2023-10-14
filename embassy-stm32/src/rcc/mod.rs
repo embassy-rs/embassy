@@ -56,7 +56,7 @@ pub struct Clocks {
     pub apb2_tim: Hertz,
     #[cfg(any(rcc_wl5, rcc_wle, rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab, rcc_u5))]
     pub apb3: Hertz,
-    #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7ab))]
+    #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7ab, stm32h5))]
     pub apb4: Hertz,
     #[cfg(any(rcc_wba))]
     pub apb7: Hertz,
@@ -136,54 +136,40 @@ pub struct Clocks {
     pub rtc: Option<Hertz>,
 
     #[cfg(stm32h5)]
-    pub mux_apb1: Option<Hertz>,
+    pub hsi: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_apb2: Option<Hertz>,
+    pub hsi48: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_apb3: Option<Hertz>,
+    pub lsi: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_apb4: Option<Hertz>,
+    pub csi: Option<Hertz>,
 
     #[cfg(stm32h5)]
-    pub mux_rcc_hclk4: Option<Hertz>,
+    pub lse: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub hse: Option<Hertz>,
 
     #[cfg(stm32h5)]
-    pub mux_pll2_q: Option<Hertz>,
+    pub pll1_q: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_pll3_q: Option<Hertz>,
+    pub pll2_q: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_hsi: Option<Hertz>,
+    pub pll2_p: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_csi: Option<Hertz>,
+    pub pll2_r: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_lse: Option<Hertz>,
+    pub pll3_p: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub pll3_q: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub pll3_r: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub pll3_1: Option<Hertz>,
 
     #[cfg(stm32h5)]
-    pub mux_pll1_q: Option<Hertz>,
+    pub audioclk: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_pll2_p: Option<Hertz>,
-    #[cfg(rcc_h5)]
-    pub mux_pll3_p: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_audioclk: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_per: Option<Hertz>,
-
-    #[cfg(stm32h5)]
-    pub mux_pll3_r: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_pll3_1: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_hsi48_ker: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_lsi: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_pll2_r: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_hse: Option<Hertz>,
-
-    #[cfg(stm32h5)]
-    pub mux_hsi48: Option<Hertz>,
+    pub per: Option<Hertz>,
 }
 
 #[cfg(feature = "low-power")]

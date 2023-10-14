@@ -520,10 +520,16 @@ fn main() {
                             let variant_name = format_ident!("{}", v.name);
 
                             // temporary hack to restrict the scope of the implementation until clock names can be stabilized
-                            let clock_name = format_ident!("mux_{}", v.name.to_ascii_lowercase());
+                            let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
 
-                            quote! {
-                                #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
+                            if v.name.starts_with("AHB") || v.name.starts_with("APB") { 
+                                quote! {
+                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
+                                }
+                            } else {
+                                quote! {
+                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
+                                }
                             }
                         })
                         .collect();
