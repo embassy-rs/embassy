@@ -1,4 +1,4 @@
-# embassy-macros
+# embassy-hal-internal
 
 An [Embassy](https://embassy.dev) project.
 

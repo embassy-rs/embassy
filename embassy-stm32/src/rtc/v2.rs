@@ -112,25 +112,26 @@ impl super::Rtc {
     pub(crate) fn stop_wakeup_alarm(&self, cs: critical_section::CriticalSection) -> Option<embassy_time::Duration> {
         use crate::interrupt::typelevel::Interrupt;
 
-        trace!("rtc: stop wakeup alarm at {}", self.instant());
+        if RTC::regs().cr().read().wute() {
+            trace!("rtc: stop wakeup alarm at {}", self.instant());
 
-        self.write(false, |regs| {
-            regs.cr().modify(|w| w.set_wutie(false));
-            regs.cr().modify(|w| w.set_wute(false));
-            regs.isr().modify(|w| w.set_wutf(false));
+            self.write(false, |regs| {
+                regs.cr().modify(|w| w.set_wutie(false));
+                regs.cr().modify(|w| w.set_wute(false));
+                regs.isr().modify(|w| w.set_wutf(false));
 
-            crate::pac::EXTI
-                .pr(0)
-                .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+                crate::pac::EXTI
+                    .pr(0)
+                    .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
-            <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
-        });
-
-        if let Some(stop_time) = self.stop_time.borrow(cs).take() {
-            Some(self.instant() - stop_time)
-        } else {
-            None
+                <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();
+            });
         }
+
+        self.stop_time
+            .borrow(cs)
+            .take()
+            .map(|stop_time| self.instant() - stop_time)
     }
 
     #[cfg(feature = "low-power")]
@@ -156,6 +157,8 @@ impl super::Rtc {
                 w.set_fmt(stm32_metapac::rtc::vals::Fmt::TWENTY_FOUR_HOUR);
                 w.set_osel(Osel::DISABLED);
                 w.set_pol(Pol::HIGH);
+                #[cfg(rcc_h7rm0433)]
+                w.set_bypshad(true);
             });
 
             rtc.prer().modify(|w| {

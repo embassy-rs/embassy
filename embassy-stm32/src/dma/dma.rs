@@ -154,10 +154,10 @@ impl State {
 static STATE: State = State::new();
 
 /// safety: must be called only once
-pub(crate) unsafe fn init(irq_priority: Priority) {
+pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: Priority) {
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
-            interrupt::typelevel::$irq::set_priority(irq_priority);
+            interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
             interrupt::typelevel::$irq::enable();
         };
     }

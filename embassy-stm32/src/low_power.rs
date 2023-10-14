@@ -1,5 +1,6 @@
 use core::arch::asm;
 use core::marker::PhantomData;
+use core::sync::atomic::{compiler_fence, Ordering};
 
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
@@ -67,10 +68,8 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
-        trace!("low power: on wakeup irq");
-
         self.time_driver.resume_time();
-        trace!("low power: resume time");
+        trace!("low power: resume");
     }
 
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
@@ -82,21 +81,18 @@ impl Executor {
     }
 
     fn configure_pwr(&mut self) {
-        trace!("low power: configure_pwr");
-
         self.scb.clear_sleepdeep();
+
+        compiler_fence(Ordering::SeqCst);
+
         if !low_power_ready() {
-            trace!("low power: configure_pwr: low power not ready");
-            return;
+            trace!("low power: not ready to stop");
+        } else if self.time_driver.pause_time().is_err() {
+            trace!("low power: failed to pause time");
+        } else {
+            trace!("low power: stop");
+            self.scb.set_sleepdeep();
         }
-
-        if self.time_driver.pause_time().is_err() {
-            trace!("low power: configure_pwr: time driver failed to pause");
-            return;
-        }
-
-        trace!("low power: enter stop...");
-        self.scb.set_sleepdeep();
     }
 
     /// Run the executor.

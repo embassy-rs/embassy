@@ -7,4 +7,6 @@ Embassy provides HALs for several microcontroller families:
 * `embassy-rp` for the Raspberry Pi RP2040 microcontrollers
 
 These HALs implement async/await functionality for most peripherals while also implementing the
-async traits in `embedded-hal-async`. You can also use these HALs with another executor.
+async traits in `embedded-hal` and `embedded-hal-async`. You can also use these HALs with another executor.
+
+For the ESP32 series, there is an link:https://github.com/esp-rs/esp-hal[esp-hal] which you can use.

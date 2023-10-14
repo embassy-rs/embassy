@@ -56,16 +56,17 @@ pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init(
+    cs: critical_section::CriticalSection,
     #[cfg(bdma)] bdma_priority: Priority,
     #[cfg(dma)] dma_priority: Priority,
     #[cfg(gpdma)] gpdma_priority: Priority,
 ) {
     #[cfg(bdma)]
-    bdma::init(bdma_priority);
+    bdma::init(cs, bdma_priority);
     #[cfg(dma)]
-    dma::init(dma_priority);
+    dma::init(cs, dma_priority);
     #[cfg(gpdma)]
-    gpdma::init(gpdma_priority);
+    gpdma::init(cs, gpdma_priority);
     #[cfg(dmamux)]
-    dmamux::init();
+    dmamux::init(cs);
 }

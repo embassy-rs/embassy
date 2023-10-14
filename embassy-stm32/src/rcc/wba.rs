@@ -7,9 +7,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
-
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 
@@ -28,7 +25,7 @@ pub enum PllSrc {
 impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::HSE(..) => Pllsrc::HSE32,
+            PllSrc::HSE(..) => Pllsrc::HSE,
             PllSrc::HSI16 => Pllsrc::HSI16,
         }
     }
@@ -37,19 +34,19 @@ impl Into<Pllsrc> for PllSrc {
 impl Into<Sw> for ClockSrc {
     fn into(self) -> Sw {
         match self {
-            ClockSrc::HSE(..) => Sw::HSE32,
+            ClockSrc::HSE(..) => Sw::HSE,
             ClockSrc::HSI16 => Sw::HSI16,
         }
     }
 }
 
-#[derive(Copy, Clone)]
 pub struct Config {
     pub mux: ClockSrc,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb7_pre: APBPrescaler,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -60,6 +57,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
+            ls: Default::default(),
         }
     }
 }
@@ -108,13 +106,13 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     RCC.cfgr2().modify(|w| {
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
 
     RCC.cfgr3().modify(|w| {
-        w.set_ppre7(config.apb7_pre.into());
+        w.set_ppre7(config.apb7_pre);
     });
 
     let ahb_freq = sys_clk / config.ahb_pre;
@@ -140,6 +138,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: sys_clk,
         ahb1: ahb_freq,
@@ -150,5 +150,6 @@ pub(crate) unsafe fn init(config: Config) {
         apb7: apb7_freq,
         apb1_tim: apb1_tim_freq,
         apb2_tim: apb2_tim_freq,
+        rtc,
     });
 }

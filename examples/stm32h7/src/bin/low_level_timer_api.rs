@@ -22,10 +22,10 @@ async fn main(_spawner: Spawner) {
         config.rcc.hsi48 = true; // needed for RNG
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
-            divq: Some(8), // 100 Mhz
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,
         });
         config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
@@ -73,8 +73,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     ) -> Self {
         into_ref!(tim, ch1, ch2, ch3, ch4);
 
-        T::enable();
-        <T as embassy_stm32::rcc::low_level::RccPeripheral>::reset();
+        T::enable_and_reset();
 
         ch1.set_speed(Speed::VeryHigh);
         ch1.set_as_af(ch1.af_num(), AFType::OutputPushPull);

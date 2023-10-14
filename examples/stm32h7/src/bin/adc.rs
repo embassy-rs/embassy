@@ -18,16 +18,16 @@ async fn main(_spawner: Spawner) {
         config.rcc.csi = true;
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
-            divq: Some(8), // SPI1 cksel defaults to pll1_q
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV8), // SPI1 cksel defaults to pll1_q
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(8), // 100mhz
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV8), // 100mhz
             divq: None,
             divr: None,
         });

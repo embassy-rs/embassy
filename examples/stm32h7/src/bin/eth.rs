@@ -39,9 +39,9 @@ async fn main(spawner: Spawner) -> ! {
         config.rcc.hsi48 = true; // needed for RNG
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
             divq: None,
             divr: None,
         });
@@ -77,9 +77,8 @@ async fn main(spawner: Spawner) -> ! {
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericSMI::new(),
+        GenericSMI::new(0),
         mac_addr,
-        0,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());

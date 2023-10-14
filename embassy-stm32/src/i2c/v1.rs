@@ -56,8 +56,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     ) -> Self {
         into_ref!(scl, sda, tx_dma, rx_dma);
 
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         scl.set_as_af_pull(
             scl.af_num(),

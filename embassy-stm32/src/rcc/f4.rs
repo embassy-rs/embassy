@@ -1,22 +1,10 @@
-use core::marker::PhantomData;
-
-use embassy_hal_internal::into_ref;
-use stm32_metapac::rcc::vals::{Mco1, Mco2, Mcopre};
-
-use crate::gpio::sealed::AFType;
-use crate::gpio::Speed;
-use crate::pac::rcc::vals::{Hpre, Ppre, Sw};
+use crate::pac::rcc::vals::{Hpre, Pllm, Plln, Pllq, Pllr, Ppre, Sw};
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::bd::{BackupDomain, RtcClockSource};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
-use crate::{peripherals, Peripheral};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 /// Clocks configuration
 #[non_exhaustive]
@@ -36,9 +24,7 @@ pub struct Config {
     pub pllsai: Option<Hertz>,
 
     pub pll48: bool,
-    pub rtc: Option<RtcClockSource>,
-    pub lsi: bool,
-    pub lse: Option<Hertz>,
+    pub ls: super::LsConfig,
 }
 
 #[cfg(stm32f410)]
@@ -52,7 +38,7 @@ fn setup_i2s_pll(_vco_in: u32, _plli2s: Option<u32>) -> Option<u32> {
     None
 }
 
-#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f446)))]
+#[cfg(not(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423)))]
 fn calculate_sai_i2s_pll_values(vco_in: u32, max_div: u32, target: Option<u32>) -> Option<(u32, u32, u32)> {
     let min_div = 2;
     let target = match target {
@@ -178,12 +164,12 @@ fn setup_pll(
     let real_pll48clk = vco_in * plln / pllq;
 
     RCC.pllcfgr().modify(|w| {
-        w.set_pllm(pllm as u8);
-        w.set_plln(plln as u16);
+        w.set_pllm(Pllm::from_bits(pllm as u8));
+        w.set_plln(Plln::from_bits(plln as u16));
         w.set_pllp(Pllp::from_bits(pllp as u8));
-        w.set_pllq(pllq as u8);
+        w.set_pllq(Pllq::from_bits(pllq as u8));
         w.set_pllsrc(Pllsrc::from_bits(use_hse as u8));
-        w.set_pllr(0);
+        w.set_pllr(Pllr::from_bits(0));
     });
 
     let real_pllsysclk = vco_in * plln / sysclk_div;
@@ -194,164 +180,6 @@ fn setup_pll(
         pll48clk: if pll48clk { Some(real_pll48clk) } else { None },
         plli2sclk: setup_i2s_pll(vco_in, plli2s),
         pllsaiclk: setup_sai_pll(vco_in, pllsai),
-    }
-}
-
-pub enum McoClock {
-    DIV1,
-    DIV2,
-    DIV3,
-    DIV4,
-    DIV5,
-}
-
-impl McoClock {
-    fn into_raw(&self) -> Mcopre {
-        match self {
-            McoClock::DIV1 => Mcopre::DIV1,
-            McoClock::DIV2 => Mcopre::DIV2,
-            McoClock::DIV3 => Mcopre::DIV3,
-            McoClock::DIV4 => Mcopre::DIV4,
-            McoClock::DIV5 => Mcopre::DIV5,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub enum Mco1Source {
-    Hsi,
-    Lse,
-    Hse,
-    Pll,
-}
-
-impl Default for Mco1Source {
-    fn default() -> Self {
-        Self::Hsi
-    }
-}
-
-pub trait McoSource {
-    type Raw;
-
-    fn into_raw(&self) -> Self::Raw;
-}
-
-impl McoSource for Mco1Source {
-    type Raw = Mco1;
-    fn into_raw(&self) -> Self::Raw {
-        match self {
-            Mco1Source::Hsi => Mco1::HSI,
-            Mco1Source::Lse => Mco1::LSE,
-            Mco1Source::Hse => Mco1::HSE,
-            Mco1Source::Pll => Mco1::PLL,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub enum Mco2Source {
-    SysClk,
-    Plli2s,
-    Hse,
-    Pll,
-}
-
-impl Default for Mco2Source {
-    fn default() -> Self {
-        Self::SysClk
-    }
-}
-
-impl McoSource for Mco2Source {
-    type Raw = Mco2;
-    fn into_raw(&self) -> Self::Raw {
-        match self {
-            Mco2Source::SysClk => Mco2::SYSCLK,
-            Mco2Source::Plli2s => Mco2::PLLI2S,
-            Mco2Source::Hse => Mco2::HSE,
-            Mco2Source::Pll => Mco2::PLL,
-        }
-    }
-}
-
-pub(crate) mod sealed {
-    use stm32_metapac::rcc::vals::Mcopre;
-    pub trait McoInstance {
-        type Source;
-        unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre);
-    }
-}
-
-pub trait McoInstance: sealed::McoInstance + 'static {}
-
-pin_trait!(McoPin, McoInstance);
-
-impl sealed::McoInstance for peripherals::MCO1 {
-    type Source = Mco1;
-    unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre) {
-        RCC.cfgr().modify(|w| {
-            w.set_mco1(source);
-            w.set_mco1pre(prescaler);
-        });
-        match source {
-            Mco1::PLL => {
-                RCC.cr().modify(|w| w.set_pllon(true));
-                while !RCC.cr().read().pllrdy() {}
-            }
-            Mco1::HSI => {
-                RCC.cr().modify(|w| w.set_hsion(true));
-                while !RCC.cr().read().hsirdy() {}
-            }
-            _ => {}
-        }
-    }
-}
-impl McoInstance for peripherals::MCO1 {}
-
-impl sealed::McoInstance for peripherals::MCO2 {
-    type Source = Mco2;
-    unsafe fn apply_clock_settings(source: Self::Source, prescaler: Mcopre) {
-        RCC.cfgr().modify(|w| {
-            w.set_mco2(source);
-            w.set_mco2pre(prescaler);
-        });
-        match source {
-            Mco2::PLL => {
-                RCC.cr().modify(|w| w.set_pllon(true));
-                while !RCC.cr().read().pllrdy() {}
-            }
-            #[cfg(not(stm32f410))]
-            Mco2::PLLI2S => {
-                RCC.cr().modify(|w| w.set_plli2son(true));
-                while !RCC.cr().read().plli2srdy() {}
-            }
-            _ => {}
-        }
-    }
-}
-impl McoInstance for peripherals::MCO2 {}
-
-pub struct Mco<'d, T: McoInstance> {
-    phantom: PhantomData<&'d mut T>,
-}
-
-impl<'d, T: McoInstance> Mco<'d, T> {
-    pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
-        pin: impl Peripheral<P = impl McoPin<T>> + 'd,
-        source: impl McoSource<Raw = T::Source>,
-        prescaler: McoClock,
-    ) -> Self {
-        into_ref!(pin);
-
-        critical_section::with(|_| unsafe {
-            T::apply_clock_settings(source.into_raw(), prescaler.into_raw());
-            pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-            pin.set_speed(Speed::VeryHigh);
-        });
-
-        Self { phantom: PhantomData }
     }
 }
 
@@ -508,17 +336,7 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
-    BackupDomain::configure_ls(
-        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
-        config.lsi,
-        config.lse.map(|_| Default::default()),
-    );
-
-    let rtc = match config.rtc {
-        Some(RtcClockSource::LSI) => Some(LSI_FREQ),
-        Some(RtcClockSource::LSE) => Some(config.lse.unwrap()),
-        _ => None,
-    };
+    let rtc = config.ls.init();
 
     set_freqs(Clocks {
         sys: Hertz(sysclk),
@@ -540,8 +358,7 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
         pllsai: plls.pllsaiclk.map(Hertz),
 
-        rtc: rtc,
-        rtc_hse: None,
+        rtc,
     });
 }
 

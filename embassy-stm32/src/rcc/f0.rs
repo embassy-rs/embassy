@@ -8,9 +8,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(40_000);
-
 /// Configuration of the clocks
 ///
 /// hse takes precedence over hsi48 if both are enabled
@@ -27,6 +24,8 @@ pub struct Config {
     pub sys_ck: Option<Hertz>,
     pub hclk: Option<Hertz>,
     pub pclk: Option<Hertz>,
+
+    pub ls: super::LsConfig,
 }
 
 pub(crate) unsafe fn init(config: Config) {
@@ -159,6 +158,8 @@ pub(crate) unsafe fn init(config: Config) {
         })
     }
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: Hertz(real_sysclk),
         apb1: Hertz(pclk),
@@ -166,5 +167,6 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim: Hertz(pclk * timer_mul),
         apb2_tim: Hertz(pclk * timer_mul),
         ahb1: Hertz(hclk),
+        rtc,
     });
 }

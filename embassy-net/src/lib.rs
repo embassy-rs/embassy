@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
@@ -39,7 +39,7 @@ use smoltcp::socket::dhcpv4::{self, RetryConfig};
 pub use smoltcp::wire::EthernetAddress;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
 pub use smoltcp::wire::HardwareAddress;
-#[cfg(feature = "udp")]
+#[cfg(any(feature = "udp", feature = "tcp"))]
 pub use smoltcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ieee802154")]
 pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
@@ -56,12 +56,22 @@ const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 #[cfg(feature = "dns")]
 const MAX_QUERIES: usize = 4;
+#[cfg(feature = "dhcpv4-hostname")]
+const MAX_HOSTNAME_LEN: usize = 32;
 
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
     sockets: [SocketStorage<'static>; SOCK],
     #[cfg(feature = "dns")]
     queries: [Option<dns::DnsQuery>; MAX_QUERIES],
+    #[cfg(feature = "dhcpv4-hostname")]
+    hostname: core::cell::UnsafeCell<HostnameResources>,
+}
+
+#[cfg(feature = "dhcpv4-hostname")]
+struct HostnameResources {
+    option: smoltcp::wire::DhcpOption<'static>,
+    data: [u8; MAX_HOSTNAME_LEN],
 }
 
 impl<const SOCK: usize> StackResources<SOCK> {
@@ -73,6 +83,11 @@ impl<const SOCK: usize> StackResources<SOCK> {
             sockets: [SocketStorage::EMPTY; SOCK],
             #[cfg(feature = "dns")]
             queries: [INIT; MAX_QUERIES],
+            #[cfg(feature = "dhcpv4-hostname")]
+            hostname: core::cell::UnsafeCell::new(HostnameResources {
+                option: smoltcp::wire::DhcpOption { kind: 0, data: &[] },
+                data: [0; MAX_HOSTNAME_LEN],
+            }),
         }
     }
 }
@@ -104,6 +119,7 @@ pub struct StaticConfigV6 {
 /// DHCP configuration.
 #[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DhcpConfig {
     /// Maximum lease duration.
     ///
@@ -120,6 +136,9 @@ pub struct DhcpConfig {
     pub server_port: u16,
     /// Client port. This is almost always 68. Do not change unless you know what you're doing.
     pub client_port: u16,
+    /// Our hostname. This will be sent to the DHCP server as Option 12.
+    #[cfg(feature = "dhcpv4-hostname")]
+    pub hostname: Option<heapless::String<MAX_HOSTNAME_LEN>>,
 }
 
 #[cfg(feature = "dhcpv4")]
@@ -131,6 +150,8 @@ impl Default for DhcpConfig {
             ignore_naks: Default::default(),
             server_port: smoltcp::wire::DHCP_SERVER_PORT,
             client_port: smoltcp::wire::DHCP_CLIENT_PORT,
+            #[cfg(feature = "dhcpv4-hostname")]
+            hostname: None,
         }
     }
 }
@@ -232,6 +253,8 @@ struct Inner<D: Driver> {
     dns_socket: SocketHandle,
     #[cfg(feature = "dns")]
     dns_waker: WakerRegistration,
+    #[cfg(feature = "dhcpv4-hostname")]
+    hostname: &'static mut core::cell::UnsafeCell<HostnameResources>,
 }
 
 pub(crate) struct SocketStack {
@@ -307,6 +330,8 @@ impl<D: Driver> Stack<D> {
             )),
             #[cfg(feature = "dns")]
             dns_waker: WakerRegistration::new(),
+            #[cfg(feature = "dhcpv4-hostname")]
+            hostname: &mut resources.hostname,
         };
 
         #[cfg(feature = "proto-ipv4")]
@@ -484,7 +509,10 @@ impl<D: Driver> Stack<D> {
             self.with_mut(|s, i| {
                 let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
                 match socket.start_query(s.iface.context(), name, qtype) {
-                    Ok(handle) => Poll::Ready(Ok(handle)),
+                    Ok(handle) => {
+                        s.waker.wake();
+                        Poll::Ready(Ok(handle))
+                    }
                     Err(dns::StartQueryError::NoFreeSlot) => {
                         i.dns_waker.register(cx.waker());
                         Poll::Pending
@@ -673,6 +701,25 @@ impl<D: Driver> Inner<D> {
                 socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
                 socket.set_ports(c.server_port, c.client_port);
                 socket.set_retry_config(c.retry_config);
+
+                socket.set_outgoing_options(&[]);
+                #[cfg(feature = "dhcpv4-hostname")]
+                if let Some(h) = c.hostname {
+                    // safety: we just did set_outgoing_options([]) so we know the socket is no longer holding a reference.
+                    let hostname = unsafe { &mut *self.hostname.get() };
+
+                    // create data
+                    // safety: we know the buffer lives forever, new borrows the StackResources for 'static.
+                    // also we won't modify it until next call to this function.
+                    hostname.data[..h.len()].copy_from_slice(h.as_bytes());
+                    let data: &[u8] = &hostname.data[..h.len()];
+                    let data: &'static [u8] = unsafe { core::mem::transmute(data) };
+
+                    // set the option.
+                    hostname.option = smoltcp::wire::DhcpOption { data, kind: 12 };
+                    socket.set_outgoing_options(core::slice::from_ref(&hostname.option));
+                }
+
                 socket.reset();
             }
             _ => {

@@ -32,7 +32,6 @@ use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
 use hal::gpio::{Input, Level, Output, Speed};
 use hal::i2c::{self, I2c};
-use hal::rcc::{self};
 use hal::rng::{self, Rng};
 use hal::{bind_interrupts, exti, pac, peripherals};
 use heapless::Vec;
@@ -49,7 +48,7 @@ use embassy_net_adin1110::{self, Device, Runner, ADIN1110};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hal::gpio::Pull;
 use hal::i2c::Config as I2C_Config;
-use hal::rcc::{ClockSrc, PLLClkDiv, PLLMul, PLLSource, PLLSrcDiv};
+use hal::rcc::{ClockSrc, PLLSource, PllMul, PllPreDiv, PllRDiv};
 use hal::spi::{Config as SPI_Config, Spi};
 use hal::time::Hertz;
 
@@ -80,13 +79,12 @@ async fn main(spawner: Spawner) {
     // 80MHz highest frequency for flash 0 wait.
     config.rcc.mux = ClockSrc::PLL(
         PLLSource::HSE(Hertz(8_000_000)),
-        PLLClkDiv::Div2,
-        PLLSrcDiv::Div1,
-        PLLMul::Mul20,
+        PllRDiv::DIV2,
+        PllPreDiv::DIV1,
+        PllMul::MUL20,
         None,
     );
     config.rcc.hsi48 = true; // needed for rng
-    config.rcc.rtc_mux = rcc::RtcClockSource::LSI;
 
     let dp = embassy_stm32::init(config);
 
@@ -366,7 +364,7 @@ pub struct ADT7422<'d, BUS: I2cBus> {
     bus: BUS,
 }
 
-#[derive(Debug, Format)]
+#[derive(Debug, Format, PartialEq, Eq)]
 pub enum Error<I2cError: Format> {
     I2c(I2cError),
     Address,

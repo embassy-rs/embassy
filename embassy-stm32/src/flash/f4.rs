@@ -228,8 +228,10 @@ pub(crate) unsafe fn lock() {
 }
 
 pub(crate) unsafe fn unlock() {
-    pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
-    pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
+    if pac::FLASH.cr().read().lock() {
+        pac::FLASH.keyr().write(|w| w.set_key(0x45670123));
+        pac::FLASH.keyr().write(|w| w.set_key(0xCDEF89AB));
+    }
 }
 
 pub(crate) unsafe fn enable_write() {

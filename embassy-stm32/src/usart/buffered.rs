@@ -152,9 +152,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
@@ -173,9 +172,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         into_ref!(cts, rts);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
         cts.set_as_af(cts.af_num(), AFType::Input);
@@ -201,9 +199,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         into_ref!(de);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         de.set_as_af(de.af_num(), AFType::OutputPushPull);
         T::regs().cr3().write(|w| {
@@ -256,7 +253,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         (self.tx, self.rx)
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
@@ -336,7 +333,7 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
         }
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }
@@ -410,7 +407,7 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
         }
     }
 
-    fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)
     }
 }

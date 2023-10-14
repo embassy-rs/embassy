@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
         // Calibrate and normalize the measurement to get close to the dac_output_val
         let measured_normalized = ((measured as i32 - offset as i32) / normalization_factor) as i16;
 
-        info!("value / measured: {} / {}", dac_output_val, measured_normalized);
+        //info!("value / measured: {} / {}", dac_output_val, measured_normalized);
 
         // The deviations are quite enormous but that does not matter since this is only a quick test
         assert!((dac_output_val as i16 - measured_normalized).abs() < 15);

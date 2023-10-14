@@ -131,7 +131,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
         let len = to - from;
 
-        unsafe { self.in_ram(|| ram_helpers::flash_range_erase(from, len))? };
+        unsafe { in_ram(|| ram_helpers::flash_range_erase(from, len))? };
 
         Ok(())
     }
@@ -156,7 +156,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
             let unaligned_offset = offset as usize - start;
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
+            unsafe { in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
         }
 
         let remaining_len = bytes.len() - start_padding;
@@ -174,12 +174,12 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
             if bytes.as_ptr() as usize >= 0x2000_0000 {
                 let aligned_data = &bytes[start_padding..end_padding];
 
-                unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data))? }
+                unsafe { in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, aligned_data))? }
             } else {
                 for chunk in bytes[start_padding..end_padding].chunks_exact(PAGE_SIZE) {
                     let mut ram_buf = [0xFF_u8; PAGE_SIZE];
                     ram_buf.copy_from_slice(chunk);
-                    unsafe { self.in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf))? }
+                    unsafe { in_ram(|| ram_helpers::flash_range_program(aligned_offset as u32, &ram_buf))? }
                     aligned_offset += PAGE_SIZE;
                 }
             }
@@ -194,47 +194,15 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
             let unaligned_offset = end_offset - (PAGE_SIZE - rem_offset);
 
-            unsafe { self.in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
+            unsafe { in_ram(|| ram_helpers::flash_range_program(unaligned_offset as u32, &pad_buf))? }
         }
 
-        Ok(())
-    }
-
-    /// Make sure to uphold the contract points with rp2040-flash.
-    /// - interrupts must be disabled
-    /// - DMA must not access flash memory
-    unsafe fn in_ram(&mut self, operation: impl FnOnce()) -> Result<(), Error> {
-        // Make sure we're running on CORE0
-        let core_id: u32 = pac::SIO.cpuid().read();
-        if core_id != 0 {
-            return Err(Error::InvalidCore);
-        }
-
-        // Make sure CORE1 is paused during the entire duration of the RAM function
-        crate::multicore::pause_core1();
-
-        critical_section::with(|_| {
-            // Wait for all DMA channels in flash to finish before ram operation
-            const SRAM_LOWER: u32 = 0x2000_0000;
-            for n in 0..crate::dma::CHANNEL_COUNT {
-                let ch = crate::pac::DMA.ch(n);
-                while ch.read_addr().read() < SRAM_LOWER && ch.ctrl_trig().read().busy() {}
-            }
-            // Wait for completion of any background reads
-            while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
-
-            // Run our flash operation in RAM
-            operation();
-        });
-
-        // Resume CORE1 execution
-        crate::multicore::resume_core1();
         Ok(())
     }
 
     /// Read SPI flash unique ID
     pub fn blocking_unique_id(&mut self, uid: &mut [u8]) -> Result<(), Error> {
-        unsafe { self.in_ram(|| ram_helpers::flash_unique_id(uid))? };
+        unsafe { in_ram(|| ram_helpers::flash_unique_id(uid))? };
         Ok(())
     }
 
@@ -242,7 +210,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
     pub fn blocking_jedec_id(&mut self) -> Result<u32, Error> {
         let mut jedec = None;
         unsafe {
-            self.in_ram(|| {
+            in_ram(|| {
                 jedec.replace(ram_helpers::flash_jedec_id());
             })?;
         };
@@ -869,6 +837,38 @@ mod ram_helpers {
             clobber_abi("C"),
         );
     }
+}
+
+/// Make sure to uphold the contract points with rp2040-flash.
+/// - interrupts must be disabled
+/// - DMA must not access flash memory
+pub(crate) unsafe fn in_ram(operation: impl FnOnce()) -> Result<(), Error> {
+    // Make sure we're running on CORE0
+    let core_id: u32 = pac::SIO.cpuid().read();
+    if core_id != 0 {
+        return Err(Error::InvalidCore);
+    }
+
+    // Make sure CORE1 is paused during the entire duration of the RAM function
+    crate::multicore::pause_core1();
+
+    critical_section::with(|_| {
+        // Wait for all DMA channels in flash to finish before ram operation
+        const SRAM_LOWER: u32 = 0x2000_0000;
+        for n in 0..crate::dma::CHANNEL_COUNT {
+            let ch = crate::pac::DMA.ch(n);
+            while ch.read_addr().read() < SRAM_LOWER && ch.ctrl_trig().read().busy() {}
+        }
+        // Wait for completion of any background reads
+        while pac::XIP_CTRL.stream_ctr().read().0 > 0 {}
+
+        // Run our flash operation in RAM
+        operation();
+    });
+
+    // Resume CORE1 execution
+    crate::multicore::resume_core1();
+    Ok(())
 }
 
 mod sealed {

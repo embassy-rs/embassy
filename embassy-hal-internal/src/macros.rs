@@ -48,17 +48,23 @@ macro_rules! peripherals_struct {
             ///Returns all the peripherals *once*
             #[inline]
             pub(crate) fn take() -> Self {
+                critical_section::with(Self::take_with_cs)
+            }
 
+            ///Returns all the peripherals *once*
+            #[inline]
+            pub(crate) fn take_with_cs(_cs: critical_section::CriticalSection) -> Self {
                 #[no_mangle]
                 static mut _EMBASSY_DEVICE_PERIPHERALS: bool = false;
 
-                critical_section::with(|_| unsafe {
+                // safety: OK because we're inside a CS.
+                unsafe {
                     if _EMBASSY_DEVICE_PERIPHERALS {
                         panic!("init called more than once!")
                     }
                     _EMBASSY_DEVICE_PERIPHERALS = true;
                     Self::steal()
-                })
+                }
             }
         }
 

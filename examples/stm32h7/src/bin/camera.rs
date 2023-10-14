@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::rcc::{Mco, Mco1Source};
+use embassy_stm32::rcc::{Mco, Mco1Source, McoPrescaler};
 use embassy_stm32::time::khz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
 use embassy_time::{Duration, Timer};
@@ -32,10 +32,10 @@ async fn main(_spawner: Spawner) {
         config.rcc.csi = true;
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
-            divq: Some(8), // 100mhz
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,
         });
         config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     defmt::info!("Hello World!");
-    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, 3);
+    let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, McoPrescaler::DIV3);
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
     let cam_i2c = I2c::new(
@@ -184,7 +184,7 @@ mod ov7725 {
 
     const CAM_ADDR: u8 = 0x21;
 
-    #[derive(Format)]
+    #[derive(Format, PartialEq, Eq)]
     pub enum Error<I2cError: Format> {
         I2c(I2cError),
     }

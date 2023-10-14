@@ -15,8 +15,7 @@ bind_interrupts!(struct Irqs{
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE32;
-    config.rcc.rtc_mux = embassy_stm32::rcc::RtcClockSource::LSI;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE;
 
     let p = embassy_stm32::init(config);
     pac::RCC.ccipr().modify(|w| {

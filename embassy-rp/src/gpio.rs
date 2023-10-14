@@ -97,6 +97,12 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
+    /// Set the pin's Schmitt trigger.
+    #[inline]
+    pub fn set_schmitt(&mut self, enable: bool) {
+        self.pin.set_schmitt(enable)
+    }
+
     #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
@@ -216,7 +222,6 @@ fn IO_IRQ_QSPI() {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'a, T: Pin> {
     pin: PeripheralRef<'a, T>,
-    level: InterruptTrigger,
 }
 
 impl<'d, T: Pin> InputFuture<'d, T> {
@@ -243,7 +248,6 @@ impl<'d, T: Pin> InputFuture<'d, T> {
             .inte((pin.pin() / 8) as usize)
             .write_set(|w| match level {
                 InterruptTrigger::LevelHigh => {
-                    trace!("InputFuture::new enable LevelHigh for pin {}", pin.pin());
                     w.set_level_high(pin_group, true);
                 }
                 InterruptTrigger::LevelLow => {
@@ -261,7 +265,7 @@ impl<'d, T: Pin> InputFuture<'d, T> {
                 }
             });
 
-        Self { pin, level }
+        Self { pin }
     }
 }
 
@@ -297,14 +301,8 @@ impl<'d, T: Pin> Future for InputFuture<'d, T> {
             && !inte.level_high(pin_group)
             && !inte.level_low(pin_group)
         {
-            trace!(
-                "{:?} for pin {} was cleared, return Poll::Ready",
-                self.level,
-                self.pin.pin()
-            );
             return Poll::Ready(());
         }
-        trace!("InputFuture::poll return Poll::Pending");
         Poll::Pending
     }
 }
@@ -324,6 +322,18 @@ impl<'d, T: Pin> Output<'d, T> {
 
         pin.set_as_output();
         Self { pin }
+    }
+
+    /// Set the pin's drive strength.
+    #[inline]
+    pub fn set_drive_strength(&mut self, strength: Drive) {
+        self.pin.set_drive_strength(strength)
+    }
+
+    // Set the pin's slew rate.
+    #[inline]
+    pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
+        self.pin.set_slew_rate(slew_rate)
     }
 
     /// Set the output as high.
@@ -384,6 +394,18 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
             Level::Low => pin.set_as_output(),
         }
         Self { pin }
+    }
+
+    /// Set the pin's drive strength.
+    #[inline]
+    pub fn set_drive_strength(&mut self, strength: Drive) {
+        self.pin.set_drive_strength(strength)
+    }
+
+    // Set the pin's slew rate.
+    #[inline]
+    pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
+        self.pin.set_slew_rate(slew_rate)
     }
 
     /// Set the output as high.
@@ -538,6 +560,14 @@ impl<'d, T: Pin> Flex<'d, T> {
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_slewfast(slew_rate == SlewRate::Fast);
+        });
+    }
+
+    /// Set the pin's Schmitt trigger.
+    #[inline]
+    pub fn set_schmitt(&mut self, enable: bool) {
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_schmitt(enable);
         });
     }
 

@@ -1,5 +1,5 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -10,6 +10,7 @@ mod critical_section_impl;
 mod intrinsics;
 
 pub mod adc;
+pub mod bootsel;
 pub mod clocks;
 pub mod dma;
 pub mod flash;
@@ -193,6 +194,7 @@ embassy_hal_internal::peripherals! {
     PIO1,
 
     WATCHDOG,
+    BOOTSEL,
 }
 
 macro_rules! select_bootloader {

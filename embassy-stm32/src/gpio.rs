@@ -1,6 +1,7 @@
 #![macro_use]
 use core::convert::Infallible;
 
+use critical_section::CriticalSection;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use crate::pac::gpio::{self, vals};
@@ -757,9 +758,9 @@ foreach_pin!(
     };
 );
 
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn init(_cs: CriticalSection) {
     #[cfg(afio)]
-    <crate::peripherals::AFIO as crate::rcc::sealed::RccPeripheral>::enable();
+    <crate::peripherals::AFIO as crate::rcc::sealed::RccPeripheral>::enable_and_reset_with_cs(_cs);
 
     crate::_generated::init_gpio();
 }
@@ -972,6 +973,18 @@ mod eh1 {
 
     impl<'d, T: Pin> ErrorType for OutputOpenDrain<'d, T> {
         type Error = Infallible;
+    }
+
+    impl<'d, T: Pin> InputPin for OutputOpenDrain<'d, T> {
+        #[inline]
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_high())
+        }
+
+        #[inline]
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            Ok(self.is_low())
+        }
     }
 
     impl<'d, T: Pin> OutputPin for OutputOpenDrain<'d, T> {

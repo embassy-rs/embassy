@@ -58,9 +58,8 @@ async fn main(spawner: Spawner) -> ! {
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericSMI::new(),
+        GenericSMI::new(0),
         mac_addr,
-        0,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());

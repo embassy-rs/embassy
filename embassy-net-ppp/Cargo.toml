@@ -15,7 +15,7 @@ log = ["dep:log", "ppproto/log"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embedded-io-async = { version = "0.5.0" }
+embedded-io-async = { version = "0.6.0" }
 embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 ppproto = { version = "0.1.2"}

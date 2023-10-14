@@ -38,6 +38,22 @@ impl Into<u8> for QspiWidth {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+pub enum FlashSelection {
+    Flash1,
+    Flash2,
+}
+
+impl Into<bool> for FlashSelection {
+    fn into(self) -> bool {
+        match self {
+            FlashSelection::Flash1 => false,
+            FlashSelection::Flash2 => true,
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 pub enum MemorySize {
     _1KiB,

@@ -30,6 +30,7 @@ pub async fn run<D: Driver>(stack: &Stack<D>, expected: Expected) {
 }
 
 const TEST_DURATION: usize = 10;
+const IO_BUFFER_SIZE: usize = 1024;
 const RX_BUFFER_SIZE: usize = 4096;
 const TX_BUFFER_SIZE: usize = 4096;
 const SERVER_ADDRESS: Ipv4Address = Ipv4Address::new(192, 168, 2, 2);
@@ -52,7 +53,7 @@ async fn test_download<D: Driver>(stack: &Stack<D>) -> usize {
     }
     info!("connected, testing...");
 
-    let mut rx_buf = [0; 4096];
+    let mut rx_buf = [0; IO_BUFFER_SIZE];
     let mut total: usize = 0;
     with_timeout(Duration::from_secs(TEST_DURATION as _), async {
         loop {
@@ -92,7 +93,7 @@ async fn test_upload<D: Driver>(stack: &Stack<D>) -> usize {
     }
     info!("connected, testing...");
 
-    let buf = [0; 4096];
+    let buf = [0; IO_BUFFER_SIZE];
     let mut total: usize = 0;
     with_timeout(Duration::from_secs(TEST_DURATION as _), async {
         loop {
@@ -134,8 +135,8 @@ async fn test_upload_download<D: Driver>(stack: &Stack<D>) -> usize {
 
     let (mut reader, mut writer) = socket.split();
 
-    let tx_buf = [0; 4096];
-    let mut rx_buf = [0; 4096];
+    let tx_buf = [0; IO_BUFFER_SIZE];
+    let mut rx_buf = [0; IO_BUFFER_SIZE];
     let mut total: usize = 0;
     let tx_fut = async {
         loop {
