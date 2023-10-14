@@ -163,10 +163,6 @@ impl From<TimerPrescaler> for Timpre {
 pub struct Config {
     pub hsi: Option<Hsi>,
     pub hse: Option<Hse>,
-    #[cfg(stm32h7)]
-    pub lse: Option<Lse>,
-    #[cfg(stm32h7)]
-    pub lsi: bool,
     pub csi: bool,
     pub hsi48: bool,
     pub sys: Sysclk,
@@ -199,10 +195,6 @@ impl Default for Config {
         Self {
             hsi: Some(Hsi::Mhz64),
             hse: None,
-            #[cfg(stm32h7)]
-            lse: None,
-            #[cfg(stm32h7)]
-            lsi: false,
             csi: false,
             hsi48: false,
             sys: Sysclk::HSI,
