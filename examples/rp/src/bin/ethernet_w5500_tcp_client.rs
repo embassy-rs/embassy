@@ -111,7 +111,7 @@ async fn main(spawner: Spawner) {
                 break;
             }
             info!("txd: {}", core::str::from_utf8(msg).unwrap());
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
         }
     }
 }

@@ -100,7 +100,7 @@ async fn main_task(spawner: Spawner) {
                 return;
             }
 
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
         }
         info!("Closing the connection");
         socket.abort();

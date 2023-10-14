@@ -11,7 +11,7 @@ use embassy_stm32::rcc::{
 };
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
     let _p = embassy_stm32::init(config);
 
     loop {
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after_millis(1000).await;
         info!("1s elapsed");
     }
 }

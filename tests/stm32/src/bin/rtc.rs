@@ -12,7 +12,7 @@ use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
     rtc.set_datetime(now.into()).expect("datetime not set");
 
     info!("Waiting 5 seconds");
-    Timer::after(Duration::from_millis(5000)).await;
+    Timer::after_millis(5000).await;
 
     let then: NaiveDateTime = rtc.now().unwrap().into();
     let seconds = (then - now).num_seconds();

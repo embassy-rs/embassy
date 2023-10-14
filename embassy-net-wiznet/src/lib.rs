@@ -8,7 +8,7 @@ mod device;
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
@@ -95,12 +95,12 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevi
     // Reset the chip.
     reset.set_low().ok();
     // Ensure the reset is registered.
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
     reset.set_high().ok();
 
     // Wait for PLL lock. Some chips are slower than others.
     // Slowest is w5100s which is 100ms, so let's just wait that.
-    Timer::after(Duration::from_millis(100)).await;
+    Timer::after_millis(100).await;
 
     let mac = WiznetDevice::new(spi_dev, mac_addr).await.unwrap();
 

@@ -34,6 +34,6 @@ impl lorawan_device::async_device::radio::Timer for LoraTimer {
     }
 
     async fn delay_ms(&mut self, millis: u64) {
-        Timer::after(Duration::from_millis(millis)).await
+        Timer::after_millis(millis).await
     }
 }

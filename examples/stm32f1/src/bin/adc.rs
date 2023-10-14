@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::{adc, bind_interrupts};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -35,6 +35,6 @@ async fn main(_spawner: Spawner) {
     loop {
         let v = adc.read(&mut pin).await;
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
     }
 }

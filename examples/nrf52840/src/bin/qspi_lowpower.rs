@@ -8,7 +8,7 @@ use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_nrf::qspi::Frequency;
 use embassy_nrf::{bind_interrupts, peripherals, qspi};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 // Workaround for alignment requirements.
@@ -79,6 +79,6 @@ async fn main(_p: Spawner) {
 
         // Sleep for 1 second. The executor ensures the core sleeps with a WFE when it has nothing to do.
         // During this sleep, the nRF chip should only use ~3uA
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
     }
 }

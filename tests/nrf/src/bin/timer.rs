@@ -5,7 +5,7 @@ teleprobe_meta::target!(b"nrf52840-dk");
 
 use defmt::{assert, info};
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let start = Instant::now();
-    Timer::after(Duration::from_millis(100)).await;
+    Timer::after_millis(100).await;
     let end = Instant::now();
     let ms = (end - start).as_millis();
     info!("slept for {} ms", ms);

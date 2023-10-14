@@ -12,7 +12,7 @@ use embassy_stm32::exti::{Channel, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::spi;
 use embassy_stm32::time::khz;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use lora_phy::mod_params::*;
 use lora_phy::sx1276_7_8_9::SX1276_7_8_9;
 use lora_phy::LoRa;
@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) {
     let mut start_indicator = Output::new(p.PB6, Level::Low, Speed::Low);
 
     start_indicator.set_high();
-    Timer::after(Duration::from_secs(5)).await;
+    Timer::after_secs(5).await;
     start_indicator.set_low();
 
     let mdltn_params = {
@@ -89,7 +89,7 @@ async fn main(_spawner: Spawner) {
                 info!("cad successful without activity detected")
             }
             debug_indicator.set_high();
-            Timer::after(Duration::from_secs(5)).await;
+            Timer::after_secs(5).await;
             debug_indicator.set_low();
         }
         Err(err) => info!("cad unsuccessful = {}", err),

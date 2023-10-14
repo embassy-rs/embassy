@@ -76,9 +76,7 @@ where
                     #[cfg(not(feature = "time"))]
                     Operation::DelayUs(_) => return Err(SpiDeviceError::DelayUsNotSupported),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => {
-                        embassy_time::Timer::after(embassy_time::Duration::from_micros(*us as _)).await
-                    }
+                    Operation::DelayUs(us) => embassy_time::Timer::after_micros(*us as _).await,
                 }
             }
         };
@@ -143,9 +141,7 @@ where
                     #[cfg(not(feature = "time"))]
                     Operation::DelayUs(_) => return Err(SpiDeviceError::DelayUsNotSupported),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => {
-                        embassy_time::Timer::after(embassy_time::Duration::from_micros(*us as _)).await
-                    }
+                    Operation::DelayUs(us) => embassy_time::Timer::after_micros(*us as _).await,
                 }
             }
         };
