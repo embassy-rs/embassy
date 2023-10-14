@@ -457,8 +457,8 @@ pub(crate) unsafe fn init(config: Config) {
         AdcClockSource::SYSCLK => Some(sys),
         AdcClockSource::PLL2_R => pll2.r,
         AdcClockSource::HSE => hse,
-        AdcClockSource::HSI_KER => hsi,
-        AdcClockSource::CSI_KER => csi,
+        AdcClockSource::HSI => hsi,
+        AdcClockSource::CSI => csi,
         _ => unreachable!(),
     };
 
@@ -547,15 +547,25 @@ pub(crate) unsafe fn init(config: Config) {
         rtc,
 
         #[cfg(stm32h5)]
-        mux_rcc_pclk1: Some(apb1),
+        mux_apb1: Some(apb1),
+        #[cfg(stm32h5)]
+        mux_apb2: Some(apb2),
+        #[cfg(stm32h5)]
+        mux_apb3: Some(apb3),
+        #[cfg(stm32h5)]
+        mux_apb4: None,
+
+        #[cfg(stm32h5)]
+        mux_rcc_hclk4: None,
+
         #[cfg(stm32h5)]
         mux_pll2_q: None,
         #[cfg(stm32h5)]
         mux_pll3_q: None,
         #[cfg(stm32h5)]
-        mux_hsi_ker: None,
+        mux_hsi: None,
         #[cfg(stm32h5)]
-        mux_csi_ker: None,
+        mux_csi: None,
         #[cfg(stm32h5)]
         mux_lse: None,
         #[cfg(stm32h5)]
@@ -574,19 +584,13 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(all(not(rcc_h5), stm32h5))]
         mux_pll3_r: None,
         #[cfg(stm32h5)]
-        mux_rcc_pclk3: Some(apb3),
-        #[cfg(stm32h5)]
         mux_pll3_1: None,
         #[cfg(stm32h5)]
         mux_hsi48_ker: None,
         #[cfg(stm32h5)]
-        mux_lsi_ker: None,
+        mux_lsi: None,
         #[cfg(stm32h5)]
         mux_pll2_r: pll2.r,
-        #[cfg(stm32h5)]
-        mux_rcc_pclk2: Some(apb2),
-        #[cfg(stm32h5)]
-        mux_rcc_pclk4: None,
         #[cfg(stm32h5)]
         mux_hse: hse,
 
