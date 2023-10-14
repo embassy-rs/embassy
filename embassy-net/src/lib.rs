@@ -509,7 +509,10 @@ impl<D: Driver> Stack<D> {
             self.with_mut(|s, i| {
                 let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
                 match socket.start_query(s.iface.context(), name, qtype) {
-                    Ok(handle) => Poll::Ready(Ok(handle)),
+                    Ok(handle) => {
+                        s.waker.wake();
+                        Poll::Ready(Ok(handle))
+                    }
                     Err(dns::StartQueryError::NoFreeSlot) => {
                         i.dns_waker.register(cx.waker());
                         Poll::Pending
