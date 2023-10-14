@@ -216,7 +216,6 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
         // Control interface
         let mut iface = func.interface();
         let comm_if = iface.interface_number();
-        let data_if = u8::from(comm_if) + 1;
         let mut alt = iface.alt_setting(USB_CLASS_CDC, CDC_SUBCLASS_ACM, CDC_PROTOCOL_NONE, None);
 
         alt.descriptor(
@@ -242,18 +241,28 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             &[
                 CDC_TYPE_UNION, // bDescriptorSubtype
                 comm_if.into(), // bControlInterface
-                data_if.into(), // bSubordinateInterface
+                // Padding, bSubordinateInterface byte will be written later.
+                0x0, // bSubordinateInterface
             ],
         );
+
+        // Keep the position of the subordinate interface byte so we can fill it in later
+        let subordinate_interface_position = alt.config_descriptor_writer().position() - 1;
 
         let comm_ep = alt.endpoint_interrupt_in(8, 255);
 
         // Data interface
         let mut iface = func.interface();
         let data_if = iface.interface_number();
+        let data_if_number_byte = data_if.0;
+
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE, None);
         let read_ep = alt.endpoint_bulk_out(max_packet_size);
         let write_ep = alt.endpoint_bulk_in(max_packet_size);
+
+        // Fill in the subordinate interface byte with the right interface number.
+        alt.config_descriptor_writer()
+            .overwrite(subordinate_interface_position, &[data_if_number_byte]);
 
         drop(func);
 

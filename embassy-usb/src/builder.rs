@@ -295,6 +295,13 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     pub fn msos_writer(&mut self) -> &mut MsOsDescriptorWriter<'d> {
         &mut self.msos_descriptor
     }
+
+    /// Returns a handle to the inner config descriptor writer owned by the [`UsbDevice`] builder.
+    ///
+    /// This can be used to overwrite parts of the descriptor buffer or other granular controls over the buffer.
+    pub fn config_descriptor_writer(&mut self) -> &mut DescriptorWriter<'d> {
+        &mut self.config_descriptor
+    }
 }
 
 /// Function builder.
@@ -360,6 +367,13 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
         #[cfg(feature = "msos-descriptor")]
         self.builder.msos_descriptor.function_feature(desc);
     }
+
+    /// Returns a handle to the inner config descriptor writer owned by the [`UsbDevice`] builder.
+    ///
+    /// This can be used to overwrite parts of the descriptor buffer or other granular controls over the buffer.
+    pub fn config_descriptor_writer(&mut self) -> &mut DescriptorWriter<'d> {
+        self.builder.config_descriptor_writer()
+    }
 }
 
 /// Interface builder.
@@ -411,6 +425,13 @@ impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
             alt_setting_number: number,
         }
     }
+
+    /// Returns a handle to the inner config descriptor writer owned by the [`UsbDevice`] builder.
+    ///
+    /// This can be used to overwrite parts of the descriptor buffer or other granular controls over the buffer.
+    pub fn config_descriptor_writer(&mut self) -> &mut DescriptorWriter<'d> {
+        self.builder.config_descriptor_writer()
+    }
 }
 
 /// Interface alternate setting builder.
@@ -435,8 +456,17 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     ///
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
-    pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) {
+    ///
+    /// Returns the byte length of the descriptor which has been written.
+    pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) -> usize {
         self.builder.config_descriptor.write(descriptor_type, descriptor)
+    }
+
+    /// Returns a handle to the inner config descriptor writer owned by the [`UsbDevice`] builder.
+    ///
+    /// This can be used to overwrite parts of the descriptor buffer or other granular controls over the buffer.
+    pub fn config_descriptor_writer(&mut self) -> &mut DescriptorWriter<'d> {
+        self.builder.config_descriptor_writer()
     }
 
     fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {

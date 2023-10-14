@@ -37,7 +37,8 @@ pub mod capability_type {
 }
 
 /// A writer for USB descriptors.
-pub(crate) struct DescriptorWriter<'a> {
+pub struct DescriptorWriter<'a> {
+    /// The inner buffer of the descriptor writer.
     pub buf: &'a mut [u8],
     position: usize,
     num_interfaces_mark: Option<usize>,
@@ -54,6 +55,7 @@ impl<'a> DescriptorWriter<'a> {
         }
     }
 
+    /// Consumes this writer and returns the descriptor buffer.
     pub fn into_buf(self) -> &'a mut [u8] {
         &mut self.buf[..self.position]
     }
@@ -63,8 +65,23 @@ impl<'a> DescriptorWriter<'a> {
         self.position
     }
 
+    /// Overwrites a part of the descriptor buffer starting from the provided position.
+    ///
+    /// # Panics
+    ///
+    /// Panics if writing the provided data results with exceeding the buffer size.
+    pub fn overwrite(&mut self, position: usize, data: &[u8]) {
+        let end = position + data.len();
+        if end > self.buf.len() {
+            panic!("Descriptor buffer full");
+        }
+        self.buf[position..end].copy_from_slice(data);
+    }
+
     /// Writes an arbitrary (usually class-specific) descriptor.
-    pub fn write(&mut self, descriptor_type: u8, descriptor: &[u8]) {
+    ///
+    /// Returns the byte length of the descriptor which has been written.
+    pub fn write(&mut self, descriptor_type: u8, descriptor: &[u8]) -> usize {
         let length = descriptor.len();
 
         if (self.position + 2 + length) > self.buf.len() || (length + 2) > 255 {
@@ -79,6 +96,9 @@ impl<'a> DescriptorWriter<'a> {
         self.buf[start..start + length].copy_from_slice(descriptor);
 
         self.position = start + length;
+
+        // Total length of the written descriptor
+        length + 2
     }
 
     pub(crate) fn device(&mut self, config: &Config) {
@@ -102,7 +122,7 @@ impl<'a> DescriptorWriter<'a> {
                 config.serial_number.map_or(0, |_| 3), // iSerialNumber
                 1,                                     // bNumConfigurations
             ],
-        )
+        );
     }
 
     pub(crate) fn configuration(&mut self, config: &Config) {
@@ -120,7 +140,7 @@ impl<'a> DescriptorWriter<'a> {
                     | if config.supports_remote_wakeup { 0x20 } else { 0x00 }, // bmAttributes
                 (config.max_power / 2) as u8, // bMaxPower
             ],
-        )
+        );
     }
 
     #[allow(unused)]
@@ -281,7 +301,7 @@ pub struct BosWriter<'a> {
 impl<'a> BosWriter<'a> {
     pub(crate) fn new(writer: DescriptorWriter<'a>) -> Self {
         Self {
-            writer: writer,
+            writer,
             num_caps_mark: None,
         }
     }
@@ -331,5 +351,44 @@ impl<'a> BosWriter<'a> {
         self.num_caps_mark = None;
         let position = self.writer.position as u16;
         self.writer.buf[2..4].copy_from_slice(&position.to_le_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE: u8 = 0x24;
+
+    #[test]
+    fn test_overwriting_descriptors() {
+        let mut writer_buf = [0u8; 12];
+        let mut writer = DescriptorWriter::new(&mut writer_buf);
+
+        // Track the length.
+        let mut written_len = 0;
+
+        // Write some imaginary descriptors to fill the buffer.
+        written_len += writer.write(CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE, &[0x0, 0x1, 0x2, 0x3]);
+        written_len += writer.write(CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE, &[0x4, 0x5, 0x6, 0x7]);
+
+        writer.overwrite(3, &[0xAA_u8, 0xBB_u8, 0xCC_u8][..]);
+        assert_eq!(written_len, 12);
+        assert_eq!(&writer.buf[3..6], &[0xAA_u8, 0xBB_u8, 0xCC_u8][..]);
+
+        writer.overwrite(4, &[0xFF_u8, 0xFF_u8][..]);
+        assert_eq!(&writer.buf[2..6], &[0x00_u8, 0xAA_u8, 0xFF_u8, 0xFF_u8][..]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_exceeding_descriptor_buffer_size_when_overwriting_descriptors_panics() {
+        let mut writer_buf = [0u8; 12];
+        let mut writer = DescriptorWriter::new(&mut writer_buf);
+
+        // Write some imaginary descriptors to fill the buffer.
+        writer.write(CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE, &[0x0, 0x1, 0x2, 0x3]);
+        writer.write(CLASS_SPECIFIC_INTERFACE_DESCRIPTOR_TYPE, &[0x4, 0x5, 0x6, 0x7]);
+        writer.overwrite(10, &[0xAA_u8, 0xBB_u8, 0xCC_u8][..]);
     }
 }
