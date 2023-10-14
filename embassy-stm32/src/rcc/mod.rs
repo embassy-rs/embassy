@@ -136,15 +136,25 @@ pub struct Clocks {
     pub rtc: Option<Hertz>,
 
     #[cfg(stm32h5)]
-    pub mux_rcc_pclk1: Option<Hertz>,
+    pub mux_apb1: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_apb2: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_apb3: Option<Hertz>,
+    #[cfg(stm32h5)]
+    pub mux_apb4: Option<Hertz>,
+
+    #[cfg(stm32h5)]
+    pub mux_rcc_hclk4: Option<Hertz>,
+
     #[cfg(stm32h5)]
     pub mux_pll2_q: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_pll3_q: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_hsi_ker: Option<Hertz>,
+    pub mux_hsi: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_csi_ker: Option<Hertz>,
+    pub mux_csi: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_lse: Option<Hertz>,
 
@@ -162,19 +172,13 @@ pub struct Clocks {
     #[cfg(stm32h5)]
     pub mux_pll3_r: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_rcc_pclk3: Option<Hertz>,
-    #[cfg(stm32h5)]
     pub mux_pll3_1: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_hsi48_ker: Option<Hertz>,
     #[cfg(stm32h5)]
-    pub mux_lsi_ker: Option<Hertz>,
+    pub mux_lsi: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_pll2_r: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_rcc_pclk2: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub mux_rcc_pclk4: Option<Hertz>,
     #[cfg(stm32h5)]
     pub mux_hse: Option<Hertz>,
 

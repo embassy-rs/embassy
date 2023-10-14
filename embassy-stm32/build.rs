@@ -5,7 +5,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::ir::{BlockItemInner, Enum};
+use stm32_metapac::metadata::ir::{BlockItemInner, Enum, FieldSet};
 use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, METADATA};
 
 fn main() {
@@ -400,29 +400,24 @@ fn main() {
             .ir;
 
         let rcc_blocks = rcc_registers.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
+        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.fieldsets.iter().map(|f| (f.name, f)).collect();
+        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
 
-        let rcc_block_item_map: HashMap<&str, &str> = rcc_blocks
+        rcc_blocks
             .iter()
             .filter_map(|b| match &b.inner {
-                BlockItemInner::Register(register) => register.fieldset.map(|f| (f, b.name)),
+                BlockItemInner::Register(register) => register.fieldset.map(|f| (b.name, f)),
                 _ => None,
             })
-            .collect();
-
-        let rcc_enum_map: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
-
-        rcc_registers
-            .fieldsets
-            .iter()
-            .filter_map(|f| {
-                rcc_block_item_map.get(f.name).map(|b| {
+            .filter_map(|(b, f)| {
+                rcc_fieldsets.get(f).map(|f| {
                     (
-                        *b,
+                        b,
                         f.fields
                             .iter()
                             .filter_map(|f| {
                                 let enumm = f.enumm?;
-                                let enumm = rcc_enum_map.get(enumm)?;
+                                let enumm = rcc_enums.get(enumm)?;
 
                                 Some((f.name, *enumm))
                             })
