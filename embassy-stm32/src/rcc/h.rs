@@ -541,61 +541,55 @@ pub(crate) unsafe fn init(config: Config) {
         apb3,
         #[cfg(stm32h7)]
         apb4,
+        #[cfg(stm32h5)]
+        apb4: Hertz(1),
         apb1_tim,
         apb2_tim,
         adc,
         rtc,
 
         #[cfg(stm32h5)]
-        mux_apb1: Some(apb1),
+        hsi: None,
         #[cfg(stm32h5)]
-        mux_apb2: Some(apb2),
+        hsi48: None,
         #[cfg(stm32h5)]
-        mux_apb3: Some(apb3),
+        lsi: None,
         #[cfg(stm32h5)]
-        mux_apb4: None,
+        csi: None,
 
         #[cfg(stm32h5)]
-        mux_rcc_hclk4: None,
+        lse: None,
+        #[cfg(stm32h5)]
+        hse: None,
 
         #[cfg(stm32h5)]
-        mux_pll2_q: None,
+        pll1_q: pll1.q,
         #[cfg(stm32h5)]
-        mux_pll3_q: None,
+        pll2_q: pll2.q,
         #[cfg(stm32h5)]
-        mux_hsi: None,
+        pll2_p: pll2.p,
         #[cfg(stm32h5)]
-        mux_csi: None,
-        #[cfg(stm32h5)]
-        mux_lse: None,
-        #[cfg(stm32h5)]
-        mux_pll1_q: pll1.q,
-        #[cfg(stm32h5)]
-        mux_pll2_p: pll2.p,
+        pll2_r: pll2.r,
         #[cfg(rcc_h5)]
-        mux_pll3_p: pll3.p,
-        #[cfg(stm32h5)]
-        mux_audioclk: None,
-        #[cfg(stm32h5)]
-        mux_per: None,
-
+        pll3_p: pll3.p,
         #[cfg(rcc_h5)]
-        mux_pll3_r: pll3.r,
-        #[cfg(all(not(rcc_h5), stm32h5))]
-        mux_pll3_r: None,
+        pll3_q: pll3.q,
+        #[cfg(rcc_h5)]
+        pll3_r: pll3.r,
         #[cfg(stm32h5)]
-        mux_pll3_1: None,
-        #[cfg(stm32h5)]
-        mux_hsi48_ker: None,
-        #[cfg(stm32h5)]
-        mux_lsi: None,
-        #[cfg(stm32h5)]
-        mux_pll2_r: pll2.r,
-        #[cfg(stm32h5)]
-        mux_hse: hse,
+        pll3_1: None,
+
+        #[cfg(rcc_h50)]
+        pll3_p: None,
+        #[cfg(rcc_h50)]
+        pll3_q: None,
+        #[cfg(rcc_h50)]
+        pll3_r: None,
 
         #[cfg(stm32h5)]
-        mux_hsi48: None,
+        audioclk: None,
+        #[cfg(stm32h5)]
+        per: None,
     });
 }
 
