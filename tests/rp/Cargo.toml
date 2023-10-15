@@ -12,7 +12,7 @@ embassy-executor = { version = "0.3.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.1.5", path = "../../embassy-time", features = ["defmt", "nightly", "unstable-traits"] }
 embassy-rp = { version = "0.1.0", path = "../../embassy-rp", features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "run-from-ram"]  }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-net = { version = "0.1.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt", "nightly", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { path = "../../cyw43-pio", features = ["defmt", "overclock"] }

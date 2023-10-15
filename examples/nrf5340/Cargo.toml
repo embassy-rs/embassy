@@ -27,7 +27,7 @@ embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = [
     "gpiote",
     "unstable-pac",
 ] }
-embassy-net = { version = "0.1.0", path = "../../embassy-net", features = [
+embassy-net = { version = "0.2.0", path = "../../embassy-net", features = [
     "nightly",
     "defmt",
     "tcp",
