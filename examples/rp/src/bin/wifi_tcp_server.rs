@@ -105,7 +105,7 @@ async fn main(spawner: Spawner) {
     // Wait for DHCP, not necessary when using static IP
     info!("waiting for DHCP...");
     while !stack.is_config_up() {
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
     }
     info!("DHCP is now up!");
 

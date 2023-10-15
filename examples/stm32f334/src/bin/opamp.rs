@@ -10,7 +10,7 @@ use embassy_stm32::peripherals::ADC2;
 use embassy_stm32::rcc::{AdcClockSource, Adcpres};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{adc, bind_interrupts, Config};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -54,6 +54,6 @@ async fn main(_spawner: Spawner) -> ! {
         let pin_mv = (buffer as u32 * vrefint.value() as u32 / vref as u32) * 3300 / 4095;
         info!("computed pin mv: {}", pin_mv);
 
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
     }
 }

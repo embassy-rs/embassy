@@ -306,7 +306,7 @@ async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static, periphera
 
     loop {
         led.set_low();
-        match select(temp_sens.read_temp(), Timer::after(Duration::from_millis(500))).await {
+        match select(temp_sens.read_temp(), Timer::after_millis(500)).await {
             Either::First(i2c_ret) => match i2c_ret {
                 Ok(value) => {
                     led.set_high();
@@ -424,7 +424,7 @@ where
         // Start: One shot
         let cfg = 0b01 << 5;
         self.write_cfg(cfg).await?;
-        Timer::after(Duration::from_millis(250)).await;
+        Timer::after_millis(250).await;
         self.bus
             .write_read(self.addr, &[Registers::Temp_MSB as u8], &mut buffer)
             .await

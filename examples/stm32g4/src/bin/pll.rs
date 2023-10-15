@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{ClockSrc, Pll, PllM, PllN, PllR, PllSrc};
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -29,7 +29,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     loop {
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after_millis(1000).await;
         info!("1s elapsed");
     }
 }

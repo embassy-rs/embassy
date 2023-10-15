@@ -9,7 +9,7 @@ use embassy_stm32::gpio::Speed;
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::*;
 use embassy_stm32::{into_ref, Config, Peripheral, PeripheralRef};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -49,13 +49,13 @@ async fn main(_spawner: Spawner) {
 
     loop {
         pwm.set_duty(Channel::Ch1, 0);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max / 4);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max / 2);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max - 1);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
     }
 }
 pub struct SimplePwm32<'d, T: CaptureCompare32bitInstance> {

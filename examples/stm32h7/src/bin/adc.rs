@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::Config;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -55,6 +55,6 @@ async fn main(_spawner: Spawner) {
         info!("vrefint: {}", vrefint);
         let measured = adc.read(&mut p.PC0);
         info!("measured: {}", measured);
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
     }
 }

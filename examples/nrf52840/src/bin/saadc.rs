@@ -6,7 +6,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_nrf::saadc::{ChannelConfig, Config, Saadc};
 use embassy_nrf::{bind_interrupts, saadc};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -24,6 +24,6 @@ async fn main(_p: Spawner) {
         let mut buf = [0; 1];
         saadc.sample(&mut buf).await;
         info!("sample: {=i16}", &buf[0]);
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
     }
 }

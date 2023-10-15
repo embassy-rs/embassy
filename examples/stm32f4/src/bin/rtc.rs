@@ -7,7 +7,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -31,6 +31,6 @@ async fn main(_spawner: Spawner) {
 
         info!("{}", now.timestamp());
 
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after_millis(1000).await;
     }
 }

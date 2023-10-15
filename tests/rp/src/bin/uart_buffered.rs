@@ -9,7 +9,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config, Error, Instance, Parity};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_io_async::{Read, ReadExactError, Write};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -39,14 +39,14 @@ async fn read1<const N: usize>(uart: &mut BufferedUartRx<'_, impl Instance>) -> 
 
 async fn send(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: Option<bool>) {
     pin.set_low();
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
     for i in 0..8 {
         if v & (1 << i) == 0 {
             pin.set_low();
         } else {
             pin.set_high();
         }
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
     }
     if let Some(b) = parity {
         if b {
@@ -54,10 +54,10 @@ async fn send(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: O
         } else {
             pin.set_low();
         }
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
     }
     pin.set_high();
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
 }
 
 #[embassy_executor::main]

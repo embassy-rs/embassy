@@ -11,7 +11,7 @@ use embassy_lora::iv::{InterruptHandler, Stm32wlInterfaceVariant};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_stm32::spi::Spi;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
 use lora_phy::LoRa;
@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
     let mut start_indicator = Output::new(p.PB15, Level::Low, Speed::Low);
 
     start_indicator.set_high();
-    Timer::after(Duration::from_secs(5)).await;
+    Timer::after_secs(5).await;
     start_indicator.set_low();
 
     let mut receiving_buffer = [00u8; 100];
@@ -103,7 +103,7 @@ async fn main(_spawner: Spawner) {
                 {
                     info!("rx successful");
                     debug_indicator.set_high();
-                    Timer::after(Duration::from_secs(5)).await;
+                    Timer::after_secs(5).await;
                     debug_indicator.set_low();
                 } else {
                     info!("rx unknown packet");

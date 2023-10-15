@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::flash::{Flash, InterruptHandler};
 use embassy_stm32::gpio::{AnyPin, Level, Output, Pin, Speed};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -35,11 +35,11 @@ async fn blinky(p: AnyPin) {
     loop {
         info!("high");
         led.set_high();
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
 
         info!("low");
         led.set_low();
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
     }
 }
 

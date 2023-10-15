@@ -7,14 +7,14 @@ use core::task::Poll;
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Instant, Timer};
+use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn run1() {
     loop {
         info!("DING DONG");
-        Timer::after(Duration::from_ticks(16000)).await;
+        Timer::after_ticks(16000).await;
     }
 }
 

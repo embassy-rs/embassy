@@ -15,7 +15,7 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_io_async::Write;
 use rand_core::RngCore;
 use static_cell::make_static;
@@ -121,7 +121,7 @@ async fn main(spawner: Spawner) -> ! {
         let r = socket.connect(remote_endpoint).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
-            Timer::after(Duration::from_secs(3)).await;
+            Timer::after_secs(3).await;
             continue;
         }
         info!("connected!");
@@ -131,7 +131,7 @@ async fn main(spawner: Spawner) -> ! {
                 info!("write error: {:?}", e);
                 break;
             }
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
         }
     }
 }

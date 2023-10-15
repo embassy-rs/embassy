@@ -11,7 +11,7 @@ use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_io_async::Write;
 use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};
 use rand_core::RngCore;
@@ -115,7 +115,7 @@ async fn main(spawner: Spawner) -> ! {
         let r = client.connect(addr).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
             continue;
         }
         let mut connection = r.unwrap();
@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) -> ! {
                 info!("write error: {:?}", e);
                 break;
             }
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
         }
     }
 }

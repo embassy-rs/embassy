@@ -65,11 +65,11 @@ impl<'a> Leds<'a> {
             for led in &mut self.leds {
                 led.set_high();
             }
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
             for led in &mut self.leds {
                 led.set_low();
             }
-            Timer::after(Duration::from_millis(200)).await;
+            Timer::after_millis(200).await;
         }
     }
 

@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner) {
 
         let set_high_future = async {
             // Allow time for wait_for_high_future to await wait_for_high().
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after_millis(10).await;
             output.set_high();
         };
         let wait_for_high_future = async {
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
         assert!(input.is_high(), "input was expected to be high");
 
         let set_low_future = async {
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after_millis(10).await;
             output.set_low();
         };
         let wait_for_low_future = async {
@@ -67,7 +67,7 @@ async fn main(_spawner: Spawner) {
         assert!(input.is_low(), "input was expected to be low");
 
         let set_high_future = async {
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after_millis(10).await;
             output.set_high();
         };
         let wait_for_rising_edge_future = async {
@@ -87,7 +87,7 @@ async fn main(_spawner: Spawner) {
         assert!(input.is_high(), "input was expected to be high");
 
         let set_low_future = async {
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after_millis(10).await;
             output.set_low();
         };
         let wait_for_falling_edge_future = async {
@@ -107,7 +107,7 @@ async fn main(_spawner: Spawner) {
         assert!(input.is_high(), "input was expected to be high");
 
         let set_low_future = async {
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after_millis(10).await;
             output.set_low();
         };
         let wait_for_any_edge_future = async {
@@ -127,7 +127,7 @@ async fn main(_spawner: Spawner) {
         assert!(input.is_low(), "input was expected to be low");
 
         let set_high_future = async {
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after_millis(10).await;
             output.set_high();
         };
         let wait_for_any_edge_future = async {
