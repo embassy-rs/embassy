@@ -797,7 +797,7 @@ fn main() {
         (("fmc", "NCE"), quote!(crate::fmc::NCEPin)),
         (("fmc", "NOE"), quote!(crate::fmc::NOEPin)),
         (("fmc", "NWE"), quote!(crate::fmc::NWEPin)),
-        (("fmc", "Clk"), quote!(crate::fmc::ClkPin)),
+        (("fmc", "CLK"), quote!(crate::fmc::ClkPin)),
         (("fmc", "BA0"), quote!(crate::fmc::BA0Pin)),
         (("fmc", "BA1"), quote!(crate::fmc::BA1Pin)),
         (("timer", "CH1"), quote!(crate::timer::Channel1Pin)),
