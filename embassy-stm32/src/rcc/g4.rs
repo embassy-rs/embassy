@@ -119,8 +119,8 @@ impl Default for Config {
             low_power_run: false,
             pll: None,
             clock_48mhz_src: None,
-            adc12_clock_source: Adcsel::NOCLK,
-            adc345_clock_source: Adcsel::NOCLK,
+            adc12_clock_source: Adcsel::DISABLE,
+            adc345_clock_source: Adcsel::DISABLE,
             ls: Default::default(),
         }
     }
@@ -326,16 +326,16 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.ccipr().modify(|w| w.set_adc345sel(config.adc345_clock_source));
 
     let adc12_ck = match config.adc12_clock_source {
-        AdcClockSource::NOCLK => None,
-        AdcClockSource::PLLP => pll_freq.as_ref().unwrap().pll_p,
-        AdcClockSource::SYSCLK => Some(sys_clk),
+        AdcClockSource::DISABLE => None,
+        AdcClockSource::PLL1_P => pll_freq.as_ref().unwrap().pll_p,
+        AdcClockSource::SYS => Some(sys_clk),
         _ => unreachable!(),
     };
 
     let adc345_ck = match config.adc345_clock_source {
-        AdcClockSource::NOCLK => None,
-        AdcClockSource::PLLP => pll_freq.as_ref().unwrap().pll_p,
-        AdcClockSource::SYSCLK => Some(sys_clk),
+        AdcClockSource::DISABLE => None,
+        AdcClockSource::PLL1_P => pll_freq.as_ref().unwrap().pll_p,
+        AdcClockSource::SYS => Some(sys_clk),
         _ => unreachable!(),
     };
 
@@ -356,6 +356,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb2_tim: apb2_tim_freq,
         adc: adc12_ck,
         adc34: adc345_ck,
+        pll1_p: None,
         rtc,
     });
 }

@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
         div_r: Some(PllR::DIV2),
     });
 
-    config.rcc.adc12_clock_source = AdcClockSource::SYSCLK;
+    config.rcc.adc12_clock_source = AdcClockSource::SYS;
     config.rcc.mux = ClockSrc::PLL;
 
     let mut p = embassy_stm32::init(config);
