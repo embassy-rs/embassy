@@ -39,6 +39,12 @@ pub struct State<'a> {
     shared: ControlShared,
 }
 
+impl<'a> Default for State<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> State<'a> {
     /// Create a new `State`.
     pub fn new() -> Self {
@@ -242,7 +248,7 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             &[
                 CDC_TYPE_UNION, // bDescriptorSubtype
                 comm_if.into(), // bControlInterface
-                data_if.into(), // bSubordinateInterface
+                data_if,        // bSubordinateInterface
             ],
         );
 

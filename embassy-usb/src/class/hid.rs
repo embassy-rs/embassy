@@ -79,6 +79,12 @@ pub struct State<'d> {
     out_report_offset: AtomicUsize,
 }
 
+impl<'d> Default for State<'d> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'d> State<'d> {
     /// Create a new `State`.
     pub fn new() -> Self {
@@ -171,7 +177,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
     }
 
     /// Waits for both IN and OUT endpoints to be enabled.
-    pub async fn ready(&mut self) -> () {
+    pub async fn ready(&mut self) {
         self.reader.ready().await;
         self.writer.ready().await;
     }
@@ -251,7 +257,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     }
 
     /// Waits for the interrupt in endpoint to be enabled.
-    pub async fn ready(&mut self) -> () {
+    pub async fn ready(&mut self) {
         self.ep_in.wait_enabled().await
     }
 
@@ -286,7 +292,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
 
 impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     /// Waits for the interrupt out endpoint to be enabled.
-    pub async fn ready(&mut self) -> () {
+    pub async fn ready(&mut self) {
         self.ep_out.wait_enabled().await
     }
 
@@ -466,7 +472,7 @@ impl<'d> Handler for Control<'d> {
             HID_REQ_SET_IDLE => {
                 if let Some(handler) = self.request_handler {
                     let id = req.value as u8;
-                    let id = (id != 0).then(|| ReportId::In(id));
+                    let id = (id != 0).then_some(ReportId::In(id));
                     let dur = u32::from(req.value >> 8);
                     let dur = if dur == 0 { u32::MAX } else { 4 * dur };
                     handler.set_idle_ms(id, dur);
@@ -522,7 +528,7 @@ impl<'d> Handler for Control<'d> {
                     HID_REQ_GET_IDLE => {
                         if let Some(handler) = self.request_handler {
                             let id = req.value as u8;
-                            let id = (id != 0).then(|| ReportId::In(id));
+                            let id = (id != 0).then_some(ReportId::In(id));
                             if let Some(dur) = handler.get_idle_ms(id) {
                                 let dur = u8::try_from(dur / 4).unwrap_or(0);
                                 buf[0] = dur;

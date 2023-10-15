@@ -121,6 +121,12 @@ pub struct State<'a> {
     shared: ControlShared,
 }
 
+impl<'a> Default for State<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> State<'a> {
     /// Create a new `State`.
     pub fn new() -> Self {
@@ -132,14 +138,9 @@ impl<'a> State<'a> {
 }
 
 /// Shared data between Control and CdcAcmClass
+#[derive(Default)]
 struct ControlShared {
     mac_addr: [u8; 6],
-}
-
-impl Default for ControlShared {
-    fn default() -> Self {
-        ControlShared { mac_addr: [0; 6] }
-    }
 }
 
 struct Control<'a> {
@@ -416,7 +417,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
             self.write_ep.write(&buf[..self.max_packet_size]).await?;
 
             for chunk in d2.chunks(self.max_packet_size) {
-                self.write_ep.write(&chunk).await?;
+                self.write_ep.write(chunk).await?;
             }
 
             // Send ZLP if needed.

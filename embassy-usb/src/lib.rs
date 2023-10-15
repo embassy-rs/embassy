@@ -294,7 +294,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// After dropping the future, [`UsbDevice::disable()`] should be called
     /// before calling any other `UsbDevice` methods to fully reset the
     /// peripheral.
-    pub async fn run_until_suspend(&mut self) -> () {
+    pub async fn run_until_suspend(&mut self) {
         while !self.inner.suspended {
             let control_fut = self.control.setup();
             let bus_fut = self.inner.bus.poll();
@@ -372,18 +372,15 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // a full-length packet is a short packet, thinking we're done sending data.
         // See https://github.com/hathach/tinyusb/issues/184
         const DEVICE_DESCRIPTOR_LEN: usize = 18;
-        if self.inner.address == 0
-            && max_packet_size < DEVICE_DESCRIPTOR_LEN
-            && (max_packet_size as usize) < resp_length
-        {
+        if self.inner.address == 0 && max_packet_size < DEVICE_DESCRIPTOR_LEN && max_packet_size < resp_length {
             trace!("received control req while not addressed: capping response to 1 packet.");
             resp_length = max_packet_size;
         }
 
-        match self.inner.handle_control_in(req, &mut self.control_buf) {
+        match self.inner.handle_control_in(req, self.control_buf) {
             InResponse::Accepted(data) => {
                 let len = data.len().min(resp_length);
-                let need_zlp = len != resp_length && (len % usize::from(max_packet_size)) == 0;
+                let need_zlp = len != resp_length && (len % max_packet_size) == 0;
 
                 let chunks = data[0..len]
                     .chunks(max_packet_size)
@@ -706,7 +703,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
     }
 
     fn handle_control_in_delegated<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
-        unsafe fn extend_lifetime<'x, 'y>(r: InResponse<'x>) -> InResponse<'y> {
+        unsafe fn extend_lifetime<'y>(r: InResponse<'_>) -> InResponse<'y> {
             core::mem::transmute(r)
         }
 
