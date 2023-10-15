@@ -389,19 +389,20 @@ fn main() {
     }
 
     // ========
+    // Extract the rcc registers
+    let rcc_registers = METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| p.registers.as_ref())
+        .find(|r| r.kind == "rcc")
+        .unwrap();
+
+    // ========
     // Generate rcc fieldset and enum maps
     let rcc_enum_map: HashMap<&str, HashMap<&str, &Enum>> = {
-        let rcc_registers = METADATA
-            .peripherals
-            .iter()
-            .filter_map(|p| p.registers.as_ref())
-            .find(|r| r.kind == "rcc")
-            .unwrap()
-            .ir;
-
-        let rcc_blocks = rcc_registers.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
-        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.fieldsets.iter().map(|f| (f.name, f)).collect();
-        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
+        let rcc_blocks = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
+        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.ir.fieldsets.iter().map(|f| (f.name, f)).collect();
+        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.ir.enums.iter().map(|e| (e.name, e)).collect();
 
         rcc_blocks
             .iter()
@@ -494,8 +495,10 @@ fn main() {
             };
 
             let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
-                // temporary hack to restrict the scope of the implementation to h5
-                if !&chip_name.starts_with("stm32h5") {
+                let checked_rccs = HashSet::from(["h5", "h50", "h7", "h7ab", "h7rm0433", "g4"]);
+
+                // restrict mux implementation to supported versions
+                if !checked_rccs.contains(rcc_registers.version) {
                     return None;
                 }
 
@@ -518,11 +521,9 @@ fn main() {
                         .filter(|v| v.name != "DISABLE")
                         .map(|v| {
                             let variant_name = format_ident!("{}", v.name);
-
-                            // temporary hack to restrict the scope of the implementation until clock names can be stabilized
                             let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
 
-                            if v.name.starts_with("AHB") || v.name.starts_with("APB") { 
+                            if v.name.starts_with("AHB") || v.name.starts_with("APB") || v.name == "SYS" { 
                                 quote! {
                                     #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
                                 }
@@ -1013,15 +1014,7 @@ fn main() {
 
     // ========
     // Generate Div/Mul impls for RCC prescalers/dividers/multipliers.
-    let rcc_registers = METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| p.registers.as_ref())
-        .find(|r| r.kind == "rcc")
-        .unwrap()
-        .ir;
-
-    for e in rcc_registers.enums {
+    for e in rcc_registers.ir.enums {
         fn is_rcc_name(e: &str) -> bool {
             match e {
                 "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" => true,

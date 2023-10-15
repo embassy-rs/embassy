@@ -446,7 +446,7 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32h5)]
     let adc = match config.adc_clock_source {
         AdcClockSource::HCLK => Some(hclk),
-        AdcClockSource::SYSCLK => Some(sys),
+        AdcClockSource::SYS => Some(sys),
         AdcClockSource::PLL2_R => pll2.r,
         AdcClockSource::HSE => hse,
         AdcClockSource::HSI => hsi,
@@ -540,36 +540,34 @@ pub(crate) unsafe fn init(config: Config) {
         adc,
         rtc,
 
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
         hsi: None,
         #[cfg(stm32h5)]
         hsi48: None,
         #[cfg(stm32h5)]
         lsi: None,
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
         csi: None,
 
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
         lse: None,
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
         hse: None,
 
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
         pll1_q: pll1.q,
-        #[cfg(stm32h5)]
-        pll2_q: pll2.q,
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
         pll2_p: pll2.p,
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
+        pll2_q: pll2.q,
+        #[cfg(any(stm32h5, stm32h7))]
         pll2_r: pll2.r,
-        #[cfg(rcc_h5)]
+        #[cfg(any(rcc_h5, stm32h7))]
         pll3_p: pll3.p,
-        #[cfg(rcc_h5)]
+        #[cfg(any(rcc_h5, stm32h7))]
         pll3_q: pll3.q,
-        #[cfg(rcc_h5)]
+        #[cfg(any(rcc_h5, stm32h7))]
         pll3_r: pll3.r,
-        #[cfg(stm32h5)]
-        pll3_1: None,
 
         #[cfg(rcc_h50)]
         pll3_p: None,
@@ -580,8 +578,11 @@ pub(crate) unsafe fn init(config: Config) {
 
         #[cfg(stm32h5)]
         audioclk: None,
-        #[cfg(stm32h5)]
+        #[cfg(any(stm32h5, stm32h7))]
         per: None,
+
+        #[cfg(stm32h7)]
+        rcc_pclk_d3: None,
     });
 }
 

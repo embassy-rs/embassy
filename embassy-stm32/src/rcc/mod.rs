@@ -113,6 +113,23 @@ pub struct Clocks {
     #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
     pub pllsai: Option<Hertz>,
 
+    #[cfg(stm32g4)]
+    pub pll1_p: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll1_q: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll2_q: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll2_p: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll2_r: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll3_p: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll3_q: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll3_r: Option<Hertz>,
+
     #[cfg(any(
         rcc_f1,
         rcc_f100,
@@ -135,41 +152,27 @@ pub struct Clocks {
 
     pub rtc: Option<Hertz>,
 
-    #[cfg(stm32h5)]
+    #[cfg(any(stm32h5, stm32h7))]
     pub hsi: Option<Hertz>,
     #[cfg(stm32h5)]
     pub hsi48: Option<Hertz>,
     #[cfg(stm32h5)]
     pub lsi: Option<Hertz>,
-    #[cfg(stm32h5)]
+    #[cfg(any(stm32h5, stm32h7))]
     pub csi: Option<Hertz>,
 
-    #[cfg(stm32h5)]
+    #[cfg(any(stm32h5, stm32h7))]
     pub lse: Option<Hertz>,
-    #[cfg(stm32h5)]
+    #[cfg(any(stm32h5, stm32h7))]
     pub hse: Option<Hertz>,
 
     #[cfg(stm32h5)]
-    pub pll1_q: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub pll2_q: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub pll2_p: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub pll2_r: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub pll3_p: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub pll3_q: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub pll3_r: Option<Hertz>,
-    #[cfg(stm32h5)]
-    pub pll3_1: Option<Hertz>,
-
-    #[cfg(stm32h5)]
     pub audioclk: Option<Hertz>,
-    #[cfg(stm32h5)]
+    #[cfg(any(stm32h5, stm32h7))]
     pub per: Option<Hertz>,
+
+    #[cfg(stm32h7)]
+    pub rcc_pclk_d3: Option<Hertz>,
 }
 
 #[cfg(feature = "low-power")]
