@@ -284,17 +284,19 @@ pub fn config() -> Config {
         config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
     }
 
-    #[cfg(any(feature = "stm32l4a6zg", feature = "stm32l4r5zi"))]
+    #[cfg(any(feature = "stm32l496zg", feature = "stm32l4a6zg", feature = "stm32l4r5zi"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::PLL(
-            // 72Mhz clock (16 / 1 * 18 / 4)
-            PLLSource::HSI16,
-            PllRDiv::DIV4,
-            PllPreDiv::DIV1,
-            PllMul::MUL18,
-            Some(PllQDiv::DIV6), // 48Mhz (16 / 1 * 18 / 6)
-        );
+        config.rcc.mux = ClockSrc::PLL;
+        config.rcc.hsi16 = true;
+        config.rcc.pll_src = PLLSource::HSI16;
+        config.rcc.pll = Some(Pll {
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL18,
+            divp: None,
+            divq: Some(PllQDiv::DIV6), // 48Mhz (16 / 1 * 18 / 6)
+            divr: Some(PllRDiv::DIV4), // sysclk 72Mhz clock (16 / 1 * 18 / 4)
+        });
     }
 
     #[cfg(any(feature = "stm32l552ze"))]

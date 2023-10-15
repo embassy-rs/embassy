@@ -5,7 +5,7 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{ClockSrc, LsConfig, PLLSource, PllMul, PllPreDiv, PllRDiv};
+use embassy_stm32::rcc::{ClockSrc, LsConfig, PLLSource, Pll, PllMul, PllPreDiv, PllRDiv};
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
@@ -14,18 +14,20 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = {
-        let mut config = Config::default();
-        config.rcc.mux = ClockSrc::PLL(
-            PLLSource::HSE(Hertz::mhz(8)),
-            PllRDiv::DIV2,
-            PllPreDiv::DIV1,
-            PllMul::MUL20,
-            None,
-        );
-        config.rcc.ls = LsConfig::default_lse();
-        embassy_stm32::init(config)
-    };
+    let mut config = Config::default();
+    config.rcc.mux = ClockSrc::PLL;
+    config.rcc.hse = Some(Hertz::mhz(8));
+    config.rcc.pll_src = PLLSource::HSE;
+    config.rcc.pll = Some(Pll {
+        prediv: PllPreDiv::DIV1,
+        mul: PllMul::MUL20,
+        divp: None,
+        divq: None,
+        divr: Some(PllRDiv::DIV2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
+    });
+    config.rcc.ls = LsConfig::default_lse();
+    let p = embassy_stm32::init(config);
+
     info!("Hello World!");
 
     let now = NaiveDate::from_ymd_opt(2020, 5, 15)
