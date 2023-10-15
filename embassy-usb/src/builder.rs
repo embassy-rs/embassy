@@ -99,7 +99,7 @@ pub struct Config<'a> {
 
 impl<'a> Config<'a> {
     /// Create default configuration with the provided vid and pid values.
-    pub fn new(vid: u16, pid: u16) -> Self {
+    pub const fn new(vid: u16, pid: u16) -> Self {
         Self {
             device_class: 0x00,
             device_sub_class: 0x00,
