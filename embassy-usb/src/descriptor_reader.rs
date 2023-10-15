@@ -11,11 +11,11 @@ pub struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
-    pub fn new(data: &'a [u8]) -> Self {
+    pub const fn new(data: &'a [u8]) -> Self {
         Self { data }
     }
 
-    pub fn eof(&self) -> bool {
+    pub const fn eof(&self) -> bool {
         self.data.is_empty()
     }
 
@@ -102,7 +102,7 @@ pub fn foreach_endpoint(data: &[u8], mut f: impl FnMut(EndpointInfo)) -> Result<
             }
             descriptor_type::ENDPOINT => {
                 ep.ep_address = EndpointAddress::from(r.read_u8()?);
-                f(ep)
+                f(ep);
             }
             _ => {}
         }

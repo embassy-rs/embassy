@@ -24,12 +24,12 @@ use embassy_futures::select::{select, Either};
 use heapless::Vec;
 
 pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder};
-use crate::config::*;
-use crate::control::*;
-use crate::descriptor::*;
+use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
+use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
+use crate::descriptor::{descriptor_type, lang_id};
 use crate::descriptor_reader::foreach_endpoint;
 use crate::driver::{Bus, ControlPipe, Direction, Driver, EndpointAddress, Event};
-use crate::types::*;
+use crate::types::{InterfaceNumber, StringIndex};
 
 /// The global state of the USB device.
 ///
@@ -364,6 +364,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 
     async fn handle_control_in(&mut self, req: Request) {
+        const DEVICE_DESCRIPTOR_LEN: usize = 18;
+
         let mut resp_length = req.length as usize;
         let max_packet_size = self.control.max_packet_size();
 
@@ -371,7 +373,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // The host doesn't know our EP0 max packet size yet, and might assume
         // a full-length packet is a short packet, thinking we're done sending data.
         // See https://github.com/hathach/tinyusb/issues/184
-        const DEVICE_DESCRIPTOR_LEN: usize = 18;
         if self.inner.address == 0 && max_packet_size < DEVICE_DESCRIPTOR_LEN && max_packet_size < resp_length {
             trace!("received control req while not addressed: capping response to 1 packet.");
             resp_length = max_packet_size;
@@ -432,7 +433,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     self.control.accept_set_address(self.inner.address).await;
                     self.inner.set_address_pending = false;
                 } else {
-                    self.control.accept().await
+                    self.control.accept().await;
                 }
             }
             OutResponse::Rejected => self.control.reject().await,
@@ -545,9 +546,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                     OutResponse::Accepted
                 }
-                (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
-                    UsbDeviceState::Default => OutResponse::Accepted,
-                    _ => {
+                (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => {
+                    if self.device_state != UsbDeviceState::Default {
                         debug!("SET_CONFIGURATION: unconfigured");
                         self.device_state = UsbDeviceState::Addressed;
 
@@ -561,17 +561,15 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         for h in &mut self.handlers {
                             h.configured(false);
                         }
-
-                        OutResponse::Accepted
                     }
-                },
+                    OutResponse::Accepted
+                }
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
                 let iface_num = InterfaceNumber::new(req.index as _);
-                let iface = match self.interfaces.get_mut(iface_num.0 as usize) {
-                    Some(iface) => iface,
-                    None => return OutResponse::Rejected,
+                let Some(iface) = self.interfaces.get_mut(iface_num.0 as usize) else {
+                    return OutResponse::Rejected;
                 };
 
                 match req.request {
@@ -647,9 +645,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 _ => InResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
-                let iface = match self.interfaces.get_mut(req.index as usize) {
-                    Some(iface) => iface,
-                    None => return InResponse::Rejected,
+                let Some(iface) = self.interfaces.get_mut(req.index as usize) else {
+                    return InResponse::Rejected;
                 };
 
                 match req.request {
@@ -753,16 +750,12 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     };
 
                     if let Some(s) = s {
-                        if buf.len() < 2 {
-                            panic!("control buffer too small");
-                        }
+                        assert!(buf.len() >= 2, "control buffer too small");
 
                         buf[1] = descriptor_type::STRING;
                         let mut pos = 2;
                         for c in s.encode_utf16() {
-                            if pos + 2 >= buf.len() {
-                                panic!("control buffer too small");
-                            }
+                            assert!(pos + 2 < buf.len(), "control buffer too small");
 
                             buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
                             pos += 2;

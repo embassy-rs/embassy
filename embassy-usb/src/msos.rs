@@ -6,7 +6,7 @@
 
 use core::mem::size_of;
 
-use super::{capability_type, BosWriter};
+use crate::descriptor::{capability_type, BosWriter};
 use crate::types::InterfaceNumber;
 
 /// A serialized Microsoft OS 2.0 Descriptor set.

@@ -63,7 +63,7 @@ pub enum ReportId {
 }
 
 impl ReportId {
-    fn try_from(value: u16) -> Result<Self, ()> {
+    const fn try_from(value: u16) -> Result<Self, ()> {
         match value >> 8 {
             1 => Ok(ReportId::In(value as u8)),
             2 => Ok(ReportId::Out(value as u8)),
@@ -87,7 +87,7 @@ impl<'d> Default for State<'d> {
 
 impl<'d> State<'d> {
     /// Create a new `State`.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         State {
             control: MaybeUninit::uninit(),
             out_report_offset: AtomicUsize::new(0),
@@ -154,7 +154,7 @@ fn build<'d, D: Driver<'d>>(
 }
 
 impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWriter<'d, D, READ_N, WRITE_N> {
-    /// Creates a new HidReaderWriter.
+    /// Creates a new `HidReaderWriter`.
     ///
     /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
     /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
@@ -230,7 +230,7 @@ pub enum ReadError {
 
 impl From<EndpointError> for ReadError {
     fn from(val: EndpointError) -> Self {
-        use EndpointError::*;
+        use EndpointError::{BufferOverflow, Disabled};
         match val {
             BufferOverflow => ReadError::BufferOverflow,
             Disabled => ReadError::Disabled,
@@ -258,16 +258,15 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
 
     /// Waits for the interrupt in endpoint to be enabled.
     pub async fn ready(&mut self) {
-        self.ep_in.wait_enabled().await
+        self.ep_in.wait_enabled().await;
     }
 
     /// Writes an input report by serializing the given report structure.
     #[cfg(feature = "usbd-hid")]
     pub async fn write_serialize<IR: AsInputReport>(&mut self, r: &IR) -> Result<(), EndpointError> {
         let mut buf: [u8; N] = [0; N];
-        let size = match serialize(&mut buf, r) {
-            Ok(size) => size,
-            Err(_) => return Err(EndpointError::BufferOverflow),
+        let Ok(size) = serialize(&mut buf, r) else {
+            return Err(EndpointError::BufferOverflow);
         };
         self.write(&buf[0..size]).await
     }
@@ -293,7 +292,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
 impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     /// Waits for the interrupt out endpoint to be enabled.
     pub async fn ready(&mut self) {
-        self.ep_out.wait_enabled().await
+        self.ep_out.wait_enabled().await;
     }
 
     /// Delivers output reports from the Interrupt Out pipe to `handler`.
@@ -350,9 +349,8 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
                         if size < max_packet_size || total == N {
                             self.offset.store(0, Ordering::Release);
                             break;
-                        } else {
-                            self.offset.store(total, Ordering::Release);
                         }
+                        self.offset.store(total, Ordering::Release);
                     }
                     Err(err) => {
                         self.offset.store(0, Ordering::Release);
