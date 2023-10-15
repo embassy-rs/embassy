@@ -269,7 +269,7 @@ pub(crate) unsafe fn init(config: Config) {
         ahb2: Hertz(hclk),
         ahb3: Hertz(hclk),
 
-        pll48: plls.pll48clk.map(Hertz),
+        pll1_q: plls.pll48clk.map(Hertz),
 
         rtc,
     });

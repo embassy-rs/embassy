@@ -1457,7 +1457,7 @@ cfg_if::cfg_if! {
         macro_rules! kernel_clk {
             ($inst:ident) => {
                 critical_section::with(|_| unsafe {
-                    crate::rcc::get_freqs().pll48
+                    crate::rcc::get_freqs().pll1_q
                 }).expect("PLL48 is required for SDIO")
             }
         }
@@ -1469,7 +1469,7 @@ cfg_if::cfg_if! {
                     if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
                         crate::rcc::get_freqs().sys
                     } else {
-                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
+                        crate::rcc::get_freqs().pll1_q.expect("PLL48 is required for SDMMC")
                     }
                 })
             };
@@ -1479,7 +1479,7 @@ cfg_if::cfg_if! {
                     if sdmmcsel == crate::pac::rcc::vals::Sdmmcsel::SYSCLK {
                         crate::rcc::get_freqs().sys
                     } else {
-                        crate::rcc::get_freqs().pll48.expect("PLL48 is required for SDMMC")
+                        crate::rcc::get_freqs().pll1_q.expect("PLL48 is required for SDMMC")
                     }
                 })
             };

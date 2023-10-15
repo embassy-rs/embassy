@@ -350,13 +350,17 @@ pub(crate) unsafe fn init(config: Config) {
         ahb2: Hertz(hclk),
         ahb3: Hertz(hclk),
 
-        pll48: plls.pll48clk.map(Hertz),
+        pll1_q: plls.pll48clk.map(Hertz),
 
         #[cfg(not(stm32f410))]
-        plli2s: plls.plli2sclk.map(Hertz),
+        plli2s1_q: plls.plli2sclk.map(Hertz),
+        #[cfg(not(stm32f410))]
+        plli2s1_r: None,
 
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-        pllsai: plls.pllsaiclk.map(Hertz),
+        pllsai1_q: plls.pllsaiclk.map(Hertz),
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        pllsai1_r: None,
 
         rtc,
     });

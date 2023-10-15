@@ -314,7 +314,7 @@ pub(crate) unsafe fn init(config: Config) {
         apb1_tim: apb1_tim_freq,
         apb2: apb2_freq,
         apb2_tim: apb2_tim_freq,
-        pll48: Some(pll_clocks.pll48_freq),
+        pll1_q: Some(pll_clocks.pll48_freq),
         rtc,
     });
 }
