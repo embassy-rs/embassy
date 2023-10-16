@@ -302,14 +302,17 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32l552ze"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::PLL(
+        config.rcc.hsi16 = true;
+        config.rcc.mux = ClockSrc::PLL;
+        config.rcc.pll = Some(Pll {
             // 110Mhz clock (16 / 4 * 55 / 2)
-            PLLSource::HSI16,
-            PllRDiv::DIV2,
-            PllPreDiv::DIV4,
-            PllMul::MUL55,
-            None,
-        );
+            source: PLLSource::HSI16,
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL55,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV2),
+        });
     }
 
     #[cfg(feature = "stm32u585ai")]

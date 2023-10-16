@@ -42,9 +42,7 @@ pub struct Config {
     // pll
     pub pll: Option<Pll>,
     pub pllsai1: Option<Pll>,
-    #[cfg(any(
-        stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-    ))]
+    #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
     pub pllsai2: Option<Pll>,
 
     // sysclk, buses.
@@ -73,9 +71,7 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             pll: None,
             pllsai1: None,
-            #[cfg(any(
-                stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-            ))]
+            #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
             pllsai2: None,
             #[cfg(not(any(stm32l471, stm32l475, stm32l476, stm32l486)))]
             hsi48: true,
@@ -105,6 +101,11 @@ pub(crate) unsafe fn init(config: Config) {
         // Wait for clock switch status bits to change.
         while RCC.cfgr().read().sws() != ClockSrc::MSI {}
     }
+
+    #[cfg(stm32l5)]
+    crate::pac::PWR.cr1().modify(|w| {
+        w.set_vos(crate::pac::pwr::vals::Vos::RANGE0);
+    });
 
     let rtc = config.ls.init();
 
@@ -153,14 +154,12 @@ pub(crate) unsafe fn init(config: Config) {
     let _plls = [
         &config.pll,
         &config.pllsai1,
-        #[cfg(any(
-            stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-        ))]
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         &config.pllsai2,
     ];
 
     // L4 has shared PLLSRC, PLLM, check it's equal in all PLLs.
-    #[cfg(all(stm32l4, not(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx))))]
+    #[cfg(all(stm32l4, not(rcc_l4plus)))]
     match get_equal(_plls.into_iter().flatten().map(|p| (p.source, p.prediv))) {
         Err(()) => panic!("Source must be equal across all enabled PLLs."),
         Ok(None) => {}
@@ -171,7 +170,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // L4+ has shared PLLSRC, check it's equal in all PLLs.
-    #[cfg(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx))]
+    #[cfg(any(rcc_l4plus))]
     match get_equal(_plls.into_iter().flatten().map(|p| p.source)) {
         Err(()) => panic!("Source must be equal across all enabled PLLs."),
         Ok(None) => {}
@@ -183,9 +182,7 @@ pub(crate) unsafe fn init(config: Config) {
     let pll_input = PllInput { hse, hsi16, msi };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
     let pllsai1 = init_pll(PllInstance::Pllsai1, config.pllsai1, &pll_input);
-    #[cfg(any(
-        stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-    ))]
+    #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
     let _pllsai2 = init_pll(PllInstance::Pllsai2, config.pllsai2, &pll_input);
 
     let sys_clk = match config.mux {
@@ -202,12 +199,13 @@ pub(crate) unsafe fn init(config: Config) {
         Clk48Src::PLL_Q => pll._q,
     };
 
-    #[cfg(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx))]
+    #[cfg(rcc_l4plus)]
     assert!(sys_clk.0 <= 120_000_000);
-    #[cfg(not(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx)))]
+    #[cfg(all(stm32l4, not(rcc_l4plus)))]
     assert!(sys_clk.0 <= 80_000_000);
 
     // Set flash wait states
+    #[cfg(stm32l4)]
     FLASH.acr().modify(|w| {
         w.set_latency(match sys_clk.0 {
             0..=16_000_000 => 0,
@@ -215,6 +213,18 @@ pub(crate) unsafe fn init(config: Config) {
             0..=48_000_000 => 2,
             0..=64_000_000 => 3,
             _ => 4,
+        })
+    });
+    // VCORE Range 0 (performance), others TODO
+    #[cfg(stm32l5)]
+    FLASH.acr().modify(|w| {
+        w.set_latency(match sys_clk.0 {
+            0..=20_000_000 => 0,
+            0..=40_000_000 => 1,
+            0..=60_000_000 => 2,
+            0..=80_000_000 => 3,
+            0..=100_000_000 => 4,
+            _ => 5,
         })
     });
 
@@ -274,6 +284,7 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
     }
 }
 
+#[allow(unused)]
 fn get_equal<T: Eq>(mut iter: impl Iterator<Item = T>) -> Result<Option<T>, ()> {
     let Some(x) = iter.next() else { return Ok(None) };
     if !iter.all(|y| y == x) {
@@ -299,9 +310,7 @@ struct PllOutput {
 enum PllInstance {
     Pll,
     Pllsai1,
-    #[cfg(any(
-        stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-    ))]
+    #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
     Pllsai2,
 }
 
@@ -316,9 +325,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             RCC.cr().modify(|w| w.set_pllsai1on(false));
             while RCC.cr().read().pllsai1rdy() {}
         }
-        #[cfg(any(
-            stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-        ))]
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         PllInstance::Pllsai2 => {
             RCC.cr().modify(|w| w.set_pllsai2on(false));
             while RCC.cr().read().pllsai2rdy() {}
@@ -341,6 +348,12 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
     let p = pll.divp.map(|div| vco_freq / div);
     let q = pll.divq.map(|div| vco_freq / div);
     let r = pll.divr.map(|div| vco_freq / div);
+
+    #[cfg(stm32l5)]
+    if instance == PllInstance::Pllsai2 {
+        assert!(q.is_none(), "PLLSAI2_Q is not available on L5");
+        assert!(r.is_none(), "PLLSAI2_R is not available on L5");
+    }
 
     macro_rules! write_fields {
         ($w:ident) => {
@@ -367,17 +380,15 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             write_fields!(w);
         }),
         PllInstance::Pllsai1 => RCC.pllsai1cfgr().write(|w| {
-            #[cfg(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx, stm32l5))]
+            #[cfg(any(rcc_l4plus, stm32l5))]
             w.set_pllm(pll.prediv);
             #[cfg(stm32l5)]
             w.set_pllsrc(pll.source);
             write_fields!(w);
         }),
-        #[cfg(any(
-            stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-        ))]
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         PllInstance::Pllsai2 => RCC.pllsai2cfgr().write(|w| {
-            #[cfg(any(stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx, stm32l5))]
+            #[cfg(any(rcc_l4plus, stm32l5))]
             w.set_pllm(pll.prediv);
             #[cfg(stm32l5)]
             w.set_pllsrc(pll.source);
@@ -395,9 +406,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             RCC.cr().modify(|w| w.set_pllsai1on(true));
             while !RCC.cr().read().pllsai1rdy() {}
         }
-        #[cfg(any(
-            stm32l47x, stm32l48x, stm32l49x, stm32l4ax, stm32l4px, stm32l4qx, stm32l4rx, stm32l4sx
-        ))]
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         PllInstance::Pllsai2 => {
             RCC.cr().modify(|w| w.set_pllsai2on(true));
             while !RCC.cr().read().pllsai2rdy() {}
