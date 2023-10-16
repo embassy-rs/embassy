@@ -118,7 +118,7 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
             pll: None,
-            clock_48mhz_src: None,
+            clock_48mhz_src: Some(Clock48MhzSrc::Hsi48(None)),
             adc12_clock_source: Adcsel::DISABLE,
             adc345_clock_source: Adcsel::DISABLE,
             ls: Default::default(),

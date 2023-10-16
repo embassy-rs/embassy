@@ -192,6 +192,10 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::PLL => pll._r.unwrap(),
     };
 
+    #[cfg(stm32l4)]
+    RCC.ccipr().modify(|w| w.set_clk48sel(config.clk48_src));
+    #[cfg(stm32l5)]
+    RCC.ccipr1().modify(|w| w.set_clk48sel(config.clk48_src));
     let _clk48 = match config.clk48_src {
         Clk48Src::HSI48 => hsi48,
         Clk48Src::MSI => msi,

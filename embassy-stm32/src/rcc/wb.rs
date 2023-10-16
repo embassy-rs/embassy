@@ -40,6 +40,7 @@ pub struct Config {
     pub hse: Option<Hse>,
     pub sys: Sysclk,
     pub mux: Option<PllMux>,
+    pub hsi48: bool,
 
     pub pll: Option<Pll>,
     pub pllsai: Option<Pll>,
@@ -63,6 +64,7 @@ pub const WPAN_DEFAULT: Config = Config {
         source: PllSource::HSE,
         prediv: Pllm::DIV2,
     }),
+    hsi48: true,
 
     ls: super::LsConfig::default_lse(),
 
@@ -90,6 +92,7 @@ impl Default for Config {
             mux: None,
             pll: None,
             pllsai: None,
+            hsi48: true,
 
             ls: Default::default(),
 
@@ -221,6 +224,13 @@ pub(crate) unsafe fn init(config: Config) {
         }
         _ => {}
     }
+
+    let _hsi48 = config.hsi48.then(|| {
+        rcc.crrcr().modify(|w| w.set_hsi48on(true));
+        while !rcc.crrcr().read().hsi48rdy() {}
+
+        Hertz(48_000_000)
+    });
 
     rcc.cfgr().modify(|w| {
         w.set_sw(config.sys.into());

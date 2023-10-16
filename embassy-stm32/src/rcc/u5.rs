@@ -188,7 +188,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb3_pre: APBPrescaler::DIV1,
-            hsi48: false,
+            hsi48: true,
             voltage_range: VoltageScale::RANGE3,
             ls: Default::default(),
         }
