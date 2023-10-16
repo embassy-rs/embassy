@@ -564,7 +564,7 @@ foreach_peripheral!(
                 #[cfg(any(rcc_h7, rcc_h7rm0433))]
                 impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
                     fn frequency() -> crate::time::Hertz {
-                        critical_section::with(|_| unsafe { crate::rcc::get_freqs().apb1 })
+                        critical_section::with(|_| unsafe { crate::rcc::get_freqs().pclk1 })
                     }
 
                     fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {

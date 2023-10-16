@@ -48,21 +48,21 @@ pub struct Clocks {
     pub sys: Hertz,
 
     // APB
-    pub apb1: Hertz,
-    pub apb1_tim: Hertz,
+    pub pclk1: Hertz,
+    pub pclk1_tim: Hertz,
     #[cfg(not(any(rcc_c0, rcc_g0)))]
-    pub apb2: Hertz,
+    pub pclk2: Hertz,
     #[cfg(not(any(rcc_c0, rcc_g0)))]
-    pub apb2_tim: Hertz,
+    pub pclk2_tim: Hertz,
     #[cfg(any(rcc_wl5, rcc_wle, rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab, rcc_u5))]
-    pub apb3: Hertz,
+    pub pclk3: Hertz,
     #[cfg(any(rcc_h7, rcc_h7rm0433, rcc_h7ab, stm32h5))]
-    pub apb4: Hertz,
+    pub pclk4: Hertz,
     #[cfg(any(rcc_wba))]
-    pub apb7: Hertz,
+    pub pclk7: Hertz,
 
     // AHB
-    pub ahb1: Hertz,
+    pub hclk1: Hertz,
     #[cfg(any(
         rcc_l4,
         rcc_l5,
@@ -82,7 +82,7 @@ pub struct Clocks {
         rcc_wl5,
         rcc_wle
     ))]
-    pub ahb2: Hertz,
+    pub hclk2: Hertz,
     #[cfg(any(
         rcc_l4,
         rcc_l5,
@@ -100,27 +100,28 @@ pub struct Clocks {
         rcc_wl5,
         rcc_wle
     ))]
-    pub ahb3: Hertz,
+    pub hclk3: Hertz,
     #[cfg(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab, rcc_wba))]
-    pub ahb4: Hertz,
-
-    #[cfg(any(rcc_f2, rcc_f4, rcc_f410, rcc_f7))]
-    pub pll48: Option<Hertz>,
+    pub hclk4: Hertz,
 
     #[cfg(all(rcc_f4, not(stm32f410)))]
-    pub plli2s: Option<Hertz>,
+    pub plli2s1_q: Option<Hertz>,
+    #[cfg(all(rcc_f4, not(stm32f410)))]
+    pub plli2s1_r: Option<Hertz>,
 
     #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-    pub pllsai: Option<Hertz>,
+    pub pllsai1_q: Option<Hertz>,
+    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+    pub pllsai1_r: Option<Hertz>,
 
     #[cfg(stm32g4)]
     pub pll1_p: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
+    #[cfg(any(stm32h5, stm32h7, rcc_f2, rcc_f4, rcc_f410, rcc_f7))]
     pub pll1_q: Option<Hertz>,
     #[cfg(any(stm32h5, stm32h7))]
-    pub pll2_q: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7))]
     pub pll2_p: Option<Hertz>,
+    #[cfg(any(stm32h5, stm32h7))]
+    pub pll2_q: Option<Hertz>,
     #[cfg(any(stm32h5, stm32h7))]
     pub pll2_r: Option<Hertz>,
     #[cfg(any(stm32h5, stm32h7))]

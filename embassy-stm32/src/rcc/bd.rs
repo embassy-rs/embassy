@@ -106,7 +106,7 @@ impl LsConfig {
 
     pub const fn off() -> Self {
         Self {
-            rtc: RtcClockSource::NOCLOCK,
+            rtc: RtcClockSource::DISABLE,
             lsi: false,
             lse: None,
         }
@@ -133,7 +133,7 @@ impl LsConfig {
                 Some(LSI_FREQ)
             }
             RtcClockSource::LSE => Some(self.lse.as_ref().unwrap().frequency),
-            RtcClockSource::NOCLOCK => None,
+            RtcClockSource::DISABLE => None,
             _ => todo!(),
         };
 
@@ -180,7 +180,7 @@ impl LsConfig {
         ok &= reg.rtcsel() == self.rtc;
         #[cfg(not(rcc_wba))]
         {
-            ok &= reg.rtcen() == (self.rtc != RtcClockSource::NOCLOCK);
+            ok &= reg.rtcen() == (self.rtc != RtcClockSource::DISABLE);
         }
         ok &= reg.lseon() == lse_en;
         ok &= reg.lsebyp() == lse_byp;
@@ -225,7 +225,7 @@ impl LsConfig {
             while !bdcr().read().lserdy() {}
         }
 
-        if self.rtc != RtcClockSource::NOCLOCK {
+        if self.rtc != RtcClockSource::DISABLE {
             bdcr().modify(|w| {
                 #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
                 assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");

@@ -281,11 +281,11 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sysclk,
-        apb1: pclk1,
-        apb2: pclk2,
-        apb1_tim: pclk1 * timer_mul1,
-        apb2_tim: pclk2 * timer_mul2,
-        ahb1: hclk,
+        pclk1: pclk1,
+        pclk2: pclk2,
+        pclk1_tim: pclk1 * timer_mul1,
+        pclk2_tim: pclk2 * timer_mul2,
+        hclk1: hclk,
         #[cfg(rcc_f3)]
         adc: adc,
         #[cfg(all(rcc_f3, adc3_common))]

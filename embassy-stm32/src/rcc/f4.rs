@@ -340,23 +340,27 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: Hertz(sysclk),
-        apb1: Hertz(pclk1),
-        apb2: Hertz(pclk2),
+        pclk1: Hertz(pclk1),
+        pclk2: Hertz(pclk2),
 
-        apb1_tim: Hertz(pclk1 * timer_mul1),
-        apb2_tim: Hertz(pclk2 * timer_mul2),
+        pclk1_tim: Hertz(pclk1 * timer_mul1),
+        pclk2_tim: Hertz(pclk2 * timer_mul2),
 
-        ahb1: Hertz(hclk),
-        ahb2: Hertz(hclk),
-        ahb3: Hertz(hclk),
+        hclk1: Hertz(hclk),
+        hclk2: Hertz(hclk),
+        hclk3: Hertz(hclk),
 
-        pll48: plls.pll48clk.map(Hertz),
+        pll1_q: plls.pll48clk.map(Hertz),
 
         #[cfg(not(stm32f410))]
-        plli2s: plls.plli2sclk.map(Hertz),
+        plli2s1_q: plls.plli2sclk.map(Hertz),
+        #[cfg(not(stm32f410))]
+        plli2s1_r: None,
 
         #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-        pllsai: plls.pllsaiclk.map(Hertz),
+        pllsai1_q: plls.pllsaiclk.map(Hertz),
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        pllsai1_r: None,
 
         rtc,
     });
