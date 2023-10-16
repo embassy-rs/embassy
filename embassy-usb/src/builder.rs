@@ -1,17 +1,17 @@
 use heapless::Vec;
 
-use crate::config::*;
+use crate::config::MAX_HANDLER_COUNT;
 use crate::descriptor::{BosWriter, DescriptorWriter};
 use crate::driver::{Driver, Endpoint, EndpointType};
 #[cfg(feature = "msos-descriptor")]
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
-use crate::types::*;
+use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-/// Configuration used when creating [UsbDevice].
+/// Configuration used when creating [`UsbDevice`].
 pub struct Config<'a> {
     pub(crate) vendor_id: u16,
     pub(crate) product_id: u16,
@@ -99,7 +99,7 @@ pub struct Config<'a> {
 
 impl<'a> Config<'a> {
     /// Create default configuration with the provided vid and pid values.
-    pub fn new(vid: u16, pid: u16) -> Self {
+    pub const fn new(vid: u16, pid: u16) -> Self {
         Self {
             device_class: 0x00,
             device_sub_class: 0x00,
@@ -159,9 +159,10 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
             panic!("if composite_with_iads is set, you must set device_class = 0xEF, device_sub_class = 0x02, device_protocol = 0x01");
         }
 
-        if config.max_power > 500 {
-            panic!("The maximum allowed value for `max_power` is 500mA");
-        }
+        assert!(
+            config.max_power <= 500,
+            "The maximum allowed value for `max_power` is 500mA"
+        );
 
         match config.max_packet_size_0 {
             8 | 16 | 32 | 64 => {}
@@ -260,12 +261,11 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     /// The Handler is called on some USB bus events, and to handle all control requests not already
     /// handled by the USB stack.
     pub fn handler(&mut self, handler: &'d mut dyn Handler) {
-        if self.handlers.push(handler).is_err() {
-            panic!(
-                "embassy-usb: handler list full. Increase the `max_handler_count` compile-time setting. Current value: {}",
-                MAX_HANDLER_COUNT
-            )
-        }
+        assert!(
+            self.handlers.push(handler).is_ok(),
+            "embassy-usb: handler list full. Increase the `max_handler_count` compile-time setting. Current value: {}",
+            MAX_HANDLER_COUNT
+        );
     }
 
     /// Allocates a new string index.
@@ -332,12 +332,10 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
             num_alt_settings: 0,
         };
 
-        if self.builder.interfaces.push(iface).is_err() {
-            panic!(
-                "embassy-usb: interface list full. Increase the `max_interface_count` compile-time setting. Current value: {}",
-                MAX_INTERFACE_COUNT
-            )
-        }
+        assert!(self.builder.interfaces.push(iface).is_ok(),
+            "embassy-usb: interface list full. Increase the `max_interface_count` compile-time setting. Current value: {}",
+            MAX_INTERFACE_COUNT
+        );
 
         InterfaceBuilder {
             builder: self.builder,
@@ -371,7 +369,7 @@ pub struct InterfaceBuilder<'a, 'd, D: Driver<'d>> {
 
 impl<'a, 'd, D: Driver<'d>> InterfaceBuilder<'a, 'd, D> {
     /// Get the interface number.
-    pub fn interface_number(&self) -> InterfaceNumber {
+    pub const fn interface_number(&self) -> InterfaceNumber {
         self.interface_number
     }
 
@@ -422,12 +420,12 @@ pub struct InterfaceAltBuilder<'a, 'd, D: Driver<'d>> {
 
 impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Get the interface number.
-    pub fn interface_number(&self) -> InterfaceNumber {
+    pub const fn interface_number(&self) -> InterfaceNumber {
         self.interface_number
     }
 
     /// Get the alternate setting number.
-    pub fn alt_setting_number(&self) -> u8 {
+    pub const fn alt_setting_number(&self) -> u8 {
         self.alt_setting_number
     }
 
@@ -436,7 +434,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
     /// Descriptors are written in the order builder functions are called. Note that some
     /// classes care about the order.
     pub fn descriptor(&mut self, descriptor_type: u8, descriptor: &[u8]) {
-        self.builder.config_descriptor.write(descriptor_type, descriptor)
+        self.builder.config_descriptor.write(descriptor_type, descriptor);
     }
 
     fn endpoint_in(&mut self, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8) -> D::EndpointIn {
