@@ -289,8 +289,8 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL;
         config.rcc.hsi16 = true;
-        config.rcc.pll_src = PLLSource::HSI16;
         config.rcc.pll = Some(Pll {
+            source: PLLSource::HSI16,
             prediv: PllPreDiv::DIV1,
             mul: PllMul::MUL18,
             divp: None,

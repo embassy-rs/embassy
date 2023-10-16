@@ -17,8 +17,8 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.mux = ClockSrc::PLL;
     config.rcc.hse = Some(Hertz::mhz(8));
-    config.rcc.pll_src = PLLSource::HSE;
     config.rcc.pll = Some(Pll {
+        source: PLLSource::HSE,
         prediv: PllPreDiv::DIV1,
         mul: PllMul::MUL20,
         divp: None,

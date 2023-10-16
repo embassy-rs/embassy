@@ -104,7 +104,7 @@ pub(crate) unsafe fn init(config: Config) {
             // Enable as clock source for USB, RNG if running at 48 MHz
             if range == MSIRange::RANGE48M {
                 RCC.ccipr1().modify(|w| {
-                    w.set_clk48msel(0b11);
+                    w.set_clk48sel(0b11);
                 });
             }
             (msirange_to_hertz(range), Sw::MSI)
@@ -173,7 +173,7 @@ pub(crate) unsafe fn init(config: Config) {
                 let freq = src_freq / prediv * mul / divq;
                 assert!(freq.0 == 48_000_000);
                 RCC.ccipr1().modify(|w| {
-                    w.set_clk48msel(0b10);
+                    w.set_clk48sel(0b10);
                 });
             }
 
@@ -191,7 +191,7 @@ pub(crate) unsafe fn init(config: Config) {
                         let freq = src_freq / prediv * mul / q_div;
                         if freq.0 == 48_000_000 {
                             RCC.ccipr1().modify(|w| {
-                                w.set_clk48msel(0b1);
+                                w.set_clk48sel(0b1);
                             });
                         }
                     }
@@ -218,7 +218,7 @@ pub(crate) unsafe fn init(config: Config) {
         while !RCC.crrcr().read().hsi48rdy() {}
 
         // Enable as clock source for USB, RNG and SDMMC
-        RCC.ccipr1().modify(|w| w.set_clk48msel(0));
+        RCC.ccipr1().modify(|w| w.set_clk48sel(0));
     }
 
     // Set flash wait states

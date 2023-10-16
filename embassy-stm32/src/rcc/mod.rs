@@ -20,7 +20,7 @@ pub use mco::*;
 #[cfg_attr(rcc_g4, path = "g4.rs")]
 #[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab), path = "h.rs")]
 #[cfg_attr(any(rcc_l0, rcc_l0_v2, rcc_l1), path = "l0l1.rs")]
-#[cfg_attr(rcc_l4, path = "l4.rs")]
+#[cfg_attr(any(rcc_l4, rcc_l4plus), path = "l4.rs")]
 #[cfg_attr(rcc_l5, path = "l5.rs")]
 #[cfg_attr(rcc_u5, path = "u5.rs")]
 #[cfg_attr(rcc_wb, path = "wb.rs")]
@@ -65,6 +65,7 @@ pub struct Clocks {
     pub hclk1: Hertz,
     #[cfg(any(
         rcc_l4,
+        rcc_l4plus,
         rcc_l5,
         rcc_f2,
         rcc_f4,
@@ -85,6 +86,7 @@ pub struct Clocks {
     pub hclk2: Hertz,
     #[cfg(any(
         rcc_l4,
+        rcc_l4plus,
         rcc_l5,
         rcc_f2,
         rcc_f4,
