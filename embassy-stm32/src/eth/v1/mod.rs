@@ -191,7 +191,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
         // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = unsafe { crate::rcc::get_freqs() }.ahb1;
+        let hclk = unsafe { crate::rcc::get_freqs() }.hclk1;
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz

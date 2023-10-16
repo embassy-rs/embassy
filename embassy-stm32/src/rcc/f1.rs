@@ -180,11 +180,11 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: Hertz(real_sysclk),
-        apb1: Hertz(pclk1),
-        apb2: Hertz(pclk2),
-        apb1_tim: Hertz(pclk1 * timer_mul1),
-        apb2_tim: Hertz(pclk2 * timer_mul2),
-        ahb1: Hertz(hclk),
+        pclk1: Hertz(pclk1),
+        pclk2: Hertz(pclk2),
+        pclk1_tim: Hertz(pclk1 * timer_mul1),
+        pclk2_tim: Hertz(pclk2 * timer_mul2),
+        hclk1: Hertz(hclk),
         adc: Some(Hertz(adcclk)),
         rtc,
     });

@@ -89,7 +89,7 @@ impl Default for Config {
 impl PllConfig {
     pub(crate) fn init(self) -> Hertz {
         let (src, input_freq) = match self.source {
-            PllSrc::HSI16 => (vals::Pllsrc::HSI16, HSI_FREQ),
+            PllSrc::HSI16 => (vals::Pllsrc::HSI, HSI_FREQ),
             PllSrc::HSE(freq) => (vals::Pllsrc::HSE, freq),
         };
 
@@ -186,7 +186,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
         ClockSrc::PLL(pll) => {
             let freq = pll.init();
-            (freq, Sw::PLLRCLK)
+            (freq, Sw::PLL1_R)
         }
         ClockSrc::LSI => {
             // Enable LSI
@@ -275,9 +275,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        apb1: apb_freq,
-        apb1_tim: apb_tim_freq,
+        hclk1: ahb_freq,
+        pclk1: apb_freq,
+        pclk1_tim: apb_tim_freq,
         rtc,
     });
 }

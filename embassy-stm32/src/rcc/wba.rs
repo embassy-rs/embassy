@@ -142,14 +142,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        ahb2: ahb_freq,
-        ahb4: ahb_freq,
-        apb1: apb1_freq,
-        apb2: apb2_freq,
-        apb7: apb7_freq,
-        apb1_tim: apb1_tim_freq,
-        apb2_tim: apb2_tim_freq,
+        hclk1: ahb_freq,
+        hclk2: ahb_freq,
+        hclk4: ahb_freq,
+        pclk1: apb1_freq,
+        pclk2: apb2_freq,
+        pclk7: apb7_freq,
+        pclk1_tim: apb1_tim_freq,
+        pclk2_tim: apb2_tim_freq,
         rtc,
     });
 }

@@ -33,7 +33,7 @@ impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
             PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI16,
+            PllSrc::HSI16 => Pllsrc::HSI,
         }
     }
 }
@@ -201,7 +201,7 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 
-            (HSI_FREQ, Sw::HSI16)
+            (HSI_FREQ, Sw::HSI)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE
@@ -249,7 +249,7 @@ pub(crate) unsafe fn init(config: Config) {
                 }
             }
 
-            (Hertz(freq), Sw::PLLRCLK)
+            (Hertz(freq), Sw::PLL1_R)
         }
     };
 
@@ -286,7 +286,7 @@ pub(crate) unsafe fn init(config: Config) {
                 let pllq_freq = pll_freq.as_ref().and_then(|f| f.pll_q);
                 assert!(pllq_freq.is_some() && pllq_freq.unwrap().0 == 48_000_000);
 
-                crate::pac::rcc::vals::Clk48sel::PLLQCLK
+                crate::pac::rcc::vals::Clk48sel::PLL1_Q
             }
             Clock48MhzSrc::Hsi48(crs_config) => {
                 // Enable HSI48
@@ -348,12 +348,12 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        ahb2: ahb_freq,
-        apb1: apb1_freq,
-        apb1_tim: apb1_tim_freq,
-        apb2: apb2_freq,
-        apb2_tim: apb2_tim_freq,
+        hclk1: ahb_freq,
+        hclk2: ahb_freq,
+        pclk1: apb1_freq,
+        pclk1_tim: apb1_tim_freq,
+        pclk2: apb2_freq,
+        pclk2_tim: apb2_tim_freq,
         adc: adc12_ck,
         adc34: adc345_ck,
         pll1_p: None,

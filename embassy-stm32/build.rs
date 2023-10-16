@@ -466,7 +466,13 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
+            let clk = format_ident!(
+                "{}",
+                rcc.clock
+                    .to_ascii_lowercase()
+                    .replace("ahb", "hclk")
+                    .replace("apb", "pclk")
+            );
             let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
 
@@ -523,7 +529,7 @@ fn main() {
                             let variant_name = format_ident!("{}", v.name);
                             let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
 
-                            if v.name.starts_with("AHB") || v.name.starts_with("APB") || v.name == "SYS" { 
+                            if v.name.starts_with("HCLK") || v.name.starts_with("PCLK") || v.name == "SYS" { 
                                 quote! {
                                     #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
                                 }

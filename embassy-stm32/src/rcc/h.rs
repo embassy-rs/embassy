@@ -387,7 +387,7 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::HSI => (unwrap!(hsi), Sw::HSI),
         Sysclk::HSE => (unwrap!(hse), Sw::HSE),
         Sysclk::CSI => (unwrap!(csi), Sw::CSI),
-        Sysclk::Pll1P => (unwrap!(pll1.p), Sw::PLL1),
+        Sysclk::Pll1P => (unwrap!(pll1.p), Sw::PLL1_P),
     };
 
     // Check limits.
@@ -445,7 +445,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
     #[cfg(stm32h5)]
     let adc = match config.adc_clock_source {
-        AdcClockSource::HCLK => Some(hclk),
+        AdcClockSource::HCLK1 => Some(hclk),
         AdcClockSource::SYS => Some(sys),
         AdcClockSource::PLL2_R => pll2.r,
         AdcClockSource::HSE => hse,
@@ -524,19 +524,19 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys,
-        ahb1: hclk,
-        ahb2: hclk,
-        ahb3: hclk,
-        ahb4: hclk,
-        apb1,
-        apb2,
-        apb3,
+        hclk1: hclk,
+        hclk2: hclk,
+        hclk3: hclk,
+        hclk4: hclk,
+        pclk1: apb1,
+        pclk2: apb2,
+        pclk3: apb3,
         #[cfg(stm32h7)]
-        apb4,
+        pclk4: apb4,
         #[cfg(stm32h5)]
-        apb4: Hertz(1),
-        apb1_tim,
-        apb2_tim,
+        pclk4: Hertz(1),
+        pclk1_tim: apb1_tim,
+        pclk2_tim: apb2_tim,
         adc,
         rtc,
 
