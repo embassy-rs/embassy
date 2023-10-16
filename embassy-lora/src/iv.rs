@@ -66,14 +66,6 @@ where
     fn set_board_type(&mut self, board_type: BoardType) {
         self.board_type = board_type;
     }
-    async fn set_nss_low(&mut self) -> Result<(), RadioError> {
-        pac::PWR.subghzspicr().modify(|w| w.set_nss(false));
-        Ok(())
-    }
-    async fn set_nss_high(&mut self) -> Result<(), RadioError> {
-        pac::PWR.subghzspicr().modify(|w| w.set_nss(true));
-        Ok(())
-    }
     async fn reset(&mut self, _delay: &mut impl DelayUs) -> Result<(), RadioError> {
         pac::RCC.csr().modify(|w| w.set_rfrst(true));
         pac::RCC.csr().modify(|w| w.set_rfrst(false));
@@ -125,7 +117,6 @@ where
 /// Base for the InterfaceVariant implementation for an stm32l0/sx1276 combination
 pub struct Stm32l0InterfaceVariant<CTRL, WAIT> {
     board_type: BoardType,
-    nss: CTRL,
     reset: CTRL,
     irq: WAIT,
     rf_switch_rx: Option<CTRL>,
@@ -139,7 +130,6 @@ where
 {
     /// Create an InterfaceVariant instance for an stm32l0/sx1276 combination
     pub fn new(
-        nss: CTRL,
         reset: CTRL,
         irq: WAIT,
         rf_switch_rx: Option<CTRL>,
@@ -147,7 +137,6 @@ where
     ) -> Result<Self, RadioError> {
         Ok(Self {
             board_type: BoardType::Stm32l0Sx1276, // updated when associated with a specific LoRa board
-            nss,
             reset,
             irq,
             rf_switch_rx,
@@ -163,12 +152,6 @@ where
 {
     fn set_board_type(&mut self, board_type: BoardType) {
         self.board_type = board_type;
-    }
-    async fn set_nss_low(&mut self) -> Result<(), RadioError> {
-        self.nss.set_low().map_err(|_| NSS)
-    }
-    async fn set_nss_high(&mut self) -> Result<(), RadioError> {
-        self.nss.set_high().map_err(|_| NSS)
     }
     async fn reset(&mut self, delay: &mut impl DelayUs) -> Result<(), RadioError> {
         delay.delay_ms(10).await;
@@ -220,7 +203,6 @@ where
 /// Base for the InterfaceVariant implementation for a generic Sx126x LoRa board
 pub struct GenericSx126xInterfaceVariant<CTRL, WAIT> {
     board_type: BoardType,
-    nss: CTRL,
     reset: CTRL,
     dio1: WAIT,
     busy: WAIT,
@@ -235,7 +217,6 @@ where
 {
     /// Create an InterfaceVariant instance for an nrf52840/sx1262 combination
     pub fn new(
-        nss: CTRL,
         reset: CTRL,
         dio1: WAIT,
         busy: WAIT,
@@ -244,7 +225,6 @@ where
     ) -> Result<Self, RadioError> {
         Ok(Self {
             board_type: BoardType::Rak4631Sx1262, // updated when associated with a specific LoRa board
-            nss,
             reset,
             dio1,
             busy,
@@ -261,12 +241,6 @@ where
 {
     fn set_board_type(&mut self, board_type: BoardType) {
         self.board_type = board_type;
-    }
-    async fn set_nss_low(&mut self) -> Result<(), RadioError> {
-        self.nss.set_low().map_err(|_| NSS)
-    }
-    async fn set_nss_high(&mut self) -> Result<(), RadioError> {
-        self.nss.set_high().map_err(|_| NSS)
     }
     async fn reset(&mut self, delay: &mut impl DelayUs) -> Result<(), RadioError> {
         delay.delay_ms(10).await;

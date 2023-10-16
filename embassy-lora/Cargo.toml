@@ -29,3 +29,6 @@ embedded-hal = { version = "0.2", features = ["unproven"] }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 lora-phy = { version = "2" }
 lorawan-device = { version = "0.11.0", default-features = false, features = ["async"], optional = true }
+
+[patch.crates-io]
+lora-phy = { git = "https://github.com/CBJamo/lora-phy.git", branch = "SpiDevice" }

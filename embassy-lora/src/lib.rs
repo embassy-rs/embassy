@@ -1,12 +1,16 @@
 #![no_std]
 #![feature(async_fn_in_trait, impl_trait_projections)]
 #![allow(stable_features, unknown_lints, async_fn_in_trait)]
+#![cfg_attr(feature = "stm32wl", feature(try_blocks))]
 //! embassy-lora holds LoRa-specific functionality.
 
 pub(crate) mod fmt;
 
 /// interface variants required by the external lora physical layer crate (lora-phy)
 pub mod iv;
+
+#[cfg(feature = "stm32wl")]
+pub mod stm32wl;
 
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant, Timer};

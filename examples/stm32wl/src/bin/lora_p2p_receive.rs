@@ -9,9 +9,9 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_lora::iv::{InterruptHandler, Stm32wlInterfaceVariant};
+use embassy_lora::stm32wl::SubGhzSpiDevice;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
-use embassy_stm32::spi::Spi;
 use embassy_stm32::time::Hertz;
 use embassy_time::{Delay, Timer};
 use lora_phy::mod_params::*;
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2);
+    let spi = SubGhzSpiDevice::new(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2);
 
     // Set CTRL1 and CTRL3 for high-power transmission, while CTRL2 acts as an RF switch between tx and rx
     let _ctrl1 = Output::new(p.PC4.degrade(), Level::Low, Speed::High);

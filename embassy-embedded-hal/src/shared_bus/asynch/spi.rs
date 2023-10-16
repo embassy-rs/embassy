@@ -66,15 +66,15 @@ where
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
-        let op_res: Result<(), BUS::Error> = try {
+        let op_res: Result<(), Self::Error> = try {
             for op in operations {
                 match op {
-                    Operation::Read(buf) => bus.read(buf).await?,
-                    Operation::Write(buf) => bus.write(buf).await?,
-                    Operation::Transfer(read, write) => bus.transfer(read, write).await?,
-                    Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await?,
+                    Operation::Read(buf) => bus.read(buf).await.map_err(SpiDeviceError::Spi)?,
+                    Operation::Write(buf) => bus.write(buf).await.map_err(SpiDeviceError::Spi)?,
+                    Operation::Transfer(read, write) => bus.transfer(read, write).await.map_err(SpiDeviceError::Spi)?,
+                    Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await.map_err(SpiDeviceError::Spi)?,
                     #[cfg(not(feature = "time"))]
-                    Operation::DelayUs(_) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    Operation::DelayUs(_) => Err(SpiDeviceError::DelayUsNotSupported)?,
                     #[cfg(feature = "time")]
                     Operation::DelayUs(us) => embassy_time::Timer::after_micros(*us as _).await,
                 }
@@ -85,11 +85,10 @@ where
         let flush_res = bus.flush().await;
         let cs_res = self.cs.set_high();
 
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
         cs_res.map_err(SpiDeviceError::Cs)?;
 
-        Ok(op_res)
+        op_res
     }
 }
 

@@ -30,3 +30,6 @@ chrono = { version = "^0.4", default-features = false }
 
 [profile.release]
 debug = 2
+
+[patch.crates-io]
+lora-phy = { git = "https://github.com/CBJamo/lora-phy.git", branch = "SpiDevice" }
