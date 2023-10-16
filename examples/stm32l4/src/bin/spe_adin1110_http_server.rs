@@ -79,8 +79,8 @@ async fn main(spawner: Spawner) {
     // 80MHz highest frequency for flash 0 wait.
     config.rcc.mux = ClockSrc::PLL;
     config.rcc.hse = Some(Hertz::mhz(8));
-    config.rcc.pll_src = PLLSource::HSE;
     config.rcc.pll = Some(Pll {
+        source: PLLSource::HSE,
         prediv: PllPreDiv::DIV1,
         mul: PllMul::MUL20,
         divp: None,

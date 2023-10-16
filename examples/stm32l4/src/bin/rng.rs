@@ -18,8 +18,8 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.mux = ClockSrc::PLL;
     config.rcc.hsi16 = true;
-    config.rcc.pll_src = PLLSource::HSI16;
     config.rcc.pll = Some(Pll {
+        source: PLLSource::HSI16,
         prediv: PllPreDiv::DIV1,
         mul: PllMul::MUL18,
         divp: None,
