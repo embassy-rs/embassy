@@ -33,6 +33,7 @@ use heapless::Vec;
 pub use smoltcp::iface::MulticastError;
 #[allow(unused_imports)]
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
+use smoltcp::phy::Medium;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "medium-ethernet")]
@@ -264,14 +265,17 @@ pub(crate) struct SocketStack {
     next_local_port: u16,
 }
 
-fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress {
+fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
     match addr {
         #[cfg(feature = "medium-ethernet")]
-        driver::HardwareAddress::Ethernet(eth) => HardwareAddress::Ethernet(EthernetAddress(eth)),
+        driver::HardwareAddress::Ethernet(eth) => (HardwareAddress::Ethernet(EthernetAddress(eth)), Medium::Ethernet),
         #[cfg(feature = "medium-ieee802154")]
-        driver::HardwareAddress::Ieee802154(ieee) => HardwareAddress::Ieee802154(Ieee802154Address::Extended(ieee)),
+        driver::HardwareAddress::Ieee802154(ieee) => (
+            HardwareAddress::Ieee802154(Ieee802154Address::Extended(ieee)),
+            Medium::Ieee802154,
+        ),
         #[cfg(feature = "medium-ip")]
-        driver::HardwareAddress::Ip => HardwareAddress::Ip,
+        driver::HardwareAddress::Ip => (HardwareAddress::Ip, Medium::Ip),
 
         #[allow(unreachable_patterns)]
         _ => panic!(
@@ -289,7 +293,8 @@ impl<D: Driver> Stack<D> {
         resources: &'static mut StackResources<SOCK>,
         random_seed: u64,
     ) -> Self {
-        let mut iface_cfg = smoltcp::iface::Config::new(to_smoltcp_hardware_address(device.hardware_address()));
+        let (hardware_addr, medium) = to_smoltcp_hardware_address(device.hardware_address());
+        let mut iface_cfg = smoltcp::iface::Config::new(hardware_addr);
         iface_cfg.random_seed = random_seed;
 
         let iface = Interface::new(
@@ -297,6 +302,7 @@ impl<D: Driver> Stack<D> {
             &mut DriverAdapter {
                 inner: &mut device,
                 cx: None,
+                medium,
             },
             instant_to_smoltcp(Instant::now()),
         );
@@ -356,7 +362,7 @@ impl<D: Driver> Stack<D> {
 
     /// Get the hardware address of the network interface.
     pub fn hardware_address(&self) -> HardwareAddress {
-        self.with(|_s, i| to_smoltcp_hardware_address(i.device.hardware_address()))
+        self.with(|_s, i| to_smoltcp_hardware_address(i.device.hardware_address()).0)
     }
 
     /// Get whether the link is up.
@@ -812,18 +818,28 @@ impl<D: Driver> Inner<D> {
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
         s.waker.register(cx.waker());
 
+        let (_hardware_addr, medium) = to_smoltcp_hardware_address(self.device.hardware_address());
+
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        if self.device.capabilities().medium == embassy_net_driver::Medium::Ethernet
-            || self.device.capabilities().medium == embassy_net_driver::Medium::Ieee802154
         {
-            s.iface
-                .set_hardware_addr(to_smoltcp_hardware_address(self.device.hardware_address()));
+            let do_set = match medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => true,
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => true,
+                #[allow(unreachable_patterns)]
+                _ => false,
+            };
+            if do_set {
+                s.iface.set_hardware_addr(_hardware_addr);
+            }
         }
 
         let timestamp = instant_to_smoltcp(Instant::now());
         let mut smoldev = DriverAdapter {
             cx: Some(cx),
             inner: &mut self.device,
+            medium,
         };
         s.iface.poll(timestamp, &mut smoldev, &mut s.sockets);
 

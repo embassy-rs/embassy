@@ -1,7 +1,7 @@
 use core::task::Context;
 
-use embassy_net_driver::{Capabilities, Checksum, Driver, Medium, RxToken, TxToken};
-use smoltcp::phy;
+use embassy_net_driver::{Capabilities, Checksum, Driver, RxToken, TxToken};
+use smoltcp::phy::{self, Medium};
 use smoltcp::time::Instant;
 
 pub(crate) struct DriverAdapter<'d, 'c, T>
@@ -11,6 +11,7 @@ where
     // must be Some when actually using this to rx/tx
     pub cx: Option<&'d mut Context<'c>>,
     pub inner: &'d mut T,
+    pub medium: Medium,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -46,19 +47,7 @@ where
 
         smolcaps.max_transmission_unit = caps.max_transmission_unit;
         smolcaps.max_burst_size = caps.max_burst_size;
-        smolcaps.medium = match caps.medium {
-            #[cfg(feature = "medium-ethernet")]
-            Medium::Ethernet => phy::Medium::Ethernet,
-            #[cfg(feature = "medium-ip")]
-            Medium::Ip => phy::Medium::Ip,
-            #[cfg(feature = "medium-ieee802154")]
-            Medium::Ieee802154 => phy::Medium::Ieee802154,
-            #[allow(unreachable_patterns)]
-            _ => panic!(
-                "Unsupported medium {:?}. Make sure to enable it in embassy-net's Cargo features.",
-                caps.medium
-            ),
-        };
+        smolcaps.medium = self.medium;
         smolcaps.checksum.ipv4 = convert(caps.checksum.ipv4);
         smolcaps.checksum.tcp = convert(caps.checksum.tcp);
         smolcaps.checksum.udp = convert(caps.checksum.udp);
