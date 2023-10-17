@@ -102,7 +102,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     assert!(pclk2 <= 72_000_000);
 
-    // Only needed for stm32f103?
     FLASH.acr().write(|w| {
         w.set_latency(if real_sysclk <= 24_000_000 {
             Latency::WS0
@@ -111,6 +110,8 @@ pub(crate) unsafe fn init(config: Config) {
         } else {
             Latency::WS2
         });
+        // the prefetch buffer is enabled by default, let's keep it enabled
+        w.set_prftbe(true);
     });
 
     // the USB clock is only valid if an external crystal is used, the PLL is enabled, and the
