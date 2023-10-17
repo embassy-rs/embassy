@@ -187,7 +187,10 @@ pub(crate) unsafe fn init(config: Config) {
 
     let sys_clk = match config.mux {
         ClockSrc::HSE => hse.unwrap(),
+        #[cfg(rcc_l5)]
         ClockSrc::HSI16 => hsi16.unwrap(),
+        #[cfg(not(rcc_l5))]
+        ClockSrc::HSI => hsi16.unwrap(),
         ClockSrc::MSI => msi.unwrap(),
         ClockSrc::PLL => pll._r.unwrap(),
     };
@@ -200,7 +203,10 @@ pub(crate) unsafe fn init(config: Config) {
         Clk48Src::HSI48 => hsi48,
         Clk48Src::MSI => msi,
         Clk48Src::PLLSAI1_Q => pllsai1._q,
+        #[cfg(rcc_l5)]
         Clk48Src::PLL_Q => pll._q,
+        #[cfg(not(rcc_l5))]
+        Clk48Src::PLL1_Q => pll._q,
     };
 
     #[cfg(rcc_l4plus)]
@@ -266,6 +272,22 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2: apb2_freq,
         pclk1_tim: apb1_tim_freq,
         pclk2_tim: apb2_tim_freq,
+        #[cfg(rcc_l4)]
+        hsi: None,
+        #[cfg(rcc_l4)]
+        lse: None,
+        #[cfg(rcc_l4)]
+        pllsai1_p: None,
+        #[cfg(rcc_l4)]
+        pllsai2_p: None,
+        #[cfg(rcc_l4)]
+        pll1_p: None,
+        #[cfg(rcc_l4)]
+        pll1_q: None,
+        #[cfg(rcc_l4)]
+        sai1_extclk: None,
+        #[cfg(rcc_l4)]
+        sai2_extclk: None,
         rtc,
     });
 }
@@ -341,7 +363,10 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
     let pll_src = match pll.source {
         PLLSource::NONE => panic!("must not select PLL source as NONE"),
         PLLSource::HSE => input.hse,
+        #[cfg(rcc_l5)]
         PLLSource::HSI16 => input.hsi16,
+        #[cfg(not(rcc_l5))]
+        PLLSource::HSI => input.hsi16,
         PLLSource::MSI => input.msi,
     };
 

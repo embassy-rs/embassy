@@ -31,7 +31,7 @@ pub enum PLLSource {
 impl From<PLLSource> for Pllsrc {
     fn from(val: PLLSource) -> Pllsrc {
         match val {
-            PLLSource::HSI16 => Pllsrc::HSI16,
+            PLLSource::HSI16 => Pllsrc::HSI,
             PLLSource::HSE(_) => Pllsrc::HSE,
         }
     }
@@ -88,7 +88,7 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().write(|w| w.set_hsi16on(true));
             while !RCC.cr().read().hsi16rdy() {}
 
-            (HSI_FREQ, Sw::HSI16)
+            (HSI_FREQ, Sw::HSI)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE
