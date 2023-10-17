@@ -18,8 +18,11 @@ async fn main(_spawner: Spawner) {
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE;
 
     let p = embassy_stm32::init(config);
+
+    // Use MSI as rng clock source.
+    // Slower clocks such as LSI and LSE will fail with clock error
     pac::RCC.ccipr().modify(|w| {
-        w.set_rngsel(0b01);
+        w.set_rngsel(0b11);
     });
 
     info!("Hello World!");
