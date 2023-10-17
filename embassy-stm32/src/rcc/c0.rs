@@ -134,6 +134,8 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     set_freqs(Clocks {
+        hsi: None,
+        lse: None,
         sys: sys_clk,
         hclk1: ahb_freq,
         pclk1: apb_freq,

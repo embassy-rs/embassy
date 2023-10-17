@@ -466,15 +466,9 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let clk = format_ident!(
-                "{}",
-                rcc.clock
-                    .to_ascii_lowercase()
-                    .replace("ahb", "hclk")
-                    .replace("apb", "pclk")
-            );
-            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
-            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+            let clk = format_ident!("{}", rcc.clock);
+            let en_reg = format_ident!("{}", en.register);
+            let set_en_field = format_ident!("set_{}", en.field);
 
             let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
                 let refcount_static =
@@ -500,11 +494,11 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
+            let mux_supported = HashSet::from(["c0", "h5", "h50", "h7", "h7ab", "h7rm0433", "g4", "l4"])
+                .contains(rcc_registers.version);
             let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
-                let checked_rccs = HashSet::from(["h5", "h50", "h7", "h7ab", "h7rm0433", "g4"]);
-
                 // restrict mux implementation to supported versions
-                if !checked_rccs.contains(rcc_registers.version) {
+                if !mux_supported {
                     return None;
                 }
 
