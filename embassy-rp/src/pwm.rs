@@ -11,8 +11,8 @@ use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::{pac, peripherals, RegExt};
 
 /// The configuration of a PWM slice.
-///Note the period in clock cycles of a slice can be computed as:
-/// (top + 1) * (phase_correct ? 1 : 2) * divider
+/// Note the period in clock cycles of a slice can be computed as:
+/// `(top + 1) * (phase_correct ? 1 : 2) * divider`
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct Config {
@@ -26,7 +26,6 @@ pub struct Config {
     /// The output frequency is halved when phase-correct mode is enabled.
     pub phase_correct: bool,
     /// Enables the PWM slice, allowing it to generate an output.
-    /// When disabled, the PWM slice will not produce any output.
     pub enable: bool,
     /// A fractional clock divider, represented as a fixed-point number with
     /// 8 integer bits and 4 fractional bits. It allows precise control over
@@ -35,11 +34,11 @@ pub struct Config {
     pub divider: fixed::FixedU16<fixed::types::extra::U4>,
     /// The output on channel A goes high when `compare_a` is higher than the
     /// counter. A compare of 0 will produce an always low output, while a 
-    /// compare of `top` + 1 will produce an always high output.
+    /// compare of `top + 1` will produce an always high output.
     pub compare_a: u16,
     /// The output on channel B goes high when `compare_b` is higher than the
     /// counter. A compare of 0 will produce an always low output, while a 
-    /// compare of `top` + 1 will produce an always high output.
+    /// compare of `top + 1` will produce an always high output.
     pub compare_b: u16,
     /// The point at which the counter wraps, representing the maximum possible
     /// period. The counter will either wrap to 0 or reverse depending on the 
@@ -198,7 +197,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
     }
 
     /// Advances a slice’s output phase by one count while it is running 
-    /// by inserting or deleting pulses from the clock enable. The counter 
+    /// by inserting a pulse into the clock enable. The counter 
     /// will not count faster than once per cycle.
     #[inline]
     pub fn phase_advance(&mut self) {
@@ -208,8 +207,8 @@ impl<'d, T: Channel> Pwm<'d, T> {
     }
 
     /// Retards a slice’s output phase by one count while it is running 
-    /// by deleting pulses from the clock enable. The counter will not
-    /// count backward when clock enable is permenantly low
+    /// by deleting a pulse from the clock enable. The counter will not
+    /// count backward when clock enable is permenantly low.
     #[inline]
     pub fn phase_retard(&mut self) {
         let p = self.inner.regs();
