@@ -42,6 +42,8 @@ teleprobe_meta::target!(b"nucleo-stm32f207zg");
 teleprobe_meta::target!(b"nucleo-stm32f303ze");
 #[cfg(feature = "stm32l496zg")]
 teleprobe_meta::target!(b"nucleo-stm32l496zg");
+#[cfg(feature = "stm32wl55jc")]
+teleprobe_meta::target!(b"nucleo-stm32wl55jc");
 
 macro_rules! define_peris {
     ($($name:ident = $peri:ident,)* $(@irq $irq_name:ident = $irq_code:tt,)*) => {
@@ -181,6 +183,12 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
+#[cfg(feature = "stm32wl55jc")]
+define_peris!(
+    UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
 
 pub fn config() -> Config {
     #[allow(unused_mut)]
@@ -296,6 +304,15 @@ pub fn config() -> Config {
             divp: None,
             divq: Some(PllQDiv::DIV6), // 48Mhz (16 / 1 * 18 / 6)
             divr: Some(PllRDiv::DIV4), // sysclk 72Mhz clock (16 / 1 * 18 / 4)
+        });
+    }
+
+    #[cfg(feature = "stm32wl55jc")]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux = ClockSrc::MSI(MSIRange::RANGE32M);
+        embassy_stm32::pac::RCC.ccipr().modify(|w| {
+            w.set_rngsel(0b11); // msi
         });
     }
 

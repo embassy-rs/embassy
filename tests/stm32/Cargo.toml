@@ -24,6 +24,7 @@ stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "not-gpdma", "eth", "rng"]
 stm32f207zg = ["embassy-stm32/stm32f207zg", "chrono", "not-gpdma", "eth", "rng"]
 stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono", "not-gpdma"]
 stm32l496zg = ["embassy-stm32/stm32l496zg", "not-gpdma", "rng"]
+stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
 
 eth = []
 rng = []
