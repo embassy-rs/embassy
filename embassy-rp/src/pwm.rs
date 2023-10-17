@@ -33,15 +33,15 @@ pub struct Config {
     /// A higher value will result in a slower output frequency.
     pub divider: fixed::FixedU16<fixed::types::extra::U4>,
     /// The output on channel A goes high when `compare_a` is higher than the
-    /// counter. A compare of 0 will produce an always low output, while a 
+    /// counter. A compare of 0 will produce an always low output, while a
     /// compare of `top + 1` will produce an always high output.
     pub compare_a: u16,
     /// The output on channel B goes high when `compare_b` is higher than the
-    /// counter. A compare of 0 will produce an always low output, while a 
+    /// counter. A compare of 0 will produce an always low output, while a
     /// compare of `top + 1` will produce an always high output.
     pub compare_b: u16,
     /// The point at which the counter wraps, representing the maximum possible
-    /// period. The counter will either wrap to 0 or reverse depending on the 
+    /// period. The counter will either wrap to 0 or reverse depending on the
     /// setting of `phase_correct`.
     pub top: u16,
 }
@@ -196,8 +196,8 @@ impl<'d, T: Channel> Pwm<'d, T> {
         });
     }
 
-    /// Advances a slice’s output phase by one count while it is running 
-    /// by inserting a pulse into the clock enable. The counter 
+    /// Advances a slice’s output phase by one count while it is running
+    /// by inserting a pulse into the clock enable. The counter
     /// will not count faster than once per cycle.
     #[inline]
     pub fn phase_advance(&mut self) {
@@ -206,7 +206,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
         while p.csr().read().ph_adv() {}
     }
 
-    /// Retards a slice’s output phase by one count while it is running 
+    /// Retards a slice’s output phase by one count while it is running
     /// by deleting a pulse from the clock enable. The counter will not
     /// count backward when clock enable is permenantly low.
     #[inline]
