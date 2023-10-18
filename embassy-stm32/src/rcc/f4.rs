@@ -328,7 +328,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| {
         w.set_sw(if sysclk_on_pll {
-            Sw::PLL
+            Sw::PLL1_P
         } else if config.hse.is_some() {
             Sw::HSE
         } else {

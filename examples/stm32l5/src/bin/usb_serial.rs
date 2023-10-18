@@ -21,10 +21,10 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.hsi16 = true;
-    config.rcc.mux = ClockSrc::PLL;
+    config.rcc.mux = ClockSrc::PLL1_R;
     config.rcc.pll = Some(Pll {
         // 80Mhz clock (16 / 1 * 10 / 2)
-        source: PLLSource::HSI16,
+        source: PLLSource::HSI,
         prediv: PllPreDiv::DIV1,
         mul: PllMul::MUL10,
         divp: None,

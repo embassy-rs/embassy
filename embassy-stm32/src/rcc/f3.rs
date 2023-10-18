@@ -214,7 +214,7 @@ pub(crate) unsafe fn init(config: Config) {
     // CFGR has been written before (PLL, PLL48, clock divider) don't overwrite these settings
     RCC.cfgr().modify(|w| {
         w.set_sw(match (pll_config, config.hse) {
-            (Some(_), _) => Sw::PLL,
+            (Some(_), _) => Sw::PLL1_P,
             (None, Some(_)) => Sw::HSE,
             (None, None) => Sw::HSI,
         })
@@ -271,7 +271,7 @@ pub(crate) unsafe fn init(config: Config) {
             pll_config.unwrap();
             assert!((pclk2 == sysclk) || (pclk2 * 2u32 == sysclk));
 
-            RCC.cfgr3().modify(|w| w.set_hrtim1sw(Timsw::PLL));
+            RCC.cfgr3().modify(|w| w.set_hrtim1sw(Timsw::PLL1_P));
 
             Some(sysclk * 2u32)
         }

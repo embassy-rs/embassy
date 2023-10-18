@@ -169,7 +169,14 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(not(rcc_f100))]
         w.set_usbpre(Usbpre::from_bits(usbpre as u8));
         w.set_sw(if pllmul_bits.is_some() {
-            Sw::PLL
+            #[cfg(not(rcc_f1cl))]
+            {
+                Sw::PLL1_P
+            }
+            #[cfg(rcc_f1cl)]
+            {
+                Sw::PLL
+            }
         } else if config.hse.is_some() {
             Sw::HSE
         } else {
