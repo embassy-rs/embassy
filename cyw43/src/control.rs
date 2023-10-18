@@ -1,7 +1,7 @@
 use core::cmp::{max, min};
 
-use ch::driver::LinkState;
 use embassy_net_driver_channel as ch;
+use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use embassy_time::Timer;
 
 pub use crate::bus::SpiBusCyw43;
@@ -133,7 +133,7 @@ impl<'a> Control<'a> {
 
         Timer::after_millis(100).await;
 
-        self.state_ch.set_ethernet_address(mac_addr);
+        self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
         debug!("INIT DONE");
     }

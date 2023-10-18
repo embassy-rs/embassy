@@ -19,7 +19,7 @@ mod traits;
 use core::cmp;
 use core::convert::TryInto;
 
-use embassy_net_driver::{Capabilities, HardwareAddress, LinkState, Medium};
+use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_time::Duration;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::{Operation, SpiDevice};
@@ -671,7 +671,6 @@ where
     fn capabilities(&self) -> Capabilities {
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = MTU;
-        caps.medium = Medium::Ethernet;
         caps
     }
 
