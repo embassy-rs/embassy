@@ -48,7 +48,7 @@ The `Spawner` is the way the main application spawns other tasks. The `Periphera
 include::example$basic/src/main.rs[lines="22..-1"]
 ----
 
-What happens when the `blinker` task has been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy::main]` macro. The macro does the following:
+What happens when the `blinker` task has been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy_executor::main]` macro. The macro does the following:
 
 . Creates an Embassy Executor
 . Initializes the microcontroller HAL to get the `Peripherals`
