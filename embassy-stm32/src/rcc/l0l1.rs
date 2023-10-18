@@ -131,7 +131,7 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().modify(|w| w.set_pllon(true));
             while !RCC.cr().read().pllrdy() {}
 
-            (freq, Sw::PLL)
+            (freq, Sw::PLL1_P)
         }
     };
 

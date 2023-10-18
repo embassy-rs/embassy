@@ -127,7 +127,7 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     if config.usb_pll {
-        RCC.cfgr3().modify(|w| w.set_usbsw(Usbsw::PLLCLK));
+        RCC.cfgr3().modify(|w| w.set_usbsw(Usbsw::PLL1_P));
     }
     // TODO: Option to use CRS (Clock Recovery)
 
@@ -140,7 +140,7 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cfgr().modify(|w| {
             w.set_ppre(Ppre::from_bits(ppre_bits));
             w.set_hpre(Hpre::from_bits(hpre_bits));
-            w.set_sw(Sw::PLL)
+            w.set_sw(Sw::PLL1_P)
         });
     } else {
         RCC.cfgr().modify(|w| {
