@@ -2,7 +2,7 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp, Pllq, Pllr, Pllsrc as PllSource,
     Ppre as APBPrescaler, Sw as Sysclk,
 };
-use crate::pac::{FLASH, PWR, RCC};
+use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -101,11 +101,17 @@ impl Default for Config {
 
 pub(crate) unsafe fn init(config: Config) {
     // always enable overdrive for now. Make it configurable in the future.
-    PWR.cr1().modify(|w| w.set_oden(true));
-    while !PWR.csr1().read().odrdy() {}
+    #[cfg(not(any(
+        stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f405, stm32f407, stm32f415, stm32f417
+    )))]
+    {
+        use crate::pac::PWR;
+        PWR.cr1().modify(|w| w.set_oden(true));
+        while !PWR.csr1().read().odrdy() {}
 
-    PWR.cr1().modify(|w| w.set_odswen(true));
-    while !PWR.csr1().read().odswrdy() {}
+        PWR.cr1().modify(|w| w.set_odswen(true));
+        while !PWR.csr1().read().odswrdy() {}
+    }
 
     // Configure HSI
     let hsi = match config.hsi {
