@@ -224,11 +224,23 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f429zi")]
     {
-        // TODO: stm32f429zi can do up to 180mhz, but that makes tests fail.
-        // perhaps we have some bug w.r.t overdrive.
-        config.rcc.sys_ck = Some(Hertz(168_000_000));
-        config.rcc.pclk1 = Some(Hertz(42_000_000));
-        config.rcc.pclk2 = Some(Hertz(84_000_000));
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll = Some(Pll {
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL180,
+            divp: Some(Pllp::DIV2), // 8mhz / 4 * 180 / 2 = 180Mhz.
+            divq: None,
+            divr: None,
+        });
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV4;
+        config.rcc.apb2_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::PLL1_P;
     }
 
     #[cfg(feature = "stm32f767zi")]

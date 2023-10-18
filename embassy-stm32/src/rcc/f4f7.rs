@@ -6,6 +6,20 @@ use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
+// TODO: on some F4s, PLLM is shared between all PLLs. Enforce that.
+// TODO: on some F4s, add support for plli2s_src
+//
+//             plli2s  plli2s_m     plli2s_src   pllsai   pllsai_m
+// f401        y       shared
+// f410
+// f411        y       individual
+// f412        y       individual   y
+// f4[12]3     y       individual   y
+// f446        y       individual                y        individual
+// f4[67]9     y       shared                    y        shared
+// f4[23][79]  y       shared                    y        shared
+// f4[01][57]  y       shared
+
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
@@ -51,7 +65,9 @@ pub struct Config {
     pub pll_src: PllSource,
 
     pub pll: Option<Pll>,
+    #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
     pub plli2s: Option<Pll>,
+    #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
     pub pllsai: Option<Pll>,
 
     pub ahb_pre: AHBPrescaler,
@@ -69,7 +85,9 @@ impl Default for Config {
             sys: Sysclk::HSI,
             pll_src: PllSource::HSI,
             pll: None,
+            #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
             plli2s: None,
+            #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
             pllsai: None,
 
             ahb_pre: AHBPrescaler::DIV1,
@@ -128,7 +146,9 @@ pub(crate) unsafe fn init(config: Config) {
         source: config.pll_src,
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
+    #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
     let _plli2s = init_pll(PllInstance::Plli2s, config.plli2s, &pll_input);
+    #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
     let _pllsai = init_pll(PllInstance::Pllsai, config.pllsai, &pll_input);
 
     // Configure sysclk
@@ -171,6 +191,15 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim,
         rtc,
         pll1_q: pll.q,
+        #[cfg(all(rcc_f4, not(stm32f410)))]
+        plli2s1_q: _plli2s.q,
+        #[cfg(all(rcc_f4, not(stm32f410)))]
+        plli2s1_r: _plli2s.r,
+
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        pllsai1_q: _pllsai.q,
+        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        pllsai1_r: _pllsai.r,
     });
 }
 
@@ -191,7 +220,9 @@ struct PllOutput {
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum PllInstance {
     Pll,
+    #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
     Plli2s,
+    #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
     Pllsai,
 }
 
@@ -201,10 +232,12 @@ fn pll_enable(instance: PllInstance, enabled: bool) {
             RCC.cr().modify(|w| w.set_pllon(enabled));
             while RCC.cr().read().pllrdy() != enabled {}
         }
+        #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
         PllInstance::Plli2s => {
             RCC.cr().modify(|w| w.set_plli2son(enabled));
             while RCC.cr().read().plli2srdy() != enabled {}
         }
+        #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
         PllInstance::Pllsai => {
             RCC.cr().modify(|w| w.set_pllsaion(enabled));
             while RCC.cr().read().pllsairdy() != enabled {}
@@ -255,9 +288,11 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             w.set_pllsrc(input.source);
             write_fields!(w);
         }),
+        #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
         PllInstance::Plli2s => RCC.plli2scfgr().write(|w| {
             write_fields!(w);
         }),
+        #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
         PllInstance::Pllsai => RCC.pllsaicfgr().write(|w| {
             write_fields!(w);
         }),
@@ -294,6 +329,7 @@ where
     (pclk, pclk_tim)
 }
 
+#[cfg(stm32f7)]
 mod max {
     use core::ops::RangeInclusive;
 
@@ -306,6 +342,37 @@ mod max {
     pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(12_500_000)..=Hertz(216_000_000);
     pub(crate) const PCLK1: RangeInclusive<Hertz> = Hertz(12_500_000)..=Hertz(216_000_000 / 4);
     pub(crate) const PCLK2: RangeInclusive<Hertz> = Hertz(12_500_000)..=Hertz(216_000_000 / 2);
+
+    pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(2_100_000);
+    pub(crate) const PLL_VCO: RangeInclusive<Hertz> = Hertz(100_000_000)..=Hertz(432_000_000);
+}
+
+#[cfg(stm32f4)]
+mod max {
+    use core::ops::RangeInclusive;
+
+    use crate::time::Hertz;
+
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(26_000_000);
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(50_000_000);
+
+    #[cfg(stm32f401)]
+    pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(84_000_000);
+    #[cfg(any(stm32f405, stm32f407, stm32f415, stm32f417,))]
+    pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(168_000_000);
+    #[cfg(any(stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,))]
+    pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(100_000_000);
+    #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479,))]
+    pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(180_000_000);
+
+    pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(SYSCLK.end().0);
+
+    pub(crate) const PCLK1: RangeInclusive<Hertz> = Hertz(0)..=Hertz(PCLK2.end().0 / 2);
+
+    #[cfg(any(stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,))]
+    pub(crate) const PCLK2: RangeInclusive<Hertz> = Hertz(0)..=Hertz(HCLK.end().0);
+    #[cfg(not(any(stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423,)))]
+    pub(crate) const PCLK2: RangeInclusive<Hertz> = Hertz(0)..=Hertz(HCLK.end().0 / 2);
 
     pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(2_100_000);
     pub(crate) const PLL_VCO: RangeInclusive<Hertz> = Hertz(100_000_000)..=Hertz(432_000_000);
