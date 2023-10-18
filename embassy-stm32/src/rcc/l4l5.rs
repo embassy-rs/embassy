@@ -241,6 +241,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre1(config.apb1_pre);
         w.set_ppre2(config.apb2_pre);
     });
+    while RCC.cfgr().read().sws() != config.mux {}
 
     let ahb_freq = sys_clk / config.ahb_pre;
 
