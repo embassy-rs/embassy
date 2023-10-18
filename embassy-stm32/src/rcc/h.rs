@@ -58,15 +58,6 @@ pub struct Hse {
     pub mode: HseMode,
 }
 
-#[cfg(stm32h7)]
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum Lse {
-    /// 32.768 kHz crystal/ceramic oscillator (LSEBYP=0)
-    Oscillator,
-    /// external clock input up to 1MHz (LSEBYP=1)
-    Bypass(Hertz),
-}
-
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Hsi {
     /// 64Mhz
