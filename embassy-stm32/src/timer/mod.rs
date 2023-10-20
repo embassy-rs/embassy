@@ -88,7 +88,7 @@ pub(crate) mod sealed {
             let timer_enabled = Self::regs().cr1().read().cen();
             // Changing from edge aligned to center aligned (and vice versa) is not allowed while the timer is running.
             // Changing direction is discouraged while the timer is running.
-            assert!(timer_enabled);
+            assert!(!timer_enabled);
 
             Self::regs_gp16().cr1().modify(|r| r.set_dir(dir));
             Self::regs_gp16().cr1().modify(|r| r.set_cms(cms))
