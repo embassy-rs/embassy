@@ -7,7 +7,7 @@ use enums::*;
 
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, Pull};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
@@ -83,30 +83,30 @@ pub struct Qspi<'d, T: Instance, Dma> {
 }
 
 impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
-    pub fn new(
+    pub fn new_bk1(
         peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
+        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
         config: Config,
     ) -> Self {
         into_ref!(peri, d0, d1, d2, d3, sck, nss);
 
-        sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
         sck.set_speed(crate::gpio::Speed::VeryHigh);
-        nss.set_as_af(nss.af_num(), AFType::OutputPushPull);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
         nss.set_speed(crate::gpio::Speed::VeryHigh);
-        d0.set_as_af(d0.af_num(), AFType::OutputPushPull);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
         d0.set_speed(crate::gpio::Speed::VeryHigh);
-        d1.set_as_af(d1.af_num(), AFType::OutputPushPull);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
-        d2.set_as_af(d2.af_num(), AFType::OutputPushPull);
+        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
         d2.set_speed(crate::gpio::Speed::VeryHigh);
-        d3.set_as_af(d3.af_num(), AFType::OutputPushPull);
+        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
         d3.set_speed(crate::gpio::Speed::VeryHigh);
 
         Self::new_inner(
@@ -119,6 +119,47 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             Some(nss.map_into()),
             dma,
             config,
+            FlashSelection::Flash2,
+        )
+    }
+
+    pub fn new_bk2(
+        peri: impl Peripheral<P = T> + 'd,
+        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, d0, d1, d2, d3, sck, nss);
+
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
+        nss.set_speed(crate::gpio::Speed::VeryHigh);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
+        d0.set_speed(crate::gpio::Speed::VeryHigh);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
+        d1.set_speed(crate::gpio::Speed::VeryHigh);
+        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
+        d2.set_speed(crate::gpio::Speed::VeryHigh);
+        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
+        d3.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(d0.map_into()),
+            Some(d1.map_into()),
+            Some(d2.map_into()),
+            Some(d3.map_into()),
+            Some(sck.map_into()),
+            Some(nss.map_into()),
+            dma,
+            config,
+            FlashSelection::Flash2,
         )
     }
 
@@ -132,22 +173,39 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         nss: Option<PeripheralRef<'d, AnyPin>>,
         dma: impl Peripheral<P = Dma> + 'd,
         config: Config,
+        fsel: FlashSelection,
     ) -> Self {
         into_ref!(peri, dma);
 
-        T::enable();
-        T::REGS.cr().write(|w| w.set_fthres(config.fifo_threshold.into()));
+        T::enable_and_reset();
 
         while T::REGS.sr().read().busy() {}
 
-        T::REGS.cr().write(|w| {
-            w.set_prescaler(config.prescaler);
+        #[cfg(stm32h7)]
+        {
+            use stm32_metapac::quadspi::regs::Cr;
+            // Apply precautionary steps according to the errata...
+            T::REGS.cr().write_value(Cr(0));
+            while T::REGS.sr().read().busy() {}
+            T::REGS.cr().write_value(Cr(0xFF000001));
+            T::REGS.ccr().write(|w| w.set_frcm(true));
+            T::REGS.ccr().write(|w| w.set_frcm(true));
+            T::REGS.cr().write_value(Cr(0));
+            while T::REGS.sr().read().busy() {}
+        }
+
+        T::REGS.cr().modify(|w| {
             w.set_en(true);
+            //w.set_tcen(false);
+            w.set_sshift(false);
+            w.set_fthres(config.fifo_threshold.into());
+            w.set_prescaler(config.prescaler);
+            w.set_fsel(fsel.into());
         });
-        T::REGS.dcr().write(|w| {
+        T::REGS.dcr().modify(|w| {
             w.set_fsize(config.memory_size.into());
             w.set_csht(config.cs_high_time.into());
-            w.set_ckmode(false);
+            w.set_ckmode(true);
         });
 
         Self {
@@ -164,6 +222,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 
     pub fn command(&mut self, transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
@@ -172,6 +231,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 
     pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
         self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
@@ -195,7 +255,10 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
     }
 
     pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) {
+        // STM32H7 does not have dmaen
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
+
         self.setup_transaction(QspiMode::IndirectWrite, &transaction);
 
         if let Some(len) = transaction.data_len {
@@ -238,6 +301,8 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             )
         };
 
+        // STM32H7 does not have dmaen
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
 
         transfer.blocking_wait();
@@ -264,6 +329,8 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             )
         };
 
+        // STM32H7 does not have dmaen
+        #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(true));
 
         transfer.blocking_wait();
@@ -313,11 +380,17 @@ pub(crate) mod sealed {
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
-pin_trait!(D0Pin, Instance);
-pin_trait!(D1Pin, Instance);
-pin_trait!(D2Pin, Instance);
-pin_trait!(D3Pin, Instance);
-pin_trait!(NSSPin, Instance);
+pin_trait!(BK1D0Pin, Instance);
+pin_trait!(BK1D1Pin, Instance);
+pin_trait!(BK1D2Pin, Instance);
+pin_trait!(BK1D3Pin, Instance);
+pin_trait!(BK1NSSPin, Instance);
+
+pin_trait!(BK2D0Pin, Instance);
+pin_trait!(BK2D1Pin, Instance);
+pin_trait!(BK2D2Pin, Instance);
+pin_trait!(BK2D3Pin, Instance);
+pin_trait!(BK2NSSPin, Instance);
 
 dma_trait!(QuadDma, Instance);
 

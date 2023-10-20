@@ -8,7 +8,7 @@ use embassy_stm32::dma::word::U5;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 const NR_PIXELS: usize = 15;
@@ -96,8 +96,8 @@ async fn main(_spawner: Spawner) {
             cnt += 1;
             // start sending the neopixel bit patters over spi to the neopixel string
             spi.write(&neopixels.bitbuffer).await.ok();
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
         }
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after_millis(1000).await;
     }
 }

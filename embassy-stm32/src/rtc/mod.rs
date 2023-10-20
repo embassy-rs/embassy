@@ -10,7 +10,6 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
-pub use crate::rcc::RtcClockSource;
 use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
@@ -93,21 +92,50 @@ impl RtcTimeProvider {
     ///
     /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        let r = RTC::regs();
-        let tr = r.tr().read();
-        let second = bcd2_to_byte((tr.st(), tr.su()));
-        let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
-        let hour = bcd2_to_byte((tr.ht(), tr.hu()));
-        // Reading either RTC_SSR or RTC_TR locks the values in the higher-order
-        // calendar shadow registers until RTC_DR is read.
-        let dr = r.dr().read();
+        // For RM0433 we use BYPSHAD=1 to work around errata ES0392 2.19.1
+        #[cfg(rcc_h7rm0433)]
+        loop {
+            let r = RTC::regs();
+            let ss = r.ssr().read().ss();
+            let dr = r.dr().read();
+            let tr = r.tr().read();
 
-        let weekday = dr.wdu();
-        let day = bcd2_to_byte((dr.dt(), dr.du()));
-        let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
-        let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
+            // If an RTCCLK edge occurs during read we may see inconsistent values
+            // so read ssr again and see if it has changed. (see RM0433 Rev 7 46.3.9)
+            let ss_after = r.ssr().read().ss();
+            if ss == ss_after {
+                let second = bcd2_to_byte((tr.st(), tr.su()));
+                let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
+                let hour = bcd2_to_byte((tr.ht(), tr.hu()));
 
-        self::datetime::datetime(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
+                let weekday = dr.wdu();
+                let day = bcd2_to_byte((dr.dt(), dr.du()));
+                let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
+                let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
+
+                return self::datetime::datetime(year, month, day, weekday, hour, minute, second)
+                    .map_err(RtcError::InvalidDateTime);
+            }
+        }
+
+        #[cfg(not(rcc_h7rm0433))]
+        {
+            let r = RTC::regs();
+            let tr = r.tr().read();
+            let second = bcd2_to_byte((tr.st(), tr.su()));
+            let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
+            let hour = bcd2_to_byte((tr.ht(), tr.hu()));
+            // Reading either RTC_SSR or RTC_TR locks the values in the higher-order
+            // calendar shadow registers until RTC_DR is read.
+            let dr = r.dr().read();
+
+            let weekday = dr.wdu();
+            let day = bcd2_to_byte((dr.dt(), dr.du()));
+            let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
+            let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
+
+            self::datetime::datetime(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
+        }
     }
 }
 
@@ -155,8 +183,8 @@ impl Default for RtcCalibrationCyclePeriod {
 
 impl Rtc {
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
-        #[cfg(any(rcc_wle, rcc_wl5, rcc_g4, rcc_g0, rtc_v2l4, rtc_v2wb))]
-        <RTC as crate::rcc::sealed::RccPeripheral>::enable();
+        #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
+        <RTC as crate::rcc::sealed::RccPeripheral>::enable_and_reset();
 
         let mut this = Self {
             #[cfg(feature = "low-power")]
@@ -175,19 +203,8 @@ impl Rtc {
     }
 
     fn frequency() -> Hertz {
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
         let freqs = unsafe { crate::rcc::get_freqs() };
-
-        // Load the clock frequency from the rcc mod, if supported
-        #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
-        match freqs.rtc {
-            Some(hertz) => hertz,
-            None => freqs.rtc_hse.unwrap(),
-        }
-
-        // Assume the  default value, if not supported
-        #[cfg(not(any(rcc_wb, rcc_f4, rcc_f410)))]
-        Hertz(32_768)
+        freqs.rtc.unwrap()
     }
 
     /// Acquire a [`RtcTimeProvider`] instance.

@@ -555,14 +555,14 @@ where
 
         self.bus.bp_write8(base + AI_RESETCTRL_OFFSET, 0).await;
 
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
 
         self.bus
             .bp_write8(base + AI_IOCTRL_OFFSET, AI_IOCTRL_BIT_CLOCK_EN)
             .await;
         let _ = self.bus.bp_read8(base + AI_IOCTRL_OFFSET).await;
 
-        Timer::after(Duration::from_millis(1)).await;
+        Timer::after_millis(1).await;
     }
 
     async fn core_is_up(&mut self, core: Core) -> bool {

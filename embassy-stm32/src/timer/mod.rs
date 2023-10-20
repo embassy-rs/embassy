@@ -77,6 +77,16 @@ pub(crate) mod sealed {
         fn set_autoreload_preload(&mut self, enable: vals::Arpe) {
             Self::regs().cr1().modify(|r| r.set_arpe(enable));
         }
+
+        fn get_frequency(&self) -> Hertz {
+            let timer_f = Self::frequency();
+
+            let regs = Self::regs();
+            let arr = regs.arr().read().arr();
+            let psc = regs.psc().read().psc();
+
+            timer_f / arr / (psc + 1)
+        }
     }
 
     pub trait GeneralPurpose16bitInstance: Basic16bitInstance {
@@ -122,6 +132,16 @@ pub(crate) mod sealed {
             regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
             regs.egr().write(|r| r.set_ug(true));
             regs.cr1().modify(|r| r.set_urs(vals::Urs::ANYEVENT));
+        }
+
+        fn get_frequency(&self) -> Hertz {
+            let timer_f = Self::frequency();
+
+            let regs = Self::regs_gp32();
+            let arr = regs.arr().read().arr();
+            let psc = regs.psc().read().psc();
+
+            timer_f / arr / (psc + 1)
         }
     }
 
@@ -173,7 +193,7 @@ pub(crate) mod sealed {
                 }
             });
         }
-        fn enable_outputs(&mut self, _enable: bool) {}
+        fn enable_outputs(&mut self);
 
         fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
             let r = Self::regs_gp16();
@@ -202,6 +222,10 @@ pub(crate) mod sealed {
 
         fn get_max_compare_value(&self) -> u16 {
             Self::regs_gp16().arr().read().arr()
+        }
+
+        fn get_compare_value(&self, channel: Channel) -> u16 {
+            Self::regs_gp16().ccr(channel.raw()).read().ccr()
         }
     }
 
@@ -238,6 +262,10 @@ pub(crate) mod sealed {
 
         fn get_max_compare_value(&self) -> u32 {
             Self::regs_gp32().arr().read().arr()
+        }
+
+        fn get_compare_value(&self, channel: Channel) -> u32 {
+            Self::regs_gp32().ccr(channel.raw()).read().ccr()
         }
     }
 }
@@ -460,7 +488,9 @@ macro_rules! impl_32bit_timer {
 #[allow(unused)]
 macro_rules! impl_compare_capable_16bit {
     ($inst:ident) => {
-        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn enable_outputs(&mut self) {}
+        }
     };
 }
 
@@ -509,7 +539,13 @@ foreach_interrupt! {
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl AdvancedControlInstance for crate::peripherals::$inst {}
-        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {
+            fn enable_outputs(&mut self) {
+                use crate::timer::sealed::AdvancedControlInstance;
+                let r = Self::regs_advanced();
+                r.bdtr().modify(|w| w.set_moe(true));
+            }
+        }
         impl sealed::ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
             fn regs_gp16() -> crate::pac::timer::TimGp16 {

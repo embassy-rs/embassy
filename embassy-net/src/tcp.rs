@@ -579,11 +579,10 @@ mod embedded_io_impls {
 /// TCP client compatible with `embedded-nal-async` traits.
 #[cfg(feature = "nightly")]
 pub mod client {
-    use core::cell::UnsafeCell;
+    use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;
     use core::ptr::NonNull;
 
-    use atomic_polyfill::{AtomicBool, Ordering};
     use embedded_nal_async::IpAddr;
 
     use super::*;
@@ -702,15 +701,13 @@ pub mod client {
         }
     }
 
-    unsafe impl<const N: usize, const TX_SZ: usize, const RX_SZ: usize> Sync for TcpClientState<N, TX_SZ, RX_SZ> {}
-
     struct Pool<T, const N: usize> {
-        used: [AtomicBool; N],
+        used: [Cell<bool>; N],
         data: [UnsafeCell<MaybeUninit<T>>; N],
     }
 
     impl<T, const N: usize> Pool<T, N> {
-        const VALUE: AtomicBool = AtomicBool::new(false);
+        const VALUE: Cell<bool> = Cell::new(false);
         const UNINIT: UnsafeCell<MaybeUninit<T>> = UnsafeCell::new(MaybeUninit::uninit());
 
         const fn new() -> Self {
@@ -724,7 +721,9 @@ pub mod client {
     impl<T, const N: usize> Pool<T, N> {
         fn alloc(&self) -> Option<NonNull<T>> {
             for n in 0..N {
-                if self.used[n].swap(true, Ordering::SeqCst) == false {
+                // this can't race because Pool is not Sync.
+                if !self.used[n].get() {
+                    self.used[n].set(true);
                     let p = self.data[n].get() as *mut T;
                     return Some(unsafe { NonNull::new_unchecked(p) });
                 }
@@ -738,7 +737,7 @@ pub mod client {
             let n = p.as_ptr().offset_from(origin);
             assert!(n >= 0);
             assert!((n as usize) < N);
-            self.used[n as usize].store(false, Ordering::SeqCst);
+            self.used[n as usize].set(false);
         }
     }
 }

@@ -11,7 +11,7 @@ use core::mem::MaybeUninit;
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
-use embedded_io_async::{BufRead, Write, WriteAllError};
+use embedded_io_async::{BufRead, Write};
 use ppproto::pppos::{BufferFullError, PPPoS, PPPoSAction};
 pub use ppproto::{Config, Ipv4Status};
 
@@ -49,21 +49,10 @@ pub enum RunError<E> {
     Read(E),
     /// Writing to the serial port failed.
     Write(E),
-    /// Writing to the serial port wrote zero bytes, indicating it can't accept more data.
-    WriteZero,
     /// Writing to the serial got EOF.
     Eof,
     /// PPP protocol was terminated by the peer
     Terminated,
-}
-
-impl<E> From<WriteAllError<E>> for RunError<E> {
-    fn from(value: WriteAllError<E>) -> Self {
-        match value {
-            WriteAllError::Other(e) => Self::Write(e),
-            WriteAllError::WriteZero => Self::WriteZero,
-        }
-    }
 }
 
 impl<'d> Runner<'d> {
@@ -125,7 +114,7 @@ impl<'d> Runner<'d> {
                             buf[..pkt.len()].copy_from_slice(pkt);
                             rx_chan.rx_done(pkt.len());
                         }
-                        PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await?,
+                        PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
                     }
 
                     let status = ppp.status();
@@ -148,7 +137,7 @@ impl<'d> Runner<'d> {
                 }
                 Either::Second(pkt) => {
                     match ppp.send(pkt, &mut tx_buf) {
-                        Ok(n) => rw.write_all(&tx_buf[..n]).await?,
+                        Ok(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
                         Err(BufferFullError) => unreachable!(),
                     }
                     tx_chan.tx_done();

@@ -9,11 +9,13 @@ use embassy_net::{Ipv4Address, Stack, StackResources};
 use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
-use embassy_stm32::rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllSource, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{
+    AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
+};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_io_async::Write;
 use rand_core::RngCore;
 use static_cell::make_static;
@@ -42,10 +44,10 @@ async fn main(spawner: Spawner) -> ! {
     });
     config.rcc.pll1 = Some(Pll {
         source: PllSource::Hse,
-        prediv: 2,
-        mul: 125,
-        divp: Some(2),
-        divq: Some(2),
+        prediv: PllPreDiv::DIV2,
+        mul: PllMul::MUL125,
+        divp: Some(PllDiv::DIV2),
+        divq: Some(PllDiv::DIV2),
         divr: None,
     });
     config.rcc.ahb_pre = AHBPrescaler::DIV1;
@@ -78,9 +80,8 @@ async fn main(spawner: Spawner) -> ! {
         p.PG13,
         p.PB15,
         p.PG11,
-        GenericSMI::new(),
+        GenericSMI::new(0),
         mac_addr,
-        0,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -120,7 +121,7 @@ async fn main(spawner: Spawner) -> ! {
         let r = socket.connect(remote_endpoint).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
-            Timer::after(Duration::from_secs(3)).await;
+            Timer::after_secs(3).await;
             continue;
         }
         info!("connected!");
@@ -130,7 +131,7 @@ async fn main(spawner: Spawner) -> ! {
                 info!("write error: {:?}", e);
                 break;
             }
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
         }
     }
 }

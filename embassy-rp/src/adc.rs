@@ -213,6 +213,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [W],
         fcs_err: bool,
+        div: u16,
         dma: impl Peripheral<P = impl dma::Channel>,
     ) -> Result<(), Error> {
         let r = Self::regs();
@@ -258,6 +259,7 @@ impl<'d> Adc<'d, Async> {
         // start conversions and wait for dma to finish. we can't report errors early
         // because there's no interrupt to signal them, and inspecting every element
         // of the fifo is too costly to do here.
+        r.div().write_set(|w| w.set_int(div));
         r.cs().write_set(|w| w.set_start_many(true));
         dma.await;
         mem::drop(auto_reset);
@@ -275,9 +277,10 @@ impl<'d> Adc<'d, Async> {
         &mut self,
         ch: &mut Channel<'_>,
         buf: &mut [S],
+        div: u16,
         dma: impl Peripheral<P = impl dma::Channel>,
     ) -> Result<(), Error> {
-        self.read_many_inner(ch, buf, false, dma).await
+        self.read_many_inner(ch, buf, false, div, dma).await
     }
 
     #[inline]
@@ -285,11 +288,12 @@ impl<'d> Adc<'d, Async> {
         &mut self,
         ch: &mut Channel<'_>,
         buf: &mut [Sample],
+        div: u16,
         dma: impl Peripheral<P = impl dma::Channel>,
     ) {
         // errors are reported in individual samples
         let _ = self
-            .read_many_inner(ch, unsafe { mem::transmute::<_, &mut [u16]>(buf) }, true, dma)
+            .read_many_inner(ch, unsafe { mem::transmute::<_, &mut [u16]>(buf) }, true, div, dma)
             .await;
     }
 }

@@ -148,7 +148,7 @@ where
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
-            bus.set_config(&self.config);
+            bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
             bus.read(address, buffer).map_err(I2cDeviceError::I2c)
         })
     }
@@ -156,7 +156,7 @@ where
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
-            bus.set_config(&self.config);
+            bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
             bus.write(address, bytes).map_err(I2cDeviceError::I2c)
         })
     }
@@ -164,7 +164,7 @@ where
     fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.bus.lock(|bus| {
             let mut bus = bus.borrow_mut();
-            bus.set_config(&self.config);
+            bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
             bus.write_read(address, wr_buffer, rd_buffer)
                 .map_err(I2cDeviceError::I2c)
         })

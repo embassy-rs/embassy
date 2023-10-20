@@ -77,3 +77,10 @@ impl Div<u8> for Hertz {
         self / (rhs as u32)
     }
 }
+
+impl Div<Hertz> for Hertz {
+    type Output = u32;
+    fn div(self, rhs: Hertz) -> Self::Output {
+        self.0 / rhs.0
+    }
+}

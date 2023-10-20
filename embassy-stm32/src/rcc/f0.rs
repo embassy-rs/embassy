@@ -8,9 +8,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(40_000);
-
 /// Configuration of the clocks
 ///
 /// hse takes precedence over hsi48 if both are enabled
@@ -27,6 +24,8 @@ pub struct Config {
     pub sys_ck: Option<Hertz>,
     pub hclk: Option<Hertz>,
     pub pclk: Option<Hertz>,
+
+    pub ls: super::LsConfig,
 }
 
 pub(crate) unsafe fn init(config: Config) {
@@ -128,7 +127,7 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     if config.usb_pll {
-        RCC.cfgr3().modify(|w| w.set_usbsw(Usbsw::PLLCLK));
+        RCC.cfgr3().modify(|w| w.set_usbsw(Usbsw::PLL1_P));
     }
     // TODO: Option to use CRS (Clock Recovery)
 
@@ -141,7 +140,7 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cfgr().modify(|w| {
             w.set_ppre(Ppre::from_bits(ppre_bits));
             w.set_hpre(Hpre::from_bits(hpre_bits));
-            w.set_sw(Sw::PLL)
+            w.set_sw(Sw::PLL1_P)
         });
     } else {
         RCC.cfgr().modify(|w| {
@@ -159,12 +158,15 @@ pub(crate) unsafe fn init(config: Config) {
         })
     }
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: Hertz(real_sysclk),
-        apb1: Hertz(pclk),
-        apb2: Hertz(pclk),
-        apb1_tim: Hertz(pclk * timer_mul),
-        apb2_tim: Hertz(pclk * timer_mul),
-        ahb1: Hertz(hclk),
+        pclk1: Hertz(pclk),
+        pclk2: Hertz(pclk),
+        pclk1_tim: Hertz(pclk * timer_mul),
+        pclk2_tim: Hertz(pclk * timer_mul),
+        hclk1: Hertz(hclk),
+        rtc,
     });
 }

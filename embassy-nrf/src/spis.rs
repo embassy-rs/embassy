@@ -172,7 +172,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         let mut spis = Self { _p: spis };
 
         // Apply runtime peripheral configuration
-        Self::set_config(&mut spis, &config);
+        Self::set_config(&mut spis, &config).unwrap();
 
         // Disable all events interrupts.
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -467,7 +467,8 @@ macro_rules! impl_spis {
 
 impl<'d, T: Instance> SetConfig for Spis<'d, T> {
     type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         let r = T::regs();
         // Configure mode.
         let mode = config.mode;
@@ -509,5 +510,7 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
         // Configure auto-acquire on 'transfer end' event.
         let auto_acquire = config.auto_acquire;
         r.shorts.write(|w| w.end_acquire().bit(auto_acquire));
+
+        Ok(())
     }
 }

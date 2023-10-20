@@ -1,5 +1,5 @@
 #![cfg_attr(not(test), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
@@ -49,6 +49,8 @@ pub mod i2s;
 pub mod ipcc;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(opamp)]
+pub mod opamp;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
@@ -153,79 +155,82 @@ impl Default for Config {
 
 /// Initialize embassy.
 pub fn init(config: Config) -> Peripherals {
-    let p = Peripherals::take();
+    critical_section::with(|cs| {
+        let p = Peripherals::take_with_cs(cs);
 
-    #[cfg(dbgmcu)]
-    if config.enable_debug_during_sleep {
-        crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5, dbgmcu_wba))]
-            {
-                cr.set_dbg_stop(true);
-                cr.set_dbg_standby(true);
-            }
-            #[cfg(any(
-                dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7, dbgmcu_l0, dbgmcu_l1,
-                dbgmcu_l4, dbgmcu_wb, dbgmcu_wl
-            ))]
-            {
-                cr.set_dbg_sleep(true);
-                cr.set_dbg_stop(true);
-                cr.set_dbg_standby(true);
-            }
-            #[cfg(dbgmcu_h7)]
-            {
-                cr.set_d1dbgcken(true);
-                cr.set_d3dbgcken(true);
-                cr.set_dbgsleep_d1(true);
-                cr.set_dbgstby_d1(true);
-                cr.set_dbgstop_d1(true);
-            }
-        });
-    }
-
-    #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
-    peripherals::SYSCFG::enable();
-    #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
-    peripherals::PWR::enable();
-    #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
-    peripherals::FLASH::enable();
-
-    unsafe {
-        #[cfg(feature = "_split-pins-enabled")]
-        crate::pac::SYSCFG.pmcr().modify(|pmcr| {
-            #[cfg(feature = "split-pa0")]
-            pmcr.set_pa0so(true);
-            #[cfg(feature = "split-pa1")]
-            pmcr.set_pa1so(true);
-            #[cfg(feature = "split-pc2")]
-            pmcr.set_pc2so(true);
-            #[cfg(feature = "split-pc3")]
-            pmcr.set_pc3so(true);
-        });
-
-        gpio::init();
-        dma::init(
-            #[cfg(bdma)]
-            config.bdma_interrupt_priority,
-            #[cfg(dma)]
-            config.dma_interrupt_priority,
-            #[cfg(gpdma)]
-            config.gpdma_interrupt_priority,
-        );
-        #[cfg(feature = "exti")]
-        exti::init();
-
-        rcc::init(config.rcc);
-
-        // must be after rcc init
-        #[cfg(feature = "_time-driver")]
-        time_driver::init();
-
-        #[cfg(feature = "low-power")]
-        while !crate::rcc::low_power_ready() {
-            crate::rcc::clock_refcount_sub();
+        #[cfg(dbgmcu)]
+        if config.enable_debug_during_sleep {
+            crate::pac::DBGMCU.cr().modify(|cr| {
+                #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5, dbgmcu_wba))]
+                {
+                    cr.set_dbg_stop(true);
+                    cr.set_dbg_standby(true);
+                }
+                #[cfg(any(
+                    dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7, dbgmcu_l0, dbgmcu_l1,
+                    dbgmcu_l4, dbgmcu_wb, dbgmcu_wl
+                ))]
+                {
+                    cr.set_dbg_sleep(true);
+                    cr.set_dbg_stop(true);
+                    cr.set_dbg_standby(true);
+                }
+                #[cfg(dbgmcu_h7)]
+                {
+                    cr.set_d1dbgcken(true);
+                    cr.set_d3dbgcken(true);
+                    cr.set_dbgsleep_d1(true);
+                    cr.set_dbgstby_d1(true);
+                    cr.set_dbgstop_d1(true);
+                }
+            });
         }
-    }
 
-    p
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
+        peripherals::SYSCFG::enable_and_reset_with_cs(cs);
+        #[cfg(not(any(stm32h5, stm32h7, stm32wb, stm32wl)))]
+        peripherals::PWR::enable_and_reset_with_cs(cs);
+        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
+        peripherals::FLASH::enable_and_reset_with_cs(cs);
+
+        unsafe {
+            #[cfg(feature = "_split-pins-enabled")]
+            crate::pac::SYSCFG.pmcr().modify(|pmcr| {
+                #[cfg(feature = "split-pa0")]
+                pmcr.set_pa0so(true);
+                #[cfg(feature = "split-pa1")]
+                pmcr.set_pa1so(true);
+                #[cfg(feature = "split-pc2")]
+                pmcr.set_pc2so(true);
+                #[cfg(feature = "split-pc3")]
+                pmcr.set_pc3so(true);
+            });
+
+            gpio::init(cs);
+            dma::init(
+                cs,
+                #[cfg(bdma)]
+                config.bdma_interrupt_priority,
+                #[cfg(dma)]
+                config.dma_interrupt_priority,
+                #[cfg(gpdma)]
+                config.gpdma_interrupt_priority,
+            );
+            #[cfg(feature = "exti")]
+            exti::init(cs);
+
+            rcc::init(config.rcc);
+
+            // must be after rcc init
+            #[cfg(feature = "_time-driver")]
+            time_driver::init(cs);
+
+            #[cfg(feature = "low-power")]
+            while !crate::rcc::low_power_ready() {
+                crate::rcc::clock_refcount_sub(cs);
+            }
+        }
+
+        p
+    })
 }

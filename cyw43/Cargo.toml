@@ -11,11 +11,10 @@ log = ["dep:log"]
 firmware-logs = []
 
 [dependencies]
-embassy-time = { version = "0.1.3", path = "../embassy-time"}
+embassy-time = { version = "0.1.5", path = "../embassy-time"}
 embassy-sync = { version = "0.3.0", path = "../embassy-sync"}
 embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
-embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel"}
-atomic-polyfill = "0.1.5"
+embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel"}
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.17", optional = true }

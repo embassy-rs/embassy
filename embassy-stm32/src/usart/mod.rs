@@ -181,10 +181,11 @@ pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.tx.set_config(config));
-        unwrap!(self.rx.set_config(config));
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.tx.set_config(config).map_err(|_| ())?;
+        self.rx.set_config(config).map_err(|_| ())
     }
 }
 
@@ -195,9 +196,10 @@ pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config));
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
@@ -211,9 +213,10 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config));
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
@@ -225,8 +228,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         tx_dma: impl Peripheral<P = TxDma> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         Self::new_inner(peri, tx, tx_dma, config)
     }
@@ -240,8 +242,7 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
     ) -> Result<Self, ConfigError> {
         into_ref!(cts);
 
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         cts.set_as_af(cts.af_num(), AFType::Input);
         T::regs().cr3().write(|w| {
@@ -318,8 +319,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
         rx_dma: impl Peripheral<P = RxDma> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         Self::new_inner(peri, rx, rx_dma, config)
     }
@@ -334,8 +334,7 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
     ) -> Result<Self, ConfigError> {
         into_ref!(rts);
 
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
         T::regs().cr3().write(|w| {
@@ -692,9 +691,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
     }
@@ -713,9 +711,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         into_ref!(cts, rts);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
         cts.set_as_af(cts.af_num(), AFType::Input);
@@ -740,9 +737,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         into_ref!(de);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         de.set_as_af(de.af_num(), AFType::OutputPushPull);
         T::regs().cr3().write(|w| {
@@ -801,10 +797,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 buffered_sr: stm32_metapac::usart::regs::Sr(0),
             },
         })
-    }
-
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        reconfigure::<T>(config)
     }
 
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error>

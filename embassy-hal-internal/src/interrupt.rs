@@ -4,6 +4,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
+use critical_section::CriticalSection;
 
 /// Generate a standard `mod interrupt` for a HAL.
 #[macro_export]
@@ -90,6 +91,12 @@ macro_rules! interrupt_mod {
                     #[inline]
                     fn set_priority(prio: crate::interrupt::Priority) {
                         Self::IRQ.set_priority(prio)
+                    }
+
+                    /// Set the interrupt priority with an already-acquired critical section
+                    #[inline]
+                    fn set_priority_with_cs(cs: critical_section::CriticalSection, prio: crate::interrupt::Priority) {
+                        Self::IRQ.set_priority_with_cs(cs, prio)
                     }
                 }
 
@@ -195,10 +202,29 @@ pub unsafe trait InterruptExt: InterruptNumber + Copy {
     /// Set the interrupt priority.
     #[inline]
     fn set_priority(self, prio: Priority) {
-        critical_section::with(|_| unsafe {
+        unsafe {
             let mut nvic: cortex_m::peripheral::NVIC = mem::transmute(());
-            nvic.set_priority(self, prio.into())
-        })
+
+            // On thumbv6, set_priority must do a RMW to change 8bit in a 32bit reg.
+            #[cfg(armv6m)]
+            critical_section::with(|_| nvic.set_priority(self, prio.into()));
+            // On thumbv7+, set_priority does an atomic 8bit write, so no CS needed.
+            #[cfg(not(armv6m))]
+            nvic.set_priority(self, prio.into());
+        }
+    }
+
+    /// Set the interrupt priority with an already-acquired critical section
+    ///
+    /// Equivalent to `set_priority`, except you pass a `CriticalSection` to prove
+    /// you've already acquired a critical section. This prevents acquiring another
+    /// one, which saves code size.
+    #[inline]
+    fn set_priority_with_cs(self, _cs: CriticalSection, prio: Priority) {
+        unsafe {
+            let mut nvic: cortex_m::peripheral::NVIC = mem::transmute(());
+            nvic.set_priority(self, prio.into());
+        }
     }
 }
 

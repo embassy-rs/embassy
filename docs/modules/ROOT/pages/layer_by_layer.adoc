@@ -1,4 +1,4 @@
-= Embassy layer by layer
+= From bare metal to async Rust
 
 If you're new to Embassy, it can be overwhelming to grasp all the terminology and concepts. This guide aims to clarify the different layers in Embassy, which problem each layer solves for the application writer.
 
@@ -8,8 +8,7 @@ The application we'll write is a simple 'push button, blink led' application, wh
 
 == PAC version
 
-The PAC is the lowest API for accessing peripherals and registers, if you don't count reading/writing directly to memory addresses. It provides distinct types
-to make accessing peripheral registers easier, but it does not prevent you from writing unsafe code.
+The PAC is the lowest API for accessing peripherals and registers, if you don't count reading/writing directly to memory addresses. It provides distinct types to make accessing peripheral registers easier, but it does not prevent you from writing unsafe code.
 
 Writing an application using the PAC directly is therefore not recommended, but if the functionality you want to use is not exposed in the upper layers, that's what you need to use.
 

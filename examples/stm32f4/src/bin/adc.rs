@@ -6,7 +6,7 @@ use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, Temperature, VrefInt};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -63,6 +63,6 @@ async fn main(_spawner: Spawner) {
         let v = adc.read(&mut vrefint);
         info!("VrefInt: {}", v);
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
     }
 }

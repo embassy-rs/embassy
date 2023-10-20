@@ -13,6 +13,7 @@ use crate::{interrupt, pac, peripherals, Peripheral};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+#[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     SeedError,
@@ -42,8 +43,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         inner: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
         into_ref!(inner);
         let mut random = Self { _inner: inner };
         random.reset();
@@ -85,7 +85,7 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_ie(false);
             reg.set_rngen(true);
         });
-        T::regs().cr().write(|reg| {
+        T::regs().cr().modify(|reg| {
             reg.set_ced(false);
         });
         // wait for CONDRST to be set
@@ -164,7 +164,7 @@ impl<'d, T: Instance> Rng<'d, T> {
                     return Err(Error::SeedError);
                 }
                 // write bytes to chunk
-                for (dest, src) in chunk.iter_mut().zip(random_word.to_be_bytes().iter()) {
+                for (dest, src) in chunk.iter_mut().zip(random_word.to_ne_bytes().iter()) {
                     *dest = *src
                 }
             }
@@ -195,7 +195,7 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         for chunk in dest.chunks_mut(4) {
             let rand = self.next_u32();
-            for (slot, num) in chunk.iter_mut().zip(rand.to_be_bytes().iter()) {
+            for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
                 *slot = *num
             }
         }

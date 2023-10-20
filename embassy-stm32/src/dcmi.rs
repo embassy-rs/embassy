@@ -330,8 +330,7 @@ where
         use_embedded_synchronization: bool,
         edm: u8,
     ) -> Self {
-        T::reset();
-        T::enable();
+        T::enable_and_reset();
 
         peri.regs().cr().modify(|r| {
             r.set_cm(true); // disable continuous mode (snapshot mode)

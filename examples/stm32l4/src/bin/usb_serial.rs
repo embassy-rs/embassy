@@ -23,8 +23,17 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
     config.rcc.hsi48 = true;
+    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.hsi16 = true;
+    config.rcc.pll = Some(Pll {
+        source: PLLSource::HSI,
+        prediv: PllPreDiv::DIV1,
+        mul: PllMul::MUL10,
+        divp: None,
+        divq: None,
+        divr: Some(PllRDiv::DIV2), // sysclk 80Mhz (16 / 1 * 10 / 2)
+    });
 
     let p = embassy_stm32::init(config);
 

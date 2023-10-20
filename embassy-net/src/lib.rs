@@ -1,5 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
@@ -33,13 +33,14 @@ use heapless::Vec;
 pub use smoltcp::iface::MulticastError;
 #[allow(unused_imports)]
 use smoltcp::iface::{Interface, SocketHandle, SocketSet, SocketStorage};
+use smoltcp::phy::Medium;
 #[cfg(feature = "dhcpv4")]
 use smoltcp::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "medium-ethernet")]
 pub use smoltcp::wire::EthernetAddress;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
 pub use smoltcp::wire::HardwareAddress;
-#[cfg(feature = "udp")]
+#[cfg(any(feature = "udp", feature = "tcp"))]
 pub use smoltcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ieee802154")]
 pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
@@ -56,12 +57,22 @@ const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 #[cfg(feature = "dns")]
 const MAX_QUERIES: usize = 4;
+#[cfg(feature = "dhcpv4-hostname")]
+const MAX_HOSTNAME_LEN: usize = 32;
 
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
     sockets: [SocketStorage<'static>; SOCK],
     #[cfg(feature = "dns")]
     queries: [Option<dns::DnsQuery>; MAX_QUERIES],
+    #[cfg(feature = "dhcpv4-hostname")]
+    hostname: core::cell::UnsafeCell<HostnameResources>,
+}
+
+#[cfg(feature = "dhcpv4-hostname")]
+struct HostnameResources {
+    option: smoltcp::wire::DhcpOption<'static>,
+    data: [u8; MAX_HOSTNAME_LEN],
 }
 
 impl<const SOCK: usize> StackResources<SOCK> {
@@ -73,6 +84,11 @@ impl<const SOCK: usize> StackResources<SOCK> {
             sockets: [SocketStorage::EMPTY; SOCK],
             #[cfg(feature = "dns")]
             queries: [INIT; MAX_QUERIES],
+            #[cfg(feature = "dhcpv4-hostname")]
+            hostname: core::cell::UnsafeCell::new(HostnameResources {
+                option: smoltcp::wire::DhcpOption { kind: 0, data: &[] },
+                data: [0; MAX_HOSTNAME_LEN],
+            }),
         }
     }
 }
@@ -104,6 +120,7 @@ pub struct StaticConfigV6 {
 /// DHCP configuration.
 #[cfg(feature = "dhcpv4")]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DhcpConfig {
     /// Maximum lease duration.
     ///
@@ -120,6 +137,9 @@ pub struct DhcpConfig {
     pub server_port: u16,
     /// Client port. This is almost always 68. Do not change unless you know what you're doing.
     pub client_port: u16,
+    /// Our hostname. This will be sent to the DHCP server as Option 12.
+    #[cfg(feature = "dhcpv4-hostname")]
+    pub hostname: Option<heapless::String<MAX_HOSTNAME_LEN>>,
 }
 
 #[cfg(feature = "dhcpv4")]
@@ -131,6 +151,8 @@ impl Default for DhcpConfig {
             ignore_naks: Default::default(),
             server_port: smoltcp::wire::DHCP_SERVER_PORT,
             client_port: smoltcp::wire::DHCP_CLIENT_PORT,
+            #[cfg(feature = "dhcpv4-hostname")]
+            hostname: None,
         }
     }
 }
@@ -232,6 +254,8 @@ struct Inner<D: Driver> {
     dns_socket: SocketHandle,
     #[cfg(feature = "dns")]
     dns_waker: WakerRegistration,
+    #[cfg(feature = "dhcpv4-hostname")]
+    hostname: &'static mut core::cell::UnsafeCell<HostnameResources>,
 }
 
 pub(crate) struct SocketStack {
@@ -241,14 +265,17 @@ pub(crate) struct SocketStack {
     next_local_port: u16,
 }
 
-fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> HardwareAddress {
+fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
     match addr {
         #[cfg(feature = "medium-ethernet")]
-        driver::HardwareAddress::Ethernet(eth) => HardwareAddress::Ethernet(EthernetAddress(eth)),
+        driver::HardwareAddress::Ethernet(eth) => (HardwareAddress::Ethernet(EthernetAddress(eth)), Medium::Ethernet),
         #[cfg(feature = "medium-ieee802154")]
-        driver::HardwareAddress::Ieee802154(ieee) => HardwareAddress::Ieee802154(Ieee802154Address::Extended(ieee)),
+        driver::HardwareAddress::Ieee802154(ieee) => (
+            HardwareAddress::Ieee802154(Ieee802154Address::Extended(ieee)),
+            Medium::Ieee802154,
+        ),
         #[cfg(feature = "medium-ip")]
-        driver::HardwareAddress::Ip => HardwareAddress::Ip,
+        driver::HardwareAddress::Ip => (HardwareAddress::Ip, Medium::Ip),
 
         #[allow(unreachable_patterns)]
         _ => panic!(
@@ -266,7 +293,8 @@ impl<D: Driver> Stack<D> {
         resources: &'static mut StackResources<SOCK>,
         random_seed: u64,
     ) -> Self {
-        let mut iface_cfg = smoltcp::iface::Config::new(to_smoltcp_hardware_address(device.hardware_address()));
+        let (hardware_addr, medium) = to_smoltcp_hardware_address(device.hardware_address());
+        let mut iface_cfg = smoltcp::iface::Config::new(hardware_addr);
         iface_cfg.random_seed = random_seed;
 
         let iface = Interface::new(
@@ -274,6 +302,7 @@ impl<D: Driver> Stack<D> {
             &mut DriverAdapter {
                 inner: &mut device,
                 cx: None,
+                medium,
             },
             instant_to_smoltcp(Instant::now()),
         );
@@ -307,6 +336,8 @@ impl<D: Driver> Stack<D> {
             )),
             #[cfg(feature = "dns")]
             dns_waker: WakerRegistration::new(),
+            #[cfg(feature = "dhcpv4-hostname")]
+            hostname: &mut resources.hostname,
         };
 
         #[cfg(feature = "proto-ipv4")]
@@ -331,7 +362,7 @@ impl<D: Driver> Stack<D> {
 
     /// Get the hardware address of the network interface.
     pub fn hardware_address(&self) -> HardwareAddress {
-        self.with(|_s, i| to_smoltcp_hardware_address(i.device.hardware_address()))
+        self.with(|_s, i| to_smoltcp_hardware_address(i.device.hardware_address()).0)
     }
 
     /// Get whether the link is up.
@@ -484,7 +515,10 @@ impl<D: Driver> Stack<D> {
             self.with_mut(|s, i| {
                 let socket = s.sockets.get_mut::<dns::Socket>(i.dns_socket);
                 match socket.start_query(s.iface.context(), name, qtype) {
-                    Ok(handle) => Poll::Ready(Ok(handle)),
+                    Ok(handle) => {
+                        s.waker.wake();
+                        Poll::Ready(Ok(handle))
+                    }
                     Err(dns::StartQueryError::NoFreeSlot) => {
                         i.dns_waker.register(cx.waker());
                         Poll::Pending
@@ -673,6 +707,25 @@ impl<D: Driver> Inner<D> {
                 socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
                 socket.set_ports(c.server_port, c.client_port);
                 socket.set_retry_config(c.retry_config);
+
+                socket.set_outgoing_options(&[]);
+                #[cfg(feature = "dhcpv4-hostname")]
+                if let Some(h) = c.hostname {
+                    // safety: we just did set_outgoing_options([]) so we know the socket is no longer holding a reference.
+                    let hostname = unsafe { &mut *self.hostname.get() };
+
+                    // create data
+                    // safety: we know the buffer lives forever, new borrows the StackResources for 'static.
+                    // also we won't modify it until next call to this function.
+                    hostname.data[..h.len()].copy_from_slice(h.as_bytes());
+                    let data: &[u8] = &hostname.data[..h.len()];
+                    let data: &'static [u8] = unsafe { core::mem::transmute(data) };
+
+                    // set the option.
+                    hostname.option = smoltcp::wire::DhcpOption { data, kind: 12 };
+                    socket.set_outgoing_options(core::slice::from_ref(&hostname.option));
+                }
+
                 socket.reset();
             }
             _ => {
@@ -765,18 +818,28 @@ impl<D: Driver> Inner<D> {
     fn poll(&mut self, cx: &mut Context<'_>, s: &mut SocketStack) {
         s.waker.register(cx.waker());
 
+        let (_hardware_addr, medium) = to_smoltcp_hardware_address(self.device.hardware_address());
+
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
-        if self.device.capabilities().medium == embassy_net_driver::Medium::Ethernet
-            || self.device.capabilities().medium == embassy_net_driver::Medium::Ieee802154
         {
-            s.iface
-                .set_hardware_addr(to_smoltcp_hardware_address(self.device.hardware_address()));
+            let do_set = match medium {
+                #[cfg(feature = "medium-ethernet")]
+                Medium::Ethernet => true,
+                #[cfg(feature = "medium-ieee802154")]
+                Medium::Ieee802154 => true,
+                #[allow(unreachable_patterns)]
+                _ => false,
+            };
+            if do_set {
+                s.iface.set_hardware_addr(_hardware_addr);
+            }
         }
 
         let timestamp = instant_to_smoltcp(Instant::now());
         let mut smoldev = DriverAdapter {
             cx: Some(cx),
             inner: &mut self.device,
+            medium,
         };
         s.iface.poll(timestamp, &mut smoldev, &mut s.sockets);
 

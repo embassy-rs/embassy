@@ -1,20 +1,15 @@
-use core::convert::TryFrom;
-use core::ops::{Div, Mul};
-
-pub use super::bus::{AHBPrescaler, APBPrescaler};
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{Pllp, Pllsrc, Sw};
+use crate::pac::rcc::vals::Sw;
+pub use crate::pac::rcc::vals::{
+    Hpre as AHBPrescaler, Pllm as PLLPreDiv, Plln as PLLMul, Pllp as PLLPDiv, Pllq as PLLQDiv, Pllsrc as PLLSrc,
+    Ppre as APBPrescaler,
+};
 use crate::pac::{FLASH, RCC};
-use crate::rcc::bd::BackupDomain;
 use crate::rcc::{set_freqs, Clocks};
-use crate::rtc::RtcClockSource;
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 #[derive(Clone, Copy)]
 pub struct HSEConfig {
@@ -43,17 +38,17 @@ pub enum HSESrc {
 pub struct PLLConfig {
     pub pre_div: PLLPreDiv,
     pub mul: PLLMul,
-    pub main_div: PLLMainDiv,
-    pub pll48_div: PLL48Div,
+    pub p_div: PLLPDiv,
+    pub q_div: PLLQDiv,
 }
 
 impl Default for PLLConfig {
     fn default() -> Self {
         PLLConfig {
-            pre_div: PLLPreDiv(16),
-            mul: PLLMul(192),
-            main_div: PLLMainDiv::Div2,
-            pll48_div: PLL48Div(4),
+            pre_div: PLLPreDiv::DIV16,
+            mul: PLLMul::MUL192,
+            p_div: PLLPDiv::DIV2,
+            q_div: PLLQDiv::DIV4,
         }
     }
 }
@@ -61,9 +56,9 @@ impl Default for PLLConfig {
 impl PLLConfig {
     pub fn clocks(&self, src_freq: Hertz) -> PLLClocks {
         let in_freq = src_freq / self.pre_div;
-        let vco_freq = Hertz((src_freq.0 as u64 * self.mul.0 as u64 / self.pre_div.0 as u64) as u32);
-        let main_freq = vco_freq / self.main_div;
-        let pll48_freq = vco_freq / self.pll48_div;
+        let vco_freq = src_freq / self.pre_div * self.mul;
+        let main_freq = vco_freq / self.p_div;
+        let pll48_freq = vco_freq / self.q_div;
         PLLClocks {
             in_freq,
             vco_freq,
@@ -72,129 +67,6 @@ impl PLLConfig {
         }
     }
 }
-
-/// Clock source for both main PLL and PLLI2S
-#[derive(Clone, Copy, PartialEq)]
-pub enum PLLSrc {
-    HSE,
-    HSI,
-}
-
-impl Into<Pllsrc> for PLLSrc {
-    fn into(self) -> Pllsrc {
-        match self {
-            PLLSrc::HSE => Pllsrc::HSE,
-            PLLSrc::HSI => Pllsrc::HSI,
-        }
-    }
-}
-
-/// Division factor for both main PLL and PLLI2S
-#[derive(Clone, Copy, PartialEq)]
-#[repr(transparent)]
-pub struct PLLPreDiv(u8);
-
-impl TryFrom<u8> for PLLPreDiv {
-    type Error = &'static str;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            2..=63 => Ok(PLLPreDiv(value)),
-            _ => Err("PLLPreDiv must be within range 2..=63"),
-        }
-    }
-}
-
-impl Div<PLLPreDiv> for Hertz {
-    type Output = Hertz;
-
-    fn div(self, rhs: PLLPreDiv) -> Self::Output {
-        Hertz(self.0 / u32::from(rhs.0))
-    }
-}
-
-/// Multiplication factor for main PLL
-#[derive(Clone, Copy, PartialEq)]
-#[repr(transparent)]
-pub struct PLLMul(u16);
-
-impl Mul<PLLMul> for Hertz {
-    type Output = Hertz;
-
-    fn mul(self, rhs: PLLMul) -> Self::Output {
-        Hertz(self.0 * u32::from(rhs.0))
-    }
-}
-
-impl TryFrom<u16> for PLLMul {
-    type Error = &'static str;
-
-    fn try_from(value: u16) -> Result<Self, Self::Error> {
-        match value {
-            192..=432 => Ok(PLLMul(value)),
-            _ => Err("PLLMul must be within range 192..=432"),
-        }
-    }
-}
-
-/// PLL division factor for the main system clock
-#[derive(Clone, Copy, PartialEq)]
-pub enum PLLMainDiv {
-    Div2,
-    Div4,
-    Div6,
-    Div8,
-}
-
-impl Into<Pllp> for PLLMainDiv {
-    fn into(self) -> Pllp {
-        match self {
-            PLLMainDiv::Div2 => Pllp::DIV2,
-            PLLMainDiv::Div4 => Pllp::DIV4,
-            PLLMainDiv::Div6 => Pllp::DIV6,
-            PLLMainDiv::Div8 => Pllp::DIV8,
-        }
-    }
-}
-
-impl Div<PLLMainDiv> for Hertz {
-    type Output = Hertz;
-
-    fn div(self, rhs: PLLMainDiv) -> Self::Output {
-        let divisor = match rhs {
-            PLLMainDiv::Div2 => 2,
-            PLLMainDiv::Div4 => 4,
-            PLLMainDiv::Div6 => 6,
-            PLLMainDiv::Div8 => 8,
-        };
-        Hertz(self.0 / divisor)
-    }
-}
-
-/// PLL division factor for USB OTG FS / SDIO / RNG
-#[derive(Clone, Copy, PartialEq)]
-#[repr(transparent)]
-pub struct PLL48Div(u8);
-
-impl Div<PLL48Div> for Hertz {
-    type Output = Hertz;
-
-    fn div(self, rhs: PLL48Div) -> Self::Output {
-        Hertz(self.0 / u32::from(rhs.0))
-    }
-}
-
-impl TryFrom<u8> for PLL48Div {
-    type Error = &'static str;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            2..=15 => Ok(PLL48Div(value)),
-            _ => Err("PLL48Div must be within range 2..=15"),
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq)]
 pub struct PLLClocks {
     pub in_freq: Hertz,
@@ -303,13 +175,11 @@ pub struct Config {
     pub pll_mux: PLLSrc,
     pub pll: PLLConfig,
     pub mux: ClockSrc,
-    pub rtc: Option<RtcClockSource>,
-    pub lsi: bool,
-    pub lse: Option<Hertz>,
     pub voltage: VoltageScale,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+    pub ls: super::LsConfig,
 }
 
 impl Default for Config {
@@ -322,12 +192,10 @@ impl Default for Config {
             pll: PLLConfig::default(),
             voltage: VoltageScale::Range3,
             mux: ClockSrc::HSI,
-            rtc: None,
-            lsi: false,
-            lse: None,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
+            ls: Default::default(),
         }
     }
 }
@@ -367,11 +235,11 @@ pub(crate) unsafe fn init(config: Config) {
     assert!(pll_clocks.pll48_freq <= Hertz(48_000_000));
 
     RCC.pllcfgr().write(|w| {
-        w.set_pllsrc(config.pll_mux.into());
-        w.set_pllm(config.pll.pre_div.0);
-        w.set_plln(config.pll.mul.0);
-        w.set_pllp(config.pll.main_div.into());
-        w.set_pllq(config.pll.pll48_div.0);
+        w.set_pllsrc(config.pll_mux);
+        w.set_pllm(config.pll.pre_div);
+        w.set_plln(config.pll.mul);
+        w.set_pllp(config.pll.p_div);
+        w.set_pllq(config.pll.q_div);
     });
 
     let (sys_clk, sw) = match config.mux {
@@ -388,7 +256,7 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::PLL => {
             RCC.cr().modify(|w| w.set_pllon(true));
             while !RCC.cr().read().pllrdy() {}
-            (pll_clocks.main_freq, Sw::PLL)
+            (pll_clocks.main_freq, Sw::PLL1_P)
         }
     };
     // RM0033 Figure 9. Clock tree suggests max SYSCLK/HCLK is 168 MHz, but datasheet specifies PLL
@@ -424,9 +292,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| {
         w.set_sw(sw.into());
-        w.set_hpre(config.ahb_pre.into());
-        w.set_ppre1(config.apb1_pre.into());
-        w.set_ppre2(config.apb2_pre.into());
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
     while RCC.cfgr().read().sws().to_bits() != sw.to_bits() {}
 
@@ -435,21 +303,18 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
-    BackupDomain::configure_ls(
-        config.rtc.unwrap_or(RtcClockSource::NOCLOCK),
-        config.lsi,
-        config.lse.map(|_| Default::default()),
-    );
+    let rtc = config.ls.init();
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        ahb2: ahb_freq,
-        ahb3: ahb_freq,
-        apb1: apb1_freq,
-        apb1_tim: apb1_tim_freq,
-        apb2: apb2_freq,
-        apb2_tim: apb2_tim_freq,
-        pll48: Some(pll_clocks.pll48_freq),
+        hclk1: ahb_freq,
+        hclk2: ahb_freq,
+        hclk3: ahb_freq,
+        pclk1: apb1_freq,
+        pclk1_tim: apb1_tim_freq,
+        pclk2: apb2_freq,
+        pclk2_tim: apb2_tim_freq,
+        pll1_q: Some(pll_clocks.pll48_freq),
+        rtc,
     });
 }

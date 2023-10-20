@@ -2,7 +2,7 @@
 
 use crate::builder::Config;
 use crate::driver::EndpointInfo;
-use crate::types::*;
+use crate::types::{InterfaceNumber, StringIndex};
 use crate::CONFIGURATION_VALUE;
 
 /// Standard descriptor types
@@ -59,7 +59,7 @@ impl<'a> DescriptorWriter<'a> {
     }
 
     /// Gets the current position in the buffer, i.e. the number of bytes written so far.
-    pub fn position(&self) -> usize {
+    pub const fn position(&self) -> usize {
         self.position
     }
 
@@ -67,9 +67,10 @@ impl<'a> DescriptorWriter<'a> {
     pub fn write(&mut self, descriptor_type: u8, descriptor: &[u8]) {
         let length = descriptor.len();
 
-        if (self.position + 2 + length) > self.buf.len() || (length + 2) > 255 {
-            panic!("Descriptor buffer full");
-        }
+        assert!(
+            (self.position + 2 + length) <= self.buf.len() && (length + 2) <= 255,
+            "Descriptor buffer full"
+        );
 
         self.buf[self.position] = (length + 2) as u8;
         self.buf[self.position + 1] = descriptor_type;
@@ -102,7 +103,7 @@ impl<'a> DescriptorWriter<'a> {
                 config.serial_number.map_or(0, |_| 3), // iSerialNumber
                 1,                                     // bNumConfigurations
             ],
-        )
+        );
     }
 
     pub(crate) fn configuration(&mut self, config: &Config) {
@@ -120,7 +121,7 @@ impl<'a> DescriptorWriter<'a> {
                     | if config.supports_remote_wakeup { 0x20 } else { 0x00 }, // bmAttributes
                 (config.max_power / 2) as u8, // bMaxPower
             ],
-        )
+        );
     }
 
     #[allow(unused)]
@@ -248,9 +249,7 @@ impl<'a> DescriptorWriter<'a> {
     pub(crate) fn string(&mut self, string: &str) {
         let mut pos = self.position;
 
-        if pos + 2 > self.buf.len() {
-            panic!("Descriptor buffer full");
-        }
+        assert!(pos + 2 <= self.buf.len(), "Descriptor buffer full");
 
         self.buf[pos] = 0; // length placeholder
         self.buf[pos + 1] = descriptor_type::STRING;
@@ -258,9 +257,7 @@ impl<'a> DescriptorWriter<'a> {
         pos += 2;
 
         for c in string.encode_utf16() {
-            if pos >= self.buf.len() {
-                panic!("Descriptor buffer full");
-            }
+            assert!(pos < self.buf.len(), "Descriptor buffer full");
 
             self.buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
             pos += 2;
@@ -279,9 +276,9 @@ pub struct BosWriter<'a> {
 }
 
 impl<'a> BosWriter<'a> {
-    pub(crate) fn new(writer: DescriptorWriter<'a>) -> Self {
+    pub(crate) const fn new(writer: DescriptorWriter<'a>) -> Self {
         Self {
-            writer: writer,
+            writer,
             num_caps_mark: None,
         }
     }
@@ -314,9 +311,10 @@ impl<'a> BosWriter<'a> {
         let mut start = self.writer.position;
         let blen = data.len();
 
-        if (start + blen + 3) > self.writer.buf.len() || (blen + 3) > 255 {
-            panic!("Descriptor buffer full");
-        }
+        assert!(
+            (start + blen + 3) <= self.writer.buf.len() && (blen + 3) <= 255,
+            "Descriptor buffer full"
+        );
 
         self.writer.buf[start] = (blen + 3) as u8;
         self.writer.buf[start + 1] = descriptor_type::CAPABILITY;

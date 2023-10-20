@@ -7,11 +7,11 @@ use core::convert::TryFrom;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{
-    APBPrescaler, ClockSrc, HSEConfig, HSESrc, PLL48Div, PLLConfig, PLLMainDiv, PLLMul, PLLPreDiv, PLLSrc,
+    APBPrescaler, ClockSrc, HSEConfig, HSESrc, PLLConfig, PLLMul, PLLPDiv, PLLPreDiv, PLLQDiv, PLLSrc,
 };
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -32,9 +32,9 @@ async fn main(_spawner: Spawner) {
         // 1 MHz PLL input * 240 = 240 MHz PLL VCO
         mul: unwrap!(PLLMul::try_from(240)),
         // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
-        main_div: PLLMainDiv::Div2,
+        p_div: PLLPDiv::DIV2,
         // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
-        pll48_div: unwrap!(PLL48Div::try_from(5)),
+        q_div: PLLQDiv::DIV5,
     };
     // System clock comes from PLL (= the 120 MHz main PLL output)
     config.rcc.mux = ClockSrc::PLL;
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
     let _p = embassy_stm32::init(config);
 
     loop {
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after_millis(1000).await;
         info!("1s elapsed");
     }
 }

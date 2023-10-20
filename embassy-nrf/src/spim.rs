@@ -176,7 +176,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         let mut spim = Self { _p: spim };
 
         // Apply runtime peripheral configuration
-        Self::set_config(&mut spim, &config);
+        Self::set_config(&mut spim, &config).unwrap();
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -566,7 +566,8 @@ mod eha {
 
 impl<'d, T: Instance> SetConfig for Spim<'d, T> {
     type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         let r = T::regs();
         // Configure mode.
         let mode = config.mode;
@@ -604,5 +605,7 @@ impl<'d, T: Instance> SetConfig for Spim<'d, T> {
         // Set over-read character
         let orc = config.orc;
         r.orc.write(|w| unsafe { w.orc().bits(orc) });
+
+        Ok(())
     }
 }

@@ -9,9 +9,6 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(40_000);
-
 /// Configuration of the clocks
 ///
 #[non_exhaustive]
@@ -25,6 +22,8 @@ pub struct Config {
     pub pclk2: Option<Hertz>,
     pub adcclk: Option<Hertz>,
     pub pllxtpre: bool,
+
+    pub ls: super::LsConfig,
 }
 
 pub(crate) unsafe fn init(config: Config) {
@@ -103,7 +102,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     assert!(pclk2 <= 72_000_000);
 
-    // Only needed for stm32f103?
     FLASH.acr().write(|w| {
         w.set_latency(if real_sysclk <= 24_000_000 {
             Latency::WS0
@@ -112,6 +110,8 @@ pub(crate) unsafe fn init(config: Config) {
         } else {
             Latency::WS2
         });
+        // the prefetch buffer is enabled by default, let's keep it enabled
+        w.set_prftbe(true);
     });
 
     // the USB clock is only valid if an external crystal is used, the PLL is enabled, and the
@@ -169,7 +169,14 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(not(rcc_f100))]
         w.set_usbpre(Usbpre::from_bits(usbpre as u8));
         w.set_sw(if pllmul_bits.is_some() {
-            Sw::PLL
+            #[cfg(not(rcc_f1cl))]
+            {
+                Sw::PLL1_P
+            }
+            #[cfg(rcc_f1cl)]
+            {
+                Sw::PLL
+            }
         } else if config.hse.is_some() {
             Sw::HSE
         } else {
@@ -177,13 +184,16 @@ pub(crate) unsafe fn init(config: Config) {
         });
     });
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
         sys: Hertz(real_sysclk),
-        apb1: Hertz(pclk1),
-        apb2: Hertz(pclk2),
-        apb1_tim: Hertz(pclk1 * timer_mul1),
-        apb2_tim: Hertz(pclk2 * timer_mul2),
-        ahb1: Hertz(hclk),
+        pclk1: Hertz(pclk1),
+        pclk2: Hertz(pclk2),
+        pclk1_tim: Hertz(pclk1 * timer_mul1),
+        pclk2_tim: Hertz(pclk2 * timer_mul2),
+        hclk1: Hertz(hclk),
         adc: Some(Hertz(adcclk)),
+        rtc,
     });
 }

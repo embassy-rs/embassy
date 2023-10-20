@@ -4,7 +4,9 @@
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllSource, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{
+    AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
+};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, pac, peripherals, usb, Config};
@@ -29,9 +31,9 @@ async fn main(_spawner: Spawner) {
     });
     config.rcc.pll1 = Some(Pll {
         source: PllSource::Hse,
-        prediv: 2,
-        mul: 125,
-        divp: Some(2), // 250mhz
+        prediv: PllPreDiv::DIV2,
+        mul: PllMul::MUL125,
+        divp: Some(PllDiv::DIV2), // 250mhz
         divq: None,
         divr: None,
     });

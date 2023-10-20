@@ -65,8 +65,7 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
     fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
         into_ref!(tim);
 
-        T::enable();
-        <T as crate::rcc::sealed::RccPeripheral>::reset();
+        T::enable_and_reset();
 
         let mut this = Self { inner: tim };
 
@@ -74,7 +73,7 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
         this.set_freq(freq);
         this.inner.start();
 
-        this.inner.enable_outputs(true);
+        this.inner.enable_outputs();
 
         this.inner
             .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
@@ -126,6 +125,46 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
 
         self.inner.set_dead_time_clock_division(ckd);
         self.inner.set_dead_time_value(value);
+    }
+}
+
+impl<'d, T: ComplementaryCaptureCompare16bitInstance> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
+    type Channel = Channel;
+    type Time = Hertz;
+    type Duty = u16;
+
+    fn disable(&mut self, channel: Self::Channel) {
+        self.inner.enable_complementary_channel(channel, false);
+        self.inner.enable_channel(channel, false);
+    }
+
+    fn enable(&mut self, channel: Self::Channel) {
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_complementary_channel(channel, true);
+    }
+
+    fn get_period(&self) -> Self::Time {
+        self.inner.get_frequency().into()
+    }
+
+    fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
+        self.inner.get_compare_value(channel)
+    }
+
+    fn get_max_duty(&self) -> Self::Duty {
+        self.inner.get_max_compare_value() + 1
+    }
+
+    fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
+        assert!(duty <= self.get_max_duty());
+        self.inner.set_compare_value(channel, duty)
+    }
+
+    fn set_period<P>(&mut self, period: P)
+    where
+        P: Into<Self::Time>,
+    {
+        self.inner.set_frequency(period.into());
     }
 }
 

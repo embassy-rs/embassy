@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{ClockSrc, Pll, PllM, PllN, PllR, PllSrc};
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -15,12 +15,12 @@ async fn main(_spawner: Spawner) {
 
     config.rcc.pll = Some(Pll {
         source: PllSrc::HSI16,
-        prediv_m: PllM::Div4,
-        mul_n: PllN::Mul85,
+        prediv_m: PllM::DIV4,
+        mul_n: PllN::MUL85,
         div_p: None,
         div_q: None,
         // Main system clock at 170 MHz
-        div_r: Some(PllR::Div2),
+        div_r: Some(PllR::DIV2),
     });
 
     config.rcc.mux = ClockSrc::PLL;
@@ -29,7 +29,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     loop {
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after_millis(1000).await;
         info!("1s elapsed");
     }
 }

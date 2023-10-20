@@ -116,25 +116,28 @@ pub struct BufferedUartRx<'d, T: BasicInstance> {
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUart<'d, T> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config))
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUartRx<'d, T> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config))
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUartTx<'d, T> {
     type Config = Config;
+    type ConfigError = ();
 
-    fn set_config(&mut self, config: &Self::Config) {
-        unwrap!(self.set_config(config))
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config).map_err(|_| ())
     }
 }
 
@@ -149,9 +152,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
@@ -170,9 +172,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         into_ref!(cts, rts);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         rts.set_as_af(rts.af_num(), AFType::OutputPushPull);
         cts.set_as_af(cts.af_num(), AFType::Input);
@@ -198,9 +199,8 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         into_ref!(de);
 
         // UartRx and UartTx have one refcount ea.
-        T::enable();
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
+        T::enable_and_reset();
 
         de.set_as_af(de.af_num(), AFType::OutputPushPull);
         T::regs().cr3().write(|w| {

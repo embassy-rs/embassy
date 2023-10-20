@@ -170,7 +170,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         let mut twim = Self { _p: twim };
 
         // Apply runtime peripheral configuration
-        Self::set_config(&mut twim, &config);
+        Self::set_config(&mut twim, &config).unwrap();
 
         // Disable all events interrupts
         r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
@@ -890,9 +890,12 @@ mod eha {
 
 impl<'d, T: Instance> SetConfig for Twim<'d, T> {
     type Config = Config;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         let r = T::regs();
         r.frequency
             .write(|w| unsafe { w.frequency().bits(config.frequency as u32) });
+
+        Ok(())
     }
 }

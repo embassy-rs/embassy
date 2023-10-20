@@ -12,7 +12,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
 use embassy_stm32::dac::{DacCh1, DacChannel, Value};
 use embassy_stm32::dma::NoDma;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
 
     unwrap!(dac.set(Value::Bit8(0)));
     // Now wait a little to obtain a stable value
-    Timer::after(Duration::from_millis(30)).await;
+    Timer::after_millis(30).await;
     let offset = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
 
     for v in 0..=255 {
@@ -47,14 +47,14 @@ async fn main(_spawner: Spawner) {
         unwrap!(dac.set(Value::Bit8(dac_output_val)));
 
         // Now wait a little to obtain a stable value
-        Timer::after(Duration::from_millis(30)).await;
+        Timer::after_millis(30).await;
 
         // Need to steal the peripherals here because PA4 is obviously in use already
         let measured = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
         // Calibrate and normalize the measurement to get close to the dac_output_val
         let measured_normalized = ((measured as i32 - offset as i32) / normalization_factor) as i16;
 
-        info!("value / measured: {} / {}", dac_output_val, measured_normalized);
+        //info!("value / measured: {} / {}", dac_output_val, measured_normalized);
 
         // The deviations are quite enormous but that does not matter since this is only a quick test
         assert!((dac_output_val as i16 - measured_normalized).abs() < 15);

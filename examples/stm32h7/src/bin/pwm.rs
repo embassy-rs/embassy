@@ -9,7 +9,7 @@ use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::timer::Channel;
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -21,9 +21,9 @@ async fn main(_spawner: Spawner) {
         config.rcc.csi = true;
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
             divq: None,
             divr: None,
         });
@@ -48,12 +48,12 @@ async fn main(_spawner: Spawner) {
 
     loop {
         pwm.set_duty(Channel::Ch1, 0);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max / 4);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max / 2);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max - 1);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
     }
 }

@@ -45,8 +45,17 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PLLClkDiv::Div2, PLLSrcDiv::Div1, PLLMul::Mul10, None);
-    config.rcc.hsi48 = true;
+    config.rcc.hsi16 = true;
+    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.pll = Some(Pll {
+        // 80Mhz clock (16 / 1 * 10 / 2)
+        source: PLLSource::HSI,
+        prediv: PllPreDiv::DIV1,
+        mul: PllMul::MUL10,
+        divp: None,
+        divq: None,
+        divr: Some(PllRDiv::DIV2),
+    });
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.

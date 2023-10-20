@@ -1,9 +1,8 @@
 use core::cell::Cell;
 use core::convert::TryInto;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 
-use atomic_polyfill::{AtomicU32, AtomicU8};
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
@@ -153,46 +152,43 @@ embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 });
 
 impl RtcDriver {
-    fn init(&'static self) {
+    fn init(&'static self, cs: critical_section::CriticalSection) {
         let r = T::regs_gp16();
 
-        <T as RccPeripheral>::enable();
-        <T as RccPeripheral>::reset();
+        <T as RccPeripheral>::enable_and_reset_with_cs(cs);
 
         let timer_freq = T::frequency();
 
-        critical_section::with(|_| {
-            r.cr1().modify(|w| w.set_cen(false));
-            r.cnt().write(|w| w.set_cnt(0));
+        r.cr1().modify(|w| w.set_cen(false));
+        r.cnt().write(|w| w.set_cnt(0));
 
-            let psc = timer_freq.0 / TICK_HZ as u32 - 1;
-            let psc: u16 = match psc.try_into() {
-                Err(_) => panic!("psc division overflow: {}", psc),
-                Ok(n) => n,
-            };
+        let psc = timer_freq.0 / TICK_HZ as u32 - 1;
+        let psc: u16 = match psc.try_into() {
+            Err(_) => panic!("psc division overflow: {}", psc),
+            Ok(n) => n,
+        };
 
-            r.psc().write(|w| w.set_psc(psc));
-            r.arr().write(|w| w.set_arr(u16::MAX));
+        r.psc().write(|w| w.set_psc(psc));
+        r.arr().write(|w| w.set_arr(u16::MAX));
 
-            // Set URS, generate update and clear URS
-            r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTERONLY));
-            r.egr().write(|w| w.set_ug(true));
-            r.cr1().modify(|w| w.set_urs(vals::Urs::ANYEVENT));
+        // Set URS, generate update and clear URS
+        r.cr1().modify(|w| w.set_urs(vals::Urs::COUNTERONLY));
+        r.egr().write(|w| w.set_ug(true));
+        r.cr1().modify(|w| w.set_urs(vals::Urs::ANYEVENT));
 
-            // Mid-way point
-            r.ccr(0).write(|w| w.set_ccr(0x8000));
+        // Mid-way point
+        r.ccr(0).write(|w| w.set_ccr(0x8000));
 
-            // Enable overflow and half-overflow interrupts
-            r.dier().write(|w| {
-                w.set_uie(true);
-                w.set_ccie(0, true);
-            });
+        // Enable overflow and half-overflow interrupts
+        r.dier().write(|w| {
+            w.set_uie(true);
+            w.set_ccie(0, true);
+        });
 
-            <T as BasicInstance>::Interrupt::unpend();
-            unsafe { <T as BasicInstance>::Interrupt::enable() };
+        <T as BasicInstance>::Interrupt::unpend();
+        unsafe { <T as BasicInstance>::Interrupt::enable() };
 
-            r.cr1().modify(|w| w.set_cen(true));
-        })
+        r.cr1().modify(|w| w.set_cen(true));
     }
 
     fn on_interrupt(&self) {
@@ -229,7 +225,9 @@ impl RtcDriver {
     fn next_period(&self) {
         let r = T::regs_gp16();
 
-        let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
+        // We only modify the period from the timer interrupt, so we know this can't race.
+        let period = self.period.load(Ordering::Relaxed) + 1;
+        self.period.store(period, Ordering::Relaxed);
         let t = (period as u64) << 15;
 
         critical_section::with(move |cs| {
@@ -340,7 +338,11 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Set the rtc but panic if it's already been set
     pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
-        critical_section::with(|cs| assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none()));
+        critical_section::with(|cs| {
+            rtc.stop_wakeup_alarm(cs);
+
+            assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none())
+        });
     }
 
     #[cfg(feature = "low-power")]
@@ -399,18 +401,15 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-            if x < ALARM_COUNT as u8 {
-                Some(x + 1)
+        critical_section::with(|_| {
+            let id = self.alarm_count.load(Ordering::Relaxed);
+            if id < ALARM_COUNT as u8 {
+                self.alarm_count.store(id + 1, Ordering::Relaxed);
+                Some(AlarmHandle::new(id))
             } else {
                 None
             }
-        });
-
-        match id {
-            Ok(id) => Some(AlarmHandle::new(id)),
-            Err(_) => None,
-        }
+        })
     }
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
@@ -461,6 +460,6 @@ pub(crate) fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
 
-pub(crate) fn init() {
-    DRIVER.init()
+pub(crate) fn init(cs: CriticalSection) {
+    DRIVER.init(cs)
 }

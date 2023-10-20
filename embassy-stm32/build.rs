@@ -5,9 +5,36 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::{MemoryRegionKind, METADATA};
+use stm32_metapac::metadata::ir::{BlockItemInner, Enum, FieldSet};
+use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, METADATA};
 
 fn main() {
+    let target = env::var("TARGET").unwrap();
+
+    if target.starts_with("thumbv6m-") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv6m");
+    } else if target.starts_with("thumbv7m-") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv7m");
+    } else if target.starts_with("thumbv7em-") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv7m");
+        println!("cargo:rustc-cfg=armv7em"); // (not currently used)
+    } else if target.starts_with("thumbv8m.base") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv8m");
+        println!("cargo:rustc-cfg=armv8m_base");
+    } else if target.starts_with("thumbv8m.main") {
+        println!("cargo:rustc-cfg=cortex_m");
+        println!("cargo:rustc-cfg=armv8m");
+        println!("cargo:rustc-cfg=armv8m_main");
+    }
+
+    if target.ends_with("-eabihf") {
+        println!("cargo:rustc-cfg=has_fpu");
+    }
+
     let chip_name = match env::vars()
         .map(|(a, _)| a)
         .filter(|x| x.starts_with("CARGO_FEATURE_STM32"))
@@ -50,12 +77,14 @@ fn main() {
                 // We *shouldn't* have singletons for these, but the HAL currently requires
                 // singletons, for using with RccPeripheral to enable/disable clocks to them.
                 "rcc" => {
-                    if r.version.starts_with("h5") || r.version.starts_with("h7") || r.version.starts_with("f4") {
-                        singletons.push("MCO1".to_string());
-                        singletons.push("MCO2".to_string());
-                    }
-                    if r.version.starts_with("l4") {
-                        singletons.push("MCO".to_string());
+                    for pin in p.pins {
+                        if pin.signal.starts_with("MCO") {
+                            let name = pin.signal.replace('_', "").to_string();
+                            if !singletons.contains(&name) {
+                                println!("cargo:rustc-cfg={}", name.to_ascii_lowercase());
+                                singletons.push(name);
+                            }
+                        }
                     }
                     singletons.push(p.name.to_string());
                 }
@@ -91,6 +120,7 @@ fn main() {
     struct SplitFeature {
         feature_name: String,
         pin_name_with_c: String,
+        #[cfg(feature = "_split-pins-enabled")]
         pin_name_without_c: String,
     }
 
@@ -359,6 +389,47 @@ fn main() {
     }
 
     // ========
+    // Extract the rcc registers
+    let rcc_registers = METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| p.registers.as_ref())
+        .find(|r| r.kind == "rcc")
+        .unwrap();
+
+    // ========
+    // Generate rcc fieldset and enum maps
+    let rcc_enum_map: HashMap<&str, HashMap<&str, &Enum>> = {
+        let rcc_blocks = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
+        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.ir.fieldsets.iter().map(|f| (f.name, f)).collect();
+        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.ir.enums.iter().map(|e| (e.name, e)).collect();
+
+        rcc_blocks
+            .iter()
+            .filter_map(|b| match &b.inner {
+                BlockItemInner::Register(register) => register.fieldset.map(|f| (b.name, f)),
+                _ => None,
+            })
+            .filter_map(|(b, f)| {
+                rcc_fieldsets.get(f).map(|f| {
+                    (
+                        b,
+                        f.fields
+                            .iter()
+                            .filter_map(|f| {
+                                let enumm = f.enumm?;
+                                let enumm = rcc_enums.get(enumm)?;
+
+                                Some((f.name, *enumm))
+                            })
+                            .collect(),
+                    )
+                })
+            })
+            .collect()
+    };
+
+    // ========
     // Generate RccPeripheral impls
 
     let refcounted_peripherals = HashSet::from(["usart", "adc"]);
@@ -377,10 +448,8 @@ fn main() {
                     let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
                     let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
                     quote! {
-                        critical_section::with(|_| {
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
-                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
-                        });
+                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
+                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
                     }
                 }
                 None => TokenStream::new(),
@@ -397,9 +466,9 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
-            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
-            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+            let clk = format_ident!("{}", rcc.clock);
+            let en_reg = format_ident!("{}", en.register);
+            let set_en_field = format_ident!("set_{}", en.field);
 
             let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
                 let refcount_static =
@@ -425,30 +494,81 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
+            let mux_supported = HashSet::from(["c0", "h5", "h50", "h7", "h7ab", "h7rm0433", "g4", "l4"])
+                .contains(rcc_registers.version);
+            let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
+                // restrict mux implementation to supported versions
+                if !mux_supported {
+                    return None;
+                }
+
+                let mux = mux?;
+                let fieldset = rcc_enum_map.get(mux.register)?;
+                let enumm = fieldset.get(mux.field)?;
+
+                Some((mux, *enumm))
+            };
+
+            let clock_frequency = match mux_for(rcc.mux.as_ref()) {
+                Some((mux, rcc_enumm)) => {
+                    let fieldset_name = format_ident!("{}", mux.register);
+                    let field_name = format_ident!("{}", mux.field);
+                    let enum_name = format_ident!("{}", rcc_enumm.name);
+
+                    let match_arms: TokenStream = rcc_enumm
+                        .variants
+                        .iter()
+                        .filter(|v| v.name != "DISABLE")
+                        .map(|v| {
+                            let variant_name = format_ident!("{}", v.name);
+                            let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
+
+                            if v.name.starts_with("HCLK") || v.name.starts_with("PCLK") || v.name == "SYS" { 
+                                quote! {
+                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
+                                }
+                            } else {
+                                quote! {
+                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
+                                }
+                            }
+                        })
+                        .collect();
+
+                    quote! {
+                        use crate::pac::rcc::vals::#enum_name;
+
+                        #[allow(unreachable_patterns)]
+                        match crate::pac::RCC.#fieldset_name().read().#field_name() {
+                            #match_arms
+
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                None => quote! {
+                    unsafe { crate::rcc::get_freqs().#clk }
+                },
+            };
+
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
-                        unsafe { crate::rcc::get_freqs().#clk }
+                        #clock_frequency
                     }
-                    fn enable() {
-                        critical_section::with(|_| {
-                            #before_enable
-                            #[cfg(feature = "low-power")]
-                            crate::rcc::clock_refcount_add();
-                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-                            #after_enable
-                        })
-                    }
-                    fn disable() {
-                        critical_section::with(|_| {
-                            #before_disable
-                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
-                            #[cfg(feature = "low-power")]
-                            crate::rcc::clock_refcount_sub();
-                        })
-                    }
-                    fn reset() {
+                    fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
+                        #before_enable
+                        #[cfg(feature = "low-power")]
+                        crate::rcc::clock_refcount_add(_cs);
+                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
+                        #after_enable
                         #rst
+                    }
+                    fn disable_with_cs(_cs: critical_section::CriticalSection) {
+                        #before_disable
+                        crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
+                        #[cfg(feature = "low-power")]
+                        crate::rcc::clock_refcount_sub(_cs);
                     }
                 }
 
@@ -457,12 +577,14 @@ fn main() {
         }
     }
 
-    let mut refcount_mod = TokenStream::new();
-    for refcount_static in refcount_statics {
-        refcount_mod.extend(quote! {
-            pub(crate) static mut #refcount_static: u8 = 0;
-        });
-    }
+    let refcount_mod: TokenStream = refcount_statics
+        .iter()
+        .map(|refcount_static| {
+            quote! {
+                pub(crate) static mut #refcount_static: u8 = 0;
+            }
+        })
+        .collect();
 
     g.extend(quote! {
         mod refcount_statics {
@@ -718,12 +840,17 @@ fn main() {
         (("sdmmc", "D6"), quote!(crate::sdmmc::D6Pin)),
         (("sdmmc", "D6"), quote!(crate::sdmmc::D7Pin)),
         (("sdmmc", "D8"), quote!(crate::sdmmc::D8Pin)),
-        (("quadspi", "BK1_IO0"), quote!(crate::qspi::D0Pin)),
-        (("quadspi", "BK1_IO1"), quote!(crate::qspi::D1Pin)),
-        (("quadspi", "BK1_IO2"), quote!(crate::qspi::D2Pin)),
-        (("quadspi", "BK1_IO3"), quote!(crate::qspi::D3Pin)),
+        (("quadspi", "BK1_IO0"), quote!(crate::qspi::BK1D0Pin)),
+        (("quadspi", "BK1_IO1"), quote!(crate::qspi::BK1D1Pin)),
+        (("quadspi", "BK1_IO2"), quote!(crate::qspi::BK1D2Pin)),
+        (("quadspi", "BK1_IO3"), quote!(crate::qspi::BK1D3Pin)),
+        (("quadspi", "BK1_NCS"), quote!(crate::qspi::BK1NSSPin)),
+        (("quadspi", "BK2_IO0"), quote!(crate::qspi::BK2D0Pin)),
+        (("quadspi", "BK2_IO1"), quote!(crate::qspi::BK2D1Pin)),
+        (("quadspi", "BK2_IO2"), quote!(crate::qspi::BK2D2Pin)),
+        (("quadspi", "BK2_IO3"), quote!(crate::qspi::BK2D3Pin)),
+        (("quadspi", "BK2_NCS"), quote!(crate::qspi::BK2NSSPin)),
         (("quadspi", "CLK"), quote!(crate::qspi::SckPin)),
-        (("quadspi", "BK1_NCS"), quote!(crate::qspi::NSSPin)),
     ].into();
 
     for p in METADATA.peripherals {
@@ -745,25 +872,8 @@ fn main() {
                     let af = pin.af.unwrap_or(0);
 
                     // MCO is special
-                    if pin.signal.starts_with("MCO_") {
-                        // Supported in H7 only for now
-                        if regs.version.starts_with("h5")
-                            || regs.version.starts_with("h7")
-                            || regs.version.starts_with("f4")
-                        {
-                            peri = format_ident!("{}", pin.signal.replace('_', ""));
-                        } else {
-                            continue;
-                        }
-                    }
-
-                    if pin.signal == "MCO" {
-                        // Supported in H7 only for now
-                        if regs.version.starts_with("l4") {
-                            peri = format_ident!("MCO");
-                        } else {
-                            continue;
-                        }
+                    if pin.signal.starts_with("MCO") {
+                        peri = format_ident!("{}", pin.signal.replace('_', ""));
                     }
 
                     g.extend(quote! {
@@ -802,6 +912,20 @@ fn main() {
                             impl_adc_pin!( #peri, #pin_name, #ch);
                         })
                     }
+                }
+
+                if regs.kind == "opamp" {
+                    if !pin.signal.starts_with("VP") {
+                        continue;
+                    }
+
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
+
+                    g.extend(quote! {
+                        impl_opamp_pin!( #peri, #pin_name, #ch);
+                    })
                 }
 
                 // DAC is special
@@ -885,6 +1009,97 @@ fn main() {
                     });
                 }
             }
+        }
+    }
+
+    // ========
+    // Generate Div/Mul impls for RCC prescalers/dividers/multipliers.
+    for e in rcc_registers.ir.enums {
+        fn is_rcc_name(e: &str) -> bool {
+            match e {
+                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" => true,
+                "Timpre" | "Pllrclkpre" => false,
+                e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
+                _ => false,
+            }
+        }
+
+        #[derive(Copy, Clone, Debug)]
+        struct Frac {
+            num: u32,
+            denom: u32,
+        }
+
+        impl Frac {
+            fn simplify(self) -> Self {
+                let d = gcd(self.num, self.denom);
+                Self {
+                    num: self.num / d,
+                    denom: self.denom / d,
+                }
+            }
+        }
+
+        fn gcd(a: u32, b: u32) -> u32 {
+            if b == 0 {
+                return a;
+            }
+            gcd(b, a % b)
+        }
+
+        fn parse_num(n: &str) -> Result<Frac, ()> {
+            for prefix in ["DIV", "MUL"] {
+                if let Some(n) = n.strip_prefix(prefix) {
+                    let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
+                    let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
+                    let f = Frac {
+                        num: mantissa,
+                        denom: 10u32.pow(exponent),
+                    };
+                    return Ok(f.simplify());
+                }
+            }
+            Err(())
+        }
+
+        if is_rcc_name(e.name) {
+            let enum_name = format_ident!("{}", e.name);
+            let mut muls = Vec::new();
+            let mut divs = Vec::new();
+            for v in e.variants {
+                let Ok(val) = parse_num(v.name) else {
+                    panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
+                };
+                let variant_name = format_ident!("{}", v.name);
+                let variant = quote!(crate::pac::rcc::vals::#enum_name::#variant_name);
+                let num = val.num;
+                let denom = val.denom;
+                muls.push(quote!(#variant => self * #num / #denom,));
+                divs.push(quote!(#variant => self * #denom / #num,));
+            }
+
+            g.extend(quote! {
+                impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
+                    type Output = crate::time::Hertz;
+                    fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
+                        match rhs {
+                            #(#divs)*
+                            #[allow(unreachable_patterns)]
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+                impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
+                    type Output = crate::time::Hertz;
+                    fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
+                        match rhs {
+                            #(#muls)*
+                            #[allow(unreachable_patterns)]
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            });
         }
     }
 

@@ -56,8 +56,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     ) -> Self {
         into_ref!(scl, sda, tx_dma, rx_dma);
 
-        T::enable();
-        T::reset();
+        T::enable_and_reset();
 
         scl.set_as_af_pull(
             scl.af_num(),
@@ -518,7 +517,8 @@ impl Timings {
 
 impl<'d, T: Instance> SetConfig for I2c<'d, T> {
     type Config = Hertz;
-    fn set_config(&mut self, config: &Self::Config) {
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
         let timings = Timings::new(T::frequency(), *config);
         T::regs().cr2().modify(|reg| {
             reg.set_freq(timings.freq);
@@ -531,5 +531,7 @@ impl<'d, T: Instance> SetConfig for I2c<'d, T> {
         T::regs().trise().modify(|reg| {
             reg.set_trise(timings.trise);
         });
+
+        Ok(())
     }
 }

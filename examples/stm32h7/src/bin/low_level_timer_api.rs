@@ -9,7 +9,7 @@ use embassy_stm32::gpio::Speed;
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::*;
 use embassy_stm32::{into_ref, Config, Peripheral, PeripheralRef};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -22,10 +22,10 @@ async fn main(_spawner: Spawner) {
         config.rcc.hsi48 = true; // needed for RNG
         config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
-            prediv: 4,
-            mul: 50,
-            divp: Some(2),
-            divq: Some(8), // 100 Mhz
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL50,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,
         });
         config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
@@ -49,13 +49,13 @@ async fn main(_spawner: Spawner) {
 
     loop {
         pwm.set_duty(Channel::Ch1, 0);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max / 4);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max / 2);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
         pwm.set_duty(Channel::Ch1, max - 1);
-        Timer::after(Duration::from_millis(300)).await;
+        Timer::after_millis(300).await;
     }
 }
 pub struct SimplePwm32<'d, T: CaptureCompare32bitInstance> {
@@ -73,8 +73,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     ) -> Self {
         into_ref!(tim, ch1, ch2, ch3, ch4);
 
-        T::enable();
-        <T as embassy_stm32::rcc::low_level::RccPeripheral>::reset();
+        T::enable_and_reset();
 
         ch1.set_speed(Speed::VeryHigh);
         ch1.set_as_af(ch1.af_num(), AFType::OutputPushPull);

@@ -1,35 +1,14 @@
 #[cfg(rcc_f3)]
 use crate::pac::adccommon::vals::Ckmode;
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::{Adcpres, Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
+pub use crate::pac::rcc::vals::Adcpres;
+use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(8_000_000);
-
-/// LSI speed
-pub const LSI_FREQ: Hertz = Hertz(40_000);
-
-impl From<AdcClockSource> for Adcpres {
-    fn from(value: AdcClockSource) -> Self {
-        match value {
-            AdcClockSource::PllDiv1 => Adcpres::DIV1,
-            AdcClockSource::PllDiv2 => Adcpres::DIV2,
-            AdcClockSource::PllDiv4 => Adcpres::DIV4,
-            AdcClockSource::PllDiv6 => Adcpres::DIV6,
-            AdcClockSource::PllDiv8 => Adcpres::DIV8,
-            AdcClockSource::PllDiv12 => Adcpres::DIV12,
-            AdcClockSource::PllDiv16 => Adcpres::DIV16,
-            AdcClockSource::PllDiv32 => Adcpres::DIV32,
-            AdcClockSource::PllDiv64 => Adcpres::DIV64,
-            AdcClockSource::PllDiv128 => Adcpres::DIV128,
-            AdcClockSource::PllDiv256 => Adcpres::DIV256,
-            _ => unreachable!(),
-        }
-    }
-}
 
 #[cfg(rcc_f3)]
 impl From<AdcClockSource> for Ckmode {
@@ -45,32 +24,13 @@ impl From<AdcClockSource> for Ckmode {
 
 #[derive(Clone, Copy)]
 pub enum AdcClockSource {
-    PllDiv1 = 1,
-    PllDiv2 = 2,
-    PllDiv4 = 4,
-    PllDiv6 = 6,
-    PllDiv8 = 8,
-    PllDiv12 = 12,
-    PllDiv16 = 16,
-    PllDiv32 = 32,
-    PllDiv64 = 64,
-    PllDiv128 = 128,
-    PllDiv256 = 256,
+    Pll(Adcpres),
     BusDiv1,
     BusDiv2,
     BusDiv4,
 }
 
 impl AdcClockSource {
-    pub fn is_bus(&self) -> bool {
-        match self {
-            Self::BusDiv1 => true,
-            Self::BusDiv2 => true,
-            Self::BusDiv4 => true,
-            _ => false,
-        }
-    }
-
     pub fn bus_div(&self) -> u32 {
         match self {
             Self::BusDiv1 => 1,
@@ -124,6 +84,7 @@ pub struct Config {
     pub adc34: Option<AdcClockSource>,
     #[cfg(stm32f334)]
     pub hrtim: HrtimClockSource,
+    pub ls: super::LsConfig,
 }
 
 // Information required to setup the PLL clock
@@ -137,67 +98,67 @@ struct PllConfig {
 /// Initialize and Set the clock frequencies
 pub(crate) unsafe fn init(config: Config) {
     // Calculate the real System clock, and PLL configuration if applicable
-    let (Hertz(sysclk), pll_config) = get_sysclk(&config);
-    assert!(sysclk <= 72_000_000);
+    let (sysclk, pll_config) = get_sysclk(&config);
+    assert!(sysclk.0 <= 72_000_000);
 
     // Calculate real AHB clock
-    let hclk = config.hclk.map(|h| h.0).unwrap_or(sysclk);
-    let (hpre_bits, hpre_div) = match sysclk / hclk {
+    let hclk = config.hclk.map(|h| h).unwrap_or(sysclk);
+    let hpre = match sysclk.0 / hclk.0 {
         0 => unreachable!(),
-        1 => (Hpre::DIV1, 1),
-        2 => (Hpre::DIV2, 2),
-        3..=5 => (Hpre::DIV4, 4),
-        6..=11 => (Hpre::DIV8, 8),
-        12..=39 => (Hpre::DIV16, 16),
-        40..=95 => (Hpre::DIV64, 64),
-        96..=191 => (Hpre::DIV128, 128),
-        192..=383 => (Hpre::DIV256, 256),
-        _ => (Hpre::DIV512, 512),
+        1 => Hpre::DIV1,
+        2 => Hpre::DIV2,
+        3..=5 => Hpre::DIV4,
+        6..=11 => Hpre::DIV8,
+        12..=39 => Hpre::DIV16,
+        40..=95 => Hpre::DIV64,
+        96..=191 => Hpre::DIV128,
+        192..=383 => Hpre::DIV256,
+        _ => Hpre::DIV512,
     };
-    let hclk = sysclk / hpre_div;
-    assert!(hclk <= 72_000_000);
+    let hclk = sysclk / hpre;
+    assert!(hclk <= Hertz(72_000_000));
 
     // Calculate real APB1 clock
-    let pclk1 = config.pclk1.map(|p| p.0).unwrap_or(hclk);
-    let (ppre1_bits, ppre1) = match hclk / pclk1 {
+    let pclk1 = config.pclk1.unwrap_or(hclk);
+    let ppre1 = match hclk / pclk1 {
         0 => unreachable!(),
-        1 => (Ppre::DIV1, 1),
-        2 => (Ppre::DIV2, 2),
-        3..=5 => (Ppre::DIV4, 4),
-        6..=11 => (Ppre::DIV8, 8),
-        _ => (Ppre::DIV16, 16),
+        1 => Ppre::DIV1,
+        2 => Ppre::DIV2,
+        3..=5 => Ppre::DIV4,
+        6..=11 => Ppre::DIV8,
+        _ => Ppre::DIV16,
     };
-    let timer_mul1 = if ppre1 == 1 { 1 } else { 2 };
+    let timer_mul1 = if ppre1 == Ppre::DIV1 { 1u32 } else { 2 };
     let pclk1 = hclk / ppre1;
-    assert!(pclk1 <= 36_000_000);
+    assert!(pclk1 <= Hertz(36_000_000));
 
     // Calculate real APB2 clock
-    let pclk2 = config.pclk2.map(|p| p.0).unwrap_or(hclk);
-    let (ppre2_bits, ppre2) = match hclk / pclk2 {
+    let pclk2 = config.pclk2.unwrap_or(hclk);
+    let ppre2 = match hclk / pclk2 {
         0 => unreachable!(),
-        1 => (Ppre::DIV1, 1),
-        2 => (Ppre::DIV2, 2),
-        3..=5 => (Ppre::DIV4, 4),
-        6..=11 => (Ppre::DIV8, 8),
-        _ => (Ppre::DIV16, 16),
+        1 => Ppre::DIV1,
+        2 => Ppre::DIV2,
+        3..=5 => Ppre::DIV4,
+        6..=11 => Ppre::DIV8,
+        _ => Ppre::DIV16,
     };
-    let timer_mul2 = if ppre2 == 1 { 1 } else { 2 };
+    let timer_mul2 = if ppre2 == Ppre::DIV1 { 1u32 } else { 2 };
     let pclk2 = hclk / ppre2;
-    assert!(pclk2 <= 72_000_000);
+    assert!(pclk2 <= Hertz(72_000_000));
 
     // Set latency based on HCLK frquency
     // RM0316: "The prefetch buffer must be kept on when using a prescaler
     // different from 1 on the AHB clock.", "Half-cycle access cannot be
     // used when there is a prescaler different from 1 on the AHB clock"
     FLASH.acr().modify(|w| {
-        w.set_latency(if hclk <= 24_000_000 {
+        w.set_latency(if hclk <= Hertz(24_000_000) {
             Latency::WS0
-        } else if hclk <= 48_000_000 {
+        } else if hclk <= Hertz(48_000_000) {
             Latency::WS1
         } else {
             Latency::WS2
         });
-        if hpre_div != 1 {
+        if hpre != Hpre::DIV1 {
             w.set_hlfcya(false);
             w.set_prftbe(true);
         }
@@ -240,9 +201,9 @@ pub(crate) unsafe fn init(config: Config) {
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
     RCC.cfgr().modify(|w| {
-        w.set_ppre2(ppre2_bits);
-        w.set_ppre1(ppre1_bits);
-        w.set_hpre(hpre_bits);
+        w.set_ppre2(ppre2);
+        w.set_ppre1(ppre1);
+        w.set_hpre(hpre);
     });
 
     // Wait for the new prescalers to kick in
@@ -253,52 +214,50 @@ pub(crate) unsafe fn init(config: Config) {
     // CFGR has been written before (PLL, PLL48, clock divider) don't overwrite these settings
     RCC.cfgr().modify(|w| {
         w.set_sw(match (pll_config, config.hse) {
-            (Some(_), _) => Sw::PLL,
+            (Some(_), _) => Sw::PLL1_P,
             (None, Some(_)) => Sw::HSE,
             (None, None) => Sw::HSI,
         })
     });
 
     #[cfg(rcc_f3)]
-    let adc = config.adc.map(|adc| {
-        if !adc.is_bus() {
+    let adc = config.adc.map(|adc| match adc {
+        AdcClockSource::Pll(adcpres) => {
             RCC.cfgr2().modify(|w| {
                 // Make sure that we're using the PLL
                 pll_config.unwrap();
-                w.set_adc12pres(adc.into());
+                w.set_adc12pres(adcpres);
 
-                Hertz(sysclk / adc as u32)
-            })
-        } else {
-            crate::pac::ADC_COMMON.ccr().modify(|w| {
-                assert!(!(adc.bus_div() == 1 && hpre_bits != Hpre::DIV1));
-
-                w.set_ckmode(adc.into());
-
-                Hertz(sysclk / adc.bus_div() as u32)
+                sysclk / adcpres
             })
         }
+        _ => crate::pac::ADC_COMMON.ccr().modify(|w| {
+            assert!(!(adc.bus_div() == 1 && hpre != Hpre::DIV1));
+
+            w.set_ckmode(adc.into());
+
+            sysclk / adc.bus_div()
+        }),
     });
 
     #[cfg(all(rcc_f3, adc3_common))]
-    let adc34 = config.adc.map(|adc| {
-        if !adc.is_bus() {
+    let adc34 = config.adc34.map(|adc| match adc {
+        AdcClockSource::Pll(adcpres) => {
             RCC.cfgr2().modify(|w| {
                 // Make sure that we're using the PLL
                 pll_config.unwrap();
-                w.set_adc12pres(adc.into());
+                w.set_adc34pres(adcpres);
 
-                Hertz(sysclk / adc as u32)
-            })
-        } else {
-            crate::pac::ADC3_COMMON.ccr().modify(|w| {
-                assert!(!(adc.bus_div() == 1 && hpre_bits != Hpre::DIV1));
-
-                w.set_ckmode(adc.into());
-
-                Hertz(sysclk / adc.bus_div() as u32)
+                sysclk / adcpres
             })
         }
+        _ => crate::pac::ADC_COMMON.ccr().modify(|w| {
+            assert!(!(adc.bus_div() == 1 && hpre != Hpre::DIV1));
+
+            w.set_ckmode(adc.into());
+
+            sysclk / adc.bus_div()
+        }),
     });
 
     #[cfg(stm32f334)]
@@ -310,21 +269,23 @@ pub(crate) unsafe fn init(config: Config) {
 
             // Make sure that we're using the PLL
             pll_config.unwrap();
-            assert!((pclk2 == sysclk) || (pclk2 * 2 == sysclk));
+            assert!((pclk2 == sysclk) || (pclk2 * 2u32 == sysclk));
 
-            RCC.cfgr3().modify(|w| w.set_hrtim1sw(Timsw::PLL));
+            RCC.cfgr3().modify(|w| w.set_hrtim1sw(Timsw::PLL1_P));
 
-            Some(Hertz(sysclk * 2))
+            Some(sysclk * 2u32)
         }
     };
 
+    let rtc = config.ls.init();
+
     set_freqs(Clocks {
-        sys: Hertz(sysclk),
-        apb1: Hertz(pclk1),
-        apb2: Hertz(pclk2),
-        apb1_tim: Hertz(pclk1 * timer_mul1),
-        apb2_tim: Hertz(pclk2 * timer_mul2),
-        ahb1: Hertz(hclk),
+        sys: sysclk,
+        pclk1: pclk1,
+        pclk2: pclk2,
+        pclk1_tim: pclk1 * timer_mul1,
+        pclk2_tim: pclk2 * timer_mul2,
+        hclk1: hclk,
         #[cfg(rcc_f3)]
         adc: adc,
         #[cfg(all(rcc_f3, adc3_common))]
@@ -333,6 +294,7 @@ pub(crate) unsafe fn init(config: Config) {
         adc34: None,
         #[cfg(stm32f334)]
         hrtim: hrtim,
+        rtc,
     });
 }
 
@@ -421,16 +383,16 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
 
 #[inline]
 #[allow(unused_variables)]
-fn get_usb_pre(config: &Config, sysclk: u32, pclk1: u32, pll_config: &Option<PllConfig>) -> Usbpre {
+fn get_usb_pre(config: &Config, sysclk: Hertz, pclk1: Hertz, pll_config: &Option<PllConfig>) -> Usbpre {
     cfg_if::cfg_if! {
         // Some chips do not have USB
         if #[cfg(any(stm32f301, stm32f318, stm32f334))] {
             panic!("USB clock not supported by the chip");
         } else {
-            let usb_ok = config.hse.is_some() && pll_config.is_some() && (pclk1 >= 10_000_000);
+            let usb_ok = config.hse.is_some() && pll_config.is_some() && (pclk1 >= Hertz(10_000_000));
             match (usb_ok, sysclk) {
-                (true, 72_000_000) => Usbpre::DIV1_5,
-                (true, 48_000_000) => Usbpre::DIV1,
+                (true, Hertz(72_000_000)) => Usbpre::DIV1_5,
+                (true, Hertz(48_000_000)) => Usbpre::DIV1,
                 _ => panic!(
                     "USB clock is only valid if the PLL output frequency is either 48MHz or 72MHz"
                 ),

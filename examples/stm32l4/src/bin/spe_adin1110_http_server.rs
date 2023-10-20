@@ -32,7 +32,6 @@ use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
 use hal::gpio::{Input, Level, Output, Speed};
 use hal::i2c::{self, I2c};
-use hal::rcc::{self};
 use hal::rng::{self, Rng};
 use hal::{bind_interrupts, exti, pac, peripherals};
 use heapless::Vec;
@@ -49,7 +48,7 @@ use embassy_net_adin1110::{self, Device, Runner, ADIN1110};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hal::gpio::Pull;
 use hal::i2c::Config as I2C_Config;
-use hal::rcc::{ClockSrc, PLLClkDiv, PLLMul, PLLSource, PLLSrcDiv};
+use hal::rcc::{ClockSrc, PLLSource, Pll, PllMul, PllPreDiv, PllRDiv};
 use hal::spi::{Config as SPI_Config, Spi};
 use hal::time::Hertz;
 
@@ -78,15 +77,17 @@ async fn main(spawner: Spawner) {
 
     // 80Mhz clock (Source: 8 / SrcDiv: 1 * PLLMul 20 / ClkDiv 2)
     // 80MHz highest frequency for flash 0 wait.
-    config.rcc.mux = ClockSrc::PLL(
-        PLLSource::HSE(Hertz(8_000_000)),
-        PLLClkDiv::Div2,
-        PLLSrcDiv::Div1,
-        PLLMul::Mul20,
-        None,
-    );
+    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.hse = Some(Hertz::mhz(8));
+    config.rcc.pll = Some(Pll {
+        source: PLLSource::HSE,
+        prediv: PllPreDiv::DIV1,
+        mul: PllMul::MUL20,
+        divp: None,
+        divq: None,
+        divr: Some(PllRDiv::DIV2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
+    });
     config.rcc.hsi48 = true; // needed for rng
-    config.rcc.rtc_mux = rcc::RtcClockSource::LSI;
 
     let dp = embassy_stm32::init(config);
 
@@ -308,7 +309,7 @@ async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static, periphera
 
     loop {
         led.set_low();
-        match select(temp_sens.read_temp(), Timer::after(Duration::from_millis(500))).await {
+        match select(temp_sens.read_temp(), Timer::after_millis(500)).await {
             Either::First(i2c_ret) => match i2c_ret {
                 Ok(value) => {
                     led.set_high();
@@ -366,7 +367,7 @@ pub struct ADT7422<'d, BUS: I2cBus> {
     bus: BUS,
 }
 
-#[derive(Debug, Format)]
+#[derive(Debug, Format, PartialEq, Eq)]
 pub enum Error<I2cError: Format> {
     I2c(I2cError),
     Address,
@@ -426,7 +427,7 @@ where
         // Start: One shot
         let cfg = 0b01 << 5;
         self.write_cfg(cfg).await?;
-        Timer::after(Duration::from_millis(250)).await;
+        Timer::after_millis(250).await;
         self.bus
             .write_read(self.addr, &[Registers::Temp_MSB as u8], &mut buffer)
             .await

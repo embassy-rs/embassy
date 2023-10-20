@@ -5,20 +5,18 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::ClockSrc;
-use embassy_stm32::rtc::{Rtc, RtcClockSource, RtcConfig};
-use embassy_stm32::time::Hertz;
+use embassy_stm32::rcc::{ClockSrc, LsConfig};
+use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = {
         let mut config = Config::default();
-        config.rcc.mux = ClockSrc::HSE32;
-        config.rcc.lse = Some(Hertz(32_768));
-        config.rcc.rtc_mux = RtcClockSource::LSE;
+        config.rcc.mux = ClockSrc::HSE;
+        config.rcc.ls = LsConfig::default_lse();
         embassy_stm32::init(config)
     };
     info!("Hello World!");
@@ -34,7 +32,7 @@ async fn main(_spawner: Spawner) {
     rtc.set_datetime(now.into()).expect("datetime not set");
 
     // In reality the delay would be much longer
-    Timer::after(Duration::from_millis(20000)).await;
+    Timer::after_millis(20000).await;
 
     let then: NaiveDateTime = rtc.now().unwrap().into();
     info!("Got RTC! {:?}", then.timestamp());
