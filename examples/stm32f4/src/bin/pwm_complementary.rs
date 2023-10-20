@@ -30,6 +30,7 @@ async fn main(_spawner: Spawner) {
         None,
         None,
         khz(10),
+        Default::default(),
     );
 
     let max = pwm.get_max_duty();
