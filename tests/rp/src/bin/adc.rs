@@ -93,6 +93,7 @@ async fn main(_spawner: Spawner) {
         adc.read_many(
             &mut Channel::new_pin(&mut p.PIN_29, Pull::Down),
             &mut low,
+            1,
             &mut p.DMA_CH0,
         )
         .await
@@ -100,12 +101,18 @@ async fn main(_spawner: Spawner) {
         adc.read_many(
             &mut Channel::new_pin(&mut p.PIN_29, Pull::None),
             &mut none,
+            1,
             &mut p.DMA_CH0,
         )
         .await
         .unwrap();
-        adc.read_many_raw(&mut Channel::new_pin(&mut p.PIN_29, Pull::Up), &mut up, &mut p.DMA_CH0)
-            .await;
+        adc.read_many_raw(
+            &mut Channel::new_pin(&mut p.PIN_29, Pull::Up),
+            &mut up,
+            1,
+            &mut p.DMA_CH0,
+        )
+        .await;
         defmt::assert!(low.iter().zip(none.iter()).all(|(l, n)| *l >> 4 < *n as u16));
         defmt::assert!(up.iter().all(|s| s.good()));
         defmt::assert!(none.iter().zip(up.iter()).all(|(n, u)| (*n as u16) < u.value()));
@@ -115,6 +122,7 @@ async fn main(_spawner: Spawner) {
         adc.read_many(
             &mut Channel::new_temp_sensor(&mut p.ADC_TEMP_SENSOR),
             &mut temp,
+            1,
             &mut p.DMA_CH0,
         )
         .await
