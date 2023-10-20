@@ -1,3 +1,4 @@
+use core::cell::RefCell;
 use core::cmp;
 #[cfg(feature = "time")]
 use core::future::poll_fn;
@@ -9,9 +10,12 @@ use embassy_embedded_hal::SetConfig;
 #[cfg(feature = "time")]
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+use stm32_metapac::i2c::vals;
 
 use crate::dma::NoDma;
 #[cfg(feature = "time")]
@@ -34,11 +38,101 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let regs = T::regs();
         let isr = regs.isr().read();
 
-        if isr.tcr() || isr.tc() {
-            T::state().waker.wake();
-        }
-        // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
-        // the interrupt
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            if state_m.slave_mode {
+                // ============================================ slave interrupt state_m machine
+                if isr.berr() {
+                    regs.icr().modify(|w| {
+                        w.set_berrcf(true);
+                    });
+                    state_m.errors += 1;
+                    state_m.result = Err(Error::Bus);
+                } else if isr.arlo() {
+                    regs.icr().write(|w| w.set_arlocf(true));
+                    state_m.result = Err(Error::Arbitration);
+                } else if isr.nackf() {
+                    regs.icr().write(|w| w.set_nackcf(true));
+                    // Make one extra loop to wait on the stop condition
+                } else if isr.txis() {
+                    // send the next byte to the master, or NACK in case of error, then end transaction
+                    match state_m.read_byte() {
+                        Ok(b) => regs.txdr().write(|w| w.set_txdata(b)),
+                        Err(Error::OkBufferTransferred) => {
+                            state_m.result = Ok(());
+                            // Send a NACK, set nbytes to clear tcr flag
+                            regs.cr2().modify(|w| {
+                                w.set_nack(true);
+                            })
+                        }
+                        Err(e) => {
+                            state_m.result = Err(e);
+                            state_m.errors += 1;
+                            // Send a NACK, set nbytes to clear tcr flag
+                            regs.cr2().modify(|w| {
+                                w.set_nack(true);
+                            })
+                        }
+                    };
+                } else if isr.rxne() {
+                    let b = regs.rxdr().read().rxdata();
+                    // byte is received from master. Store in buffer. In case of error send NACK, then end transaction
+                    match state_m.write_byte(b) {
+                        Ok(()) => (),
+                        Err(e) => {
+                            state_m.result = Err(e);
+                            state_m.errors += 1;
+                            // Send a NACK, set nbytes to clear tcr flag
+                            regs.cr2().modify(|w| {
+                                w.set_nack(true);
+                            })
+                        }
+                    }
+                } else if isr.stopf() {
+                    // Clear the stop condition flag
+                    regs.icr().write(|w| w.set_stopcf(true));
+                    state_m.ready = true;
+                    T::state().waker.wake();
+                } else if isr.tcr() {
+                    // This condition Will only happen when reload == 1 and sbr == 1 (slave) and nbytes was written.
+                    // Send a NACK, set nbytes to clear tcr flag
+                    regs.cr2().modify(|w| {
+                        w.set_nack(true);
+                    });
+                    // Make one extra loop here to wait on the stop condition
+                } else if isr.addr() {
+                    // handle the slave is addressed case, first step in the transaction
+                    state_m.current_address = isr.addcode();
+                    state_m.dir = isr.dir();
+                    if state_m.dir == vals::Dir::READ {
+                        // Set the nbytes START and prepare to receive bytes into `buffer`.
+                        regs.cr2().modify(|w| {
+                            // Set number of bytes to transfer: maximum as all incoming bytes will be ACK'ed
+                            w.set_nbytes(state_m.get_size());
+                            // during sending nbytes automatically send a ACK, stretch clock after last byte
+                            w.set_reload(vals::Reload::COMPLETED);
+                        });
+                    } else {
+                        // Set the nbytes to the maximum buffer size and wait for the bytes from the master
+                        regs.cr2().modify(|w| {
+                            w.set_nbytes(BUFFER_SIZE as u8);
+                            w.set_reload(vals::Reload::COMPLETED)
+                        });
+                        // flush i2c tx register
+                        regs.isr().write(|w| w.set_txe(true));
+                    }
+                    // end address phase, release clock stretching
+                    regs.icr().write(|w| w.set_addrcf(true));
+                }
+            // ============================================ end slave interrupt state machine
+            } else {
+                if isr.tcr() || isr.tc() {
+                    T::state().waker.wake();
+                }
+            }
+        }); // end of mutex
+            // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
+            // the interrupt
         critical_section::with(|_| {
             regs.cr1().modify(|w| w.set_tcie(false));
         });
@@ -50,15 +144,43 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct Config {
     pub sda_pullup: bool,
     pub scl_pullup: bool,
+    pub slave_address_1: u16,
+    pub slave_address_2: u8,
+    pub slave_address_mask: vals::Oamsk,
+    pub address_11bits: bool,
     #[cfg(feature = "time")]
     pub transaction_timeout: Duration,
 }
-
+impl Config {
+    /// Slave address 1 as 7 bit address, in range 0 .. 127
+    pub fn slave_address_7bits(&mut self, address: u8) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_1 = address as u16;
+        self.address_11bits = false;
+    }
+    /// Slave address 1 as 11 bit address in range 0 .. 2047
+    pub fn slave_address_11bits(&mut self, address: u16) {
+        // assert!(address < (2 ^ 11));
+        self.slave_address_1 = address;
+        self.address_11bits = true;
+    }
+    /// Slave address 2 as 7 bit address in range 0 .. 127.
+    /// The mask makes all slaves within the mask addressable
+    pub fn slave_address_2(&mut self, address: u8, mask: vals::Oamsk) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_2 = address;
+        self.slave_address_mask = mask;
+    }
+}
 impl Default for Config {
     fn default() -> Self {
         Self {
             sda_pullup: false,
             scl_pullup: false,
+            slave_address_1: 0,
+            slave_address_2: 0,
+            slave_address_mask: vals::Oamsk::NOMASK,
+            address_11bits: false,
             #[cfg(feature = "time")]
             transaction_timeout: Duration::from_millis(100),
         }
@@ -67,13 +189,148 @@ impl Default for Config {
 
 pub struct State {
     waker: AtomicWaker,
+    mutex: Mutex<CriticalSectionRawMutex, RefCell<I2cStateMachine>>,
 }
 
 impl State {
     pub(crate) const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
+            mutex: Mutex::new(RefCell::new(I2cStateMachine::new())),
         }
+    }
+}
+struct I2cStateMachine {
+    buffers: [[I2cBuffer; 2]; 2],
+    result: Result<(), Error>,
+    slave_mode: bool,
+    dir: vals::Dir,
+    address1: u16,
+    current_address: u8,
+    errors: u32,
+    ready: bool,
+}
+impl I2cStateMachine {
+    pub(crate) const fn new() -> Self {
+        Self {
+            // first dimension: address type, main or generic, second dimension read or write
+            buffers: [
+                [I2cBuffer::new(), I2cBuffer::new()],
+                [I2cBuffer::new(), I2cBuffer::new()],
+            ],
+            result: Ok(()),
+            slave_mode: false,
+            dir: vals::Dir::READ,
+            address1: 0,
+            current_address: 0,
+            errors: 0,
+            ready: false,
+        }
+    }
+    fn read_byte(&mut self) -> Result<u8, Error> {
+        let adress_type = if self.address1 == self.current_address as u16 {
+            AddressType::MainAddress
+        } else {
+            AddressType::GenericAddress
+        };
+        self.buffers[adress_type as usize][vals::Dir::READ as usize as usize].master_read()
+    }
+    fn write_byte(&mut self, b: u8) -> Result<(), Error> {
+        let adress_type = if self.address1 == self.current_address as u16 {
+            AddressType::MainAddress
+        } else {
+            AddressType::GenericAddress
+        };
+        self.buffers[adress_type as usize][vals::Dir::WRITE as usize].master_write(b)
+    }
+    fn get_size(&self) -> u8 {
+        let adress_type = if self.address1 == self.current_address as u16 {
+            AddressType::MainAddress
+        } else {
+            AddressType::GenericAddress
+        };
+        self.buffers[adress_type as usize][self.dir as usize].size
+    }
+}
+const BUFFER_SIZE: usize = 64;
+
+#[repr(usize)]
+pub enum AddressType {
+    MainAddress = 0,
+    GenericAddress,
+}
+
+struct I2cBuffer {
+    buffer: [u8; BUFFER_SIZE],
+    index: usize,
+    size: u8, // only used for the master read slave write scenario
+}
+
+impl I2cBuffer {
+    const fn new() -> Self {
+        I2cBuffer {
+            buffer: [0; BUFFER_SIZE],
+            index: 0,
+            size: 0,
+        }
+    }
+    fn reset(&mut self) {
+        self.index = 0;
+        self.size = 0;
+    }
+    /// master read slave write scenario. Master can read until self.size bytes
+    /// If no data available (self.size == 0)
+    fn master_read(&mut self) -> Result<u8, Error> {
+        if self.size == 0 {
+            return Err(Error::BufferEmpty);
+        };
+        if self.index < self.size as usize {
+            let b = self.buffer[self.index];
+            self.index += 1;
+            Ok(b)
+        } else {
+            self.size = 0; // mark buffer empty
+            Err(Error::OkBufferTransferred) // not really an error, but to signal slave should send NACK
+        }
+    }
+    /// master write slave read scenario. Master can write until buffer full
+    fn master_write(&mut self, b: u8) -> Result<(), Error> {
+        if self.index < BUFFER_SIZE {
+            self.buffer[self.index] = b;
+            self.index += 1;
+            self.size = self.index as u8;
+            Ok(())
+        } else {
+            Err(Error::BufferFull)
+        }
+    }
+    // read data into this buffer (master read, slave write)
+    fn from_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let len = buffer.len();
+        if len > self.buffer.len() {
+            return Err(Error::BufferSize);
+        };
+        for i in 0..len {
+            self.buffer[i] = buffer[i];
+        }
+        self.size = len as u8;
+        self.index = 0;
+        Ok(())
+    }
+    // read data from this buffer, and leave empty at the end (master write, slave read)
+    fn to_buffer(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        if self.size == 0 {
+            return Err(Error::BufferNotFilled);
+        }
+        if buffer.len() < self.size as usize {
+            return Err(Error::BufferSize);
+        }
+        for i in 0..buffer.len() {
+            buffer[i] = self.buffer[i];
+        }
+        self.size = 0;
+        self.index = 0;
+        Ok(())
     }
 }
 
@@ -136,7 +393,39 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         T::regs().cr1().modify(|reg| {
             reg.set_pe(true);
+            reg.set_nostretch(false);
+            reg.set_sbc(true);
         });
+        if config.slave_address_1 > 0 {
+            T::regs().oar1().write(|reg| {
+                reg.set_oa1en(false);
+            });
+            let mode = if config.address_11bits {
+                vals::Addmode::BIT10
+            } else {
+                vals::Addmode::BIT7
+            };
+            T::regs().oar1().write(|reg| {
+                reg.set_oa1(config.slave_address_1);
+                reg.set_oa1mode(mode);
+                reg.set_oa1en(true);
+            });
+            T::state().mutex.lock(|f| {
+                let mut state_m = f.borrow_mut();
+                state_m.address1 = config.slave_address_1;
+            });
+        }
+
+        if config.slave_address_2 > 0 {
+            T::regs().oar2().write(|reg| {
+                reg.set_oa2en(false);
+            });
+            T::regs().oar2().write(|reg| {
+                reg.set_oa2msk(config.slave_address_mask);
+                reg.set_oa2(config.slave_address_2);
+                reg.set_oa2en(true);
+            });
+        }
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -746,7 +1035,95 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         Ok(())
     }
-
+    // =========================
+    // async Slave implementation
+    /// Starts listening for slave transactions
+    pub fn slave_start_listen(&mut self) -> Result<(), super::Error> {
+        T::regs().cr1().modify(|reg| {
+            reg.set_addrie(true);
+            reg.set_txie(true);
+            reg.set_addrie(true);
+            reg.set_rxie(true);
+            reg.set_nackie(true);
+            reg.set_stopie(true);
+            reg.set_errie(true);
+            reg.set_tcie(true);
+        });
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            for i in 0..1 {
+                for j in 0..1 {
+                    state_m.buffers[i][j].reset();
+                }
+            }
+            state_m.slave_mode = true;
+            state_m.ready = false;
+        });
+        Ok(())
+    }
+    // slave stop listening for slave transactions and switch back to master role
+    pub fn slave_stop_listen(&mut self) -> Result<(), super::Error> {
+        T::regs().cr1().modify(|reg| {
+            reg.set_addrie(false);
+            reg.set_txie(false);
+            reg.set_addrie(false);
+            reg.set_rxie(false);
+            reg.set_nackie(false);
+            reg.set_stopie(false);
+            reg.set_errie(false);
+            reg.set_tcie(false);
+        });
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            state_m.slave_mode = false;
+        });
+        Ok(())
+    }
+    /// Prepare write data to master (master_read_slave_write) before transaction starts
+    /// Only possible if the buffer is empty, other wise error BufferNotEmpty error
+    pub fn slave_write_buffer(&mut self, buffer: &[u8], address_type: AddressType) -> Result<(), super::Error> {
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            let buf = &mut state_m.buffers[address_type as usize][vals::Dir::READ as usize];
+            if buf.size > 0 {
+                return Err(Error::BufferNotEmpty);
+            };
+            buf.from_buffer(buffer)
+        })
+    }
+    /// Read data from master (master_write_slave_read) after transaction is finished
+    /// Only possible if the buffer is not empty, other wise error BufferNotFilled error
+    pub fn slave_read_buffer(&mut self, buffer: &mut [u8], address_type: AddressType) -> Result<(), super::Error> {
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            let buf = &mut state_m.buffers[address_type as usize][vals::Dir::WRITE as usize];
+            if buf.size == 0 {
+                return Err(Error::BufferEmpty);
+            };
+            buf.to_buffer(buffer)
+        })
+    }
+    /// wait until a slave transaction is finished, and return tuple address, direction and data size
+    pub async fn slave_transaction(&mut self) -> Result<(u8, vals::Dir, u8), Error> {
+        // async wait until addressed
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+            T::state().mutex.lock(|f| {
+                let mut state_m = f.borrow_mut();
+                if state_m.ready {
+                    state_m.ready = false;
+                    // if the dir bit is set it is a master write slave read operation
+                    match state_m.result {
+                        Ok(()) => return Poll::Ready(Ok((state_m.current_address, state_m.dir, state_m.get_size()))),
+                        Err(e) => return Poll::Ready(Err(e)),
+                    }
+                } else {
+                    return Poll::Pending;
+                }
+            })
+        })
+        .await
+    }
     // =========================
     //  Blocking public API
 

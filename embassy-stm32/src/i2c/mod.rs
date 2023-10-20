@@ -9,16 +9,23 @@ pub use _version::*;
 
 use crate::peripherals;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     Bus,
-    Arbitration,
+    Arbitration, // in case of master mode: lost arbitration to another master
     Nack,
     Timeout,
     Crc,
     Overrun,
     ZeroLengthTransfer,
+    Collission, // in case of slave mode, during sending data to master
+    BufferEmpty,
+    BufferFull,
+    BufferNotEmpty,
+    BufferNotFilled,
+    BufferSize,
+    OkBufferTransferred, // not really an error, but signalling that the slave does nack the last byte
 }
 
 pub(crate) mod sealed {

@@ -75,60 +75,89 @@ async fn main(_spawner: Spawner) {
         counter += 1;
         writeln!(&mut writer, "Loop counter: {:?}", counter).unwrap();
 
-        let mut buf_long: [u8; 50] = [0; 50];
-        let mut buf_short: [u8; 20] = [0; 20];
-        let mut buf_rcv: [u8; 20] = [0; 20];
-        let mut buf_10: [u8; 10] = [0; 10];
-        let mut buf_io = [0_u8; 1];
+        let mut buf_20 = [0_u8; 20];
+        let mut buf_64 = [0_u8; 64];
+        let mut buf_65 = [0_u8; 65];
 
         writeln!(&mut writer, "Start of test").unwrap();
 
-        for i in 0..buf_short.len() {
-            buf_short[i] = 0x41 + (i as u8)
+        for i in 0..buf_20.len() {
+            buf_20[i] = 0x20 + (i as u8)
         }
-
+        for i in 0..buf_64.len() {
+            buf_64[i] = 0x40 + (i as u8)
+        }
+        for i in 0..buf_65.len() {
+            buf_65[i] = 0x60 + (i as u8)
+        }
         // test 1: slave address 0x61 should not be addressable
-        match i2c.blocking_write(0x61, &buf_short) {
+        match i2c.blocking_write(0x61, &buf_20) {
             Ok(_) => writeln!(&mut writer, "Test 1 Error: would expect nack").unwrap(),
             Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
             Err(err) => writeln!(&mut writer, "Test 1 OK: expected NACK error: {:?}", err).unwrap(),
         };
         // 0x41 good case master write slave read: master does send 20 bytes slave receives 20 bytes
-        match i2c.blocking_write(0x41, &buf_short) {
+        match i2c.blocking_write(0x41, &buf_20) {
             Ok(_) => writeln!(&mut writer, "Test 0x41 Ok").unwrap(),
             Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
             Err(err) => writeln!(&mut writer, "Test 0x41 Error: {:?}", err).unwrap(),
         };
-        // 0x42 bad case master write slave read: master does send less than 20 bytes
-        for i in 0..buf_10.len() {
-            buf_10[i] = 0x20 + (i as u8)
-        }
-        match i2c.blocking_write(0x42, &buf_10) {
-            Ok(_) => writeln!(
-                &mut writer,
-                "Test 0x42 Ok. (Master cannot detect that frame is too short)  "
-            )
-            .unwrap(),
+        // 0x42 edge case master write exact 64 bytes: must succeed on master and slave
+        match i2c.blocking_write(0x42, &buf_64) {
+            Ok(_) => writeln!(&mut writer, "Test 0x42 Ok. Master write exact 64 bytes").unwrap(),
             Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
             Err(err) => writeln!(&mut writer, "Test 0x42 error IncorrectFramesize: {:?}", err).unwrap(),
         };
-        // 0x43 bad case master write slave read: master does send more than 20 bytes, slave does NACK
-        for i in 0..buf_long.len() {
-            buf_long[i] = 0x61 + (i as u8)
-        }
-        match i2c.blocking_write(0x43, &buf_long) {
-            Ok(_) => writeln!(&mut writer, "Test 0x43 not ok expected error IncorrectFramesize: ").unwrap(),
+        // 0x43 edge case master write exact 65 bytes: 1 too manyu must fail  on master and slave
+        match i2c.blocking_write(0x43, &buf_64) {
+            Ok(_) => writeln!(&mut writer, "Test 0x42 Failed. Expected a Nack").unwrap(),
             Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
-            Err(err) => writeln!(&mut writer, "Test 0x43 Ok Expected IncorrectFrameSize: {:?}", err).unwrap(),
+            Err(err) => writeln!(
+                &mut writer,
+                "Test 0x43 Ok: Got error NACK du to buffer of 1 too big {:?}",
+                err
+            )
+            .unwrap(),
         };
-        // 0x44 master write_read good case: master sends and expects 20 bytes
-        for i in 0..buf_short.len() {
-            buf_short[i] = 0x41 + (i as u8)
-        }
-        for i in 0..buf_rcv.len() {
-            buf_rcv[i] = 0x30 + (i as u8)
-        }
-        match i2c.blocking_write_read(0x44, &buf_short, &mut buf_rcv) {
+
+        match i2c.blocking_read(0x48, &mut buf_20) {
+            Ok(_) => {
+                writeln!(&mut writer, "Test 0x48 Read expected to fail!").unwrap();
+            }
+            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
+            Err(err) => writeln!(
+                &mut writer,
+                "Test 0x48 Ok. First time, slave did not yet prepare a buffer Error: {:?}",
+                err
+            )
+            .unwrap(),
+        };
+        match i2c.blocking_read(0x49, &mut buf_20) {
+            Ok(_) => {
+                writeln!(&mut writer, "Test 0x49 Read Ok").unwrap();
+                print_buffer(&mut writer, &buf_20);
+            }
+            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
+            Err(err) => writeln!(&mut writer, "Test 0x49 Error: {:?}", err).unwrap(),
+        };
+        match i2c.blocking_read(0x4A, &mut buf_64) {
+            Ok(_) => {
+                writeln!(&mut writer, "Test 0x4A failed. Expected was a NACK error").unwrap();
+                print_buffer(&mut writer, &buf_64);
+            }
+            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
+            Err(err) => writeln!(&mut writer, "Test 0x4A Ok. Expected to fail. Error: {:?}", err).unwrap(),
+        };
+        match i2c.blocking_read(0x4B, &mut buf_64) {
+            Ok(_) => {
+                writeln!(&mut writer, "Test 0x4B succeeded: edge case read exact the buffer size").unwrap();
+                print_buffer(&mut writer, &buf_64);
+            }
+            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
+            Err(err) => writeln!(&mut writer, "Test 0x4B failed. Error: {:?}", err).unwrap(),
+        };
+        /*
+        match i2c.blocking_write_read(0x44, &buf_20, &mut buf_64) {
             Ok(_) => {
                 writeln!(&mut writer, "Test 0x44 Ok ").unwrap();
                 writeln!(
@@ -145,52 +174,7 @@ async fn main(_spawner: Spawner) {
             Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
             Err(err) => writeln!(&mut writer, "Test 0x44 error: {:?}", err).unwrap(),
         };
-        // 0x48 master read slave write good case: exact 20 characters
-        for i in 0..buf_short.len() {
-            buf_short[i] = 0x61 + (i as u8)
-        }
-        match i2c.blocking_read(0x48, &mut buf_short) {
-            Ok(_) => {
-                writeln!(&mut writer, "Test 0x48 Ok ").unwrap();
-                for i in 0..buf_short.len() {
-                    writeln!(&mut writer, "{}", buf_short[i]).unwrap();
-                }
-                writeln!(&mut writer, "").unwrap()
-            }
-            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
-            Err(err) => writeln!(&mut writer, "Test 0x48 unexpected error: {:?}", err).unwrap(),
-        };
-        // 0x49 master read slave write bad  case: master expects 50 slave does send 20 characters
-        for i in 0..buf_long.len() {
-            buf_long[i] = 0x61 + (i as u8)
-        }
-        match i2c.blocking_read(0x49, &mut buf_long) {
-            Ok(_) => {
-                writeln!(&mut writer, "Test 0x49 Ok ").unwrap();
-                for i in 0..buf_long.len() {
-                    writeln!(&mut writer, "{}", buf_long[i]).unwrap();
-                }
-                writeln!(&mut writer, "").unwrap()
-            }
-            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
-            Err(err) => writeln!(&mut writer, "Test 0x49 error: {:?}", err).unwrap(),
-        };
-        // 0x4A master read slave write bad  case: master expects 20 does slave does send 50 characters
-        for i in 0..buf_short.len() {
-            buf_short[i] = 0x41 + (i as u8)
-        }
-        match i2c.blocking_read(0x4A, &mut buf_short) {
-            Ok(_) => {
-                writeln!(&mut writer, "Test 0x4A Ok ").unwrap();
-
-                for i in 0..buf_short.len() {
-                    writeln!(&mut writer, "{}", buf_short[i]).unwrap();
-                }
-                writeln!(&mut writer, "").unwrap()
-            }
-            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
-            Err(err) => writeln!(&mut writer, "Test 0x4A error: {:?}", err).unwrap(),
-        };
+        */
         // 0x4F test end and slave will present results
         let mut result: [u8; 2] = [0, 0];
         match i2c.blocking_read(0x4F, &mut result) {
@@ -204,24 +188,12 @@ async fn main(_spawner: Spawner) {
             Err(err) => writeln!(&mut writer, "Test 0x4F unexpected error: {:?}", err).unwrap(),
         };
         writeln!(&mut writer, "").unwrap();
-        let mut joyb = [0_u8; 3];
-        match i2c.blocking_read(0x52, &mut joyb) {
-            Ok(_) => {
-                writeln!(&mut writer, "Test 0x52 Ok ").unwrap();
-                for i in 0..joyb.len() {
-                    writeln!(&mut writer, " {} ", joyb[i]).unwrap();
-                }
-                writeln!(&mut writer, "").unwrap()
-            }
-            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
-            Err(err) => writeln!(&mut writer, "Test 0x52 unexpected error: {:?}", err).unwrap(),
-        };
-        match i2c.blocking_write(0x21, &mut buf_io) {
-            Ok(_) => (),
-            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out").unwrap(),
-            Err(err) => writeln!(&mut writer, "Test 0x21 unexpected error: {:?}", err).unwrap(),
-        };
-        buf_io[0] += 1;
         Timer::after(Duration::from_millis(10_000)).await;
+    }
+    fn print_buffer(writer: &mut SerialWriter, buf: &[u8]) {
+        for i in 0..buf.len() {
+            write!(writer, " {:2x} ", buf[i]).unwrap();
+        }
+        writeln!(writer, "\n\r").unwrap()
     }
 }
