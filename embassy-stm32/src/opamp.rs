@@ -101,18 +101,22 @@ pub trait InvertingPin<T: Instance>: sealed::InvertingPin<T> {}
 #[cfg(opamp_f3)]
 macro_rules! impl_opamp_output {
     ($inst:ident, $adc:ident, $ch:expr) => {
-        impl<'d, 'p, P: NonInvertingPin<crate::peripherals::$inst>> crate::adc::sealed::AdcPin<crate::peripherals::$adc>
-            for OpAmpOutput<'d, 'p, crate::peripherals::$inst, P>
-        {
-            fn channel(&self) -> u8 {
-                $ch
-            }
-        }
+        foreach_adc!(
+            ($adc, $common_inst:ident, $adc_clock:ident) => {
+                impl<'d, 'p, P: NonInvertingPin<crate::peripherals::$inst>> crate::adc::sealed::AdcPin<crate::peripherals::$adc>
+                    for OpAmpOutput<'d, 'p, crate::peripherals::$inst, P>
+                {
+                    fn channel(&self) -> u8 {
+                        $ch
+                    }
+                }
 
-        impl<'d, 'p, P: NonInvertingPin<crate::peripherals::$inst>> crate::adc::AdcPin<crate::peripherals::$adc>
-            for OpAmpOutput<'d, 'p, crate::peripherals::$inst, P>
-        {
-        }
+                impl<'d, 'p, P: NonInvertingPin<crate::peripherals::$inst>> crate::adc::AdcPin<crate::peripherals::$adc>
+                    for OpAmpOutput<'d, 'p, crate::peripherals::$inst, P>
+                {
+                }
+            };
+        );
     };
 }
 
