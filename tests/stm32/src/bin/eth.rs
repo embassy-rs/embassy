@@ -60,6 +60,8 @@ async fn main(spawner: Spawner) {
     let n = 4;
     #[cfg(feature = "stm32f207zg")]
     let n = 5;
+    #[cfg(feature = "stm32h753zi")]
+    let n = 6;
 
     let mac_addr = [0x00, n, 0xDE, 0xAD, 0xBE, 0xEF];
 

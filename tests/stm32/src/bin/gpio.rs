@@ -217,8 +217,7 @@ async fn main(_spawner: Spawner) {
 }
 
 fn delay() {
-    #[cfg(feature = "stm32h755zi")]
-    cortex_m::asm::delay(10000);
-    #[cfg(not(feature = "stm32h755zi"))]
+    #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi", feature = "stm32h7a3zi"))]
+    cortex_m::asm::delay(9000);
     cortex_m::asm::delay(1000);
 }
