@@ -11,7 +11,12 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, peripherals, rng};
 use {defmt_rtt as _, panic_probe as _};
 
-#[cfg(any(feature = "stm32l4a6zg", feature = "stm32h755zi", feature = "stm32f429zi"))]
+#[cfg(any(
+    feature = "stm32l4a6zg",
+    feature = "stm32h755zi",
+    feature = "stm32h753zi",
+    feature = "stm32f429zi"
+))]
 bind_interrupts!(struct Irqs {
    HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
@@ -23,6 +28,7 @@ bind_interrupts!(struct Irqs {
     feature = "stm32l4a6zg",
     feature = "stm32l073rz",
     feature = "stm32h755zi",
+    feature = "stm32h753zi",
     feature = "stm32f429zi"
 )))]
 bind_interrupts!(struct Irqs {

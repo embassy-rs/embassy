@@ -18,6 +18,10 @@ teleprobe_meta::target!(b"nucleo-stm32f429zi");
 teleprobe_meta::target!(b"nucleo-stm32wb55rg");
 #[cfg(feature = "stm32h755zi")]
 teleprobe_meta::target!(b"nucleo-stm32h755zi");
+#[cfg(feature = "stm32h753zi")]
+teleprobe_meta::target!(b"nucleo-stm32h753zi");
+#[cfg(feature = "stm32h7a3zi")]
+teleprobe_meta::target!(b"nucleo-stm32h7a3zi");
 #[cfg(feature = "stm32u585ai")]
 teleprobe_meta::target!(b"iot-stm32u585ai");
 #[cfg(feature = "stm32h563zi")]
@@ -105,10 +109,16 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;},
 );
-#[cfg(feature = "stm32h755zi")]
+#[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
+#[cfg(feature = "stm32h7a3zi")]
+define_peris!(
+    UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32u585ai")]
@@ -289,7 +299,7 @@ pub fn config() -> Config {
         config.rcc.voltage_scale = VoltageScale::Scale0;
     }
 
-    #[cfg(feature = "stm32h755zi")]
+    #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(Hsi::Mhz64);
@@ -317,6 +327,37 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
+        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+    }
+
+    #[cfg(any(feature = "stm32h7a3zi"))]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.csi = true;
+        config.rcc.hsi48 = true; // needed for RNG
+        config.rcc.pll_src = PllSource::Hsi;
+        config.rcc.pll1 = Some(Pll {
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL35,
+            divp: Some(PllDiv::DIV2), // 280 Mhz
+            divq: Some(PllDiv::DIV8), // SPI1 cksel defaults to pll1_q
+            divr: None,
+        });
+        config.rcc.pll2 = Some(Pll {
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL35,
+            divp: Some(PllDiv::DIV8), // 70 Mhz
+            divq: None,
+            divr: None,
+        });
+        config.rcc.sys = Sysclk::Pll1P; // 280 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::DIV1; // 280 Mhz
+        config.rcc.apb1_pre = APBPrescaler::DIV2; // 140 Mhz
+        config.rcc.apb2_pre = APBPrescaler::DIV2; // 140 Mhz
+        config.rcc.apb3_pre = APBPrescaler::DIV2; // 140 Mhz
+        config.rcc.apb4_pre = APBPrescaler::DIV2; // 140 Mhz
+        config.rcc.voltage_scale = VoltageScale::Scale0;
         config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
     }
 
