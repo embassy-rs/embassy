@@ -46,11 +46,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     regs.icr().modify(|w| {
                         w.set_berrcf(true);
                     });
-                    state_m.errors += 1;
-                    state_m.result = Err(Error::Bus);
+                    state_m.result = Some(Error::Bus);
                 } else if isr.arlo() {
                     regs.icr().write(|w| w.set_arlocf(true));
-                    state_m.result = Err(Error::Arbitration);
+                    state_m.result = Some(Error::Arbitration);
                 } else if isr.nackf() {
                     regs.icr().write(|w| w.set_nackcf(true));
                     // Make one extra loop to wait on the stop condition
@@ -58,16 +57,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     // send the next byte to the master, or NACK in case of error, then end transaction
                     match state_m.read_byte() {
                         Ok(b) => regs.txdr().write(|w| w.set_txdata(b)),
-                        Err(Error::OkBufferTransferred) => {
-                            state_m.result = Ok(());
-                            // Send a NACK, set nbytes to clear tcr flag
-                            regs.cr2().modify(|w| {
-                                w.set_nack(true);
-                            })
-                        }
                         Err(e) => {
-                            state_m.result = Err(e);
-                            state_m.errors += 1;
+                            state_m.result = Some(e);
                             // Send a NACK, set nbytes to clear tcr flag
                             regs.cr2().modify(|w| {
                                 w.set_nack(true);
@@ -80,8 +71,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     match state_m.write_byte(b) {
                         Ok(()) => (),
                         Err(e) => {
-                            state_m.result = Err(e);
-                            state_m.errors += 1;
+                            state_m.result = Some(e);
                             // Send a NACK, set nbytes to clear tcr flag
                             regs.cr2().modify(|w| {
                                 w.set_nack(true);
@@ -104,6 +94,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     // handle the slave is addressed case, first step in the transaction
                     state_m.current_address = isr.addcode();
                     state_m.dir = isr.dir();
+                    state_m.result = None;
+
                     if state_m.dir == vals::Dir::READ {
                         // Set the nbytes START and prepare to receive bytes into `buffer`.
                         regs.cr2().modify(|w| {
@@ -202,13 +194,12 @@ impl State {
 }
 struct I2cStateMachine {
     buffers: [[I2cBuffer; 2]; 2],
-    result: Result<(), Error>,
+    result: Option<Error>,
     slave_mode: bool,
-    dir: vals::Dir,
     address1: u16,
-    current_address: u8,
-    errors: u32,
     ready: bool,
+    current_address: u8,
+    dir: vals::Dir,
 }
 impl I2cStateMachine {
     pub(crate) const fn new() -> Self {
@@ -218,12 +209,11 @@ impl I2cStateMachine {
                 [I2cBuffer::new(), I2cBuffer::new()],
                 [I2cBuffer::new(), I2cBuffer::new()],
             ],
-            result: Ok(()),
+            result: None,
             slave_mode: false,
-            dir: vals::Dir::READ,
             address1: 0,
             current_address: 0,
-            errors: 0,
+            dir: vals::Dir::READ,
             ready: false,
         }
     }
@@ -290,7 +280,7 @@ impl I2cBuffer {
             Ok(b)
         } else {
             self.size = 0; // mark buffer empty
-            Err(Error::OkBufferTransferred) // not really an error, but to signal slave should send NACK
+            Err(Error::Overrun) // too many bytes asked
         }
     }
     /// master write slave read scenario. Master can write until buffer full
@@ -1080,31 +1070,25 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
     /// Prepare write data to master (master_read_slave_write) before transaction starts
-    /// Only possible if the buffer is empty, other wise error BufferNotEmpty error
+    /// Will return buffersize error in case the incoming buffer is too big
     pub fn slave_write_buffer(&mut self, buffer: &[u8], address_type: AddressType) -> Result<(), super::Error> {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
             let buf = &mut state_m.buffers[address_type as usize][vals::Dir::READ as usize];
-            if buf.size > 0 {
-                return Err(Error::BufferNotEmpty);
-            };
             buf.from_buffer(buffer)
         })
     }
     /// Read data from master (master_write_slave_read) after transaction is finished
-    /// Only possible if the buffer is not empty, other wise error BufferNotFilled error
+    /// Will fail if the size if the incoming buffer is smaller than the received bytes
     pub fn slave_read_buffer(&mut self, buffer: &mut [u8], address_type: AddressType) -> Result<(), super::Error> {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
             let buf = &mut state_m.buffers[address_type as usize][vals::Dir::WRITE as usize];
-            if buf.size == 0 {
-                return Err(Error::BufferEmpty);
-            };
             buf.to_buffer(buffer)
         })
     }
-    /// wait until a slave transaction is finished, and return tuple address, direction and data size
-    pub async fn slave_transaction(&mut self) -> Result<(u8, vals::Dir, u8), Error> {
+    /// wait until a slave transaction is finished, and return tuple address, direction, data size and error
+    pub async fn slave_transaction(&mut self) -> (u8, vals::Dir, u8, Option<Error>) {
         // async wait until addressed
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
@@ -1112,11 +1096,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 let mut state_m = f.borrow_mut();
                 if state_m.ready {
                     state_m.ready = false;
-                    // if the dir bit is set it is a master write slave read operation
-                    match state_m.result {
-                        Ok(()) => return Poll::Ready(Ok((state_m.current_address, state_m.dir, state_m.get_size()))),
-                        Err(e) => return Poll::Ready(Err(e)),
-                    }
+                    return Poll::Ready((state_m.current_address, state_m.dir, state_m.get_size(), state_m.result));
                 } else {
                     return Poll::Pending;
                 }
