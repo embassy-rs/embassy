@@ -189,9 +189,6 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::HSE => hse.unwrap(),
         ClockSrc::HSI => hsi16.unwrap(),
         ClockSrc::MSI => msi.unwrap(),
-        #[cfg(rcc_l4)]
-        ClockSrc::PLL1_P => pll._r.unwrap(),
-        #[cfg(not(rcc_l4))]
         ClockSrc::PLL1_R => pll._r.unwrap(),
     };
 

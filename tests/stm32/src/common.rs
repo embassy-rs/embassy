@@ -323,14 +323,7 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32l496zg", feature = "stm32l4a6zg", feature = "stm32l4r5zi"))]
     {
         use embassy_stm32::rcc::*;
-        #[cfg(feature = "stm32l4r5zi")]
-        {
-            config.rcc.mux = ClockSrc::PLL1_R;
-        }
-        #[cfg(not(feature = "stm32l4r5zi"))]
-        {
-            config.rcc.mux = ClockSrc::PLL1_P;
-        }
+        config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.hsi16 = true;
         config.rcc.pll = Some(Pll {
             source: PLLSource::HSI,

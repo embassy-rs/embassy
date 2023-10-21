@@ -59,7 +59,7 @@ pub const WPAN_DEFAULT: Config = Config {
         frequency: mhz(32),
         prediv: HsePrescaler::DIV1,
     }),
-    sys: Sysclk::PLL,
+    sys: Sysclk::PLL1_R,
     mux: Some(PllMux {
         source: PllSource::HSE,
         prediv: Pllm::DIV2,
@@ -87,8 +87,8 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
+            sys: Sysclk::HSI,
             hse: None,
-            sys: Sysclk::HSI16,
             mux: None,
             pll: None,
             pllsai: None,
@@ -113,7 +113,7 @@ pub(crate) unsafe fn init(config: Config) {
     let mux_clk = config.mux.as_ref().map(|pll_mux| {
         (match pll_mux.source {
             PllSource::HSE => hse_clk.unwrap(),
-            PllSource::HSI16 => HSI_FREQ,
+            PllSource::HSI => HSI_FREQ,
             _ => unreachable!(),
         } / pll_mux.prediv)
     });
@@ -133,8 +133,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     let sys_clk = match config.sys {
         Sysclk::HSE => hse_clk.unwrap(),
-        Sysclk::HSI16 => HSI_FREQ,
-        Sysclk::PLL => pll_r.unwrap(),
+        Sysclk::HSI => HSI_FREQ,
+        Sysclk::PLL1_R => pll_r.unwrap(),
         _ => unreachable!(),
     };
 
@@ -161,12 +161,12 @@ pub(crate) unsafe fn init(config: Config) {
     let rcc = crate::pac::RCC;
 
     let needs_hsi = if let Some(pll_mux) = &config.mux {
-        pll_mux.source == PllSource::HSI16
+        pll_mux.source == PllSource::HSI
     } else {
         false
     };
 
-    if needs_hsi || config.sys == Sysclk::HSI16 {
+    if needs_hsi || config.sys == Sysclk::HSI {
         rcc.cr().modify(|w| {
             w.set_hsion(true);
         });

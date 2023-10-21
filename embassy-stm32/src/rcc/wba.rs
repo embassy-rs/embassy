@@ -26,7 +26,7 @@ impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
             PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI16,
+            PllSrc::HSI16 => Pllsrc::HSI,
         }
     }
 }
@@ -35,7 +35,7 @@ impl Into<Sw> for ClockSrc {
     fn into(self) -> Sw {
         match self {
             ClockSrc::HSE(..) => Sw::HSE,
-            ClockSrc::HSI16 => Sw::HSI16,
+            ClockSrc::HSI16 => Sw::HSI,
         }
     }
 }
