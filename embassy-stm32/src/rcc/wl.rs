@@ -42,7 +42,7 @@ impl Default for Config {
             shd_ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
-            adc_clock_source: AdcClockSource::HSI16,
+            adc_clock_source: AdcClockSource::HSI,
             ls: Default::default(),
         }
     }
@@ -50,7 +50,7 @@ impl Default for Config {
 
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
-        ClockSrc::HSI16 => (HSI_FREQ, Sw::HSI16, VoltageScale::RANGE2),
+        ClockSrc::HSI16 => (HSI_FREQ, Sw::HSI, VoltageScale::RANGE2),
         ClockSrc::HSE => (HSE_FREQ, Sw::HSE, VoltageScale::RANGE1),
         ClockSrc::MSI(range) => (msirange_to_hertz(range), Sw::MSI, msirange_to_vos(range)),
     };

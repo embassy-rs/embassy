@@ -92,7 +92,7 @@ impl Into<Pllsrc> for PllSrc {
         match self {
             PllSrc::MSIS(..) => Pllsrc::MSIS,
             PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI16,
+            PllSrc::HSI16 => Pllsrc::HSI,
         }
     }
 }
@@ -102,7 +102,7 @@ impl Into<Sw> for ClockSrc {
         match self {
             ClockSrc::MSI(..) => Sw::MSIS,
             ClockSrc::HSE(..) => Sw::HSE,
-            ClockSrc::HSI16 => Sw::HSI16,
+            ClockSrc::HSI16 => Sw::HSI,
             ClockSrc::PLL1R(..) => Sw::PLL1_R,
         }
     }
