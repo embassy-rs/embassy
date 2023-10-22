@@ -235,7 +235,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // L4 has shared PLLSRC, PLLM, check it's equal in all PLLs.
     #[cfg(all(stm32l4, not(rcc_l4plus)))]
-    match get_equal(_plls.into_iter().flatten().map(|p| (p.source, p.prediv))) {
+    match super::util::get_equal(_plls.into_iter().flatten().map(|p| (p.source, p.prediv))) {
         Err(()) => panic!("Source must be equal across all enabled PLLs."),
         Ok(None) => {}
         Ok(Some((source, prediv))) => RCC.pllcfgr().write(|w| {
@@ -246,7 +246,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // L4+, WL has shared PLLSRC, check it's equal in all PLLs.
     #[cfg(any(rcc_l4plus, stm32wl))]
-    match get_equal(_plls.into_iter().flatten().map(|p| p.source)) {
+    match super::util::get_equal(_plls.into_iter().flatten().map(|p| p.source)) {
         Err(()) => panic!("Source must be equal across all enabled PLLs."),
         Ok(None) => {}
         Ok(Some(source)) => RCC.pllcfgr().write(|w| {
@@ -265,7 +265,7 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::HSE => hse.unwrap(),
         ClockSrc::HSI => hsi.unwrap(),
         ClockSrc::MSI => msi.unwrap(),
-        ClockSrc::PLL1_R => pll._r.unwrap(),
+        ClockSrc::PLL1_R => pll.r.unwrap(),
     };
 
     #[cfg(stm32l4)]
@@ -276,8 +276,8 @@ pub(crate) unsafe fn init(config: Config) {
     let _clk48 = match config.clk48_src {
         Clk48Src::HSI48 => hsi48,
         Clk48Src::MSI => msi,
-        Clk48Src::PLLSAI1_Q => pllsai1._q,
-        Clk48Src::PLL1_Q => pll._q,
+        Clk48Src::PLLSAI1_Q => pllsai1.q,
+        Clk48Src::PLL1_Q => pll.q,
     };
 
     #[cfg(rcc_l4plus)]
@@ -285,32 +285,21 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(all(stm32l4, not(rcc_l4plus)))]
     assert!(sys_clk.0 <= 80_000_000);
 
-    let ahb_freq = sys_clk / config.ahb_pre;
-
-    let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
-
-    let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
-
+    let hclk1 = sys_clk / config.ahb_pre;
+    let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
+    let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
+    #[cfg(not(any(stm32wl5x, stm32wb)))]
+    let hclk2 = hclk1;
     #[cfg(any(stm32wl5x, stm32wb))]
-    let _ahb2_freq = sys_clk / config.core2_ahb_pre;
+    let hclk2 = sys_clk / config.core2_ahb_pre;
+    #[cfg(not(any(stm32wl, stm32wb)))]
+    let hclk3 = hclk1;
     #[cfg(any(stm32wl, stm32wb))]
-    let ahb3_freq = sys_clk / config.shared_ahb_pre;
+    let hclk3 = sys_clk / config.shared_ahb_pre;
 
     // Set flash wait states
     #[cfg(stm32l4)]
-    let latency = match sys_clk.0 {
+    let latency = match hclk1.0 {
         0..=16_000_000 => 0,
         0..=32_000_000 => 1,
         0..=48_000_000 => 2,
@@ -318,7 +307,7 @@ pub(crate) unsafe fn init(config: Config) {
         _ => 4,
     };
     #[cfg(stm32l5)]
-    let latency = match sys_clk.0 {
+    let latency = match hclk1.0 {
         // VCORE Range 0 (performance), others TODO
         0..=20_000_000 => 0,
         0..=40_000_000 => 1,
@@ -328,14 +317,14 @@ pub(crate) unsafe fn init(config: Config) {
         _ => 5,
     };
     #[cfg(stm32wl)]
-    let latency = match ahb3_freq.0 {
+    let latency = match hclk3.0 {
         // VOS RANGE1, others TODO.
         ..=18_000_000 => 0,
         ..=36_000_000 => 1,
         _ => 2,
     };
     #[cfg(stm32wb)]
-    let latency = match ahb3_freq.0 {
+    let latency = match hclk3.0 {
         // VOS RANGE1, others TODO.
         ..=18_000_000 => 0,
         ..=36_000_000 => 1,
@@ -369,18 +358,15 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        hclk1: ahb_freq,
-        hclk2: ahb_freq,
-        #[cfg(not(stm32wl))]
-        hclk3: ahb_freq,
-        pclk1: apb1_freq,
-        pclk2: apb2_freq,
-        pclk1_tim: apb1_tim_freq,
-        pclk2_tim: apb2_tim_freq,
+        hclk1,
+        hclk2,
+        hclk3,
+        pclk1,
+        pclk2,
+        pclk1_tim,
+        pclk2_tim,
         #[cfg(stm32wl)]
-        hclk3: ahb3_freq,
-        #[cfg(stm32wl)]
-        pclk3: ahb3_freq,
+        pclk3: hclk3,
         #[cfg(rcc_l4)]
         hsi: None,
         #[cfg(rcc_l4)]
@@ -419,26 +405,18 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
     }
 }
 
-#[allow(unused)]
-fn get_equal<T: Eq>(mut iter: impl Iterator<Item = T>) -> Result<Option<T>, ()> {
-    let Some(x) = iter.next() else { return Ok(None) };
-    if !iter.all(|y| y == x) {
-        return Err(());
-    }
-    return Ok(Some(x));
-}
-
 struct PllInput {
     hsi: Option<Hertz>,
     hse: Option<Hertz>,
     msi: Option<Hertz>,
 }
 
+#[allow(unused)]
 #[derive(Default)]
 struct PllOutput {
-    _p: Option<Hertz>,
-    _q: Option<Hertz>,
-    _r: Option<Hertz>,
+    p: Option<Hertz>,
+    q: Option<Hertz>,
+    r: Option<Hertz>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -450,29 +428,33 @@ enum PllInstance {
     Pllsai2,
 }
 
-fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> PllOutput {
-    // Disable PLL
+fn pll_enable(instance: PllInstance, enabled: bool) {
     match instance {
         PllInstance::Pll => {
-            RCC.cr().modify(|w| w.set_pllon(false));
-            while RCC.cr().read().pllrdy() {}
+            RCC.cr().modify(|w| w.set_pllon(enabled));
+            while RCC.cr().read().pllrdy() != enabled {}
         }
         #[cfg(any(stm32l4, stm32l5, stm32wb))]
         PllInstance::Pllsai1 => {
-            RCC.cr().modify(|w| w.set_pllsai1on(false));
-            while RCC.cr().read().pllsai1rdy() {}
+            RCC.cr().modify(|w| w.set_pllsai1on(enabled));
+            while RCC.cr().read().pllsai1rdy() != enabled {}
         }
         #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         PllInstance::Pllsai2 => {
-            RCC.cr().modify(|w| w.set_pllsai2on(false));
-            while RCC.cr().read().pllsai2rdy() {}
+            RCC.cr().modify(|w| w.set_pllsai2on(enabled));
+            while RCC.cr().read().pllsai2rdy() != enabled {}
         }
     }
+}
+
+fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> PllOutput {
+    // Disable PLL
+    pll_enable(instance, false);
 
     let Some(pll) = config else { return PllOutput::default() };
 
     let pll_src = match pll.source {
-        PLLSource::DISABLE => panic!("must not select PLL source as NONE"),
+        PLLSource::DISABLE => panic!("must not select PLL source as DISABLE"),
         PLLSource::HSE => input.hse,
         PLLSource::HSI => input.hsi,
         PLLSource::MSI => input.msi,
@@ -535,22 +517,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
     }
 
     // Enable PLL
-    match instance {
-        PllInstance::Pll => {
-            RCC.cr().modify(|w| w.set_pllon(true));
-            while !RCC.cr().read().pllrdy() {}
-        }
-        #[cfg(any(stm32l4, stm32l5, stm32wb))]
-        PllInstance::Pllsai1 => {
-            RCC.cr().modify(|w| w.set_pllsai1on(true));
-            while !RCC.cr().read().pllsai1rdy() {}
-        }
-        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
-        PllInstance::Pllsai2 => {
-            RCC.cr().modify(|w| w.set_pllsai2on(true));
-            while !RCC.cr().read().pllsai2rdy() {}
-        }
-    }
+    pll_enable(instance, true);
 
-    PllOutput { _p: p, _q: q, _r: r }
+    PllOutput { p, q, r }
 }

@@ -166,8 +166,8 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     let hclk = sys / config.ahb_pre;
-    let (pclk1, pclk1_tim) = calc_pclk(hclk, config.apb1_pre);
-    let (pclk2, pclk2_tim) = calc_pclk(hclk, config.apb2_pre);
+    let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
+    let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
 
     assert!(max::SYSCLK.contains(&sys));
     assert!(max::HCLK.contains(&hclk));
@@ -324,15 +324,6 @@ fn flash_setup(clk: Hertz) {
         w.set_latency(latency);
     });
     while FLASH.acr().read().latency() != latency {}
-}
-
-fn calc_pclk<D>(hclk: Hertz, ppre: D) -> (Hertz, Hertz)
-where
-    Hertz: core::ops::Div<D, Output = Hertz>,
-{
-    let pclk = hclk / ppre;
-    let pclk_tim = if hclk == pclk { pclk } else { pclk * 2u32 };
-    (pclk, pclk_tim)
 }
 
 #[cfg(stm32f7)]

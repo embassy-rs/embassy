@@ -156,23 +156,9 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
 
-    let ahb_freq = sys_clk / config.ahb_pre;
-
-    let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
-
-    let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
+    let hclk1 = sys_clk / config.ahb_pre;
+    let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
+    let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
 
     #[cfg(crs)]
     if config.enable_hsi48 {
@@ -209,11 +195,11 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        hclk1: ahb_freq,
-        pclk1: apb1_freq,
-        pclk2: apb2_freq,
-        pclk1_tim: apb1_tim_freq,
-        pclk2_tim: apb2_tim_freq,
+        hclk1,
+        pclk1,
+        pclk2,
+        pclk1_tim,
+        pclk2_tim,
         rtc,
     });
 }

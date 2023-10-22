@@ -246,3 +246,33 @@ pub(crate) mod sealed {
 }
 
 pub trait RccPeripheral: sealed::RccPeripheral + 'static {}
+
+#[allow(unused)]
+mod util {
+    use crate::time::Hertz;
+
+    pub fn calc_pclk<D>(hclk: Hertz, ppre: D) -> (Hertz, Hertz)
+    where
+        Hertz: core::ops::Div<D, Output = Hertz>,
+    {
+        let pclk = hclk / ppre;
+        let pclk_tim = if hclk == pclk { pclk } else { pclk * 2u32 };
+        (pclk, pclk_tim)
+    }
+
+    pub fn all_equal<T: Eq>(mut iter: impl Iterator<Item = T>) -> bool {
+        let Some(x) = iter.next() else { return true };
+        if !iter.all(|y| y == x) {
+            return false;
+        }
+        true
+    }
+
+    pub fn get_equal<T: Eq>(mut iter: impl Iterator<Item = T>) -> Result<Option<T>, ()> {
+        let Some(x) = iter.next() else { return Ok(None) };
+        if !iter.all(|y| y == x) {
+            return Err(());
+        }
+        Ok(Some(x))
+    }
+}

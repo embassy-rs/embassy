@@ -6,8 +6,11 @@ use crate::pac::pwr::vals::Vos;
 pub use crate::pac::rcc::vals::Adcdacsel as AdcClockSource;
 #[cfg(stm32h7)]
 pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
-use crate::pac::rcc::vals::{Ckpersel, Hsidiv, Pllrge, Pllsrc, Pllvcosel, Sw, Timpre};
-pub use crate::pac::rcc::vals::{Ckpersel as PerClockSource, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul};
+pub use crate::pac::rcc::vals::{
+    Ckpersel as PerClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
+    Pllsrc as PllSource, Sw as Sysclk,
+};
+use crate::pac::rcc::vals::{Ckpersel, Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -58,41 +61,9 @@ pub struct Hse {
     pub mode: HseMode,
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum Hsi {
-    /// 64Mhz
-    Mhz64,
-    /// 32Mhz (divided by 2)
-    Mhz32,
-    /// 16Mhz (divided by 4)
-    Mhz16,
-    /// 8Mhz (divided by 8)
-    Mhz8,
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum Sysclk {
-    /// HSI selected as sysclk
-    HSI,
-    /// HSE selected as sysclk
-    HSE,
-    /// CSI selected as sysclk
-    CSI,
-    /// PLL1_P selected as sysclk
-    Pll1P,
-}
-
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum PllSource {
-    Hsi,
-    Csi,
-    Hse,
-}
-
 #[derive(Clone, Copy)]
 pub struct Pll {
     /// Source clock selection.
-    #[cfg(stm32h5)]
     pub source: PllSource,
 
     /// PLL pre-divider (DIVM).
@@ -152,14 +123,11 @@ impl From<TimerPrescaler> for Timpre {
 /// Configuration of the core clocks
 #[non_exhaustive]
 pub struct Config {
-    pub hsi: Option<Hsi>,
+    pub hsi: Option<HSIPrescaler>,
     pub hse: Option<Hse>,
     pub csi: bool,
     pub hsi48: bool,
     pub sys: Sysclk,
-
-    #[cfg(stm32h7)]
-    pub pll_src: PllSource,
 
     pub pll1: Option<Pll>,
     pub pll2: Option<Pll>,
@@ -184,13 +152,11 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            hsi: Some(Hsi::Mhz64),
+            hsi: Some(HSIPrescaler::DIV1),
             hse: None,
             csi: false,
             hsi48: false,
             sys: Sysclk::HSI,
-            #[cfg(stm32h7)]
-            pll_src: PllSource::Hsi,
             pll1: None,
             pll2: None,
             #[cfg(any(rcc_h5, stm32h7))]
@@ -303,19 +269,13 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.cr().modify(|w| w.set_hsion(false));
             None
         }
-        Some(hsi) => {
-            let (freq, hsidiv) = match hsi {
-                Hsi::Mhz64 => (HSI_FREQ / 1u32, Hsidiv::DIV1),
-                Hsi::Mhz32 => (HSI_FREQ / 2u32, Hsidiv::DIV2),
-                Hsi::Mhz16 => (HSI_FREQ / 4u32, Hsidiv::DIV4),
-                Hsi::Mhz8 => (HSI_FREQ / 8u32, Hsidiv::DIV8),
-            };
+        Some(hsidiv) => {
             RCC.cr().modify(|w| {
                 w.set_hsidiv(hsidiv);
                 w.set_hsion(true);
             });
             while !RCC.cr().read().hsirdy() {}
-            Some(freq)
+            Some(HSI_FREQ / hsidiv)
         }
     };
 
@@ -360,25 +320,29 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    // H7 has shared PLLSRC, check it's equal in all PLLs.
+    #[cfg(stm32h7)]
+    {
+        let plls = [&config.pll1, &config.pll2, &config.pll3];
+        if !super::util::all_equal(plls.into_iter().flatten().map(|p| p.source)) {
+            panic!("Source must be equal across all enabled PLLs.")
+        };
+    }
+
     // Configure PLLs.
-    let pll_input = PllInput {
-        csi,
-        hse,
-        hsi,
-        #[cfg(stm32h7)]
-        source: config.pll_src,
-    };
+    let pll_input = PllInput { csi, hse, hsi };
     let pll1 = init_pll(0, config.pll1, &pll_input);
     let pll2 = init_pll(1, config.pll2, &pll_input);
     #[cfg(any(rcc_h5, stm32h7))]
     let pll3 = init_pll(2, config.pll3, &pll_input);
 
     // Configure sysclk
-    let (sys, sw) = match config.sys {
-        Sysclk::HSI => (unwrap!(hsi), Sw::HSI),
-        Sysclk::HSE => (unwrap!(hse), Sw::HSE),
-        Sysclk::CSI => (unwrap!(csi), Sw::CSI),
-        Sysclk::Pll1P => (unwrap!(pll1.p), Sw::PLL1_P),
+    let sys = match config.sys {
+        Sysclk::HSI => unwrap!(hsi),
+        Sysclk::HSE => unwrap!(hse),
+        Sysclk::CSI => unwrap!(csi),
+        Sysclk::PLL1_P => unwrap!(pll1.p),
+        _ => unreachable!(),
     };
 
     // Check limits.
@@ -502,8 +466,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.cfgr().modify(|w| w.set_timpre(config.timer_prescaler.into()));
 
-    RCC.cfgr().modify(|w| w.set_sw(sw));
-    while RCC.cfgr().read().sws() != sw {}
+    RCC.cfgr().modify(|w| w.set_sw(config.sys));
+    while RCC.cfgr().read().sws() != config.sys {}
 
     // IO compensation cell - Requires CSI clock and SYSCFG
     #[cfg(stm32h7)] // TODO h5
@@ -588,8 +552,6 @@ struct PllInput {
     hsi: Option<Hertz>,
     hse: Option<Hertz>,
     csi: Option<Hertz>,
-    #[cfg(stm32h7)]
-    source: PllSource,
 }
 
 struct PllOutput {
@@ -619,15 +581,11 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
         };
     };
 
-    #[cfg(stm32h5)]
-    let source = config.source;
-    #[cfg(stm32h7)]
-    let source = input.source;
-
-    let (in_clk, src) = match source {
-        PllSource::Hsi => (unwrap!(input.hsi), Pllsrc::HSI),
-        PllSource::Hse => (unwrap!(input.hse), Pllsrc::HSE),
-        PllSource::Csi => (unwrap!(input.csi), Pllsrc::CSI),
+    let in_clk = match config.source {
+        PllSource::DISABLE => panic!("must not set PllSource::Disable"),
+        PllSource::HSI => unwrap!(input.hsi),
+        PllSource::HSE => unwrap!(input.hse),
+        PllSource::CSI => unwrap!(input.csi),
     };
 
     let ref_clk = in_clk / config.prediv as u32;
@@ -667,7 +625,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
     #[cfg(stm32h5)]
     RCC.pllcfgr(num).write(|w| {
-        w.set_pllsrc(src);
+        w.set_pllsrc(config.source);
         w.set_divm(config.prediv);
         w.set_pllvcosel(vco_range);
         w.set_pllrge(ref_range);
@@ -681,7 +639,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     {
         RCC.pllckselr().modify(|w| {
             w.set_divm(num, config.prediv);
-            w.set_pllsrc(src);
+            w.set_pllsrc(config.source);
         });
         RCC.pllcfgr().modify(|w| {
             w.set_pllvcosel(num, vco_range);

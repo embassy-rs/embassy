@@ -43,7 +43,7 @@ async fn main(spawner: Spawner) -> ! {
         mode: HseMode::BypassDigital,
     });
     config.rcc.pll1 = Some(Pll {
-        source: PllSource::Hse,
+        source: PllSource::HSE,
         prediv: PllPreDiv::DIV2,
         mul: PllMul::MUL125,
         divp: Some(PllDiv::DIV2),
@@ -54,7 +54,7 @@ async fn main(spawner: Spawner) -> ! {
     config.rcc.apb1_pre = APBPrescaler::DIV1;
     config.rcc.apb2_pre = APBPrescaler::DIV1;
     config.rcc.apb3_pre = APBPrescaler::DIV1;
-    config.rcc.sys = Sysclk::Pll1P;
+    config.rcc.sys = Sysclk::PLL1_P;
     config.rcc.voltage_scale = VoltageScale::Scale0;
     let p = embassy_stm32::init(config);
     info!("Hello World!");
