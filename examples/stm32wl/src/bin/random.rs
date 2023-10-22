@@ -4,9 +4,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{ClockSrc, MSIRange};
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{bind_interrupts, pac, peripherals};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -16,10 +16,23 @@ bind_interrupts!(struct Irqs{
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = ClockSrc::MSI(MSIRange::RANGE32M);
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(32_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.pll = Some(Pll {
+            source: PLLSource::HSE,
+            prediv: PllPreDiv::DIV2,
+            mul: PllMul::MUL6,
+            divp: None,
+            divq: Some(PllQDiv::DIV2), // PLL1_Q clock (32 / 2 * 6 / 2), used for RNG
+            divr: Some(PllRDiv::DIV2), // sysclk 48Mhz clock (32 / 2 * 6 / 2)
+        });
+    }
     let p = embassy_stm32::init(config);
-
-    pac::RCC.ccipr().modify(|w| w.set_rngsel(0b11)); // msi
 
     info!("Hello World!");
 
