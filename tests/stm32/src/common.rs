@@ -365,7 +365,7 @@ pub fn config() -> Config {
     {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL1_R;
-        config.rcc.hsi16 = true;
+        config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PLLSource::HSI,
             prediv: PllPreDiv::DIV1,
@@ -388,7 +388,7 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32l552ze"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi16 = true;
+        config.rcc.hsi = true;
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.pll = Some(Pll {
             // 110Mhz clock (16 / 4 * 55 / 2)
@@ -412,7 +412,7 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL(
             // 32Mhz clock (16 * 4 / 2)
-            PLLSource::HSI16,
+            PLLSource::HSI,
             PLLMul::MUL4,
             PLLDiv::DIV2,
         );
@@ -423,7 +423,7 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL(
             // 32Mhz clock (16 * 4 / 2)
-            PLLSource::HSI16,
+            PLLSource::HSI,
             PLLMul::MUL4,
             PLLDiv::DIV2,
         );

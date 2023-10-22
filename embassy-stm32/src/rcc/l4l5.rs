@@ -34,7 +34,7 @@ pub struct Pll {
 pub struct Config {
     // base clock sources
     pub msi: Option<MSIRange>,
-    pub hsi16: bool,
+    pub hsi: bool,
     pub hse: Option<Hertz>,
     #[cfg(not(any(stm32l47x, stm32l48x)))]
     pub hsi48: bool,
@@ -63,7 +63,7 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             hse: None,
-            hsi16: false,
+            hsi: false,
             msi: Some(MSIRange::RANGE4M),
             mux: ClockSrc::MSI,
             ahb_pre: AHBPrescaler::DIV1,
@@ -127,7 +127,7 @@ pub(crate) unsafe fn init(config: Config) {
         msirange_to_hertz(range)
     });
 
-    let hsi16 = config.hsi16.then(|| {
+    let hsi = config.hsi.then(|| {
         RCC.cr().write(|w| w.set_hsion(true));
         while !RCC.cr().read().hsirdy() {}
 
@@ -179,7 +179,7 @@ pub(crate) unsafe fn init(config: Config) {
         }),
     };
 
-    let pll_input = PllInput { hse, hsi16, msi };
+    let pll_input = PllInput { hse, hsi, msi };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
     let pllsai1 = init_pll(PllInstance::Pllsai1, config.pllsai1, &pll_input);
     #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
@@ -187,7 +187,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     let sys_clk = match config.mux {
         ClockSrc::HSE => hse.unwrap(),
-        ClockSrc::HSI => hsi16.unwrap(),
+        ClockSrc::HSI => hsi.unwrap(),
         ClockSrc::MSI => msi.unwrap(),
         ClockSrc::PLL1_R => pll._r.unwrap(),
     };
@@ -315,7 +315,7 @@ fn get_equal<T: Eq>(mut iter: impl Iterator<Item = T>) -> Result<Option<T>, ()> 
 }
 
 struct PllInput {
-    hsi16: Option<Hertz>,
+    hsi: Option<Hertz>,
     hse: Option<Hertz>,
     msi: Option<Hertz>,
 }
@@ -358,7 +358,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
     let pll_src = match pll.source {
         PLLSource::NONE => panic!("must not select PLL source as NONE"),
         PLLSource::HSE => input.hse,
-        PLLSource::HSI => input.hsi16,
+        PLLSource::HSI => input.hsi,
         PLLSource::MSI => input.msi,
     };
 

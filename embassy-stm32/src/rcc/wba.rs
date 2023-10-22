@@ -13,20 +13,20 @@ pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
     HSE(Hertz),
-    HSI16,
+    HSI,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum PllSrc {
     HSE(Hertz),
-    HSI16,
+    HSI,
 }
 
 impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
             PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI,
+            PllSrc::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -35,7 +35,7 @@ impl Into<Sw> for ClockSrc {
     fn into(self) -> Sw {
         match self {
             ClockSrc::HSE(..) => Sw::HSE,
-            ClockSrc::HSI16 => Sw::HSI,
+            ClockSrc::HSI => Sw::HSI,
         }
     }
 }
@@ -52,7 +52,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            mux: ClockSrc::HSI16,
+            mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
@@ -70,7 +70,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             freq
         }
-        ClockSrc::HSI16 => {
+        ClockSrc::HSI => {
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 

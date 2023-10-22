@@ -10,6 +10,7 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 
 #[derive(Copy, Clone)]
+#[allow(non_camel_case_types)]
 pub enum ClockSrc {
     /// Use an internal medium speed oscillator (MSIS) as the system clock.
     MSI(Msirange),
@@ -19,9 +20,9 @@ pub enum ClockSrc {
     /// never exceed 50 MHz.
     HSE(Hertz),
     /// Use the 16 MHz internal high speed oscillator as the system clock.
-    HSI16,
+    HSI,
     /// Use PLL1 as the system clock.
-    PLL1R(PllConfig),
+    PLL1_R(PllConfig),
 }
 
 impl Default for ClockSrc {
@@ -53,10 +54,10 @@ pub struct PllConfig {
 }
 
 impl PllConfig {
-    /// A configuration for HSI16 / 1 * 10 / 1 = 160 MHz
-    pub const fn hsi16_160mhz() -> Self {
+    /// A configuration for HSI / 1 * 10 / 1 = 160 MHz
+    pub const fn hsi_160mhz() -> Self {
         PllConfig {
-            source: PllSrc::HSI16,
+            source: PllSrc::HSI,
             m: Pllm::DIV1,
             n: Plln::MUL10,
             r: Plldiv::DIV1,
@@ -84,7 +85,7 @@ pub enum PllSrc {
     /// never exceed 50 MHz.
     HSE(Hertz),
     /// Use the 16 MHz internal high speed oscillator as the PLL source.
-    HSI16,
+    HSI,
 }
 
 impl Into<Pllsrc> for PllSrc {
@@ -92,7 +93,7 @@ impl Into<Pllsrc> for PllSrc {
         match self {
             PllSrc::MSIS(..) => Pllsrc::MSIS,
             PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI,
+            PllSrc::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -102,8 +103,8 @@ impl Into<Sw> for ClockSrc {
         match self {
             ClockSrc::MSI(..) => Sw::MSIS,
             ClockSrc::HSE(..) => Sw::HSE,
-            ClockSrc::HSI16 => Sw::HSI,
-            ClockSrc::PLL1R(..) => Sw::PLL1_R,
+            ClockSrc::HSI => Sw::HSI,
+            ClockSrc::PLL1_R(..) => Sw::PLL1_R,
         }
     }
 }
@@ -125,7 +126,7 @@ pub struct Config {
 }
 
 impl Config {
-    unsafe fn init_hsi16(&self) -> Hertz {
+    unsafe fn init_hsi(&self) -> Hertz {
         RCC.cr().write(|w| w.set_hsion(true));
         while !RCC.cr().read().hsirdy() {}
 
@@ -211,13 +212,13 @@ pub(crate) unsafe fn init(config: Config) {
     let sys_clk = match config.mux {
         ClockSrc::MSI(range) => config.init_msis(range),
         ClockSrc::HSE(freq) => config.init_hse(freq),
-        ClockSrc::HSI16 => config.init_hsi16(),
-        ClockSrc::PLL1R(pll) => {
+        ClockSrc::HSI => config.init_hsi(),
+        ClockSrc::PLL1_R(pll) => {
             // Configure the PLL source
             let source_clk = match pll.source {
                 PllSrc::MSIS(range) => config.init_msis(range),
                 PllSrc::HSE(hertz) => config.init_hse(hertz),
-                PllSrc::HSI16 => config.init_hsi16(),
+                PllSrc::HSI => config.init_hsi(),
             };
 
             // Calculate the reference clock, which is the source divided by m
@@ -292,7 +293,7 @@ pub(crate) unsafe fn init(config: Config) {
                 // Set the prescaler for PWR EPOD
                 w.set_pllmboost(mboost);
 
-                // Enable PLL1R output
+                // Enable PLL1_R output
                 w.set_pllren(true);
             });
 

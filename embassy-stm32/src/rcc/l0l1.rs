@@ -18,20 +18,20 @@ pub enum ClockSrc {
     MSI(MSIRange),
     PLL(PLLSource, PLLMul, PLLDiv),
     HSE(Hertz),
-    HSI16,
+    HSI,
 }
 
 /// PLL clock input source
 #[derive(Clone, Copy)]
 pub enum PLLSource {
-    HSI16,
+    HSI,
     HSE(Hertz),
 }
 
 impl From<PLLSource> for Pllsrc {
     fn from(val: PLLSource) -> Pllsrc {
         match val {
-            PLLSource::HSI16 => Pllsrc::HSI,
+            PLLSource::HSI => Pllsrc::HSI,
             PLLSource::HSE(_) => Pllsrc::HSE,
         }
     }
@@ -83,10 +83,10 @@ pub(crate) unsafe fn init(config: Config) {
             let freq = 32_768 * (1 << (range as u8 + 1));
             (Hertz(freq), Sw::MSI)
         }
-        ClockSrc::HSI16 => {
-            // Enable HSI16
-            RCC.cr().write(|w| w.set_hsi16on(true));
-            while !RCC.cr().read().hsi16rdy() {}
+        ClockSrc::HSI => {
+            // Enable HSI
+            RCC.cr().write(|w| w.set_hsion(true));
+            while !RCC.cr().read().hsirdy() {}
 
             (HSI_FREQ, Sw::HSI)
         }
@@ -105,10 +105,10 @@ pub(crate) unsafe fn init(config: Config) {
                     while !RCC.cr().read().hserdy() {}
                     freq
                 }
-                PLLSource::HSI16 => {
+                PLLSource::HSI => {
                     // Enable HSI
-                    RCC.cr().write(|w| w.set_hsi16on(true));
-                    while !RCC.cr().read().hsi16rdy() {}
+                    RCC.cr().write(|w| w.set_hsion(true));
+                    while !RCC.cr().read().hsirdy() {}
                     HSI_FREQ
                 }
             };
