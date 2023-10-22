@@ -19,9 +19,8 @@ pub use mco::*;
 #[cfg_attr(rcc_g4, path = "g4.rs")]
 #[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab), path = "h.rs")]
 #[cfg_attr(any(rcc_l0, rcc_l0_v2, rcc_l1), path = "l0l1.rs")]
-#[cfg_attr(any(rcc_l4, rcc_l4plus, rcc_l5, rcc_wl5, rcc_wle), path = "l4l5.rs")]
+#[cfg_attr(any(rcc_l4, rcc_l4plus, rcc_l5, rcc_wl5, rcc_wle, rcc_wb), path = "l4l5.rs")]
 #[cfg_attr(rcc_u5, path = "u5.rs")]
-#[cfg_attr(rcc_wb, path = "wb.rs")]
 #[cfg_attr(rcc_wba, path = "wba.rs")]
 mod _version;
 #[cfg(feature = "low-power")]

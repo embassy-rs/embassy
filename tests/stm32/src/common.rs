@@ -227,6 +227,11 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
+    #[cfg(feature = "stm32wb55rg")]
+    {
+        config.rcc = embassy_stm32::rcc::WPAN_DEFAULT;
+    }
+
     #[cfg(feature = "stm32f207zg")]
     {
         use embassy_stm32::rcc::*;
@@ -405,6 +410,7 @@ pub fn config() -> Config {
         config.rcc.hse = Some(Hse {
             freq: Hertz(32_000_000),
             mode: HseMode::Bypass,
+            prescaler: HsePrescaler::DIV1,
         });
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.pll = Some(Pll {

@@ -1,7 +1,8 @@
 use crate::pac::rcc::regs::Cfgr;
-#[cfg(not(stm32wl))]
+#[cfg(any(stm32l4, stm32l5, stm32wb))]
 pub use crate::pac::rcc::vals::Clk48sel as Clk48Src;
-use crate::pac::rcc::vals::Msirgsel;
+#[cfg(any(stm32wb, stm32wl))]
+pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange as MSIRange, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv,
     Pllr as PllRDiv, Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
@@ -27,6 +28,9 @@ pub struct Hse {
     pub freq: Hertz,
     /// HSE mode.
     pub mode: HseMode,
+    /// HSE prescaler
+    #[cfg(any(stm32wb, stm32wl))]
+    pub prescaler: HsePrescaler,
 }
 
 #[derive(Clone, Copy)]
@@ -54,12 +58,12 @@ pub struct Config {
     pub msi: Option<MSIRange>,
     pub hsi: bool,
     pub hse: Option<Hse>,
-    #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5))]
+    #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5, stm32wb))]
     pub hsi48: bool,
 
     // pll
     pub pll: Option<Pll>,
-    #[cfg(any(stm32l4, stm32l5))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb))]
     pub pllsai1: Option<Pll>,
     #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
     pub pllsai2: Option<Pll>,
@@ -69,11 +73,13 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
-    #[cfg(stm32wl)]
+    #[cfg(any(stm32wl5x, stm32wb))]
+    pub core2_ahb_pre: AHBPrescaler,
+    #[cfg(any(stm32wl, stm32wb))]
     pub shared_ahb_pre: AHBPrescaler,
 
     // muxes
-    #[cfg(not(stm32wl))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb))]
     pub clk48_src: Clk48Src,
 
     // low speed LSI/LSE/RTC
@@ -91,28 +97,63 @@ impl Default for Config {
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
-            #[cfg(stm32wl)]
+            #[cfg(any(stm32wl5x, stm32wb))]
+            core2_ahb_pre: AHBPrescaler::DIV1,
+            #[cfg(any(stm32wl, stm32wb))]
             shared_ahb_pre: AHBPrescaler::DIV1,
             pll: None,
-            #[cfg(any(stm32l4, stm32l5))]
+            #[cfg(any(stm32l4, stm32l5, stm32wb))]
             pllsai1: None,
             #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
             pllsai2: None,
-            #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5))]
+            #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5, stm32wb))]
             hsi48: true,
-            #[cfg(not(stm32wl))]
+            #[cfg(any(stm32l4, stm32l5, stm32wb))]
             clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
         }
     }
 }
 
+#[cfg(stm32wb)]
+pub const WPAN_DEFAULT: Config = Config {
+    hse: Some(Hse {
+        freq: Hertz(32_000_000),
+        mode: HseMode::Oscillator,
+        prescaler: HsePrescaler::DIV1,
+    }),
+    mux: ClockSrc::PLL1_R,
+    hsi48: true,
+    msi: None,
+    hsi: false,
+    clk48_src: Clk48Src::PLL1_Q,
+
+    ls: super::LsConfig::default_lse(),
+
+    pll: Some(Pll {
+        source: PLLSource::HSE,
+        prediv: PllPreDiv::DIV2,
+        mul: PllMul::MUL12,
+        divp: Some(PllPDiv::DIV3), // 32 / 2 * 12 / 3 = 64Mhz
+        divq: Some(PllQDiv::DIV4), // 32 / 2 * 12 / 4 = 48Mhz
+        divr: Some(PllRDiv::DIV3), // 32 / 2 * 12 / 3 = 64Mhz
+    }),
+    pllsai1: None,
+
+    ahb_pre: AHBPrescaler::DIV1,
+    core2_ahb_pre: AHBPrescaler::DIV2,
+    shared_ahb_pre: AHBPrescaler::DIV1,
+    apb1_pre: APBPrescaler::DIV1,
+    apb2_pre: APBPrescaler::DIV1,
+};
+
 pub(crate) unsafe fn init(config: Config) {
     // Switch to MSI to prevent problems with PLL configuration.
     if !RCC.cr().read().msion() {
         // Turn on MSI and configure it to 4MHz.
         RCC.cr().modify(|w| {
-            w.set_msirgsel(Msirgsel::CR);
+            #[cfg(not(stm32wb))]
+            w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::CR);
             w.set_msirange(MSIRange::RANGE4M);
             w.set_msipllen(false);
             w.set_msion(true)
@@ -138,8 +179,9 @@ pub(crate) unsafe fn init(config: Config) {
     let msi = config.msi.map(|range| {
         // Enable MSI
         RCC.cr().modify(|w| {
+            #[cfg(not(stm32wb))]
+            w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::CR);
             w.set_msirange(range);
-            w.set_msirgsel(Msirgsel::CR);
             w.set_msion(true);
 
             // If LSE is enabled, enable calibration of MSI
@@ -173,7 +215,7 @@ pub(crate) unsafe fn init(config: Config) {
         hse.freq
     });
 
-    #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5))]
+    #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5, stm32wb))]
     let hsi48 = config.hsi48.then(|| {
         RCC.crrcr().modify(|w| w.set_hsi48on(true));
         while !RCC.crrcr().read().hsi48rdy() {}
@@ -185,7 +227,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     let _plls = [
         &config.pll,
-        #[cfg(any(stm32l4, stm32l5))]
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
         &config.pllsai1,
         #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         &config.pllsai2,
@@ -214,7 +256,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     let pll_input = PllInput { hse, hsi, msi };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
-    #[cfg(any(stm32l4, stm32l5))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb))]
     let pllsai1 = init_pll(PllInstance::Pllsai1, config.pllsai1, &pll_input);
     #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
     let _pllsai2 = init_pll(PllInstance::Pllsai2, config.pllsai2, &pll_input);
@@ -230,7 +272,7 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.ccipr().modify(|w| w.set_clk48sel(config.clk48_src));
     #[cfg(stm32l5)]
     RCC.ccipr1().modify(|w| w.set_clk48sel(config.clk48_src));
-    #[cfg(not(stm32wl))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb))]
     let _clk48 = match config.clk48_src {
         Clk48Src::HSI48 => hsi48,
         Clk48Src::MSI => msi,
@@ -261,7 +303,9 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(stm32wl)]
+    #[cfg(any(stm32wl5x, stm32wb))]
+    let _ahb2_freq = sys_clk / config.core2_ahb_pre;
+    #[cfg(any(stm32wl, stm32wb))]
     let ahb3_freq = sys_clk / config.shared_ahb_pre;
 
     // Set flash wait states
@@ -290,6 +334,15 @@ pub(crate) unsafe fn init(config: Config) {
         ..=36_000_000 => 1,
         _ => 2,
     };
+    #[cfg(stm32wb)]
+    let latency = match ahb3_freq.0 {
+        // VOS RANGE1, others TODO.
+        ..=18_000_000 => 0,
+        ..=36_000_000 => 1,
+        ..=54_000_000 => 2,
+        ..=64_000_000 => 3,
+        _ => 4,
+    };
 
     FLASH.acr().modify(|w| w.set_latency(latency));
     while FLASH.acr().read().latency() != latency {}
@@ -302,12 +355,16 @@ pub(crate) unsafe fn init(config: Config) {
     });
     while RCC.cfgr().read().sws() != config.mux {}
 
-    #[cfg(stm32wl)]
+    #[cfg(any(stm32wl, stm32wb))]
     {
         RCC.extcfgr().modify(|w| {
             w.set_shdhpre(config.shared_ahb_pre);
+            #[cfg(any(stm32wl5x, stm32wb))]
+            w.set_c2hpre(config.core2_ahb_pre);
         });
         while !RCC.extcfgr().read().shdhpref() {}
+        #[cfg(any(stm32wl5x, stm32wb))]
+        while !RCC.extcfgr().read().c2hpref() {}
     }
 
     set_freqs(Clocks {
@@ -387,7 +444,7 @@ struct PllOutput {
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum PllInstance {
     Pll,
-    #[cfg(any(stm32l4, stm32l5))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb))]
     Pllsai1,
     #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
     Pllsai2,
@@ -400,7 +457,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             RCC.cr().modify(|w| w.set_pllon(false));
             while RCC.cr().read().pllrdy() {}
         }
-        #[cfg(any(stm32l4, stm32l5))]
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
         PllInstance::Pllsai1 => {
             RCC.cr().modify(|w| w.set_pllsai1on(false));
             while RCC.cr().read().pllsai1rdy() {}
@@ -459,7 +516,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             w.set_pllsrc(pll.source);
             write_fields!(w);
         }),
-        #[cfg(any(stm32l4, stm32l5))]
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
         PllInstance::Pllsai1 => RCC.pllsai1cfgr().write(|w| {
             #[cfg(any(rcc_l4plus, stm32l5))]
             w.set_pllm(pll.prediv);
@@ -483,7 +540,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
             RCC.cr().modify(|w| w.set_pllon(true));
             while !RCC.cr().read().pllrdy() {}
         }
-        #[cfg(any(stm32l4, stm32l5))]
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
         PllInstance::Pllsai1 => {
             RCC.cr().modify(|w| w.set_pllsai1on(true));
             while !RCC.cr().read().pllsai1rdy() {}
