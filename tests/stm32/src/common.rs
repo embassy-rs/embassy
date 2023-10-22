@@ -402,9 +402,18 @@ pub fn config() -> Config {
     #[cfg(feature = "stm32wl55jc")]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::MSI(MSIRange::RANGE32M);
-        embassy_stm32::pac::RCC.ccipr().modify(|w| {
-            w.set_rngsel(0b11); // msi
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(32_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.pll = Some(Pll {
+            source: PLLSource::HSE,
+            prediv: PllPreDiv::DIV2,
+            mul: PllMul::MUL6,
+            divp: None,
+            divq: Some(PllQDiv::DIV2), // PLL1_Q clock (32 / 2 * 6 / 2), used for RNG
+            divr: Some(PllRDiv::DIV2), // sysclk 48Mhz clock (32 / 2 * 6 / 2)
         });
     }
 

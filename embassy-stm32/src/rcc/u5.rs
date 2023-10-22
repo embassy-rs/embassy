@@ -170,7 +170,7 @@ impl Config {
 
         RCC.icscr1().modify(|w| {
             w.set_msisrange(range);
-            w.set_msirgsel(Msirgsel::RCC_ICSCR1);
+            w.set_msirgsel(Msirgsel::ICSCR1);
         });
         RCC.cr().write(|w| {
             w.set_msipllen(false);
