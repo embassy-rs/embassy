@@ -19,7 +19,7 @@ pub const HSE_FREQ: Hertz = Hertz(32_000_000);
 pub enum ClockSrc {
     MSI(MSIRange),
     HSE,
-    HSI16,
+    HSI,
 }
 
 /// Clocks configutation
@@ -50,7 +50,7 @@ impl Default for Config {
 
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw, vos) = match config.mux {
-        ClockSrc::HSI16 => (HSI_FREQ, Sw::HSI, VoltageScale::RANGE2),
+        ClockSrc::HSI => (HSI_FREQ, Sw::HSI, VoltageScale::RANGE2),
         ClockSrc::HSE => (HSE_FREQ, Sw::HSE, VoltageScale::RANGE1),
         ClockSrc::MSI(range) => (msirange_to_hertz(range), Sw::MSI, msirange_to_vos(range)),
     };
@@ -97,8 +97,8 @@ pub(crate) unsafe fn init(config: Config) {
     while FLASH.acr().read().latency() != ws {}
 
     match config.mux {
-        ClockSrc::HSI16 => {
-            // Enable HSI16
+        ClockSrc::HSI => {
+            // Enable HSI
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
         }

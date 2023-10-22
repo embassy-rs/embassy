@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
     config.rcc.pll = Some(Pll {
-        source: PllSrc::HSI16,
+        source: PllSrc::HSI,
         prediv_m: PllM::DIV4,
         mul_n: PllN::MUL85,
         div_p: None,

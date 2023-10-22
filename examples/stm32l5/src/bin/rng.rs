@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.hsi16 = true;
+    config.rcc.hsi = true;
     config.rcc.mux = ClockSrc::PLL1_R;
     config.rcc.pll = Some(Pll {
         // 64Mhz clock (16 / 1 * 8 / 2)

@@ -24,6 +24,8 @@ teleprobe_meta::target!(b"nucleo-stm32h753zi");
 teleprobe_meta::target!(b"nucleo-stm32h7a3zi");
 #[cfg(feature = "stm32u585ai")]
 teleprobe_meta::target!(b"iot-stm32u585ai");
+#[cfg(feature = "stm32u5a5zj")]
+teleprobe_meta::target!(b"nucleo-stm32u5a5zj");
 #[cfg(feature = "stm32h563zi")]
 teleprobe_meta::target!(b"nucleo-stm32h563zi");
 #[cfg(feature = "stm32c031c6")]
@@ -48,6 +50,8 @@ teleprobe_meta::target!(b"nucleo-stm32f303ze");
 teleprobe_meta::target!(b"nucleo-stm32l496zg");
 #[cfg(feature = "stm32wl55jc")]
 teleprobe_meta::target!(b"nucleo-stm32wl55jc");
+#[cfg(feature = "stm32wba52cg")]
+teleprobe_meta::target!(b"nucleo-stm32wba52cg");
 
 macro_rules! define_peris {
     ($($name:ident = $peri:ident,)* $(@irq $irq_name:ident = $irq_code:tt,)*) => {
@@ -127,6 +131,12 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PE13, SPI_MOSI = PE15, SPI_MISO = PE14, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
     @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
 );
+#[cfg(feature = "stm32u5a5zj")]
+define_peris!(
+    UART = LPUART1, UART_TX = PG7, UART_RX = PG8, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    @irq UART = {LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;},
+);
 #[cfg(feature = "stm32h563zi")]
 define_peris!(
     UART = LPUART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
@@ -199,8 +209,21 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
+#[cfg(feature = "stm32wba52cg")]
+define_peris!(
+    UART = LPUART1, UART_TX = PB5, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
+    SPI = SPI1, SPI_SCK = PB4, SPI_MOSI = PA15, SPI_MISO = PB3, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    @irq UART = {LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;},
+);
 
 pub fn config() -> Config {
+    // Setting this bit is mandatory to use PG[15:2].
+    #[cfg(feature = "stm32u5a5zj")]
+    embassy_stm32::pac::PWR.svmcr().modify(|w| {
+        w.set_io2sv(true);
+        w.set_io2vmen(true);
+    });
+
     #[allow(unused_mut)]
     let mut config = Config::default();
 
@@ -365,7 +388,7 @@ pub fn config() -> Config {
     {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL1_R;
-        config.rcc.hsi16 = true;
+        config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PLLSource::HSI,
             prediv: PllPreDiv::DIV1,
@@ -388,7 +411,7 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32l552ze"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi16 = true;
+        config.rcc.hsi = true;
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.pll = Some(Pll {
             // 110Mhz clock (16 / 4 * 55 / 2)
@@ -401,10 +424,20 @@ pub fn config() -> Config {
         });
     }
 
-    #[cfg(feature = "stm32u585ai")]
+    #[cfg(any(feature = "stm32u585ai", feature = "stm32u5a5zj"))]
     {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::MSI(Msirange::RANGE_48MHZ);
+    }
+
+    #[cfg(feature = "stm32wba52cg")]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux = ClockSrc::HSI;
+
+        embassy_stm32::pac::RCC.ccipr2().write(|w| {
+            w.set_rngsel(embassy_stm32::pac::rcc::vals::Rngsel::HSI);
+        });
     }
 
     #[cfg(feature = "stm32l073rz")]
@@ -412,7 +445,7 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL(
             // 32Mhz clock (16 * 4 / 2)
-            PLLSource::HSI16,
+            PLLSource::HSI,
             PLLMul::MUL4,
             PLLDiv::DIV2,
         );
@@ -423,7 +456,7 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.mux = ClockSrc::PLL(
             // 32Mhz clock (16 * 4 / 2)
-            PLLSource::HSI16,
+            PLLSource::HSI,
             PLLMul::MUL4,
             PLLDiv::DIV2,
         );

@@ -18,14 +18,14 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
     HSE(Hertz),
-    HSI16,
+    HSI,
     PLL,
 }
 
 /// PLL clock input source
 #[derive(Clone, Copy, Debug)]
 pub enum PllSrc {
-    HSI16,
+    HSI,
     HSE(Hertz),
 }
 
@@ -33,7 +33,7 @@ impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
             PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI,
+            PllSrc::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -112,7 +112,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI16,
+            mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
@@ -135,7 +135,7 @@ pub struct PllFreq {
 pub(crate) unsafe fn init(config: Config) {
     let pll_freq = config.pll.map(|pll_config| {
         let src_freq = match pll_config.source {
-            PllSrc::HSI16 => {
+            PllSrc::HSI => {
                 RCC.cr().write(|w| w.set_hsion(true));
                 while !RCC.cr().read().hsirdy() {}
 
@@ -196,8 +196,8 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let (sys_clk, sw) = match config.mux {
-        ClockSrc::HSI16 => {
-            // Enable HSI16
+        ClockSrc::HSI => {
+            // Enable HSI
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 
