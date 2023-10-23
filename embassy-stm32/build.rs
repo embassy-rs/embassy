@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::{env, fs};
@@ -352,7 +352,7 @@ fn main() {
     // ========
     // Generate DMA IRQs.
 
-    let mut dma_irqs: HashMap<&str, Vec<(&str, &str, &str)>> = HashMap::new();
+    let mut dma_irqs: BTreeMap<&str, Vec<(&str, &str, &str)>> = BTreeMap::new();
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
@@ -371,22 +371,27 @@ fn main() {
         }
     }
 
-    for (irq, channels) in dma_irqs {
-        let irq = format_ident!("{}", irq);
+    let dma_irqs: TokenStream = dma_irqs
+        .iter()
+        .map(|(irq, channels)| {
+            let irq = format_ident!("{}", irq);
 
-        let xdma = format_ident!("{}", channels[0].0);
-        let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
+            let xdma = format_ident!("{}", channels[0].0);
+            let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
 
-        g.extend(quote! {
-            #[cfg(feature = "rt")]
-            #[crate::interrupt]
-            unsafe fn #irq () {
-                #(
-                    <crate::peripherals::#channels as crate::dma::#xdma::sealed::Channel>::on_irq();
-                )*
+            quote! {
+                #[cfg(feature = "rt")]
+                #[crate::interrupt]
+                unsafe fn #irq () {
+                    #(
+                        <crate::peripherals::#channels as crate::dma::#xdma::sealed::Channel>::on_irq();
+                    )*
+                }
             }
-        });
-    }
+        })
+        .collect();
+
+    g.extend(dma_irqs);
 
     // ========
     // Extract the rcc registers
@@ -433,7 +438,7 @@ fn main() {
     // Generate RccPeripheral impls
 
     let refcounted_peripherals = HashSet::from(["usart", "adc"]);
-    let mut refcount_statics = HashSet::new();
+    let mut refcount_statics = BTreeSet::new();
 
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
