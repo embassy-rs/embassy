@@ -233,7 +233,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         configure(r, &config, T::frequency(), T::KIND, true, true)?;
 
         r.cr1().modify(|w| {
-            #[cfg(lpuart_v2)]
+            #[cfg(usart_v4)]
             w.set_fifoen(true);
 
             w.set_rxneie(true);
@@ -254,7 +254,17 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
     }
 
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        reconfigure::<T>(config)
+        reconfigure::<T>(config)?;
+
+        T::regs().cr1().modify(|w| {
+            #[cfg(usart_v4)]
+            w.set_fifoen(true);
+
+            w.set_rxneie(true);
+            w.set_idleie(true);
+        });
+
+        Ok(())
     }
 }
 
@@ -334,7 +344,17 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
     }
 
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        reconfigure::<T>(config)
+        reconfigure::<T>(config)?;
+
+        T::regs().cr1().modify(|w| {
+            #[cfg(usart_v4)]
+            w.set_fifoen(true);
+
+            w.set_rxneie(true);
+            w.set_idleie(true);
+        });
+
+        Ok(())
     }
 }
 
@@ -408,7 +428,17 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
     }
 
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        reconfigure::<T>(config)
+        reconfigure::<T>(config)?;
+
+        T::regs().cr1().modify(|w| {
+            #[cfg(usart_v4)]
+            w.set_fifoen(true);
+
+            w.set_rxneie(true);
+            w.set_idleie(true);
+        });
+
+        Ok(())
     }
 }
 
