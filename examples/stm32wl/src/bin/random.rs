@@ -21,6 +21,7 @@ async fn main(_spawner: Spawner) {
         config.rcc.hse = Some(Hse {
             freq: Hertz(32_000_000),
             mode: HseMode::Bypass,
+            prescaler: HsePrescaler::DIV1,
         });
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.pll = Some(Pll {

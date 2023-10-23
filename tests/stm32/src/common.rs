@@ -227,6 +227,11 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
+    #[cfg(feature = "stm32wb55rg")]
+    {
+        config.rcc = embassy_stm32::rcc::WPAN_DEFAULT;
+    }
+
     #[cfg(feature = "stm32f207zg")]
     {
         use embassy_stm32::rcc::*;
@@ -307,7 +312,7 @@ pub fn config() -> Config {
             mode: HseMode::BypassDigital,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::Hse,
+            source: PllSource::HSE,
             prediv: PllPreDiv::DIV2,
             mul: PllMul::MUL125,
             divp: Some(PllDiv::DIV2),
@@ -318,18 +323,18 @@ pub fn config() -> Config {
         config.rcc.apb1_pre = APBPrescaler::DIV1;
         config.rcc.apb2_pre = APBPrescaler::DIV1;
         config.rcc.apb3_pre = APBPrescaler::DIV1;
-        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
     }
 
     #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
         config.rcc.hsi48 = true; // needed for RNG
-        config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
             divp: Some(PllDiv::DIV2),
@@ -337,13 +342,14 @@ pub fn config() -> Config {
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
             divp: Some(PllDiv::DIV8), // 100mhz
             divq: None,
             divr: None,
         });
-        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
         config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
@@ -356,11 +362,11 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32h7a3zi"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
         config.rcc.hsi48 = true; // needed for RNG
-        config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL35,
             divp: Some(PllDiv::DIV2), // 280 Mhz
@@ -368,13 +374,14 @@ pub fn config() -> Config {
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL35,
             divp: Some(PllDiv::DIV8), // 70 Mhz
             divq: None,
             divr: None,
         });
-        config.rcc.sys = Sysclk::Pll1P; // 280 Mhz
+        config.rcc.sys = Sysclk::PLL1_P; // 280 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV1; // 280 Mhz
         config.rcc.apb1_pre = APBPrescaler::DIV2; // 140 Mhz
         config.rcc.apb2_pre = APBPrescaler::DIV2; // 140 Mhz
@@ -405,6 +412,7 @@ pub fn config() -> Config {
         config.rcc.hse = Some(Hse {
             freq: Hertz(32_000_000),
             mode: HseMode::Bypass,
+            prescaler: HsePrescaler::DIV1,
         });
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.pll = Some(Pll {
