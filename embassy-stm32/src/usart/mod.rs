@@ -108,6 +108,7 @@ pub enum StopBits {
 pub enum ConfigError {
     BaudrateTooLow,
     BaudrateTooHigh,
+    RxOrTxNotEnabled,
 }
 
 #[non_exhaustive]
@@ -866,7 +867,7 @@ fn configure(
     enable_tx: bool,
 ) -> Result<(), ConfigError> {
     if !enable_rx && !enable_tx {
-        panic!("USART: At least one of RX or TX should be enabled");
+        return Err(ConfigError::RxOrTxNotEnabled);
     }
 
     #[cfg(not(usart_v4))]
