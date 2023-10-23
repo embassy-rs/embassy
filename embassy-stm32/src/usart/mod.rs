@@ -910,6 +910,11 @@ fn configure(
         brr + rounding
     }
 
+    // UART must be disabled during configuration.
+    r.cr1().modify(|w| {
+        w.set_ue(false);
+    });
+
     #[cfg(not(usart_v1))]
     let mut over8 = false;
     let mut found_brr = None;
@@ -977,10 +982,9 @@ fn configure(
         // enable receiver
         w.set_re(enable_rx);
         // configure word size
-        w.set_m0(if config.parity != Parity::ParityNone {
-            vals::M0::BIT9
-        } else {
-            vals::M0::BIT8
+        w.set_m0(match config.data_bits {
+            DataBits::DataBits8 => vals::M0::BIT8,
+            DataBits::DataBits9 => vals::M0::BIT9,
         });
         // configure parity
         w.set_pce(config.parity != Parity::ParityNone);
