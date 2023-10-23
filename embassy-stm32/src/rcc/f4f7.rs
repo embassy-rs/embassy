@@ -152,9 +152,9 @@ pub(crate) unsafe fn init(config: Config) {
         source: config.pll_src,
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
-    #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
+    #[cfg(any(all(stm32f4, not(any(stm32f410, stm32f429))), stm32f7))]
     let _plli2s = init_pll(PllInstance::Plli2s, config.plli2s, &pll_input);
-    #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+    #[cfg(all(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7), not(stm32f429)))]
     let _pllsai = init_pll(PllInstance::Pllsai, config.pllsai, &pll_input);
 
     // Configure sysclk
@@ -197,15 +197,25 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim,
         rtc,
         pll1_q: pll.q,
-        #[cfg(all(rcc_f4, not(stm32f410)))]
+        #[cfg(all(rcc_f4, not(any(stm32f410, stm32f429))))]
         plli2s1_q: _plli2s.q,
-        #[cfg(all(rcc_f4, not(stm32f410)))]
+        #[cfg(all(rcc_f4, not(any(stm32f410, stm32f429))))]
         plli2s1_r: _plli2s.r,
 
-        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        #[cfg(stm32f429)]
+        plli2s1_q: None,
+        #[cfg(stm32f429)]
+        plli2s1_r: None,
+
+        #[cfg(any(stm32f427, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
         pllsai1_q: _pllsai.q,
-        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
+        #[cfg(any(stm32f427, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
         pllsai1_r: _pllsai.r,
+
+        #[cfg(stm32f429)]
+        pllsai1_q: None,
+        #[cfg(stm32f429)]
+        pllsai1_r: None,
     });
 }
 
@@ -223,6 +233,7 @@ struct PllOutput {
     r: Option<Hertz>,
 }
 
+#[allow(dead_code)]
 #[derive(PartialEq, Eq, Clone, Copy)]
 enum PllInstance {
     Pll,

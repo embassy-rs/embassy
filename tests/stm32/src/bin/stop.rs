@@ -11,7 +11,7 @@ use common::*;
 use cortex_m_rt::entry;
 use embassy_executor::Spawner;
 use embassy_stm32::low_power::{stop_with_rtc, Executor};
-use embassy_stm32::rcc::LsConfig;
+use embassy_stm32::rcc::{low_power_ready, LsConfig};
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
 use embassy_time::Timer;
@@ -28,6 +28,7 @@ fn main() -> ! {
 async fn task_1() {
     for _ in 0..9 {
         info!("task 1: waiting for 500ms...");
+        defmt::assert!(low_power_ready());
         Timer::after_millis(500).await;
     }
 }
@@ -36,6 +37,7 @@ async fn task_1() {
 async fn task_2() {
     for _ in 0..5 {
         info!("task 2: waiting for 1000ms...");
+        defmt::assert!(low_power_ready());
         Timer::after_millis(1000).await;
     }
 
