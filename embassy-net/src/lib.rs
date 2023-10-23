@@ -860,6 +860,9 @@ impl<D: Driver> Inner<D> {
             let socket = s.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
 
             if self.link_up {
+                if old_link_up != self.link_up {
+                    socket.reset();
+                }
                 match socket.poll() {
                     None => {}
                     Some(dhcpv4::Event::Deconfigured) => {
