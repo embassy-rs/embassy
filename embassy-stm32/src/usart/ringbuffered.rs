@@ -18,10 +18,10 @@ pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> SetConfig for RingBufferedUartRx<'d, T, RxDma> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 
