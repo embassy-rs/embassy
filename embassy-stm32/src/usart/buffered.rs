@@ -233,9 +233,6 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         configure(r, &config, T::frequency(), T::KIND, true, true)?;
 
         r.cr1().modify(|w| {
-            #[cfg(usart_v4)]
-            w.set_fifoen(true);
-
             w.set_rxneie(true);
             w.set_idleie(true);
         });
@@ -257,9 +254,6 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         reconfigure::<T>(config)?;
 
         T::regs().cr1().modify(|w| {
-            #[cfg(usart_v4)]
-            w.set_fifoen(true);
-
             w.set_rxneie(true);
             w.set_idleie(true);
         });
@@ -347,9 +341,6 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
         reconfigure::<T>(config)?;
 
         T::regs().cr1().modify(|w| {
-            #[cfg(usart_v4)]
-            w.set_fifoen(true);
-
             w.set_rxneie(true);
             w.set_idleie(true);
         });
@@ -431,9 +422,6 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
         reconfigure::<T>(config)?;
 
         T::regs().cr1().modify(|w| {
-            #[cfg(usart_v4)]
-            w.set_fifoen(true);
-
             w.set_rxneie(true);
             w.set_idleie(true);
         });
