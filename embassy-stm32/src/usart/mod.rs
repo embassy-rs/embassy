@@ -974,6 +974,12 @@ fn configure(
         #[cfg(any(usart_v3, usart_v4))]
         w.set_swap(config.swap_rx_tx);
     });
+
+    #[cfg(not(usart_v1))]
+    r.cr3().modify(|w| {
+        w.set_onebit(config.assume_noise_free);
+    });
+
     r.cr1().write(|w| {
         // enable uart
         w.set_ue(true);
@@ -982,9 +988,11 @@ fn configure(
         // enable receiver
         w.set_re(enable_rx);
         // configure word size
-        w.set_m0(match config.data_bits {
-            DataBits::DataBits8 => vals::M0::BIT8,
-            DataBits::DataBits9 => vals::M0::BIT9,
+        // if using odd or even parity it must be configured to 9bits
+        w.set_m0(if config.parity != Parity::ParityNone {
+            vals::M0::BIT9
+        } else {
+            vals::M0::BIT8
         });
         // configure parity
         w.set_pce(config.parity != Parity::ParityNone);
@@ -997,11 +1005,6 @@ fn configure(
         w.set_over8(vals::Over8::from_bits(over8 as _));
         #[cfg(usart_v4)]
         w.set_fifoen(true);
-    });
-
-    #[cfg(not(usart_v1))]
-    r.cr3().modify(|w| {
-        w.set_onebit(config.assume_noise_free);
     });
 
     Ok(())
