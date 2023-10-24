@@ -182,11 +182,11 @@ pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.tx.set_config(config).map_err(|_| ())?;
-        self.rx.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.tx.set_config(config)?;
+        self.rx.set_config(config)
     }
 }
 
@@ -197,10 +197,10 @@ pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 
@@ -214,10 +214,10 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 

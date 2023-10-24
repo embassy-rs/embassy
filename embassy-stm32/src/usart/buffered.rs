@@ -116,28 +116,28 @@ pub struct BufferedUartRx<'d, T: BasicInstance> {
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUart<'d, T> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUartRx<'d, T> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 
 impl<'d, T: BasicInstance> SetConfig for BufferedUartTx<'d, T> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 
