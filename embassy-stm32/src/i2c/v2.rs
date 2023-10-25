@@ -52,19 +52,19 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     state_m.result = Some(Error::Arbitration);
                 } else if isr.nackf() {
                     regs.icr().write(|w| w.set_nackcf(true));
-                    // Make one extra loop to wait on the stop condition
                 } else if isr.txis() {
                     // send the next byte to the master, or NACK in case of error, then end transaction
-                    match state_m.read_byte() {
-                        Ok(b) => regs.txdr().write(|w| w.set_txdata(b)),
+                    let b = match state_m.read_byte() {
+                        Ok(b) => b,
                         Err(e) => {
                             state_m.result = Some(e);
-                            // Send a NACK, set nbytes to clear tcr flag
                             regs.cr2().modify(|w| {
                                 w.set_nack(true);
-                            })
+                            });
+                            0xFF
                         }
                     };
+                    regs.txdr().write(|w| w.set_txdata(b));
                 } else if isr.rxne() {
                     let b = regs.rxdr().read().rxdata();
                     // byte is received from master. Store in buffer. In case of error send NACK, then end transaction
@@ -72,7 +72,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                         Ok(()) => (),
                         Err(e) => {
                             state_m.result = Some(e);
-                            // Send a NACK, set nbytes to clear tcr flag
+                            // Send a NACK
                             regs.cr2().modify(|w| {
                                 w.set_nack(true);
                             })
@@ -104,14 +104,27 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                             // during sending nbytes automatically send a ACK, stretch clock after last byte
                             w.set_reload(vals::Reload::COMPLETED);
                         });
+                        // flush i2c tx register
+                        regs.isr().write(|w| w.set_txe(true));
+                        // fill rx data with the first byte
+                        let b = match state_m.read_byte() {
+                            Ok(b) => b,
+                            Err(e) => {
+                                state_m.result = Some(e);
+                                0xFF
+                            }
+                        };
+                        regs.txdr().write(|w| w.set_txdata(b));
                     } else {
                         // Set the nbytes to the maximum buffer size and wait for the bytes from the master
                         regs.cr2().modify(|w| {
                             w.set_nbytes(BUFFER_SIZE as u8);
                             w.set_reload(vals::Reload::COMPLETED)
                         });
-                        // flush i2c tx register
-                        regs.isr().write(|w| w.set_txe(true));
+                        // flush the rx data register
+                        if regs.isr().read().rxne() {
+                            _ = regs.rxdr().read().rxdata();
+                        }
                     }
                     // end address phase, release clock stretching
                     regs.icr().write(|w| w.set_addrcf(true));
@@ -223,7 +236,7 @@ impl I2cStateMachine {
         } else {
             AddressType::GenericAddress
         };
-        self.buffers[adress_type as usize][vals::Dir::READ as usize as usize].master_read()
+        self.buffers[adress_type as usize][vals::Dir::READ as usize].master_read()
     }
     fn write_byte(&mut self, b: u8) -> Result<(), Error> {
         let adress_type = if self.address1 == self.current_address as u16 {
@@ -279,7 +292,6 @@ impl I2cBuffer {
             self.index += 1;
             Ok(b)
         } else {
-            self.size = 0; // mark buffer empty
             Err(Error::Overrun) // too many bytes asked
         }
     }
@@ -308,11 +320,9 @@ impl I2cBuffer {
         Ok(())
     }
     // read data from this buffer, and leave empty at the end (master write, slave read)
+    // Buffer parameter must be of the size of the recieved bytes, otherwise a BufferSize error  is returned
     fn to_buffer(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        if self.size == 0 {
-            return Err(Error::BufferNotFilled);
-        }
-        if buffer.len() < self.size as usize {
+        if buffer.len() != self.size as usize {
             return Err(Error::BufferSize);
         }
         for i in 0..buffer.len() {
@@ -1038,6 +1048,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             reg.set_stopie(true);
             reg.set_errie(true);
             reg.set_tcie(true);
+            reg.set_sbc(true);
         });
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
@@ -1069,6 +1080,10 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         });
         Ok(())
     }
+    pub fn slave_sbc(&mut self, sbc_enabled: bool) {
+        // enable acknowlidge control
+        T::regs().cr1().modify(|w| w.set_sbc(sbc_enabled));
+    }
     /// Prepare write data to master (master_read_slave_write) before transaction starts
     /// Will return buffersize error in case the incoming buffer is too big
     pub fn slave_write_buffer(&mut self, buffer: &[u8], address_type: AddressType) -> Result<(), super::Error> {
@@ -1079,7 +1094,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         })
     }
     /// Read data from master (master_write_slave_read) after transaction is finished
-    /// Will fail if the size if the incoming buffer is smaller than the received bytes
+    /// Will fail if the size of the incoming buffer is smaller than the received bytes
     pub fn slave_read_buffer(&mut self, buffer: &mut [u8], address_type: AddressType) -> Result<(), super::Error> {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();

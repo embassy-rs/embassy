@@ -2,20 +2,24 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+// test is targeted for nucleo-g070RB board
+
 use core::fmt::{self, Write};
 
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::{Error, I2c};
 use embassy_stm32::pac::i2c::vals;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::UartTx;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usart};
+use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     I2C1 => i2c::InterruptHandler<peripherals::I2C1>;
-    USART1 => usart::InterruptHandler<peripherals::USART1>;
+    USART2 => usart::InterruptHandler<peripherals::USART2>;
 });
 
 macro_rules! checkIsWrite {
@@ -41,11 +45,20 @@ macro_rules! checkIsRead {
     };
 }
 
+#[embassy_executor::task]
+pub async fn system_ticker(mut led: Output<'static, peripherals::PA5>) {
+    loop {
+        Timer::after(Duration::from_millis(200)).await;
+        led.set_high();
+        Timer::after(Duration::from_millis(100)).await;
+        led.set_low();
+    }
+}
 pub struct SerialWriter {
-    tx: UartTx<'static, peripherals::USART1, peripherals::DMA1_CH1>,
+    tx: UartTx<'static, peripherals::USART2, peripherals::DMA1_CH1>,
 }
 impl SerialWriter {
-    pub fn new(tx: UartTx<'static, peripherals::USART1, peripherals::DMA1_CH1>) -> Self {
+    pub fn new(tx: UartTx<'static, peripherals::USART2, peripherals::DMA1_CH1>) -> Self {
         SerialWriter { tx }
     }
 }
@@ -57,13 +70,26 @@ impl fmt::Write for SerialWriter {
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
+    let mut led = Output::new(p.PA5, Level::High, Speed::Low);
 
+    /*
+      let uart = usart::Uart::new(
+          p.USART1,
+          p.PB7,
+          p.PB6,
+          Irqs,
+          p.DMA1_CH1,
+          p.DMA1_CH2,
+          usart::Config::default(),
+      )
+      .unwrap();
+    */
     let uart = usart::Uart::new(
-        p.USART1,
-        p.PB7,
-        p.PB6,
+        p.USART2,
+        p.PA3,
+        p.PA2,
         Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
@@ -97,6 +123,8 @@ async fn main(_spawner: Spawner) {
     let mut counter = 0;
     let mut result: Option<Error> = None;
 
+    spawner.spawn(system_ticker(led)).unwrap();
+
     // start of the actual test
     i2c.slave_start_listen().unwrap();
     loop {
@@ -104,10 +132,10 @@ async fn main(_spawner: Spawner) {
         writeln!(&mut writer, "Loop: {}\r", counter).unwrap();
 
         for i in 0..buf_20.len() {
-            buf_20[i] = 0x61 + (i as u8)
+            buf_20[i] = 0x20 + (i as u8)
         }
         for i in 0..buf_64.len() {
-            buf_64[i] = 0x41 + (i as u8)
+            buf_64[i] = 0x60 + (i as u8)
         }
 
         writeln!(&mut writer, "Waiting for master activity\r").unwrap();
@@ -127,11 +155,7 @@ async fn main(_spawner: Spawner) {
 
         match address {
             0x41 => {
-                writeln!(
-                    &mut writer,
-                    "Start test 0x41. Master-write-slave-read 20 bytes. Should be ok\r\n"
-                )
-                .unwrap();
+                writeln!(&mut writer, "Evaluate test 0x41.\r\n").unwrap();
                 checkIsWrite!(writer, dir);
                 _ = i2c.slave_read_buffer(&mut buf_20, i2c::AddressType::GenericAddress);
                 match result {
@@ -146,16 +170,12 @@ async fn main(_spawner: Spawner) {
                 };
             }
             0x42 => {
-                writeln!(
-                    &mut writer,
-                    "Start test 0x42. Master-write-slave-read 64 bytes. Should be ok\r\n"
-                )
-                .unwrap();
+                writeln!(&mut writer, "Evaluate test 0x42.\r\n").unwrap();
                 checkIsWrite!(writer, dir);
                 _ = i2c.slave_read_buffer(&mut buf_64, i2c::AddressType::GenericAddress);
                 match result {
                     None => {
-                        writeln!(&mut writer, "Test 0x42 passed. send 64 bytes").unwrap();
+                        writeln!(&mut writer, "Test 0x42 passed. send 64 bytes\r\n").unwrap();
                         print_buffer(&mut writer, &buf_64);
                     }
                     Some(err) => {
@@ -165,32 +185,25 @@ async fn main(_spawner: Spawner) {
                 };
             }
             0x43 => {
-                writeln!(
-                    &mut writer,
-                    "Start test 0x43. Master-write-slave-read 65 bytes. Slave should NACK at 65 byte\r\n"
-                )
-                .unwrap();
+                writeln!(&mut writer, "Evaluate test 0x43.\r\n").unwrap();
                 checkIsWrite!(writer, dir);
                 _ = i2c.slave_read_buffer(&mut buf_64, i2c::AddressType::GenericAddress);
                 match result {
                     None => {
-                        {
-                            writeln!(&mut writer, "Test 0x43 failed. Expected to fail Got Ok\r").unwrap()
-                        };
-                    }
-                    Some(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x43 passed. Get expected error. Error: {:?}\r", err).unwrap()
+                        writeln!(&mut writer, "Test 0x43 failed. Expected BufferFull error Got Ok\r").unwrap()
                     }
+                    Some(err) => writeln!(
+                        &mut writer,
+                        "Test 0x43 passed. Expected error: BufferFull. Error: {:?}\r",
+                        err
+                    )
+                    .unwrap(),
                 };
             }
             0x48 => {
                 // 0x48 master read slave write slave did not yet prepare a buffer, master will fail
-                writeln!(
-                    &mut writer,
-                    "Start test 0x48. Master-read-slave-write 20 bytes. Should first time (buffer empty)\r\n"
-                )
-                .unwrap();
+                writeln!(&mut writer, "Evaluate test 0x48.\r\n").unwrap();
                 checkIsRead!(writer, dir);
                 match result {
                     None => {
@@ -199,18 +212,16 @@ async fn main(_spawner: Spawner) {
                     }
                     Some(err) => writeln!(&mut writer, "Test 0x48 passed. Got expected error: {:?}\r", err).unwrap(),
                 };
-                // prepare buffer for next round
-                for i in 0..buf_20.len() {
-                    buf_20[i] = 0x61 + (i as u8)
-                }
+                // prepare buffer for test 0x49
                 _ = i2c.slave_write_buffer(&buf_20, i2c::AddressType::GenericAddress);
             }
             0x49 => {
-                writeln!(
-                    &mut writer,
-                    "Start test 0x49. Master-read-slave-write 20 bytes. Should be ok\r\n"
-                )
-                .unwrap();
+                // prepare buffer for test 0x4A
+                for i in 0..buf_20.len() {
+                    buf_20[i] = 0x50 + (i as u8)
+                }
+                _ = i2c.slave_write_buffer(&buf_20, i2c::AddressType::GenericAddress);
+                writeln!(&mut writer, "Evaluate test 0x49\r\n").unwrap();
                 checkIsRead!(writer, dir);
                 match result {
                     None => {
@@ -221,19 +232,18 @@ async fn main(_spawner: Spawner) {
                         writeln!(&mut writer, "Test 0x49 failed. Error: {:?}\r", err).unwrap()
                     }
                 };
-                // prepare buffer for next round
-                for i in 0..buf_20.len() {
-                    buf_20[i] = 0x41 + (i as u8)
-                }
+                // prepare buffer for test 0x4A
                 _ = i2c.slave_write_buffer(&buf_20, i2c::AddressType::GenericAddress);
             }
             0x4A => {
                 // 0x4A master read slave write bad  case: master expects 64 does slave does prepare 20 characters
-                writeln!(
-                    &mut writer,
-                    "Start test 0x4A. Master-read-slave-write Master expects 64 bytes, slave sends 20.\r\n"
-                )
-                .unwrap();
+                // prepare buffer for test 0x4B
+                for i in 0..buf_64.len() {
+                    buf_64[i] = 0x40 + (i as u8)
+                }
+                _ = i2c.slave_write_buffer(&buf_64, i2c::AddressType::GenericAddress);
+
+                writeln!(&mut writer, "Evaluate test 0x4A.\r\n").unwrap();
                 checkIsRead!(writer, dir);
                 match result {
                     None => {
@@ -241,22 +251,14 @@ async fn main(_spawner: Spawner) {
                     }
                     Some(err) => {
                         errors += 1;
-                        writeln!(&mut writer, "Test 0x4A passed. Expected errore rror: {:?}\r", err).unwrap()
+                        writeln!(&mut writer, "Test 0x4A passed. Expected error: {:?}\r", err).unwrap()
                     }
                 }
                 _ = i2c.slave_write_buffer(&buf_20, i2c::AddressType::GenericAddress);
-                // prepare buffer for next round
-                for i in 0..buf_64.len() {
-                    buf_64[i] = 0x41 + (i as u8)
-                }
-                _ = i2c.slave_write_buffer(&buf_64, i2c::AddressType::GenericAddress);
             }
             0x4B => {
-                writeln!(
-                    &mut writer,
-                    "Start test 0x4B. Master-read-slave-write Master expects 64 bytes, Should be ok.\r\n"
-                )
-                .unwrap();
+                // Master-read-slave-write Master expects 64 bytes, Should be ok
+                writeln!(&mut writer, "Evaluate test 0x4B. .\r\n").unwrap();
                 checkIsRead!(writer, dir);
                 match result {
                     None => {
@@ -267,16 +269,14 @@ async fn main(_spawner: Spawner) {
                         writeln!(&mut writer, "Test 0x4B failed. Error: {:?}\r", err).unwrap()
                     }
                 };
+                // prepare for test 0x4F
                 let result: [u8; 2] = [tcount, errors];
                 _ = i2c.slave_write_buffer(&result, i2c::AddressType::GenericAddress);
             }
             0x4F => {
+                // Master-read-slave-write 2 bytes with test summary Should be ok.
                 checkIsRead!(writer, dir);
-                writeln!(
-                    &mut writer,
-                    "Start test 0x4B. Master-read-slave-write 2 bytes with test summary Should be ok.\r\n"
-                )
-                .unwrap();
+                writeln!(&mut writer, "Evaluate test 0x4F.\r\n").unwrap();
                 match result {
                     None => {
                         writeln!(&mut writer, "Test 0x4F Result send to master\r").unwrap();

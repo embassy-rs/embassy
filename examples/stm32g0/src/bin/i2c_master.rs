@@ -2,6 +2,9 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+// test is targeted for a specific board. Can simple be rewritten for a nucleo-070rb board
+// by setting the uart to uart2 (see i2c_slave.rs)
+
 use core::fmt::{self, Write};
 
 use embassy_executor::Spawner;
@@ -76,6 +79,7 @@ async fn main(_spawner: Spawner) {
         writeln!(&mut writer, "Loop counter: {:?}", counter).unwrap();
 
         let mut buf_20 = [0_u8; 20];
+        let mut buf_20a = [0_u8; 20];
         let mut buf_64 = [0_u8; 64];
         let mut buf_65 = [0_u8; 65];
 
@@ -163,23 +167,23 @@ async fn main(_spawner: Spawner) {
             Err(err) => writeln!(&mut writer, "Test 0x4B failed. Error: {:?}\r\n", err).unwrap(),
         };
         /*
-        match i2c.blocking_write_read(0x44, &buf_20, &mut buf_64) {
-            Ok(_) => {
-                writeln!(&mut writer, "Test 0x44 Ok \n\r").unwrap();
-                writeln!(
-                    &mut writer,
-                    "Uppercase input should be transformed to lowercase, A -> b "
-                )
-                .unwrap();
+                match i2c.blocking_write_read(0x44, &buf_20, &mut buf_20a) {
+                    Ok(_) => {
+                        writeln!(&mut writer, "Test 0x44 Ok \n\r").unwrap();
+                        writeln!(
+                            &mut writer,
+                            "Uppercase input should be transformed to lowercase, A -> b "
+                        )
+                        .unwrap();
 
-                for i in 0..buf_rcv.len() {
-                    writeln!(&mut writer, "{}", buf_rcv[i]).unwrap();
-                }
-                writeln!(&mut writer, "\n\r").unwrap()
-            }
-            Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out\n\r").unwrap(),
-            Err(err) => writeln!(&mut writer, "Test 0x44 error: {:?}", err).unwrap(),
-        };
+                        for i in 0..buf_20a.len() {
+                            writeln!(&mut writer, "{}", buf_20[i]).unwrap();
+                        }
+                        writeln!(&mut writer, "\n\r").unwrap()
+                    }
+                    Err(Error::Timeout) => writeln!(&mut writer, "Operation timed out\n\r").unwrap(),
+                    Err(err) => writeln!(&mut writer, "Test 0x44 error: {:?}", err).unwrap(),
+                };
         */
         Timer::after(Duration::from_millis(10)).await;
         // 0x4F test end and slave will present results
