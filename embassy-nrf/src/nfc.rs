@@ -1,4 +1,7 @@
+//! NFC Tag Driver
+
 #![macro_use]
+
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -25,25 +28,16 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHand
             r.intenclr.write(|w| w.rxframeend().clear());
             WAKER.wake();
         }
+
         if r.events_rxerror.read().bits() != 0 {
             r.intenclr.write(|w| w.rxerror().clear());
             WAKER.wake();
         }
 
-        // if r.events_calibratedone.read().bits() != 0 {
-        //     r.intenclr.write(|w| w.calibratedone().clear());
-        //     WAKER.wake();
-        // }
-
-        // if r.events_end.read().bits() != 0 {
-        //     r.intenclr.write(|w| w.end().clear());
-        //     WAKER.wake();
-        // }
-
-        // if r.events_started.read().bits() != 0 {
-        //     r.intenclr.write(|w| w.started().clear());
-        //     WAKER.wake();
-        // }
+        if r.events_endtx.read().bits() != 0 {
+            r.intenclr.write(|w| w.endtx().clear());
+            WAKER.wake();
+        }
     }
 }
 
@@ -85,18 +79,71 @@ impl<'d> NfcT<'d> {
 
     fn stop_recv_frame() {
         let r = Self::regs();
+
+        r.intenclr.write(|w| w.rxframeend().set_bit());
+        r.intenclr.write(|w| w.rxerror().set_bit());
+
         compiler_fence(Ordering::SeqCst);
 
-        r.intenset.write(|w| w.rxframeend().clear_bit());
-        r.intenset.write(|w| w.rxerror().clear_bit());
+        // FIXME: this might take too long, maybe on start we clear?
+        while r.events_rxframeend.read().bits() == 0 && r.events_rxerror.read().bits() == 0 {}
         r.events_rxframeend.reset();
         r.events_rxerror.reset();
     }
 
+    fn stop_tx_frame() {
+        let r = Self::regs();
+        r.intenclr.write(|w| w.endtx().set_bit());
+
+        compiler_fence(Ordering::SeqCst);
+
+        // FIXME: this might take too long, maybe on start we clear?
+        while r.events_endtx.read().bits() == 0 {}
+        r.events_endtx.reset();
+    }
+
+    /// Transmit an NFC frame
+    /// `buf` is not pointing to the Data RAM region, an EasyDMA transfer may result in a hard fault or RAM corruption.
+    pub async fn tx_frame(&mut self, buf: &[u8]) {
+        // TODO: requires buf slice in ram validation
+        let r = Self::regs();
+
+        let on_drop = OnDrop::new(Self::stop_tx_frame);
+
+        //Setup DMA
+        r.packetptr.write(|w| unsafe { w.bits(buf.as_ptr() as u32) });
+        r.maxlen.write(|w| unsafe { w.bits(buf.len() as _) });
+
+        r.events_endtx.reset();
+        r.intenset.write(|w| w.endtx().set());
+
+        // Start enablerxdata only after configs are finished writing
+        compiler_fence(Ordering::SeqCst);
+
+        // Enter TX state
+        r.tasks_starttx.write(|w| w.tasks_starttx().set_bit());
+
+        // Wait for 'rxframeend'/'rxerror' event.
+        poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_endtx.read().bits() != 0 {
+                r.events_endtx.reset();
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+
+        drop(on_drop);
+    }
+
     /// Waits for a single frame to be loaded into `buf`
-    /// `buf`` is not pointing to the Data RAM region, an EasyDMA transfer may result in a hard fault or RAM corruption.
+    /// `buf` is not pointing to the Data RAM region, an EasyDMA transfer may result in a hard fault or RAM corruption.
     pub async fn recv_frame<const N: usize>(&mut self, buf: &mut [u8; N]) -> Result<(), Error> {
-        // NOTE: Tx variant requires buf slice in ram validation
         let r = Self::regs();
 
         let on_drop = OnDrop::new(Self::stop_recv_frame);
@@ -110,6 +157,9 @@ impl<'d> NfcT<'d> {
         r.events_rxerror.reset();
         r.intenset.write(|w| w.rxframeend().set());
         r.intenset.write(|w| w.rxerror().set());
+
+        // Start enablerxdata only after configs are finished writing
+        compiler_fence(Ordering::SeqCst);
 
         // Enter RX state
         r.tasks_enablerxdata.write(|w| w.tasks_enablerxdata().set_bit());
