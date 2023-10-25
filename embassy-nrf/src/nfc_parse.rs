@@ -1,9 +1,8 @@
-
 /// Value indicating that the Type 2 Tag contains NFC Forum defined data.
 const NFC_T2T_NFC_FORUM_DEFINED_DATA: u8 = 0xE1;
 
 /// Value used for calculating the first BCC byte of a Type 2 Tag serial number.
-const NFC_T2T_UID_BCC_CASCADE_BYTE: u8  = 0x88;
+const NFC_T2T_UID_BCC_CASCADE_BYTE: u8 = 0x88;
 
 /// Supported major version of the Type 2 Tag specification.
 const NFC_T2T_SUPPORTED_MAJOR_VERSION: u8 = 1;
@@ -26,7 +25,7 @@ pub struct NfcType2Capabilities {
     minor_ver: u8,
     data_area_size: u8,
     read_access: u8,
-    write_access: u8
+    write_access: u8,
 }
 
 #[derive(Default)]
@@ -56,6 +55,4 @@ pub enum Error {
     VersionNotSupported,
 }
 
-pub fn parsee_type2<const N: usize>() -> Result<NfcType2Tag<N> {
-    
-} 
+pub fn parsee_type2<const N: usize>() -> Result<NfcType2Tag<N>> {}
