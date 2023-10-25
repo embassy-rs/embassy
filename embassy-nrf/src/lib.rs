@@ -40,6 +40,7 @@ pub mod gpiote;
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
 pub mod nvmc;
+pub mod nfc;
 #[cfg(any(
     feature = "nrf52810",
     feature = "nrf52811",
