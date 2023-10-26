@@ -3,18 +3,18 @@
 #![macro_use]
 
 use core::future::poll_fn;
-use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-// use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use pac::{nfct, NFCT};
 
-use crate::util::slice_in_ram;
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::interrupt::InterruptExt;
+// use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::peripherals::NFCT;
+use crate::util::slice_in_ram_or;
+use crate::{interrupt, pac, Peripheral};
 
 /// Interrupt handler.
 pub struct InterruptHandler {
@@ -23,20 +23,41 @@ pub struct InterruptHandler {
 
 impl interrupt::typelevel::Handler<interrupt::typelevel::NFCT> for InterruptHandler {
     unsafe fn on_interrupt() {
-        let r = unsafe { &*NFCT::ptr() };
+        let r = unsafe { &*pac::NFCT::ptr() };
         if r.events_rxframeend.read().bits() != 0 {
-            r.intenclr.write(|w| w.rxframeend().clear());
+            r.intenclr.write(|w| w.rxframeend().set_bit());
             WAKER.wake();
+            info!("NFC Interrupt: rxframeend")
         }
 
         if r.events_rxerror.read().bits() != 0 {
-            r.intenclr.write(|w| w.rxerror().clear());
+            r.intenclr.write(|w| w.rxerror().set_bit());
             WAKER.wake();
+            info!("NFC Interrupt: rxerror")
         }
 
         if r.events_endtx.read().bits() != 0 {
-            r.intenclr.write(|w| w.endtx().clear());
+            r.intenclr.write(|w| w.endtx().set_bit());
             WAKER.wake();
+            info!("NFC Interrupt: endtx")
+        }
+
+        if r.events_fielddetected.read().bits() != 0 {
+            r.intenclr.write(|w| w.fielddetected().set_bit());
+            WAKER.wake();
+            info!("NFC Interrupt: fielddetected")
+        }
+
+        if r.events_fieldlost.read().bits() != 0 {
+            r.intenclr.write(|w| w.fieldlost().set_bit());
+            WAKER.wake();
+            info!("NFC Interrupt: fieldlost")
+        }
+
+        if r.events_ready.read().bits() != 0 {
+            r.intenclr.write(|w| w.ready().set_bit());
+            WAKER.wake();
+            info!("NFC Interrupt: ready")
         }
     }
 }
@@ -52,6 +73,8 @@ pub enum Error {
     RxError,
     /// Rx buffer was overrun, increase your buffer size to resolve this
     RxOverrun,
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
 }
 
 /// Nfc Tag Read/Writer driver
@@ -67,14 +90,19 @@ impl<'d> NfcT<'d> {
     ) -> Self {
         into_ref!(_p);
 
-        let r = unsafe { &*NFCT::ptr() };
-        r.tasks_activate.write(|w| w.tasks_activate().set_bit());
+        let r = unsafe { &*pac::NFCT::ptr() };
+        // r.intenset.write(|w| unsafe { w.bits(u32::MAX) });
+        r.intenset.write(|w| w.ready().set());
 
+        interrupt::NFCT.unpend();
+        unsafe { interrupt::NFCT.enable() };
+
+        // r.tasks_activate.write(|w| w.tasks_activate().set_bit());
         Self { _p }
     }
 
-    fn regs() -> &'static nfct::RegisterBlock {
-        unsafe { &*NFCT::ptr() }
+    fn regs() -> &'static pac::nfct::RegisterBlock {
+        unsafe { &*pac::NFCT::ptr() }
     }
 
     fn stop_recv_frame() {
@@ -102,10 +130,39 @@ impl<'d> NfcT<'d> {
         r.events_endtx.reset();
     }
 
+    /// Checks if field is already present
+    pub fn is_field_present(&self) -> bool {
+        let r = Self::regs();
+        return r.fieldpresent.read().fieldpresent().bit();
+    }
+
+    /// Blocks until field-detected event is triggered
+    pub async fn wait_for_field(&mut self) {
+        let r = Self::regs();
+
+        r.tasks_sense.write(|w| w.tasks_sense().set_bit());
+        r.intenset.write(|w| w.fielddetected().set());
+        r.intenset.write(|w| w.fieldlost().set());
+        poll_fn(|cx| {
+            let r = Self::regs();
+
+            WAKER.register(cx.waker());
+
+            if r.events_fielddetected.read().bits() != 0 {
+                r.events_fielddetected.reset();
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+    }
+
     /// Transmit an NFC frame
     /// `buf` is not pointing to the Data RAM region, an EasyDMA transfer may result in a hard fault or RAM corruption.
-    pub async fn tx_frame(&mut self, buf: &[u8]) {
-        // TODO: requires buf slice in ram validation
+    pub async fn tx_frame(&mut self, buf: &[u8]) -> Result<(), Error> {
+        slice_in_ram_or(buf, Error::BufferNotInRAM)?;
+
         let r = Self::regs();
 
         let on_drop = OnDrop::new(Self::stop_tx_frame);
@@ -139,11 +196,13 @@ impl<'d> NfcT<'d> {
         .await;
 
         drop(on_drop);
+        Ok(())
     }
 
     /// Waits for a single frame to be loaded into `buf`
     /// `buf` is not pointing to the Data RAM region, an EasyDMA transfer may result in a hard fault or RAM corruption.
-    pub async fn recv_frame<const N: usize>(&mut self, buf: &mut [u8; N]) -> Result<(), Error> {
+    pub async fn recv_frame<'a, const N: usize>(&mut self, buf: &'a mut [u8; N]) -> Result<&'a [u8], Error> {
+        slice_in_ram_or(buf, Error::BufferNotInRAM)?;
         let r = Self::regs();
 
         let on_drop = OnDrop::new(Self::stop_recv_frame);
@@ -165,14 +224,15 @@ impl<'d> NfcT<'d> {
         r.tasks_enablerxdata.write(|w| w.tasks_enablerxdata().set_bit());
 
         // Wait for 'rxframeend'/'rxerror' event.
-        poll_fn(|cx| {
+        let res = poll_fn(|cx| {
             let r = Self::regs();
 
             WAKER.register(cx.waker());
 
             if r.events_rxframeend.read().bits() != 0 {
                 r.events_rxframeend.reset();
-                return Poll::Ready(Ok(()));
+                let amount_read = r.rxd.amount.read().bits() as usize;
+                return Poll::Ready(Ok(&buf[..amount_read]));
             }
 
             if r.events_rxerror.read().bits() != 0 {
@@ -189,6 +249,6 @@ impl<'d> NfcT<'d> {
         .await?;
 
         drop(on_drop);
-        Ok(())
+        Ok(res)
     }
 }
