@@ -9,7 +9,8 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
 
-pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
+pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError, RtcInstant};
+use crate::rtc::datetime::day_of_week_to_u8;
 use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
@@ -37,48 +38,6 @@ pub enum RtcError {
 
     /// The RTC clock is not running
     NotRunning,
-}
-
-#[cfg(feature = "low-power")]
-/// Represents an instant in time that can be substracted to compute a duration
-struct RtcInstant {
-    second: u8,
-    subsecond: u16,
-}
-
-#[cfg(all(feature = "low-power", feature = "defmt"))]
-impl defmt::Format for RtcInstant {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(
-            fmt,
-            "{}:{}",
-            self.second,
-            RTC::regs().prer().read().prediv_s() - self.subsecond,
-        )
-    }
-}
-
-#[cfg(feature = "low-power")]
-impl core::ops::Sub for RtcInstant {
-    type Output = embassy_time::Duration;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        use embassy_time::{Duration, TICK_HZ};
-
-        let second = if self.second < rhs.second {
-            self.second + 60
-        } else {
-            self.second
-        };
-
-        let psc = RTC::regs().prer().read().prediv_s() as u32;
-
-        let self_ticks = second as u32 * (psc + 1) + (psc - self.subsecond as u32);
-        let other_ticks = rhs.second as u32 * (psc + 1) + (psc - rhs.subsecond as u32);
-        let rtc_ticks = self_ticks - other_ticks;
-
-        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / (psc + 1)) as u64)
-    }
 }
 
 pub struct RtcTimeProvider {
@@ -113,7 +72,7 @@ impl RtcTimeProvider {
                 let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
                 let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
 
-                return self::datetime::datetime(year, month, day, weekday, hour, minute, second)
+                return DateTime::from(year, month, day, weekday, hour, minute, second)
                     .map_err(RtcError::InvalidDateTime);
             }
         }
@@ -134,7 +93,7 @@ impl RtcTimeProvider {
             let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
             let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
 
-            self::datetime::datetime(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
+            DateTime::from(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
         }
     }
 }
@@ -223,14 +182,46 @@ impl Rtc {
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
     pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
         self::datetime::validate_datetime(&t).map_err(RtcError::InvalidDateTime)?;
-        self.write(true, |rtc| self::datetime::write_date_time(rtc, t));
+        self.write(true, |rtc| {
+            let (ht, hu) = byte_to_bcd2(t.hour() as u8);
+            let (mnt, mnu) = byte_to_bcd2(t.minute() as u8);
+            let (st, su) = byte_to_bcd2(t.second() as u8);
+
+            let (dt, du) = byte_to_bcd2(t.day() as u8);
+            let (mt, mu) = byte_to_bcd2(t.month() as u8);
+            let yr = t.year() as u16;
+            let yr_offset = (yr - 1970_u16) as u8;
+            let (yt, yu) = byte_to_bcd2(yr_offset);
+
+            use crate::pac::rtc::vals::Ampm;
+
+            rtc.tr().write(|w| {
+                w.set_ht(ht);
+                w.set_hu(hu);
+                w.set_mnt(mnt);
+                w.set_mnu(mnu);
+                w.set_st(st);
+                w.set_su(su);
+                w.set_pm(Ampm::AM);
+            });
+
+            rtc.dr().write(|w| {
+                w.set_dt(dt);
+                w.set_du(du);
+                w.set_mt(mt > 0);
+                w.set_mu(mu);
+                w.set_yt(yt);
+                w.set_yu(yu);
+                w.set_wdu(day_of_week_to_u8(t.day_of_week()));
+            });
+        });
 
         Ok(())
     }
 
-    #[cfg(feature = "low-power")]
+    #[cfg(not(rtc_v2f2))]
     /// Return the current instant.
-    fn instant(&self) -> RtcInstant {
+    pub fn instant(&self) -> Result<RtcInstant, RtcError> {
         let r = RTC::regs();
         let tr = r.tr().read();
         let subsecond = r.ssr().read().ss();
@@ -239,7 +230,7 @@ impl Rtc {
         // Unlock the registers
         r.dr().read();
 
-        RtcInstant { second, subsecond }
+        RtcInstant::from(second, subsecond.try_into().unwrap())
     }
 
     /// Return the current datetime.
