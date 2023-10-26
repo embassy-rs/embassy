@@ -564,7 +564,7 @@ fn main() {
                     fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
                         #before_enable
                         #[cfg(feature = "low-power")]
-                        crate::rcc::clock_refcount_add(_cs);
+                        unsafe { crate::rcc::REFCOUNT_STOP2 += 1 };
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                         #after_enable
                         #rst
@@ -573,7 +573,7 @@ fn main() {
                         #before_disable
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                         #[cfg(feature = "low-power")]
-                        crate::rcc::clock_refcount_sub(_cs);
+                        unsafe { crate::rcc::REFCOUNT_STOP2 -= 1 };
                     }
                 }
 

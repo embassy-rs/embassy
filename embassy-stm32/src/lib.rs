@@ -226,9 +226,9 @@ pub fn init(config: Config) -> Peripherals {
             time_driver::init(cs);
 
             #[cfg(feature = "low-power")]
-            while !crate::rcc::low_power_ready() {
-                crate::rcc::clock_refcount_sub(cs);
-            }
+            {
+                crate::rcc::REFCOUNT_STOP2 = 0
+            };
         }
 
         p

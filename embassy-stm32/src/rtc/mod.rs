@@ -187,7 +187,9 @@ impl Rtc {
         critical_section::with(|cs| {
             <RTC as crate::rcc::sealed::RccPeripheral>::enable_and_reset_with_cs(cs);
             #[cfg(feature = "low-power")]
-            crate::rcc::clock_refcount_sub(cs);
+            unsafe {
+                crate::rcc::REFCOUNT_STOP2 -= 1
+            };
         });
 
         let mut this = Self {

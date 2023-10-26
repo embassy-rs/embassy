@@ -23,8 +23,6 @@ pub use mco::*;
 #[cfg_attr(rcc_u5, path = "u5.rs")]
 #[cfg_attr(rcc_wba, path = "wba.rs")]
 mod _version;
-#[cfg(feature = "low-power")]
-use core::sync::atomic::{AtomicU32, Ordering};
 
 pub use _version::*;
 
@@ -183,27 +181,7 @@ pub struct Clocks {
 }
 
 #[cfg(feature = "low-power")]
-static CLOCK_REFCOUNT: AtomicU32 = AtomicU32::new(0);
-
-#[cfg(feature = "low-power")]
-pub fn low_power_ready() -> bool {
-    // trace!("clock refcount: {}", CLOCK_REFCOUNT.load(Ordering::SeqCst));
-    CLOCK_REFCOUNT.load(Ordering::SeqCst) == 0
-}
-
-#[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_add(_cs: critical_section::CriticalSection) {
-    // We don't check for overflow because constructing more than u32 peripherals is unlikely
-    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
-    CLOCK_REFCOUNT.store(n + 1, Ordering::Relaxed);
-}
-
-#[cfg(feature = "low-power")]
-pub(crate) fn clock_refcount_sub(_cs: critical_section::CriticalSection) {
-    let n = CLOCK_REFCOUNT.load(Ordering::Relaxed);
-    assert!(n != 0);
-    CLOCK_REFCOUNT.store(n - 1, Ordering::Relaxed);
-}
+pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
 /// Frozen clock frequencies
 ///
