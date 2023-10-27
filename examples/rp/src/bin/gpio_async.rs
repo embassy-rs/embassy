@@ -9,7 +9,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::gpio;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use gpio::{Input, Level, Output, Pull};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -36,6 +36,6 @@ async fn main(_spawner: Spawner) {
         info!("done wait_for_high. Turn off LED");
         led.set_low();
 
-        Timer::after(Duration::from_secs(2)).await;
+        Timer::after_secs(2).await;
     }
 }

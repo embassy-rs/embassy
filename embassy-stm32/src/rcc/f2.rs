@@ -256,7 +256,7 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::PLL => {
             RCC.cr().modify(|w| w.set_pllon(true));
             while !RCC.cr().read().pllrdy() {}
-            (pll_clocks.main_freq, Sw::PLL)
+            (pll_clocks.main_freq, Sw::PLL1_P)
         }
     };
     // RM0033 Figure 9. Clock tree suggests max SYSCLK/HCLK is 168 MHz, but datasheet specifies PLL
@@ -307,14 +307,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        ahb2: ahb_freq,
-        ahb3: ahb_freq,
-        apb1: apb1_freq,
-        apb1_tim: apb1_tim_freq,
-        apb2: apb2_freq,
-        apb2_tim: apb2_tim_freq,
-        pll48: Some(pll_clocks.pll48_freq),
+        hclk1: ahb_freq,
+        hclk2: ahb_freq,
+        hclk3: ahb_freq,
+        pclk1: apb1_freq,
+        pclk1_tim: apb1_tim_freq,
+        pclk2: apb2_freq,
+        pclk2_tim: apb2_tim_freq,
+        pll1_q: Some(pll_clocks.pll48_freq),
         rtc,
     });
 }

@@ -11,7 +11,7 @@ use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use panic_reset as _;
 
 #[cfg(feature = "skip-include")]
@@ -46,6 +46,6 @@ async fn main(_spawner: Spawner) {
 
     updater.mark_updated().await.unwrap();
     led.set_low();
-    Timer::after(Duration::from_secs(1)).await;
+    Timer::after_secs(1).await;
     cortex_m::peripheral::SCB::sys_reset();
 }

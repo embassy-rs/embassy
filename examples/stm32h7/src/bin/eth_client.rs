@@ -11,7 +11,7 @@ use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_io_async::Write;
 use embedded_nal_async::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpConnect};
 use rand_core::RngCore;
@@ -35,18 +35,18 @@ async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
         config.rcc.hsi48 = true; // needed for RNG
-        config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
             divp: Some(PllDiv::DIV2),
             divq: None,
             divr: None,
         });
-        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
         config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
@@ -115,7 +115,7 @@ async fn main(spawner: Spawner) -> ! {
         let r = client.connect(addr).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
             continue;
         }
         let mut connection = r.unwrap();
@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) -> ! {
                 info!("write error: {:?}", e);
                 break;
             }
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
         }
     }
 }

@@ -6,7 +6,7 @@ use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 static SIGNAL: Signal<CriticalSectionRawMutex, u32> = Signal::new();
@@ -16,7 +16,7 @@ async fn my_sending_task() {
     let mut counter: u32 = 0;
 
     loop {
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
 
         SIGNAL.signal(counter);
 

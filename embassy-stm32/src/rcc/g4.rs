@@ -18,14 +18,14 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
     HSE(Hertz),
-    HSI16,
+    HSI,
     PLL,
 }
 
 /// PLL clock input source
 #[derive(Clone, Copy, Debug)]
 pub enum PllSrc {
-    HSI16,
+    HSI,
     HSE(Hertz),
 }
 
@@ -33,7 +33,7 @@ impl Into<Pllsrc> for PllSrc {
     fn into(self) -> Pllsrc {
         match self {
             PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI16,
+            PllSrc::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -112,15 +112,15 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI16,
+            mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
             pll: None,
-            clock_48mhz_src: None,
-            adc12_clock_source: Adcsel::NOCLK,
-            adc345_clock_source: Adcsel::NOCLK,
+            clock_48mhz_src: Some(Clock48MhzSrc::Hsi48(None)),
+            adc12_clock_source: Adcsel::DISABLE,
+            adc345_clock_source: Adcsel::DISABLE,
             ls: Default::default(),
         }
     }
@@ -135,7 +135,7 @@ pub struct PllFreq {
 pub(crate) unsafe fn init(config: Config) {
     let pll_freq = config.pll.map(|pll_config| {
         let src_freq = match pll_config.source {
-            PllSrc::HSI16 => {
+            PllSrc::HSI => {
                 RCC.cr().write(|w| w.set_hsion(true));
                 while !RCC.cr().read().hsirdy() {}
 
@@ -196,12 +196,12 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let (sys_clk, sw) = match config.mux {
-        ClockSrc::HSI16 => {
-            // Enable HSI16
+        ClockSrc::HSI => {
+            // Enable HSI
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 
-            (HSI_FREQ, Sw::HSI16)
+            (HSI_FREQ, Sw::HSI)
         }
         ClockSrc::HSE(freq) => {
             // Enable HSE
@@ -249,7 +249,7 @@ pub(crate) unsafe fn init(config: Config) {
                 }
             }
 
-            (Hertz(freq), Sw::PLLRCLK)
+            (Hertz(freq), Sw::PLL1_R)
         }
     };
 
@@ -286,7 +286,7 @@ pub(crate) unsafe fn init(config: Config) {
                 let pllq_freq = pll_freq.as_ref().and_then(|f| f.pll_q);
                 assert!(pllq_freq.is_some() && pllq_freq.unwrap().0 == 48_000_000);
 
-                crate::pac::rcc::vals::Clk48sel::PLLQCLK
+                crate::pac::rcc::vals::Clk48sel::PLL1_Q
             }
             Clock48MhzSrc::Hsi48(crs_config) => {
                 // Enable HSI48
@@ -326,16 +326,16 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.ccipr().modify(|w| w.set_adc345sel(config.adc345_clock_source));
 
     let adc12_ck = match config.adc12_clock_source {
-        AdcClockSource::NOCLK => None,
-        AdcClockSource::PLLP => pll_freq.as_ref().unwrap().pll_p,
-        AdcClockSource::SYSCLK => Some(sys_clk),
+        AdcClockSource::DISABLE => None,
+        AdcClockSource::PLL1_P => pll_freq.as_ref().unwrap().pll_p,
+        AdcClockSource::SYS => Some(sys_clk),
         _ => unreachable!(),
     };
 
     let adc345_ck = match config.adc345_clock_source {
-        AdcClockSource::NOCLK => None,
-        AdcClockSource::PLLP => pll_freq.as_ref().unwrap().pll_p,
-        AdcClockSource::SYSCLK => Some(sys_clk),
+        AdcClockSource::DISABLE => None,
+        AdcClockSource::PLL1_P => pll_freq.as_ref().unwrap().pll_p,
+        AdcClockSource::SYS => Some(sys_clk),
         _ => unreachable!(),
     };
 
@@ -348,14 +348,15 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        ahb2: ahb_freq,
-        apb1: apb1_freq,
-        apb1_tim: apb1_tim_freq,
-        apb2: apb2_freq,
-        apb2_tim: apb2_tim_freq,
+        hclk1: ahb_freq,
+        hclk2: ahb_freq,
+        pclk1: apb1_freq,
+        pclk1_tim: apb1_tim_freq,
+        pclk2: apb2_freq,
+        pclk2_tim: apb2_tim_freq,
         adc: adc12_ck,
         adc34: adc345_ck,
+        pll1_p: None,
         rtc,
     });
 }

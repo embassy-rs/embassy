@@ -1,14 +1,14 @@
-//! [`embassy-net`](https://crates.io/crates/embassy-net) driver for WIZnet ethernet chips.
 #![no_std]
 #![feature(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
 
 pub mod chip;
 mod device;
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{select3, Either3};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
@@ -49,32 +49,34 @@ pub struct Runner<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> {
 impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, INT, RST> {
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
+        let mut tick = Ticker::every(Duration::from_millis(500));
         loop {
-            if self.mac.is_link_up().await {
-                state_chan.set_link_state(LinkState::Up);
-                loop {
-                    match select(
-                        async {
-                            self.int.wait_for_low().await.ok();
-                            rx_chan.rx_buf().await
-                        },
-                        tx_chan.tx_buf(),
-                    )
-                    .await
-                    {
-                        Either::First(p) => {
-                            if let Ok(n) = self.mac.read_frame(p).await {
-                                rx_chan.rx_done(n);
-                            }
-                        }
-                        Either::Second(p) => {
-                            self.mac.write_frame(p).await.ok();
-                            tx_chan.tx_done();
-                        }
+            match select3(
+                async {
+                    self.int.wait_for_low().await.ok();
+                    rx_chan.rx_buf().await
+                },
+                tx_chan.tx_buf(),
+                tick.next(),
+            )
+            .await
+            {
+                Either3::First(p) => {
+                    if let Ok(n) = self.mac.read_frame(p).await {
+                        rx_chan.rx_done(n);
                     }
                 }
-            } else {
-                state_chan.set_link_state(LinkState::Down);
+                Either3::Second(p) => {
+                    self.mac.write_frame(p).await.ok();
+                    tx_chan.tx_done();
+                }
+                Either3::Third(()) => {
+                    if self.mac.is_link_up().await {
+                        state_chan.set_link_state(LinkState::Up);
+                    } else {
+                        state_chan.set_link_state(LinkState::Down);
+                    }
+                }
             }
         }
     }
@@ -95,12 +97,12 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, C: Chip, SPI: SpiDevi
     // Reset the chip.
     reset.set_low().ok();
     // Ensure the reset is registered.
-    Timer::after(Duration::from_millis(1)).await;
+    Timer::after_millis(1).await;
     reset.set_high().ok();
 
     // Wait for PLL lock. Some chips are slower than others.
     // Slowest is w5100s which is 100ms, so let's just wait that.
-    Timer::after(Duration::from_millis(100)).await;
+    Timer::after_millis(100).await;
 
     let mac = WiznetDevice::new(spi_dev, mac_addr).await.unwrap();
 

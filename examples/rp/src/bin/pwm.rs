@@ -9,7 +9,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::pwm::{Config, Pwm};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         info!("current LED duty cycle: {}/32768", c.compare_b);
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
         c.compare_b = c.compare_b.rotate_left(4);
         pwm.set_config(&c);
     }

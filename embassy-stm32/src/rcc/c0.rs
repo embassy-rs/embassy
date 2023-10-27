@@ -134,10 +134,12 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     set_freqs(Clocks {
+        hsi: None,
+        lse: None,
         sys: sys_clk,
-        ahb1: ahb_freq,
-        apb1: apb_freq,
-        apb1_tim: apb_tim_freq,
+        hclk1: ahb_freq,
+        pclk1: apb_freq,
+        pclk1_tim: apb_tim_freq,
         rtc,
     });
 }

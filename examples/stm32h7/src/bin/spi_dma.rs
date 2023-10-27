@@ -36,17 +36,17 @@ fn main() -> ! {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
-        config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV8), // used by SPI3. 100Mhz.
             divr: None,
         });
-        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
         config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz

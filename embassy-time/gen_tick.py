@@ -13,6 +13,8 @@ for i in range(1, 25):
     ticks.append(2**i)
 for i in range(1, 20):
     ticks.append(2**i * 1000)
+for i in range(1, 20):
+    ticks.append(2**i * 10000)
 for i in range(1, 10):
     ticks.append(2**i * 1000000)
     ticks.append(2**i * 9 // 8 * 1000000)

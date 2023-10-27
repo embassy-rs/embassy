@@ -12,7 +12,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
 use embassy_stm32::dac::{DacCh1, DacChannel, Value};
 use embassy_stm32::dma::NoDma;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
 
     unwrap!(dac.set(Value::Bit8(0)));
     // Now wait a little to obtain a stable value
-    Timer::after(Duration::from_millis(30)).await;
+    Timer::after_millis(30).await;
     let offset = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
 
     for v in 0..=255 {
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
         unwrap!(dac.set(Value::Bit8(dac_output_val)));
 
         // Now wait a little to obtain a stable value
-        Timer::after(Duration::from_millis(30)).await;
+        Timer::after_millis(30).await;
 
         // Need to steal the peripherals here because PA4 is obviously in use already
         let measured = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);

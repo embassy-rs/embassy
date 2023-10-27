@@ -8,9 +8,8 @@ use core::cell::RefCell;
 use core::mem::MaybeUninit;
 use core::task::{Context, Poll};
 
-use driver::HardwareAddress;
 pub use embassy_net_driver as driver;
-use embassy_net_driver::{Capabilities, LinkState, Medium};
+use embassy_net_driver::{Capabilities, LinkState};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::waitqueue::WakerRegistration;
@@ -161,18 +160,10 @@ impl<'d> StateRunner<'d> {
         });
     }
 
-    pub fn set_ethernet_address(&self, address: [u8; 6]) {
+    pub fn set_hardware_address(&self, address: driver::HardwareAddress) {
         self.shared.lock(|s| {
             let s = &mut *s.borrow_mut();
-            s.hardware_address = driver::HardwareAddress::Ethernet(address);
-            s.waker.wake();
-        });
-    }
-
-    pub fn set_ieee802154_address(&self, address: [u8; 8]) {
-        self.shared.lock(|s| {
-            let s = &mut *s.borrow_mut();
-            s.hardware_address = driver::HardwareAddress::Ieee802154(address);
+            s.hardware_address = address;
             s.waker.wake();
         });
     }
@@ -232,11 +223,6 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
 ) -> (Runner<'d, MTU>, Device<'d, MTU>) {
     let mut caps = Capabilities::default();
     caps.max_transmission_unit = MTU;
-    caps.medium = match &hardware_address {
-        HardwareAddress::Ethernet(_) => Medium::Ethernet,
-        HardwareAddress::Ieee802154(_) => Medium::Ieee802154,
-        HardwareAddress::Ip => Medium::Ip,
-    };
 
     // safety: this is a self-referential struct, however:
     // - it can't move while the `'d` borrow is active.

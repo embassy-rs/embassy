@@ -59,7 +59,7 @@ rtos-trace = { version = "0.1.2", optional = true }
 
 futures-util = { version = "0.3.17", default-features = false }
 embassy-macros = { version = "0.2.1", path = "../embassy-macros" }
-embassy-time = { version = "0.1.4", path = "../embassy-time", optional = true}
+embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true}
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
 static_cell = "1.1"

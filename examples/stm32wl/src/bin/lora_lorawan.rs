@@ -12,7 +12,8 @@ use embassy_lora::LoraTimer;
 use embassy_stm32::gpio::{Level, Output, Pin, Speed};
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::spi::Spi;
-use embassy_stm32::{bind_interrupts, pac, peripherals};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
@@ -33,10 +34,24 @@ bind_interrupts!(struct Irqs{
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSE;
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(32_000_000),
+            mode: HseMode::Bypass,
+            prescaler: HsePrescaler::DIV1,
+        });
+        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.pll = Some(Pll {
+            source: PLLSource::HSE,
+            prediv: PllPreDiv::DIV2,
+            mul: PllMul::MUL6,
+            divp: None,
+            divq: Some(PllQDiv::DIV2), // PLL1_Q clock (32 / 2 * 6 / 2), used for RNG
+            divr: Some(PllRDiv::DIV2), // sysclk 48Mhz clock (32 / 2 * 6 / 2)
+        });
+    }
     let p = embassy_stm32::init(config);
-
-    pac::RCC.ccipr().modify(|w| w.set_rngsel(0b01));
 
     let spi = Spi::new_subghz(p.SUBGHZSPI, p.DMA1_CH1, p.DMA1_CH2);
 

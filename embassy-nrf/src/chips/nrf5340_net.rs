@@ -7,9 +7,12 @@ pub mod pac {
 
     pub use nrf5340_net_pac::NVIC_PRIO_BITS;
 
+    #[cfg(feature="rt")]
+    #[doc(no_inline)]
+    pub use nrf5340_net_pac::interrupt;
+
     #[doc(no_inline)]
     pub use nrf5340_net_pac::{
-        interrupt,
         Interrupt,
         Peripherals,
 

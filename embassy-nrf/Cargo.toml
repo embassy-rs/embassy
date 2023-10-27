@@ -94,7 +94,7 @@ _gpio-p1 = []
 _nrf52832_anomaly_109 = []
 
 [dependencies]
-embassy-time = { version = "0.1.4", path = "../embassy-time", optional = true }
+embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }

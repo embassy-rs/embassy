@@ -57,18 +57,20 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
         _ch4: Option<PwmPin<'d, T, Ch4>>,
         _ch4n: Option<ComplementaryPwmPin<'d, T, Ch4>>,
         freq: Hertz,
+        counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq)
+        Self::new_inner(tim, freq, counting_mode)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz) -> Self {
+    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
         into_ref!(tim);
 
         T::enable_and_reset();
 
         let mut this = Self { inner: tim };
 
-        this.inner.set_frequency(freq);
+        this.inner.set_counting_mode(counting_mode);
+        this.set_freq(freq);
         this.inner.start();
 
         this.inner.enable_outputs();
@@ -95,7 +97,12 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
     }
 
     pub fn set_freq(&mut self, freq: Hertz) {
-        self.inner.set_frequency(freq);
+        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
+            2u8
+        } else {
+            1u8
+        };
+        self.inner.set_frequency(freq * multiplier);
     }
 
     pub fn get_max_duty(&self) -> u16 {

@@ -33,7 +33,7 @@ const LORAWAN_REGION: region::Region = region::Region::EU868; // warning: set th
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI;
     config.rcc.enable_hsi48 = true;
     let p = embassy_stm32::init(config);
 

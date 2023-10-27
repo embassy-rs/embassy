@@ -1,8 +1,8 @@
 use core::cmp::{max, min};
 
-use ch::driver::LinkState;
 use embassy_net_driver_channel as ch;
-use embassy_time::{Duration, Timer};
+use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
+use embassy_time::Timer;
 
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
@@ -87,22 +87,22 @@ impl<'a> Control<'a> {
         self.set_iovar("country", &country_info.to_bytes()).await;
 
         // set country takes some time, next ioctls fail if we don't wait.
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         // Set antenna to chip antenna
         self.ioctl_set_u32(IOCTL_CMD_ANTDIV, 0, 0).await;
 
         self.set_iovar_u32("bus:txglom", 0).await;
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         //self.set_iovar_u32("apsta", 1).await; // this crashes, also we already did it before...??
-        //Timer::after(Duration::from_millis(100)).await;
+        //Timer::after_millis(100).await;
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         self.set_iovar_u32("ampdu_mpdu", 4).await;
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         //self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
 
-        //Timer::after(Duration::from_millis(100)).await;
+        //Timer::after_millis(100).await;
 
         // evts
         let mut evts = EventMask {
@@ -121,19 +121,19 @@ impl<'a> Control<'a> {
 
         self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         // set wifi up
         self.up().await;
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
         self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
-        self.state_ch.set_ethernet_address(mac_addr);
+        self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
         debug!("INIT DONE");
     }
@@ -185,7 +185,7 @@ impl<'a> Control<'a> {
         self.set_iovar_u32x2("bsscfg:sup_wpa2_eapver", 0, 0xFFFF_FFFF).await;
         self.set_iovar_u32x2("bsscfg:sup_wpa_tmo", 0, 2500).await;
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         let mut pfi = PassphraseInfo {
             len: passphrase.len() as _,
@@ -297,7 +297,7 @@ impl<'a> Control<'a> {
         if security != Security::OPEN {
             self.set_iovar_u32x2("bsscfg:wpa_auth", 0, 0x0084).await; // wpa_auth = WPA2_AUTH_PSK | WPA_AUTH_PSK
 
-            Timer::after(Duration::from_millis(100)).await;
+            Timer::after_millis(100).await;
 
             // Set passphrase
             let mut pfi = PassphraseInfo {

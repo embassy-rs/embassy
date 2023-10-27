@@ -13,7 +13,7 @@ fn main() -> ! {
     info!("Hello World!");
 
     pac::RCC.ccipr().modify(|w| {
-        w.set_adcsel(0b11);
+        w.set_adcsel(pac::rcc::vals::Adcsel::SYS);
     });
     pac::RCC.ahb2enr().modify(|w| w.set_adcen(true));
 

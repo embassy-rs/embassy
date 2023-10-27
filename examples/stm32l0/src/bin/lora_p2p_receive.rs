@@ -12,7 +12,7 @@ use embassy_stm32::exti::{Channel, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pin, Pull, Speed};
 use embassy_stm32::spi;
 use embassy_stm32::time::khz;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use lora_phy::mod_params::*;
 use lora_phy::sx1276_7_8_9::SX1276_7_8_9;
 use lora_phy::LoRa;
@@ -23,7 +23,7 @@ const LORA_FREQUENCY_IN_HZ: u32 = 903_900_000; // warning: set this appropriatel
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI16;
+    config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI;
     config.rcc.enable_hsi48 = true;
     let p = embassy_stm32::init(config);
 
@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) {
     let mut start_indicator = Output::new(p.PB6, Level::Low, Speed::Low);
 
     start_indicator.set_high();
-    Timer::after(Duration::from_secs(5)).await;
+    Timer::after_secs(5).await;
     start_indicator.set_low();
 
     let mut receiving_buffer = [00u8; 100];
@@ -107,7 +107,7 @@ async fn main(_spawner: Spawner) {
                 {
                     info!("rx successful");
                     debug_indicator.set_high();
-                    Timer::after(Duration::from_secs(5)).await;
+                    Timer::after_secs(5).await;
                     debug_indicator.set_low();
                 } else {
                     info!("rx unknown packet");

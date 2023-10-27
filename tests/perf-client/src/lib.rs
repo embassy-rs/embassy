@@ -16,7 +16,7 @@ pub struct Expected {
 pub async fn run<D: Driver>(stack: &Stack<D>, expected: Expected) {
     info!("Waiting for DHCP up...");
     while stack.config_v4().is_none() {
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
     }
     info!("IP addressing up!");
 

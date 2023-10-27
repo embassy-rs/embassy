@@ -26,7 +26,7 @@ pub async fn send_can_message(tx: &'static mut CanTx<'static, 'static, CAN3>) {
     loop {
         let frame = Frame::new_data(unwrap!(StandardId::new(0 as _)), [0]);
         tx.write(&frame).await;
-        embassy_time::Timer::after(embassy_time::Duration::from_secs(1)).await;
+        embassy_time::Timer::after_secs(1).await;
     }
 }
 

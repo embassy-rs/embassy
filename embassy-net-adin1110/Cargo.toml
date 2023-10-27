@@ -16,8 +16,8 @@ log = { version = "0.4", default-features = false, optional = true }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1" }
 embedded-hal-async = { version = "=1.0.0-rc.1" }
 embedded-hal-bus = { version = "=0.1.0-rc.1", features = ["async"] }
-embassy-net-driver-channel = { version = "0.1.0", path = "../embassy-net-driver-channel" }
-embassy-time = { version = "0.1.4", path = "../embassy-time" }
+embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel" }
+embassy-time = { version = "0.1.5", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 bitfield = "0.14.0"
 

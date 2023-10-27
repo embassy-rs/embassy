@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -12,6 +12,12 @@ categories = [
     "concurrency",
     "asynchronous",
 ]
+
+# Prevent multiple copies of this crate in the same binary.
+# Needed because different copies might get different tick rates, causing
+# wrong delays if the time driver is using one copy and user code is using another.
+# This is especially common when mixing crates from crates.io and git.
+links = "embassy-time"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
@@ -120,6 +126,25 @@ tick-hz-65_536_000 = []
 tick-hz-131_072_000 = []
 tick-hz-262_144_000 = []
 tick-hz-524_288_000 = []
+tick-hz-20_000 = []
+tick-hz-40_000 = []
+tick-hz-80_000 = []
+tick-hz-160_000 = []
+tick-hz-320_000 = []
+tick-hz-640_000 = []
+tick-hz-1_280_000 = []
+tick-hz-2_560_000 = []
+tick-hz-5_120_000 = []
+tick-hz-10_240_000 = []
+tick-hz-20_480_000 = []
+tick-hz-40_960_000 = []
+tick-hz-81_920_000 = []
+tick-hz-163_840_000 = []
+tick-hz-327_680_000 = []
+tick-hz-655_360_000 = []
+tick-hz-1_310_720_000 = []
+tick-hz-2_621_440_000 = []
+tick-hz-5_242_880_000 = []
 tick-hz-2_000_000 = []
 tick-hz-3_000_000 = []
 tick-hz-4_000_000 = []

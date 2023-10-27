@@ -15,7 +15,7 @@ use embassy_rp::peripherals::SPI1;
 use embassy_rp::spi::{Async, Config, Spi};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
 use lora_phy::LoRa;
@@ -59,7 +59,7 @@ async fn core0_task() {
     info!("Hello from core 0");
     loop {
         CHANNEL.send([0x01u8, 0x02u8, 0x03u8]).await;
-        Timer::after(Duration::from_millis(60 * 1000)).await;
+        Timer::after_millis(60 * 1000).await;
     }
 }
 

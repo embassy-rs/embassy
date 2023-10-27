@@ -170,7 +170,7 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         let spi = Spi::new_internal(peri, txdma, rxdma, spi_cfg);
 
         #[cfg(all(rcc_f4, not(stm32f410)))]
-        let pclk = unsafe { get_freqs() }.plli2s.unwrap();
+        let pclk = unsafe { get_freqs() }.plli2s1_q.unwrap();
 
         #[cfg(stm32f410)]
         let pclk = T::frequency();

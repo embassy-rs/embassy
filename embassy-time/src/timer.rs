@@ -64,6 +64,42 @@ impl Timer {
             yielded_once: false,
         }
     }
+
+    /// Expire after the specified number of ticks.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::after(Duration::from_ticks())`.
+    /// For more details, refer to [`Timer::after()`] and [`Duration::from_ticks()`].
+    #[inline]
+    pub fn after_ticks(ticks: u64) -> Self {
+        Self::after(Duration::from_ticks(ticks))
+    }
+
+    /// Expire after the specified number of microseconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::after(Duration::from_micros())`.
+    /// For more details, refer to [`Timer::after()`] and [`Duration::from_micros()`].
+    #[inline]
+    pub fn after_micros(micros: u64) -> Self {
+        Self::after(Duration::from_micros(micros))
+    }
+
+    /// Expire after the specified number of milliseconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::after(Duration::from_millis())`.
+    /// For more details, refer to [`Timer::after`] and [`Duration::from_millis()`].
+    #[inline]
+    pub fn after_millis(millis: u64) -> Self {
+        Self::after(Duration::from_millis(millis))
+    }
+
+    /// Expire after the specified number of seconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::after(Duration::from_secs())`.
+    /// For more details, refer to [`Timer::after`] and [`Duration::from_secs()`].
+    #[inline]
+    pub fn after_secs(secs: u64) -> Self {
+        Self::after(Duration::from_secs(secs))
+    }
 }
 
 impl Unpin for Timer {}

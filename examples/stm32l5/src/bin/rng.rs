@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{ClockSrc, PLLSource, PllMul, PllPreDiv, PllQDiv, PllRDiv};
+use embassy_stm32::rcc::{ClockSrc, PLLSource, Pll, PllMul, PllPreDiv, PllRDiv};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, peripherals, rng, Config};
 use {defmt_rtt as _, panic_probe as _};
@@ -16,13 +16,17 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL(
-        PLLSource::HSI16,
-        PllRDiv::DIV2,
-        PllPreDiv::DIV1,
-        PllMul::MUL8,
-        Some(PllQDiv::DIV2),
-    );
+    config.rcc.hsi = true;
+    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.pll = Some(Pll {
+        // 64Mhz clock (16 / 1 * 8 / 2)
+        source: PLLSource::HSI,
+        prediv: PllPreDiv::DIV1,
+        mul: PllMul::MUL8,
+        divp: None,
+        divq: None,
+        divr: Some(PllRDiv::DIV2),
+    });
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::{env, fs};
@@ -352,7 +352,7 @@ fn main() {
     // ========
     // Generate DMA IRQs.
 
-    let mut dma_irqs: HashMap<&str, Vec<(&str, &str, &str)>> = HashMap::new();
+    let mut dma_irqs: BTreeMap<&str, Vec<(&str, &str, &str)>> = BTreeMap::new();
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
@@ -371,37 +371,43 @@ fn main() {
         }
     }
 
-    for (irq, channels) in dma_irqs {
-        let irq = format_ident!("{}", irq);
+    let dma_irqs: TokenStream = dma_irqs
+        .iter()
+        .map(|(irq, channels)| {
+            let irq = format_ident!("{}", irq);
 
-        let xdma = format_ident!("{}", channels[0].0);
-        let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
+            let xdma = format_ident!("{}", channels[0].0);
+            let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
 
-        g.extend(quote! {
-            #[cfg(feature = "rt")]
-            #[crate::interrupt]
-            unsafe fn #irq () {
-                #(
-                    <crate::peripherals::#channels as crate::dma::#xdma::sealed::Channel>::on_irq();
-                )*
+            quote! {
+                #[cfg(feature = "rt")]
+                #[crate::interrupt]
+                unsafe fn #irq () {
+                    #(
+                        <crate::peripherals::#channels as crate::dma::#xdma::sealed::Channel>::on_irq();
+                    )*
+                }
             }
-        });
-    }
+        })
+        .collect();
+
+    g.extend(dma_irqs);
+
+    // ========
+    // Extract the rcc registers
+    let rcc_registers = METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| p.registers.as_ref())
+        .find(|r| r.kind == "rcc")
+        .unwrap();
 
     // ========
     // Generate rcc fieldset and enum maps
     let rcc_enum_map: HashMap<&str, HashMap<&str, &Enum>> = {
-        let rcc_registers = METADATA
-            .peripherals
-            .iter()
-            .filter_map(|p| p.registers.as_ref())
-            .find(|r| r.kind == "rcc")
-            .unwrap()
-            .ir;
-
-        let rcc_blocks = rcc_registers.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
-        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.fieldsets.iter().map(|f| (f.name, f)).collect();
-        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.enums.iter().map(|e| (e.name, e)).collect();
+        let rcc_blocks = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
+        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.ir.fieldsets.iter().map(|f| (f.name, f)).collect();
+        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.ir.enums.iter().map(|e| (e.name, e)).collect();
 
         rcc_blocks
             .iter()
@@ -432,7 +438,7 @@ fn main() {
     // Generate RccPeripheral impls
 
     let refcounted_peripherals = HashSet::from(["usart", "adc"]);
-    let mut refcount_statics = HashSet::new();
+    let mut refcount_statics = BTreeSet::new();
 
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
@@ -465,9 +471,9 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let clk = format_ident!("{}", rcc.clock.to_ascii_lowercase());
-            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
-            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
+            let clk = format_ident!("{}", rcc.clock);
+            let en_reg = format_ident!("{}", en.register);
+            let set_en_field = format_ident!("set_{}", en.field);
 
             let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
                 let refcount_static =
@@ -493,9 +499,11 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
+            let mux_supported = HashSet::from(["c0", "h5", "h50", "h7", "h7ab", "h7rm0433", "g4", "l4"])
+                .contains(rcc_registers.version);
             let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
-                // temporary hack to restrict the scope of the implementation to h5
-                if !&chip_name.starts_with("stm32h5") {
+                // restrict mux implementation to supported versions
+                if !mux_supported {
                     return None;
                 }
 
@@ -518,12 +526,16 @@ fn main() {
                         .filter(|v| v.name != "DISABLE")
                         .map(|v| {
                             let variant_name = format_ident!("{}", v.name);
+                            let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
 
-                            // temporary hack to restrict the scope of the implementation until clock names can be stabilized
-                            let clock_name = format_ident!("mux_{}", v.name.to_ascii_lowercase());
-
-                            quote! {
-                                #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
+                            if v.name.starts_with("HCLK") || v.name.starts_with("PCLK") || v.name == "SYS" { 
+                                quote! {
+                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
+                                }
+                            } else {
+                                quote! {
+                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
+                                }
                             }
                         })
                         .collect();
@@ -552,7 +564,7 @@ fn main() {
                     fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
                         #before_enable
                         #[cfg(feature = "low-power")]
-                        crate::rcc::clock_refcount_add(_cs);
+                        unsafe { crate::rcc::REFCOUNT_STOP2 += 1 };
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                         #after_enable
                         #rst
@@ -561,7 +573,7 @@ fn main() {
                         #before_disable
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
                         #[cfg(feature = "low-power")]
-                        crate::rcc::clock_refcount_sub(_cs);
+                        unsafe { crate::rcc::REFCOUNT_STOP2 -= 1 };
                     }
                 }
 
@@ -1007,15 +1019,7 @@ fn main() {
 
     // ========
     // Generate Div/Mul impls for RCC prescalers/dividers/multipliers.
-    let rcc_registers = METADATA
-        .peripherals
-        .iter()
-        .filter_map(|p| p.registers.as_ref())
-        .find(|r| r.kind == "rcc")
-        .unwrap()
-        .ir;
-
-    for e in rcc_registers.enums {
+    for e in rcc_registers.ir.enums {
         fn is_rcc_name(e: &str) -> bool {
             match e {
                 "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" => true,

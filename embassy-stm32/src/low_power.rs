@@ -6,7 +6,6 @@ use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::rcc::low_power_ready;
 use crate::time_driver::{get_driver, RtcDriver};
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -31,6 +30,15 @@ pub(crate) unsafe fn on_wakeup_irq() {
 
 pub fn stop_with_rtc(rtc: &'static Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
+}
+
+pub fn stop_ready(stop_mode: StopMode) -> bool {
+    unsafe { EXECUTOR.as_mut().unwrap() }.stop_ready(stop_mode)
+}
+
+#[non_exhaustive]
+pub enum StopMode {
+    Stop2,
 }
 
 /// Thread mode executor, using WFE/SEV.
@@ -80,12 +88,18 @@ impl Executor {
         trace!("low power: stop with rtc configured");
     }
 
+    fn stop_ready(&self, stop_mode: StopMode) -> bool {
+        match stop_mode {
+            StopMode::Stop2 => unsafe { crate::rcc::REFCOUNT_STOP2 == 0 },
+        }
+    }
+
     fn configure_pwr(&mut self) {
         self.scb.clear_sleepdeep();
 
         compiler_fence(Ordering::SeqCst);
 
-        if !low_power_ready() {
+        if !self.stop_ready(StopMode::Stop2) {
             trace!("low power: not ready to stop");
         } else if self.time_driver.pause_time().is_err() {
             trace!("low power: failed to pause time");
