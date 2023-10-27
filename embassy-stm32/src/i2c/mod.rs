@@ -19,10 +19,14 @@ pub enum Error {
     Crc,
     Overrun,
     ZeroLengthTransfer,
-    Collission, // in case of slave mode, during sending data to master
-    BufferEmpty,
-    BufferFull,
     BufferSize,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[repr(usize)]
+pub enum AddressType {
+    Address1 = 0,
+    Address2,
 }
 
 pub(crate) mod sealed {

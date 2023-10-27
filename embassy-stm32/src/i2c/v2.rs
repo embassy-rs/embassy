@@ -22,7 +22,7 @@ use crate::dma::NoDma;
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
-use crate::i2c::{Error, Instance, SclPin, SdaPin};
+use crate::i2c::{AddressType, Error, Instance, SclPin, SdaPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c;
 use crate::time::Hertz;
@@ -57,10 +57,12 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     let b = match state_m.read_byte() {
                         Ok(b) => b,
                         Err(e) => {
-                            state_m.result = Some(e);
-                            regs.cr2().modify(|w| {
-                                w.set_nack(true);
-                            });
+                            // An extra interrupt after the last byte is sent seems to be generated always
+                            // Do not generate an error in this (overrun) case
+                            match e {
+                                Error::Overrun => (),
+                                _ => state_m.result = Some(e),
+                            }
                             0xFF
                         }
                     };
@@ -72,10 +74,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                         Ok(()) => (),
                         Err(e) => {
                             state_m.result = Some(e);
-                            // Send a NACK
-                            regs.cr2().modify(|w| {
-                                w.set_nack(true);
-                            })
                         }
                     }
                 } else if isr.stopf() {
@@ -103,6 +101,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                             w.set_nbytes(state_m.get_size());
                             // during sending nbytes automatically send a ACK, stretch clock after last byte
                             w.set_reload(vals::Reload::COMPLETED);
+                        });
+                        // restore sbc after a master_write_read transaction
+                        T::regs().cr1().modify(|reg| {
+                            reg.set_sbc(true);
                         });
                         // flush i2c tx register
                         regs.isr().write(|w| w.set_txe(true));
@@ -232,36 +234,30 @@ impl I2cStateMachine {
     }
     fn read_byte(&mut self) -> Result<u8, Error> {
         let adress_type = if self.address1 == self.current_address as u16 {
-            AddressType::MainAddress
+            AddressType::Address1
         } else {
-            AddressType::GenericAddress
+            AddressType::Address2
         };
         self.buffers[adress_type as usize][vals::Dir::READ as usize].master_read()
     }
     fn write_byte(&mut self, b: u8) -> Result<(), Error> {
         let adress_type = if self.address1 == self.current_address as u16 {
-            AddressType::MainAddress
+            AddressType::Address1
         } else {
-            AddressType::GenericAddress
+            AddressType::Address2
         };
         self.buffers[adress_type as usize][vals::Dir::WRITE as usize].master_write(b)
     }
     fn get_size(&self) -> u8 {
         let adress_type = if self.address1 == self.current_address as u16 {
-            AddressType::MainAddress
+            AddressType::Address1
         } else {
-            AddressType::GenericAddress
+            AddressType::Address2
         };
         self.buffers[adress_type as usize][self.dir as usize].size
     }
 }
 const BUFFER_SIZE: usize = 64;
-
-#[repr(usize)]
-pub enum AddressType {
-    MainAddress = 0,
-    GenericAddress,
-}
 
 struct I2cBuffer {
     buffer: [u8; BUFFER_SIZE],
@@ -280,12 +276,15 @@ impl I2cBuffer {
     fn reset(&mut self) {
         self.index = 0;
         self.size = 0;
+        for i in 0..self.buffer.len() {
+            self.buffer[i] = 0xFF;
+        }
     }
     /// master read slave write scenario. Master can read until self.size bytes
     /// If no data available (self.size == 0)
     fn master_read(&mut self) -> Result<u8, Error> {
         if self.size == 0 {
-            return Err(Error::BufferEmpty);
+            return Err(Error::ZeroLengthTransfer);
         };
         if self.index < self.size as usize {
             let b = self.buffer[self.index];
@@ -303,14 +302,14 @@ impl I2cBuffer {
             self.size = self.index as u8;
             Ok(())
         } else {
-            Err(Error::BufferFull)
+            Err(Error::Overrun)
         }
     }
     // read data into this buffer (master read, slave write)
     fn from_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let len = buffer.len();
         if len > self.buffer.len() {
-            return Err(Error::BufferSize);
+            return Err(Error::Overrun);
         };
         for i in 0..len {
             self.buffer[i] = buffer[i];
@@ -400,13 +399,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             T::regs().oar1().write(|reg| {
                 reg.set_oa1en(false);
             });
-            let mode = if config.address_11bits {
-                vals::Addmode::BIT10
+            let (mode, address) = if config.address_11bits {
+                (vals::Addmode::BIT10, config.slave_address_1)
             } else {
-                vals::Addmode::BIT7
+                (vals::Addmode::BIT7, config.slave_address_1 << 1)
             };
             T::regs().oar1().write(|reg| {
-                reg.set_oa1(config.slave_address_1);
+                reg.set_oa1(address);
                 reg.set_oa1mode(mode);
                 reg.set_oa1en(true);
             });
@@ -1038,7 +1037,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     // =========================
     // async Slave implementation
     /// Starts listening for slave transactions
-    pub fn slave_start_listen(&mut self) -> Result<(), super::Error> {
+    pub fn slave_start_listen(&self) -> Result<(), super::Error> {
         T::regs().cr1().modify(|reg| {
             reg.set_addrie(true);
             reg.set_txie(true);
@@ -1063,7 +1062,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
     // slave stop listening for slave transactions and switch back to master role
-    pub fn slave_stop_listen(&mut self) -> Result<(), super::Error> {
+    pub fn slave_stop_listen(&self) -> Result<(), super::Error> {
         T::regs().cr1().modify(|reg| {
             reg.set_addrie(false);
             reg.set_txie(false);
@@ -1080,22 +1079,32 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         });
         Ok(())
     }
-    pub fn slave_sbc(&mut self, sbc_enabled: bool) {
+    pub fn slave_sbc(&self, sbc_enabled: bool) {
         // enable acknowlidge control
         T::regs().cr1().modify(|w| w.set_sbc(sbc_enabled));
     }
     /// Prepare write data to master (master_read_slave_write) before transaction starts
     /// Will return buffersize error in case the incoming buffer is too big
-    pub fn slave_write_buffer(&mut self, buffer: &[u8], address_type: AddressType) -> Result<(), super::Error> {
+    pub fn slave_write_buffer(&self, buffer: &[u8], address_type: AddressType) -> Result<(), super::Error> {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
             let buf = &mut state_m.buffers[address_type as usize][vals::Dir::READ as usize];
             buf.from_buffer(buffer)
         })
     }
+    pub fn slave_reset_buffer(&self, address_type: AddressType) {
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            let buf_r = &mut state_m.buffers[address_type as usize][vals::Dir::READ as usize];
+            buf_r.reset();
+            let buf_w = &mut state_m.buffers[address_type as usize][vals::Dir::WRITE as usize];
+            buf_w.reset();
+        })
+    }
+
     /// Read data from master (master_write_slave_read) after transaction is finished
     /// Will fail if the size of the incoming buffer is smaller than the received bytes
-    pub fn slave_read_buffer(&mut self, buffer: &mut [u8], address_type: AddressType) -> Result<(), super::Error> {
+    pub fn slave_read_buffer(&self, buffer: &mut [u8], address_type: AddressType) -> Result<(), super::Error> {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
             let buf = &mut state_m.buffers[address_type as usize][vals::Dir::WRITE as usize];
@@ -1103,7 +1112,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         })
     }
     /// wait until a slave transaction is finished, and return tuple address, direction, data size and error
-    pub async fn slave_transaction(&mut self) -> (u8, vals::Dir, u8, Option<Error>) {
+    pub async fn slave_transaction(&self) -> (u8, vals::Dir, u8, Option<Error>) {
         // async wait until addressed
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
