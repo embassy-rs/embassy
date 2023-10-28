@@ -5,4 +5,4 @@ runner = "probe-rs run --chip RP2040"
 target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+
 
 [env]
-DEFMT_LOG = "debug"
+DEFMT_LOG = "trace"

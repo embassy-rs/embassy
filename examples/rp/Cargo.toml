@@ -55,3 +55,8 @@ rand = { version = "0.8.5", default-features = false }
 
 [profile.release]
 debug = 2
+
+[features]
+default = ["i2c_slave", "i2c_master"]
+i2c_slave = []
+i2c_master = []

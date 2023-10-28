@@ -83,10 +83,8 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
 
         let i2c = Self::new_inner(peri, scl.map_into(), sda.map_into(), config);
 
-        let r = T::regs();
-
         // mask everything initially
-        r.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
+        Self::set_intr_mask(|_| {});
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -154,6 +152,8 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                 .wait_on(
                     |me| {
                         let rxfifo = Self::rx_fifo_len();
+                        p.ic_clr_activity().read();
+
                         if let Err(abort_reason) = me.read_and_clear_abort_reason() {
                             Poll::Ready(Err(abort_reason))
                         } else if rxfifo >= batch {
@@ -167,7 +167,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                         // expecting so we don't get spurious interrupts.
                         p.ic_rx_tl().write(|w| w.set_rx_tl(batch - 1));
 
-                        p.ic_intr_mask().modify(|w| {
+                        Self::set_intr_mask(|w| {
                             w.set_m_rx_full(true);
                             w.set_m_tx_abrt(true);
                         });
@@ -204,8 +204,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         let p = T::regs();
 
         let mut bytes = bytes.into_iter().peekable();
-
-        let res = 'xmit: loop {
+        let res = loop {
             let tx_fifo_space = Self::tx_fifo_capacity();
 
             for _ in 0..tx_fifo_space {
@@ -218,16 +217,19 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                         w.set_dat(byte);
                     });
                 } else {
-                    break 'xmit Ok(());
+                    break;
                 }
             }
 
+            let last = bytes.peek().is_none();
             let res = self
                 .wait_on(
                     |me| {
+                        p.ic_clr_activity().read();
+
                         if let abort_reason @ Err(_) = me.read_and_clear_abort_reason() {
                             Poll::Ready(abort_reason)
-                        } else if !Self::tx_fifo_full() {
+                        } else if !last && !Self::tx_fifo_full() || !p.ic_status().read().rfne() {
                             // resume if there's any space free in the tx fifo
                             Poll::Ready(Ok(()))
                         } else {
@@ -238,16 +240,21 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
                         // Set tx "free" threshold a little high so that we get
                         // woken before the fifo completely drains to minimize
                         // transfer stalls.
-                        p.ic_tx_tl().write(|w| w.set_tx_tl(1));
+                        if last {
+                            p.ic_tx_tl().write(|w| w.set_tx_tl(0));
+                        } else {
+                            p.ic_tx_tl().write(|w| w.set_tx_tl(1));
+                        }
 
-                        p.ic_intr_mask().modify(|w| {
+                        Self::set_intr_mask(|w| {
                             w.set_m_tx_empty(true);
                             w.set_m_tx_abrt(true);
                         })
                     },
                 )
                 .await;
-            if res.is_err() {
+
+            if res.is_err() || last {
                 break res;
             }
         };
@@ -267,19 +274,22 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
             let had_abort2 = self
                 .wait_on(
                     |me| {
+                        let stat = p.ic_raw_intr_stat().read();
+                        p.ic_clr_activity().read();
+
                         // We could see an abort while processing fifo backlog,
                         // so handle it here.
                         let abort = me.read_and_clear_abort_reason();
                         if had_abort.is_ok() && abort.is_err() {
                             Poll::Ready(abort)
-                        } else if p.ic_raw_intr_stat().read().stop_det() {
+                        } else if stat.stop_det() {
                             Poll::Ready(Ok(()))
                         } else {
                             Poll::Pending
                         }
                     },
                     |_me| {
-                        p.ic_intr_mask().modify(|w| {
+                        Self::set_intr_mask(|w| {
                             w.set_m_stop_det(true);
                             w.set_m_tx_abrt(true);
                         });
@@ -467,6 +477,14 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     fn rx_fifo_len() -> u8 {
         let p = T::regs();
         p.ic_rxflr().read().rxflr()
+    }
+
+    #[inline(always)]
+    fn set_intr_mask(c: impl FnOnce(&mut i2c::regs::IcIntrMask)) {
+        let p = T::regs();
+        let mut mask = i2c::regs::IcIntrMask(0);
+        c(&mut mask);
+        p.ic_intr_mask().write_value(mask);
     }
 
     fn read_and_clear_abort_reason(&mut self) -> Result<(), Error> {
