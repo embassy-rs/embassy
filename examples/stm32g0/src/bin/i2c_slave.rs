@@ -9,8 +9,7 @@ use core::fmt::{self, Write};
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::i2c::{Error, I2c};
-use embassy_stm32::pac::i2c::vals;
+use embassy_stm32::i2c::{Address2Mask, Dir, Error, I2c};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::UartTx;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usart};
@@ -25,7 +24,7 @@ bind_interrupts!(struct Irqs {
 macro_rules! checkIsWrite {
     ($writer:ident, $direction:ident) => {
         match $direction {
-            vals::Dir::WRITE => (),
+            Dir::WRITE => (),
             _ => {
                 write!($writer, "Error incorrect direction {:?}\r", $direction as usize).unwrap();
                 continue;
@@ -36,7 +35,7 @@ macro_rules! checkIsWrite {
 macro_rules! checkIsRead {
     ($writer:ident, $direction:ident) => {
         match $direction {
-            vals::Dir::READ => (),
+            Dir::READ => (),
             _ => {
                 write!($writer, "Error incorrect direction {:?}\r", $direction as usize).unwrap();
                 continue;
@@ -108,7 +107,7 @@ async fn main(spawner: Spawner) {
 
     let mut config = i2c::Config::default();
     config.slave_address_7bits(0x10); // for arbitration lost test
-    config.slave_address_2(0x41, vals::Oamsk::MASK4);
+    config.slave_address_2(0x41, Address2Mask::MASK4);
 
     let i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, NoDma, NoDma, Hertz(100_000), config);
 
@@ -116,9 +115,10 @@ async fn main(spawner: Spawner) {
     let mut buf_20 = [0; 20]; // buffer is shorter than master will send: wait for STOP condition
     let mut buf_20a = [0; 20];
     let mut buf_2 = [0; 2];
+    let mut buf_1 = [0; 1];
     let mut errors = 0;
     let mut address = 0;
-    let mut dir = vals::Dir::READ;
+    let mut dir = Dir::READ;
     let mut tcount = 0;
     let mut counter = 0;
     let mut result: Option<Error> = None;
@@ -360,7 +360,7 @@ async fn main(spawner: Spawner) {
                 tcount = 0;
                 errors = 0;
             }
-            0x10 => {
+            0x4 => {
                 // Arbitration lost test Master does read 2 bytes on address 0x10
                 // this slave will send 0xFF04, the other slave will send 0xFF03
                 // This slave should generate a arbitration lost if the other slave is online

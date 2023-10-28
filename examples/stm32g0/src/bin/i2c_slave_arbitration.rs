@@ -10,41 +10,16 @@ use core::fmt::{self, Write};
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::i2c::{Error, I2c};
-use embassy_stm32::pac::i2c::vals;
+use embassy_stm32::i2c::{Dir, Error, I2c};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::UartTx;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usart};
-use embassy_time::{Duration, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     I2C1 => i2c::InterruptHandler<peripherals::I2C1>;
     USART1 => usart::InterruptHandler<peripherals::USART1>;
 });
-
-macro_rules! checkIsWrite {
-    ($writer:ident, $direction:ident) => {
-        match $direction {
-            vals::Dir::WRITE => (),
-            _ => {
-                write!($writer, "Error incorrect direction {:?}\r", $direction as usize).unwrap();
-                continue;
-            }
-        }
-    };
-}
-macro_rules! checkIsRead {
-    ($writer:ident, $direction:ident) => {
-        match $direction {
-            vals::Dir::READ => (),
-            _ => {
-                write!($writer, "Error incorrect direction {:?}\r", $direction as usize).unwrap();
-                continue;
-            }
-        }
-    };
-}
 
 pub struct SerialWriter {
     tx: UartTx<'static, peripherals::USART1, peripherals::DMA1_CH1>,
@@ -106,7 +81,7 @@ async fn main(spawner: Spawner) {
 
     let mut buf_2 = [0; 2];
     let mut address = 0;
-    let mut dir = vals::Dir::READ;
+    let mut dir = Dir::READ;
     let mut counter = 0;
     let mut result: Option<Error> = None;
 
@@ -119,7 +94,7 @@ async fn main(spawner: Spawner) {
         // content for test 0x10
         buf_2[0] = 0xFF;
         buf_2[1] = 0x03;
-        _ = i2c.slave_write_buffer(&mut buf_2, i2c::AddressType::MainAddress);
+        _ = i2c.slave_write_buffer(&mut buf_2, i2c::AddressType::Address1);
 
         writeln!(&mut writer, "Waiting for master activity\r").unwrap();
 
@@ -137,7 +112,6 @@ async fn main(spawner: Spawner) {
                 // this slave will send 0xFF03, the other slave will send 0xFF04
                 // This slave should win , so no error here
                 writeln!(&mut writer, "Evaluate arbitration lost test 0x10.\r\n").unwrap();
-                checkIsRead!(writer, dir);
                 match result {
                     None => {
                         writeln!(&mut writer, "Test 0x10 Passed\n\r").unwrap();

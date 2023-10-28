@@ -22,7 +22,7 @@ use crate::dma::NoDma;
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
-use crate::i2c::{AddressType, Error, Instance, SclPin, SdaPin};
+use crate::i2c::{Address2Mask, AddressType, Dir, Error, Instance, SclPin, SdaPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c;
 use crate::time::Hertz;
@@ -48,8 +48,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     });
                     state_m.result = Some(Error::Bus);
                 } else if isr.arlo() {
-                    regs.icr().write(|w| w.set_arlocf(true));
                     state_m.result = Some(Error::Arbitration);
+                    regs.icr().write(|w| w.set_arlocf(true));
                 } else if isr.nackf() {
                     regs.icr().write(|w| w.set_nackcf(true));
                 } else if isr.txis() {
@@ -78,9 +78,12 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     }
                 } else if isr.stopf() {
                     // Clear the stop condition flag
-                    regs.icr().write(|w| w.set_stopcf(true));
                     state_m.ready = true;
+                    // make a copy of the current state as result of the transaction
+                    state_m.transaction_result =
+                        (state_m.current_address, state_m.dir, state_m.get_size(), state_m.result);
                     T::state().waker.wake();
+                    regs.icr().write(|w| w.set_stopcf(true));
                 } else if isr.tcr() {
                     // This condition Will only happen when reload == 1 and sbr == 1 (slave) and nbytes was written.
                     // Send a NACK, set nbytes to clear tcr flag
@@ -91,10 +94,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 } else if isr.addr() {
                     // handle the slave is addressed case, first step in the transaction
                     state_m.current_address = isr.addcode();
-                    state_m.dir = isr.dir();
+                    state_m.dir = if isr.dir() as u8 == 0 { Dir::WRITE } else { Dir::READ };
                     state_m.result = None;
 
-                    if state_m.dir == vals::Dir::READ {
+                    if state_m.dir == Dir::READ {
                         // Set the nbytes START and prepare to receive bytes into `buffer`.
                         regs.cr2().modify(|w| {
                             // Set number of bytes to transfer: maximum as all incoming bytes will be ACK'ed
@@ -153,7 +156,7 @@ pub struct Config {
     pub scl_pullup: bool,
     pub slave_address_1: u16,
     pub slave_address_2: u8,
-    pub slave_address_mask: vals::Oamsk,
+    pub slave_address_mask: Address2Mask,
     pub address_11bits: bool,
     #[cfg(feature = "time")]
     pub transaction_timeout: Duration,
@@ -173,7 +176,7 @@ impl Config {
     }
     /// Slave address 2 as 7 bit address in range 0 .. 127.
     /// The mask makes all slaves within the mask addressable
-    pub fn slave_address_2(&mut self, address: u8, mask: vals::Oamsk) {
+    pub fn slave_address_2(&mut self, address: u8, mask: Address2Mask) {
         // assert!(address < (2 ^ 7));
         self.slave_address_2 = address;
         self.slave_address_mask = mask;
@@ -186,7 +189,7 @@ impl Default for Config {
             scl_pullup: false,
             slave_address_1: 0,
             slave_address_2: 0,
-            slave_address_mask: vals::Oamsk::NOMASK,
+            slave_address_mask: Address2Mask::NOMASK,
             address_11bits: false,
             #[cfg(feature = "time")]
             transaction_timeout: Duration::from_millis(100),
@@ -214,7 +217,10 @@ struct I2cStateMachine {
     address1: u16,
     ready: bool,
     current_address: u8,
-    dir: vals::Dir,
+    dir: Dir,
+    // at the end of the transaction make a copy of the result
+    // to prevent corruption if a new  transaction starts immediatly
+    transaction_result: (u8, Dir, u8, Option<Error>),
 }
 impl I2cStateMachine {
     pub(crate) const fn new() -> Self {
@@ -228,8 +234,9 @@ impl I2cStateMachine {
             slave_mode: false,
             address1: 0,
             current_address: 0,
-            dir: vals::Dir::READ,
+            dir: Dir::READ,
             ready: false,
+            transaction_result: (0, Dir::READ, 0, None),
         }
     }
     fn read_byte(&mut self) -> Result<u8, Error> {
@@ -238,7 +245,7 @@ impl I2cStateMachine {
         } else {
             AddressType::Address2
         };
-        self.buffers[adress_type as usize][vals::Dir::READ as usize].master_read()
+        self.buffers[adress_type as usize][Dir::READ as usize].master_read()
     }
     fn write_byte(&mut self, b: u8) -> Result<(), Error> {
         let adress_type = if self.address1 == self.current_address as u16 {
@@ -246,7 +253,7 @@ impl I2cStateMachine {
         } else {
             AddressType::Address2
         };
-        self.buffers[adress_type as usize][vals::Dir::WRITE as usize].master_write(b)
+        self.buffers[adress_type as usize][Dir::WRITE as usize].master_write(b)
     }
     fn get_size(&self) -> u8 {
         let adress_type = if self.address1 == self.current_address as u16 {
@@ -420,7 +427,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 reg.set_oa2en(false);
             });
             T::regs().oar2().write(|reg| {
-                reg.set_oa2msk(config.slave_address_mask);
+                reg.set_oa2msk(config.slave_address_mask.to_vals_impl());
                 reg.set_oa2(config.slave_address_2);
                 reg.set_oa2en(true);
             });
@@ -1079,6 +1086,21 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         });
         Ok(())
     }
+
+    pub fn set_address_1(&self, address7: u8) -> Result<(), Error> {
+        T::regs().oar1().modify(|reg| {
+            reg.set_oa1en(false);
+        });
+        T::regs().oar1().modify(|reg| {
+            reg.set_oa1(address7 as u16);
+            reg.set_oa1en(true);
+        });
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            state_m.address1 = address7 as u16;
+        });
+        Ok(())
+    }
     pub fn slave_sbc(&self, sbc_enabled: bool) {
         // enable acknowlidge control
         T::regs().cr1().modify(|w| w.set_sbc(sbc_enabled));
@@ -1088,16 +1110,16 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn slave_write_buffer(&self, buffer: &[u8], address_type: AddressType) -> Result<(), super::Error> {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
-            let buf = &mut state_m.buffers[address_type as usize][vals::Dir::READ as usize];
+            let buf = &mut state_m.buffers[address_type as usize][Dir::READ as usize];
             buf.from_buffer(buffer)
         })
     }
     pub fn slave_reset_buffer(&self, address_type: AddressType) {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
-            let buf_r = &mut state_m.buffers[address_type as usize][vals::Dir::READ as usize];
+            let buf_r = &mut state_m.buffers[address_type as usize][Dir::READ as usize];
             buf_r.reset();
-            let buf_w = &mut state_m.buffers[address_type as usize][vals::Dir::WRITE as usize];
+            let buf_w = &mut state_m.buffers[address_type as usize][Dir::WRITE as usize];
             buf_w.reset();
         })
     }
@@ -1107,12 +1129,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn slave_read_buffer(&self, buffer: &mut [u8], address_type: AddressType) -> Result<(), super::Error> {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
-            let buf = &mut state_m.buffers[address_type as usize][vals::Dir::WRITE as usize];
+            let buf = &mut state_m.buffers[address_type as usize][Dir::WRITE as usize];
             buf.to_buffer(buffer)
         })
     }
     /// wait until a slave transaction is finished, and return tuple address, direction, data size and error
-    pub async fn slave_transaction(&self) -> (u8, vals::Dir, u8, Option<Error>) {
+    pub async fn slave_transaction(&self) -> (u8, Dir, u8, Option<Error>) {
         // async wait until addressed
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
@@ -1120,7 +1142,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 let mut state_m = f.borrow_mut();
                 if state_m.ready {
                     state_m.ready = false;
-                    return Poll::Ready((state_m.current_address, state_m.dir, state_m.get_size(), state_m.result));
+                    return Poll::Ready(state_m.transaction_result);
                 } else {
                     return Poll::Pending;
                 }
