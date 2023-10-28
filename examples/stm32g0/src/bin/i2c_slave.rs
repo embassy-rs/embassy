@@ -115,7 +115,6 @@ async fn main(spawner: Spawner) {
     let mut buf_20 = [0; 20]; // buffer is shorter than master will send: wait for STOP condition
     let mut buf_20a = [0; 20];
     let mut buf_2 = [0; 2];
-    let mut buf_1 = [0; 1];
     let mut errors = 0;
     let mut address = 0;
     let mut dir = Dir::READ;

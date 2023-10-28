@@ -1527,6 +1527,7 @@ mod eh1 {
                 Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
                 Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::BufferSize => embedded_hal_1::i2c::ErrorKind::Other,
             }
         }
     }

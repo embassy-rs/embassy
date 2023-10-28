@@ -1,6 +1,6 @@
 #![macro_use]
 
-use stm32_metapac::i2c::vals;
+use stm32_metapac::i2c::vals::Oamsk;
 
 use crate::interrupt;
 
@@ -45,34 +45,24 @@ pub enum Address2Mask {
 }
 impl Address2Mask {
     #[inline(always)]
-    pub const fn to_vals_impl(self) -> vals::Oamsk {
+    pub const fn to_vals_impl(self) -> Oamsk {
         match self {
-            Address2Mask::NOMASK => vals::Oamsk::NOMASK,
-            Address2Mask::MASK1 => vals::Oamsk::MASK1,
-            Address2Mask::MASK2 => vals::Oamsk::MASK2,
-            Address2Mask::MASK3 => vals::Oamsk::MASK3,
-            Address2Mask::MASK4 => vals::Oamsk::MASK4,
-            Address2Mask::MASK5 => vals::Oamsk::MASK5,
-            Address2Mask::MASK6 => vals::Oamsk::MASK6,
-            Address2Mask::MASK7 => vals::Oamsk::MASK7,
+            Address2Mask::NOMASK => Oamsk::NOMASK,
+            Address2Mask::MASK1 => Oamsk::MASK1,
+            Address2Mask::MASK2 => Oamsk::MASK2,
+            Address2Mask::MASK3 => Oamsk::MASK3,
+            Address2Mask::MASK4 => Oamsk::MASK4,
+            Address2Mask::MASK5 => Oamsk::MASK5,
+            Address2Mask::MASK6 => Oamsk::MASK6,
+            Address2Mask::MASK7 => Oamsk::MASK7,
         }
     }
 }
 
-#[repr(u8)]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Dir {
     WRITE,
     READ,
-}
-impl Dir {
-    #[inline(always)]
-    pub const fn to_vals_impl(self) -> vals::Dir {
-        match self {
-            Dir::READ => vals::Dir::READ,
-            Dir::WRITE => vals::Dir::WRITE,
-        }
-    }
 }
 
 pub(crate) mod sealed {
