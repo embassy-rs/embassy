@@ -10,7 +10,7 @@ use core::fmt::{self, Write};
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::i2c::{Dir, Error, I2c};
+use embassy_stm32::i2c::{Address2Mask, Dir, Error, I2c};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::UartTx;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usart};
