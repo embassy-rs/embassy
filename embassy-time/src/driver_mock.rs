@@ -15,7 +15,7 @@ use crate::{Duration, Instant};
 ///
 /// ```ignore
 /// fn has_a_second_passed(reference: Instant) -> bool {
-///     Instant::now().duration_since(reference) > Duration::from_secs(1)
+///     Instant::now().duration_since(reference) >= Duration::from_secs(1)
 /// }
 ///
 /// fn test_second_passed() {
