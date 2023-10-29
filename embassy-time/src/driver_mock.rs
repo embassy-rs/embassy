@@ -40,11 +40,6 @@ impl MockDriver {
         &DRIVER
     }
 
-    /// Sets the current time of the mock driver.
-    pub fn set_current_time(&self, now: Instant) {
-        critical_section::with(|cs| self.now.borrow(cs).set(now))
-    }
-
     /// Advances the time by the specified [`Duration`].
     pub fn advance(&self, duration: Duration) {
         critical_section::with(|cs| {
