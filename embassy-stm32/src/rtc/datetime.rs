@@ -195,13 +195,13 @@ impl From<DateTime> for chrono::NaiveDateTime {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[allow(missing_docs)]
 pub enum DayOfWeek {
-    Monday = 0,
-    Tuesday = 1,
-    Wednesday = 2,
-    Thursday = 3,
-    Friday = 4,
-    Saturday = 5,
-    Sunday = 6,
+    Monday = 1,
+    Tuesday = 2,
+    Wednesday = 3,
+    Thursday = 4,
+    Friday = 5,
+    Saturday = 6,
+    Sunday = 7,
 }
 
 #[cfg(feature = "chrono")]
@@ -228,13 +228,13 @@ impl From<DayOfWeek> for chrono::Weekday {
 
 fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
     Ok(match v {
-        0 => DayOfWeek::Monday,
-        1 => DayOfWeek::Tuesday,
-        2 => DayOfWeek::Wednesday,
-        3 => DayOfWeek::Thursday,
-        4 => DayOfWeek::Friday,
-        5 => DayOfWeek::Saturday,
-        6 => DayOfWeek::Sunday,
+        1 => DayOfWeek::Monday,
+        2 => DayOfWeek::Tuesday,
+        3 => DayOfWeek::Wednesday,
+        4 => DayOfWeek::Thursday,
+        5 => DayOfWeek::Friday,
+        6 => DayOfWeek::Saturday,
+        7 => DayOfWeek::Sunday,
         x => return Err(Error::InvalidDayOfWeek(x)),
     })
 }
