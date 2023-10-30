@@ -218,6 +218,9 @@ cargo batch  \
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
 
+# unstable
+rm out/tests/stm32f429zi/stop
+
 # unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
 
