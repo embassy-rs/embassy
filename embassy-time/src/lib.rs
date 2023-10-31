@@ -15,6 +15,12 @@ pub mod queue;
 mod tick;
 mod timer;
 
+#[cfg(feature = "mock-driver")]
+mod driver_mock;
+
+#[cfg(feature = "mock-driver")]
+pub use driver_mock::MockDriver;
+
 #[cfg(feature = "std")]
 mod driver_std;
 #[cfg(feature = "wasm")]
