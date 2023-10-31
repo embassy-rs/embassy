@@ -51,7 +51,7 @@ impl MockDriver {
 
 impl Driver for MockDriver {
     fn now(&self) -> u64 {
-        critical_section::with(|cs| self.now.borrow(cs).get().as_micros() as u64)
+        critical_section::with(|cs| self.now.borrow(cs).get().as_ticks() as u64)
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
