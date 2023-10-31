@@ -5,9 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.0 - 2023-10-31
+
+- Re-add impl_trait_projections
+- switch to `embedded-io 0.6`
+
 ## 0.3.0 - 2023-09-14
 
-- switch to embedded-io 0.5
+- switch to `embedded-io 0.5`
 - add api for polling channels with context
 - standardise fn names on channels
 - add zero-copy channel
