@@ -59,7 +59,7 @@ nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "em
 unstable-traits = ["embedded-hal-1", "embedded-hal-nb"]
 
 [dependencies]
-embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.4.0", path = "../embassy-sync" }
 embassy-time = { version = "0.1.5", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
