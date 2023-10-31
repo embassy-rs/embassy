@@ -2,6 +2,7 @@
 
 #![macro_use]
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
@@ -9,7 +10,6 @@ use core::task::Poll;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use fixed::types::I7F1;
-use futures::future::poll_fn;
 
 use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::sealed::Pin;
