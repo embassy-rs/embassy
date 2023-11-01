@@ -148,6 +148,7 @@ pub const WPAN_DEFAULT: Config = Config {
     shared_ahb_pre: AHBPrescaler::DIV1,
     apb1_pre: APBPrescaler::DIV1,
     apb2_pre: APBPrescaler::DIV1,
+    adc_clock_source: AdcClockSource::SYS,
 };
 
 pub(crate) unsafe fn init(config: Config) {
