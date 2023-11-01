@@ -4,8 +4,8 @@ pub use crate::pac::rcc::vals::Clk48sel as Clk48Src;
 #[cfg(any(stm32wb, stm32wl))]
 pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{
-    Adcsel, Hpre as AHBPrescaler, Msirange as MSIRange, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv,
-    Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
+    Adcsel as AdcClockSource, Hpre as AHBPrescaler, Msirange as MSIRange, Pllm as PllPreDiv, Plln as PllMul,
+    Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
 };
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -50,29 +50,6 @@ pub struct Pll {
     pub divq: Option<PllQDiv>,
     /// PLL R division factor. If None, PLL R output is disabled.
     pub divr: Option<PllRDiv>,
-}
-
-#[derive(Clone, Copy)]
-pub enum AdcClockSource {
-    HSI16,
-    PLLPCLK,
-    SYSCLK,
-}
-
-impl AdcClockSource {
-    pub fn adcsel(&self) -> Adcsel {
-        match self {
-            AdcClockSource::HSI16 => Adcsel::HSI,
-            AdcClockSource::PLLPCLK => Adcsel::PLL1_P,
-            AdcClockSource::SYSCLK => Adcsel::SYS,
-        }
-    }
-}
-
-impl Default for AdcClockSource {
-    fn default() -> Self {
-        Self::HSI16
-    }
 }
 
 /// Clocks configuration
@@ -136,7 +113,7 @@ impl Default for Config {
             #[cfg(any(stm32l4, stm32l5, stm32wb))]
             clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
-            adc_clock_source: AdcClockSource::default(),
+            adc_clock_source: AdcClockSource::HSI,
         }
     }
 }
@@ -370,7 +347,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
     while RCC.cfgr().read().sws() != config.mux {}
 
-    RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
+    RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source));
 
     #[cfg(any(stm32wl, stm32wb))]
     {
