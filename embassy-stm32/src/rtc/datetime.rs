@@ -18,9 +18,13 @@ pub struct RtcInstant {
 }
 
 impl RtcInstant {
-    #[allow(dead_code)]
-    pub(super) fn from(second: u8, subsecond: u16) -> Result<Self, super::RtcError> {
-        Ok(Self { second, subsecond })
+    #[cfg(not(rtc_v2f2))]
+    pub(super) const fn from(second: u8, subsecond: u16) -> Result<Self, Error> {
+        if second > 59 {
+            Err(Error::InvalidSecond)
+        } else {
+            Ok(Self { second, subsecond })
+        }
     }
 }
 
@@ -226,7 +230,7 @@ impl From<DayOfWeek> for chrono::Weekday {
     }
 }
 
-fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
+pub(super) const fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
     Ok(match v {
         1 => DayOfWeek::Monday,
         2 => DayOfWeek::Tuesday,
@@ -239,24 +243,6 @@ fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
     })
 }
 
-pub(super) fn day_of_week_to_u8(dotw: DayOfWeek) -> u8 {
+pub(super) const fn day_of_week_to_u8(dotw: DayOfWeek) -> u8 {
     dotw as u8
-}
-
-pub(super) fn validate_datetime(dt: &DateTime) -> Result<(), Error> {
-    if dt.year > 4095 {
-        Err(Error::InvalidYear)
-    } else if dt.month < 1 || dt.month > 12 {
-        Err(Error::InvalidMonth)
-    } else if dt.day < 1 || dt.day > 31 {
-        Err(Error::InvalidDay)
-    } else if dt.hour > 23 {
-        Err(Error::InvalidHour)
-    } else if dt.minute > 59 {
-        Err(Error::InvalidMinute)
-    } else if dt.second > 59 {
-        Err(Error::InvalidSecond)
-    } else {
-        Ok(())
-    }
 }
