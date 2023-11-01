@@ -4,8 +4,8 @@ pub use crate::pac::rcc::vals::Clk48sel as Clk48Src;
 #[cfg(any(stm32wb, stm32wl))]
 pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Msirange as MSIRange, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv,
-    Pllr as PllRDiv, Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
+    Adcsel, Hpre as AHBPrescaler, Msirange as MSIRange, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv,
+    Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
 };
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -52,7 +52,30 @@ pub struct Pll {
     pub divr: Option<PllRDiv>,
 }
 
-/// Clocks configutation
+#[derive(Clone, Copy)]
+pub enum AdcClockSource {
+    HSI16,
+    PLLPCLK,
+    SYSCLK,
+}
+
+impl AdcClockSource {
+    pub fn adcsel(&self) -> Adcsel {
+        match self {
+            AdcClockSource::HSI16 => Adcsel::HSI,
+            AdcClockSource::PLLPCLK => Adcsel::PLL1_P,
+            AdcClockSource::SYSCLK => Adcsel::SYS,
+        }
+    }
+}
+
+impl Default for AdcClockSource {
+    fn default() -> Self {
+        Self::HSI16
+    }
+}
+
+/// Clocks configuration
 pub struct Config {
     // base clock sources
     pub msi: Option<MSIRange>,
@@ -84,6 +107,8 @@ pub struct Config {
 
     // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
+
+    pub adc_clock_source: AdcClockSource,
 }
 
 impl Default for Config {
@@ -111,6 +136,7 @@ impl Default for Config {
             #[cfg(any(stm32l4, stm32l5, stm32wb))]
             clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
+            adc_clock_source: AdcClockSource::default(),
         }
     }
 }
@@ -343,6 +369,8 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
     while RCC.cfgr().read().sws() != config.mux {}
+
+    RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source.adcsel()));
 
     #[cfg(any(stm32wl, stm32wb))]
     {
