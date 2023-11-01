@@ -1114,13 +1114,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             buf.from_buffer(buffer)
         })
     }
-    pub fn slave_reset_buffer(&self, address_type: AddressType) {
+    pub fn slave_reset_buffer(&self, dir: Dir, address_type: AddressType) {
         T::state().mutex.lock(|f| {
             let mut state_m = f.borrow_mut();
-            let buf_r = &mut state_m.buffers[address_type as usize][Dir::READ as usize];
-            buf_r.reset();
-            let buf_w = &mut state_m.buffers[address_type as usize][Dir::WRITE as usize];
-            buf_w.reset();
+            let buf = &mut state_m.buffers[address_type as usize][dir as usize];
+            buf.reset();
         })
     }
 
