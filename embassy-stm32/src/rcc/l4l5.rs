@@ -113,7 +113,7 @@ impl Default for Config {
             #[cfg(any(stm32l4, stm32l5, stm32wb))]
             clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
-            adc_clock_source: AdcClockSource::HSI,
+            adc_clock_source: AdcClockSource::SYS,
         }
     }
 }
@@ -347,6 +347,9 @@ pub(crate) unsafe fn init(config: Config) {
     });
     while RCC.cfgr().read().sws() != config.mux {}
 
+    #[cfg(stm32l5)]
+    RCC.ccipr1().modify(|w| w.set_adcsel(config.adc_clock_source));
+    #[cfg(not(stm32l5))]
     RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source));
 
     #[cfg(any(stm32wl, stm32wb))]
