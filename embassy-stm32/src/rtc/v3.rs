@@ -11,6 +11,7 @@ impl super::Rtc {
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
+                w.set_bypshad(true);
                 w.set_fmt(Fmt::TWENTYFOURHOUR);
                 w.set_osel(Osel::DISABLED);
                 w.set_pol(Pol::HIGH);

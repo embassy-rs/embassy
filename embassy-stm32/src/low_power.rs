@@ -61,7 +61,7 @@ pub struct Executor {
 impl Executor {
     /// Create a new Executor.
     pub fn take() -> &'static mut Self {
-        unsafe {
+        critical_section::with(|_| unsafe {
             assert!(EXECUTOR.is_none());
 
             EXECUTOR = Some(Self {
@@ -72,7 +72,7 @@ impl Executor {
             });
 
             EXECUTOR.as_mut().unwrap()
-        }
+        })
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
