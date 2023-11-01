@@ -33,6 +33,7 @@ check_at_most_one!("arch-cortex-m", "arch-riscv32", "arch-xtensa", "arch-std", "
 mod arch;
 
 #[cfg(feature = "_arch")]
+#[allow(unused_imports)] // don't warn if the module is empty.
 pub use arch::*;
 
 pub mod raw;

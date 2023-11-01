@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
-#![allow(incomplete_features)]
 #![feature(async_fn_in_trait, type_alias_impl_trait, concat_bytes)]
+#![allow(stable_features, unknown_lints, async_fn_in_trait)]
 #![deny(unused_must_use)]
 
 // This mod MUST go first, so that the others see its macros.

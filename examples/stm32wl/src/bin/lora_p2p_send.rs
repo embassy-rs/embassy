@@ -4,6 +4,7 @@
 #![no_main]
 #![macro_use]
 #![feature(type_alias_impl_trait, async_fn_in_trait)]
+#![allow(stable_features, unknown_lints, async_fn_in_trait)]
 
 use defmt::info;
 use embassy_executor::Spawner;
