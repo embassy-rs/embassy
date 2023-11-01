@@ -1,5 +1,6 @@
 #![deny(clippy::pedantic)]
 #![feature(async_fn_in_trait)]
+#![allow(stable_features, unknown_lints, async_fn_in_trait)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::missing_errors_doc)]

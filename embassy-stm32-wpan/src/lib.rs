@@ -1,5 +1,9 @@
 #![no_std]
 #![cfg_attr(any(feature = "ble", feature = "mac"), feature(async_fn_in_trait))]
+#![cfg_attr(
+    any(feature = "ble", feature = "mac"),
+    allow(stable_features, unknown_lints, async_fn_in_trait)
+)]
 #![cfg_attr(feature = "mac", feature(type_alias_impl_trait, concat_bytes))]
 
 // This must go FIRST so that all the other modules see its macros.
