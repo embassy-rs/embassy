@@ -32,7 +32,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 heapless = { version = "0.7.5", default-features = false }
 chrono = { version = "^0.4", default-features = false }
 rand = { version = "0.8.5", default-features = false }
-static_cell = {version = "1.1", features = ["nightly"]}
+static_cell = { version = "2", features = ["nightly"]}
 
 micromath = "2.0.0"
 

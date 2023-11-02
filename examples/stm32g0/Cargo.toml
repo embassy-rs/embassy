@@ -20,6 +20,7 @@ embedded-hal = "0.2.6"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
+portable-atomic = { version = "1.5", features = ["unsafe-assume-single-core"] }
 
 [profile.release]
 debug = 2
