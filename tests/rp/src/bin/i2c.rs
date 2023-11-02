@@ -5,12 +5,12 @@ teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert_eq, info, panic, unwrap};
 use embassy_executor::Executor;
-use embassy_executor::_export::StaticCell;
 use embassy_rp::multicore::{spawn_core1, Stack};
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 use embedded_hal_1::i2c::Operation;
 use embedded_hal_async::i2c::I2c;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _, panic_probe as _, panic_probe as _};
 
 static mut CORE1_STACK: Stack<1024> = Stack::new();

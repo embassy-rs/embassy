@@ -53,8 +53,7 @@ pub fn wasm() -> TokenStream {
     quote! {
         #[wasm_bindgen::prelude::wasm_bindgen(start)]
         pub fn main() -> Result<(), wasm_bindgen::JsValue> {
-            static EXECUTOR: ::embassy_executor::_export::StaticCell<::embassy_executor::Executor> = ::embassy_executor::_export::StaticCell::new();
-            let executor = EXECUTOR.init(::embassy_executor::Executor::new());
+            let executor = ::std::boxed::Box::leak(::std::boxed::Box::new(::embassy_executor::Executor::new()));
 
             executor.start(|spawner| {
                 spawner.spawn(__embassy_main(spawner)).unwrap();
