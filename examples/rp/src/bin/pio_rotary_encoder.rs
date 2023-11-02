@@ -34,24 +34,14 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         pin_b.set_pull(Pull::Up);
         sm.set_pin_dirs(pio::Direction::In, &[&pin_a, &pin_b]);
 
-        let prg = pio_proc::pio_asm!(
-            r#"
-            wait 1 pin 1       
-            .wrap_target
-                wait 0 pin 1
-                in pins, 2
-                push               
-                wait 1 pin 1       
-                .wrap
-        "#
-        );
+        let prg = pio_proc::pio_asm!("wait 1 pin 1", "wait 0 pin 1", "in pins, 2", "push",);
 
         let mut cfg = Config::default();
         cfg.set_in_pins(&[&pin_a, &pin_b]);
         cfg.fifo_join = FifoJoin::RxOnly;
-        cfg.use_program(&pio.load_program(&prg.program), &[]);
         cfg.shift_in.direction = ShiftDirection::Left;
         cfg.clock_divider = 10_000.to_fixed();
+        cfg.use_program(&pio.load_program(&prg.program), &[]);
         sm.set_config(&cfg);
         sm.set_enable(true);
         Self { sm }
