@@ -14,8 +14,8 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    let mut cfg: Config = Default::default();
-    let mut pwm = Pwm::new_input(p.PWM_CH2, p.PIN_5, InputMode::RisingEdge, cfg);
+    let cfg: Config = Default::default();
+    let pwm = Pwm::new_input(p.PWM_CH2, p.PIN_5, InputMode::RisingEdge, cfg);
 
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {
