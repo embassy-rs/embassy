@@ -15,14 +15,14 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant};
 #[cfg(feature = "time")]
 use futures::task::Poll;
-use stm32_metapac::i2c::vals;
 
+use super::v2slave::SlaveState;
 use crate::dma::NoDma;
 #[cfg(feature = "time")]
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
-use crate::i2c::{Address2Mask, AddressType, Dir, Error, Instance, SclPin, SdaPin};
+use crate::i2c::{Address2Mask, Error, Instance, SclPin, SdaPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c;
 use crate::time::Hertz;
@@ -35,105 +35,13 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let regs = T::regs();
-        let isr = regs.isr().read();
-
         T::state().mutex.lock(|f| {
+            let regs = T::regs();
             let mut state_m = f.borrow_mut();
             if state_m.slave_mode {
-                // ============================================ slave interrupt state_m machine
-                if isr.berr() {
-                    regs.icr().modify(|w| {
-                        w.set_berrcf(true);
-                    });
-                    state_m.result = Some(Error::Bus);
-                } else if isr.arlo() {
-                    state_m.result = Some(Error::Arbitration);
-                    regs.icr().write(|w| w.set_arlocf(true));
-                } else if isr.nackf() {
-                    regs.icr().write(|w| w.set_nackcf(true));
-                } else if isr.txis() {
-                    // send the next byte to the master, or NACK in case of error, then end transaction
-                    let b = match state_m.read_byte() {
-                        Ok(b) => b,
-                        Err(e) => {
-                            // An extra interrupt after the last byte is sent seems to be generated always
-                            // Do not generate an error in this (overrun) case
-                            match e {
-                                Error::Overrun => (),
-                                _ => state_m.result = Some(e),
-                            }
-                            0xFF
-                        }
-                    };
-                    regs.txdr().write(|w| w.set_txdata(b));
-                } else if isr.rxne() {
-                    let b = regs.rxdr().read().rxdata();
-                    // byte is received from master. Store in buffer. In case of error send NACK, then end transaction
-                    match state_m.write_byte(b) {
-                        Ok(()) => (),
-                        Err(e) => {
-                            state_m.result = Some(e);
-                        }
-                    }
-                } else if isr.stopf() {
-                    // Clear the stop condition flag
-                    state_m.ready = true;
-                    // make a copy of the current state as result of the transaction
-                    state_m.transaction_result =
-                        (state_m.current_address, state_m.dir, state_m.get_size(), state_m.result);
-                    T::state().waker.wake();
-                    regs.icr().write(|w| w.set_stopcf(true));
-                } else if isr.tcr() {
-                    // This condition Will only happen when reload == 1 and sbr == 1 (slave) and nbytes was written.
-                    // Send a NACK, set nbytes to clear tcr flag
-                    regs.cr2().modify(|w| {
-                        w.set_nack(true);
-                    });
-                    // Make one extra loop here to wait on the stop condition
-                } else if isr.addr() {
-                    // handle the slave is addressed case, first step in the transaction
-                    state_m.current_address = isr.addcode();
-                    state_m.dir = if isr.dir() as u8 == 0 { Dir::WRITE } else { Dir::READ };
-                    state_m.result = None;
-
-                    if state_m.dir == Dir::READ {
-                        // flush i2c tx register
-                        regs.isr().write(|w| w.set_txe(true));
-
-                        // Set the nbytes START and prepare to receive bytes into `buffer`.
-                        // Set the actual number of bytes to transfer
-                        // error case that n = 0  cannot be handled by i2c, we need to send at least 1 byte.
-                        let (b, size) = match state_m.read_byte() {
-                            Ok(b) => (b, state_m.get_size()),
-                            _ => (0xFF, 1),
-                        };
-                        regs.cr2().modify(|w| {
-                            w.set_nbytes(size);
-                            // during sending nbytes automatically send a ACK, stretch clock after last byte
-                            w.set_reload(vals::Reload::COMPLETED);
-                        });
-                        regs.txdr().write(|w| w.set_txdata(b));
-                        // restore sbc after a master_write_read transaction
-                        T::regs().cr1().modify(|reg| {
-                            reg.set_sbc(true);
-                        });
-                    } else {
-                        // Set the nbytes to the maximum buffer size and wait for the bytes from the master
-                        regs.cr2().modify(|w| {
-                            w.set_nbytes(BUFFER_SIZE as u8);
-                            w.set_reload(vals::Reload::COMPLETED)
-                        });
-                        // flush the rx data register
-                        if regs.isr().read().rxne() {
-                            _ = regs.rxdr().read().rxdata();
-                        }
-                    }
-                    // end address phase, release clock stretching
-                    regs.icr().write(|w| w.set_addrcf(true));
-                }
-            // ============================================ end slave interrupt state machine
+                I2c::<'_, T, NoDma, NoDma>::slave_interupt_handler(&mut state_m, &regs)
             } else {
+                let isr = regs.isr().read();
                 if isr.tcr() || isr.tc() {
                     T::state().waker.wake();
                 }
@@ -142,6 +50,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
             // the interrupt
         critical_section::with(|_| {
+            let regs = T::regs();
             regs.cr1().modify(|w| w.set_tcie(false));
         });
     }
@@ -196,145 +105,16 @@ impl Default for Config {
 }
 
 pub struct State {
-    waker: AtomicWaker,
-    mutex: Mutex<CriticalSectionRawMutex, RefCell<I2cStateMachine>>,
+    pub(crate) waker: AtomicWaker,
+    pub(crate) mutex: Mutex<CriticalSectionRawMutex, RefCell<SlaveState>>,
 }
 
 impl State {
     pub(crate) const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
-            mutex: Mutex::new(RefCell::new(I2cStateMachine::new())),
+            mutex: Mutex::new(RefCell::new(SlaveState::new())),
         }
-    }
-}
-struct I2cStateMachine {
-    buffers: [[I2cBuffer; 2]; 2],
-    result: Option<Error>,
-    slave_mode: bool,
-    address1: u16,
-    ready: bool,
-    current_address: u8,
-    dir: Dir,
-    // at the end of the transaction make a copy of the result
-    // to prevent corruption if a new  transaction starts immediatly
-    transaction_result: (u8, Dir, u8, Option<Error>),
-}
-impl I2cStateMachine {
-    pub(crate) const fn new() -> Self {
-        Self {
-            // first dimension: address type, main or generic, second dimension read or write
-            buffers: [
-                [I2cBuffer::new(), I2cBuffer::new()],
-                [I2cBuffer::new(), I2cBuffer::new()],
-            ],
-            result: None,
-            slave_mode: false,
-            address1: 0,
-            current_address: 0,
-            dir: Dir::READ,
-            ready: false,
-            transaction_result: (0, Dir::READ, 0, None),
-        }
-    }
-    fn read_byte(&mut self) -> Result<u8, Error> {
-        let adress_type = if self.address1 == self.current_address as u16 {
-            AddressType::Address1
-        } else {
-            AddressType::Address2
-        };
-        self.buffers[adress_type as usize][Dir::READ as usize].master_read()
-    }
-    fn write_byte(&mut self, b: u8) -> Result<(), Error> {
-        let adress_type = if self.address1 == self.current_address as u16 {
-            AddressType::Address1
-        } else {
-            AddressType::Address2
-        };
-        self.buffers[adress_type as usize][Dir::WRITE as usize].master_write(b)
-    }
-    fn get_size(&self) -> u8 {
-        let adress_type = if self.address1 == self.current_address as u16 {
-            AddressType::Address1
-        } else {
-            AddressType::Address2
-        };
-        self.buffers[adress_type as usize][self.dir as usize].size
-    }
-}
-const BUFFER_SIZE: usize = 64;
-
-struct I2cBuffer {
-    buffer: [u8; BUFFER_SIZE],
-    index: usize,
-    size: u8, // only used for the master read slave write scenario
-}
-
-impl I2cBuffer {
-    const fn new() -> Self {
-        I2cBuffer {
-            buffer: [0; BUFFER_SIZE],
-            index: 0,
-            size: 0,
-        }
-    }
-    fn reset(&mut self) {
-        self.index = 0;
-        self.size = 0;
-        for i in 0..self.buffer.len() {
-            self.buffer[i] = 0xFF;
-        }
-    }
-    /// master read slave write scenario. Master can read until self.size bytes
-    /// If no data available (self.size == 0)
-    fn master_read(&mut self) -> Result<u8, Error> {
-        if self.size == 0 {
-            return Err(Error::ZeroLengthTransfer);
-        };
-        if self.index < self.size as usize {
-            let b = self.buffer[self.index];
-            self.index += 1;
-            Ok(b)
-        } else {
-            Err(Error::Overrun) // too many bytes asked
-        }
-    }
-    /// master write slave read scenario. Master can write until buffer full
-    fn master_write(&mut self, b: u8) -> Result<(), Error> {
-        if self.index < BUFFER_SIZE {
-            self.buffer[self.index] = b;
-            self.index += 1;
-            self.size = self.index as u8;
-            Ok(())
-        } else {
-            Err(Error::Overrun)
-        }
-    }
-    // read data into this buffer (master read, slave write)
-    fn from_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let len = buffer.len();
-        if len > self.buffer.len() {
-            return Err(Error::Overrun);
-        };
-        for i in 0..len {
-            self.buffer[i] = buffer[i];
-        }
-        self.size = len as u8;
-        self.index = 0;
-        Ok(())
-    }
-    // read data from this buffer, and leave empty at the end (master write, slave read)
-    // Buffer parameter must be of the size of the recieved bytes, otherwise a BufferSize error  is returned
-    fn to_buffer(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        if buffer.len() != self.size as usize {
-            return Err(Error::BufferSize);
-        }
-        for i in 0..buffer.len() {
-            buffer[i] = self.buffer[i];
-        }
-        self.size = 0;
-        self.index = 0;
-        Ok(())
     }
 }
 
@@ -405,9 +185,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 reg.set_oa1en(false);
             });
             let (mode, address) = if config.address_11bits {
-                (vals::Addmode::BIT10, config.slave_address_1)
+                (i2c::vals::Addmode::BIT10, config.slave_address_1)
             } else {
-                (vals::Addmode::BIT7, config.slave_address_1 << 1)
+                (i2c::vals::Addmode::BIT7, config.slave_address_1 << 1)
             };
             T::regs().oar1().write(|reg| {
                 reg.set_oa1(address);
@@ -1038,115 +818,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
 
         Ok(())
-    }
-    // =========================
-    // async Slave implementation
-    /// Starts listening for slave transactions
-    pub fn slave_start_listen(&self) -> Result<(), super::Error> {
-        T::regs().cr1().modify(|reg| {
-            reg.set_addrie(true);
-            reg.set_txie(true);
-            reg.set_addrie(true);
-            reg.set_rxie(true);
-            reg.set_nackie(true);
-            reg.set_stopie(true);
-            reg.set_errie(true);
-            reg.set_tcie(true);
-            reg.set_sbc(true);
-        });
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            for i in 0..1 {
-                for j in 0..1 {
-                    state_m.buffers[i][j].reset();
-                }
-            }
-            state_m.slave_mode = true;
-            state_m.ready = false;
-        });
-        Ok(())
-    }
-    // slave stop listening for slave transactions and switch back to master role
-    pub fn slave_stop_listen(&self) -> Result<(), super::Error> {
-        T::regs().cr1().modify(|reg| {
-            reg.set_addrie(false);
-            reg.set_txie(false);
-            reg.set_addrie(false);
-            reg.set_rxie(false);
-            reg.set_nackie(false);
-            reg.set_stopie(false);
-            reg.set_errie(false);
-            reg.set_tcie(false);
-        });
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            state_m.slave_mode = false;
-        });
-        Ok(())
-    }
-
-    pub fn set_address_1(&self, address7: u8) -> Result<(), Error> {
-        T::regs().oar1().write(|reg| {
-            reg.set_oa1en(false);
-        });
-        let adress_u16 = address7 as u16;
-        T::regs().oar1().write(|reg| {
-            reg.set_oa1(adress_u16 << 1);
-            reg.set_oa1mode(vals::Addmode::BIT7);
-            reg.set_oa1en(true);
-        });
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            state_m.address1 = adress_u16;
-        });
-        Ok(())
-    }
-    pub fn slave_sbc(&self, sbc_enabled: bool) {
-        // enable acknowlidge control
-        T::regs().cr1().modify(|w| w.set_sbc(sbc_enabled));
-    }
-    /// Prepare write data to master (master_read_slave_write) before transaction starts
-    /// Will return buffersize error in case the incoming buffer is too big
-    pub fn slave_write_buffer(&self, buffer: &[u8], address_type: AddressType) -> Result<(), super::Error> {
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            let buf = &mut state_m.buffers[address_type as usize][Dir::READ as usize];
-            buf.from_buffer(buffer)
-        })
-    }
-    pub fn slave_reset_buffer(&self, dir: Dir, address_type: AddressType) {
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            let buf = &mut state_m.buffers[address_type as usize][dir as usize];
-            buf.reset();
-        })
-    }
-
-    /// Read data from master (master_write_slave_read) after transaction is finished
-    /// Will fail if the size of the incoming buffer is smaller than the received bytes
-    pub fn slave_read_buffer(&self, buffer: &mut [u8], address_type: AddressType) -> Result<(), super::Error> {
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            let buf = &mut state_m.buffers[address_type as usize][Dir::WRITE as usize];
-            buf.to_buffer(buffer)
-        })
-    }
-    /// wait until a slave transaction is finished, and return tuple address, direction, data size and error
-    pub async fn slave_transaction(&self) -> (u8, Dir, u8, Option<Error>) {
-        // async wait until addressed
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-            T::state().mutex.lock(|f| {
-                let mut state_m = f.borrow_mut();
-                if state_m.ready {
-                    state_m.ready = false;
-                    return Poll::Ready(state_m.transaction_result);
-                } else {
-                    return Poll::Pending;
-                }
-            })
-        })
-        .await
     }
     // =========================
     //  Blocking public API

@@ -9,8 +9,8 @@ use core::fmt::{self, Write};
 
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
-use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::i2c::{Address2Mask, Dir, Error, I2c};
+// use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::i2c::{I2c, AddressIndex};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::UartTx;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usart};
@@ -37,9 +37,8 @@ impl fmt::Write for SerialWriter {
 }
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let led = Output::new(p.PA5, Level::High, Speed::Low);
 
     let uart = usart::Uart::new(
         p.USART1,
@@ -80,10 +79,7 @@ async fn main(spawner: Spawner) {
     let i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, NoDma, NoDma, Hertz(100_000), config);
 
     let mut buf_2 = [0; 2];
-    let mut address = 0;
-    let mut dir = Dir::READ;
     let mut counter = 0;
-    let mut result: Option<Error> = None;
 
     // start of the actual test
     i2c.slave_start_listen().unwrap();
@@ -94,25 +90,28 @@ async fn main(spawner: Spawner) {
         // content for test 0x10
         buf_2[0] = 0xFF;
         buf_2[1] = 0x03;
-        _ = i2c.slave_write_buffer(&mut buf_2, i2c::AddressType::Address1);
+        _ = i2c.slave_prepare_read(&mut buf_2, AddressIndex::Address1);
 
         writeln!(&mut writer, "Waiting for master activity\r").unwrap();
 
-        let (address, dir, size, result) = i2c.slave_transaction().await;
+        let t = i2c.slave_transaction().await;
         writeln!(
             &mut writer,
             "Address: x{:2x}  dir: {:?} size: x{:2x}, Result:{:?}\r",
-            address, dir as u8, size, result
+            t.address(),
+            t.dir() as u8,
+            t.size(),
+            t.result()
         )
         .unwrap();
 
-        match address {
+        match t.address() {
             0x10 => {
                 // Arbitration lost test Master does read 2 bytes on address 0x10
                 // this slave will send 0xFF03, the other slave will send 0xFF04
                 // This slave should win , so no error here
                 writeln!(&mut writer, "Evaluate arbitration lost test 0x10.\r\n").unwrap();
-                match result {
+                match t.result() {
                     None => {
                         writeln!(&mut writer, "Test 0x10 Passed\n\r").unwrap();
                     }
