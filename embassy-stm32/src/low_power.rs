@@ -80,11 +80,17 @@ pub fn stop_with_rtc(rtc: &'static Rtc) {
 }
 
 pub fn stop_ready(stop_mode: StopMode) -> bool {
-    unsafe { EXECUTOR.as_mut().unwrap() }.stop_ready(stop_mode)
+    match unsafe { EXECUTOR.as_mut().unwrap() }.stop_mode() {
+        Some(StopMode::Stop2) => true,
+        Some(StopMode::Stop1) => stop_mode == StopMode::Stop1,
+        None => false,
+    }
 }
 
 #[non_exhaustive]
+#[derive(PartialEq)]
 pub enum StopMode {
+    Stop1,
     Stop2,
 }
 
@@ -135,10 +141,18 @@ impl Executor {
         trace!("low power: stop with rtc configured");
     }
 
-    fn stop_ready(&self, stop_mode: StopMode) -> bool {
-        match stop_mode {
-            StopMode::Stop2 => unsafe { crate::rcc::REFCOUNT_STOP2 == 0 },
+    fn stop_mode(&self) -> Option<StopMode> {
+        if unsafe { crate::rcc::REFCOUNT_STOP2 == 0 } && unsafe { crate::rcc::REFCOUNT_STOP1 == 0 } {
+            Some(StopMode::Stop2)
+        } else if unsafe { crate::rcc::REFCOUNT_STOP1 == 0 } {
+            Some(StopMode::Stop1)
+        } else {
+            None
         }
+    }
+
+    fn configure_stop(&mut self, _stop_mode: StopMode) {
+        // TODO: configure chip-specific settings for stop
     }
 
     fn configure_pwr(&mut self) {
@@ -146,12 +160,20 @@ impl Executor {
 
         compiler_fence(Ordering::SeqCst);
 
-        if !self.stop_ready(StopMode::Stop2) {
+        let stop_mode = self.stop_mode();
+        if stop_mode.is_none() {
             trace!("low power: not ready to stop");
         } else if self.time_driver.pause_time().is_err() {
             trace!("low power: failed to pause time");
         } else {
-            trace!("low power: stop");
+            let stop_mode = stop_mode.unwrap();
+            match stop_mode {
+                StopMode::Stop1 => trace!("low power: stop 1"),
+                StopMode::Stop2 => trace!("low power: stop 2"),
+            }
+            self.configure_stop(stop_mode);
+
+            #[cfg(not(feature = "low-power-debug-with-sleep"))]
             self.scb.set_sleepdeep();
         }
     }
