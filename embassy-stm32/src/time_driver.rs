@@ -346,6 +346,10 @@ impl RtcDriver {
     }
 
     #[cfg(feature = "low-power")]
+    /// The minimum pause time beyond which the executor will enter a low-power state.
+    pub(crate) const MIN_STOP_PAUSE: embassy_time::Duration = embassy_time::Duration::from_millis(250);
+
+    #[cfg(feature = "low-power")]
     /// Pause the timer if ready; return err if not
     pub(crate) fn pause_time(&self) -> Result<(), ()> {
         critical_section::with(|cs| {
@@ -357,7 +361,7 @@ impl RtcDriver {
             self.stop_wakeup_alarm(cs);
 
             let time_until_next_alarm = self.time_until_next_alarm(cs);
-            if time_until_next_alarm < embassy_time::Duration::from_millis(250) {
+            if time_until_next_alarm < Self::MIN_STOP_PAUSE {
                 Err(())
             } else {
                 self.rtc

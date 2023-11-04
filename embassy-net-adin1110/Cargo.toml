@@ -22,9 +22,7 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
 [dev-dependencies]
-# reenable when https://github.com/dbrgn/embedded-hal-mock/pull/86 is merged.
-#embedded-hal-mock = { git = "https://github.com/dbrgn/embedded-hal-mock", branch = "1-alpha", features = ["embedded-hal-async", "eh1"] }] }
-embedded-hal-mock = { git = "https://github.com/newAM/embedded-hal-mock", branch = "eh1-rc.1", features = ["embedded-hal-async", "eh1"] }
+embedded-hal-mock = { version = "=0.10.0-rc.1", features = ["embedded-hal-async", "eh1"] }
 crc = "3.0.1"
 env_logger = "0.10"
 critical-section = { version = "1.1.2", features = ["std"] }

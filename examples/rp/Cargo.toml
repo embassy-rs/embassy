@@ -47,7 +47,8 @@ embedded-hal-async = "1.0.0-rc.1"
 embedded-hal-bus = { version = "0.1.0-rc.1", features = ["async"] }
 embedded-io-async = { version = "0.6.0", features = ["defmt-03"] }
 embedded-storage = { version = "0.3" }
-static_cell = { version = "1.1", features = ["nightly"]}
+static_cell = { version = "2", features = ["nightly"]}
+portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
 pio-proc = "0.2"
 pio = "0.2.1"

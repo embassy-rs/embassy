@@ -47,7 +47,6 @@ pub use spawner::*;
 pub mod _export {
     #[cfg(feature = "rtos-trace")]
     pub use rtos_trace::trace;
-    pub use static_cell::StaticCell;
 
     /// Expands the given block of code when `embassy-executor` is compiled with
     /// the `rtos-trace-interrupt` feature.

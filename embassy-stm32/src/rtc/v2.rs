@@ -150,14 +150,14 @@ impl super::Rtc {
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
+                #[cfg(not(rtc_v2f2))]
+                w.set_bypshad(true);
                 #[cfg(rtc_v2f2)]
                 w.set_fmt(false);
                 #[cfg(not(rtc_v2f2))]
                 w.set_fmt(stm32_metapac::rtc::vals::Fmt::TWENTY_FOUR_HOUR);
                 w.set_osel(Osel::DISABLED);
                 w.set_pol(Pol::HIGH);
-                #[cfg(rcc_h7rm0433)]
-                w.set_bypshad(true);
             });
 
             rtc.prer().modify(|w| {

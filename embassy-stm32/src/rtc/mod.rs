@@ -9,8 +9,11 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
 
-pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError, RtcInstant};
-use crate::rtc::datetime::day_of_week_to_u8;
+use self::datetime::day_of_week_to_u8;
+#[cfg(not(rtc_v2f2))]
+use self::datetime::RtcInstant;
+pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
+use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
@@ -31,10 +34,14 @@ use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
 
 /// Errors that can occur on methods on [RtcClock]
+#[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RtcError {
     /// An invalid DateTime was given or stored on the hardware.
     InvalidDateTime(DateTimeError),
+
+    /// The current time could not be read
+    ReadFailure,
 
     /// The RTC clock is not running
     NotRunning,
@@ -45,48 +52,25 @@ pub struct RtcTimeProvider {
 }
 
 impl RtcTimeProvider {
+    #[cfg(not(rtc_v2f2))]
+    pub(crate) fn instant(&self) -> Result<RtcInstant, RtcError> {
+        self.read(|_, tr, ss| {
+            let second = bcd2_to_byte((tr.st(), tr.su()));
+
+            RtcInstant::from(second, ss).map_err(RtcError::InvalidDateTime)
+        })
+    }
+
     /// Return the current datetime.
     ///
     /// # Errors
     ///
     /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        // For RM0433 we use BYPSHAD=1 to work around errata ES0392 2.19.1
-        #[cfg(rcc_h7rm0433)]
-        loop {
-            let r = RTC::regs();
-            let ss = r.ssr().read().ss();
-            let dr = r.dr().read();
-            let tr = r.tr().read();
-
-            // If an RTCCLK edge occurs during read we may see inconsistent values
-            // so read ssr again and see if it has changed. (see RM0433 Rev 7 46.3.9)
-            let ss_after = r.ssr().read().ss();
-            if ss == ss_after {
-                let second = bcd2_to_byte((tr.st(), tr.su()));
-                let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
-                let hour = bcd2_to_byte((tr.ht(), tr.hu()));
-
-                let weekday = dr.wdu();
-                let day = bcd2_to_byte((dr.dt(), dr.du()));
-                let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
-                let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
-
-                return DateTime::from(year, month, day, weekday, hour, minute, second)
-                    .map_err(RtcError::InvalidDateTime);
-            }
-        }
-
-        #[cfg(not(rcc_h7rm0433))]
-        {
-            let r = RTC::regs();
-            let tr = r.tr().read();
+        self.read(|dr, tr, _| {
             let second = bcd2_to_byte((tr.st(), tr.su()));
             let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
             let hour = bcd2_to_byte((tr.ht(), tr.hu()));
-            // Reading either RTC_SSR or RTC_TR locks the values in the higher-order
-            // calendar shadow registers until RTC_DR is read.
-            let dr = r.dr().read();
 
             let weekday = dr.wdu();
             let day = bcd2_to_byte((dr.dt(), dr.du()));
@@ -94,7 +78,33 @@ impl RtcTimeProvider {
             let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
 
             DateTime::from(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
+        })
+    }
+
+    fn read<R>(&self, mut f: impl FnMut(Dr, Tr, u16) -> Result<R, RtcError>) -> Result<R, RtcError> {
+        let r = RTC::regs();
+
+        #[cfg(not(rtc_v2f2))]
+        let read_ss = || r.ssr().read().ss();
+        #[cfg(rtc_v2f2)]
+        let read_ss = || 0;
+
+        let mut ss = read_ss();
+        for _ in 0..5 {
+            let tr = r.tr().read();
+            let dr = r.dr().read();
+            let ss_after = read_ss();
+
+            // If an RTCCLK edge occurs during read we may see inconsistent values
+            // so read ssr again and see if it has changed. (see RM0433 Rev 7 46.3.9)
+            if ss == ss_after {
+                return f(dr, tr, ss.try_into().unwrap());
+            } else {
+                ss = ss_after
+            }
         }
+
+        return Err(RtcError::ReadFailure);
     }
 }
 
@@ -158,6 +168,14 @@ impl Rtc {
 
         this.configure(async_psc, sync_psc);
 
+        // Wait for the clock to update after initialization
+        #[cfg(not(rtc_v2f2))]
+        {
+            let now = this.instant().unwrap();
+
+            while this.instant().unwrap().subsecond == now.subsecond {}
+        }
+
         this
     }
 
@@ -177,7 +195,6 @@ impl Rtc {
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
     pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
-        self::datetime::validate_datetime(&t).map_err(RtcError::InvalidDateTime)?;
         self.write(true, |rtc| {
             let (ht, hu) = byte_to_bcd2(t.hour() as u8);
             let (mnt, mnu) = byte_to_bcd2(t.minute() as u8);
@@ -217,16 +234,8 @@ impl Rtc {
 
     #[cfg(not(rtc_v2f2))]
     /// Return the current instant.
-    pub fn instant(&self) -> Result<RtcInstant, RtcError> {
-        let r = RTC::regs();
-        let tr = r.tr().read();
-        let subsecond = r.ssr().read().ss();
-        let second = bcd2_to_byte((tr.st(), tr.su()));
-
-        // Unlock the registers
-        r.dr().read();
-
-        RtcInstant::from(second, subsecond.try_into().unwrap())
+    fn instant(&self) -> Result<RtcInstant, RtcError> {
+        self.time_provider().instant()
     }
 
     /// Return the current datetime.

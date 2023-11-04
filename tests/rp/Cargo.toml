@@ -31,7 +31,8 @@ panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 embedded-io-async = { version = "0.6.0" }
 embedded-storage = { version = "0.3" }
-static_cell = { version = "1.1", features = ["nightly"]}
+static_cell = { version = "2", features = ["nightly"]}
+portable-atomic = { version = "1.5", features = ["critical-section"] }
 pio = "0.2"
 pio-proc = "0.2"
 rand = { version = "0.8.5", default-features = false }

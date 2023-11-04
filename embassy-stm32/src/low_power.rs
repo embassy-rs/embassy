@@ -1,3 +1,50 @@
+/// The STM32 line of microcontrollers support various deep-sleep modes which exploit clock-gating
+/// to reduce power consumption. `embassy-stm32` provides a low-power executor, [`Executor`] which
+/// can use knowledge of which peripherals are currently blocked upon to transparently and safely
+/// enter such low-power modes (currently, only `STOP2`) when idle.
+///
+/// The executor determines which peripherals are active by their RCC state; consequently,
+/// low-power states can only be entered if all peripherals have been `drop`'d. There are a few
+/// exceptions to this rule:
+///
+///  * `GPIO`
+///  * `RCC`
+///
+/// Since entering and leaving low-power modes typically incurs a significant latency, the
+/// low-power executor will only attempt to enter when the next timer event is at least
+/// [`time_driver::MIN_STOP_PAUSE`] in the future.
+///
+/// Currently there is no macro analogous to `embassy_executor::main` for this executor;
+/// consequently one must define their entrypoint manually. Moveover, you must relinquish control
+/// of the `RTC` peripheral to the executor. This will typically look like
+///
+/// ```rust,no_run
+/// use embassy_executor::Spawner;
+/// use embassy_stm32::low_power::Executor;
+/// use embassy_stm32::rtc::{Rtc, RtcConfig};
+/// use static_cell::make_static;
+///
+/// #[cortex_m_rt::entry]
+/// fn main() -> ! {
+///     Executor::take().run(|spawner| {
+///         unwrap!(spawner.spawn(async_main(spawner)));
+///     });
+/// }
+///
+/// #[embassy_executor::task]
+/// async fn async_main(spawner: Spawner) {
+///     // initialize the platform...
+///     let mut config = embassy_stm32::Config::default();
+///     let p = embassy_stm32::init(config);
+///
+///     // give the RTC to the executor...
+///     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
+///     let rtc = make_static!(rtc);
+///     embassy_stm32::low_power::stop_with_rtc(rtc);
+///
+///     // your application here...
+/// }
+/// ```
 use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -67,7 +114,7 @@ pub struct Executor {
 impl Executor {
     /// Create a new Executor.
     pub fn take() -> &'static mut Self {
-        unsafe {
+        critical_section::with(|_| unsafe {
             assert!(EXECUTOR.is_none());
 
             EXECUTOR = Some(Self {
@@ -78,7 +125,7 @@ impl Executor {
             });
 
             EXECUTOR.as_mut().unwrap()
-        }
+        })
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
