@@ -228,8 +228,9 @@ pub fn init(config: Config) -> Peripherals {
 
             #[cfg(feature = "low-power")]
             {
-                crate::rcc::REFCOUNT_STOP2 = 0
-            };
+                crate::rcc::REFCOUNT_STOP2 = 0;
+                crate::rcc::REFCOUNT_STOP1 = 0;
+            }
         }
 
         p

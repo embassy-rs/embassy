@@ -556,6 +556,32 @@ fn main() {
                 },
             };
 
+            /*
+                If LP and non-LP peripherals share the same RCC enable bit, then a refcount leak will result.
+
+                This should be checked in stm32-data-gen.
+            */
+            let stop_refcount = if p.name.starts_with("LP") {
+                quote! { REFCOUNT_STOP2 }
+            } else {
+                quote! { REFCOUNT_STOP1 }
+            };
+
+            let (incr_stop_refcount, decr_stop_refcount) = if p.name != "RTC" {
+                (
+                    quote! {
+                        #[cfg(feature = "low-power")]
+                        unsafe { crate::rcc::#stop_refcount += 1 };
+                    },
+                    quote! {
+                        #[cfg(feature = "low-power")]
+                        unsafe { crate::rcc::#stop_refcount -= 1 };
+                    },
+                )
+            } else {
+                (quote! {}, quote! {})
+            };
+
             g.extend(quote! {
                 impl crate::rcc::sealed::RccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
@@ -563,8 +589,7 @@ fn main() {
                     }
                     fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
                         #before_enable
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::REFCOUNT_STOP2 += 1 };
+                        #incr_stop_refcount
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
                         #after_enable
                         #rst
@@ -572,8 +597,7 @@ fn main() {
                     fn disable_with_cs(_cs: critical_section::CriticalSection) {
                         #before_disable
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(false));
-                        #[cfg(feature = "low-power")]
-                        unsafe { crate::rcc::REFCOUNT_STOP2 -= 1 };
+                        #decr_stop_refcount
                     }
                 }
 

@@ -90,6 +90,7 @@ defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-emb
 
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m" ]
+low-power-debug-with-sleep = []
 embassy-executor = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
