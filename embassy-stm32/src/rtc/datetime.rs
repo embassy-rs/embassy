@@ -18,9 +18,13 @@ pub struct RtcInstant {
 }
 
 impl RtcInstant {
-    #[allow(dead_code)]
-    pub(super) fn from(second: u8, subsecond: u16) -> Result<Self, super::RtcError> {
-        Ok(Self { second, subsecond })
+    #[cfg(not(rtc_v2f2))]
+    pub(super) const fn from(second: u8, subsecond: u16) -> Result<Self, Error> {
+        if second > 59 {
+            Err(Error::InvalidSecond)
+        } else {
+            Ok(Self { second, subsecond })
+        }
     }
 }
 
@@ -195,13 +199,13 @@ impl From<DateTime> for chrono::NaiveDateTime {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[allow(missing_docs)]
 pub enum DayOfWeek {
-    Monday = 0,
-    Tuesday = 1,
-    Wednesday = 2,
-    Thursday = 3,
-    Friday = 4,
-    Saturday = 5,
-    Sunday = 6,
+    Monday = 1,
+    Tuesday = 2,
+    Wednesday = 3,
+    Thursday = 4,
+    Friday = 5,
+    Saturday = 6,
+    Sunday = 7,
 }
 
 #[cfg(feature = "chrono")]
@@ -226,37 +230,19 @@ impl From<DayOfWeek> for chrono::Weekday {
     }
 }
 
-fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
+pub(super) const fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
     Ok(match v {
-        0 => DayOfWeek::Monday,
-        1 => DayOfWeek::Tuesday,
-        2 => DayOfWeek::Wednesday,
-        3 => DayOfWeek::Thursday,
-        4 => DayOfWeek::Friday,
-        5 => DayOfWeek::Saturday,
-        6 => DayOfWeek::Sunday,
+        1 => DayOfWeek::Monday,
+        2 => DayOfWeek::Tuesday,
+        3 => DayOfWeek::Wednesday,
+        4 => DayOfWeek::Thursday,
+        5 => DayOfWeek::Friday,
+        6 => DayOfWeek::Saturday,
+        7 => DayOfWeek::Sunday,
         x => return Err(Error::InvalidDayOfWeek(x)),
     })
 }
 
-pub(super) fn day_of_week_to_u8(dotw: DayOfWeek) -> u8 {
+pub(super) const fn day_of_week_to_u8(dotw: DayOfWeek) -> u8 {
     dotw as u8
-}
-
-pub(super) fn validate_datetime(dt: &DateTime) -> Result<(), Error> {
-    if dt.year > 4095 {
-        Err(Error::InvalidYear)
-    } else if dt.month < 1 || dt.month > 12 {
-        Err(Error::InvalidMonth)
-    } else if dt.day < 1 || dt.day > 31 {
-        Err(Error::InvalidDay)
-    } else if dt.hour > 23 {
-        Err(Error::InvalidHour)
-    } else if dt.minute > 59 {
-        Err(Error::InvalidMinute)
-    } else if dt.second > 59 {
-        Err(Error::InvalidSecond)
-    } else {
-        Ok(())
-    }
 }

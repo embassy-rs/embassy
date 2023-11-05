@@ -1,4 +1,5 @@
 #![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
+#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
 #![no_std]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]

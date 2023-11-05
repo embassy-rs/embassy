@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
@@ -62,7 +62,6 @@ embassy-macros = { version = "0.2.1", path = "../embassy-macros" }
 embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true}
 atomic-polyfill = "1.0.1"
 critical-section = "1.1"
-static_cell = "1.1"
 
 # arch-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }

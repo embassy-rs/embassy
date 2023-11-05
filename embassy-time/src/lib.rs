@@ -1,5 +1,6 @@
 #![cfg_attr(not(any(feature = "std", feature = "wasm", test)), no_std)]
 #![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
+#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]
@@ -14,6 +15,12 @@ mod instant;
 pub mod queue;
 mod tick;
 mod timer;
+
+#[cfg(feature = "mock-driver")]
+mod driver_mock;
+
+#[cfg(feature = "mock-driver")]
+pub use driver_mock::MockDriver;
 
 #[cfg(feature = "std")]
 mod driver_std;

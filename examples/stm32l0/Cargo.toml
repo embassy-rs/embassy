@@ -12,8 +12,8 @@ nightly = ["embassy-stm32/nightly", "embassy-time/nightly", "embassy-time/unstab
 [dependencies]
 # Change stm32l072cz to your chip name, if necessary.
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32l072cz", "time-driver-any", "exti", "unstable-traits", "memory-x"]  }
-embassy-sync = { version = "0.3.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.3.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-sync = { version = "0.4.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.3.1", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.5", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"], optional = true }
 lora-phy = { version = "2", optional = true }
@@ -33,7 +33,8 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.7.5", default-features = false }
 embedded-hal = "0.2.6"
-static_cell = "1.1"
+static_cell = { version = "2" }
+portable-atomic = { version = "1.5", features = ["unsafe-assume-single-core"] }
 
 [profile.release]
 debug = 2

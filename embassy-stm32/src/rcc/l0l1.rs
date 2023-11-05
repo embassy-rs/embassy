@@ -1,8 +1,8 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Msirange as MSIRange, Plldiv as PLLDiv, Pllmul as PLLMul, Ppre as APBPrescaler,
+    Hpre as AHBPrescaler, Msirange as MSIRange, Plldiv as PLLDiv, Plldiv as PllDiv, Pllmul as PLLMul, Pllmul as PllMul,
+    Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
 };
-use crate::pac::rcc::vals::{Pllsrc, Sw};
 #[cfg(crs)]
 use crate::pac::{crs, CRS, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
@@ -12,39 +12,50 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
-/// System clock mux source
-#[derive(Clone, Copy)]
-pub enum ClockSrc {
-    MSI(MSIRange),
-    PLL(PLLSource, PLLMul, PLLDiv),
-    HSE(Hertz),
-    HSI,
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum HseMode {
+    /// crystal/ceramic oscillator (HSEBYP=0)
+    Oscillator,
+    /// external analog clock (low swing) (HSEBYP=1)
+    Bypass,
 }
 
-/// PLL clock input source
-#[derive(Clone, Copy)]
-pub enum PLLSource {
-    HSI,
-    HSE(Hertz),
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hse {
+    /// HSE frequency.
+    pub freq: Hertz,
+    /// HSE mode.
+    pub mode: HseMode,
 }
 
-impl From<PLLSource> for Pllsrc {
-    fn from(val: PLLSource) -> Pllsrc {
-        match val {
-            PLLSource::HSI => Pllsrc::HSI,
-            PLLSource::HSE(_) => Pllsrc::HSE,
-        }
-    }
+#[derive(Clone, Copy)]
+pub struct Pll {
+    /// PLL source
+    pub source: PLLSource,
+
+    /// PLL multiplication factor.
+    pub mul: PllMul,
+
+    /// PLL main output division factor.
+    pub div: PllDiv,
 }
 
 /// Clocks configutation
 pub struct Config {
+    // base clock sources
+    pub msi: Option<MSIRange>,
+    pub hsi: bool,
+    pub hse: Option<Hse>,
+    #[cfg(crs)]
+    pub hsi48: bool,
+
+    pub pll: Option<Pll>,
+
     pub mux: ClockSrc,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
-    #[cfg(crs)]
-    pub enable_hsi48: bool,
+
     pub ls: super::LsConfig,
     pub voltage_scale: VoltageScale,
 }
@@ -53,12 +64,18 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::MSI(MSIRange::RANGE5),
+            msi: Some(MSIRange::RANGE5),
+            hse: None,
+            hsi: false,
+            #[cfg(crs)]
+            hsi48: false,
+
+            pll: None,
+
+            mux: ClockSrc::MSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
-            #[cfg(crs)]
-            enable_hsi48: false,
             voltage_scale: VoltageScale::RANGE1,
             ls: Default::default(),
         }
@@ -71,71 +88,67 @@ pub(crate) unsafe fn init(config: Config) {
     PWR.cr().write(|w| w.set_vos(config.voltage_scale));
     while PWR.csr().read().vosf() {}
 
-    let (sys_clk, sw) = match config.mux {
-        ClockSrc::MSI(range) => {
-            // Set MSI range
-            RCC.icscr().write(|w| w.set_msirange(range));
-
-            // Enable MSI
-            RCC.cr().write(|w| w.set_msion(true));
-            while !RCC.cr().read().msirdy() {}
-
-            let freq = 32_768 * (1 << (range as u8 + 1));
-            (Hertz(freq), Sw::MSI)
-        }
-        ClockSrc::HSI => {
-            // Enable HSI
-            RCC.cr().write(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-
-            (HSI_FREQ, Sw::HSI)
-        }
-        ClockSrc::HSE(freq) => {
-            // Enable HSE
-            RCC.cr().write(|w| w.set_hseon(true));
-            while !RCC.cr().read().hserdy() {}
-
-            (freq, Sw::HSE)
-        }
-        ClockSrc::PLL(src, mul, div) => {
-            let freq = match src {
-                PLLSource::HSE(freq) => {
-                    // Enable HSE
-                    RCC.cr().write(|w| w.set_hseon(true));
-                    while !RCC.cr().read().hserdy() {}
-                    freq
-                }
-                PLLSource::HSI => {
-                    // Enable HSI
-                    RCC.cr().write(|w| w.set_hsion(true));
-                    while !RCC.cr().read().hsirdy() {}
-                    HSI_FREQ
-                }
-            };
-
-            // Disable PLL
-            RCC.cr().modify(|w| w.set_pllon(false));
-            while RCC.cr().read().pllrdy() {}
-
-            let freq = freq * mul / div;
-
-            assert!(freq <= Hertz(32_000_000));
-
-            RCC.cfgr().write(move |w| {
-                w.set_pllmul(mul);
-                w.set_plldiv(div);
-                w.set_pllsrc(src.into());
-            });
-
-            // Enable PLL
-            RCC.cr().modify(|w| w.set_pllon(true));
-            while !RCC.cr().read().pllrdy() {}
-
-            (freq, Sw::PLL1_P)
-        }
-    };
-
     let rtc = config.ls.init();
+
+    let msi = config.msi.map(|range| {
+        RCC.icscr().modify(|w| w.set_msirange(range));
+
+        RCC.cr().modify(|w| w.set_msion(true));
+        while !RCC.cr().read().msirdy() {}
+
+        Hertz(32_768 * (1 << (range as u8 + 1)))
+    });
+
+    let hsi = config.hsi.then(|| {
+        RCC.cr().modify(|w| w.set_hsion(true));
+        while !RCC.cr().read().hsirdy() {}
+
+        HSI_FREQ
+    });
+
+    let hse = config.hse.map(|hse| {
+        RCC.cr().modify(|w| {
+            w.set_hsebyp(hse.mode == HseMode::Bypass);
+            w.set_hseon(true);
+        });
+        while !RCC.cr().read().hserdy() {}
+
+        hse.freq
+    });
+
+    let pll = config.pll.map(|pll| {
+        let freq = match pll.source {
+            PLLSource::HSE => hse.unwrap(),
+            PLLSource::HSI => hsi.unwrap(),
+        };
+
+        // Disable PLL
+        RCC.cr().modify(|w| w.set_pllon(false));
+        while RCC.cr().read().pllrdy() {}
+
+        let freq = freq * pll.mul / pll.div;
+
+        assert!(freq <= Hertz(32_000_000));
+
+        RCC.cfgr().write(move |w| {
+            w.set_pllmul(pll.mul);
+            w.set_plldiv(pll.div);
+            w.set_pllsrc(pll.source);
+        });
+
+        // Enable PLL
+        RCC.cr().modify(|w| w.set_pllon(true));
+        while !RCC.cr().read().pllrdy() {}
+
+        freq
+    });
+
+    let sys_clk = match config.mux {
+        ClockSrc::HSE => hse.unwrap(),
+        ClockSrc::HSI => hsi.unwrap(),
+        ClockSrc::MSI => msi.unwrap(),
+        ClockSrc::PLL1_P => pll.unwrap(),
+    };
 
     let wait_states = match (config.voltage_scale, sys_clk.0) {
         (VoltageScale::RANGE1, ..=16_000_000) => 0,
@@ -150,7 +163,7 @@ pub(crate) unsafe fn init(config: Config) {
     FLASH.acr().modify(|w| w.set_latency(wait_states != 0));
 
     RCC.cfgr().modify(|w| {
-        w.set_sw(sw);
+        w.set_sw(config.mux);
         w.set_hpre(config.ahb_pre);
         w.set_ppre1(config.apb1_pre);
         w.set_ppre2(config.apb2_pre);
@@ -161,7 +174,7 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
 
     #[cfg(crs)]
-    if config.enable_hsi48 {
+    if config.hsi48 {
         // Reset CRS peripheral
         RCC.apb1rstr().modify(|w| w.set_crsrst(true));
         RCC.apb1rstr().modify(|w| w.set_crsrst(false));

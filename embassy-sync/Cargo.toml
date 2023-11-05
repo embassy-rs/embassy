@@ -1,6 +1,6 @@
 [package]
 name = "embassy-sync"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "no-std, no-alloc synchronization primitives with async support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -45,4 +45,4 @@ futures-util = { version = "0.3.17", features = [ "channel" ] }
 
 # Enable critical-section implementation for std, for tests
 critical-section = { version = "1.1", features = ["std"] }
-static_cell = "1.1"
+static_cell = { version = "2" }

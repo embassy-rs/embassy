@@ -59,6 +59,9 @@ generic-queue-32 = ["generic-queue"]
 generic-queue-64 = ["generic-queue"]
 generic-queue-128 = ["generic-queue"]
 
+# Create a `MockDriver` that can be manually advanced for testing purposes.
+mock-driver = ["tick-hz-1_000_000"]
+
 # Set the `embassy_time` tick rate.
 #
 # At most 1 `tick-*` feature can be enabled. If none is enabled, a default of 1MHz is used.
@@ -255,4 +258,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.3.0", path = "../embassy-executor", features = ["nightly"] }
+embassy-executor = { version = "0.3.1", path = "../embassy-executor", features = ["nightly"] }

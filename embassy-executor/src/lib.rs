@@ -33,6 +33,7 @@ check_at_most_one!("arch-cortex-m", "arch-riscv32", "arch-xtensa", "arch-std", "
 mod arch;
 
 #[cfg(feature = "_arch")]
+#[allow(unused_imports)] // don't warn if the module is empty.
 pub use arch::*;
 
 pub mod raw;
@@ -46,7 +47,6 @@ pub use spawner::*;
 pub mod _export {
     #[cfg(feature = "rtos-trace")]
     pub use rtos_trace::trace;
-    pub use static_cell::StaticCell;
 
     /// Expands the given block of code when `embassy-executor` is compiled with
     /// the `rtos-trace-interrupt` feature.
