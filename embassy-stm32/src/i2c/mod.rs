@@ -9,7 +9,7 @@ use crate::interrupt;
 mod _version;
 pub use _version::*;
 
-mod v2slave;
+pub mod v2slave;
 
 use crate::peripherals;
 
