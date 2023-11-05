@@ -21,9 +21,6 @@ pub const HSI_FREQ: Hertz = Hertz(64_000_000);
 /// CSI speed
 pub const CSI_FREQ: Hertz = Hertz(4_000_000);
 
-/// HSI48 speed
-pub const HSI48_FREQ: Hertz = Hertz(48_000_000);
-
 const VCO_RANGE: RangeInclusive<Hertz> = Hertz(150_000_000)..=Hertz(420_000_000);
 #[cfg(any(stm32h5, pwr_h7rm0455))]
 const VCO_WIDE_RANGE: RangeInclusive<Hertz> = Hertz(128_000_000)..=Hertz(560_000_000);
@@ -126,7 +123,7 @@ pub struct Config {
     pub hsi: Option<HSIPrescaler>,
     pub hse: Option<Hse>,
     pub csi: bool,
-    pub hsi48: bool,
+    pub hsi48: Option<super::Hsi48Config>,
     pub sys: Sysclk,
 
     pub pll1: Option<Pll>,
@@ -155,7 +152,7 @@ impl Default for Config {
             hsi: Some(HSIPrescaler::DIV1),
             hse: None,
             csi: false,
-            hsi48: false,
+            hsi48: Some(Default::default()),
             sys: Sysclk::HSI,
             pll1: None,
             pll2: None,
@@ -301,14 +298,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Configure HSI48.
-    RCC.cr().modify(|w| w.set_hsi48on(config.hsi48));
-    let _hsi48 = match config.hsi48 {
-        false => None,
-        true => {
-            while !RCC.cr().read().hsi48rdy() {}
-            Some(CSI_FREQ)
-        }
-    };
+    let _hsi48 = config.hsi48.map(super::init_hsi48);
 
     // Configure CSI.
     RCC.cr().modify(|w| w.set_csion(config.csi));

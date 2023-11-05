@@ -306,7 +306,7 @@ pub fn config() -> Config {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = None;
-        config.rcc.hsi48 = true; // needed for rng
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::BypassDigital,
@@ -332,7 +332,7 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
-        config.rcc.hsi48 = true; // needed for RNG
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.pll1 = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
@@ -364,7 +364,7 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
-        config.rcc.hsi48 = true; // needed for RNG
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.pll1 = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,

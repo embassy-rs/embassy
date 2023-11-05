@@ -19,7 +19,6 @@ async fn main(_spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
-        config.rcc.hsi48 = true; // needed for RNG
         config.rcc.pll1 = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
