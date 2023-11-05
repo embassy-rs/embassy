@@ -12,7 +12,7 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.enable_hsi48 = true;
+    config.rcc.hsi48 = true;
     let p = embassy_stm32::init(config);
 
     let button = Input::new(p.PB2, Pull::Up);

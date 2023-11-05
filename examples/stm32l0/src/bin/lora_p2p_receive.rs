@@ -24,7 +24,7 @@ const LORA_FREQUENCY_IN_HZ: u32 = 903_900_000; // warning: set this appropriatel
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.mux = embassy_stm32::rcc::ClockSrc::HSI;
-    config.rcc.enable_hsi48 = true;
+    config.rcc.hsi48 = true;
     let p = embassy_stm32::init(config);
 
     let mut spi_config = spi::Config::default();
