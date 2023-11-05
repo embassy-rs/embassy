@@ -460,23 +460,25 @@ pub fn config() -> Config {
     #[cfg(feature = "stm32l073rz")]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::PLL(
-            // 32Mhz clock (16 * 4 / 2)
-            PLLSource::HSI,
-            PLLMul::MUL4,
-            PLLDiv::DIV2,
-        );
+        config.rcc.hsi = true;
+        config.rcc.pll = Some(Pll {
+            source: PLLSource::HSI,
+            mul: PLLMul::MUL4,
+            div: PLLDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
+        });
+        config.rcc.mux = ClockSrc::PLL1_P;
     }
 
     #[cfg(any(feature = "stm32l152re"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::PLL(
-            // 32Mhz clock (16 * 4 / 2)
-            PLLSource::HSI,
-            PLLMul::MUL4,
-            PLLDiv::DIV2,
-        );
+        config.rcc.hsi = true;
+        config.rcc.pll = Some(Pll {
+            source: PLLSource::HSI,
+            mul: PLLMul::MUL4,
+            div: PLLDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
+        });
+        config.rcc.mux = ClockSrc::PLL1_P;
     }
 
     config

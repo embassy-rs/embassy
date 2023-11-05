@@ -193,9 +193,6 @@ pub(crate) unsafe fn init(config: Config) {
         });
         while !RCC.cr().read().msirdy() {}
 
-        // Enable as clock source for USB, RNG if running at 48 MHz
-        if range == MSIRange::RANGE48M {}
-
         msirange_to_hertz(range)
     });
 
