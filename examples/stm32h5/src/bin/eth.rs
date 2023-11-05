@@ -37,7 +37,7 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.hsi = None;
-    config.rcc.hsi48 = true; // needed for rng
+    config.rcc.hsi48 = Some(Default::default()); // needed for RNG
     config.rcc.hse = Some(Hse {
         freq: Hertz(8_000_000),
         mode: HseMode::BypassDigital,

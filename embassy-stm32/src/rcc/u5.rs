@@ -115,7 +115,7 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
-    pub hsi48: bool,
+    pub hsi48: Option<super::Hsi48Config>,
     /// The voltage range influences the maximum clock frequencies for different parts of the
     /// device. In particular, system clocks exceeding 110 MHz require `RANGE1`, and system clocks
     /// exceeding 55 MHz require at least `RANGE2`.
@@ -189,7 +189,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb3_pre: APBPrescaler::DIV1,
-            hsi48: true,
+            hsi48: Some(Default::default()),
             voltage_range: VoltageScale::RANGE3,
             ls: Default::default(),
         }
@@ -322,10 +322,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    if config.hsi48 {
-        RCC.cr().modify(|w| w.set_hsi48on(true));
-        while !RCC.cr().read().hsi48rdy() {}
-    }
+    let _hsi48 = config.hsi48.map(super::init_hsi48);
 
     // The clock source is ready
     // Calculate and set the flash wait states

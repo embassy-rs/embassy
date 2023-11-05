@@ -9,6 +9,11 @@ mod mco;
 pub use bd::*;
 pub use mco::*;
 
+#[cfg(crs)]
+mod hsi48;
+#[cfg(crs)]
+pub use hsi48::*;
+
 #[cfg_attr(rcc_f0, path = "f0.rs")]
 #[cfg_attr(any(rcc_f1, rcc_f100, rcc_f1cl), path = "f1.rs")]
 #[cfg_attr(rcc_f2, path = "f2.rs")]
