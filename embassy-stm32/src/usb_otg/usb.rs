@@ -911,11 +911,9 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
                 trace!("enumdne");
 
                 let speed = r.dsts().read().enumspd();
-                trace!("  speed={}", speed.to_bits());
-
-                r.gusbcfg().modify(|w| {
-                    w.set_trdt(calculate_trdt(speed, T::frequency()));
-                });
+                let trdt = calculate_trdt(speed, T::frequency());
+                trace!("  speed={} trdt={}", speed.to_bits(), trdt);
+                r.gusbcfg().modify(|w| w.set_trdt(trdt));
 
                 r.gintsts().write(|w| w.set_enumdne(true)); // clear
                 Self::restore_irqs();
