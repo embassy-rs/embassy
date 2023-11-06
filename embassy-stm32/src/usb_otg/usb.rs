@@ -107,10 +107,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 vals::Pktstsd::SETUP_DATA_DONE => {
                     trace!("SETUP_DATA_DONE ep={}", ep_num);
 
-                    // Clear NAK to indicate we are ready to receive more data
-                    T::regs().doepctl(ep_num).modify(|w| {
-                        w.set_cnak(true);
-                    });
+                    if quirk_setup_late_cnak(r) {
+                        // Clear NAK to indicate we are ready to receive more data
+                        r.doepctl(ep_num).modify(|w| w.set_cnak(true));
+                    }
                 }
                 x => trace!("unknown PKTSTS: {}", x.to_bits()),
             }
@@ -1317,15 +1317,22 @@ impl<'d, T: Instance> embassy_usb_driver::ControlPipe for ControlPipe<'d, T> {
 
             state.ep_out_wakers[0].register(cx.waker());
 
+            let r = T::regs();
+
             if state.ep0_setup_ready.load(Ordering::Relaxed) {
                 let data = unsafe { *state.ep0_setup_data.get() };
                 state.ep0_setup_ready.store(false, Ordering::Release);
 
                 // EP0 should not be controlled by `Bus` so this RMW does not need a critical section
                 // Receive 1 SETUP packet
-                T::regs().doeptsiz(self.ep_out.info.addr.index()).modify(|w| {
+                r.doeptsiz(self.ep_out.info.addr.index()).modify(|w| {
                     w.set_rxdpid_stupcnt(1);
                 });
+
+                // Clear NAK to indicate we are ready to receive more data
+                if !quirk_setup_late_cnak(r) {
+                    r.doepctl(self.ep_out.info.addr.index()).modify(|w| w.set_cnak(true));
+                }
 
                 trace!("SETUP received: {:?}", data);
                 Poll::Ready(data)
@@ -1460,4 +1467,8 @@ fn calculate_trdt(speed: vals::Dspd, ahb_freq: Hertz) -> u8 {
         }
         _ => unimplemented!(),
     }
+}
+
+fn quirk_setup_late_cnak(r: crate::pac::otg::Otg) -> bool {
+    r.cid().read().0 & 0xf000 == 0x1000
 }
