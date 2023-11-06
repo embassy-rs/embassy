@@ -944,17 +944,25 @@ fn main() {
                 }
 
                 if regs.kind == "opamp" {
-                    if !pin.signal.starts_with("VP") {
-                        continue;
+                    println!("{}", pin.signal);
+
+                    if pin.signal.starts_with("VP") {
+                        // Impl NonInvertingPin for the VP* signals (VP0, VP1, VP2, etc)
+                        let peri = format_ident!("{}", p.name);
+                        let pin_name = format_ident!("{}", pin.pin);
+                        let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
+
+                        g.extend(quote! {
+                            impl_opamp_vp_pin!( #peri, #pin_name, #ch);
+                        })
+                    } else if pin.signal == "VOUT" {
+                        // Impl OutputPin for the VOUT pin
+                        let peri = format_ident!("{}", p.name);
+                        let pin_name = format_ident!("{}", pin.pin);
+                        g.extend(quote! {
+                            impl_opamp_vout_pin!( #peri, #pin_name );
+                        })
                     }
-
-                    let peri = format_ident!("{}", p.name);
-                    let pin_name = format_ident!("{}", pin.pin);
-                    let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
-
-                    g.extend(quote! {
-                        impl_opamp_pin!( #peri, #pin_name, #ch);
-                    })
                 }
 
                 // DAC is special
