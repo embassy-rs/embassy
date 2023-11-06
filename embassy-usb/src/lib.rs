@@ -406,6 +406,16 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         let max_packet_size = self.control.max_packet_size();
         let mut total = 0;
 
+        if req_length > self.control_buf.len() {
+            warn!(
+                "got CONTROL OUT with length {} higher than the control_buf len {}, rejecting.",
+                req_length,
+                self.control_buf.len()
+            );
+            self.control.reject().await;
+            return;
+        }
+
         let chunks = self.control_buf[..req_length].chunks_mut(max_packet_size);
         for (first, last, chunk) in first_last(chunks) {
             let size = match self.control.data_out(chunk, first, last).await {
