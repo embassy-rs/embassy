@@ -113,6 +113,14 @@ pub(crate) unsafe fn init(config: Config) {
         while !PWR.csr1().read().odswrdy() {}
     }
 
+    #[cfg(any(stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423))]
+    {
+        use crate::pac::pwr::vals::Vos;
+        use crate::pac::PWR;
+
+        PWR.cr1().modify(|w| w.set_vos(Vos::SCALE1));
+    }
+
     // Configure HSI
     let hsi = match config.hsi {
         false => {
