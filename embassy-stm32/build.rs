@@ -6,7 +6,7 @@ use std::{env, fs};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::{BlockItemInner, Enum, FieldSet};
-use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, METADATA};
+use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, StopMode, METADATA};
 
 fn main() {
     let target = env::var("TARGET").unwrap();
@@ -557,18 +557,18 @@ fn main() {
             };
 
             /*
-                If LP and non-LP peripherals share the same RCC enable bit, then a refcount leak will result.
+                A refcount leak can result if the same field is shared by peripherals with different stop modes
 
-                This should be checked in stm32-data-gen.
+                This condition should be checked in stm32-data
             */
-            let stop_refcount = if p.name.starts_with("LP") {
-                quote! { REFCOUNT_STOP2 }
-            } else {
-                quote! { REFCOUNT_STOP1 }
+            let stop_refcount = match rcc.stop_mode {
+                StopMode::Standby => None,
+                StopMode::Stop2 => Some(quote! { REFCOUNT_STOP2 }),
+                StopMode::Stop1 => Some(quote! { REFCOUNT_STOP1 }),
             };
 
-            let (incr_stop_refcount, decr_stop_refcount) = if p.name != "RTC" {
-                (
+            let (incr_stop_refcount, decr_stop_refcount) = match stop_refcount {
+                Some(stop_refcount) => (
                     quote! {
                         #[cfg(feature = "low-power")]
                         unsafe { crate::rcc::#stop_refcount += 1 };
@@ -577,9 +577,8 @@ fn main() {
                         #[cfg(feature = "low-power")]
                         unsafe { crate::rcc::#stop_refcount -= 1 };
                     },
-                )
-            } else {
-                (quote! {}, quote! {})
+                ),
+                None => (TokenStream::new(), TokenStream::new()),
             };
 
             g.extend(quote! {
