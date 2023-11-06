@@ -57,7 +57,6 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
-futures-util = { version = "0.3.17", default-features = false }
 embassy-macros = { version = "0.2.1", path = "../embassy-macros" }
 embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true}
 atomic-polyfill = "1.0.1"
