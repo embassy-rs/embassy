@@ -944,8 +944,6 @@ fn main() {
                 }
 
                 if regs.kind == "opamp" {
-                    println!("{}", pin.signal);
-
                     if pin.signal.starts_with("VP") {
                         // Impl NonInvertingPin for the VP* signals (VP0, VP1, VP2, etc)
                         let peri = format_ident!("{}", p.name);
