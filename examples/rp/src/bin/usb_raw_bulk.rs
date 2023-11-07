@@ -36,7 +36,7 @@ use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut};
 use embassy_usb::msos::{self, windows_version};
-use embassy_usb::{Builder, Config, Handler};
+use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
 
 // This is a randomly generated GUID to allow clients on Windows to find our device
@@ -78,8 +78,6 @@ async fn main(_spawner: Spawner) {
     let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
 
-    let mut handler = ControlHandler;
-
     let mut builder = Builder::new(
         driver,
         config,
@@ -110,9 +108,7 @@ async fn main(_spawner: Spawner) {
     let mut alt = interface.alt_setting(0xFF, 0, 0, None);
     let mut read_ep = alt.endpoint_bulk_out(64);
     let mut write_ep = alt.endpoint_bulk_in(64);
-
     drop(function);
-    builder.handler(&mut handler);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -144,7 +140,3 @@ async fn main(_spawner: Spawner) {
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
     join(usb_fut, echo_fut).await;
 }
-
-/// Handle CONTROL endpoint requests and responses.
-struct ControlHandler;
-impl Handler for ControlHandler {}
