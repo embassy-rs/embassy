@@ -19,6 +19,8 @@ pub struct LoggerState<'d> {
     device_descriptor: [u8; 32],
     config_descriptor: [u8; 128],
     bos_descriptor: [u8; 16],
+    #[cfg(feature = "msos-descriptor")]
+    msos_descriptor: [u8; 256],
     control_buf: [u8; 64],
 }
 
@@ -30,6 +32,8 @@ impl<'d> LoggerState<'d> {
             device_descriptor: [0; 32],
             config_descriptor: [0; 128],
             bos_descriptor: [0; 16],
+            #[cfg(feature = "msos-descriptor")]
+            msos_descriptor: [0; 256],
             control_buf: [0; 64],
         }
     }
@@ -73,6 +77,8 @@ impl<const N: usize> UsbLogger<N> {
             &mut state.device_descriptor,
             &mut state.config_descriptor,
             &mut state.bos_descriptor,
+            #[cfg(feature = "msos-descriptor")]
+            &mut state.msos_descriptor,
             &mut state.control_buf,
         );
 
