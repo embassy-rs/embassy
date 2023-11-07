@@ -8,6 +8,9 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-logger-v$VERS
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-logger/src/"
 target = "thumbv7em-none-eabi"
 
+[features]
+msos-descriptor = ["embassy-usb/msos-descriptor"]
+
 [dependencies]
 embassy-usb = { version = "0.1.0", path = "../embassy-usb" }
 embassy-sync = { version = "0.4.0", path = "../embassy-sync" }
