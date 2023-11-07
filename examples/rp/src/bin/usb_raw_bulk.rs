@@ -36,7 +36,7 @@ use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config, Handler};
-use embassy_usb_driver::{Endpoint, EndpointIn, EndpointOut};
+use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut};
 use {defmt_rtt as _, panic_probe as _};
 
 // This is a randomly generated GUID to allow clients on Windows to find our device
