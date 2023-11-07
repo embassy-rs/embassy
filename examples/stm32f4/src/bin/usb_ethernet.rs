@@ -94,6 +94,7 @@ async fn main(spawner: Spawner) {
         &mut make_static!([0; 256])[..],
         &mut make_static!([0; 256])[..],
         &mut make_static!([0; 256])[..],
+        &mut [],
         &mut make_static!([0; 128])[..],
     );
 

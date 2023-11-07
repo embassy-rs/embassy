@@ -56,9 +56,15 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb_otg::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request, RequestType};
+use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Handler};
 use {defmt_rtt as _, panic_probe as _};
+
+// Randomly generated UUID because Windows requires you provide one to use WinUSB.
+// In principle WinUSB-using software could find this device (or a specific interface
+// on it) by its GUID instead of using the VID/PID, but in practice that seems unhelpful.
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{DAC2087C-63FA-458D-A55D-827C0762DEC7}"];
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
@@ -114,6 +120,7 @@ async fn main(_spawner: Spawner) {
     let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
+    let mut msos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
 
     let mut handler = ControlHandler {
@@ -126,8 +133,22 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut msos_descriptor,
         &mut control_buf,
     );
+
+    // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+    // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+    // which causes it to use the built-in WinUSB driver automatically, which in turn
+    // can be used by libusb/rusb software without needing a custom driver or INF file.
+    // In principle you might want to call msos_feature() just on a specific function,
+    // if your device also has other functions that still use standard class drivers.
+    builder.msos_descriptor(windows_version::WIN8_1, 0);
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+    ));
 
     // Add a vendor-specific function (class 0xFF), and corresponding interface,
     // that uses our custom handler.
