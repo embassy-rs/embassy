@@ -71,7 +71,7 @@ async fn main(spawner: Spawner) {
         &mut make_static!([0; 256])[..],
         &mut make_static!([0; 256])[..],
         &mut make_static!([0; 256])[..],
-        &mut make_static!([0; 0])[..],
+        &mut [], // no msos descriptors
         &mut make_static!([0; 128])[..],
     );
 
