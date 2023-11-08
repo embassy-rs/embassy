@@ -15,9 +15,9 @@ embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-
 embedded-hal = { version = "1.0.0-rc.1" }
 embedded-hal-async = { version = "=1.0.0-rc.1" }
 
-noproto = { git="https://github.com/embassy-rs/noproto", rev = "c90f3a78d7b5642415e0a07af401320b84d8ab6f", default-features = false, features = ["derive"] }
+noproto = { git="https://github.com/embassy-rs/noproto", rev = "f5e6d1f325b6ad4e344f60452b09576e24671f62", default-features = false, features = ["derive"] }
 #noproto = { version = "0.1", path = "/home/dirbaio/noproto", default-features = false, features = ["derive"] }
-heapless = "0.7.16"
+heapless = "0.8"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$VERSION/embassy-net-esp-hosted/src/"

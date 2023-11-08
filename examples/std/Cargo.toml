@@ -14,7 +14,6 @@ embassy-net-ppp = { version = "0.1.0", path = "../../embassy-net-ppp", features 
 embedded-io-async = { version = "0.6.0" }
 embedded-io-adapters = { version = "0.6.0", features = ["futures-03"] }
 critical-section = { version = "1.1", features = ["std"] }
-smoltcp = { version = "0.10.0", features = ["dns-max-server-count-4"] }
 
 async-io = "1.6.0"
 env_logger = "0.9.0"
@@ -23,7 +22,7 @@ log = "0.4.14"
 nix = "0.26.2"
 clap = { version = "3.0.0-beta.5", features = ["derive"] }
 rand_core = { version = "0.6.3", features = ["std"] }
-heapless = { version = "0.7.5", default-features = false }
+heapless = { version = "0.8", default-features = false }
 static_cell = { version = "2", features = ["nightly"]}
 
 [profile.release]
