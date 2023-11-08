@@ -175,10 +175,7 @@ pub struct UsbBufferReport {
     /// Number of bos descriptor bytes used
     pub bos_descriptor_used: usize,
     /// Number of msos descriptor bytes used
-    ///
-    /// Will be `None` if the "msos-descriptor" feature is not active.
-    /// Otherwise will return Some(bytes).
-    pub msos_descriptor_used: Option<usize>,
+    pub msos_descriptor_used: usize,
     /// Size of the control buffer
     pub control_buffer_size: usize,
 }
@@ -197,6 +194,7 @@ struct Inner<'d, D: Driver<'d>> {
     device_descriptor: &'d [u8],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
+    msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 
     device_state: UsbDeviceState,
     suspended: bool,
@@ -212,9 +210,6 @@ struct Inner<'d, D: Driver<'d>> {
 
     interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
     handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
-
-    #[cfg(feature = "msos-descriptor")]
-    msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -225,9 +220,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
+        msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
         interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
-        #[cfg(feature = "msos-descriptor")] msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
     ) -> UsbDevice<'d, D> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
@@ -242,6 +237,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 device_descriptor,
                 config_descriptor,
                 bos_descriptor,
+                msos_descriptor,
 
                 device_state: UsbDeviceState::Unpowered,
                 suspended: false,
@@ -251,8 +247,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 set_address_pending: false,
                 interfaces,
                 handlers,
-                #[cfg(feature = "msos-descriptor")]
-                msos_descriptor,
             },
         }
     }
@@ -261,16 +255,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     ///
     /// Useful for tuning buffer sizes for actual usage
     pub fn buffer_usage(&self) -> UsbBufferReport {
-        #[cfg(not(feature = "msos-descriptor"))]
-        let mdu = None;
-        #[cfg(feature = "msos-descriptor")]
-        let mdu = Some(self.inner.msos_descriptor.len());
-
         UsbBufferReport {
             device_descriptor_used: self.inner.device_descriptor.len(),
             config_descriptor_used: self.inner.config_descriptor.len(),
             bos_descriptor_used: self.inner.bos_descriptor.len(),
-            msos_descriptor_used: mdu,
+            msos_descriptor_used: self.inner.msos_descriptor.len(),
             control_buffer_size: self.control_buf.len(),
         }
     }
@@ -684,7 +673,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
                 _ => InResponse::Rejected,
             },
-            #[cfg(feature = "msos-descriptor")]
+
             (RequestType::Vendor, Recipient::Device) => {
                 if !self.msos_descriptor.is_empty()
                     && req.request == self.msos_descriptor.vendor_code()
