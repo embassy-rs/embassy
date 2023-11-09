@@ -4,7 +4,7 @@
 
 It builds on [`smoltcp`](https://github.com/smoltcp-rs/smoltcp). It provides a higher-level and more opinionated
 API. It glues together the components provided by `smoltcp`, handling the low-level details with defaults and
-memory management designed to work well for embedded systems, aiiming for a more "Just Works" experience.
+memory management designed to work well for embedded systems, aiming for a more "Just Works" experience.
 
 ## Features
 

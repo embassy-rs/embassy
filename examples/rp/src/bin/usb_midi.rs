@@ -58,7 +58,7 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
-        &mut [],
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 
