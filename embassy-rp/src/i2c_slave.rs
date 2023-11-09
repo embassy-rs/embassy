@@ -181,17 +181,16 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     }
 
     #[inline(always)]
-    fn drain_fifo(&mut self, buffer: &mut [u8]) -> usize {
+    fn drain_fifo(&mut self, buffer: &mut [u8], len: &mut usize) {
         let p = T::regs();
 
         // Reduce interrupt noise
         p.ic_rx_tl().write(|w| w.set_rx_tl(11));
 
-        let mut len = 0;
-        for b in buffer {
+        for b in &mut buffer[offset..] {
             if let Some(pending) = self.pending_byte.take() {
                 *b = pending;
-                len += 1;
+                *len += 1;
                 continue;
             }
 
@@ -207,9 +206,8 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             }
 
             *b = dat.dat();
-            len += 1;
+            *len += 1;
         }
-        len
     }
 
     #[inline(always)]
@@ -319,7 +317,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                         // is possible.
                         return Err(Error::ResponseBufferFull(offset));
                     }
-                    offset += self.drain_fifo(&mut buffer[offset..]);
+                    self.drain_fifo(buffer, &mut offset);
                 }
                 I2cSlaveEvent::Stop if offset == 0 => {}
                 I2cSlaveEvent::Stop => {
