@@ -33,6 +33,7 @@ use embassy_hal_internal::Peripheral;
 use crate::peripherals::RTC;
 use crate::rtc::sealed::Instance;
 
+#[allow(dead_code)]
 #[repr(u8)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum WakeupPrescaler {
