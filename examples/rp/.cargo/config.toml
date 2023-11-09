@@ -1,8 +1,13 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip RP2040"
+runner = "probe-rs run --chip RP2040 --speed 5000"
+rustflags = [
+    "-C", "inline-threshold=5",
+    "-C", "no-vectorize-loops",
+]
 
 [build]
 target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+
 
 [env]
 DEFMT_LOG = "trace"
+DEFMT_RTT_BUFFER_SIZE = "8192"
