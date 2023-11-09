@@ -95,7 +95,7 @@ impl super::Rtc {
         })
     }
 
-    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
+    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(&crate::pac::rtc::Rtc) -> R,
     {
@@ -128,6 +128,12 @@ impl super::Rtc {
 
 impl sealed::Instance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 32;
+
+    #[cfg(all(feature = "low-power", stm32g4))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32g4))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
 
     fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]
