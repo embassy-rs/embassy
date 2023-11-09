@@ -139,7 +139,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
         // mask everything initially
         T::Interrupt::unpend();
-        p.ic_intr_mask().write(|w| {});
+        p.ic_intr_mask().write(|_| {});
         unsafe { T::Interrupt::enable() };
 
         Self {
