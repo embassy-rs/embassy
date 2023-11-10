@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
-use embassy_stm32::peripherals::PA5;
+use embassy_stm32::peripherals::{PA5, PB4};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::simple_pwm::{InterruptHandler, PwmPin, SimplePwm};
 use embassy_stm32::timer::{self, Channel};
@@ -14,8 +14,10 @@ use {defmt_rtt as _, panic_probe as _};
 
 // This test is meant for the target nucleo G070 RB
 // On arduino pin d4 (pb5) a pwm signal of about 0.3 hz can me measured.
-// Attach a led and a resistor of 330 ohm in series to watch the pwm
+// On arduino pin d5 (pb4) a sync pulse high for 1 ms after each interrupt.
+// With a logic scope one can measure the syncing
 // The user led arduino pin d13 (pa5) will flash with exactly 1 hrz.
+// 390  us after the pwm going up (causing the update interrupt) the task is awoken in line 67.
 
 bind_interrupts!(
     struct Irqs {
@@ -31,13 +33,18 @@ async fn pwm_task(mut pwm_test: PwmTest) {
 pub struct PwmTest {
     pwm3: SimplePwm<'static, peripherals::TIM3>,
     led: Output<'static, PA5>,
+    d5_pb4: Output<'static, PB4>,
     max3: u16,
     duty: u16,
     counter: usize,
 }
 
 impl PwmTest {
-    fn new(mut pwm3: SimplePwm<'static, peripherals::TIM3>, led: Output<'static, PA5>) -> Self {
+    fn new(
+        mut pwm3: SimplePwm<'static, peripherals::TIM3>,
+        led: Output<'static, PA5>,
+        d5_pb4: Output<'static, PB4>,
+    ) -> Self {
         let max3 = pwm3.get_max_duty();
         pwm3.enable(timer::Channel::Ch2);
         pwm3.enable_update_interrupt(true);
@@ -47,6 +54,7 @@ impl PwmTest {
             duty: 0,
             counter: 0,
             led,
+            d5_pb4,
         }
     }
     async fn task(&mut self) {
@@ -56,11 +64,14 @@ impl PwmTest {
             // note that the update interrupt will be call exact 100 times per second!
             self.pwm3.wait_update_interrupt().await;
             self.counter = (self.counter + 1) % 100;
+            self.d5_pb4.set_high();
             match self.counter {
                 10 => self.led.set_high(),
                 30 => self.led.set_low(),
                 _ => (),
             }
+            Timer::after_millis(1).await;
+            self.d5_pb4.set_low();
         }
     }
 }
@@ -80,7 +91,8 @@ async fn main(spawner: Spawner) {
         embassy_stm32::timer::CountingMode::EdgeAlignedUp,
     );
     let led_g = Output::new(p.PA5, Level::High, Speed::Low);
-    let pwm_test = PwmTest::new(pwm3, led_g);
+    let d5_pb4 = Output::new(p.PB4, Level::High, Speed::Low);
+    let pwm_test = PwmTest::new(pwm3, led_g, d5_pb4);
     // note that at the end the pwmTest task is the owner of pwmTest.
     // PwmTest is the owner of the pwm and the led.
     spawner.spawn(pwm_task(pwm_test)).unwrap();

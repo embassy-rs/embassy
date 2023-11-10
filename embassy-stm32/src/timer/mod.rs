@@ -2,11 +2,23 @@ pub mod complementary_pwm;
 pub mod qei;
 pub mod simple_pwm;
 
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
 use stm32_metapac::timer::vals;
 
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
+
+pub struct State {
+    signal: Signal<CriticalSectionRawMutex, usize>,
+}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self { signal: Signal::new() }
+    }
+}
 
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
@@ -91,6 +103,7 @@ pub(crate) mod sealed {
 
     pub trait GeneralPurpose16bitInstance: Basic16bitInstance {
         fn regs_gp16() -> crate::pac::timer::TimGp16;
+        fn state() -> &'static State;
 
         fn set_counting_mode(&mut self, mode: CountingMode) {
             let (cms, dir) = mode.into();
@@ -510,6 +523,11 @@ foreach_interrupt! {
             fn regs_gp16() -> crate::pac::timer::TimGp16 {
                 crate::pac::$inst
             }
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
+
         }
     };
 
@@ -528,6 +546,11 @@ foreach_interrupt! {
             fn regs_gp16() -> crate::pac::timer::TimGp16 {
                 unsafe { crate::pac::timer::TimGp16::from_ptr(crate::pac::$inst.as_ptr()) }
             }
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
+
         }
     };
 
@@ -550,6 +573,10 @@ foreach_interrupt! {
         impl sealed::GeneralPurpose16bitInstance for crate::peripherals::$inst {
             fn regs_gp16() -> crate::pac::timer::TimGp16 {
                 unsafe { crate::pac::timer::TimGp16::from_ptr(crate::pac::$inst.as_ptr()) }
+            }
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
             }
         }
 

@@ -1,8 +1,7 @@
+use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
 
 use super::*;
 #[allow(unused_imports)]
@@ -11,9 +10,6 @@ use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::Peripheral;
 use crate::_generated::interrupt::typelevel::Interrupt;
-
-// Declare a signal to awake user code for signaling the update interrupt id happen
-static SIGNAL_UPDATE: Signal<CriticalSectionRawMutex, usize> = Signal::new();
 
 pub struct InterruptHandler<T: CaptureCompare16bitInstance> {
     _phantom: PhantomData<T>,
@@ -24,7 +20,7 @@ impl<T: CaptureCompare16bitInstance> interrupt::typelevel::Handler<T::Interrupt>
         let regs = T::regs();
         let sr = regs.sr().read();
         if sr.uif() {
-            SIGNAL_UPDATE.signal(0);
+            T::state().signal.signal(0);
             // clear the flag
             critical_section::with(|_| {
                 regs.sr().modify(|w| w.set_uif(false));
@@ -137,8 +133,8 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         self.inner.enable_update_interrupt(enable);
     }
 
-    pub async fn wait_update_interrupt(&self) {
-        _ = SIGNAL_UPDATE.wait().await;
+    pub fn wait_update_interrupt(&self) -> impl Future<Output = usize> {
+        T::state().signal.wait()
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u16) {
