@@ -123,6 +123,7 @@ async fn main(spawner: Spawner) {
 
     // start of the actual test
     i2c.slave_start_listen().unwrap();
+    let receiver = i2c.slave_transaction_receiver();
     loop {
         counter += 1;
         writeln!(&mut writer, "Loop: {}\r", counter).unwrap();
@@ -143,7 +144,7 @@ async fn main(spawner: Spawner) {
 
         writeln!(&mut writer, "Waiting for master activity\r").unwrap();
 
-        let t = i2c.slave_transaction().await;
+        let t = receiver.receive().await;
         let dir = t.dir();
         tcount += 1;
         // preparations for the next round

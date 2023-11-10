@@ -10,7 +10,7 @@ use core::fmt::{self, Write};
 use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 // use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::i2c::{I2c, AddressIndex};
+use embassy_stm32::i2c::{AddressIndex, I2c};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usart::UartTx;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usart};
@@ -83,6 +83,7 @@ async fn main(_spawner: Spawner) {
 
     // start of the actual test
     i2c.slave_start_listen().unwrap();
+    let receiver = i2c.slave_transaction_receiver();
     loop {
         counter += 1;
         writeln!(&mut writer, "Loop: {}\r", counter).unwrap();
@@ -94,7 +95,7 @@ async fn main(_spawner: Spawner) {
 
         writeln!(&mut writer, "Waiting for master activity\r").unwrap();
 
-        let t = i2c.slave_transaction().await;
+        let t = receiver.receive().await;
         writeln!(
             &mut writer,
             "Address: x{:2x}  dir: {:?} size: x{:2x}, Result:{:?}\r",

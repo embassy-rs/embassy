@@ -1,17 +1,15 @@
 use core::result::Result;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, Receiver};
 use stm32_metapac::i2c;
 
 use super::{AddressIndex, I2c, Instance};
 use crate::i2c::{Dir, Error};
-// Declare a CHANNEL for all other tasks to communicate with this driver
-static CHANNEL_OUT: Channel<CriticalSectionRawMutex, SlaveTransaction, SLAVE_QUEUE_DEPTH> = Channel::new();
 
 pub type I2cBuffer = [u8; SLAVE_BUFFER_SIZE];
 pub const SLAVE_BUFFER_SIZE: usize = 64;
-const SLAVE_QUEUE_DEPTH: usize = 5;
+pub const SLAVE_QUEUE_DEPTH: usize = 5;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(usize)]
@@ -324,6 +322,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             Ok(())
         })
     }
+    pub fn slave_prepare_write(&self) -> Result<(), Error> {
+        T::state().mutex.lock(|f| {
+            let mut state_m = f.borrow_mut();
+            state_m.prepare_write();
+            Ok(())
+        })
+    }
 
     pub fn slave_reset(&self) {
         T::state().mutex.lock(|f| {
@@ -338,23 +343,13 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             state_m.error_count_reset()
         })
     }
-    pub fn slave_prepare_write(&self) {
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            state_m.prepare_write();
-        });
-    }
 
-    /// wait until a slave transaction is finished, and return tuple address, direction, data size and error
-    pub async fn slave_transaction(&self) -> SlaveTransaction {
-        let result = CHANNEL_OUT.receive().await;
-        T::state().mutex.lock(|f| {
-            let mut state_m = f.borrow_mut();
-            state_m.prepare_write();
-        });
-        result
+    /// Get a copy of the receiver for the channel_out. User code can await on this receiver
+    pub fn slave_transaction_receiver(
+        &self,
+    ) -> Receiver<'static, CriticalSectionRawMutex, SlaveTransaction, SLAVE_QUEUE_DEPTH> {
+        T::state().channel_out.receiver()
     }
-
     pub(crate) fn slave_interupt_handler(state_m: &mut SlaveState, regs: &i2c::I2c) {
         // ============================================ slave interrupt state_m machine
         let isr = regs.isr().read();
@@ -402,7 +397,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let transaction = state_m.take_transaction();
             match transaction {
                 Some(t) => {
-                    if let Err(_) = CHANNEL_OUT.try_send(t) {
+                    if let Err(_) = T::state().channel_out.try_send(t) {
                         state_m.error_count += 1;
                     }
                 }
