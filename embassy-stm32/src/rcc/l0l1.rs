@@ -3,8 +3,6 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange as MSIRange, Plldiv as PLLDiv, Plldiv as PllDiv, Pllmul as PLLMul, Pllmul as PllMul,
     Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
 };
-#[cfg(crs)]
-use crate::pac::{crs, CRS, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -47,7 +45,7 @@ pub struct Config {
     pub hsi: bool,
     pub hse: Option<Hse>,
     #[cfg(crs)]
-    pub hsi48: bool,
+    pub hsi48: Option<super::Hsi48Config>,
 
     pub pll: Option<Pll>,
 
@@ -68,7 +66,7 @@ impl Default for Config {
             hse: None,
             hsi: false,
             #[cfg(crs)]
-            hsi48: false,
+            hsi48: Some(Default::default()),
 
             pll: None,
 
@@ -174,37 +172,11 @@ pub(crate) unsafe fn init(config: Config) {
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
 
     #[cfg(crs)]
-    if config.hsi48 {
-        // Reset CRS peripheral
-        RCC.apb1rstr().modify(|w| w.set_crsrst(true));
-        RCC.apb1rstr().modify(|w| w.set_crsrst(false));
-
-        // Enable CRS peripheral
-        RCC.apb1enr().modify(|w| w.set_crsen(true));
-
-        // Initialize CRS
-        CRS.cfgr().write(|w|
-
-        // Select LSE as synchronization source
-        w.set_syncsrc(crs::vals::Syncsrc::LSE));
-        CRS.cr().modify(|w| {
-            w.set_autotrimen(true);
-            w.set_cen(true);
-        });
-
-        // Enable VREFINT reference for HSI48 oscillator
-        SYSCFG.cfgr3().modify(|w| {
-            w.set_enref_hsi48(true);
-            w.set_en_vrefint(true);
-        });
-
+    let _hsi48 = config.hsi48.map(|config| {
         // Select HSI48 as USB clock
         RCC.ccipr().modify(|w| w.set_hsi48msel(true));
-
-        // Enable dedicated USB clock
-        RCC.crrcr().modify(|w| w.set_hsi48on(true));
-        while !RCC.crrcr().read().hsi48rdy() {}
-    }
+        super::init_hsi48(config)
+    });
 
     set_freqs(Clocks {
         sys: sys_clk,

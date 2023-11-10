@@ -7,7 +7,6 @@ pub use crate::pac::rcc::vals::{
     Pllr as PllR, Ppre as APBPrescaler,
 };
 use crate::pac::{PWR, RCC};
-use crate::rcc::sealed::RccPeripheral;
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -67,21 +66,11 @@ pub struct Pll {
 pub enum Clock48MhzSrc {
     /// Use the High Speed Internal Oscillator. For USB usage, the CRS must be used to calibrate the
     /// oscillator to comply with the USB specification for oscillator tolerance.
-    Hsi48(Option<CrsConfig>),
+    Hsi48(super::Hsi48Config),
     /// Use the PLLQ output. The PLL must be configured to output a 48MHz clock. For USB usage the
     /// PLL needs to be using the HSE source to comply with the USB specification for oscillator
     /// tolerance.
     PllQ,
-}
-
-/// Sets the sync source for the Clock Recovery System (CRS).
-pub enum CrsSyncSource {
-    /// Use an external GPIO to sync the CRS.
-    Gpio,
-    /// Use the Low Speed External oscillator to sync the CRS.
-    Lse,
-    /// Use the USB SOF to sync the CRS.
-    Usb,
 }
 
 /// Clocks configutation
@@ -102,12 +91,6 @@ pub struct Config {
     pub ls: super::LsConfig,
 }
 
-/// Configuration for the Clock Recovery System (CRS) used to trim the HSI48 oscillator.
-pub struct CrsConfig {
-    /// Sync source for the CRS.
-    pub sync_src: CrsSyncSource,
-}
-
 impl Default for Config {
     #[inline]
     fn default() -> Config {
@@ -118,7 +101,7 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
             pll: None,
-            clock_48mhz_src: Some(Clock48MhzSrc::Hsi48(None)),
+            clock_48mhz_src: Some(Clock48MhzSrc::Hsi48(Default::default())),
             adc12_clock_source: Adcsel::DISABLE,
             adc345_clock_source: Adcsel::DISABLE,
             ls: Default::default(),
@@ -288,33 +271,8 @@ pub(crate) unsafe fn init(config: Config) {
 
                 crate::pac::rcc::vals::Clk48sel::PLL1_Q
             }
-            Clock48MhzSrc::Hsi48(crs_config) => {
-                // Enable HSI48
-                RCC.crrcr().modify(|w| w.set_hsi48on(true));
-                // Wait for HSI48 to turn on
-                while RCC.crrcr().read().hsi48rdy() == false {}
-
-                // Enable and setup CRS if needed
-                if let Some(crs_config) = crs_config {
-                    crate::peripherals::CRS::enable_and_reset();
-
-                    let sync_src = match crs_config.sync_src {
-                        CrsSyncSource::Gpio => crate::pac::crs::vals::Syncsrc::GPIO,
-                        CrsSyncSource::Lse => crate::pac::crs::vals::Syncsrc::LSE,
-                        CrsSyncSource::Usb => crate::pac::crs::vals::Syncsrc::USB,
-                    };
-
-                    crate::pac::CRS.cfgr().modify(|w| {
-                        w.set_syncsrc(sync_src);
-                    });
-
-                    // These are the correct settings for standard USB operation. If other settings
-                    // are needed there will need to be additional config options for the CRS.
-                    crate::pac::CRS.cr().modify(|w| {
-                        w.set_autotrimen(true);
-                        w.set_cen(true);
-                    });
-                }
+            Clock48MhzSrc::Hsi48(config) => {
+                super::init_hsi48(config);
                 crate::pac::rcc::vals::Clk48sel::HSI48
             }
         };

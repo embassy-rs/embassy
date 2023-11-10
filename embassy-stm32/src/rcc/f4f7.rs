@@ -1,8 +1,9 @@
+use crate::pac::pwr::vals::Vos;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp, Pllq, Pllr, Pllsrc as PllSource,
     Ppre as APBPrescaler, Sw as Sysclk,
 };
-use crate::pac::{FLASH, RCC};
+use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
@@ -100,12 +101,17 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // set VOS to SCALE1, if use PLL
+    // TODO: check real clock speed before set VOS
+    if config.pll.is_some() {
+        PWR.cr1().modify(|w| w.set_vos(Vos::SCALE1));
+    }
+
     // always enable overdrive for now. Make it configurable in the future.
     #[cfg(not(any(
         stm32f401, stm32f410, stm32f411, stm32f412, stm32f413, stm32f423, stm32f405, stm32f407, stm32f415, stm32f417
     )))]
     {
-        use crate::pac::PWR;
         PWR.cr1().modify(|w| w.set_oden(true));
         while !PWR.csr1().read().odrdy() {}
 

@@ -1,5 +1,3 @@
-#![cfg(feature = "msos-descriptor")]
-
 //! Microsoft OS Descriptors
 //!
 //! <https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-os-2-0-descriptors-specification>

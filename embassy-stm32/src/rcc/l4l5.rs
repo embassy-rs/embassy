@@ -58,8 +58,8 @@ pub struct Config {
     pub msi: Option<MSIRange>,
     pub hsi: bool,
     pub hse: Option<Hse>,
-    #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5, stm32wb))]
-    pub hsi48: bool,
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
 
     // pll
     pub pll: Option<Pll>,
@@ -108,8 +108,8 @@ impl Default for Config {
             pllsai1: None,
             #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
             pllsai2: None,
-            #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5, stm32wb))]
-            hsi48: true,
+            #[cfg(crs)]
+            hsi48: Some(Default::default()),
             #[cfg(any(stm32l4, stm32l5, stm32wb))]
             clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
@@ -126,7 +126,8 @@ pub const WPAN_DEFAULT: Config = Config {
         prescaler: HsePrescaler::DIV1,
     }),
     mux: ClockSrc::PLL1_R,
-    hsi48: true,
+    #[cfg(crs)]
+    hsi48: Some(super::Hsi48Config { sync_from_usb: false }),
     msi: None,
     hsi: false,
     clk48_src: Clk48Src::PLL1_Q,
@@ -216,15 +217,10 @@ pub(crate) unsafe fn init(config: Config) {
         hse.freq
     });
 
-    #[cfg(any(all(stm32l4, not(any(stm32l47x, stm32l48x))), stm32l5, stm32wb))]
-    let hsi48 = config.hsi48.then(|| {
-        RCC.crrcr().modify(|w| w.set_hsi48on(true));
-        while !RCC.crrcr().read().hsi48rdy() {}
-
-        Hertz(48_000_000)
-    });
-    #[cfg(any(stm32l47x, stm32l48x))]
-    let hsi48 = None;
+    #[cfg(crs)]
+    let _hsi48 = config.hsi48.map(super::init_hsi48);
+    #[cfg(not(crs))]
+    let _hsi48: Option<Hertz> = None;
 
     let _plls = [
         &config.pll,
@@ -275,7 +271,7 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.ccipr1().modify(|w| w.set_clk48sel(config.clk48_src));
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
     let _clk48 = match config.clk48_src {
-        Clk48Src::HSI48 => hsi48,
+        Clk48Src::HSI48 => _hsi48,
         Clk48Src::MSI => msi,
         Clk48Src::PLLSAI1_Q => pllsai1.q,
         Clk48Src::PLL1_Q => pll.q,

@@ -6,8 +6,8 @@ pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
     use core::marker::PhantomData;
-    use core::sync::atomic::{AtomicBool, Ordering};
 
+    use atomic_polyfill::{AtomicBool, Ordering};
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_riscv as main;
 

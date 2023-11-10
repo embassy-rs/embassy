@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.hsi48 = true;
+    config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
     config.rcc.mux = ClockSrc::PLL1_R;
     config.rcc.hsi = true;
     config.rcc.pll = Some(Pll {
@@ -72,6 +72,7 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 

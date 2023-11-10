@@ -90,7 +90,7 @@ async fn main(spawner: Spawner) {
             divq: None,
             divr: Some(PllRDiv::DIV2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
         });
-        config.rcc.hsi48 = true; // needed for rng
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
     }
 
     let dp = embassy_stm32::init(config);
