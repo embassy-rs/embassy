@@ -162,7 +162,6 @@ pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     tx_dma: PeripheralRef<'d, TXDMA>,
     #[allow(dead_code)]
     rx_dma: PeripheralRef<'d, RXDMA>,
-    #[cfg(feature = "time")]
     timeout: Duration,
 }
 
@@ -226,6 +225,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             rx_dma,
             #[cfg(feature = "time")]
             timeout: config.transaction_timeout,
+            #[cfg(not(feature = "time"))]
+            timeout: Duration::dummy_duration(),
         }
     }
 
@@ -339,21 +340,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     }
 
     fn flush_txdr(&self) {
-        //if $i2c.isr.read().txis().bit_is_set() {
-        //$i2c.txdr.write(|w| w.txdata().bits(0));
-        //}
-
         if T::regs().isr().read().txis() {
             T::regs().txdr().write(|w| w.set_txdata(0));
         }
         if !T::regs().isr().read().txe() {
             T::regs().isr().modify(|w| w.set_txe(true))
         }
-
-        // If TXDR is not flagged as empty, write 1 to flush it
-        //if $i2c.isr.read().txe().is_not_empty() {
-        //$i2c.isr.write(|w| w.txe().set_bit());
-        //}
     }
 
     fn wait_txe(&self, check_timeout: impl Fn() -> Result<(), Error>) -> Result<(), Error> {
@@ -687,79 +679,23 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
     // =========================
     //  Async public API
-
-    #[cfg(feature = "time")]
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_timeout_internal(address, write, self.timeout).await
-    }
-
-    #[cfg(not(feature = "time"))]
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_timeout_internal(address, write, Duration::dummy_duration())
-            .await
-    }
-
-    #[cfg(feature = "time")]
-    pub async fn write_timeout(&mut self, address: u8, write: &[u8], timeout: Duration) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_timeout_internal(address, write, timeout).await
-    }
-
-    async fn write_timeout_internal(&mut self, address: u8, write: &[u8], timeout: Duration) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
         if write.is_empty() {
-            self.write_internal(address, write, true, timeout_fn(timeout))
+            self.write_internal(address, write, true, timeout_fn(self.timeout))
         } else {
             with_timeout(
-                timeout,
-                self.write_dma_internal(address, write, true, true, timeout_fn(timeout)),
+                self.timeout,
+                self.write_dma_internal(address, write, true, true, timeout_fn(self.timeout)),
             )
             .await
             .unwrap_or(Err(Error::Timeout))
         }
     }
 
-    #[cfg(feature = "time")]
     pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_vectored_timeout_internal(address, write, self.timeout).await
-    }
-
-    #[cfg(not(feature = "time"))]
-    pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_vectored_timeout_internal(address, write, Duration::dummy_duration())
-            .await
-    }
-
-    #[cfg(feature = "time")]
-    pub async fn write_vectored_timeout(&mut self, address: u8, write: &[&[u8]], timeout: Duration) -> Result<(), Error>
-    where
-        TXDMA: crate::i2c::TxDma<T>,
-    {
-        self.write_vectored_timeout_internal(address, write, timeout).await
-    }
-
-    async fn write_vectored_timeout_internal(
-        &mut self,
-        address: u8,
-        write: &[&[u8]],
-        timeout: Duration,
-    ) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
@@ -775,8 +711,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let is_last = next.is_none();
 
             with_timeout(
-                timeout,
-                self.write_dma_internal(address, c, first, is_last, timeout_fn(timeout)),
+                self.timeout,
+                self.write_dma_internal(address, c, first, is_last, timeout_fn(self.timeout)),
             )
             .await
             .unwrap_or(Err(Error::Timeout))?;
@@ -786,107 +722,41 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
-    #[cfg(feature = "time")]
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
-        self.read_timeout_internal(address, buffer, self.timeout).await
-    }
-
-    #[cfg(not(feature = "time"))]
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
-        self.read_timeout_internal(address, buffer, Duration::dummy_duration())
-            .await
-    }
-
-    #[cfg(feature = "time")]
-    pub async fn read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error>
-    where
-        RXDMA: crate::i2c::RxDma<T>,
-    {
-        self.read_timeout_internal(address, buffer, timeout).await
-    }
-
-    async fn read_timeout_internal(&mut self, address: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
         if buffer.is_empty() {
-            self.read_internal(address, buffer, false, timeout_fn(timeout))
+            self.read_internal(address, buffer, false, timeout_fn(self.timeout))
         } else {
             with_timeout(
-                timeout,
-                self.read_dma_internal(address, buffer, false, timeout_fn(timeout)),
+                self.timeout,
+                self.read_dma_internal(address, buffer, false, timeout_fn(self.timeout)),
             )
             .await
             .unwrap_or(Err(Error::Timeout))
         }
     }
 
-    #[cfg(feature = "time")]
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
-    where
-        TXDMA: super::TxDma<T>,
-        RXDMA: super::RxDma<T>,
-    {
-        self.write_read_timeout_internal(address, write, read, self.timeout)
-            .await
-    }
-
-    #[cfg(not(feature = "time"))]
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
-    where
-        TXDMA: super::TxDma<T>,
-        RXDMA: super::RxDma<T>,
-    {
-        self.write_read_timeout_internal(address, write, read, Duration::dummy_duration())
-            .await
-    }
-
-    #[cfg(feature = "time")]
-    pub async fn write_read_timeout(
-        &mut self,
-        address: u8,
-        write: &[u8],
-        read: &mut [u8],
-        timeout: Duration,
-    ) -> Result<(), Error>
-    where
-        TXDMA: super::TxDma<T>,
-        RXDMA: super::RxDma<T>,
-    {
-        self.write_read_timeout_internal(address, write, read, timeout).await
-    }
-
-    async fn write_read_timeout_internal(
-        &mut self,
-        address: u8,
-        write: &[u8],
-        read: &mut [u8],
-        timeout: Duration,
-    ) -> Result<(), Error>
     where
         TXDMA: super::TxDma<T>,
         RXDMA: super::RxDma<T>,
     {
         let start_instant = Instant::now();
-        let check_timeout = timeout_fn(timeout);
+        let check_timeout = timeout_fn(self.timeout);
         if write.is_empty() {
             self.write_internal(address, write, false, &check_timeout)?;
         } else {
             with_timeout(
-                timeout,
+                self.timeout,
                 self.write_dma_internal(address, write, true, true, &check_timeout),
             )
             .await
             .unwrap_or(Err(Error::Timeout))?;
         }
 
-        let time_left_until_timeout = timeout - Instant::now().duration_since(start_instant);
+        let time_left_until_timeout = self.timeout - Instant::now().duration_since(start_instant);
 
         if read.is_empty() {
             self.read_internal(address, read, true, &check_timeout)?;
