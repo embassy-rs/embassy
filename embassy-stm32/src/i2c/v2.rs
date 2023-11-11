@@ -1,5 +1,5 @@
 use core::cmp;
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
@@ -7,6 +7,8 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "time")]
+use embassy_time::{Duration, Instant};
 
 use crate::dma::{NoDma, Transfer};
 use crate::gpio::sealed::AFType;
@@ -16,75 +18,6 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c;
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
-
-/// # Async I2C Operations with Optional Timeouts
-///
-/// This module provides compatibility for async I2C operations with timeout-based APIs,
-/// even when the "time" feature is not enabled. In the absence of the "time" feature,
-/// operations effectively never time out.
-///
-/// ## Usage Scenario
-/// This is particularly useful in scenarios such as when using RTIC, where a user might
-/// have their own monotonic timer and thus choose not to enable the "time" feature.
-/// In such cases, this module allows the use of async I2C APIs without actual timeout
-/// handling.
-///
-/// ## Functionality
-/// - When the "time" feature is disabled, `Duration` and `Instant` types are provided
-///   as dummy implementations, and timeout functions do not perform real timing but
-///   simply mimic the required interfaces.
-/// - When the "time" feature is enabled, `Duration` and `Instant` from the `embassy_time`
-///   are used, and timeouts are handled as expected.
-#[cfg(not(feature = "time"))]
-mod dummy_time {
-    use core::ops::Sub;
-
-    use super::{Error, Future};
-
-    #[derive(Copy, Clone)]
-    pub struct Duration;
-
-    impl Duration {
-        pub fn dummy_duration() -> Duration {
-            Duration
-        }
-    }
-
-    pub struct Instant;
-
-    impl Instant {
-        pub fn now() -> Self {
-            Self
-        }
-
-        pub fn duration_since(&self, _since: Instant) -> Duration {
-            Duration
-        }
-    }
-
-    impl Sub for Duration {
-        type Output = Duration;
-
-        fn sub(self, _rhs: Duration) -> Duration {
-            Duration
-        }
-    }
-
-    /// Timeout that never times out.
-    pub fn timeout_fn(_timeout: Duration) -> impl Fn() -> Result<(), Error> {
-        move || Ok(())
-    }
-
-    /// This is compatible with `embassy_time::with_timeout` however it never times out.
-    pub async fn with_timeout<F: Future>(_timeout: Duration, fut: F) -> Result<F::Output, ()> {
-        Ok(fut.await)
-    }
-}
-
-#[cfg(not(feature = "time"))]
-use dummy_time::{timeout_fn, with_timeout, Duration, Instant};
-#[cfg(feature = "time")]
-use embassy_time::{Duration, Instant};
 
 #[cfg(feature = "time")]
 fn timeout_fn(timeout: Duration) -> impl Fn() -> Result<(), Error> {
@@ -98,9 +31,9 @@ fn timeout_fn(timeout: Duration) -> impl Fn() -> Result<(), Error> {
     }
 }
 
-#[cfg(feature = "time")]
-async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, embassy_time::TimeoutError> {
-    embassy_time::with_timeout(timeout, fut).await
+#[cfg(not(feature = "time"))]
+pub fn no_timeout_fn() -> impl Fn() -> Result<(), Error> {
+    move || Ok(())
 }
 
 /// Interrupt handler.
@@ -162,6 +95,7 @@ pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     tx_dma: PeripheralRef<'d, TXDMA>,
     #[allow(dead_code)]
     rx_dma: PeripheralRef<'d, RXDMA>,
+    #[cfg(feature = "time")]
     timeout: Duration,
 }
 
@@ -225,8 +159,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             rx_dma,
             #[cfg(feature = "time")]
             timeout: config.transaction_timeout,
-            #[cfg(not(feature = "time"))]
-            timeout: Duration::dummy_duration(),
         }
     }
 
@@ -679,6 +611,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
     // =========================
     //  Async public API
+    #[cfg(feature = "time")]
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -686,7 +619,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         if write.is_empty() {
             self.write_internal(address, write, true, timeout_fn(self.timeout))
         } else {
-            with_timeout(
+            embassy_time::with_timeout(
                 self.timeout,
                 self.write_dma_internal(address, write, true, true, timeout_fn(self.timeout)),
             )
@@ -695,6 +628,20 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
+    #[cfg(not(feature = "time"))]
+    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        if write.is_empty() {
+            self.write_internal(address, write, true, no_timeout_fn())
+        } else {
+            self.write_dma_internal(address, write, true, true, no_timeout_fn())
+                .await
+        }
+    }
+
+    #[cfg(feature = "time")]
     pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
@@ -710,7 +657,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let next = iter.next();
             let is_last = next.is_none();
 
-            with_timeout(
+            embassy_time::with_timeout(
                 self.timeout,
                 self.write_dma_internal(address, c, first, is_last, timeout_fn(self.timeout)),
             )
@@ -722,6 +669,31 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         Ok(())
     }
 
+    #[cfg(not(feature = "time"))]
+    pub async fn write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        if write.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        let mut iter = write.iter();
+
+        let mut first = true;
+        let mut current = iter.next();
+        while let Some(c) = current {
+            let next = iter.next();
+            let is_last = next.is_none();
+
+            self.write_dma_internal(address, c, first, is_last, no_timeout_fn())
+                .await?;
+            first = false;
+            current = next;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "time")]
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
@@ -729,7 +701,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         if buffer.is_empty() {
             self.read_internal(address, buffer, false, timeout_fn(self.timeout))
         } else {
-            with_timeout(
+            embassy_time::with_timeout(
                 self.timeout,
                 self.read_dma_internal(address, buffer, false, timeout_fn(self.timeout)),
             )
@@ -738,6 +710,19 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         }
     }
 
+    #[cfg(not(feature = "time"))]
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        if buffer.is_empty() {
+            self.read_internal(address, buffer, false, no_timeout_fn())
+        } else {
+            self.read_dma_internal(address, buffer, false, no_timeout_fn()).await
+        }
+    }
+
+    #[cfg(feature = "time")]
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
     where
         TXDMA: super::TxDma<T>,
@@ -748,7 +733,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         if write.is_empty() {
             self.write_internal(address, write, false, &check_timeout)?;
         } else {
-            with_timeout(
+            embassy_time::with_timeout(
                 self.timeout,
                 self.write_dma_internal(address, write, true, true, &check_timeout),
             )
@@ -761,12 +746,34 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         if read.is_empty() {
             self.read_internal(address, read, true, &check_timeout)?;
         } else {
-            with_timeout(
+            embassy_time::with_timeout(
                 time_left_until_timeout,
                 self.read_dma_internal(address, read, true, &check_timeout),
             )
             .await
             .unwrap_or(Err(Error::Timeout))?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "time"))]
+    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error>
+    where
+        TXDMA: super::TxDma<T>,
+        RXDMA: super::RxDma<T>,
+    {
+        let no_timeout = no_timeout_fn();
+        if write.is_empty() {
+            self.write_internal(address, write, false, &no_timeout)?;
+        } else {
+            self.write_dma_internal(address, write, true, true, &no_timeout).await?;
+        }
+
+        if read.is_empty() {
+            self.read_internal(address, read, true, &no_timeout)?;
+        } else {
+            self.read_dma_internal(address, read, true, &no_timeout).await?;
         }
 
         Ok(())
