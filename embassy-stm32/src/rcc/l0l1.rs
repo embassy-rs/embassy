@@ -1,7 +1,7 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Msirange as MSIRange, Plldiv as PLLDiv, Plldiv as PllDiv, Pllmul as PLLMul, Pllmul as PllMul,
-    Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
+    Hpre as AHBPrescaler, Msirange as MSIRange, Plldiv as PllDiv, Pllmul as PllMul, Pllsrc as PllSource,
+    Ppre as APBPrescaler, Sw as ClockSrc,
 };
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -29,7 +29,7 @@ pub struct Hse {
 #[derive(Clone, Copy)]
 pub struct Pll {
     /// PLL source
-    pub source: PLLSource,
+    pub source: PllSource,
 
     /// PLL multiplication factor.
     pub mul: PllMul,
@@ -116,8 +116,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     let pll = config.pll.map(|pll| {
         let freq = match pll.source {
-            PLLSource::HSE => hse.unwrap(),
-            PLLSource::HSI => hsi.unwrap(),
+            PllSource::HSE => hse.unwrap(),
+            PllSource::HSI => hsi.unwrap(),
         };
 
         // Disable PLL

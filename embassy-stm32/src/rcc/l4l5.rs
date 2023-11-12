@@ -5,7 +5,7 @@ pub use crate::pac::rcc::vals::Clk48sel as Clk48Src;
 pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{
     Adcsel as AdcClockSource, Hpre as AHBPrescaler, Msirange as MSIRange, Pllm as PllPreDiv, Plln as PllMul,
-    Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PLLSource, Ppre as APBPrescaler, Sw as ClockSrc,
+    Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PllSource, Ppre as APBPrescaler, Sw as ClockSrc,
 };
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -36,7 +36,7 @@ pub struct Hse {
 #[derive(Clone, Copy)]
 pub struct Pll {
     /// PLL source
-    pub source: PLLSource,
+    pub source: PllSource,
 
     /// PLL pre-divider (DIVM).
     pub prediv: PllPreDiv,
@@ -135,7 +135,7 @@ pub const WPAN_DEFAULT: Config = Config {
     ls: super::LsConfig::default_lse(),
 
     pll: Some(Pll {
-        source: PLLSource::HSE,
+        source: PllSource::HSE,
         prediv: PllPreDiv::DIV2,
         mul: PllMul::MUL12,
         divp: Some(PllPDiv::DIV3), // 32 / 2 * 12 / 3 = 64Mhz
@@ -456,10 +456,10 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
     let Some(pll) = config else { return PllOutput::default() };
 
     let pll_src = match pll.source {
-        PLLSource::DISABLE => panic!("must not select PLL source as DISABLE"),
-        PLLSource::HSE => input.hse,
-        PLLSource::HSI => input.hsi,
-        PLLSource::MSI => input.msi,
+        PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
+        PllSource::HSE => input.hse,
+        PllSource::HSI => input.hsi,
+        PllSource::MSI => input.msi,
     };
 
     let pll_src = pll_src.unwrap();

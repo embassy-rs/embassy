@@ -7,7 +7,7 @@ use core::convert::TryFrom;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{
-    APBPrescaler, ClockSrc, HSEConfig, HSESrc, PLLConfig, PLLMul, PLLPDiv, PLLPreDiv, PLLQDiv, PLLSrc,
+    APBPrescaler, ClockSrc, HSEConfig, HSESrc, Pll, PllMul, PllPDiv, PllPreDiv, PllQDiv, PllSource,
 };
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
@@ -25,16 +25,16 @@ async fn main(_spawner: Spawner) {
         source: HSESrc::Bypass,
     });
     // PLL uses HSE as the clock source
-    config.rcc.pll_mux = PLLSrc::HSE;
-    config.rcc.pll = PLLConfig {
+    config.rcc.pll_mux = PllSource::HSE;
+    config.rcc.pll = Pll {
         // 8 MHz clock source / 8 = 1 MHz PLL input
-        pre_div: unwrap!(PLLPreDiv::try_from(8)),
+        pre_div: unwrap!(PllPreDiv::try_from(8)),
         // 1 MHz PLL input * 240 = 240 MHz PLL VCO
-        mul: unwrap!(PLLMul::try_from(240)),
+        mul: unwrap!(PllMul::try_from(240)),
         // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
-        p_div: PLLPDiv::DIV2,
+        divp: PllPDiv::DIV2,
         // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
-        q_div: PLLQDiv::DIV5,
+        divq: PllQDiv::DIV5,
     };
     // System clock comes from PLL (= the 120 MHz main PLL output)
     config.rcc.mux = ClockSrc::PLL;

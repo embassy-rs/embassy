@@ -241,16 +241,16 @@ pub fn config() -> Config {
             source: HSESrc::Bypass,
         });
         // PLL uses HSE as the clock source
-        config.rcc.pll_mux = PLLSrc::HSE;
-        config.rcc.pll = PLLConfig {
+        config.rcc.pll_mux = PllSource::HSE;
+        config.rcc.pll = Pll {
             // 8 MHz clock source / 8 = 1 MHz PLL input
-            pre_div: unwrap!(PLLPreDiv::try_from(8)),
+            pre_div: unwrap!(PllPreDiv::try_from(8)),
             // 1 MHz PLL input * 240 = 240 MHz PLL VCO
-            mul: unwrap!(PLLMul::try_from(240)),
+            mul: unwrap!(PllMul::try_from(240)),
             // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
-            p_div: PLLPDiv::DIV2,
+            divp: PllPDiv::DIV2,
             // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
-            q_div: PLLQDiv::DIV5,
+            divq: PllQDiv::DIV5,
         };
         // System clock comes from PLL (= the 120 MHz main PLL output)
         config.rcc.mux = ClockSrc::PLL;
@@ -397,7 +397,7 @@ pub fn config() -> Config {
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PLLSource::HSI,
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV1,
             mul: PllMul::MUL18,
             divp: None,
@@ -416,7 +416,7 @@ pub fn config() -> Config {
         });
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.pll = Some(Pll {
-            source: PLLSource::HSE,
+            source: PllSource::HSE,
             prediv: PllPreDiv::DIV2,
             mul: PllMul::MUL6,
             divp: None,
@@ -432,7 +432,7 @@ pub fn config() -> Config {
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.pll = Some(Pll {
             // 110Mhz clock (16 / 4 * 55 / 2)
-            source: PLLSource::HSI,
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL55,
             divp: None,
@@ -462,9 +462,9 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PLLSource::HSI,
-            mul: PLLMul::MUL4,
-            div: PLLDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
+            source: PllSource::HSI,
+            mul: PllMul::MUL4,
+            div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
         config.rcc.mux = ClockSrc::PLL1_P;
     }
@@ -474,9 +474,9 @@ pub fn config() -> Config {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PLLSource::HSI,
-            mul: PLLMul::MUL4,
-            div: PLLDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
+            source: PllSource::HSI,
+            mul: PllMul::MUL4,
+            div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
         config.rcc.mux = ClockSrc::PLL1_P;
     }

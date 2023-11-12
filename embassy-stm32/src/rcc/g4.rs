@@ -23,16 +23,16 @@ pub enum ClockSrc {
 
 /// PLL clock input source
 #[derive(Clone, Copy, Debug)]
-pub enum PllSrc {
+pub enum PllSource {
     HSI,
     HSE(Hertz),
 }
 
-impl Into<Pllsrc> for PllSrc {
+impl Into<Pllsrc> for PllSource {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI => Pllsrc::HSI,
+            PllSource::HSE(..) => Pllsrc::HSE,
+            PllSource::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -44,7 +44,7 @@ impl Into<Pllsrc> for PllSrc {
 /// frequency ranges for each of these settings.
 pub struct Pll {
     /// PLL Source clock selection.
-    pub source: PllSrc,
+    pub source: PllSource,
 
     /// PLL pre-divider
     pub prediv_m: PllM,
@@ -118,13 +118,13 @@ pub struct PllFreq {
 pub(crate) unsafe fn init(config: Config) {
     let pll_freq = config.pll.map(|pll_config| {
         let src_freq = match pll_config.source {
-            PllSrc::HSI => {
+            PllSource::HSI => {
                 RCC.cr().write(|w| w.set_hsion(true));
                 while !RCC.cr().read().hsirdy() {}
 
                 HSI_FREQ
             }
-            PllSrc::HSE(freq) => {
+            PllSource::HSE(freq) => {
                 RCC.cr().write(|w| w.set_hseon(true));
                 while !RCC.cr().read().hserdy() {}
                 freq

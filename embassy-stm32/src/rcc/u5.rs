@@ -35,7 +35,7 @@ impl Default for ClockSrc {
 #[derive(Clone, Copy)]
 pub struct PllConfig {
     /// The clock source for the PLL.
-    pub source: PllSrc,
+    pub source: PllSource,
     /// The PLL prescaler.
     ///
     /// The clock speed of the `source` divided by `m` must be between 4 and 16 MHz.
@@ -57,7 +57,7 @@ impl PllConfig {
     /// A configuration for HSI / 1 * 10 / 1 = 160 MHz
     pub const fn hsi_160mhz() -> Self {
         PllConfig {
-            source: PllSrc::HSI,
+            source: PllSource::HSI,
             m: Pllm::DIV1,
             n: Plln::MUL10,
             r: Plldiv::DIV1,
@@ -67,7 +67,7 @@ impl PllConfig {
     /// A configuration for MSIS @ 48 MHz / 3 * 10 / 1 = 160 MHz
     pub const fn msis_160mhz() -> Self {
         PllConfig {
-            source: PllSrc::MSIS(Msirange::RANGE_48MHZ),
+            source: PllSource::MSIS(Msirange::RANGE_48MHZ),
             m: Pllm::DIV3,
             n: Plln::MUL10,
             r: Plldiv::DIV1,
@@ -76,7 +76,7 @@ impl PllConfig {
 }
 
 #[derive(Clone, Copy)]
-pub enum PllSrc {
+pub enum PllSource {
     /// Use an internal medium speed oscillator as the PLL source.
     MSIS(Msirange),
     /// Use the external high speed clock as the system PLL source.
@@ -88,12 +88,12 @@ pub enum PllSrc {
     HSI,
 }
 
-impl Into<Pllsrc> for PllSrc {
+impl Into<Pllsrc> for PllSource {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::MSIS(..) => Pllsrc::MSIS,
-            PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI => Pllsrc::HSI,
+            PllSource::MSIS(..) => Pllsrc::MSIS,
+            PllSource::HSE(..) => Pllsrc::HSE,
+            PllSource::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -216,9 +216,9 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::PLL1_R(pll) => {
             // Configure the PLL source
             let source_clk = match pll.source {
-                PllSrc::MSIS(range) => config.init_msis(range),
-                PllSrc::HSE(hertz) => config.init_hse(hertz),
-                PllSrc::HSI => config.init_hsi(),
+                PllSource::MSIS(range) => config.init_msis(range),
+                PllSource::HSE(hertz) => config.init_hse(hertz),
+                PllSource::HSI => config.init_hsi(),
             };
 
             // Calculate the reference clock, which is the source divided by m

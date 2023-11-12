@@ -4,7 +4,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{ClockSrc, Pll, PllM, PllN, PllR, PllSrc};
+use embassy_stm32::rcc::{ClockSrc, Pll, PllM, PllN, PllR, PllSource};
 use embassy_stm32::Config;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
     config.rcc.pll = Some(Pll {
-        source: PllSrc::HSI,
+        source: PllSource::HSI,
         prediv_m: PllM::DIV4,
         mul_n: PllN::MUL85,
         div_p: None,
