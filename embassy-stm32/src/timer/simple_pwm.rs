@@ -125,6 +125,10 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         self.inner.set_frequency(freq * multiplier);
     }
 
+    pub fn reset(&mut self) {
+        self.inner.reset()
+    }
+
     pub fn get_max_duty(&self) -> u16 {
         self.inner.get_max_compare_value() + 1
     }
