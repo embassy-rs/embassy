@@ -271,7 +271,7 @@ pub fn config() -> Config {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL180,
-            divp: Some(Pllp::DIV2), // 8mhz / 4 * 180 / 2 = 180Mhz.
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 180 / 2 = 180Mhz.
             divq: None,
             divr: None,
         });
@@ -292,7 +292,7 @@ pub fn config() -> Config {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL216,
-            divp: Some(Pllp::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz.
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz.
             divq: None,
             divr: None,
         });

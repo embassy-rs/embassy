@@ -1,7 +1,7 @@
 use crate::pac::pwr::vals::Vos;
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp, Pllq, Pllr, Pllsrc as PllSource,
-    Ppre as APBPrescaler, Sw as Sysclk,
+    Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv,
+    Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -49,11 +49,11 @@ pub struct Pll {
     pub mul: PllMul,
 
     /// PLL P division factor. If None, PLL P output is disabled.
-    pub divp: Option<Pllp>,
+    pub divp: Option<PllPDiv>,
     /// PLL Q division factor. If None, PLL Q output is disabled.
-    pub divq: Option<Pllq>,
+    pub divq: Option<PllQDiv>,
     /// PLL R division factor. If None, PLL R output is disabled.
-    pub divr: Option<Pllr>,
+    pub divr: Option<PllRDiv>,
 }
 
 /// Configuration of the core clocks
