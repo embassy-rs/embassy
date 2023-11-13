@@ -466,7 +466,7 @@ pub fn config() -> Config {
             mul: PllMul::MUL4,
             div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
-        config.rcc.mux = ClockSrc::PLL1_P;
+        config.rcc.mux = ClockSrc::PLL1_R;
     }
 
     #[cfg(any(feature = "stm32l152re"))]
@@ -478,7 +478,7 @@ pub fn config() -> Config {
             mul: PllMul::MUL4,
             div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
-        config.rcc.mux = ClockSrc::PLL1_P;
+        config.rcc.mux = ClockSrc::PLL1_R;
     }
 
     config

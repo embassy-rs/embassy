@@ -1,12 +1,13 @@
+#[cfg(any(stm32l0, stm32l1))]
+pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr;
-#[cfg(any(stm32l4, stm32l5, stm32wb))]
+#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
+#[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
 pub use crate::pac::rcc::vals::Clk48sel as Clk48Src;
 #[cfg(any(stm32wb, stm32wl))]
 pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
-pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Hpre as AHBPrescaler, Msirange as MSIRange, Pllm as PllPreDiv, Plln as PllMul,
-    Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PllSource, Ppre as APBPrescaler, Sw as ClockSrc,
-};
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange as MSIRange, Ppre as APBPrescaler, Sw as ClockSrc};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -31,25 +32,6 @@ pub struct Hse {
     /// HSE prescaler
     #[cfg(any(stm32wb, stm32wl))]
     pub prescaler: HsePrescaler,
-}
-
-#[derive(Clone, Copy)]
-pub struct Pll {
-    /// PLL source
-    pub source: PllSource,
-
-    /// PLL pre-divider (DIVM).
-    pub prediv: PllPreDiv,
-
-    /// PLL multiplication factor.
-    pub mul: PllMul,
-
-    /// PLL P division factor. If None, PLL P output is disabled.
-    pub divp: Option<PllPDiv>,
-    /// PLL Q division factor. If None, PLL Q output is disabled.
-    pub divq: Option<PllQDiv>,
-    /// PLL R division factor. If None, PLL R output is disabled.
-    pub divr: Option<PllRDiv>,
 }
 
 /// Clocks configuration
@@ -79,13 +61,17 @@ pub struct Config {
     pub shared_ahb_pre: AHBPrescaler,
 
     // muxes
-    #[cfg(any(stm32l4, stm32l5, stm32wb))]
+    #[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
     pub clk48_src: Clk48Src,
 
     // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
 
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
     pub adc_clock_source: AdcClockSource,
+
+    #[cfg(any(stm32l0, stm32l1))]
+    pub voltage_scale: VoltageScale,
 }
 
 impl Default for Config {
@@ -110,10 +96,13 @@ impl Default for Config {
             pllsai2: None,
             #[cfg(crs)]
             hsi48: Some(Default::default()),
-            #[cfg(any(stm32l4, stm32l5, stm32wb))]
+            #[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
             clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
+            #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
             adc_clock_source: AdcClockSource::SYS,
+            #[cfg(any(stm32l0, stm32l1))]
+            voltage_scale: VoltageScale::RANGE1,
         }
     }
 }
@@ -152,26 +141,40 @@ pub const WPAN_DEFAULT: Config = Config {
     adc_clock_source: AdcClockSource::SYS,
 };
 
+fn msi_enable(range: MSIRange) {
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+    RCC.cr().modify(|w| {
+        #[cfg(not(stm32wb))]
+        w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::CR);
+        w.set_msirange(range);
+        w.set_msipllen(false);
+    });
+    #[cfg(any(stm32l0, stm32l1))]
+    RCC.icscr().modify(|w| w.set_msirange(range));
+
+    RCC.cr().modify(|w| w.set_msion(true));
+    while !RCC.cr().read().msirdy() {}
+}
+
 pub(crate) unsafe fn init(config: Config) {
     // Switch to MSI to prevent problems with PLL configuration.
     if !RCC.cr().read().msion() {
         // Turn on MSI and configure it to 4MHz.
-        RCC.cr().modify(|w| {
-            #[cfg(not(stm32wb))]
-            w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::CR);
-            w.set_msirange(MSIRange::RANGE4M);
-            w.set_msipllen(false);
-            w.set_msion(true)
-        });
-
-        // Wait until MSI is running
-        while !RCC.cr().read().msirdy() {}
+        msi_enable(MSIRange::RANGE4M)
     }
     if RCC.cfgr().read().sws() != ClockSrc::MSI {
         // Set MSI as a clock source, reset prescalers.
         RCC.cfgr().write_value(Cfgr::default());
         // Wait for clock switch status bits to change.
         while RCC.cfgr().read().sws() != ClockSrc::MSI {}
+    }
+
+    // Set voltage scale
+    #[cfg(any(stm32l0, stm32l1))]
+    {
+        while crate::pac::PWR.csr().read().vosf() {}
+        crate::pac::PWR.cr().write(|w| w.set_vos(config.voltage_scale));
+        while crate::pac::PWR.csr().read().vosf() {}
     }
 
     #[cfg(stm32l5)]
@@ -182,20 +185,15 @@ pub(crate) unsafe fn init(config: Config) {
     let rtc = config.ls.init();
 
     let msi = config.msi.map(|range| {
-        // Enable MSI
-        RCC.cr().modify(|w| {
-            #[cfg(not(stm32wb))]
-            w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::CR);
-            w.set_msirange(range);
-            w.set_msion(true);
-
-            // If LSE is enabled, enable calibration of MSI
-            w.set_msipllen(config.ls.lse.is_some());
-        });
-        while !RCC.cr().read().msirdy() {}
-
+        msi_enable(range);
         msirange_to_hertz(range)
     });
+
+    // If LSE is enabled and the right freq, enable calibration of MSI
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+    if config.ls.lse.map(|x| x.frequency) == Some(Hertz(32_768)) {
+        RCC.cr().modify(|w| w.set_msipllen(true));
+    }
 
     let hsi = config.hsi.then(|| {
         RCC.cr().modify(|w| w.set_hsion(true));
@@ -218,7 +216,10 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     #[cfg(crs)]
-    let _hsi48 = config.hsi48.map(super::init_hsi48);
+    let _hsi48 = config.hsi48.map(|config| {
+        //
+        super::init_hsi48(config)
+    });
     #[cfg(not(crs))]
     let _hsi48: Option<Hertz> = None;
 
@@ -251,7 +252,12 @@ pub(crate) unsafe fn init(config: Config) {
         }),
     };
 
-    let pll_input = PllInput { hse, hsi, msi };
+    let pll_input = PllInput {
+        hse,
+        hsi,
+        #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+        msi,
+    };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
     let pllsai1 = init_pll(PllInstance::Pllsai1, config.pllsai1, &pll_input);
@@ -265,10 +271,13 @@ pub(crate) unsafe fn init(config: Config) {
         ClockSrc::PLL1_R => pll.r.unwrap(),
     };
 
-    #[cfg(stm32l4)]
+    #[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
     RCC.ccipr().modify(|w| w.set_clk48sel(config.clk48_src));
-    #[cfg(stm32l5)]
-    RCC.ccipr1().modify(|w| w.set_clk48sel(config.clk48_src));
+    #[cfg(any(rcc_l0_v2))]
+    let _clk48 = match config.clk48_src {
+        Clk48Src::HSI48 => _hsi48,
+        Clk48Src::PLL1_VCO_DIV_2 => pll.clk48,
+    };
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
     let _clk48 = match config.clk48_src {
         Clk48Src::HSI48 => _hsi48,
@@ -285,16 +294,23 @@ pub(crate) unsafe fn init(config: Config) {
     let hclk1 = sys_clk / config.ahb_pre;
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
-    #[cfg(not(any(stm32wl5x, stm32wb)))]
+    #[cfg(any(stm32l4, stm32l5, stm32wlex))]
     let hclk2 = hclk1;
     #[cfg(any(stm32wl5x, stm32wb))]
     let hclk2 = sys_clk / config.core2_ahb_pre;
-    #[cfg(not(any(stm32wl, stm32wb)))]
+    #[cfg(any(stm32l4, stm32l5, stm32wlex))]
     let hclk3 = hclk1;
-    #[cfg(any(stm32wl, stm32wb))]
+    #[cfg(any(stm32wl5x, stm32wb))]
     let hclk3 = sys_clk / config.shared_ahb_pre;
 
     // Set flash wait states
+    #[cfg(any(stm32l0, stm32l1))]
+    let latency = match (config.voltage_scale, sys_clk.0) {
+        (VoltageScale::RANGE1, ..=16_000_000) => false,
+        (VoltageScale::RANGE2, ..=8_000_000) => false,
+        (VoltageScale::RANGE3, ..=4_200_000) => false,
+        _ => true,
+    };
     #[cfg(stm32l4)]
     let latency = match hclk1.0 {
         0..=16_000_000 => 0,
@@ -330,6 +346,10 @@ pub(crate) unsafe fn init(config: Config) {
         _ => 4,
     };
 
+    #[cfg(stm32l1)]
+    FLASH.acr().write(|w| w.set_acc64(true));
+    #[cfg(not(stm32l5))]
+    FLASH.acr().modify(|w| w.set_prften(true));
     FLASH.acr().modify(|w| w.set_latency(latency));
     while FLASH.acr().read().latency() != latency {}
 
@@ -341,9 +361,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
     while RCC.cfgr().read().sws() != config.mux {}
 
-    #[cfg(stm32l5)]
-    RCC.ccipr1().modify(|w| w.set_adcsel(config.adc_clock_source));
-    #[cfg(not(stm32l5))]
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
     RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source));
 
     #[cfg(any(stm32wl, stm32wb))]
@@ -361,7 +379,9 @@ pub(crate) unsafe fn init(config: Config) {
     set_freqs(Clocks {
         sys: sys_clk,
         hclk1,
+        #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
         hclk2,
+        #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
         hclk3,
         pclk1,
         pclk2,
@@ -389,6 +409,12 @@ pub(crate) unsafe fn init(config: Config) {
     });
 }
 
+#[cfg(any(stm32l0, stm32l1))]
+fn msirange_to_hertz(range: MSIRange) -> Hertz {
+    Hertz(32_768 * (1 << (range as u8 + 1)))
+}
+
+#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
 fn msirange_to_hertz(range: MSIRange) -> Hertz {
     match range {
         MSIRange::RANGE100K => Hertz(100_000),
@@ -405,20 +431,6 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
         MSIRange::RANGE48M => Hertz(48_000_000),
         _ => unreachable!(),
     }
-}
-
-struct PllInput {
-    hsi: Option<Hertz>,
-    hse: Option<Hertz>,
-    msi: Option<Hertz>,
-}
-
-#[allow(unused)]
-#[derive(Default)]
-struct PllOutput {
-    p: Option<Hertz>,
-    q: Option<Hertz>,
-    r: Option<Hertz>,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -449,77 +461,182 @@ fn pll_enable(instance: PllInstance, enabled: bool) {
     }
 }
 
-fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> PllOutput {
-    // Disable PLL
-    pll_enable(instance, false);
+pub use pll::*;
 
-    let Some(pll) = config else { return PllOutput::default() };
+#[cfg(any(stm32l0, stm32l1))]
+mod pll {
+    use super::{pll_enable, PllInstance};
+    pub use crate::pac::rcc::vals::{Plldiv as PllDiv, Pllmul as PllMul, Pllsrc as PllSource};
+    use crate::pac::RCC;
+    use crate::time::Hertz;
 
-    let pll_src = match pll.source {
-        PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
-        PllSource::HSE => input.hse,
-        PllSource::HSI => input.hsi,
-        PllSource::MSI => input.msi,
-    };
+    #[derive(Clone, Copy)]
+    pub struct Pll {
+        /// PLL source
+        pub source: PllSource,
 
-    let pll_src = pll_src.unwrap();
+        /// PLL multiplication factor.
+        pub mul: PllMul,
 
-    let vco_freq = pll_src / pll.prediv * pll.mul;
-
-    let p = pll.divp.map(|div| vco_freq / div);
-    let q = pll.divq.map(|div| vco_freq / div);
-    let r = pll.divr.map(|div| vco_freq / div);
-
-    #[cfg(stm32l5)]
-    if instance == PllInstance::Pllsai2 {
-        assert!(q.is_none(), "PLLSAI2_Q is not available on L5");
-        assert!(r.is_none(), "PLLSAI2_R is not available on L5");
+        /// PLL main output division factor.
+        pub div: PllDiv,
     }
 
-    macro_rules! write_fields {
-        ($w:ident) => {
-            $w.set_plln(pll.mul);
-            if let Some(divp) = pll.divp {
-                $w.set_pllp(divp);
-                $w.set_pllpen(true);
-            }
-            if let Some(divq) = pll.divq {
-                $w.set_pllq(divq);
-                $w.set_pllqen(true);
-            }
-            if let Some(divr) = pll.divr {
-                $w.set_pllr(divr);
-                $w.set_pllren(true);
-            }
+    pub(super) struct PllInput {
+        pub hsi: Option<Hertz>,
+        pub hse: Option<Hertz>,
+    }
+
+    #[allow(unused)]
+    #[derive(Default)]
+    pub(super) struct PllOutput {
+        pub r: Option<Hertz>,
+        pub clk48: Option<Hertz>,
+    }
+
+    pub(super) fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> PllOutput {
+        // Disable PLL
+        pll_enable(instance, false);
+
+        let Some(pll) = config else { return PllOutput::default() };
+
+        let pll_src = match pll.source {
+            PllSource::HSE => unwrap!(input.hse),
+            PllSource::HSI => unwrap!(input.hsi),
         };
+
+        let vco_freq = pll_src * pll.mul;
+
+        let r = vco_freq / pll.div;
+        let clk48 = (vco_freq == Hertz(96_000_000)).then_some(Hertz(48_000_000));
+
+        assert!(r <= Hertz(32_000_000));
+
+        RCC.cfgr().write(move |w| {
+            w.set_pllmul(pll.mul);
+            w.set_plldiv(pll.div);
+            w.set_pllsrc(pll.source);
+        });
+
+        // Enable PLL
+        pll_enable(instance, true);
+
+        PllOutput { r: Some(r), clk48 }
+    }
+}
+
+#[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
+mod pll {
+    use super::{pll_enable, PllInstance};
+    pub use crate::pac::rcc::vals::{
+        Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PllSource,
+    };
+    use crate::pac::RCC;
+    use crate::time::Hertz;
+
+    #[derive(Clone, Copy)]
+    pub struct Pll {
+        /// PLL source
+        pub source: PllSource,
+
+        /// PLL pre-divider (DIVM).
+        pub prediv: PllPreDiv,
+
+        /// PLL multiplication factor.
+        pub mul: PllMul,
+
+        /// PLL P division factor. If None, PLL P output is disabled.
+        pub divp: Option<PllPDiv>,
+        /// PLL Q division factor. If None, PLL Q output is disabled.
+        pub divq: Option<PllQDiv>,
+        /// PLL R division factor. If None, PLL R output is disabled.
+        pub divr: Option<PllRDiv>,
     }
 
-    match instance {
-        PllInstance::Pll => RCC.pllcfgr().write(|w| {
-            w.set_pllm(pll.prediv);
-            w.set_pllsrc(pll.source);
-            write_fields!(w);
-        }),
-        #[cfg(any(stm32l4, stm32l5, stm32wb))]
-        PllInstance::Pllsai1 => RCC.pllsai1cfgr().write(|w| {
-            #[cfg(any(rcc_l4plus, stm32l5))]
-            w.set_pllm(pll.prediv);
-            #[cfg(stm32l5)]
-            w.set_pllsrc(pll.source);
-            write_fields!(w);
-        }),
-        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
-        PllInstance::Pllsai2 => RCC.pllsai2cfgr().write(|w| {
-            #[cfg(any(rcc_l4plus, stm32l5))]
-            w.set_pllm(pll.prediv);
-            #[cfg(stm32l5)]
-            w.set_pllsrc(pll.source);
-            write_fields!(w);
-        }),
+    pub(super) struct PllInput {
+        pub hsi: Option<Hertz>,
+        pub hse: Option<Hertz>,
+        pub msi: Option<Hertz>,
     }
 
-    // Enable PLL
-    pll_enable(instance, true);
+    #[allow(unused)]
+    #[derive(Default)]
+    pub(super) struct PllOutput {
+        pub p: Option<Hertz>,
+        pub q: Option<Hertz>,
+        pub r: Option<Hertz>,
+    }
 
-    PllOutput { p, q, r }
+    pub(super) fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> PllOutput {
+        // Disable PLL
+        pll_enable(instance, false);
+
+        let Some(pll) = config else { return PllOutput::default() };
+
+        let pll_src = match pll.source {
+            PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
+            PllSource::HSE => unwrap!(input.hse),
+            PllSource::HSI => unwrap!(input.hsi),
+            PllSource::MSI => unwrap!(input.msi),
+        };
+
+        let vco_freq = pll_src / pll.prediv * pll.mul;
+
+        let p = pll.divp.map(|div| vco_freq / div);
+        let q = pll.divq.map(|div| vco_freq / div);
+        let r = pll.divr.map(|div| vco_freq / div);
+
+        #[cfg(stm32l5)]
+        if instance == PllInstance::Pllsai2 {
+            assert!(q.is_none(), "PLLSAI2_Q is not available on L5");
+            assert!(r.is_none(), "PLLSAI2_R is not available on L5");
+        }
+
+        macro_rules! write_fields {
+            ($w:ident) => {
+                $w.set_plln(pll.mul);
+                if let Some(divp) = pll.divp {
+                    $w.set_pllp(divp);
+                    $w.set_pllpen(true);
+                }
+                if let Some(divq) = pll.divq {
+                    $w.set_pllq(divq);
+                    $w.set_pllqen(true);
+                }
+                if let Some(divr) = pll.divr {
+                    $w.set_pllr(divr);
+                    $w.set_pllren(true);
+                }
+            };
+        }
+
+        match instance {
+            PllInstance::Pll => RCC.pllcfgr().write(|w| {
+                w.set_pllm(pll.prediv);
+                w.set_pllsrc(pll.source);
+                write_fields!(w);
+            }),
+            #[cfg(any(stm32l4, stm32l5, stm32wb))]
+            PllInstance::Pllsai1 => RCC.pllsai1cfgr().write(|w| {
+                #[cfg(any(rcc_l4plus, stm32l5))]
+                w.set_pllm(pll.prediv);
+                #[cfg(stm32l5)]
+                w.set_pllsrc(pll.source);
+                write_fields!(w);
+            }),
+            #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+            PllInstance::Pllsai2 => RCC.pllsai2cfgr().write(|w| {
+                #[cfg(any(rcc_l4plus, stm32l5))]
+                w.set_pllm(pll.prediv);
+                #[cfg(stm32l5)]
+                w.set_pllsrc(pll.source);
+                write_fields!(w);
+            }),
+        }
+
+        // Enable PLL
+        pll_enable(instance, true);
+
+        PllOutput { p, q, r }
+    }
 }
