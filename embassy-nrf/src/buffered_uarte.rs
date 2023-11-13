@@ -282,6 +282,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         let r = U::regs();
 
+        let hwfc = cts.is_some();
+
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
 
@@ -311,7 +313,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         // Configure
         r.config.write(|w| {
-            w.hwfc().bit(false);
+            w.hwfc().bit(hwfc);
             w.parity().variant(config.parity);
             w
         });
