@@ -43,7 +43,7 @@ async fn main(spawner: Spawner) -> ! {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL216,
-            divp: Some(Pllp::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz
             divq: None,
             divr: None,
         });

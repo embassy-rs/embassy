@@ -236,24 +236,25 @@ pub fn config() -> Config {
     {
         use embassy_stm32::rcc::*;
         // By default, HSE on the board comes from a 8 MHz clock signal (not a crystal)
-        config.rcc.hse = Some(HSEConfig {
-            frequency: Hertz(8_000_000),
-            source: HSESrc::Bypass,
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
         });
         // PLL uses HSE as the clock source
-        config.rcc.pll_mux = PllSource::HSE;
-        config.rcc.pll = Pll {
+        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll = Some(Pll {
             // 8 MHz clock source / 8 = 1 MHz PLL input
-            pre_div: unwrap!(PllPreDiv::try_from(8)),
+            prediv: unwrap!(PllPreDiv::try_from(8)),
             // 1 MHz PLL input * 240 = 240 MHz PLL VCO
             mul: unwrap!(PllMul::try_from(240)),
             // 240 MHz PLL VCO / 2 = 120 MHz main PLL output
-            divp: PllPDiv::DIV2,
+            divp: Some(PllPDiv::DIV2),
             // 240 MHz PLL VCO / 5 = 48 MHz PLL48 output
-            divq: PllQDiv::DIV5,
-        };
+            divq: Some(PllQDiv::DIV5),
+            divr: None,
+        });
         // System clock comes from PLL (= the 120 MHz main PLL output)
-        config.rcc.mux = ClockSrc::PLL;
+        config.rcc.sys = Sysclk::PLL1_P;
         // 120 MHz / 4 = 30 MHz APB1 frequency
         config.rcc.apb1_pre = APBPrescaler::DIV4;
         // 120 MHz / 2 = 60 MHz APB2 frequency
@@ -271,7 +272,7 @@ pub fn config() -> Config {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL180,
-            divp: Some(Pllp::DIV2), // 8mhz / 4 * 180 / 2 = 180Mhz.
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 180 / 2 = 180Mhz.
             divq: None,
             divr: None,
         });
@@ -292,7 +293,7 @@ pub fn config() -> Config {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL216,
-            divp: Some(Pllp::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz.
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz.
             divq: None,
             divr: None,
         });

@@ -15,14 +15,13 @@ mod hsi48;
 pub use hsi48::*;
 
 #[cfg_attr(rcc_f0, path = "f0.rs")]
-#[cfg_attr(any(rcc_f1, rcc_f100, rcc_f1cl), path = "f1.rs")]
-#[cfg_attr(rcc_f2, path = "f2.rs")]
-#[cfg_attr(any(rcc_f3, rcc_f3_v2), path = "f3.rs")]
-#[cfg_attr(any(rcc_f4, rcc_f410, rcc_f7), path = "f4f7.rs")]
+#[cfg_attr(any(stm32f1), path = "f1.rs")]
+#[cfg_attr(any(stm32f3), path = "f3.rs")]
+#[cfg_attr(any(stm32f2, stm32f4, stm32f7), path = "f.rs")]
 #[cfg_attr(rcc_c0, path = "c0.rs")]
 #[cfg_attr(rcc_g0, path = "g0.rs")]
 #[cfg_attr(rcc_g4, path = "g4.rs")]
-#[cfg_attr(any(rcc_h5, rcc_h50, rcc_h7, rcc_h7rm0433, rcc_h7ab), path = "h.rs")]
+#[cfg_attr(any(stm32h5, stm32h7), path = "h.rs")]
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl), path = "l.rs")]
 #[cfg_attr(rcc_u5, path = "u5.rs")]
 #[cfg_attr(rcc_wba, path = "wba.rs")]
