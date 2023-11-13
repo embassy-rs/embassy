@@ -1,7 +1,7 @@
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::Sw;
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Pllm as PLLPreDiv, Plln as PLLMul, Pllp as PLLPDiv, Pllq as PLLQDiv, Pllsrc as PLLSrc,
+    Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllsrc as PllSource,
     Ppre as APBPrescaler,
 };
 use crate::pac::{FLASH, RCC};
@@ -35,30 +35,30 @@ pub enum HSESrc {
 }
 
 #[derive(Clone, Copy)]
-pub struct PLLConfig {
-    pub pre_div: PLLPreDiv,
-    pub mul: PLLMul,
-    pub p_div: PLLPDiv,
-    pub q_div: PLLQDiv,
+pub struct Pll {
+    pub pre_div: PllPreDiv,
+    pub mul: PllMul,
+    pub divp: PllPDiv,
+    pub divq: PllQDiv,
 }
 
-impl Default for PLLConfig {
+impl Default for Pll {
     fn default() -> Self {
-        PLLConfig {
-            pre_div: PLLPreDiv::DIV16,
-            mul: PLLMul::MUL192,
-            p_div: PLLPDiv::DIV2,
-            q_div: PLLQDiv::DIV4,
+        Pll {
+            pre_div: PllPreDiv::DIV16,
+            mul: PllMul::MUL192,
+            divp: PllPDiv::DIV2,
+            divq: PllQDiv::DIV4,
         }
     }
 }
 
-impl PLLConfig {
+impl Pll {
     pub fn clocks(&self, src_freq: Hertz) -> PLLClocks {
         let in_freq = src_freq / self.pre_div;
         let vco_freq = src_freq / self.pre_div * self.mul;
-        let main_freq = vco_freq / self.p_div;
-        let pll48_freq = vco_freq / self.q_div;
+        let main_freq = vco_freq / self.divp;
+        let pll48_freq = vco_freq / self.divq;
         PLLClocks {
             in_freq,
             vco_freq,
@@ -172,8 +172,8 @@ impl VoltageScale {
 pub struct Config {
     pub hse: Option<HSEConfig>,
     pub hsi: bool,
-    pub pll_mux: PLLSrc,
-    pub pll: PLLConfig,
+    pub pll_mux: PllSource,
+    pub pll: Pll,
     pub mux: ClockSrc,
     pub voltage: VoltageScale,
     pub ahb_pre: AHBPrescaler,
@@ -188,8 +188,8 @@ impl Default for Config {
         Config {
             hse: None,
             hsi: true,
-            pll_mux: PLLSrc::HSI,
-            pll: PLLConfig::default(),
+            pll_mux: PllSource::HSI,
+            pll: Pll::default(),
             voltage: VoltageScale::Range3,
             mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::DIV1,
@@ -217,13 +217,13 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     let pll_src_freq = match config.pll_mux {
-        PLLSrc::HSE => {
+        PllSource::HSE => {
             let hse_config = config
                 .hse
                 .unwrap_or_else(|| panic!("HSE must be configured to be used as PLL input"));
             hse_config.frequency
         }
-        PLLSrc::HSI => HSI_FREQ,
+        PllSource::HSI => HSI_FREQ,
     };
 
     // Reference: STM32F215xx/217xx datasheet Table 33. Main PLL characteristics
@@ -238,8 +238,8 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_pllsrc(config.pll_mux);
         w.set_pllm(config.pll.pre_div);
         w.set_plln(config.pll.mul);
-        w.set_pllp(config.pll.p_div);
-        w.set_pllq(config.pll.q_div);
+        w.set_pllp(config.pll.divp);
+        w.set_pllq(config.pll.divq);
     });
 
     let (sys_clk, sw) = match config.mux {

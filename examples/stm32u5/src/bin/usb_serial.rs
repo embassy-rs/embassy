@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::default();
     config.rcc.mux = ClockSrc::PLL1_R(PllConfig {
-        source: PllSrc::HSI,
+        source: PllSource::HSI,
         m: Pllm::DIV2,
         n: Plln::MUL10,
         r: Plldiv::DIV1,

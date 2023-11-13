@@ -17,16 +17,16 @@ pub enum ClockSrc {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum PllSrc {
+pub enum PllSource {
     HSE(Hertz),
     HSI,
 }
 
-impl Into<Pllsrc> for PllSrc {
+impl Into<Pllsrc> for PllSource {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI => Pllsrc::HSI,
+            PllSource::HSE(..) => Pllsrc::HSE,
+            PllSource::HSI => Pllsrc::HSI,
         }
     }
 }
