@@ -25,7 +25,7 @@ features = ["nightly", "defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "me
 default = []
 std = []
 
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03"]
 
 nightly = ["dep:embedded-io-async", "dep:embedded-nal-async"]
 
@@ -46,7 +46,7 @@ igmp = ["smoltcp/proto-igmp"]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp", rev = "9b791ae3057e10f7afcb70c67deb5daf714293a9", default-features = false, features = [
+smoltcp = { git = "https://github.com/smoltcp-rs/smoltcp.git", rev = "b57e2f9e70e82a13f31d5ea17e55232c11cc2b2d", default-features = false, features = [
   "socket",
   "async",
 ] }
