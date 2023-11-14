@@ -9,7 +9,8 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::{pac, peripherals, Peripheral};
+use crate::pac::{self, resets};
+use crate::{peripherals, reset, Peripheral};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -24,6 +25,7 @@ pub struct Config {
     pub frequency: u32,
     pub phase: Phase,
     pub polarity: Polarity,
+    pub slave: bool,
 }
 
 impl Default for Config {
@@ -32,6 +34,7 @@ impl Default for Config {
             frequency: 1_000_000,
             phase: Phase::CaptureOnFirstTransition,
             polarity: Polarity::IdleLow,
+            slave: false,
         }
     }
 }
@@ -40,6 +43,7 @@ pub struct Spi<'d, T: Instance, M: Mode> {
     inner: PeripheralRef<'d, T>,
     tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
     rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
+    config: Config,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
@@ -78,26 +82,9 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         config: Config,
     ) -> Self {
         into_ref!(inner);
-
         let p = inner.regs();
-        let (presc, postdiv) = calc_prescs(config.frequency);
 
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
-        p.cr0().write(|w| {
-            w.set_dss(0b0111); // 8bit
-            w.set_spo(config.polarity == Polarity::IdleHigh);
-            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-            w.set_scr(postdiv);
-        });
-
-        // Always enable DREQ signals -- harmless if DMA is not listening
-        p.dmacr().write(|reg| {
-            reg.set_rxdmae(true);
-            reg.set_txdmae(true);
-        });
-
-        // finally, enable.
-        p.cr1().write(|w| w.set_sse(true));
+        Self::configure(p, &config);
 
         if let Some(pin) = &clk {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
@@ -115,6 +102,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             inner,
             tx_dma,
             rx_dma,
+            config,
             phantom: PhantomData,
         }
     }
@@ -192,6 +180,37 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
         // enable
         p.cr1().write(|w| w.set_sse(true));
+    }
+
+    pub fn reset(&mut self) {
+        let p = self.inner.reset_peri();
+        reset::reset(p);
+        reset::unreset_wait(p);
+        Self::configure(self.inner.regs(), &self.config);
+    }
+
+    fn configure(p: pac::spi::Spi, config: &Config) {
+        let (presc, postdiv) = calc_prescs(config.frequency);
+
+        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        p.cr0().write(|w| {
+            w.set_dss(0b0111); // 8bit
+            w.set_spo(config.polarity == Polarity::IdleHigh);
+            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
+            w.set_scr(postdiv);
+        });
+
+        // Always enable DREQ signals -- harmless if DMA is not listening
+        p.dmacr().write(|reg| {
+            reg.set_rxdmae(true);
+            reg.set_txdmae(true);
+        });
+
+        // finally, enable.
+        p.cr1().write(|w| {
+            w.set_ms(config.slave);
+            w.set_sse(true)
+        });
     }
 }
 
@@ -431,6 +450,8 @@ mod sealed {
         const RX_DREQ: u8;
 
         fn regs(&self) -> pac::spi::Spi;
+
+        fn reset_peri(&self) -> resets::regs::Peripherals;
     }
 }
 
@@ -438,7 +459,7 @@ pub trait Mode: sealed::Mode {}
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
-    ($type:ident, $irq:ident, $tx_dreq:expr, $rx_dreq:expr) => {
+    ($type:ident, $reset:ident, $tx_dreq:expr, $rx_dreq:expr) => {
         impl sealed::Instance for peripherals::$type {
             const TX_DREQ: u8 = $tx_dreq;
             const RX_DREQ: u8 = $rx_dreq;
@@ -446,13 +467,19 @@ macro_rules! impl_instance {
             fn regs(&self) -> pac::spi::Spi {
                 pac::$type
             }
+
+            fn reset_peri(&self) -> resets::regs::Peripherals {
+                let mut r = resets::regs::Peripherals::default();
+                r.$reset(true);
+                r
+            }
         }
         impl Instance for peripherals::$type {}
     };
 }
 
-impl_instance!(SPI0, Spi0, 16, 17);
-impl_instance!(SPI1, Spi1, 18, 19);
+impl_instance!(SPI0, set_spi0, 16, 17);
+impl_instance!(SPI1, set_spi1, 18, 19);
 
 pub trait ClkPin<T: Instance>: GpioPin {}
 pub trait CsPin<T: Instance>: GpioPin {}
@@ -599,16 +626,8 @@ impl<'d, T: Instance, M: Mode> SetConfig for Spi<'d, T, M> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        let p = self.inner.regs();
-        let (presc, postdiv) = calc_prescs(config.frequency);
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
-        p.cr0().write(|w| {
-            w.set_dss(0b0111); // 8bit
-            w.set_spo(config.polarity == Polarity::IdleHigh);
-            w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-            w.set_scr(postdiv);
-        });
-
+        self.config = config.clone();
+        Self::configure(self.inner.regs(), &self.config);
         Ok(())
     }
 }
