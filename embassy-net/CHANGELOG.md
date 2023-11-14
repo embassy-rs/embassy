@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - Avoid never resolving `TcpIo::read` when the output buffer is empty.
+- Update to `smoltcp` git.
+- Forward constants from `smoltcp` in DNS query results so changing DNS result size in `smoltcp` properly propagates.
 
 ## 0.2.1 - 2023-10-31
 
