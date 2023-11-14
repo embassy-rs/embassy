@@ -63,7 +63,11 @@ where
     }
 
     /// Make a query for a given name and return the corresponding IP addresses.
-    pub async fn query(&self, name: &str, qtype: DnsQueryType) -> Result<Vec<IpAddress, 1>, Error> {
+    pub async fn query(
+        &self,
+        name: &str,
+        qtype: DnsQueryType,
+    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
