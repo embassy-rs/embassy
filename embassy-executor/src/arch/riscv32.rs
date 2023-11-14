@@ -7,9 +7,9 @@ pub use thread::*;
 mod thread {
     use core::marker::PhantomData;
 
-    use atomic_polyfill::{AtomicBool, Ordering};
     #[cfg(feature = "nightly")]
     pub use embassy_macros::main_riscv as main;
+    use portable_atomic::{AtomicBool, Ordering};
 
     use crate::{raw, Spawner};
 
