@@ -1129,6 +1129,13 @@ where
     type Error = Error;
 }
 
+impl<T, RxDma> embedded_io::ErrorType for UartRx<'_, T, RxDma>
+where
+    T: BasicInstance,
+{
+    type Error = Error;
+}
+
 impl<T, TxDma, RxDma> embedded_io::Write for Uart<'_, T, TxDma, RxDma>
 where
     T: BasicInstance,
@@ -1156,6 +1163,28 @@ where
 
     fn flush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
+    }
+}
+
+impl<T, TxDma, RxDma> embedded_io::Read for Uart<'_, T, TxDma, RxDma>
+where
+    T: BasicInstance,
+    RxDma: crate::usart::RxDma<T>,
+{
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.blocking_read(buf)?;
+        Ok(buf.len())
+    }
+}
+
+impl<T, RxDma> embedded_io::Read for UartRx<'_, T, RxDma>
+where
+    T: BasicInstance,
+    RxDma: crate::usart::RxDma<T>,
+{
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.blocking_read(buf)?;
+        Ok(buf.len())
     }
 }
 
@@ -1190,6 +1219,28 @@ mod eio {
 
         async fn flush(&mut self) -> Result<(), Self::Error> {
             self.blocking_flush()
+        }
+    }
+
+    impl<T, TxDma, RxDma> embedded_io_async::Read for Uart<'_, T, TxDma, RxDma>
+    where
+        T: BasicInstance,
+        RxDma: super::RxDma<T>,
+    {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.read(buf).await?;
+            Ok(buf.len())
+        }
+    }
+
+    impl<T, RxDma> embedded_io_async::Read for UartRx<'_, T, RxDma>
+    where
+        T: BasicInstance,
+        RxDma: super::RxDma<T>,
+    {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            self.read(buf).await?;
+            Ok(buf.len())
         }
     }
 }
