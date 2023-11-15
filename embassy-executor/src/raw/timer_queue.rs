@@ -1,9 +1,8 @@
 use core::cmp::min;
 
-use atomic_polyfill::Ordering;
 use embassy_time::Instant;
 
-use super::{TaskRef, STATE_TIMER_QUEUED};
+use super::TaskRef;
 use crate::raw::util::SyncUnsafeCell;
 
 pub(crate) struct TimerQueueItem {
@@ -32,10 +31,7 @@ impl TimerQueue {
     pub(crate) unsafe fn update(&self, p: TaskRef) {
         let task = p.header();
         if task.expires_at.get() != Instant::MAX {
-            let old_state = task.state.fetch_or(STATE_TIMER_QUEUED, Ordering::AcqRel);
-            let is_new = old_state & STATE_TIMER_QUEUED == 0;
-
-            if is_new {
+            if task.state.timer_enqueue() {
                 task.timer_queue_item.next.set(self.head.get());
                 self.head.set(Some(p));
             }
@@ -75,7 +71,7 @@ impl TimerQueue {
             } else {
                 // Remove it
                 prev.set(task.timer_queue_item.next.get());
-                task.state.fetch_and(!STATE_TIMER_QUEUED, Ordering::AcqRel);
+                task.state.timer_dequeue();
             }
         }
     }

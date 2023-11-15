@@ -1,7 +1,6 @@
 use core::ptr;
 use core::ptr::NonNull;
-
-use atomic_polyfill::{AtomicPtr, Ordering};
+use core::sync::atomic::{AtomicPtr, Ordering};
 
 use super::{TaskHeader, TaskRef};
 use crate::raw::util::SyncUnsafeCell;
