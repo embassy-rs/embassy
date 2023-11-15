@@ -34,13 +34,17 @@ use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
 
+/// Task is eligible for allocation
+pub(crate) const STATE_ELIGIBLE: u32 = 0;
+/// Task is claimed (ineligible for allocation, but does not have a valid future)
+pub(crate) const STATE_CLAIMED: u32 = 1 << 0;
 /// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
+pub(crate) const STATE_SPAWNED: u32 = 1 << 1;
 /// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 2;
 /// Task is in the executor timer queue
 #[cfg(feature = "integrated-timers")]
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
+pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 3;
 
 /// Raw task header for use in task pointers.
 pub(crate) struct TaskHeader {
@@ -116,7 +120,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     pub const fn new() -> Self {
         Self {
             raw: TaskHeader {
-                state: AtomicU32::new(0),
+                state: AtomicU32::new(STATE_ELIGIBLE),
                 run_queue_item: RunQueueItem::new(),
                 executor: SyncUnsafeCell::new(None),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
@@ -185,7 +189,7 @@ impl<F: Future + 'static> TaskStorage<F> {
 
 /// An uninitialized [`TaskStorage`].
 pub struct AvailableTask<F: Future + 'static> {
-    task: &'static TaskStorage<F>,
+    task: Option<&'static TaskStorage<F>>,
 }
 
 impl<F: Future + 'static> AvailableTask<F> {
@@ -195,18 +199,25 @@ impl<F: Future + 'static> AvailableTask<F> {
     pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
         task.raw
             .state
-            .compare_exchange(0, STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(STATE_ELIGIBLE, STATE_CLAIMED, Ordering::AcqRel, Ordering::Acquire)
             .ok()
-            .map(|_| Self { task })
+            .map(|_| Self { task: Some(task) })
     }
 
-    fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
+    fn initialize_impl<S>(mut self, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
-            self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
-            self.task.future.write_in_place(future);
+            let task = self.task.take().unwrap();
 
-            let task = TaskRef::new(self.task);
+            // initialize task body
+            task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
+            task.future.write_in_place(future);
 
+            // set state now that task is valid
+            task.raw
+                .state
+                .store(STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::Release);
+
+            let task = TaskRef::new(task);
             SpawnToken::new(task)
         }
     }
@@ -250,6 +261,18 @@ impl<F: Future + 'static> AvailableTask<F> {
         // This ONLY holds for `async fn` futures. The other `spawn` methods can be called directly
         // by the user, with arbitrary hand-implemented futures. This is why these return `SpawnToken<F>`.
         self.initialize_impl::<FutFn>(future)
+    }
+}
+
+impl<F: Future + 'static> Drop for AvailableTask<F> {
+    fn drop(&mut self) {
+        if let Some(task) = self.task {
+            // if AvailableTask is dropped before a task is spawned on it,
+            // set task back to STATE_ELIGIBLE so we can re-use the slot.
+            // This also ensures that we can re-use this slot even if the
+            // user callback in initialize_impl panics.
+            task.raw.state.store(STATE_ELIGIBLE, Ordering::Release);
+        }
     }
 }
 
