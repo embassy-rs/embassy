@@ -168,7 +168,12 @@ impl Default for Config {
             apb4_pre: APBPrescaler::DIV1,
 
             per_clock_source: PerClockSource::HSI,
-            adc_clock_source: AdcClockSource::from_bits(0), // PLL2_P on H7, HCLK on H5
+
+            #[cfg(stm32h5)]
+            adc_clock_source: AdcClockSource::from_bits(0), // HCLK on H5
+            #[cfg(stm32h7)]
+            adc_clock_source: AdcClockSource::from_bits(2), // PCLK on H7
+
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
             ls: Default::default(),
