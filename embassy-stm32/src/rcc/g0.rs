@@ -28,7 +28,7 @@ pub enum ClockSrc {
 #[derive(Clone, Copy)]
 pub struct PllConfig {
     /// The source from which the PLL receives a clock signal
-    pub source: PllSrc,
+    pub source: PllSource,
     /// The initial divisor of that clock signal
     pub m: Pllm,
     /// The PLL VCO multiplier, which must be in the range `8..=86`.
@@ -48,7 +48,7 @@ impl Default for PllConfig {
     fn default() -> PllConfig {
         // HSI / 1 * 8 / 2 = 64 MHz
         PllConfig {
-            source: PllSrc::HSI,
+            source: PllSource::HSI,
             m: Pllm::DIV1,
             n: Plln::MUL8,
             r: Pllr::DIV2,
@@ -59,7 +59,7 @@ impl Default for PllConfig {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub enum PllSrc {
+pub enum PllSource {
     HSI,
     HSE(Hertz),
 }
@@ -89,8 +89,8 @@ impl Default for Config {
 impl PllConfig {
     pub(crate) fn init(self) -> Hertz {
         let (src, input_freq) = match self.source {
-            PllSrc::HSI => (vals::Pllsrc::HSI, HSI_FREQ),
-            PllSrc::HSE(freq) => (vals::Pllsrc::HSE, freq),
+            PllSource::HSI => (vals::Pllsrc::HSI, HSI_FREQ),
+            PllSource::HSE(freq) => (vals::Pllsrc::HSE, freq),
         };
 
         let m_freq = input_freq / self.m;
@@ -121,11 +121,11 @@ impl PllConfig {
         // > 3. Change the desired parameter.
         // Enable whichever clock source we're using, and wait for it to become ready
         match self.source {
-            PllSrc::HSI => {
+            PllSource::HSI => {
                 RCC.cr().write(|w| w.set_hsion(true));
                 while !RCC.cr().read().hsirdy() {}
             }
-            PllSrc::HSE(_) => {
+            PllSource::HSE(_) => {
                 RCC.cr().write(|w| w.set_hseon(true));
                 while !RCC.cr().read().hserdy() {}
             }

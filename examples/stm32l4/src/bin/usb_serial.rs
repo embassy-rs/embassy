@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner) {
     config.rcc.mux = ClockSrc::PLL1_R;
     config.rcc.hsi = true;
     config.rcc.pll = Some(Pll {
-        source: PLLSource::HSI,
+        source: PllSource::HSI,
         prediv: PllPreDiv::DIV1,
         mul: PllMul::MUL10,
         divp: None,

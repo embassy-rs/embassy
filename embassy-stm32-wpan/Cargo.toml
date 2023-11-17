@@ -21,7 +21,7 @@ embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", option
 
 defmt = { version = "0.3", optional = true }
 cortex-m = "0.7.6"
-heapless = "0.7.16"
+heapless = "0.8"
 aligned = "0.4.1"
 
 bit_field = "0.10.2"

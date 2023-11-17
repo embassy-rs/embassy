@@ -4,7 +4,7 @@
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{Clock48MhzSrc, ClockSrc, Hsi48Config, Pll, PllM, PllN, PllQ, PllR, PllSrc};
+use embassy_stm32::rcc::{Clock48MhzSrc, ClockSrc, Hsi48Config, Pll, PllM, PllN, PllQ, PllR, PllSource};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{self, Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, Config};
@@ -25,14 +25,14 @@ async fn main(_spawner: Spawner) {
     // Change this to `false` to use the HSE clock source for the USB. This example assumes an 8MHz HSE.
     const USE_HSI48: bool = true;
 
-    let pllq_div = if USE_HSI48 { None } else { Some(PllQ::DIV6) };
+    let plldivq = if USE_HSI48 { None } else { Some(PllQ::DIV6) };
 
     config.rcc.pll = Some(Pll {
-        source: PllSrc::HSE(Hertz(8_000_000)),
+        source: PllSource::HSE(Hertz(8_000_000)),
         prediv_m: PllM::DIV2,
         mul_n: PllN::MUL72,
         div_p: None,
-        div_q: pllq_div,
+        div_q: plldivq,
         // Main system clock at 144 MHz
         div_r: Some(PllR::DIV2),
     });

@@ -618,10 +618,7 @@ pub mod client {
         async fn connect<'a>(
             &'a self,
             remote: embedded_nal_async::SocketAddr,
-        ) -> Result<Self::Connection<'a>, Self::Error>
-        where
-            Self: 'a,
-        {
+        ) -> Result<Self::Connection<'a>, Self::Error> {
             let addr: crate::IpAddress = match remote.ip() {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddr::V4(addr) => crate::IpAddress::Ipv4(crate::Ipv4Address::from_bytes(&addr.octets())),

@@ -248,7 +248,7 @@ embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
 futures-util = { version = "0.3.17", default-features = false }
 critical-section = "1.1"
 cfg-if = "1.0.0"
-heapless = "0.7"
+heapless = "0.8"
 
 # WASM dependencies
 wasm-bindgen = { version = "0.2.81", optional = true }
@@ -258,4 +258,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.3.1", path = "../embassy-executor", features = ["nightly"] }
+embassy-executor = { version = "0.3.3", path = "../embassy-executor", features = ["nightly"] }

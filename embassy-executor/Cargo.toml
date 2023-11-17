@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
@@ -34,7 +34,7 @@ _arch = [] # some arch was picked
 arch-std = ["_arch", "critical-section/std"]
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 arch-xtensa = ["_arch"]
-arch-riscv32 = ["_arch"]
+arch-riscv32 = ["_arch", "dep:portable-atomic"]
 arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
 
 # Enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded archs)
@@ -59,8 +59,11 @@ rtos-trace = { version = "0.1.2", optional = true }
 
 embassy-macros = { version = "0.2.1", path = "../embassy-macros" }
 embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true}
-atomic-polyfill = "1.0.1"
 critical-section = "1.1"
+
+# needed for riscv
+# remove when https://github.com/rust-lang/rust/pull/114499 is merged
+portable-atomic = { version = "1.5", optional = true }
 
 # arch-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }

@@ -75,7 +75,7 @@ async fn main(spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
-        // 80Mhz clock (Source: 8 / SrcDiv: 1 * PLLMul 20 / ClkDiv 2)
+        // 80Mhz clock (Source: 8 / SrcDiv: 1 * PllMul 20 / ClkDiv 2)
         // 80MHz highest frequency for flash 0 wait.
         config.rcc.mux = ClockSrc::PLL1_R;
         config.rcc.hse = Some(Hse {
@@ -83,7 +83,7 @@ async fn main(spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: PLLSource::HSE,
+            source: PllSource::HSE,
             prediv: PllPreDiv::DIV1,
             mul: PllMul::MUL20,
             divp: None,

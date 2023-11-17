@@ -26,8 +26,8 @@ async fn main(_spawner: Spawner) {
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL216,
-            divp: Some(Pllp::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz
-            divq: Some(Pllq::DIV9), // 8mhz / 4 * 216 / 9 = 48Mhz
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz
+            divq: Some(PllQDiv::DIV9), // 8mhz / 4 * 216 / 9 = 48Mhz
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;

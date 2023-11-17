@@ -299,19 +299,15 @@ impl<'a, C: Channel> Transfer<'a, C> {
 
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().ch(self.channel.num());
-
-        // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        ch.cr().write(|w| {
-            w.set_tcie(true);
-            w.set_useie(true);
-            w.set_dteie(true);
-            w.set_suspie(true);
+        ch.cr().modify(|w| {
+            w.set_susp(true);
         })
     }
 
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
-        !ch.sr().read().tcf()
+        let sr = ch.sr().read();
+        !sr.tcf() && !sr.suspf()
     }
 
     /// Gets the total remaining transfers for the channel

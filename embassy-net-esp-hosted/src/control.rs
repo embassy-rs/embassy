@@ -97,8 +97,8 @@ impl<'a> Control<'a> {
 
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
         let req = proto::CtrlMsgReqConnectAp {
-            ssid: String::from(ssid),
-            pwd: String::from(password),
+            ssid: unwrap!(String::try_from(ssid)),
+            pwd: unwrap!(String::try_from(password)),
             bssid: String::new(),
             listen_interval: 3,
             is_wpa3_supported: false,

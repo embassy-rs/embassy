@@ -1,4 +1,5 @@
 use core::cmp::{max, min};
+use core::iter::zip;
 
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
@@ -14,6 +15,12 @@ use crate::{countries, events, PowerManagementMode};
 #[derive(Debug)]
 pub struct Error {
     pub status: u32,
+}
+
+#[derive(Debug)]
+pub enum AddMulticastAddressError {
+    NotMulticast,
+    NoFreeSlots,
 }
 
 pub struct Control<'a> {
@@ -314,6 +321,54 @@ impl<'a> Control<'a> {
 
         // Start AP
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
+    }
+
+    /// Add specified address to the list of hardware addresses the device
+    /// listens on. The address must be a Group address (I/G bit set). Up
+    /// to 10 addresses are supported by the firmware. Returns the number of
+    /// address slots filled after adding, or an error.
+    pub async fn add_multicast_address(&mut self, address: [u8; 6]) -> Result<usize, AddMulticastAddressError> {
+        // The firmware seems to ignore non-multicast addresses, so let's
+        // prevent the user from adding them and wasting space.
+        if address[0] & 0x01 != 1 {
+            return Err(AddMulticastAddressError::NotMulticast);
+        }
+
+        let mut buf = [0; 64];
+        self.get_iovar("mcast_list", &mut buf).await;
+
+        let n = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+        let (used, free) = buf[4..].split_at_mut(n * 6);
+
+        if used.chunks(6).any(|a| a == address) {
+            return Ok(n);
+        }
+
+        if free.len() < 6 {
+            return Err(AddMulticastAddressError::NoFreeSlots);
+        }
+
+        free[..6].copy_from_slice(&address);
+        let n = n + 1;
+        buf[..4].copy_from_slice(&(n as u32).to_le_bytes());
+
+        self.set_iovar_v::<80>("mcast_list", &buf).await;
+        Ok(n)
+    }
+
+    /// Retrieve the list of configured multicast hardware addresses.
+    pub async fn list_mulistcast_addresses(&mut self, result: &mut [[u8; 6]; 10]) -> usize {
+        let mut buf = [0; 64];
+        self.get_iovar("mcast_list", &mut buf).await;
+
+        let n = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+        let used = &buf[4..][..n * 6];
+
+        for (addr, output) in zip(used.chunks(6), result.iter_mut()) {
+            output.copy_from_slice(addr)
+        }
+
+        n
     }
 
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
