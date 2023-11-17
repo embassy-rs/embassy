@@ -1,24 +1,29 @@
+use core::cell::RefCell;
 use core::cmp;
 #[cfg(feature = "time")]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-#[cfg(feature = "time")]
-use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 #[cfg(feature = "time")]
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+#[cfg(feature = "time")]
+use futures::task::Poll;
 
+use super::v2slave::{SlaveState, SlaveTransaction, SLAVE_QUEUE_DEPTH};
 use crate::dma::NoDma;
 #[cfg(feature = "time")]
 use crate::dma::Transfer;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
-use crate::i2c::{Error, Instance, SclPin, SdaPin};
+use crate::i2c::{Address2Mask, Error, Instance, SclPin, SdaPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c;
 use crate::time::Hertz;
@@ -31,15 +36,22 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let regs = T::regs();
-        let isr = regs.isr().read();
-
-        if isr.tcr() || isr.tc() {
-            T::state().waker.wake();
-        }
-        // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
-        // the interrupt
+        T::state().mutex.lock(|f| {
+            let regs = T::regs();
+            let mut state_m = f.borrow_mut();
+            if state_m.slave_mode {
+                I2c::<'_, T, NoDma, NoDma>::slave_interupt_handler(&mut state_m, &regs)
+            } else {
+                let isr = regs.isr().read();
+                if isr.tcr() || isr.tc() {
+                    T::state().waker.wake();
+                }
+            }
+        }); // end of mutex
+            // The flag can only be cleared by writting to nbytes, we won't do that here, so disable
+            // the interrupt
         critical_section::with(|_| {
+            let regs = T::regs();
             regs.cr1().modify(|w| w.set_tcie(false));
         });
     }
@@ -50,15 +62,43 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct Config {
     pub sda_pullup: bool,
     pub scl_pullup: bool,
+    pub slave_address_1: u16,
+    pub slave_address_2: u8,
+    pub slave_address_mask: Address2Mask,
+    pub address_11bits: bool,
     #[cfg(feature = "time")]
     pub transaction_timeout: Duration,
 }
-
+impl Config {
+    /// Slave address 1 as 7 bit address, in range 0 .. 127
+    pub fn slave_address_7bits(&mut self, address: u8) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_1 = address as u16;
+        self.address_11bits = false;
+    }
+    /// Slave address 1 as 11 bit address in range 0 .. 2047
+    pub fn slave_address_11bits(&mut self, address: u16) {
+        // assert!(address < (2 ^ 11));
+        self.slave_address_1 = address;
+        self.address_11bits = true;
+    }
+    /// Slave address 2 as 7 bit address in range 0 .. 127.
+    /// The mask makes all slaves within the mask addressable
+    pub fn slave_address_2(&mut self, address: u8, mask: Address2Mask) {
+        // assert!(address < (2 ^ 7));
+        self.slave_address_2 = address;
+        self.slave_address_mask = mask;
+    }
+}
 impl Default for Config {
     fn default() -> Self {
         Self {
             sda_pullup: false,
             scl_pullup: false,
+            slave_address_1: 0,
+            slave_address_2: 0,
+            slave_address_mask: Address2Mask::NOMASK,
+            address_11bits: false,
             #[cfg(feature = "time")]
             transaction_timeout: Duration::from_millis(100),
         }
@@ -66,13 +106,17 @@ impl Default for Config {
 }
 
 pub struct State {
-    waker: AtomicWaker,
+    pub(crate) waker: AtomicWaker,
+    pub(crate) channel_out: Channel<CriticalSectionRawMutex, SlaveTransaction, SLAVE_QUEUE_DEPTH>,
+    pub(crate) mutex: Mutex<CriticalSectionRawMutex, RefCell<SlaveState>>,
 }
 
 impl State {
     pub(crate) const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
+            channel_out: Channel::new(),
+            mutex: Mutex::new(RefCell::new(SlaveState::new())),
         }
     }
 }
@@ -136,7 +180,39 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         T::regs().cr1().modify(|reg| {
             reg.set_pe(true);
+            reg.set_nostretch(false);
+            reg.set_sbc(true);
         });
+        if config.slave_address_1 > 0 {
+            T::regs().oar1().write(|reg| {
+                reg.set_oa1en(false);
+            });
+            let (mode, address) = if config.address_11bits {
+                (i2c::vals::Addmode::BIT10, config.slave_address_1)
+            } else {
+                (i2c::vals::Addmode::BIT7, config.slave_address_1 << 1)
+            };
+            T::regs().oar1().write(|reg| {
+                reg.set_oa1(address);
+                reg.set_oa1mode(mode);
+                reg.set_oa1en(true);
+            });
+            T::state().mutex.lock(|f| {
+                let mut state_m = f.borrow_mut();
+                state_m.address1 = config.slave_address_1;
+            });
+        }
+
+        if config.slave_address_2 > 0 {
+            T::regs().oar2().write(|reg| {
+                reg.set_oa2en(false);
+            });
+            T::regs().oar2().write(|reg| {
+                reg.set_oa2msk(config.slave_address_mask.to_vals_impl());
+                reg.set_oa2(config.slave_address_2);
+                reg.set_oa2en(true);
+            });
+        }
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -746,7 +822,6 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         Ok(())
     }
-
     // =========================
     //  Blocking public API
 
@@ -1124,6 +1199,8 @@ mod eh1 {
                 Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
                 Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
                 Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::BufferSize => embedded_hal_1::i2c::ErrorKind::Other,
+                Self::NoTransaction => embedded_hal_1::i2c::ErrorKind::Other,
             }
         }
     }
