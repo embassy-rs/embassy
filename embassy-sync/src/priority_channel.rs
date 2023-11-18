@@ -1,6 +1,7 @@
 //! A queue for sending values between asynchronous tasks.
 //!
 //! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
+//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`](heapless::binary_heap::Kind) parameter of the channel.
 
 use core::cell::RefCell;
 use core::future::Future;
@@ -626,6 +627,16 @@ mod tests {
             _ => assert!(false),
         }
         assert_eq!(capacity(&c), 0);
+    }
+
+    #[test]
+    fn send_priority() {
+        // Prio channel with kind `Max` sifts larger numbers to the front of the queue
+        let mut c = ChannelState::<u32, Max, 3>::new();
+        assert!(c.try_send(1).is_ok());
+        assert!(c.try_send(3).is_ok());
+        assert_eq!(c.try_receive().unwrap(), 3);
+        assert_eq!(c.try_receive().unwrap(), 1);
     }
 
     #[test]
