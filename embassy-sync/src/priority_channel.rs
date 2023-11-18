@@ -13,7 +13,7 @@ use heapless::BinaryHeap;
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
-use crate::channel::{DynamicChannel, TryReceiveError, TrySendError};
+use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveError, TrySendError};
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`PriorityChannel`].
@@ -73,19 +73,6 @@ where
     }
 }
 
-/// Send-only access to a [`PriorityChannel`] without knowing channel size.
-pub struct DynamicSender<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
-}
-
-impl<'ch, T> Clone for DynamicSender<'ch, T> {
-    fn clone(&self) -> Self {
-        DynamicSender { channel: self.channel }
-    }
-}
-
-impl<'ch, T> Copy for DynamicSender<'ch, T> {}
-
 impl<'ch, M, T, K, const N: usize> From<Sender<'ch, M, T, K, N>> for DynamicSender<'ch, T>
 where
     T: Ord,
@@ -94,32 +81,6 @@ where
 {
     fn from(s: Sender<'ch, M, T, K, N>) -> Self {
         Self { channel: s.channel }
-    }
-}
-
-impl<'ch, T> DynamicSender<'ch, T> {
-    /// Sends a value.
-    ///
-    /// See [`PriorityChannel::send()`]
-    pub fn send(&self, message: T) -> DynamicSendFuture<'ch, T> {
-        DynamicSendFuture {
-            channel: self.channel,
-            message: Some(message),
-        }
-    }
-
-    /// Attempt to immediately send a message.
-    ///
-    /// See [`PriorityChannel::send()`]
-    pub fn try_send(&self, message: T) -> Result<(), TrySendError<T>> {
-        self.channel.try_send_with_context(message, None)
-    }
-
-    /// Allows a poll_fn to poll until the channel is ready to send
-    ///
-    /// See [`PriorityChannel::poll_ready_to_send()`]
-    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.channel.poll_ready_to_send(cx)
     }
 }
 
@@ -170,49 +131,6 @@ where
     /// See [`PriorityChannel::try_receive()`]
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.channel.try_receive()
-    }
-
-    /// Allows a poll_fn to poll until the channel is ready to receive
-    ///
-    /// See [`PriorityChannel::poll_ready_to_receive()`]
-    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.channel.poll_ready_to_receive(cx)
-    }
-
-    /// Poll the channel for the next item
-    ///
-    /// See [`PriorityChannel::poll_receive()`]
-    pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
-        self.channel.poll_receive(cx)
-    }
-}
-
-/// Receive-only access to a [`PriorityChannel`] without knowing channel size.
-pub struct DynamicReceiver<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
-}
-
-impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
-    fn clone(&self) -> Self {
-        DynamicReceiver { channel: self.channel }
-    }
-}
-
-impl<'ch, T> Copy for DynamicReceiver<'ch, T> {}
-
-impl<'ch, T> DynamicReceiver<'ch, T> {
-    /// Receive the next value.
-    ///
-    /// See [`PriorityChannel::receive()`].
-    pub fn receive(&self) -> DynamicReceiveFuture<'_, T> {
-        DynamicReceiveFuture { channel: self.channel }
-    }
-
-    /// Attempt to immediately receive the next value.
-    ///
-    /// See [`PriorityChannel::try_receive()`]
-    pub fn try_receive(&self) -> Result<T, TryReceiveError> {
-        self.channel.try_receive_with_context(None)
     }
 
     /// Allows a poll_fn to poll until the channel is ready to receive

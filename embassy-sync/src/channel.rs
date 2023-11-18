@@ -76,7 +76,7 @@ where
 
 /// Send-only access to a [`Channel`] without knowing channel size.
 pub struct DynamicSender<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
+    pub(crate) channel: &'ch dyn DynamicChannel<T>,
 }
 
 impl<'ch, T> Clone for DynamicSender<'ch, T> {
@@ -176,7 +176,7 @@ where
 
 /// Receive-only access to a [`Channel`] without knowing channel size.
 pub struct DynamicReceiver<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
+    pub(crate) channel: &'ch dyn DynamicChannel<T>,
 }
 
 impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
