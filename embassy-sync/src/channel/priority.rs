@@ -183,23 +183,6 @@ where
     }
 }
 
-/// Future returned by [`DynamicReceiver::receive`].
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct DynamicReceiveFuture<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
-}
-
-impl<'ch, T> Future for DynamicReceiveFuture<'ch, T> {
-    type Output = T;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        match self.channel.try_receive_with_context(Some(cx)) {
-            Ok(v) => Poll::Ready(v),
-            Err(TryReceiveError::Empty) => Poll::Pending,
-        }
-    }
-}
-
 /// Future returned by [`PriorityChannel::send`] and  [`Sender::send`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SendFuture<'ch, M, T, K, const N: usize>
@@ -241,32 +224,6 @@ where
     M: RawMutex,
 {
 }
-
-/// Future returned by [`DynamicSender::send`].
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct DynamicSendFuture<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
-    message: Option<T>,
-}
-
-impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.message.take() {
-            Some(m) => match self.channel.try_send_with_context(m, Some(cx)) {
-                Ok(..) => Poll::Ready(()),
-                Err(TrySendError::Full(m)) => {
-                    self.message = Some(m);
-                    Poll::Pending
-                }
-            },
-            None => panic!("Message cannot be None"),
-        }
-    }
-}
-
-impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 
 struct ChannelState<T, K, const N: usize> {
     queue: BinaryHeap<T, K, N>,
@@ -386,7 +343,7 @@ where
     ///
     /// ```
     /// # use heapless::binary_heap::Max;
-    /// use embassy_sync::priority_channel::PriorityChannel;
+    /// use embassy_sync::channel::priority::PriorityChannel;
     /// use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     ///
     /// // Declare a bounded channel of 3 u32s.
