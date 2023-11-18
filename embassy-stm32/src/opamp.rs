@@ -54,19 +54,12 @@ pub struct OpAmp<'d, T: Instance> {
 impl<'d, T: Instance> OpAmp<'d, T> {
     /// Create a new driver instance.
     ///
-    /// Enables the OpAmp and configures the speed, but
-    /// does not set any other configuration.
+    /// Does not enable the opamp, but does set the speed mode on some families.
     pub fn new(opamp: impl Peripheral<P = T> + 'd, #[cfg(opamp_g4)] speed: OpAmpSpeed) -> Self {
         into_ref!(opamp);
 
-        #[cfg(opamp_f3)]
-        T::regs().opampcsr().modify(|w| {
-            w.set_opampen(true);
-        });
-
         #[cfg(opamp_g4)]
         T::regs().opamp_csr().modify(|w| {
-            w.set_opaen(true);
             w.set_opahsm(speed.into());
         });
 
@@ -74,7 +67,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     }
 
     /// Configure the OpAmp as a buffer for the provided input pin,
-    /// outputting to the provided output pin.
+    /// outputting to the provided output pin, and enable the opamp.
     ///
     /// The input pin is configured for analogue mode but not consumed,
     /// so it may subsequently be used for ADC or comparator inputs.
@@ -129,7 +122,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     }
 
     /// Configure the OpAmp as a buffer for the provided input pin,
-    /// with the output only used internally.
+    /// with the output only used internally, and enable the opamp.
     ///
     /// The input pin is configured for analogue mode but not consumed,
     /// so it may be subsequently used for ADC or comparator inputs.
