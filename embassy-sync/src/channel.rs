@@ -321,7 +321,7 @@ impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
 
 impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 
-trait DynamicChannel<T> {
+pub(crate) trait DynamicChannel<T> {
     fn try_send_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>>;
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>;
