@@ -40,7 +40,8 @@ use static_cell::make_static;
 use {embassy_stm32 as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    I2C3_EV => i2c::InterruptHandler<peripherals::I2C3>;
+    I2C3_EV => i2c::EventInterruptHandler<peripherals::I2C3>;
+    I2C3_ER => i2c::ErrorInterruptHandler<peripherals::I2C3>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 

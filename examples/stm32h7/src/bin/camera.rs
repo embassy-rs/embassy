@@ -19,7 +19,8 @@ const HEIGHT: usize = 100;
 static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
 
 bind_interrupts!(struct Irqs {
-    I2C1_EV => i2c::InterruptHandler<peripherals::I2C1>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     DCMI => dcmi::InterruptHandler<peripherals::DCMI>;
 });
 

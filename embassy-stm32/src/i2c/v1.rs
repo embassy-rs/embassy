@@ -3,21 +3,17 @@ use core::marker::PhantomData;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
+use super::*;
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
-use crate::i2c::{Error, Instance, SclPin, SdaPin};
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2c;
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
 
-/// Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {}
+pub unsafe fn on_interrupt<T: Instance>() {
+    // todo
 }
 
 #[non_exhaustive]
@@ -25,14 +21,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 pub struct Config {
     pub sda_pullup: bool,
     pub scl_pullup: bool,
-}
-
-pub struct State {}
-
-impl State {
-    pub(crate) const fn new() -> Self {
-        Self {}
-    }
 }
 
 pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
@@ -48,7 +36,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         _peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
         sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
+            + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+            + 'd,
         tx_dma: impl Peripheral<P = TXDMA> + 'd,
         rx_dma: impl Peripheral<P = RXDMA> + 'd,
         freq: Hertz,
@@ -97,6 +87,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         T::regs().cr1().modify(|reg| {
             reg.set_pe(true);
         });
+
+        unsafe { T::EventInterrupt::enable() };
+        unsafe { T::ErrorInterrupt::enable() };
 
         Self {
             phantom: PhantomData,
@@ -336,82 +329,35 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     pub fn blocking_write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         self.blocking_write_read_timeout(addr, write, read, || Ok(()))
     }
+
+    // Async
+
+    pub async fn write(&mut self, _address: u8, _write: &[u8]) -> Result<(), Error>
+    where
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        todo!()
+    }
+
+    pub async fn read(&mut self, _address: u8, _buffer: &mut [u8]) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        todo!()
+    }
+
+    pub async fn write_read(&mut self, _address: u8, _write: &[u8], _read: &mut [u8]) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+        TXDMA: crate::i2c::TxDma<T>,
+    {
+        todo!()
+    }
 }
 
 impl<'d, T: Instance, TXDMA, RXDMA> Drop for I2c<'d, T, TXDMA, RXDMA> {
     fn drop(&mut self) {
         T::disable();
-    }
-}
-
-impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Read for I2c<'d, T> {
-    type Error = Error;
-
-    fn read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_read(addr, read)
-    }
-}
-
-impl<'d, T: Instance> embedded_hal_02::blocking::i2c::Write for I2c<'d, T> {
-    type Error = Error;
-
-    fn write(&mut self, addr: u8, write: &[u8]) -> Result<(), Self::Error> {
-        self.blocking_write(addr, write)
-    }
-}
-
-impl<'d, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, T> {
-    type Error = Error;
-
-    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.blocking_write_read(addr, write, read)
-    }
-}
-
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
-
-    impl embedded_hal_1::i2c::Error for Error {
-        fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
-            match *self {
-                Self::Bus => embedded_hal_1::i2c::ErrorKind::Bus,
-                Self::Arbitration => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
-                Self::Nack => {
-                    embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Unknown)
-                }
-                Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::Crc => embedded_hal_1::i2c::ErrorKind::Other,
-                Self::Overrun => embedded_hal_1::i2c::ErrorKind::Overrun,
-                Self::ZeroLengthTransfer => embedded_hal_1::i2c::ErrorKind::Other,
-            }
-        }
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::i2c::ErrorType for I2c<'d, T> {
-        type Error = Error;
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T> {
-        fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_read(address, read)
-        }
-
-        fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(address, write)
-        }
-
-        fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_write_read(address, write, read)
-        }
-
-        fn transaction(
-            &mut self,
-            _address: u8,
-            _operations: &mut [embedded_hal_1::i2c::Operation<'_>],
-        ) -> Result<(), Self::Error> {
-            todo!();
-        }
     }
 }
 
