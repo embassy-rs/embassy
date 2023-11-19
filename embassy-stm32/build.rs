@@ -65,7 +65,6 @@ fn main() {
             match r.kind {
                 // Generate singletons per pin, not per port
                 "gpio" => {
-                    println!("{}", p.name);
                     let port_letter = p.name.strip_prefix("GPIO").unwrap();
                     for pin_num in 0..16 {
                         singletons.push(format!("P{}{}", port_letter, pin_num));
@@ -1352,15 +1351,6 @@ fn main() {
 
     if let Some(core) = core_name {
         println!("cargo:rustc-cfg={}_{}", &chip_name[..chip_name.len() - 2], core);
-    } else {
-        println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
-    }
-
-    // ========
-    // stm32f3 wildcard features used in RCC
-
-    if chip_name.starts_with("stm32f3") {
-        println!("cargo:rustc-cfg={}x{}", &chip_name[..9], &chip_name[10..11]);
     }
 
     // =======
@@ -1375,16 +1365,16 @@ fn main() {
     if &chip_name[..8] == "stm32wba" {
         println!("cargo:rustc-cfg={}", &chip_name[..8]); // stm32wba
         println!("cargo:rustc-cfg={}", &chip_name[..10]); // stm32wba52
+        println!("cargo:rustc-cfg=package_{}", &chip_name[10..11]);
+        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[11..12]);
     } else {
         println!("cargo:rustc-cfg={}", &chip_name[..7]); // stm32f4
         println!("cargo:rustc-cfg={}", &chip_name[..9]); // stm32f429
         println!("cargo:rustc-cfg={}x", &chip_name[..8]); // stm32f42x
         println!("cargo:rustc-cfg={}x{}", &chip_name[..7], &chip_name[8..9]); // stm32f4x9
+        println!("cargo:rustc-cfg=package_{}", &chip_name[9..10]);
+        println!("cargo:rustc-cfg=flashsize_{}", &chip_name[10..11]);
     }
-
-    // Handle time-driver-XXXX features.
-    if env::var("CARGO_FEATURE_TIME_DRIVER_ANY").is_ok() {}
-    println!("cargo:rustc-cfg={}", &chip_name[..chip_name.len() - 2]);
 
     println!("cargo:rerun-if-changed=build.rs");
 }
