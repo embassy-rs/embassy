@@ -616,9 +616,11 @@ impl<D: Driver> Stack<D> {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
+            let (_hardware_addr, medium) = to_smoltcp_hardware_address(i.device.hardware_address());
             let mut smoldev = DriverAdapter {
                 cx: Some(cx),
                 inner: &mut i.device,
+                medium,
             };
 
             match s
@@ -653,9 +655,11 @@ impl<D: Driver> Stack<D> {
         let addr = addr.into();
 
         self.with_mut(|s, i| {
+            let (_hardware_addr, medium) = to_smoltcp_hardware_address(i.device.hardware_address());
             let mut smoldev = DriverAdapter {
                 cx: Some(cx),
                 inner: &mut i.device,
+                medium,
             };
 
             match s
