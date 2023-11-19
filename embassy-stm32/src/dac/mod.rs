@@ -10,6 +10,9 @@ use crate::pac::dac;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
+mod tsel;
+pub use tsel::TriggerSel;
+
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -51,7 +54,6 @@ impl Mode {
     }
 }
 
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Custom Errors
@@ -73,100 +75,6 @@ impl Channel {
         match self {
             Channel::Ch1 => 0,
             Channel::Ch2 => 1,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Trigger sources for CH1
-pub enum Ch1Trigger {
-    #[cfg(dac_v3)]
-    Tim1,
-    Tim2,
-    #[cfg(not(dac_v3))]
-    Tim3,
-    #[cfg(dac_v3)]
-    Tim4,
-    #[cfg(dac_v3)]
-    Tim5,
-    Tim6,
-    Tim7,
-    #[cfg(dac_v3)]
-    Tim8,
-    Tim15,
-    #[cfg(dac_v3)]
-    Hrtim1Dactrg1,
-    #[cfg(dac_v3)]
-    Hrtim1Dactrg2,
-    #[cfg(dac_v3)]
-    Lptim1,
-    #[cfg(dac_v3)]
-    Lptim2,
-    #[cfg(dac_v3)]
-    Lptim3,
-    Exti9,
-    Software,
-}
-
-impl Ch1Trigger {
-    fn tsel(&self) -> dac::vals::Tsel1 {
-        match self {
-            #[cfg(dac_v3)]
-            Ch1Trigger::Tim1 => dac::vals::Tsel1::TIM1_TRGO,
-            Ch1Trigger::Tim2 => dac::vals::Tsel1::TIM2_TRGO,
-            #[cfg(not(dac_v3))]
-            Ch1Trigger::Tim3 => dac::vals::Tsel1::TIM3_TRGO,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Tim4 => dac::vals::Tsel1::TIM4_TRGO,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Tim5 => dac::vals::Tsel1::TIM5_TRGO,
-            Ch1Trigger::Tim6 => dac::vals::Tsel1::TIM6_TRGO,
-            Ch1Trigger::Tim7 => dac::vals::Tsel1::TIM7_TRGO,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Tim8 => dac::vals::Tsel1::TIM8_TRGO,
-            Ch1Trigger::Tim15 => dac::vals::Tsel1::TIM15_TRGO,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Hrtim1Dactrg1 => dac::vals::Tsel1::HRTIM1_DACTRG1,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Hrtim1Dactrg2 => dac::vals::Tsel1::HRTIM1_DACTRG2,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Lptim1 => dac::vals::Tsel1::LPTIM1_OUT,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Lptim2 => dac::vals::Tsel1::LPTIM2_OUT,
-            #[cfg(dac_v3)]
-            Ch1Trigger::Lptim3 => dac::vals::Tsel1::LPTIM3_OUT,
-            Ch1Trigger::Exti9 => dac::vals::Tsel1::EXTI9,
-            Ch1Trigger::Software => dac::vals::Tsel1::SOFTWARE,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Trigger sources for CH2
-pub enum Ch2Trigger {
-    Tim6,
-    Tim8,
-    Tim7,
-    Tim5,
-    Tim2,
-    Tim4,
-    Exti9,
-    Software,
-}
-
-impl Ch2Trigger {
-    fn tsel(&self) -> dac::vals::Tsel2 {
-        match self {
-            Ch2Trigger::Tim6 => dac::vals::Tsel2::TIM6_TRGO,
-            Ch2Trigger::Tim8 => dac::vals::Tsel2::TIM8_TRGO,
-            Ch2Trigger::Tim7 => dac::vals::Tsel2::TIM7_TRGO,
-            Ch2Trigger::Tim5 => dac::vals::Tsel2::TIM5_TRGO,
-            Ch2Trigger::Tim2 => dac::vals::Tsel2::TIM2_TRGO,
-            Ch2Trigger::Tim4 => dac::vals::Tsel2::TIM4_TRGO,
-            Ch2Trigger::Exti9 => dac::vals::Tsel2::EXTI9,
-            Ch2Trigger::Software => dac::vals::Tsel2::SOFTWARE,
         }
     }
 }
@@ -315,10 +223,10 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     /// Select a new trigger for this channel
     ///
     /// **Important**: This disables the channel!
-    pub fn select_trigger(&mut self, trigger: Ch1Trigger) -> Result<(), Error> {
+    pub fn select_trigger(&mut self, trigger: TriggerSel) -> Result<(), Error> {
         unwrap!(self.disable_channel());
         T::regs().cr().modify(|reg| {
-            reg.set_tsel1(trigger.tsel());
+            reg.set_tsel(0, trigger.tsel());
         });
         Ok(())
     }
@@ -426,10 +334,10 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     }
 
     /// Select a new trigger for this channel
-    pub fn select_trigger(&mut self, trigger: Ch2Trigger) -> Result<(), Error> {
+    pub fn select_trigger(&mut self, trigger: TriggerSel) -> Result<(), Error> {
         unwrap!(self.disable_channel());
         T::regs().cr().modify(|reg| {
-            reg.set_tsel2(trigger.tsel());
+            reg.set_tsel(1, trigger.tsel());
         });
         Ok(())
     }
@@ -603,26 +511,26 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
-                // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
-                #[cfg(any(rcc_h7, rcc_h7rm0433))]
-                impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
-                    fn frequency() -> crate::time::Hertz {
-                        critical_section::with(|_| unsafe { crate::rcc::get_freqs().pclk1 })
-                    }
+        // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
+        #[cfg(any(rcc_h7, rcc_h7rm0433))]
+        impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
+            fn frequency() -> crate::time::Hertz {
+                critical_section::with(|_| unsafe { crate::rcc::get_freqs().pclk1 })
+            }
 
-                    fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
-                        crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
-                        crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
-                        crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-                    }
+            fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
+                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
+                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
+                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
+            }
 
-                    fn disable_with_cs(_cs: critical_section::CriticalSection) {
-                        crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
-                    }
-                }
+            fn disable_with_cs(_cs: critical_section::CriticalSection) {
+                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
+            }
+        }
 
-                #[cfg(any(rcc_h7, rcc_h7rm0433))]
-                impl crate::rcc::RccPeripheral for peripherals::$inst {}
+        #[cfg(any(rcc_h7, rcc_h7rm0433))]
+        impl crate::rcc::RccPeripheral for peripherals::$inst {}
 
         impl crate::dac::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::dac::Dac {

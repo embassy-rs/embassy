@@ -48,7 +48,7 @@ async fn dac_task1(mut dac: Dac1Type) {
         error!("Reload value {} below threshold!", reload);
     }
 
-    dac.select_trigger(embassy_stm32::dac::Ch1Trigger::Tim6).unwrap();
+    dac.select_trigger(embassy_stm32::dac::TriggerSel::Tim6).unwrap();
     dac.enable_channel().unwrap();
 
     TIM6::enable_and_reset();
@@ -98,7 +98,7 @@ async fn dac_task2(mut dac: Dac2Type) {
         w.set_cen(true);
     });
 
-    dac.select_trigger(embassy_stm32::dac::Ch2Trigger::Tim7).unwrap();
+    dac.select_trigger(embassy_stm32::dac::TriggerSel::Tim7).unwrap();
 
     debug!(
         "TIM7 Frequency {}, Target Frequency {}, Reload {}, Reload as u16 {}, Samples {}",
