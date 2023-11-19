@@ -170,9 +170,9 @@ impl Default for Config {
             per_clock_source: PerClockSource::HSI,
 
             #[cfg(stm32h5)]
-            adc_clock_source: AdcClockSource::from_bits(0), // HCLK on H5
+            adc_clock_source: AdcClockSource::HCLK1,
             #[cfg(stm32h7)]
-            adc_clock_source: AdcClockSource::from_bits(2), // PCLK on H7
+            adc_clock_source: AdcClockSource::PER,
 
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
