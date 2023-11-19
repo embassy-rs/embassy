@@ -238,6 +238,7 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 1 has to be configured for the DAC instance!
+    #[cfg(not(gpdma))]
     pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: DmaCh1<T>,
@@ -349,6 +350,7 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
     /// Note that for performance reasons in circular mode the transfer complete interrupt is disabled.
     ///
     /// **Important:** Channel 2 has to be configured for the DAC instance!
+    #[cfg(not(gpdma))]
     pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) -> Result<(), Error>
     where
         Tx: DmaCh2<T>,
