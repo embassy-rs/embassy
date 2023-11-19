@@ -61,6 +61,7 @@ fn main() {
     let mut singletons: Vec<String> = Vec::new();
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
+            println!("cargo:rustc-cfg=peri_{}", p.name.to_ascii_lowercase());
             match r.kind {
                 // Generate singletons per pin, not per port
                 "gpio" => {

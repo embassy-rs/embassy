@@ -207,25 +207,38 @@ impl Protocol {
 }
 
 #[derive(Copy, Clone, PartialEq)]
-pub enum SyncEnable {
-    Asynchronous,
+pub enum SyncInput {
+    /// Not synced to any other SAI unit.
+    None,
     /// Syncs with the other A/B sub-block within the SAI unit
     Internal,
-    /// Syncs with a sub-block in the other SAI unit - use set_sync_output() and set_sync_input()
-    #[cfg(any(sai_v4))]
-    External,
+    /// Syncs with a sub-block in the other SAI unit
+    #[cfg(sai_v4)]
+    External(SyncInputInstance),
 }
 
-impl SyncEnable {
-    #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
+impl SyncInput {
     pub const fn syncen(&self) -> vals::Syncen {
         match self {
-            SyncEnable::Asynchronous => vals::Syncen::ASYNCHRONOUS,
-            SyncEnable::Internal => vals::Syncen::INTERNAL,
+            SyncInput::None => vals::Syncen::ASYNCHRONOUS,
+            SyncInput::Internal => vals::Syncen::INTERNAL,
             #[cfg(any(sai_v4))]
-            SyncEnable::External => vals::Syncen::EXTERNAL,
+            SyncInput::External(_) => vals::Syncen::EXTERNAL,
         }
     }
+}
+
+#[cfg(sai_v4)]
+#[derive(Copy, Clone, PartialEq)]
+pub enum SyncInputInstance {
+    #[cfg(peri_sai1)]
+    Sai1 = 0,
+    #[cfg(peri_sai2)]
+    Sai2 = 1,
+    #[cfg(peri_sai3)]
+    Sai3 = 2,
+    #[cfg(peri_sai4)]
+    Sai4 = 3,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -428,8 +441,8 @@ impl MasterClockDivider {
 pub struct Config {
     pub mode: Mode,
     pub tx_rx: TxRx,
-    pub sync_enable: SyncEnable,
-    pub is_sync_output: bool,
+    pub sync_input: SyncInput,
+    pub sync_output: bool,
     pub protocol: Protocol,
     pub slot_size: SlotSize,
     pub slot_count: word::U4,
@@ -459,8 +472,8 @@ impl Default for Config {
         Self {
             mode: Mode::Master,
             tx_rx: TxRx::Transmitter,
-            is_sync_output: false,
-            sync_enable: SyncEnable::Asynchronous,
+            sync_output: false,
+            sync_input: SyncInput::None,
             protocol: Protocol::Free,
             slot_size: SlotSize::DataSize,
             slot_count: word::U4(2),
@@ -608,18 +621,18 @@ impl<'d, T: Instance> Sai<'d, T> {
 
 fn update_synchronous_config(config: &mut Config) {
     config.mode = Mode::Slave;
-    config.is_sync_output = false;
+    config.sync_output = false;
 
     #[cfg(any(sai_v1, sai_v2, sai_v3))]
     {
-        config.sync_enable = SyncEnable::Internal;
+        config.sync_input = SyncInput::Internal;
     }
 
     #[cfg(any(sai_v4))]
     {
         //this must either be Internal or External
-        //The asynchronous sub-block on the same SAI needs to enable is_sync_output
-        assert!(config.sync_enable != SyncEnable::Asynchronous);
+        //The asynchronous sub-block on the same SAI needs to enable sync_output
+        assert!(config.sync_input != SyncInput::None);
     }
 }
 
@@ -866,20 +879,13 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
 
         #[cfg(any(sai_v4))]
         {
-            // Not totally clear from the datasheet if this is right
-            // This is only used if using SyncEnable::External on the other SAI unit
-            // Syncing from SAIX subblock A to subblock B does not require this
-            // Only syncing from SAI1 subblock A/B to SAI2 subblock A/B
-            let value: u8 = if T::REGS.as_ptr() == stm32_metapac::SAI1.as_ptr() {
-                1 //this is SAI1, so sync with SAI2
-            } else {
-                0 //this is SAI2, so sync with SAI1
-            };
-            T::REGS.gcr().modify(|w| {
-                w.set_syncin(value);
-            });
+            if let SyncInput::External(i) = config.sync_input {
+                T::REGS.gcr().modify(|w| {
+                    w.set_syncin(i as u8);
+                });
+            }
 
-            if config.is_sync_output {
+            if config.sync_output {
                 let syncout: u8 = match sub_block {
                     WhichSubBlock::A => 0b01,
                     WhichSubBlock::B => 0b10,
@@ -903,7 +909,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
                 w.set_ds(config.data_size.ds());
                 w.set_lsbfirst(config.bit_order.lsbfirst());
                 w.set_ckstr(config.clock_strobe.ckstr());
-                w.set_syncen(config.sync_enable.syncen());
+                w.set_syncen(config.sync_input.syncen());
                 w.set_mono(config.stereo_mono.mono());
                 w.set_outdriv(config.output_drive.outdriv());
                 w.set_mckdiv(config.master_clock_divider.mckdiv());
