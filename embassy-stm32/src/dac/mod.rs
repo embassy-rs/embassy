@@ -5,9 +5,52 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
+#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
+
+#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Mode {
+    /// Normal mode, channel is connected to external pin with buffer enabled.
+    NormalExternalBuffered,
+    /// Normal mode, channel is connected to external pin and internal peripherals
+    /// with buffer enabled.
+    NormalBothBuffered,
+    /// Normal mode, channel is connected to external pin with buffer disabled.
+    NormalExternalUnbuffered,
+    /// Normal mode, channel is connected to internal peripherals with buffer disabled.
+    NormalInternalUnbuffered,
+    /// Sample-and-hold mode, channel is connected to external pin with buffer enabled.
+    SampleHoldExternalBuffered,
+    /// Sample-and-hold mode, channel is connected to external pin and internal peripherals
+    /// with buffer enabled.
+    SampleHoldBothBuffered,
+    /// Sample-and-hold mode, channel is connected to external pin and internal peripherals
+    /// with buffer disabled.
+    SampleHoldBothUnbuffered,
+    /// Sample-and-hold mode, channel is connected to internal peripherals with buffer disabled.
+    SampleHoldInternalUnbuffered,
+}
+
+#[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+impl Mode {
+    fn mode(&self) -> dac::vals::Mode {
+        match self {
+            Mode::NormalExternalBuffered => dac::vals::Mode::NORMAL_EXT_BUFEN,
+            Mode::NormalBothBuffered => dac::vals::Mode::NORMAL_EXT_INT_BUFEN,
+            Mode::NormalExternalUnbuffered => dac::vals::Mode::NORMAL_EXT_BUFDIS,
+            Mode::NormalInternalUnbuffered => dac::vals::Mode::NORMAL_INT_BUFDIS,
+            Mode::SampleHoldExternalBuffered => dac::vals::Mode::SAMPHOLD_EXT_BUFEN,
+            Mode::SampleHoldBothBuffered => dac::vals::Mode::SAMPHOLD_EXT_INT_BUFEN,
+            Mode::SampleHoldBothUnbuffered => dac::vals::Mode::SAMPHOLD_EXT_INT_BUFDIS,
+            Mode::SampleHoldInternalUnbuffered => dac::vals::Mode::SAMPHOLD_INT_BUFDIS,
+        }
+    }
+}
+
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -164,10 +207,10 @@ pub trait DacChannel<T: Instance, Tx> {
     }
 
     /// Set mode register of the given channel
-    #[cfg(any(dac_v2, dac_v3))]
-    fn set_channel_mode(&mut self, val: u8) -> Result<(), Error> {
+    #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+    fn set_channel_mode(&mut self, mode: Mode) -> Result<(), Error> {
         T::regs().mcr().modify(|reg| {
-            reg.set_mode(Self::CHANNEL.index(), val);
+            reg.set_mode(Self::CHANNEL.index(), mode.mode());
         });
         Ok(())
     }
@@ -261,8 +304,8 @@ impl<'d, T: Instance, Tx> DacCh1<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(any(dac_v2, dac_v3))]
-        dac.set_channel_mode(0).unwrap();
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+        dac.set_channel_mode(Mode::NormalExternalBuffered).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
 
@@ -374,8 +417,8 @@ impl<'d, T: Instance, Tx> DacCh2<'d, T, Tx> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(any(dac_v2, dac_v3))]
-        dac.set_channel_mode(0).unwrap();
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+        dac.set_channel_mode(Mode::NormalExternalBuffered).unwrap();
         dac.enable_channel().unwrap();
         dac.set_trigger_enable(true).unwrap();
 
@@ -495,13 +538,13 @@ impl<'d, T: Instance, TxCh1, TxCh2> Dac<'d, T, TxCh1, TxCh2> {
 
         // Configure each activated channel. All results can be `unwrap`ed since they
         // will only error if the channel is not configured (i.e. ch1, ch2 are false)
-        #[cfg(any(dac_v2, dac_v3))]
-        dac_ch1.set_channel_mode(0).unwrap();
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v73))]
+        dac_ch1.set_channel_mode(Mode::NormalExternalBuffered).unwrap();
         dac_ch1.enable_channel().unwrap();
         dac_ch1.set_trigger_enable(true).unwrap();
 
-        #[cfg(any(dac_v2, dac_v3))]
-        dac_ch2.set_channel_mode(0).unwrap();
+        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+        dac_ch2.set_channel_mode(Mode::NormalExternalBuffered).unwrap();
         dac_ch2.enable_channel().unwrap();
         dac_ch2.set_trigger_enable(true).unwrap();
 
