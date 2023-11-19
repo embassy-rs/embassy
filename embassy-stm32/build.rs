@@ -1376,6 +1376,15 @@ fn main() {
         println!("cargo:rustc-cfg=flashsize_{}", &chip_name[10..11]);
     }
 
+    // Mark the L4+ chips as they have many differences to regular L4.
+    if &chip_name[..7] == "stm32l4" {
+        if "pqrs".contains(&chip_name[7..8]) {
+            println!("cargo:rustc-cfg=stm32l4_plus");
+        } else {
+            println!("cargo:rustc-cfg=stm32l4_nonplus");
+        }
+    }
+
     println!("cargo:rerun-if-changed=build.rs");
 }
 
