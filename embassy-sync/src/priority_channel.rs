@@ -1,44 +1,35 @@
 //! A queue for sending values between asynchronous tasks.
 //!
-//! It can be used concurrently by multiple producers (senders) and multiple
-//! consumers (receivers), i.e. it is an  "MPMC channel".
-//!
-//! Receivers are competing for messages. So a message that is received by
-//! one receiver is not received by any other.
-//!
-//! This queue takes a Mutex type so that various
-//! targets can be attained. For example, a ThreadModeMutex can be used
-//! for single-core Cortex-M targets where messages are only passed
-//! between tasks running in thread mode. Similarly, a CriticalSectionMutex
-//! can also be used for single-core targets where messages are to be
-//! passed from exception mode e.g. out of an interrupt handler.
-//!
-//! This module provides a bounded channel that has a limit on the number of
-//! messages that it can store, and if this limit is reached, trying to send
-//! another message will result in an error being returned.
-//!
+//! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
+//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`](heapless::binary_heap::Kind) parameter of the channel.
 
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use heapless::Deque;
+pub use heapless::binary_heap::{Kind, Max, Min};
+use heapless::BinaryHeap;
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveError, TrySendError};
 use crate::waitqueue::WakerRegistration;
 
-/// Send-only access to a [`Channel`].
-pub struct Sender<'ch, M, T, const N: usize>
+/// Send-only access to a [`PriorityChannel`].
+pub struct Sender<'ch, M, T, K, const N: usize>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
-    channel: &'ch Channel<M, T, N>,
+    channel: &'ch PriorityChannel<M, T, K, N>,
 }
 
-impl<'ch, M, T, const N: usize> Clone for Sender<'ch, M, T, N>
+impl<'ch, M, T, K, const N: usize> Clone for Sender<'ch, M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     fn clone(&self) -> Self {
@@ -46,92 +37,67 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> Copy for Sender<'ch, M, T, N> where M: RawMutex {}
-
-impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
+impl<'ch, M, T, K, const N: usize> Copy for Sender<'ch, M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
+    M: RawMutex,
+{
+}
+
+impl<'ch, M, T, K, const N: usize> Sender<'ch, M, T, K, N>
+where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     /// Sends a value.
     ///
-    /// See [`Channel::send()`]
-    pub fn send(&self, message: T) -> SendFuture<'ch, M, T, N> {
+    /// See [`PriorityChannel::send()`]
+    pub fn send(&self, message: T) -> SendFuture<'ch, M, T, K, N> {
         self.channel.send(message)
     }
 
     /// Attempt to immediately send a message.
     ///
-    /// See [`Channel::send()`]
+    /// See [`PriorityChannel::send()`]
     pub fn try_send(&self, message: T) -> Result<(), TrySendError<T>> {
         self.channel.try_send(message)
     }
 
     /// Allows a poll_fn to poll until the channel is ready to send
     ///
-    /// See [`Channel::poll_ready_to_send()`]
+    /// See [`PriorityChannel::poll_ready_to_send()`]
     pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_send(cx)
     }
 }
 
-/// Send-only access to a [`Channel`] without knowing channel size.
-pub struct DynamicSender<'ch, T> {
-    pub(crate) channel: &'ch dyn DynamicChannel<T>,
-}
-
-impl<'ch, T> Clone for DynamicSender<'ch, T> {
-    fn clone(&self) -> Self {
-        DynamicSender { channel: self.channel }
-    }
-}
-
-impl<'ch, T> Copy for DynamicSender<'ch, T> {}
-
-impl<'ch, M, T, const N: usize> From<Sender<'ch, M, T, N>> for DynamicSender<'ch, T>
+impl<'ch, M, T, K, const N: usize> From<Sender<'ch, M, T, K, N>> for DynamicSender<'ch, T>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
-    fn from(s: Sender<'ch, M, T, N>) -> Self {
+    fn from(s: Sender<'ch, M, T, K, N>) -> Self {
         Self { channel: s.channel }
     }
 }
 
-impl<'ch, T> DynamicSender<'ch, T> {
-    /// Sends a value.
-    ///
-    /// See [`Channel::send()`]
-    pub fn send(&self, message: T) -> DynamicSendFuture<'ch, T> {
-        DynamicSendFuture {
-            channel: self.channel,
-            message: Some(message),
-        }
-    }
-
-    /// Attempt to immediately send a message.
-    ///
-    /// See [`Channel::send()`]
-    pub fn try_send(&self, message: T) -> Result<(), TrySendError<T>> {
-        self.channel.try_send_with_context(message, None)
-    }
-
-    /// Allows a poll_fn to poll until the channel is ready to send
-    ///
-    /// See [`Channel::poll_ready_to_send()`]
-    pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.channel.poll_ready_to_send(cx)
-    }
-}
-
-/// Receive-only access to a [`Channel`].
-pub struct Receiver<'ch, M, T, const N: usize>
+/// Receive-only access to a [`PriorityChannel`].
+pub struct Receiver<'ch, M, T, K, const N: usize>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
-    channel: &'ch Channel<M, T, N>,
+    channel: &'ch PriorityChannel<M, T, K, N>,
 }
 
-impl<'ch, M, T, const N: usize> Clone for Receiver<'ch, M, T, N>
+impl<'ch, M, T, K, const N: usize> Clone for Receiver<'ch, M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     fn clone(&self) -> Self {
@@ -139,104 +105,75 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> Copy for Receiver<'ch, M, T, N> where M: RawMutex {}
-
-impl<'ch, M, T, const N: usize> Receiver<'ch, M, T, N>
+impl<'ch, M, T, K, const N: usize> Copy for Receiver<'ch, M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
+    M: RawMutex,
+{
+}
+
+impl<'ch, M, T, K, const N: usize> Receiver<'ch, M, T, K, N>
+where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     /// Receive the next value.
     ///
-    /// See [`Channel::receive()`].
-    pub fn receive(&self) -> ReceiveFuture<'_, M, T, N> {
+    /// See [`PriorityChannel::receive()`].
+    pub fn receive(&self) -> ReceiveFuture<'_, M, T, K, N> {
         self.channel.receive()
     }
 
     /// Attempt to immediately receive the next value.
     ///
-    /// See [`Channel::try_receive()`]
+    /// See [`PriorityChannel::try_receive()`]
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.channel.try_receive()
     }
 
     /// Allows a poll_fn to poll until the channel is ready to receive
     ///
-    /// See [`Channel::poll_ready_to_receive()`]
+    /// See [`PriorityChannel::poll_ready_to_receive()`]
     pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_receive(cx)
     }
 
     /// Poll the channel for the next item
     ///
-    /// See [`Channel::poll_receive()`]
+    /// See [`PriorityChannel::poll_receive()`]
     pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.channel.poll_receive(cx)
     }
 }
 
-/// Receive-only access to a [`Channel`] without knowing channel size.
-pub struct DynamicReceiver<'ch, T> {
-    pub(crate) channel: &'ch dyn DynamicChannel<T>,
-}
-
-impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
-    fn clone(&self) -> Self {
-        DynamicReceiver { channel: self.channel }
-    }
-}
-
-impl<'ch, T> Copy for DynamicReceiver<'ch, T> {}
-
-impl<'ch, T> DynamicReceiver<'ch, T> {
-    /// Receive the next value.
-    ///
-    /// See [`Channel::receive()`].
-    pub fn receive(&self) -> DynamicReceiveFuture<'_, T> {
-        DynamicReceiveFuture { channel: self.channel }
-    }
-
-    /// Attempt to immediately receive the next value.
-    ///
-    /// See [`Channel::try_receive()`]
-    pub fn try_receive(&self) -> Result<T, TryReceiveError> {
-        self.channel.try_receive_with_context(None)
-    }
-
-    /// Allows a poll_fn to poll until the channel is ready to receive
-    ///
-    /// See [`Channel::poll_ready_to_receive()`]
-    pub fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.channel.poll_ready_to_receive(cx)
-    }
-
-    /// Poll the channel for the next item
-    ///
-    /// See [`Channel::poll_receive()`]
-    pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
-        self.channel.poll_receive(cx)
-    }
-}
-
-impl<'ch, M, T, const N: usize> From<Receiver<'ch, M, T, N>> for DynamicReceiver<'ch, T>
+impl<'ch, M, T, K, const N: usize> From<Receiver<'ch, M, T, K, N>> for DynamicReceiver<'ch, T>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
-    fn from(s: Receiver<'ch, M, T, N>) -> Self {
+    fn from(s: Receiver<'ch, M, T, K, N>) -> Self {
         Self { channel: s.channel }
     }
 }
 
-/// Future returned by [`Channel::receive`] and  [`Receiver::receive`].
+/// Future returned by [`PriorityChannel::receive`] and  [`Receiver::receive`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct ReceiveFuture<'ch, M, T, const N: usize>
+pub struct ReceiveFuture<'ch, M, T, K, const N: usize>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
-    channel: &'ch Channel<M, T, N>,
+    channel: &'ch PriorityChannel<M, T, K, N>,
 }
 
-impl<'ch, M, T, const N: usize> Future for ReceiveFuture<'ch, M, T, N>
+impl<'ch, M, T, K, const N: usize> Future for ReceiveFuture<'ch, M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     type Output = T;
@@ -246,35 +183,22 @@ where
     }
 }
 
-/// Future returned by [`DynamicReceiver::receive`].
+/// Future returned by [`PriorityChannel::send`] and  [`Sender::send`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct DynamicReceiveFuture<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
-}
-
-impl<'ch, T> Future for DynamicReceiveFuture<'ch, T> {
-    type Output = T;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<T> {
-        match self.channel.try_receive_with_context(Some(cx)) {
-            Ok(v) => Poll::Ready(v),
-            Err(TryReceiveError::Empty) => Poll::Pending,
-        }
-    }
-}
-
-/// Future returned by [`Channel::send`] and  [`Sender::send`].
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct SendFuture<'ch, M, T, const N: usize>
+pub struct SendFuture<'ch, M, T, K, const N: usize>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
-    channel: &'ch Channel<M, T, N>,
+    channel: &'ch PriorityChannel<M, T, K, N>,
     message: Option<T>,
 }
 
-impl<'ch, M, T, const N: usize> Future for SendFuture<'ch, M, T, N>
+impl<'ch, M, T, K, const N: usize> Future for SendFuture<'ch, M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     type Output = ();
@@ -293,72 +217,28 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> Unpin for SendFuture<'ch, M, T, N> where M: RawMutex {}
-
-/// Future returned by [`DynamicSender::send`].
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct DynamicSendFuture<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
-    message: Option<T>,
+impl<'ch, M, T, K, const N: usize> Unpin for SendFuture<'ch, M, T, K, N>
+where
+    T: Ord,
+    K: Kind,
+    M: RawMutex,
+{
 }
 
-impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
-    type Output = ();
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.message.take() {
-            Some(m) => match self.channel.try_send_with_context(m, Some(cx)) {
-                Ok(..) => Poll::Ready(()),
-                Err(TrySendError::Full(m)) => {
-                    self.message = Some(m);
-                    Poll::Pending
-                }
-            },
-            None => panic!("Message cannot be None"),
-        }
-    }
-}
-
-impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
-
-pub(crate) trait DynamicChannel<T> {
-    fn try_send_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>>;
-
-    fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>;
-
-    fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()>;
-    fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()>;
-
-    fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T>;
-}
-
-/// Error returned by [`try_receive`](Channel::try_receive).
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum TryReceiveError {
-    /// A message could not be received because the channel is empty.
-    Empty,
-}
-
-/// Error returned by [`try_send`](Channel::try_send).
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum TrySendError<T> {
-    /// The data could not be sent on the channel because the channel is
-    /// currently full and sending would require blocking.
-    Full(T),
-}
-
-struct ChannelState<T, const N: usize> {
-    queue: Deque<T, N>,
+struct ChannelState<T, K, const N: usize> {
+    queue: BinaryHeap<T, K, N>,
     receiver_waker: WakerRegistration,
     senders_waker: WakerRegistration,
 }
 
-impl<T, const N: usize> ChannelState<T, N> {
+impl<T, K, const N: usize> ChannelState<T, K, N>
+where
+    T: Ord,
+    K: Kind,
+{
     const fn new() -> Self {
         ChannelState {
-            queue: Deque::new(),
+            queue: BinaryHeap::new(),
             receiver_waker: WakerRegistration::new(),
             senders_waker: WakerRegistration::new(),
         }
@@ -369,11 +249,11 @@ impl<T, const N: usize> ChannelState<T, N> {
     }
 
     fn try_receive_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
-        if self.queue.is_full() {
+        if self.queue.len() == self.queue.capacity() {
             self.senders_waker.wake();
         }
 
-        if let Some(message) = self.queue.pop_front() {
+        if let Some(message) = self.queue.pop() {
             Ok(message)
         } else {
             if let Some(cx) = cx {
@@ -384,11 +264,11 @@ impl<T, const N: usize> ChannelState<T, N> {
     }
 
     fn poll_receive(&mut self, cx: &mut Context<'_>) -> Poll<T> {
-        if self.queue.is_full() {
+        if self.queue.len() == self.queue.capacity() {
             self.senders_waker.wake();
         }
 
-        if let Some(message) = self.queue.pop_front() {
+        if let Some(message) = self.queue.pop() {
             Poll::Ready(message)
         } else {
             self.receiver_waker.register(cx.waker());
@@ -411,7 +291,7 @@ impl<T, const N: usize> ChannelState<T, N> {
     }
 
     fn try_send_with_context(&mut self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
-        match self.queue.push_back(message) {
+        match self.queue.push(message) {
             Ok(()) => {
                 self.receiver_waker.wake();
                 Ok(())
@@ -428,7 +308,7 @@ impl<T, const N: usize> ChannelState<T, N> {
     fn poll_ready_to_send(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         self.senders_waker.register(cx.waker());
 
-        if !self.queue.is_full() {
+        if !self.queue.len() == self.queue.capacity() {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -443,26 +323,32 @@ impl<T, const N: usize> ChannelState<T, N> {
 /// buffer is full, attempts to `send` new messages will wait until a message is
 /// received from the channel.
 ///
-/// All data sent will become available in the same order as it was sent.
-pub struct Channel<M, T, const N: usize>
+/// Sent data may be reordered based on their priorty within the channel.
+/// For example, in a [`Max`](heapless::binary_heap::Max) [`PriorityChannel`]
+/// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be recieved as `[3, 2, 1]`.
+pub struct PriorityChannel<M, T, K, const N: usize>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
-    inner: Mutex<M, RefCell<ChannelState<T, N>>>,
+    inner: Mutex<M, RefCell<ChannelState<T, K, N>>>,
 }
 
-impl<M, T, const N: usize> Channel<M, T, N>
+impl<M, T, K, const N: usize> PriorityChannel<M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     /// Establish a new bounded channel. For example, to create one with a NoopMutex:
     ///
     /// ```
-    /// use embassy_sync::channel::Channel;
+    /// use embassy_sync::priority_channel::{PriorityChannel, Max};
     /// use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     ///
     /// // Declare a bounded channel of 3 u32s.
-    /// let mut channel = Channel::<NoopRawMutex, u32, 3>::new();
+    /// let mut channel = PriorityChannel::<NoopRawMutex, u32, Max, 3>::new();
     /// ```
     pub const fn new() -> Self {
         Self {
@@ -470,7 +356,7 @@ where
         }
     }
 
-    fn lock<R>(&self, f: impl FnOnce(&mut ChannelState<T, N>) -> R) -> R {
+    fn lock<R>(&self, f: impl FnOnce(&mut ChannelState<T, K, N>) -> R) -> R {
         self.inner.lock(|rc| f(&mut *unwrap!(rc.try_borrow_mut())))
     }
 
@@ -498,12 +384,12 @@ where
     }
 
     /// Get a sender for this channel.
-    pub fn sender(&self) -> Sender<'_, M, T, N> {
+    pub fn sender(&self) -> Sender<'_, M, T, K, N> {
         Sender { channel: self }
     }
 
     /// Get a receiver for this channel.
-    pub fn receiver(&self) -> Receiver<'_, M, T, N> {
+    pub fn receiver(&self) -> Receiver<'_, M, T, K, N> {
         Receiver { channel: self }
     }
 
@@ -511,7 +397,7 @@ where
     ///
     /// Sending completes when the value has been pushed to the channel's queue.
     /// This doesn't mean the value has been received yet.
-    pub fn send(&self, message: T) -> SendFuture<'_, M, T, N> {
+    pub fn send(&self, message: T) -> SendFuture<'_, M, T, K, N> {
         SendFuture {
             channel: self,
             message: Some(message),
@@ -520,13 +406,13 @@ where
 
     /// Attempt to immediately send a message.
     ///
-    /// This method differs from [`send`](Channel::send) by returning immediately if the channel's
+    /// This method differs from [`send`](PriorityChannel::send) by returning immediately if the channel's
     /// buffer is full, instead of waiting.
     ///
     /// # Errors
     ///
     /// If the channel capacity has been reached, i.e., the channel has `n`
-    /// buffered values where `n` is the argument passed to [`Channel`], then an
+    /// buffered values where `n` is the argument passed to [`PriorityChannel`], then an
     /// error is returned.
     pub fn try_send(&self, message: T) -> Result<(), TrySendError<T>> {
         self.lock(|c| c.try_send(message))
@@ -536,7 +422,7 @@ where
     ///
     /// If there are no messages in the channel's buffer, this method will
     /// wait until a message is sent.
-    pub fn receive(&self) -> ReceiveFuture<'_, M, T, N> {
+    pub fn receive(&self) -> ReceiveFuture<'_, M, T, K, N> {
         ReceiveFuture { channel: self }
     }
 
@@ -551,28 +437,30 @@ where
 
 /// Implements the DynamicChannel to allow creating types that are unaware of the queue size with the
 /// tradeoff cost of dynamic dispatch.
-impl<M, T, const N: usize> DynamicChannel<T> for Channel<M, T, N>
+impl<M, T, K, const N: usize> DynamicChannel<T> for PriorityChannel<M, T, K, N>
 where
+    T: Ord,
+    K: Kind,
     M: RawMutex,
 {
     fn try_send_with_context(&self, m: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>> {
-        Channel::try_send_with_context(self, m, cx)
+        PriorityChannel::try_send_with_context(self, m, cx)
     }
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
-        Channel::try_receive_with_context(self, cx)
+        PriorityChannel::try_receive_with_context(self, cx)
     }
 
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
-        Channel::poll_ready_to_send(self, cx)
+        PriorityChannel::poll_ready_to_send(self, cx)
     }
 
     fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()> {
-        Channel::poll_ready_to_receive(self, cx)
+        PriorityChannel::poll_ready_to_receive(self, cx)
     }
 
     fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
-        Channel::poll_receive(self, cx)
+        PriorityChannel::poll_receive(self, cx)
     }
 }
 
@@ -583,25 +471,30 @@ mod tests {
     use futures_executor::ThreadPool;
     use futures_timer::Delay;
     use futures_util::task::SpawnExt;
+    use heapless::binary_heap::{Kind, Max};
     use static_cell::StaticCell;
 
     use super::*;
     use crate::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 
-    fn capacity<T, const N: usize>(c: &ChannelState<T, N>) -> usize {
+    fn capacity<T, K, const N: usize>(c: &ChannelState<T, K, N>) -> usize
+    where
+        T: Ord,
+        K: Kind,
+    {
         c.queue.capacity() - c.queue.len()
     }
 
     #[test]
     fn sending_once() {
-        let mut c = ChannelState::<u32, 3>::new();
+        let mut c = ChannelState::<u32, Max, 3>::new();
         assert!(c.try_send(1).is_ok());
         assert_eq!(capacity(&c), 2);
     }
 
     #[test]
     fn sending_when_full() {
-        let mut c = ChannelState::<u32, 3>::new();
+        let mut c = ChannelState::<u32, Max, 3>::new();
         let _ = c.try_send(1);
         let _ = c.try_send(1);
         let _ = c.try_send(1);
@@ -613,8 +506,20 @@ mod tests {
     }
 
     #[test]
+    fn send_priority() {
+        // Prio channel with kind `Max` sifts larger numbers to the front of the queue
+        let mut c = ChannelState::<u32, Max, 3>::new();
+        assert!(c.try_send(1).is_ok());
+        assert!(c.try_send(2).is_ok());
+        assert!(c.try_send(3).is_ok());
+        assert_eq!(c.try_receive().unwrap(), 3);
+        assert_eq!(c.try_receive().unwrap(), 2);
+        assert_eq!(c.try_receive().unwrap(), 1);
+    }
+
+    #[test]
     fn receiving_once_with_one_send() {
-        let mut c = ChannelState::<u32, 3>::new();
+        let mut c = ChannelState::<u32, Max, 3>::new();
         assert!(c.try_send(1).is_ok());
         assert_eq!(c.try_receive().unwrap(), 1);
         assert_eq!(capacity(&c), 3);
@@ -622,7 +527,7 @@ mod tests {
 
     #[test]
     fn receiving_when_empty() {
-        let mut c = ChannelState::<u32, 3>::new();
+        let mut c = ChannelState::<u32, Max, 3>::new();
         match c.try_receive() {
             Err(TryReceiveError::Empty) => assert!(true),
             _ => assert!(false),
@@ -632,14 +537,14 @@ mod tests {
 
     #[test]
     fn simple_send_and_receive() {
-        let c = Channel::<NoopRawMutex, u32, 3>::new();
+        let c = PriorityChannel::<NoopRawMutex, u32, Max, 3>::new();
         assert!(c.try_send(1).is_ok());
         assert_eq!(c.try_receive().unwrap(), 1);
     }
 
     #[test]
     fn cloning() {
-        let c = Channel::<NoopRawMutex, u32, 3>::new();
+        let c = PriorityChannel::<NoopRawMutex, u32, Max, 3>::new();
         let r1 = c.receiver();
         let s1 = c.sender();
 
@@ -649,7 +554,7 @@ mod tests {
 
     #[test]
     fn dynamic_dispatch() {
-        let c = Channel::<NoopRawMutex, u32, 3>::new();
+        let c = PriorityChannel::<NoopRawMutex, u32, Max, 3>::new();
         let s: DynamicSender<'_, u32> = c.sender().into();
         let r: DynamicReceiver<'_, u32> = c.receiver().into();
 
@@ -661,8 +566,8 @@ mod tests {
     async fn receiver_receives_given_try_send_async() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: StaticCell<Channel<CriticalSectionRawMutex, u32, 3>> = StaticCell::new();
-        let c = &*CHANNEL.init(Channel::new());
+        static CHANNEL: StaticCell<PriorityChannel<CriticalSectionRawMutex, u32, Max, 3>> = StaticCell::new();
+        let c = &*CHANNEL.init(PriorityChannel::new());
         let c2 = c;
         assert!(executor
             .spawn(async move {
@@ -674,7 +579,7 @@ mod tests {
 
     #[futures_test::test]
     async fn sender_send_completes_if_capacity() {
-        let c = Channel::<CriticalSectionRawMutex, u32, 1>::new();
+        let c = PriorityChannel::<CriticalSectionRawMutex, u32, Max, 1>::new();
         c.send(1).await;
         assert_eq!(c.receive().await, 1);
     }
@@ -683,8 +588,8 @@ mod tests {
     async fn senders_sends_wait_until_capacity() {
         let executor = ThreadPool::new().unwrap();
 
-        static CHANNEL: StaticCell<Channel<CriticalSectionRawMutex, u32, 1>> = StaticCell::new();
-        let c = &*CHANNEL.init(Channel::new());
+        static CHANNEL: StaticCell<PriorityChannel<CriticalSectionRawMutex, u32, Max, 1>> = StaticCell::new();
+        let c = &*CHANNEL.init(PriorityChannel::new());
         assert!(c.try_send(1).is_ok());
 
         let c2 = c;
