@@ -74,7 +74,8 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     ///
     /// The output pin is held within the returned [`OpAmpOutput`] struct,
     /// preventing it being used elsewhere. The `OpAmpOutput` can then be
-    /// directly used as an ADC input.
+    /// directly used as an ADC input. The opamp will be disabled when the
+    /// [`OpAmpOutput`] is dropped.
     pub fn buffer_ext<'a, 'b, IP, OP>(
         &'a mut self,
         in_pin: &IP,
@@ -128,6 +129,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     /// so it may be subsequently used for ADC or comparator inputs.
     ///
     /// The returned `OpAmpInternalOutput` struct may be used as an ADC input.
+    /// The opamp output will be disabled when it is dropped.
     #[cfg(opamp_g4)]
     pub fn buffer_int<'a, P>(&'a mut self, pin: &P, gain: OpAmpGain) -> OpAmpInternalOutput<'a, T>
     where
@@ -156,7 +158,21 @@ impl<'d, T: Instance> OpAmp<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for OpAmp<'d, T> {
+impl<'d, 'p, T: Instance, P: OutputPin<T>> Drop for OpAmpOutput<'d, 'p, T, P> {
+    fn drop(&mut self) {
+        #[cfg(opamp_f3)]
+        T::regs().opampcsr().modify(|w| {
+            w.set_opampen(false);
+        });
+
+        #[cfg(opamp_g4)]
+        T::regs().opamp_csr().modify(|w| {
+            w.set_opaen(false);
+        });
+    }
+}
+
+impl<'d, T: Instance> Drop for OpAmpInternalOutput<'d, T> {
     fn drop(&mut self) {
         #[cfg(opamp_f3)]
         T::regs().opampcsr().modify(|w| {
