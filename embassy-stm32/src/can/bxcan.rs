@@ -179,10 +179,7 @@ impl<'d, T: Instance> Can<'d, T> {
 
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = Self::calc_bxcan_timings(T::frequency(), bitrate).unwrap();
-        self.can
-            .modify_config()
-            .set_bit_timing(bit_timing)
-            .leave_disabled();
+        self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
     }
 
     /// Enables the peripheral and synchronizes with the bus.
@@ -196,7 +193,6 @@ impl<'d, T: Instance> Can<'d, T> {
             embassy_futures::yield_now().await;
         }
     }
-
 
     /// Queues the message to be sent but exerts backpressure
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
@@ -472,8 +468,6 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
         })
         .await;
     }
-
-
 
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
