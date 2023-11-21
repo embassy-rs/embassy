@@ -22,3 +22,4 @@ For Cortex-M targets, consider making sure that ALL of the following features ar
 * `executor-thread`
 * `nightly`
 
+For Xtensa ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
