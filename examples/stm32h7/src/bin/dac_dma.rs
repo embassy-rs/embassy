@@ -4,20 +4,14 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{DacChannel, ValueArray};
+use embassy_stm32::dac::{DacCh1, DacCh2, ValueArray};
 use embassy_stm32::pac::timer::vals::{Mms, Opm};
-use embassy_stm32::peripherals::{TIM6, TIM7};
+use embassy_stm32::peripherals::{DAC1, DMA1_CH3, DMA1_CH4, TIM6, TIM7};
 use embassy_stm32::rcc::low_level::RccPeripheral;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Basic16bitInstance;
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
-
-pub type Dac1Type =
-    embassy_stm32::dac::DacCh1<'static, embassy_stm32::peripherals::DAC1, embassy_stm32::peripherals::DMA1_CH3>;
-
-pub type Dac2Type =
-    embassy_stm32::dac::DacCh2<'static, embassy_stm32::peripherals::DAC1, embassy_stm32::peripherals::DMA1_CH4>;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -63,7 +57,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn dac_task1(mut dac: Dac1Type) {
+async fn dac_task1(mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM6 frequency is {}", TIM6::frequency());
@@ -77,8 +71,9 @@ async fn dac_task1(mut dac: Dac1Type) {
         error!("Reload value {} below threshold!", reload);
     }
 
-    dac.select_trigger(embassy_stm32::dac::TriggerSel::Tim6).unwrap();
-    dac.enable_channel().unwrap();
+    dac.set_trigger(embassy_stm32::dac::TriggerSel::Tim6);
+    dac.set_triggering(true);
+    dac.enable();
 
     TIM6::enable_and_reset();
     TIM6::regs().arr().modify(|w| w.set_arr(reload as u16 - 1));
@@ -100,14 +95,12 @@ async fn dac_task1(mut dac: Dac1Type) {
     // Loop technically not necessary if DMA circular mode is enabled
     loop {
         info!("Loop DAC1");
-        if let Err(e) = dac.write(ValueArray::Bit8(data), true).await {
-            error!("Could not write to dac: {}", e);
-        }
+        dac.write(ValueArray::Bit8(data), true).await;
     }
 }
 
 #[embassy_executor::task]
-async fn dac_task2(mut dac: Dac2Type) {
+async fn dac_task2(mut dac: DacCh2<'static, DAC1, DMA1_CH4>) {
     let data: &[u8; 256] = &calculate_array::<256>();
 
     info!("TIM7 frequency is {}", TIM7::frequency());
@@ -127,7 +120,9 @@ async fn dac_task2(mut dac: Dac2Type) {
         w.set_cen(true);
     });
 
-    dac.select_trigger(embassy_stm32::dac::TriggerSel::Tim7).unwrap();
+    dac.set_trigger(embassy_stm32::dac::TriggerSel::Tim7);
+    dac.set_triggering(true);
+    dac.enable();
 
     debug!(
         "TIM7 Frequency {}, Target Frequency {}, Reload {}, Reload as u16 {}, Samples {}",
@@ -138,9 +133,7 @@ async fn dac_task2(mut dac: Dac2Type) {
         data.len()
     );
 
-    if let Err(e) = dac.write(ValueArray::Bit8(data), true).await {
-        error!("Could not write to dac: {}", e);
-    }
+    dac.write(ValueArray::Bit8(data), true).await;
 }
 
 fn to_sine_wave(v: u8) -> u8 {

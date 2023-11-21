@@ -996,8 +996,8 @@ fn main() {
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
-        (("dac", "CH1"), quote!(crate::dac::DmaCh1)),
-        (("dac", "CH2"), quote!(crate::dac::DmaCh2)),
+        (("dac", "CH1"), quote!(crate::dac::DacDma1)),
+        (("dac", "CH2"), quote!(crate::dac::DacDma2)),
     ]
     .into();
 
