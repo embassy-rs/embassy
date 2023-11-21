@@ -12,9 +12,19 @@ export CARGO_TARGET_DIR=/ci/cache/target
 # used when pointing stm32-metapac to a CI-built one.
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
+# Restore lockfiles
+if [ -f /ci/cache/lockfiles.tar ]; then
+    echo Restoring lockfiles...
+    tar xf /ci/cache/lockfiles.tar
+fi
+
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
 sed -i 's/channel.*/channel = "stable"/g' rust-toolchain.toml
 
 ./ci_stable.sh
+
+# Save lockfiles
+echo Saving lockfiles...
+find . -type f -name Cargo.lock -exec tar -cf /ci/cache/lockfiles.tar '{}' \+
