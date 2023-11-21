@@ -1,4 +1,3 @@
-use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
@@ -84,7 +83,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
 }
 
 pub struct Can<'d, T: Instance> {
-    pub can: RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
+    pub can: bxcan::Can<BxcanInstance<'d, T>>,
 }
 
 #[derive(Debug)]
@@ -175,17 +174,12 @@ impl<'d, T: Instance> Can<'d, T> {
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
         let can = bxcan::Can::builder(BxcanInstance(peri)).leave_disabled();
-        let can_ref_cell = RefCell::new(can);
-        Self { can: can_ref_cell }
+        Self { can }
     }
 
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = Self::calc_bxcan_timings(T::frequency(), bitrate).unwrap();
-        self.can
-            .borrow_mut()
-            .modify_config()
-            .set_bit_timing(bit_timing)
-            .leave_disabled();
+        self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
     }
 
     /// Enables the peripheral and synchronizes with the bus.
@@ -193,7 +187,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// This will wait for 11 consecutive recessive bits (bus idle state).
     /// Contrary to enable method from bxcan library, this will not freeze the executor while waiting.
     pub async fn enable(&mut self) {
-        while self.borrow_mut().enable_non_blocking().is_err() {
+        while self.enable_non_blocking().is_err() {
             // SCE interrupt is only generated for entering sleep mode, but not leaving.
             // Yield to allow other tasks to execute while can bus is initializing.
             embassy_futures::yield_now().await;
@@ -202,46 +196,46 @@ impl<'d, T: Instance> Can<'d, T> {
 
     /// Queues the message to be sent but exerts backpressure
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
-        CanTx { can: &self.can }.write(frame).await
+        self.split().0.write(frame).await
     }
 
     /// Attempts to transmit a frame without blocking.
     ///
     /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
     pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
-        CanTx { can: &self.can }.try_write(frame)
+        self.split().0.try_write(frame)
     }
 
     /// Waits for a specific transmit mailbox to become empty
     pub async fn flush(&self, mb: bxcan::Mailbox) {
-        CanTx { can: &self.can }.flush(mb).await
+        CanTx::<T>::flush_inner(mb).await
     }
 
     /// Waits until any of the transmit mailboxes become empty
     pub async fn flush_any(&self) {
-        CanTx { can: &self.can }.flush_any().await
+        CanTx::<T>::flush_any_inner().await
     }
 
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
-        CanTx { can: &self.can }.flush_all().await
+        CanTx::<T>::flush_all_inner().await
     }
 
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        CanRx { can: &self.can }.read().await
+        self.split().1.read().await
     }
 
     /// Attempts to read a can frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
     pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
-        CanRx { can: &self.can }.try_read()
+        self.split().1.try_read()
     }
 
     /// Waits while receive queue is empty.
     pub async fn wait_not_empty(&mut self) {
-        CanRx { can: &self.can }.wait_not_empty().await
+        self.split().1.wait_not_empty().await
     }
 
     unsafe fn receive_fifo(fifo: RxFifo) {
@@ -385,24 +379,25 @@ impl<'d, T: Instance> Can<'d, T> {
         Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler - 1))
     }
 
-    pub fn split<'c>(&'c self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
-        (CanTx { can: &self.can }, CanRx { can: &self.can })
+    pub fn split<'c>(&'c mut self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
+        let (tx, rx0, rx1) = self.can.split_by_ref();
+        (CanTx { tx }, CanRx { rx0, rx1 })
     }
 
-    pub fn as_mut(&self) -> RefMut<'_, bxcan::Can<BxcanInstance<'d, T>>> {
-        self.can.borrow_mut()
+    pub fn as_mut(&mut self) -> &mut bxcan::Can<BxcanInstance<'d, T>> {
+        &mut self.can
     }
 }
 
 pub struct CanTx<'c, 'd, T: Instance> {
-    can: &'c RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
+    tx: &'c mut bxcan::Tx<BxcanInstance<'d, T>>,
 }
 
 impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
-            if let Ok(status) = self.can.borrow_mut().transmit(frame) {
+            if let Ok(status) = self.tx.transmit(frame) {
                 return Poll::Ready(status);
             }
 
@@ -415,11 +410,10 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     ///
     /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
     pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
-        self.can.borrow_mut().transmit(frame).map_err(|_| TryWriteError::Full)
+        self.tx.transmit(frame).map_err(|_| TryWriteError::Full)
     }
 
-    /// Waits for a specific transmit mailbox to become empty
-    pub async fn flush(&self, mb: bxcan::Mailbox) {
+    async fn flush_inner(mb: bxcan::Mailbox) {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
             if T::regs().tsr().read().tme(mb.index()) {
@@ -431,8 +425,12 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
         .await;
     }
 
-    /// Waits until any of the transmit mailboxes become empty
-    pub async fn flush_any(&self) {
+    /// Waits for a specific transmit mailbox to become empty
+    pub async fn flush(&self, mb: bxcan::Mailbox) {
+        Self::flush_inner(mb).await
+    }
+
+    async fn flush_any_inner() {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
 
@@ -449,8 +447,12 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
         .await;
     }
 
-    /// Waits until all of the transmit mailboxes become empty
-    pub async fn flush_all(&self) {
+    /// Waits until any of the transmit mailboxes become empty
+    pub async fn flush_any(&self) {
+        Self::flush_any_inner().await
+    }
+
+    async fn flush_all_inner() {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
 
@@ -466,11 +468,17 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
         })
         .await;
     }
+
+    /// Waits until all of the transmit mailboxes become empty
+    pub async fn flush_all(&self) {
+        Self::flush_all_inner().await
+    }
 }
 
 #[allow(dead_code)]
 pub struct CanRx<'c, 'd, T: Instance> {
-    can: &'c RefCell<bxcan::Can<BxcanInstance<'d, T>>>,
+    rx0: &'c mut bxcan::Rx0<BxcanInstance<'d, T>>,
+    rx1: &'c mut bxcan::Rx1<BxcanInstance<'d, T>>,
 }
 
 impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
@@ -538,7 +546,7 @@ impl<'d, T: Instance> Drop for Can<'d, T> {
 }
 
 impl<'d, T: Instance> Deref for Can<'d, T> {
-    type Target = RefCell<bxcan::Can<BxcanInstance<'d, T>>>;
+    type Target = bxcan::Can<BxcanInstance<'d, T>>;
 
     fn deref(&self) -> &Self::Target {
         &self.can
