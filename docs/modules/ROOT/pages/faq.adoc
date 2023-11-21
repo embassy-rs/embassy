@@ -9,10 +9,10 @@ Please feel free to add items to link:https://github.com/embassy-rs/embassy/edit
 If you see an error like this:
 
 [source,rust]
----
+----
 #[embassy_executor::main]
 |                   ^^^^ could not find `main` in `embassy_executor`
----
+----
 
 You are likely missing some features of the `embassy-executor` crate.
 
