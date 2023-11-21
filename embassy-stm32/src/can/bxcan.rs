@@ -212,17 +212,17 @@ impl<'d, T: Instance> Can<'d, T> {
 
     /// Waits for a specific transmit mailbox to become empty
     pub async fn flush(&self, mb: bxcan::Mailbox) {
-        CanTx::<T>::_flush(mb).await
+        CanTx::<T>::flush_inner(mb).await
     }
 
     /// Waits until any of the transmit mailboxes become empty
     pub async fn flush_any(&self) {
-        CanTx::<T>::_flush_any().await
+        CanTx::<T>::flush_any_inner().await
     }
 
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
-        CanTx::<T>::_flush_all().await
+        CanTx::<T>::flush_all_inner().await
     }
 
     /// Returns a tuple of the time the message was received and the message frame
@@ -417,7 +417,7 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
         self.tx.transmit(frame).map_err(|_| TryWriteError::Full)
     }
 
-    pub async fn _flush(mb: bxcan::Mailbox) {
+    async fn flush_inner(mb: bxcan::Mailbox) {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
             if T::regs().tsr().read().tme(mb.index()) {
@@ -431,11 +431,10 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
 
     /// Waits for a specific transmit mailbox to become empty
     pub async fn flush(&self, mb: bxcan::Mailbox) {
-        Self::_flush(mb).await
+        Self::flush_inner(mb).await
     }
 
-    /// Waits until any of the transmit mailboxes become empty
-    pub async fn _flush_any() {
+    async fn flush_any_inner() {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
 
@@ -454,11 +453,10 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
 
     /// Waits until any of the transmit mailboxes become empty
     pub async fn flush_any(&self) {
-        Self::_flush_any().await
+        Self::flush_any_inner().await
     }
 
-    /// Waits until all of the transmit mailboxes become empty
-    pub async fn _flush_all() {
+    async fn flush_all_inner() {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
 
@@ -479,7 +477,7 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
 
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
-        Self::_flush_all().await
+        Self::flush_all_inner().await
     }
 }
 
