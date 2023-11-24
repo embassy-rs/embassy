@@ -4,6 +4,19 @@ These are a list of unsorted, commonly asked questions and answers.
 
 Please feel free to add items to link:https://github.com/embassy-rs/embassy/edit/main/docs/modules/ROOT/pages/faq.adoc[this page], especially if someone in the chat answered a question for you!
 
+== How to deploy to RP2040 without a debugging probe.
+
+Install link:https://github.com/JoNil/elf2uf2-rs[elf2uf2-rs] for converting the generated elf binary into a uf2 file.
+
+Configure the runner to use this tool, add this to `.cargo/config.toml`:
+[source,toml]
+----
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "elf2uf2-rs --deploy --serial --verbose"
+----
+
+The command-line parameters `--deploy` will detect your device and upload the binary, `--serial` starts a serial connection. See the documentation for more info.
+
 == Missing main macro
 
 If you see an error like this:
