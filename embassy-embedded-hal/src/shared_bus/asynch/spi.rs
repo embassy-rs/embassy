@@ -66,19 +66,29 @@ where
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
-        let op_res: Result<(), BUS::Error> = try {
+        let op_res = 'ops: {
             for op in operations {
-                match op {
-                    Operation::Read(buf) => bus.read(buf).await?,
-                    Operation::Write(buf) => bus.write(buf).await?,
-                    Operation::Transfer(read, write) => bus.transfer(read, write).await?,
-                    Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await?,
+                let res = match op {
+                    Operation::Read(buf) => bus.read(buf).await,
+                    Operation::Write(buf) => bus.write(buf).await,
+                    Operation::Transfer(read, write) => bus.transfer(read, write).await,
+                    Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await,
                     #[cfg(not(feature = "time"))]
-                    Operation::DelayUs(_) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    Operation::DelayUs(us) => return Err(SpiDeviceError::DelayUsNotSupported),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => embassy_time::Timer::after_micros(*us as _).await,
+                    Operation::DelayUs(us) => match bus.flush().await {
+                        Err(e) => Err(e),
+                        Ok(()) => {
+                            embassy_time::Timer::after_micros(*us as _).await;
+                            Ok(())
+                        }
+                    },
+                };
+                if let Err(e) = res {
+                    break 'ops Err(e);
                 }
             }
+            Ok(())
         };
 
         // On failure, it's important to still flush and deassert CS.
@@ -131,19 +141,29 @@ where
         bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
-        let op_res: Result<(), BUS::Error> = try {
+        let op_res = 'ops: {
             for op in operations {
-                match op {
-                    Operation::Read(buf) => bus.read(buf).await?,
-                    Operation::Write(buf) => bus.write(buf).await?,
-                    Operation::Transfer(read, write) => bus.transfer(read, write).await?,
-                    Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await?,
+                let res = match op {
+                    Operation::Read(buf) => bus.read(buf).await,
+                    Operation::Write(buf) => bus.write(buf).await,
+                    Operation::Transfer(read, write) => bus.transfer(read, write).await,
+                    Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await,
                     #[cfg(not(feature = "time"))]
-                    Operation::DelayUs(_) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    Operation::DelayUs(us) => return Err(SpiDeviceError::DelayUsNotSupported),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => embassy_time::Timer::after_micros(*us as _).await,
+                    Operation::DelayUs(us) => match bus.flush().await {
+                        Err(e) => Err(e),
+                        Ok(()) => {
+                            embassy_time::Timer::after_micros(*us as _).await;
+                            Ok(())
+                        }
+                    },
+                };
+                if let Err(e) = res {
+                    break 'ops Err(e);
                 }
             }
+            Ok(())
         };
 
         // On failure, it's important to still flush and deassert CS.
