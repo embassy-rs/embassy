@@ -350,7 +350,7 @@ macro_rules! impl_dma_methods {
 }
 
 impl_dma_methods!(1, DacDma1);
-impl_dma_methods!(2, DacDma1);
+impl_dma_methods!(2, DacDma2);
 
 impl<'d, T: Instance, const N: u8, DMA> Drop for DacChannel<'d, T, N, DMA> {
     fn drop(&mut self) {
