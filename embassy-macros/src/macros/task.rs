@@ -79,12 +79,21 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
     task_inner.vis = syn::Visibility::Inherited;
     task_inner.sig.ident = task_inner_ident.clone();
 
+    #[cfg(feature = "nightly")]
     let mut task_outer: ItemFn = parse_quote! {
         #visibility fn #task_ident(#fargs) -> ::embassy_executor::SpawnToken<impl Sized> {
             type Fut = impl ::core::future::Future + 'static;
             const POOL_SIZE: usize = #pool_size;
             static POOL: ::embassy_executor::raw::TaskPool<Fut, POOL_SIZE> = ::embassy_executor::raw::TaskPool::new();
             unsafe { POOL._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
+        }
+    };
+    #[cfg(not(feature = "nightly"))]
+    let mut task_outer: ItemFn = parse_quote! {
+        #visibility fn #task_ident(#fargs) -> ::embassy_executor::SpawnToken<impl Sized> {
+            const POOL_SIZE: usize = #pool_size;
+            static POOL: ::embassy_executor::_export::TaskPoolRef = ::embassy_executor::_export::TaskPoolRef::new();
+            unsafe { POOL.get::<_, POOL_SIZE>()._spawn_async_fn(move || #task_inner_ident(#(#arg_names,)*)) }
         }
     };
 

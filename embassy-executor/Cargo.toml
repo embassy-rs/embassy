@@ -43,7 +43,7 @@ executor-thread = []
 executor-interrupt = []
 
 # Enable nightly-only features
-nightly = []
+nightly = ["embassy-macros/nightly"]
 
 turbowakers = []
 

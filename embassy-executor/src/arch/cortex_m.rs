@@ -51,7 +51,6 @@ mod thread {
     use core::arch::asm;
     use core::marker::PhantomData;
 
-    #[cfg(feature = "nightly")]
     pub use embassy_macros::main_cortex_m as main;
 
     use crate::{raw, Spawner};
