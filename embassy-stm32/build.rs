@@ -1139,6 +1139,23 @@ fn main() {
     }
 
     // ========
+    // Write peripheral_interrupts module.
+    let mut mt = TokenStream::new();
+    for p in METADATA.peripherals {
+        let mut pt = TokenStream::new();
+
+        for irq in p.interrupts {
+            let iname = format_ident!("{}", irq.interrupt);
+            let sname = format_ident!("{}", irq.signal);
+            pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
+        }
+
+        let pname = format_ident!("{}", p.name);
+        mt.extend(quote!(pub mod #pname { #pt }));
+    }
+    g.extend(quote!(#[allow(non_camel_case_types)] pub mod peripheral_interrupts { #mt }));
+
+    // ========
     // Write foreach_foo! macrotables
 
     let mut flash_regions_table: Vec<Vec<String>> = Vec::new();
@@ -1296,6 +1313,9 @@ fn main() {
 
     let mut m = String::new();
 
+    // DO NOT ADD more macros like these.
+    // These turned to be a bad idea!
+    // Instead, make build.rs generate the final code.
     make_table(&mut m, "foreach_flash_region", &flash_regions_table);
     make_table(&mut m, "foreach_interrupt", &interrupts_table);
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
