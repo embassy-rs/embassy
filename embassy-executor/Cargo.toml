@@ -49,9 +49,6 @@ turbowakers = []
 
 integrated-timers = ["dep:embassy-time"]
 
-# Trace interrupt invocations with rtos-trace.
-rtos-trace-interrupt = ["rtos-trace", "embassy-macros/rtos-trace-interrupt"]
-
 [dependencies]
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }

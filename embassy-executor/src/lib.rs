@@ -44,25 +44,4 @@ pub use spawner::*;
 /// Implementation details for embassy macros.
 /// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
 #[doc(hidden)]
-pub mod _export {
-    #[cfg(feature = "rtos-trace")]
-    pub use rtos_trace::trace;
-
-    /// Expands the given block of code when `embassy-executor` is compiled with
-    /// the `rtos-trace-interrupt` feature.
-    #[doc(hidden)]
-    #[macro_export]
-    #[cfg(feature = "rtos-trace-interrupt")]
-    macro_rules! rtos_trace_interrupt {
-        ($($tt:tt)*) => { $($tt)* };
-    }
-
-    /// Does not expand the given block of code when `embassy-executor` is
-    /// compiled without the `rtos-trace-interrupt` feature.
-    #[doc(hidden)]
-    #[macro_export]
-    #[cfg(not(feature = "rtos-trace-interrupt"))]
-    macro_rules! rtos_trace_interrupt {
-        ($($tt:tt)*) => {};
-    }
-}
+pub mod _export {}
