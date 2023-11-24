@@ -15,6 +15,9 @@ export CARGO_NET_GIT_FETCH_WITH_CLI=true
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
+MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml
+MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml --features nightly
+
 cargo test --manifest-path ./embassy-sync/Cargo.toml 
 cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml 
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml 
