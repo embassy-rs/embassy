@@ -1187,7 +1187,7 @@ mod eh1 {
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly", feature = "time"))]
+#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
 mod eha {
     use super::super::{RxDma, TxDma};
     use super::*;
