@@ -346,10 +346,7 @@ fn calc_pll(config: &Config, Hertz(sysclk): Hertz) -> (Hertz, PllConfig) {
         None => {
             cfg_if::cfg_if! {
                 // For some chips PREDIV is always two, and cannot be changed
-                if #[cfg(any(
-                        stm32f302xd, stm32f302xe, stm32f303xd,
-                        stm32f303xe, stm32f398xe
-                    ))] {
+                if #[cfg(any(flashsize_d, flashsize_e))] {
                     let (multiplier, divisor) = get_mul_div(sysclk, HSI_FREQ.0);
                     (
                         Hertz((HSI_FREQ.0 / divisor) * multiplier),
