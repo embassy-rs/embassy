@@ -40,6 +40,11 @@ pub mod raw;
 mod spawner;
 pub use spawner::*;
 
+mod config {
+    #![allow(unused)]
+    include!(concat!(env!("OUT_DIR"), "/config.rs"));
+}
+
 /// Implementation details for embassy macros.
 /// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
 #[doc(hidden)]
@@ -86,7 +91,7 @@ pub mod _export {
             let align_offset = (ptr as usize).next_multiple_of(layout.align()) - (ptr as usize);
 
             if align_offset + layout.size() > bytes_left {
-                panic!("arena full");
+                panic!("embassy-executor: task arena is full. You must increase the arena size, see the documentation for details: https://docs.embassy.dev/embassy-executor/");
             }
 
             let res = unsafe { ptr.add(align_offset) };
@@ -98,8 +103,7 @@ pub mod _export {
         }
     }
 
-    const ARENA_SIZE: usize = 16 * 1024;
-    static ARENA: Arena<ARENA_SIZE> = Arena::new();
+    static ARENA: Arena<{ crate::config::TASK_ARENA_SIZE }> = Arena::new();
 
     pub struct TaskPoolRef {
         // type-erased `&'static mut TaskPool<F, N>`
