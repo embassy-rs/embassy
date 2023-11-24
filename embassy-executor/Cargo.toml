@@ -68,3 +68,6 @@ cortex-m = { version = "0.7.6", optional = true }
 # arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }
+
+[dev-dependencies]
+critical-section = { version = "1.1", features = ["std"] }
