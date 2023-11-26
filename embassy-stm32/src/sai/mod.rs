@@ -577,7 +577,6 @@ fn get_ring_buffer<'d, T: Instance, C: Channel, W: word::Word>(
     tx_rx: TxRx,
 ) -> RingBuffer<'d, C, W> {
     let opts = TransferOptions {
-        half_transfer_ir: true,
         //the new_write() and new_read() always use circular mode
         ..Default::default()
     };
@@ -994,6 +993,20 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
 
     pub fn get_current_config(&self) -> Config {
         Config::default()
+    }
+
+    pub fn is_running(&mut self) -> bool {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.is_running(),
+            RingBuffer::Readable(buffer) => buffer.is_running(),
+        }
+    }
+
+    pub fn request_stop(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.request_stop(),
+            RingBuffer::Readable(buffer) => buffer.request_stop(),
+        }
     }
 
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {

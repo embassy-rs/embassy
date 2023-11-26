@@ -58,7 +58,8 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "a4f293d3a6f72158385f79c98634cb8a14d0d2fc", optional = true }
 critical-section = "1.1"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7117ad49c06fa00c388130a34977e029910083bd" }
+atomic-polyfill = "1.0.1"
+stm32-metapac = { path = "../../stm32-data/build/stm32-metapac" }
 vcell = "0.1.3"
 bxcan = "0.7.0"
 nb = "1.0.0"
@@ -76,8 +77,8 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7117ad49c06fa00c388130a34977e029910083bd", default-features = false, features = ["metadata"]}
-
+stm32-metapac = { path = "../../stm32-data/build/stm32-metapac", default-features = false, features = ["metadata"]}
+#stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e6e51db6cdd7d533e52ca7a3237f7816a0486cd4", default-features = false, features = ["metadata"]}
 
 [features]
 default = ["rt"]
