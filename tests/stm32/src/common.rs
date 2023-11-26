@@ -14,6 +14,8 @@ teleprobe_meta::target!(b"nucleo-stm32g491re");
 teleprobe_meta::target!(b"nucleo-stm32g071rb");
 #[cfg(feature = "stm32f429zi")]
 teleprobe_meta::target!(b"nucleo-stm32f429zi");
+#[cfg(feature = "stm32f446re")]
+teleprobe_meta::target!(b"weact-stm32f446re");
 #[cfg(feature = "stm32wb55rg")]
 teleprobe_meta::target!(b"nucleo-stm32wb55rg");
 #[cfg(feature = "stm32h755zi")]
@@ -99,13 +101,24 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PC4, UART_RX = PC5, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    DAC = DAC1, DAC_PIN = PA4,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32f429zi")]
 define_peris!(
     UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
+    DAC = DAC, DAC_PIN = PA4,
+    CAN = CAN1, CAN_RX = PD0, CAN_TX = PD1,
     @irq UART = {USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>;},
+);
+#[cfg(feature = "stm32f446re")]
+define_peris!(
+    UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA2_CH7, UART_RX_DMA = DMA2_CH5,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
+    DAC = DAC, DAC_PIN = PA4,
+    CAN = CAN1, CAN_RX = PA11, CAN_TX = PA12,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32wb55rg")]
 define_peris!(
@@ -117,6 +130,7 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
+    DAC = DAC1, DAC_PIN = PA4,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32h7a3zi")]
@@ -274,6 +288,27 @@ pub fn config() -> Config {
             mul: PllMul::MUL180,
             divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 180 / 2 = 180Mhz.
             divq: None,
+            divr: None,
+        });
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV4;
+        config.rcc.apb2_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::PLL1_P;
+    }
+
+    #[cfg(feature = "stm32f446re")]
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll = Some(Pll {
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL168,
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 168 / 2 = 168 Mhz.
+            divq: Some(PllQDiv::DIV7), // 8mhz / 4 * 168 / 7 = 48 Mhz.
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
