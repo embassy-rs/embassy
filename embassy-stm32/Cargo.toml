@@ -18,7 +18,7 @@ flavors = [
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
-    { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32g4.*", target = "thumbv7em-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32h5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32h7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
@@ -32,14 +32,14 @@ flavors = [
 ]
 
 [dependencies]
-embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.4", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.4.0", path = "../embassy-sync" }
+embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-net-driver = { version = "0.1.0", path = "../embassy-net-driver" }
+embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
-embassy-executor = { version = "0.3.0", path = "../embassy-executor", optional = true }
+embassy-executor = { version = "0.3.3", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
@@ -58,7 +58,7 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "a4f293d3a6f72158385f79c98634cb8a14d0d2fc", optional = true }
 critical-section = "1.1"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e6e51db6cdd7d533e52ca7a3237f7816a0486cd4" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7117ad49c06fa00c388130a34977e029910083bd" }
 vcell = "0.1.3"
 bxcan = "0.7.0"
 nb = "1.0.0"
@@ -76,7 +76,7 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e6e51db6cdd7d533e52ca7a3237f7816a0486cd4", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7117ad49c06fa00c388130a34977e029910083bd", default-features = false, features = ["metadata"]}
 
 
 [features]
@@ -90,6 +90,7 @@ defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-emb
 
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m" ]
+low-power-debug-with-sleep = []
 embassy-executor = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)

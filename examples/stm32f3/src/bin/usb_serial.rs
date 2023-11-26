@@ -9,7 +9,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
 
     // Needed for nucleo-stm32f303ze
     let mut dp_pullup = Output::new(p.PG6, Level::Low, Speed::Medium);
-    Timer::after(Duration::from_millis(10)).await;
+    Timer::after_millis(10).await;
     dp_pullup.set_high();
 
     // Create the driver, from the HAL.
@@ -57,6 +57,7 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 

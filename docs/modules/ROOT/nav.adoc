@@ -10,3 +10,4 @@
 * xref:examples.adoc[Examples]
 * xref:developer.adoc[Developer]
 ** xref:developer_stm32.adoc[Developer: STM32]
+* xref:faq.adoc[Frequently Asked Questions]

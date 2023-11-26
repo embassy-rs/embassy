@@ -13,20 +13,20 @@ pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
     HSE(Hertz),
-    HSI16,
+    HSI,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum PllSrc {
+pub enum PllSource {
     HSE(Hertz),
-    HSI16,
+    HSI,
 }
 
-impl Into<Pllsrc> for PllSrc {
+impl Into<Pllsrc> for PllSource {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI16,
+            PllSource::HSE(..) => Pllsrc::HSE,
+            PllSource::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -35,7 +35,7 @@ impl Into<Sw> for ClockSrc {
     fn into(self) -> Sw {
         match self {
             ClockSrc::HSE(..) => Sw::HSE,
-            ClockSrc::HSI16 => Sw::HSI16,
+            ClockSrc::HSI => Sw::HSI,
         }
     }
 }
@@ -52,7 +52,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            mux: ClockSrc::HSI16,
+            mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
@@ -70,7 +70,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             freq
         }
-        ClockSrc::HSI16 => {
+        ClockSrc::HSI => {
             RCC.cr().write(|w| w.set_hsion(true));
             while !RCC.cr().read().hsirdy() {}
 
@@ -142,14 +142,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        ahb2: ahb_freq,
-        ahb4: ahb_freq,
-        apb1: apb1_freq,
-        apb2: apb2_freq,
-        apb7: apb7_freq,
-        apb1_tim: apb1_tim_freq,
-        apb2_tim: apb2_tim_freq,
+        hclk1: ahb_freq,
+        hclk2: ahb_freq,
+        hclk4: ahb_freq,
+        pclk1: apb1_freq,
+        pclk2: apb2_freq,
+        pclk7: apb7_freq,
+        pclk1_tim: apb1_tim_freq,
+        pclk2_tim: apb2_tim_freq,
         rtc,
     });
 }

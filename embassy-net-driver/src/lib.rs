@@ -7,12 +7,23 @@ use core::task::Context;
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum HardwareAddress {
-    /// A six-octet Ethernet address
+    /// Ethernet medium, with a A six-octet Ethernet address.
+    ///
+    /// Devices of this type send and receive Ethernet frames,
+    /// and interfaces using it must do neighbor discovery via ARP or NDISC.
+    ///
+    /// Examples of devices of this type are Ethernet, WiFi (802.11), Linux `tap`, and VPNs in tap (layer 2) mode.
     Ethernet([u8; 6]),
-    /// An eight-octet IEEE802.15.4 address
+    /// 6LoWPAN over IEEE802.15.4, with an eight-octet address.
     Ieee802154([u8; 8]),
-    /// Indicates that a Driver is IP-native, and has no hardware address
+    /// Indicates that a Driver is IP-native, and has no hardware address.
+    ///
+    /// Devices of this type send and receive IP frames, without an
+    /// Ethernet header. MAC addresses are not used, and no neighbor discovery (ARP, NDISC) is done.
+    ///
+    /// Examples of devices of this type are the Linux `tun`, PPP interfaces, VPNs in tun (layer 3) mode.
     Ip,
 }
 
@@ -64,6 +75,10 @@ pub trait Driver {
     fn capabilities(&self) -> Capabilities;
 
     /// Get the device's hardware address.
+    ///
+    /// The returned hardware address also determines the "medium" of this driver. This indicates
+    /// what kind of packet the sent/received bytes are, and determines some behaviors of
+    /// the interface. For example, ARP/NDISC address resolution is only done for Ethernet mediums.
     fn hardware_address(&self) -> HardwareAddress;
 }
 
@@ -124,13 +139,6 @@ pub trait TxToken {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct Capabilities {
-    /// Medium of the device.
-    ///
-    /// This indicates what kind of packet the sent/received bytes are, and determines
-    /// some behaviors of Interface. For example, ARP/NDISC address resolution is only done
-    /// for Ethernet mediums.
-    pub medium: Medium,
-
     /// Maximum transmission unit.
     ///
     /// The network device is unable to send or receive frames larger than the value returned
@@ -159,32 +167,6 @@ pub struct Capabilities {
     /// If the network device is capable of verifying or computing checksums for some protocols,
     /// it can request that the stack not do so in software to improve performance.
     pub checksum: ChecksumCapabilities,
-}
-
-/// Type of medium of a device.
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Medium {
-    /// Ethernet medium. Devices of this type send and receive Ethernet frames,
-    /// and interfaces using it must do neighbor discovery via ARP or NDISC.
-    ///
-    /// Examples of devices of this type are Ethernet, WiFi (802.11), Linux `tap`, and VPNs in tap (layer 2) mode.
-    Ethernet,
-
-    /// IP medium. Devices of this type send and receive IP frames, without an
-    /// Ethernet header. MAC addresses are not used, and no neighbor discovery (ARP, NDISC) is done.
-    ///
-    /// Examples of devices of this type are the Linux `tun`, PPP interfaces, VPNs in tun (layer 3) mode.
-    Ip,
-
-    /// IEEE 802_15_4 medium
-    Ieee802154,
-}
-
-impl Default for Medium {
-    fn default() -> Medium {
-        Medium::Ethernet
-    }
 }
 
 /// A description of checksum behavior for every supported protocol.

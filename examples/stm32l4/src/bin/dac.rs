@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 
 use defmt::*;
-use embassy_stm32::dac::{DacCh1, DacChannel, Value};
+use embassy_stm32::dac::{DacCh1, Value};
 use embassy_stm32::dma::NoDma;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -13,11 +13,10 @@ fn main() -> ! {
     info!("Hello World!");
 
     let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
-    unwrap!(dac.set_trigger_enable(false));
 
     loop {
         for v in 0..=255 {
-            unwrap!(dac.set(Value::Bit8(to_sine_wave(v))));
+            dac.set(Value::Bit8(to_sine_wave(v)));
         }
     }
 }

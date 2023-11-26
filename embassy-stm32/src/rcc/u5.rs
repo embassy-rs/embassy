@@ -10,6 +10,7 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 
 #[derive(Copy, Clone)]
+#[allow(non_camel_case_types)]
 pub enum ClockSrc {
     /// Use an internal medium speed oscillator (MSIS) as the system clock.
     MSI(Msirange),
@@ -19,9 +20,9 @@ pub enum ClockSrc {
     /// never exceed 50 MHz.
     HSE(Hertz),
     /// Use the 16 MHz internal high speed oscillator as the system clock.
-    HSI16,
+    HSI,
     /// Use PLL1 as the system clock.
-    PLL1R(PllConfig),
+    PLL1_R(PllConfig),
 }
 
 impl Default for ClockSrc {
@@ -34,7 +35,7 @@ impl Default for ClockSrc {
 #[derive(Clone, Copy)]
 pub struct PllConfig {
     /// The clock source for the PLL.
-    pub source: PllSrc,
+    pub source: PllSource,
     /// The PLL prescaler.
     ///
     /// The clock speed of the `source` divided by `m` must be between 4 and 16 MHz.
@@ -53,10 +54,10 @@ pub struct PllConfig {
 }
 
 impl PllConfig {
-    /// A configuration for HSI16 / 1 * 10 / 1 = 160 MHz
-    pub const fn hsi16_160mhz() -> Self {
+    /// A configuration for HSI / 1 * 10 / 1 = 160 MHz
+    pub const fn hsi_160mhz() -> Self {
         PllConfig {
-            source: PllSrc::HSI16,
+            source: PllSource::HSI,
             m: Pllm::DIV1,
             n: Plln::MUL10,
             r: Plldiv::DIV1,
@@ -66,7 +67,7 @@ impl PllConfig {
     /// A configuration for MSIS @ 48 MHz / 3 * 10 / 1 = 160 MHz
     pub const fn msis_160mhz() -> Self {
         PllConfig {
-            source: PllSrc::MSIS(Msirange::RANGE_48MHZ),
+            source: PllSource::MSIS(Msirange::RANGE_48MHZ),
             m: Pllm::DIV3,
             n: Plln::MUL10,
             r: Plldiv::DIV1,
@@ -75,7 +76,7 @@ impl PllConfig {
 }
 
 #[derive(Clone, Copy)]
-pub enum PllSrc {
+pub enum PllSource {
     /// Use an internal medium speed oscillator as the PLL source.
     MSIS(Msirange),
     /// Use the external high speed clock as the system PLL source.
@@ -84,15 +85,15 @@ pub enum PllSrc {
     /// never exceed 50 MHz.
     HSE(Hertz),
     /// Use the 16 MHz internal high speed oscillator as the PLL source.
-    HSI16,
+    HSI,
 }
 
-impl Into<Pllsrc> for PllSrc {
+impl Into<Pllsrc> for PllSource {
     fn into(self) -> Pllsrc {
         match self {
-            PllSrc::MSIS(..) => Pllsrc::MSIS,
-            PllSrc::HSE(..) => Pllsrc::HSE,
-            PllSrc::HSI16 => Pllsrc::HSI16,
+            PllSource::MSIS(..) => Pllsrc::MSIS,
+            PllSource::HSE(..) => Pllsrc::HSE,
+            PllSource::HSI => Pllsrc::HSI,
         }
     }
 }
@@ -102,8 +103,8 @@ impl Into<Sw> for ClockSrc {
         match self {
             ClockSrc::MSI(..) => Sw::MSIS,
             ClockSrc::HSE(..) => Sw::HSE,
-            ClockSrc::HSI16 => Sw::HSI16,
-            ClockSrc::PLL1R(..) => Sw::PLL1_R,
+            ClockSrc::HSI => Sw::HSI,
+            ClockSrc::PLL1_R(..) => Sw::PLL1_R,
         }
     }
 }
@@ -114,7 +115,7 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
-    pub hsi48: bool,
+    pub hsi48: Option<super::Hsi48Config>,
     /// The voltage range influences the maximum clock frequencies for different parts of the
     /// device. In particular, system clocks exceeding 110 MHz require `RANGE1`, and system clocks
     /// exceeding 55 MHz require at least `RANGE2`.
@@ -125,7 +126,7 @@ pub struct Config {
 }
 
 impl Config {
-    unsafe fn init_hsi16(&self) -> Hertz {
+    unsafe fn init_hsi(&self) -> Hertz {
         RCC.cr().write(|w| w.set_hsion(true));
         while !RCC.cr().read().hsirdy() {}
 
@@ -169,7 +170,7 @@ impl Config {
 
         RCC.icscr1().modify(|w| {
             w.set_msisrange(range);
-            w.set_msirgsel(Msirgsel::RCC_ICSCR1);
+            w.set_msirgsel(Msirgsel::ICSCR1);
         });
         RCC.cr().write(|w| {
             w.set_msipllen(false);
@@ -188,7 +189,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb3_pre: APBPrescaler::DIV1,
-            hsi48: false,
+            hsi48: Some(Default::default()),
             voltage_range: VoltageScale::RANGE3,
             ls: Default::default(),
         }
@@ -211,13 +212,13 @@ pub(crate) unsafe fn init(config: Config) {
     let sys_clk = match config.mux {
         ClockSrc::MSI(range) => config.init_msis(range),
         ClockSrc::HSE(freq) => config.init_hse(freq),
-        ClockSrc::HSI16 => config.init_hsi16(),
-        ClockSrc::PLL1R(pll) => {
+        ClockSrc::HSI => config.init_hsi(),
+        ClockSrc::PLL1_R(pll) => {
             // Configure the PLL source
             let source_clk = match pll.source {
-                PllSrc::MSIS(range) => config.init_msis(range),
-                PllSrc::HSE(hertz) => config.init_hse(hertz),
-                PllSrc::HSI16 => config.init_hsi16(),
+                PllSource::MSIS(range) => config.init_msis(range),
+                PllSource::HSE(hertz) => config.init_hse(hertz),
+                PllSource::HSI => config.init_hsi(),
             };
 
             // Calculate the reference clock, which is the source divided by m
@@ -292,7 +293,7 @@ pub(crate) unsafe fn init(config: Config) {
                 // Set the prescaler for PWR EPOD
                 w.set_pllmboost(mboost);
 
-                // Enable PLL1R output
+                // Enable PLL1_R output
                 w.set_pllren(true);
             });
 
@@ -321,10 +322,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    if config.hsi48 {
-        RCC.cr().modify(|w| w.set_hsi48on(true));
-        while !RCC.cr().read().hsi48rdy() {}
-    }
+    let _hsi48 = config.hsi48.map(super::init_hsi48);
 
     // The clock source is ready
     // Calculate and set the flash wait states
@@ -436,14 +434,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        ahb2: ahb_freq,
-        ahb3: ahb_freq,
-        apb1: apb1_freq,
-        apb2: apb2_freq,
-        apb3: apb3_freq,
-        apb1_tim: apb1_tim_freq,
-        apb2_tim: apb2_tim_freq,
+        hclk1: ahb_freq,
+        hclk2: ahb_freq,
+        hclk3: ahb_freq,
+        pclk1: apb1_freq,
+        pclk2: apb2_freq,
+        pclk3: apb3_freq,
+        pclk1_tim: apb1_tim_freq,
+        pclk2_tim: apb2_tim_freq,
         rtc,
     });
 }

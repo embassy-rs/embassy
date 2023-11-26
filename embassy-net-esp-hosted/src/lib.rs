@@ -169,9 +169,9 @@ where
     pub async fn run(mut self) -> ! {
         debug!("resetting...");
         self.reset.set_low().unwrap();
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         self.reset.set_high().unwrap();
-        Timer::after(Duration::from_millis(1000)).await;
+        Timer::after_millis(1000).await;
 
         let mut tx_buf = [0u8; MAX_SPI_BUFFER_SIZE];
         let mut rx_buf = [0u8; MAX_SPI_BUFFER_SIZE];

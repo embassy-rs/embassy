@@ -12,7 +12,7 @@ use core::cmp::min;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{compiler_fence, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
@@ -41,7 +41,9 @@ mod sealed {
 
         pub rx_waker: AtomicWaker,
         pub rx_buf: RingBuffer,
-        pub rx_bufs: AtomicU8,
+        pub rx_started: AtomicBool,
+        pub rx_started_count: AtomicU8,
+        pub rx_ended_count: AtomicU8,
         pub rx_ppi_ch: AtomicU8,
     }
 }
@@ -65,7 +67,9 @@ impl State {
 
             rx_waker: AtomicWaker::new(),
             rx_buf: RingBuffer::new(),
-            rx_bufs: AtomicU8::new(0),
+            rx_started: AtomicBool::new(false),
+            rx_started_count: AtomicU8::new(0),
+            rx_ended_count: AtomicU8::new(0),
             rx_ppi_ch: AtomicU8::new(0),
         }
     }
@@ -104,28 +108,20 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
             s.rx_waker.wake();
         }
 
-        // If not RXing, start.
-        if s.rx_bufs.load(Ordering::Relaxed) == 0 {
-            let (ptr, len) = rx.push_buf();
-            if len >= half_len {
-                //trace!("  irq_rx: starting {:?}", half_len);
-                s.rx_bufs.store(1, Ordering::Relaxed);
+        if r.events_endrx.read().bits() != 0 {
+            //trace!("  irq_rx: endrx");
+            r.events_endrx.reset();
 
-                // Set up the DMA read
-                r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as u32) });
-                r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(half_len as _) });
-
-                // Start UARTE Receive transaction
-                r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-                rx.push_done(half_len);
-                r.intenset.write(|w| w.rxstarted().set());
-            }
+            let val = s.rx_ended_count.load(Ordering::Relaxed);
+            s.rx_ended_count.store(val.wrapping_add(1), Ordering::Relaxed);
         }
 
-        if r.events_rxstarted.read().bits() != 0 {
+        if r.events_rxstarted.read().bits() != 0 || !s.rx_started.load(Ordering::Relaxed) {
             //trace!("  irq_rx: rxstarted");
             let (ptr, len) = rx.push_buf();
             if len >= half_len {
+                r.events_rxstarted.reset();
+
                 //trace!("  irq_rx: starting second {:?}", half_len);
 
                 // Set up the DMA read
@@ -134,11 +130,50 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
 
                 let chn = s.rx_ppi_ch.load(Ordering::Relaxed);
 
+                // Enable endrx -> startrx PPI channel.
+                // From this point on, if endrx happens, startrx is automatically fired.
                 ppi::regs().chenset.write(|w| unsafe { w.bits(1 << chn) });
+
+                // It is possible that endrx happened BEFORE enabling the PPI. In this case
+                // the PPI channel doesn't trigger, and we'd hang. We have to detect this
+                // and manually start.
+
+                // check again in case endrx has happened between the last check and now.
+                if r.events_endrx.read().bits() != 0 {
+                    //trace!("  irq_rx: endrx");
+                    r.events_endrx.reset();
+
+                    let val = s.rx_ended_count.load(Ordering::Relaxed);
+                    s.rx_ended_count.store(val.wrapping_add(1), Ordering::Relaxed);
+                }
+
+                let rx_ended = s.rx_ended_count.load(Ordering::Relaxed);
+                let rx_started = s.rx_started_count.load(Ordering::Relaxed);
+
+                // If we started the same amount of transfers as ended, the last rxend has
+                // already occured.
+                let rxend_happened = rx_started == rx_ended;
+
+                // Check if the PPI channel is still enabled. The PPI channel disables itself
+                // when it fires, so if it's still enabled it hasn't fired.
+                let ppi_ch_enabled = ppi::regs().chen.read().bits() & (1 << chn) != 0;
+
+                // if rxend happened, and the ppi channel hasn't fired yet, the rxend got missed.
+                // this condition also naturally matches if `!started`, needed to kickstart the DMA.
+                if rxend_happened && ppi_ch_enabled {
+                    //trace!("manually starting.");
+
+                    // disable the ppi ch, it's of no use anymore.
+                    ppi::regs().chenclr.write(|w| unsafe { w.bits(1 << chn) });
+
+                    // manually start
+                    r.tasks_startrx.write(|w| unsafe { w.bits(1) });
+                }
 
                 rx.push_done(half_len);
 
-                r.events_rxstarted.reset();
+                s.rx_started_count.store(rx_started.wrapping_add(1), Ordering::Relaxed);
+                s.rx_started.store(true, Ordering::Relaxed);
             } else {
                 //trace!("  irq_rx: rxstarted no buf");
                 r.intenclr.write(|w| w.rxstarted().clear());
@@ -282,6 +317,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         let r = U::regs();
 
+        let hwfc = cts.is_some();
+
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
 
@@ -303,7 +340,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         // Initialize state
         let s = U::buffered_state();
         s.tx_count.store(0, Ordering::Relaxed);
-        s.rx_bufs.store(0, Ordering::Relaxed);
+        s.rx_started_count.store(0, Ordering::Relaxed);
+        s.rx_ended_count.store(0, Ordering::Relaxed);
         let len = tx_buffer.len();
         unsafe { s.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
         let len = rx_buffer.len();
@@ -311,7 +349,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 
         // Configure
         r.config.write(|w| {
-            w.hwfc().bit(false);
+            w.hwfc().bit(hwfc);
             w.parity().variant(config.parity);
             w
         });
@@ -333,6 +371,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
             w.endtx().set();
             w.rxstarted().set();
             w.error().set();
+            w.endrx().set();
             w
         });
 

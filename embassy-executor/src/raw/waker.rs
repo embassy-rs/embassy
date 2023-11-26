@@ -3,7 +3,7 @@ use core::task::{RawWaker, RawWakerVTable, Waker};
 
 use super::{wake_task, TaskHeader, TaskRef};
 
-const VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, drop);
+static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, drop);
 
 unsafe fn clone(p: *const ()) -> RawWaker {
     RawWaker::new(p, &VTABLE)

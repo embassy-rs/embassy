@@ -27,9 +27,9 @@ const MIDI_OUT_SIZE: u8 = 0x09;
 /// writing USB packets with no intermediate buffers, but it will not act like a stream-like port.
 /// The following constraints must be followed if you use this class directly:
 ///
-/// - `read_packet` must be called with a buffer large enough to hold max_packet_size bytes.
-/// - `write_packet` must not be called with a buffer larger than max_packet_size bytes.
-/// - If you write a packet that is exactly max_packet_size bytes long, it won't be processed by the
+/// - `read_packet` must be called with a buffer large enough to hold `max_packet_size` bytes.
+/// - `write_packet` must not be called with a buffer larger than `max_packet_size` bytes.
+/// - If you write a packet that is exactly `max_packet_size` bytes long, it won't be processed by the
 ///   host operating system until a subsequent shorter packet is sent. A zero-length packet (ZLP)
 ///   can be sent if there is no other data to send. This is because USB bulk transactions must be
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
@@ -39,8 +39,8 @@ pub struct MidiClass<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
-    /// Creates a new MidiClass with the provided UsbBus, number of input and output jacks and max_packet_size in bytes.
-    /// For full-speed devices, max_packet_size has to be one of 8, 16, 32 or 64.
+    /// Creates a new `MidiClass` with the provided UsbBus, number of input and output jacks and `max_packet_size` in bytes.
+    /// For full-speed devices, `max_packet_size` has to be one of 8, 16, 32 or 64.
     pub fn new(builder: &mut Builder<'d, D>, n_in_jacks: u8, n_out_jacks: u8, max_packet_size: u16) -> Self {
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
@@ -160,7 +160,7 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
-        self.read_ep.wait_enabled().await
+        self.read_ep.wait_enabled().await;
     }
 
     /// Split the class into a sender and receiver.
@@ -197,7 +197,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
-        self.write_ep.wait_enabled().await
+        self.write_ep.wait_enabled().await;
     }
 }
 
@@ -222,6 +222,6 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
 
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
-        self.read_ep.wait_enabled().await
+        self.read_ep.wait_enabled().await;
     }
 }

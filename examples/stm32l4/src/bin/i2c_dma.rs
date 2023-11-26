@@ -13,7 +13,8 @@ const ADDRESS: u8 = 0x5F;
 const WHOAMI: u8 = 0x0F;
 
 bind_interrupts!(struct Irqs {
-    I2C2_EV => i2c::InterruptHandler<peripherals::I2C2>;
+    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
+    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
 });
 
 #[embassy_executor::main]

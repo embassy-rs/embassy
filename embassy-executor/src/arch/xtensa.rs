@@ -8,6 +8,8 @@ mod thread {
     use core::marker::PhantomData;
     use core::sync::atomic::{AtomicBool, Ordering};
 
+    pub use embassy_macros::main_riscv as main;
+
     use crate::{raw, Spawner};
 
     /// global atomic used to keep track of whether there is work to do since sev() is not available on Xtensa

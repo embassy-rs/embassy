@@ -5,6 +5,7 @@ use core::task::Poll;
 use self::sealed::Instance;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::rcc::vals::{Lptim1sel, Lptim2sel};
 use crate::peripherals::IPCC;
 use crate::rcc::sealed::RccPeripheral;
 
@@ -273,7 +274,7 @@ fn _configure_pwr() {
 
     // set LPTIM1 & LPTIM2 clock source
     rcc.ccipr().modify(|w| {
-        w.set_lptim1sel(0b00); // PCLK
-        w.set_lptim2sel(0b00); // PCLK
+        w.set_lptim1sel(Lptim1sel::PCLK1);
+        w.set_lptim2sel(Lptim2sel::PCLK1);
     });
 }

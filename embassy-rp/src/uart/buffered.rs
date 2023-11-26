@@ -5,7 +5,7 @@ use core::task::Poll;
 use atomic_polyfill::{AtomicU8, Ordering};
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 
 use super::*;
 use crate::clocks::clk_peri_freq;
@@ -435,7 +435,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         Self::flush().await.unwrap();
         while self.busy() {}
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
-        Timer::after(Duration::from_micros(wait_usecs)).await;
+        Timer::after_micros(wait_usecs).await;
         regs.uartlcr_h().write_clear(|w| w.set_brk(true));
     }
 }

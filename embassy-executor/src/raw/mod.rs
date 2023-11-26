@@ -7,7 +7,15 @@
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
 //! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_macros::task) macro, which are fully safe.
 
+#[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
+#[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
+
+#[cfg_attr(all(cortex_m, target_has_atomic = "8"), path = "state_atomics_arm.rs")]
+#[cfg_attr(all(not(cortex_m), target_has_atomic = "8"), path = "state_atomics.rs")]
+#[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
+mod state;
+
 #[cfg(feature = "integrated-timers")]
 mod timer_queue;
 pub(crate) mod util;
@@ -21,7 +29,6 @@ use core::pin::Pin;
 use core::ptr::NonNull;
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU32, Ordering};
 #[cfg(feature = "integrated-timers")]
 use embassy_time::driver::{self, AlarmHandle};
 #[cfg(feature = "integrated-timers")]
@@ -30,21 +37,14 @@ use embassy_time::Instant;
 use rtos_trace::trace;
 
 use self::run_queue::{RunQueue, RunQueueItem};
+use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
 
-/// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u32 = 1 << 0;
-/// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u32 = 1 << 1;
-/// Task is in the executor timer queue
-#[cfg(feature = "integrated-timers")]
-pub(crate) const STATE_TIMER_QUEUED: u32 = 1 << 2;
-
 /// Raw task header for use in task pointers.
 pub(crate) struct TaskHeader {
-    pub(crate) state: AtomicU32,
+    pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
     pub(crate) executor: SyncUnsafeCell<Option<&'static SyncExecutor>>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
@@ -116,7 +116,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     pub const fn new() -> Self {
         Self {
             raw: TaskHeader {
-                state: AtomicU32::new(0),
+                state: State::new(),
                 run_queue_item: RunQueueItem::new(),
                 executor: SyncUnsafeCell::new(None),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
@@ -161,7 +161,7 @@ impl<F: Future + 'static> TaskStorage<F> {
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
                 this.future.drop_in_place();
-                this.raw.state.fetch_and(!STATE_SPAWNED, Ordering::AcqRel);
+                this.raw.state.despawn();
 
                 #[cfg(feature = "integrated-timers")]
                 this.raw.expires_at.set(Instant::MAX);
@@ -193,11 +193,7 @@ impl<F: Future + 'static> AvailableTask<F> {
     ///
     /// This function returns `None` if a task has already been spawned and has not finished running.
     pub fn claim(task: &'static TaskStorage<F>) -> Option<Self> {
-        task.raw
-            .state
-            .compare_exchange(0, STATE_SPAWNED | STATE_RUN_QUEUED, Ordering::AcqRel, Ordering::Acquire)
-            .ok()
-            .map(|_| Self { task })
+        task.raw.state.spawn().then(|| Self { task })
     }
 
     fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
@@ -394,8 +390,7 @@ impl SyncExecutor {
                 #[cfg(feature = "integrated-timers")]
                 task.expires_at.set(Instant::MAX);
 
-                let state = task.state.fetch_and(!STATE_RUN_QUEUED, Ordering::AcqRel);
-                if state & STATE_SPAWNED == 0 {
+                if !task.state.run_dequeue() {
                     // If task is not running, ignore it. This can happen in the following scenario:
                     //   - Task gets dequeued, poll starts
                     //   - While task is being polled, it gets woken. It gets placed in the queue.
@@ -546,18 +541,7 @@ impl Executor {
 /// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
 pub fn wake_task(task: TaskRef) {
     let header = task.header();
-
-    let res = header.state.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
-        // If already scheduled, or if not started,
-        if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
-            None
-        } else {
-            // Mark it as scheduled
-            Some(state | STATE_RUN_QUEUED)
-        }
-    });
-
-    if res.is_ok() {
+    if header.state.run_enqueue() {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();
@@ -571,18 +555,7 @@ pub fn wake_task(task: TaskRef) {
 /// You can obtain a `TaskRef` from a `Waker` using [`task_from_waker`].
 pub fn wake_task_no_pend(task: TaskRef) {
     let header = task.header();
-
-    let res = header.state.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |state| {
-        // If already scheduled, or if not started,
-        if (state & STATE_RUN_QUEUED != 0) || (state & STATE_SPAWNED == 0) {
-            None
-        } else {
-            // Mark it as scheduled
-            Some(state | STATE_RUN_QUEUED)
-        }
-    });
-
-    if res.is_ok() {
+    if header.state.run_enqueue() {
         // We have just marked the task as scheduled, so enqueue it.
         unsafe {
             let executor = header.executor.get().unwrap_unchecked();

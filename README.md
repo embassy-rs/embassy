@@ -62,9 +62,9 @@ async fn blink(pin: AnyPin) {
     loop {
         // Timekeeping is globally available, no need to mess with hardware timers.
         led.set_high();
-        Timer::after(Duration::from_millis(150)).await;
+        Timer::after_millis(150).await;
         led.set_low();
-        Timer::after(Duration::from_millis(150)).await;
+        Timer::after_millis(150).await;
     }
 }
 

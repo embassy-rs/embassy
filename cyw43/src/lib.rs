@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
-#![allow(incomplete_features)]
-#![feature(async_fn_in_trait, type_alias_impl_trait, concat_bytes)]
+#![feature(async_fn_in_trait, type_alias_impl_trait)]
+#![allow(stable_features, unknown_lints, async_fn_in_trait)]
 #![deny(unused_must_use)]
 
 // This mod MUST go first, so that the others see its macros.
@@ -27,7 +27,7 @@ use ioctl::IoctlState;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
-pub use crate::control::{Control, Error as ControlError, Scanner};
+pub use crate::control::{AddMulticastAddressError, Control, Error as ControlError, Scanner};
 pub use crate::runner::Runner;
 pub use crate::structs::BssInfo;
 

@@ -7,7 +7,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -81,7 +81,7 @@ async fn controller_task(mut con: i2c::I2c<'static, I2C0, i2c::Async>) {
                 Err(e) => error!("Error writing {}", e),
             }
 
-            Timer::after(Duration::from_millis(100)).await;
+            Timer::after_millis(100).await;
         }
         match con.read(DEV_ADDR, &mut resp_buff).await {
             Ok(_) => info!("read response: {}", resp_buff),
@@ -91,7 +91,7 @@ async fn controller_task(mut con: i2c::I2c<'static, I2C0, i2c::Async>) {
             Ok(_) => info!("write_read response: {}", resp_buff),
             Err(e) => error!("Error writing {}", e),
         }
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
     }
 }
 

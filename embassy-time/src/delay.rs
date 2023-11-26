@@ -36,11 +36,11 @@ mod eha {
 
     impl embedded_hal_async::delay::DelayUs for Delay {
         async fn delay_us(&mut self, micros: u32) {
-            Timer::after(Duration::from_micros(micros as _)).await
+            Timer::after_micros(micros as _).await
         }
 
         async fn delay_ms(&mut self, millis: u32) {
-            Timer::after(Duration::from_millis(millis as _)).await
+            Timer::after_millis(millis as _).await
         }
     }
 }

@@ -5,7 +5,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::wdg::IndependentWatchdog;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     wdg.unleash();
 
     loop {
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
         wdg.pet();
     }
 }

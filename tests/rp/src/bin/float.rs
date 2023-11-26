@@ -6,7 +6,7 @@ teleprobe_meta::target!(b"rpi-pico");
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::pac;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner) {
             rad_d + PI_D,
             rad_d % PI_D
         );
-        Timer::after(Duration::from_millis(10)).await;
+        Timer::after_millis(10).await;
     }
 
     let rom_accesses = pac::BUSCTRL.perfctr(0).read().perfctr();

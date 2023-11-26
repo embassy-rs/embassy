@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_lora::iv::GenericSx126xInterfaceVariant;
 use embassy_rp::gpio::{Input, Level, Output, Pin, Pull};
 use embassy_rp::spi::{Config, Spi};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use lora_phy::mod_params::*;
 use lora_phy::sx1261_2::SX1261_2;
 use lora_phy::LoRa;
@@ -96,7 +96,7 @@ async fn main(_spawner: Spawner) {
                 {
                     info!("rx successful");
                     debug_indicator.set_high();
-                    Timer::after(Duration::from_secs(5)).await;
+                    Timer::after_secs(5).await;
                     debug_indicator.set_low();
                 } else {
                     info!("rx unknown packet");

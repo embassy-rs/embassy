@@ -23,14 +23,13 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL1R(PllConfig {
-        source: PllSrc::HSI16,
+    config.rcc.mux = ClockSrc::PLL1_R(PllConfig {
+        source: PllSource::HSI,
         m: Pllm::DIV2,
         n: Plln::MUL10,
         r: Plldiv::DIV1,
     });
-    //config.rcc.mux = ClockSrc::MSI(MSIRange::Range48mhz);
-    config.rcc.hsi48 = true;
+    config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
 
     let p = embassy_stm32::init(config);
 
@@ -68,6 +67,7 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 

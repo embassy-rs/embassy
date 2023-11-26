@@ -16,10 +16,11 @@
 
 use core::intrinsics::copy_nonoverlapping;
 use core::mem::{size_of, MaybeUninit};
+use core::ptr::addr_of;
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
-use crate::types::*;
+use crate::types::{InterfaceNumber, StringIndex};
 use crate::{Builder, Handler};
 
 pub mod embassy_net;
@@ -62,9 +63,9 @@ const REQ_SET_NTB_INPUT_SIZE: u8 = 0x86;
 //const NOTIF_POLL_INTERVAL: u8 = 20;
 
 const NTB_MAX_SIZE: usize = 2048;
-const SIG_NTH: u32 = 0x484d434e;
-const SIG_NDP_NO_FCS: u32 = 0x304d434e;
-const SIG_NDP_WITH_FCS: u32 = 0x314d434e;
+const SIG_NTH: u32 = 0x484d_434e;
+const SIG_NDP_NO_FCS: u32 = 0x304d_434e;
+const SIG_NDP_WITH_FCS: u32 = 0x314d_434e;
 
 const ALTERNATE_SETTING_DISABLED: u8 = 0x00;
 const ALTERNATE_SETTING_ENABLED: u8 = 0x01;
@@ -111,7 +112,7 @@ struct NtbParametersDir {
 
 fn byteify<T>(buf: &mut [u8], data: T) -> &[u8] {
     let len = size_of::<T>();
-    unsafe { copy_nonoverlapping(&data as *const _ as *const u8, buf.as_mut_ptr(), len) }
+    unsafe { copy_nonoverlapping(addr_of!(data).cast(), buf.as_mut_ptr(), len) }
     &buf[..len]
 }
 
@@ -121,25 +122,26 @@ pub struct State<'a> {
     shared: ControlShared,
 }
 
+impl<'a> Default for State<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> State<'a> {
     /// Create a new `State`.
     pub fn new() -> Self {
         Self {
             control: MaybeUninit::uninit(),
-            shared: Default::default(),
+            shared: ControlShared::default(),
         }
     }
 }
 
-/// Shared data between Control and CdcAcmClass
+/// Shared data between Control and `CdcAcmClass`
+#[derive(Default)]
 struct ControlShared {
     mac_addr: [u8; 6],
-}
-
-impl Default for ControlShared {
-    fn default() -> Self {
-        ControlShared { mac_addr: [0; 6] }
-    }
 }
 
 struct Control<'a> {
@@ -377,11 +379,11 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
     ///
     /// This waits until the packet is successfully stored in the CDC-NCM endpoint buffers.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        let seq = self.seq;
-        self.seq = self.seq.wrapping_add(1);
-
         const OUT_HEADER_LEN: usize = 28;
         const ABS_MAX_PACKET_SIZE: usize = 512;
+
+        let seq = self.seq;
+        self.seq = self.seq.wrapping_add(1);
 
         let header = NtbOutHeader {
             nth_sig: SIG_NTH,
@@ -416,7 +418,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
             self.write_ep.write(&buf[..self.max_packet_size]).await?;
 
             for chunk in d2.chunks(self.max_packet_size) {
-                self.write_ep.write(&chunk).await?;
+                self.write_ep.write(chunk).await?;
             }
 
             // Send ZLP if needed.
@@ -459,12 +461,9 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
             let ntb = &ntb[..pos];
 
             // Process NTB header (NTH)
-            let nth = match ntb.get(..12) {
-                Some(x) => x,
-                None => {
-                    warn!("Received too short NTB");
-                    continue;
-                }
+            let Some(nth) = ntb.get(..12) else {
+                warn!("Received too short NTB");
+                continue;
             };
             let sig = u32::from_le_bytes(nth[0..4].try_into().unwrap());
             if sig != SIG_NTH {
@@ -474,12 +473,9 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
             let ndp_idx = u16::from_le_bytes(nth[10..12].try_into().unwrap()) as usize;
 
             // Process NTB Datagram Pointer (NDP)
-            let ndp = match ntb.get(ndp_idx..ndp_idx + 12) {
-                Some(x) => x,
-                None => {
-                    warn!("NTH has an NDP pointer out of range.");
-                    continue;
-                }
+            let Some(ndp) = ntb.get(ndp_idx..ndp_idx + 12) else {
+                warn!("NTH has an NDP pointer out of range.");
+                continue;
             };
             let sig = u32::from_le_bytes(ndp[0..4].try_into().unwrap());
             if sig != SIG_NDP_NO_FCS && sig != SIG_NDP_WITH_FCS {
@@ -495,12 +491,9 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
             }
 
             // Process actual datagram, finally.
-            let datagram = match ntb.get(datagram_index..datagram_index + datagram_len) {
-                Some(x) => x,
-                None => {
-                    warn!("NDP has a datagram pointer out of range.");
-                    continue;
-                }
+            let Some(datagram) = ntb.get(datagram_index..datagram_index + datagram_len) else {
+                warn!("NDP has a datagram pointer out of range.");
+                continue;
             };
             buf[..datagram_len].copy_from_slice(datagram);
 

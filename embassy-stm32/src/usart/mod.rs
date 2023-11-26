@@ -108,6 +108,7 @@ pub enum StopBits {
 pub enum ConfigError {
     BaudrateTooLow,
     BaudrateTooHigh,
+    RxOrTxNotEnabled,
 }
 
 #[non_exhaustive]
@@ -181,11 +182,11 @@ pub struct Uart<'d, T: BasicInstance, TxDma = NoDma, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.tx.set_config(config).map_err(|_| ())?;
-        self.rx.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.tx.set_config(config)?;
+        self.rx.set_config(config)
     }
 }
 
@@ -196,10 +197,10 @@ pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
 
 impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 
@@ -213,10 +214,10 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
 
 impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config).map_err(|_| ())
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config(config)
     }
 }
 
@@ -866,7 +867,7 @@ fn configure(
     enable_tx: bool,
 ) -> Result<(), ConfigError> {
     if !enable_rx && !enable_tx {
-        panic!("USART: At least one of RX or TX should be enabled");
+        return Err(ConfigError::RxOrTxNotEnabled);
     }
 
     #[cfg(not(usart_v4))]
@@ -908,6 +909,11 @@ fn configure(
 
         brr + rounding
     }
+
+    // UART must be disabled during configuration.
+    r.cr1().modify(|w| {
+        w.set_ue(false);
+    });
 
     #[cfg(not(usart_v1))]
     let mut over8 = false;
@@ -968,6 +974,12 @@ fn configure(
         #[cfg(any(usart_v3, usart_v4))]
         w.set_swap(config.swap_rx_tx);
     });
+
+    #[cfg(not(usart_v1))]
+    r.cr3().modify(|w| {
+        w.set_onebit(config.assume_noise_free);
+    });
+
     r.cr1().write(|w| {
         // enable uart
         w.set_ue(true);
@@ -976,6 +988,7 @@ fn configure(
         // enable receiver
         w.set_re(enable_rx);
         // configure word size
+        // if using odd or even parity it must be configured to 9bits
         w.set_m0(if config.parity != Parity::ParityNone {
             vals::M0::BIT9
         } else {
@@ -992,11 +1005,6 @@ fn configure(
         w.set_over8(vals::Over8::from_bits(over8 as _));
         #[cfg(usart_v4)]
         w.set_fifoen(true);
-    });
-
-    #[cfg(not(usart_v1))]
-    r.cr3().modify(|w| {
-        w.set_onebit(config.assume_noise_free);
     });
 
     Ok(())

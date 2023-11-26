@@ -85,7 +85,7 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_ie(false);
             reg.set_rngen(true);
         });
-        T::regs().cr().write(|reg| {
+        T::regs().cr().modify(|reg| {
             reg.set_ced(false);
         });
         // wait for CONDRST to be set

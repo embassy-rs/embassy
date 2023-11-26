@@ -6,7 +6,7 @@ use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{select, Either};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
@@ -187,7 +187,7 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
         self.blocking_flush().unwrap();
         while self.busy() {}
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
-        Timer::after(Duration::from_micros(wait_usecs)).await;
+        Timer::after_micros(wait_usecs).await;
         regs.uartlcr_h().write_clear(|w| w.set_brk(true));
     }
 }

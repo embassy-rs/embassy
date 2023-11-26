@@ -10,7 +10,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Input, Level, Output, Pin, Pull, Speed};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 static BLINK_MS: AtomicU32 = AtomicU32::new(0);
@@ -24,7 +24,7 @@ async fn led_task(led: AnyPin) {
     loop {
         let del = BLINK_MS.load(Ordering::Relaxed);
         info!("Value of del is {}", del);
-        Timer::after(Duration::from_millis(del.into())).await;
+        Timer::after_millis(del.into()).await;
         info!("LED toggling");
         led.toggle();
     }

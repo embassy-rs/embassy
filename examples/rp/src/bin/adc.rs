@@ -10,7 +10,7 @@ use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Pull;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
         info!("Pin 28 ADC: {}", level);
         let temp = adc.read(&mut ts).await.unwrap();
         info!("Temp: {} degrees", convert_to_celsius(temp));
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
     }
 }
 

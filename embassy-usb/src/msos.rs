@@ -1,12 +1,10 @@
-#![cfg(feature = "msos-descriptor")]
-
 //! Microsoft OS Descriptors
 //!
 //! <https://docs.microsoft.com/en-us/windows-hardware/drivers/usbcon/microsoft-os-2-0-descriptors-specification>
 
 use core::mem::size_of;
 
-use super::{capability_type, BosWriter};
+use crate::descriptor::{capability_type, BosWriter};
 use crate::types::InterfaceNumber;
 
 /// A serialized Microsoft OS 2.0 Descriptor set.

@@ -76,7 +76,7 @@ where
 
 /// Send-only access to a [`Channel`] without knowing channel size.
 pub struct DynamicSender<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
+    pub(crate) channel: &'ch dyn DynamicChannel<T>,
 }
 
 impl<'ch, T> Clone for DynamicSender<'ch, T> {
@@ -176,7 +176,7 @@ where
 
 /// Receive-only access to a [`Channel`] without knowing channel size.
 pub struct DynamicReceiver<'ch, T> {
-    channel: &'ch dyn DynamicChannel<T>,
+    pub(crate) channel: &'ch dyn DynamicChannel<T>,
 }
 
 impl<'ch, T> Clone for DynamicReceiver<'ch, T> {
@@ -321,7 +321,7 @@ impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
 
 impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 
-trait DynamicChannel<T> {
+pub(crate) trait DynamicChannel<T> {
     fn try_send_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>>;
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>;

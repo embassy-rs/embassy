@@ -8,7 +8,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
     rtc.set_datetime(now.into()).expect("datetime not set");
 
     // In reality the delay would be much longer
-    Timer::after(Duration::from_millis(20000)).await;
+    Timer::after_millis(20000).await;
 
     let then: NaiveDateTime = rtc.now().unwrap().into();
     info!("Got RTC! {:?}", then.timestamp());

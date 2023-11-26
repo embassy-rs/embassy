@@ -10,9 +10,9 @@ target = "thumbv7em-none-eabi"
 
 [dependencies]
 embassy-usb = { version = "0.1.0", path = "../embassy-usb" }
-embassy-sync = { version = "0.3.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.4.0", path = "../embassy-sync" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 futures = { version = "0.3", default-features = false }
-static_cell = "1"
+static_cell = { version = "2" }
 usbd-hid = "0.6.0"
 log = "0.4"

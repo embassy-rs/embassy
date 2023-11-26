@@ -1,5 +1,6 @@
 #![no_std]
-#![feature(async_fn_in_trait)]
+#![feature(async_fn_in_trait, impl_trait_projections)]
+#![allow(stable_features, unknown_lints, async_fn_in_trait)]
 //! embassy-lora holds LoRa-specific functionality.
 
 pub(crate) mod fmt;
@@ -34,6 +35,6 @@ impl lorawan_device::async_device::radio::Timer for LoraTimer {
     }
 
     async fn delay_ms(&mut self, millis: u64) {
-        Timer::after(Duration::from_millis(millis)).await
+        Timer::after_millis(millis).await
     }
 }

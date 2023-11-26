@@ -24,12 +24,12 @@ use embassy_futures::select::{select, Either};
 use heapless::Vec;
 
 pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder};
-use crate::config::*;
-use crate::control::*;
-use crate::descriptor::*;
+use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
+use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
+use crate::descriptor::{descriptor_type, lang_id};
 use crate::descriptor_reader::foreach_endpoint;
 use crate::driver::{Bus, ControlPipe, Direction, Driver, EndpointAddress, Event};
-use crate::types::*;
+use crate::types::{InterfaceNumber, StringIndex};
 
 /// The global state of the USB device.
 ///
@@ -175,10 +175,7 @@ pub struct UsbBufferReport {
     /// Number of bos descriptor bytes used
     pub bos_descriptor_used: usize,
     /// Number of msos descriptor bytes used
-    ///
-    /// Will be `None` if the "msos-descriptor" feature is not active.
-    /// Otherwise will return Some(bytes).
-    pub msos_descriptor_used: Option<usize>,
+    pub msos_descriptor_used: usize,
     /// Size of the control buffer
     pub control_buffer_size: usize,
 }
@@ -197,6 +194,7 @@ struct Inner<'d, D: Driver<'d>> {
     device_descriptor: &'d [u8],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
+    msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 
     device_state: UsbDeviceState,
     suspended: bool,
@@ -212,9 +210,6 @@ struct Inner<'d, D: Driver<'d>> {
 
     interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
     handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
-
-    #[cfg(feature = "msos-descriptor")]
-    msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
@@ -225,9 +220,9 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         device_descriptor: &'d [u8],
         config_descriptor: &'d [u8],
         bos_descriptor: &'d [u8],
+        msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
         interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
         control_buf: &'d mut [u8],
-        #[cfg(feature = "msos-descriptor")] msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
     ) -> UsbDevice<'d, D> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
@@ -242,6 +237,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 device_descriptor,
                 config_descriptor,
                 bos_descriptor,
+                msos_descriptor,
 
                 device_state: UsbDeviceState::Unpowered,
                 suspended: false,
@@ -251,8 +247,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 set_address_pending: false,
                 interfaces,
                 handlers,
-                #[cfg(feature = "msos-descriptor")]
-                msos_descriptor,
             },
         }
     }
@@ -261,16 +255,11 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     ///
     /// Useful for tuning buffer sizes for actual usage
     pub fn buffer_usage(&self) -> UsbBufferReport {
-        #[cfg(not(feature = "msos-descriptor"))]
-        let mdu = None;
-        #[cfg(feature = "msos-descriptor")]
-        let mdu = Some(self.inner.msos_descriptor.len());
-
         UsbBufferReport {
             device_descriptor_used: self.inner.device_descriptor.len(),
             config_descriptor_used: self.inner.config_descriptor.len(),
             bos_descriptor_used: self.inner.bos_descriptor.len(),
-            msos_descriptor_used: mdu,
+            msos_descriptor_used: self.inner.msos_descriptor.len(),
             control_buffer_size: self.control_buf.len(),
         }
     }
@@ -294,7 +283,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     /// After dropping the future, [`UsbDevice::disable()`] should be called
     /// before calling any other `UsbDevice` methods to fully reset the
     /// peripheral.
-    pub async fn run_until_suspend(&mut self) -> () {
+    pub async fn run_until_suspend(&mut self) {
         while !self.inner.suspended {
             let control_fut = self.control.setup();
             let bus_fut = self.inner.bus.poll();
@@ -364,6 +353,8 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     }
 
     async fn handle_control_in(&mut self, req: Request) {
+        const DEVICE_DESCRIPTOR_LEN: usize = 18;
+
         let mut resp_length = req.length as usize;
         let max_packet_size = self.control.max_packet_size();
 
@@ -371,19 +362,15 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // The host doesn't know our EP0 max packet size yet, and might assume
         // a full-length packet is a short packet, thinking we're done sending data.
         // See https://github.com/hathach/tinyusb/issues/184
-        const DEVICE_DESCRIPTOR_LEN: usize = 18;
-        if self.inner.address == 0
-            && max_packet_size < DEVICE_DESCRIPTOR_LEN
-            && (max_packet_size as usize) < resp_length
-        {
+        if self.inner.address == 0 && max_packet_size < DEVICE_DESCRIPTOR_LEN && max_packet_size < resp_length {
             trace!("received control req while not addressed: capping response to 1 packet.");
             resp_length = max_packet_size;
         }
 
-        match self.inner.handle_control_in(req, &mut self.control_buf) {
+        match self.inner.handle_control_in(req, self.control_buf) {
             InResponse::Accepted(data) => {
                 let len = data.len().min(resp_length);
-                let need_zlp = len != resp_length && (len % usize::from(max_packet_size)) == 0;
+                let need_zlp = len != resp_length && (len % max_packet_size) == 0;
 
                 let chunks = data[0..len]
                     .chunks(max_packet_size)
@@ -407,6 +394,16 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         let req_length = req.length as usize;
         let max_packet_size = self.control.max_packet_size();
         let mut total = 0;
+
+        if req_length > self.control_buf.len() {
+            warn!(
+                "got CONTROL OUT with length {} higher than the control_buf len {}, rejecting.",
+                req_length,
+                self.control_buf.len()
+            );
+            self.control.reject().await;
+            return;
+        }
 
         let chunks = self.control_buf[..req_length].chunks_mut(max_packet_size);
         for (first, last, chunk) in first_last(chunks) {
@@ -435,7 +432,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                     self.control.accept_set_address(self.inner.address).await;
                     self.inner.set_address_pending = false;
                 } else {
-                    self.control.accept().await
+                    self.control.accept().await;
                 }
             }
             OutResponse::Rejected => self.control.reject().await,
@@ -548,9 +545,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                     OutResponse::Accepted
                 }
-                (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => match self.device_state {
-                    UsbDeviceState::Default => OutResponse::Accepted,
-                    _ => {
+                (Request::SET_CONFIGURATION, CONFIGURATION_NONE_U16) => {
+                    if self.device_state != UsbDeviceState::Default {
                         debug!("SET_CONFIGURATION: unconfigured");
                         self.device_state = UsbDeviceState::Addressed;
 
@@ -564,17 +560,15 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         for h in &mut self.handlers {
                             h.configured(false);
                         }
-
-                        OutResponse::Accepted
                     }
-                },
+                    OutResponse::Accepted
+                }
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
                 let iface_num = InterfaceNumber::new(req.index as _);
-                let iface = match self.interfaces.get_mut(iface_num.0 as usize) {
-                    Some(iface) => iface,
-                    None => return OutResponse::Rejected,
+                let Some(iface) = self.interfaces.get_mut(iface_num.0 as usize) else {
+                    return OutResponse::Rejected;
                 };
 
                 match req.request {
@@ -650,9 +644,8 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 _ => InResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
-                let iface = match self.interfaces.get_mut(req.index as usize) {
-                    Some(iface) => iface,
-                    None => return InResponse::Rejected,
+                let Some(iface) = self.interfaces.get_mut(req.index as usize) else {
+                    return InResponse::Rejected;
                 };
 
                 match req.request {
@@ -680,7 +673,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                 }
                 _ => InResponse::Rejected,
             },
-            #[cfg(feature = "msos-descriptor")]
+
             (RequestType::Vendor, Recipient::Device) => {
                 if !self.msos_descriptor.is_empty()
                     && req.request == self.msos_descriptor.vendor_code()
@@ -706,7 +699,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
     }
 
     fn handle_control_in_delegated<'a>(&'a mut self, req: Request, buf: &'a mut [u8]) -> InResponse<'a> {
-        unsafe fn extend_lifetime<'x, 'y>(r: InResponse<'x>) -> InResponse<'y> {
+        unsafe fn extend_lifetime<'y>(r: InResponse<'_>) -> InResponse<'y> {
             core::mem::transmute(r)
         }
 
@@ -756,16 +749,12 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     };
 
                     if let Some(s) = s {
-                        if buf.len() < 2 {
-                            panic!("control buffer too small");
-                        }
+                        assert!(buf.len() >= 2, "control buffer too small");
 
                         buf[1] = descriptor_type::STRING;
                         let mut pos = 2;
                         for c in s.encode_utf16() {
-                            if pos + 2 >= buf.len() {
-                                panic!("control buffer too small");
-                            }
+                            assert!(pos + 2 < buf.len(), "control buffer too small");
 
                             buf[pos..pos + 2].copy_from_slice(&c.to_le_bytes());
                             pos += 2;

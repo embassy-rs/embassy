@@ -47,6 +47,9 @@ pub unsafe fn on_irq() {
     #[cfg(any(exti_c0, exti_g0, exti_l5, exti_u5, exti_h5, exti_h50))]
     let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
 
+    // We don't handle or change any EXTI lines above 16.
+    let bits = bits & 0x0000FFFF;
+
     // Mask all the channels that fired.
     cpu_regs().imr(0).modify(|w| w.0 &= !bits);
 

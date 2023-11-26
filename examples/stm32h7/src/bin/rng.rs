@@ -15,7 +15,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.hsi48 = true; // needed for RNG.
+    config.rcc.hsi48 = Some(Default::default()); // needed for RNG
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 

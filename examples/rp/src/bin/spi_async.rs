@@ -8,7 +8,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::spi::{Config, Spi};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -27,6 +27,6 @@ async fn main(_spawner: Spawner) {
         let mut rx_buf = [0_u8; 6];
         spi.transfer(&mut rx_buf, &tx_buf).await.unwrap();
         info!("{:?}", rx_buf);
-        Timer::after(Duration::from_secs(1)).await;
+        Timer::after_secs(1).await;
     }
 }

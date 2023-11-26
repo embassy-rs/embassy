@@ -8,7 +8,7 @@ use embassy_futures::join::join;
 use embassy_stm32::rcc::*;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
@@ -22,8 +22,17 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PllRDiv::DIV2, PllPreDiv::DIV1, PllMul::MUL10, None);
-    config.rcc.hsi48 = true;
+    config.rcc.hsi = true;
+    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.pll = Some(Pll {
+        // 80Mhz clock (16 / 1 * 10 / 2)
+        source: PllSource::HSI,
+        prediv: PllPreDiv::DIV1,
+        mul: PllMul::MUL10,
+        divp: None,
+        divq: None,
+        divr: Some(PllRDiv::DIV2),
+    });
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
@@ -53,6 +62,7 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 
@@ -76,7 +86,7 @@ async fn main(_spawner: Spawner) {
     let hid_fut = async {
         let mut y: i8 = 5;
         loop {
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
 
             y = -y;
             let report = MouseReport {

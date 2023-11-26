@@ -9,7 +9,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
@@ -35,7 +35,7 @@ async fn main(_spawner: Spawner) {
         // This forced reset is needed only for development, without it host
         // will not reset your device when you upload new firmware.
         let _dp = Output::new(&mut p.PA12, Level::Low, Speed::Low);
-        Timer::after(Duration::from_millis(10)).await;
+        Timer::after_millis(10).await;
     }
 
     // Create the driver, from the HAL.
@@ -60,6 +60,7 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 

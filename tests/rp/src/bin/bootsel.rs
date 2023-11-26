@@ -5,7 +5,7 @@ teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     // defmt RTT header. Reading that header might touch flash memory, which
     // interferes with flash write operations.
     // https://github.com/knurling-rs/defmt/pull/683
-    Timer::after(Duration::from_millis(10)).await;
+    Timer::after_millis(10).await;
 
     assert_eq!(p.BOOTSEL.is_pressed(), false);
 

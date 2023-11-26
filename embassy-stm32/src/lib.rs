@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
+#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
@@ -226,8 +227,9 @@ pub fn init(config: Config) -> Peripherals {
             time_driver::init(cs);
 
             #[cfg(feature = "low-power")]
-            while !crate::rcc::low_power_ready() {
-                crate::rcc::clock_refcount_sub(cs);
+            {
+                crate::rcc::REFCOUNT_STOP2 = 0;
+                crate::rcc::REFCOUNT_STOP1 = 0;
             }
         }
 

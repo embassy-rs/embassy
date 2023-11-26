@@ -15,7 +15,7 @@ use embassy_stm32::rcc::{
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_io_async::Write;
 use rand_core::RngCore;
 use static_cell::make_static;
@@ -37,13 +37,13 @@ async fn net_task(stack: &'static Stack<Device>) -> ! {
 async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.hsi = None;
-    config.rcc.hsi48 = true; // needed for rng
+    config.rcc.hsi48 = Some(Default::default()); // needed for RNG
     config.rcc.hse = Some(Hse {
         freq: Hertz(8_000_000),
         mode: HseMode::BypassDigital,
     });
     config.rcc.pll1 = Some(Pll {
-        source: PllSource::Hse,
+        source: PllSource::HSE,
         prediv: PllPreDiv::DIV2,
         mul: PllMul::MUL125,
         divp: Some(PllDiv::DIV2),
@@ -54,7 +54,7 @@ async fn main(spawner: Spawner) -> ! {
     config.rcc.apb1_pre = APBPrescaler::DIV1;
     config.rcc.apb2_pre = APBPrescaler::DIV1;
     config.rcc.apb3_pre = APBPrescaler::DIV1;
-    config.rcc.sys = Sysclk::Pll1P;
+    config.rcc.sys = Sysclk::PLL1_P;
     config.rcc.voltage_scale = VoltageScale::Scale0;
     let p = embassy_stm32::init(config);
     info!("Hello World!");
@@ -121,7 +121,7 @@ async fn main(spawner: Spawner) -> ! {
         let r = socket.connect(remote_endpoint).await;
         if let Err(e) = r {
             info!("connect error: {:?}", e);
-            Timer::after(Duration::from_secs(3)).await;
+            Timer::after_secs(3).await;
             continue;
         }
         info!("connected!");
@@ -131,7 +131,7 @@ async fn main(spawner: Spawner) -> ! {
                 info!("write error: {:?}", e);
                 break;
             }
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::after_secs(1).await;
         }
     }
 }

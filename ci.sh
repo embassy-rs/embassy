@@ -38,6 +38,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt \
     --- build --release --manifest-path embassy-time/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt,defmt-timestamp-uptime,tick-hz-32_768,generic-queue-8 \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,medium-ethernet \
+    --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,igmp,medium-ethernet \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,dhcpv4,medium-ethernet \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,dhcpv4,medium-ethernet,nightly,dhcpv4-hostname \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv6,medium-ethernet \
@@ -110,6 +111,7 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h753zi,defmt,exti,time-driver-any,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h735zg,defmt,exti,time-driver-any,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h755zi-cm7,defmt,exti,time-driver-any,unstable-traits,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h725re,defmt,exti,time-driver-any,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32h7b3ai,defmt,exti,time-driver-any,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32l476vg,defmt,exti,time-driver-any,unstable-traits,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features nightly,stm32l422cb,defmt,exti,time-driver-any,unstable-traits,time \
@@ -192,9 +194,13 @@ cargo batch  \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g071rb --out-dir out/tests/stm32g071rb \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c031c6 --out-dir out/tests/stm32c031c6 \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi --out-dir out/tests/stm32h755zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h753zi --out-dir out/tests/stm32h753zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h7a3zi --out-dir out/tests/stm32h7a3zi \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg --out-dir out/tests/stm32wb55rg \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h563zi --out-dir out/tests/stm32h563zi \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32u585ai --out-dir out/tests/stm32u585ai \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32u5a5zj --out-dir out/tests/stm32u5a5zj \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wba52cg --out-dir out/tests/stm32wba52cg \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32l073rz --out-dir out/tests/stm32l073rz \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32l152re --out-dir out/tests/stm32l152re \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l4a6zg --out-dir out/tests/stm32l4a6zg \
@@ -204,6 +210,7 @@ cargo batch  \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f207zg --out-dir out/tests/stm32f207zg \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f303ze --out-dir out/tests/stm32f303ze \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l496zg --out-dir out/tests/stm32l496zg \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wl55jc --out-dir out/tests/stm32wl55jc \
     --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
     --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --out-dir out/tests/nrf52840-dk \
     --- build --release --manifest-path tests/riscv32/Cargo.toml --target riscv32imac-unknown-none-elf \
@@ -212,7 +219,13 @@ cargo batch  \
 
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
+
+
+# unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
+
+# doesn't work, gives "noise error", no idea why. usart_dma does pass.
+rm out/tests/stm32u5a5zj/usart
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests

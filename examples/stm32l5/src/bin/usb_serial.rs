@@ -20,8 +20,17 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL(PLLSource::HSI16, PllRDiv::DIV2, PllPreDiv::DIV1, PllMul::MUL10, None);
-    config.rcc.hsi48 = true;
+    config.rcc.hsi = true;
+    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.pll = Some(Pll {
+        // 80Mhz clock (16 / 1 * 10 / 2)
+        source: PllSource::HSI,
+        prediv: PllPreDiv::DIV1,
+        mul: PllMul::MUL10,
+        divp: None,
+        divq: None,
+        divr: Some(PllRDiv::DIV2),
+    });
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");
@@ -48,6 +57,7 @@ async fn main(_spawner: Spawner) {
         &mut device_descriptor,
         &mut config_descriptor,
         &mut bos_descriptor,
+        &mut [], // no msos descriptors
         &mut control_buf,
     );
 

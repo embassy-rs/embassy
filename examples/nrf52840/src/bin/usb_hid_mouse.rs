@@ -10,7 +10,7 @@ use embassy_futures::join::join;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
@@ -83,7 +83,7 @@ async fn main(_spawner: Spawner) {
     let hid_fut = async {
         let mut y: i8 = 5;
         loop {
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
 
             y = -y;
             let report = MouseReport {

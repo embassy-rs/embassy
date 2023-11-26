@@ -40,7 +40,8 @@ use static_cell::make_static;
 use {embassy_stm32 as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    I2C3_EV => i2c::InterruptHandler<peripherals::I2C3>;
+    I2C3_EV => i2c::EventInterruptHandler<peripherals::I2C3>;
+    I2C3_ER => i2c::ErrorInterruptHandler<peripherals::I2C3>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
@@ -48,7 +49,6 @@ use embassy_net_adin1110::{self, Device, Runner, ADIN1110};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hal::gpio::Pull;
 use hal::i2c::Config as I2C_Config;
-use hal::rcc::{ClockSrc, PLLSource, PllMul, PllPreDiv, PllRDiv};
 use hal::spi::{Config as SPI_Config, Spi};
 use hal::time::Hertz;
 
@@ -74,17 +74,25 @@ async fn main(spawner: Spawner) {
     defmt::println!("Start main()");
 
     let mut config = embassy_stm32::Config::default();
-
-    // 80Mhz clock (Source: 8 / SrcDiv: 1 * PLLMul 20 / ClkDiv 2)
-    // 80MHz highest frequency for flash 0 wait.
-    config.rcc.mux = ClockSrc::PLL(
-        PLLSource::HSE(Hertz(8_000_000)),
-        PllRDiv::DIV2,
-        PllPreDiv::DIV1,
-        PllMul::MUL20,
-        None,
-    );
-    config.rcc.hsi48 = true; // needed for rng
+    {
+        use embassy_stm32::rcc::*;
+        // 80Mhz clock (Source: 8 / SrcDiv: 1 * PllMul 20 / ClkDiv 2)
+        // 80MHz highest frequency for flash 0 wait.
+        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz::mhz(8),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll = Some(Pll {
+            source: PllSource::HSE,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL20,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
+        });
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
+    }
 
     let dp = embassy_stm32::init(config);
 
@@ -306,7 +314,7 @@ async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static, periphera
 
     loop {
         led.set_low();
-        match select(temp_sens.read_temp(), Timer::after(Duration::from_millis(500))).await {
+        match select(temp_sens.read_temp(), Timer::after_millis(500)).await {
             Either::First(i2c_ret) => match i2c_ret {
                 Ok(value) => {
                     led.set_high();
@@ -424,7 +432,7 @@ where
         // Start: One shot
         let cfg = 0b01 << 5;
         self.write_cfg(cfg).await?;
-        Timer::after(Duration::from_millis(250)).await;
+        Timer::after_millis(250).await;
         self.bus
             .write_read(self.addr, &[Registers::Temp_MSB as u8], &mut buffer)
             .await

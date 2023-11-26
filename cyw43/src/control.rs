@@ -1,10 +1,10 @@
 use core::cmp::{max, min};
+use core::iter::zip;
 
-use ch::driver::LinkState;
 use embassy_net_driver_channel as ch;
-use embassy_time::{Duration, Timer};
+use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
+use embassy_time::Timer;
 
-pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::events::{Event, EventSubscriber, Events};
 use crate::fmt::Bytes;
@@ -15,6 +15,12 @@ use crate::{countries, events, PowerManagementMode};
 #[derive(Debug)]
 pub struct Error {
     pub status: u32,
+}
+
+#[derive(Debug)]
+pub enum AddMulticastAddressError {
+    NotMulticast,
+    NoFreeSlots,
 }
 
 pub struct Control<'a> {
@@ -87,22 +93,22 @@ impl<'a> Control<'a> {
         self.set_iovar("country", &country_info.to_bytes()).await;
 
         // set country takes some time, next ioctls fail if we don't wait.
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         // Set antenna to chip antenna
         self.ioctl_set_u32(IOCTL_CMD_ANTDIV, 0, 0).await;
 
         self.set_iovar_u32("bus:txglom", 0).await;
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         //self.set_iovar_u32("apsta", 1).await; // this crashes, also we already did it before...??
-        //Timer::after(Duration::from_millis(100)).await;
+        //Timer::after_millis(100).await;
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         self.set_iovar_u32("ampdu_mpdu", 4).await;
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
         //self.set_iovar_u32("ampdu_rx_factor", 0).await; // this crashes
 
-        //Timer::after(Duration::from_millis(100)).await;
+        //Timer::after_millis(100).await;
 
         // evts
         let mut evts = EventMask {
@@ -121,19 +127,19 @@ impl<'a> Control<'a> {
 
         self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         // set wifi up
         self.up().await;
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         self.ioctl_set_u32(110, 0, 1).await; // SET_GMODE = auto
         self.ioctl_set_u32(142, 0, 0).await; // SET_BAND = any
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
-        self.state_ch.set_ethernet_address(mac_addr);
+        self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
         debug!("INIT DONE");
     }
@@ -185,7 +191,7 @@ impl<'a> Control<'a> {
         self.set_iovar_u32x2("bsscfg:sup_wpa2_eapver", 0, 0xFFFF_FFFF).await;
         self.set_iovar_u32x2("bsscfg:sup_wpa_tmo", 0, 2500).await;
 
-        Timer::after(Duration::from_millis(100)).await;
+        Timer::after_millis(100).await;
 
         let mut pfi = PassphraseInfo {
             len: passphrase.len() as _,
@@ -297,7 +303,7 @@ impl<'a> Control<'a> {
         if security != Security::OPEN {
             self.set_iovar_u32x2("bsscfg:wpa_auth", 0, 0x0084).await; // wpa_auth = WPA2_AUTH_PSK | WPA_AUTH_PSK
 
-            Timer::after(Duration::from_millis(100)).await;
+            Timer::after_millis(100).await;
 
             // Set passphrase
             let mut pfi = PassphraseInfo {
@@ -315,6 +321,54 @@ impl<'a> Control<'a> {
 
         // Start AP
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
+    }
+
+    /// Add specified address to the list of hardware addresses the device
+    /// listens on. The address must be a Group address (I/G bit set). Up
+    /// to 10 addresses are supported by the firmware. Returns the number of
+    /// address slots filled after adding, or an error.
+    pub async fn add_multicast_address(&mut self, address: [u8; 6]) -> Result<usize, AddMulticastAddressError> {
+        // The firmware seems to ignore non-multicast addresses, so let's
+        // prevent the user from adding them and wasting space.
+        if address[0] & 0x01 != 1 {
+            return Err(AddMulticastAddressError::NotMulticast);
+        }
+
+        let mut buf = [0; 64];
+        self.get_iovar("mcast_list", &mut buf).await;
+
+        let n = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+        let (used, free) = buf[4..].split_at_mut(n * 6);
+
+        if used.chunks(6).any(|a| a == address) {
+            return Ok(n);
+        }
+
+        if free.len() < 6 {
+            return Err(AddMulticastAddressError::NoFreeSlots);
+        }
+
+        free[..6].copy_from_slice(&address);
+        let n = n + 1;
+        buf[..4].copy_from_slice(&(n as u32).to_le_bytes());
+
+        self.set_iovar_v::<80>("mcast_list", &buf).await;
+        Ok(n)
+    }
+
+    /// Retrieve the list of configured multicast hardware addresses.
+    pub async fn list_mulistcast_addresses(&mut self, result: &mut [[u8; 6]; 10]) -> usize {
+        let mut buf = [0; 64];
+        self.get_iovar("mcast_list", &mut buf).await;
+
+        let n = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
+        let used = &buf[4..][..n * 6];
+
+        for (addr, output) in zip(used.chunks(6), result.iter_mut()) {
+            output.copy_from_slice(addr)
+        }
+
+        n
     }
 
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {

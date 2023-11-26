@@ -1,5 +1,5 @@
-use ch::driver::LinkState;
 use embassy_net_driver_channel as ch;
+use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
 
 use crate::ioctl::Shared;
@@ -77,7 +77,7 @@ impl<'a> Control<'a> {
 
         let mac_addr = self.get_mac_addr().await?;
         debug!("mac addr: {:02x}", mac_addr);
-        self.state_ch.set_ethernet_address(mac_addr);
+        self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
         Ok(())
     }
@@ -97,8 +97,8 @@ impl<'a> Control<'a> {
 
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
         let req = proto::CtrlMsgReqConnectAp {
-            ssid: String::from(ssid),
-            pwd: String::from(password),
+            ssid: unwrap!(String::try_from(ssid)),
+            pwd: unwrap!(String::try_from(password)),
             bssid: String::new(),
             listen_interval: 3,
             is_wpa3_supported: false,

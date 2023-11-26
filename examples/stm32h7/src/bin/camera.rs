@@ -9,7 +9,7 @@ use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoPrescaler};
 use embassy_stm32::time::khz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -19,7 +19,8 @@ const HEIGHT: usize = 100;
 static mut FRAME: [u32; WIDTH * HEIGHT / 2] = [0u32; WIDTH * HEIGHT / 2];
 
 bind_interrupts!(struct Irqs {
-    I2C1_EV => i2c::InterruptHandler<peripherals::I2C1>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     DCMI => dcmi::InterruptHandler<peripherals::DCMI>;
 });
 
@@ -28,17 +29,17 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(Hsi::Mhz64);
+        config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
-        config.rcc.pll_src = PllSource::Hsi;
         config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,
         });
-        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
         config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
@@ -86,11 +87,11 @@ async fn main(_spawner: Spawner) {
     loop {
         defmt::info!("high");
         led.set_high();
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
 
         defmt::info!("low");
         led.set_low();
-        Timer::after(Duration::from_millis(500)).await;
+        Timer::after_millis(500).await;
     }
 }
 
@@ -99,7 +100,7 @@ mod ov7725 {
 
     use defmt::Format;
     use embassy_stm32::rcc::{Mco, McoInstance};
-    use embassy_time::{Duration, Timer};
+    use embassy_time::Timer;
     use embedded_hal_async::i2c::I2c;
 
     #[repr(u8)]
@@ -210,9 +211,9 @@ mod ov7725 {
         }
 
         pub async fn init(&mut self) -> Result<(), Error<Bus::Error>> {
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
             self.reset_regs().await?;
-            Timer::after(Duration::from_millis(500)).await;
+            Timer::after_millis(500).await;
             self.set_pixformat().await?;
             self.set_resolution().await?;
             Ok(())

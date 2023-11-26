@@ -1,7 +1,7 @@
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::{self, Sw};
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Hsidiv as HSI16Prescaler, Pllm, Plln, Pllp, Pllq, Pllr, Ppre as APBPrescaler,
+    Hpre as AHBPrescaler, Hsidiv as HSIPrescaler, Pllm, Plln, Pllp, Pllq, Pllr, Ppre as APBPrescaler,
 };
 use crate::pac::{FLASH, PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -14,7 +14,7 @@ pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
     HSE(Hertz),
-    HSI16(HSI16Prescaler),
+    HSI(HSIPrescaler),
     PLL(PllConfig),
     LSI,
 }
@@ -28,7 +28,7 @@ pub enum ClockSrc {
 #[derive(Clone, Copy)]
 pub struct PllConfig {
     /// The source from which the PLL receives a clock signal
-    pub source: PllSrc,
+    pub source: PllSource,
     /// The initial divisor of that clock signal
     pub m: Pllm,
     /// The PLL VCO multiplier, which must be in the range `8..=86`.
@@ -46,9 +46,9 @@ pub struct PllConfig {
 impl Default for PllConfig {
     #[inline]
     fn default() -> PllConfig {
-        // HSI16 / 1 * 8 / 2 = 64 MHz
+        // HSI / 1 * 8 / 2 = 64 MHz
         PllConfig {
-            source: PllSrc::HSI16,
+            source: PllSource::HSI,
             m: Pllm::DIV1,
             n: Plln::MUL8,
             r: Pllr::DIV2,
@@ -59,8 +59,8 @@ impl Default for PllConfig {
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub enum PllSrc {
-    HSI16,
+pub enum PllSource {
+    HSI,
     HSE(Hertz),
 }
 
@@ -77,7 +77,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI16(HSI16Prescaler::DIV1),
+            mux: ClockSrc::HSI(HSIPrescaler::DIV1),
             ahb_pre: AHBPrescaler::DIV1,
             apb_pre: APBPrescaler::DIV1,
             low_power_run: false,
@@ -89,8 +89,8 @@ impl Default for Config {
 impl PllConfig {
     pub(crate) fn init(self) -> Hertz {
         let (src, input_freq) = match self.source {
-            PllSrc::HSI16 => (vals::Pllsrc::HSI16, HSI_FREQ),
-            PllSrc::HSE(freq) => (vals::Pllsrc::HSE, freq),
+            PllSource::HSI => (vals::Pllsrc::HSI, HSI_FREQ),
+            PllSource::HSE(freq) => (vals::Pllsrc::HSE, freq),
         };
 
         let m_freq = input_freq / self.m;
@@ -121,11 +121,11 @@ impl PllConfig {
         // > 3. Change the desired parameter.
         // Enable whichever clock source we're using, and wait for it to become ready
         match self.source {
-            PllSrc::HSI16 => {
+            PllSource::HSI => {
                 RCC.cr().write(|w| w.set_hsion(true));
                 while !RCC.cr().read().hsirdy() {}
             }
-            PllSrc::HSE(_) => {
+            PllSource::HSE(_) => {
                 RCC.cr().write(|w| w.set_hseon(true));
                 while !RCC.cr().read().hserdy() {}
             }
@@ -167,8 +167,8 @@ impl PllConfig {
 
 pub(crate) unsafe fn init(config: Config) {
     let (sys_clk, sw) = match config.mux {
-        ClockSrc::HSI16(div) => {
-            // Enable HSI16
+        ClockSrc::HSI(div) => {
+            // Enable HSI
             RCC.cr().write(|w| {
                 w.set_hsidiv(div);
                 w.set_hsion(true)
@@ -186,7 +186,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
         ClockSrc::PLL(pll) => {
             let freq = pll.init();
-            (freq, Sw::PLLRCLK)
+            (freq, Sw::PLL1_R)
         }
         ClockSrc::LSI => {
             // Enable LSI
@@ -275,9 +275,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_freqs(Clocks {
         sys: sys_clk,
-        ahb1: ahb_freq,
-        apb1: apb_freq,
-        apb1_tim: apb_tim_freq,
+        hclk1: ahb_freq,
+        pclk1: apb_freq,
+        pclk1_tim: apb_tim_freq,
         rtc,
     });
 }

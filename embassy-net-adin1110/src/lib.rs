@@ -1,5 +1,6 @@
 #![deny(clippy::pedantic)]
 #![feature(async_fn_in_trait)]
+#![allow(stable_features, unknown_lints, async_fn_in_trait)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::missing_errors_doc)]
@@ -20,7 +21,7 @@ pub use crc32::ETH_FCS;
 use crc8::crc8;
 use embassy_futures::select::{select, Either};
 use embassy_net_driver_channel as ch;
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::{Error, Operation, SpiDevice};
@@ -609,12 +610,12 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     reset.set_low().unwrap();
 
     // Wait t1: 20-43mS
-    Timer::after(Duration::from_millis(30)).await;
+    Timer::after_millis(30).await;
 
     reset.set_high().unwrap();
 
     // Wait t3: 50mS
-    Timer::after(Duration::from_millis(50)).await;
+    Timer::after_millis(50).await;
 
     // Create device
     let mut mac = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);

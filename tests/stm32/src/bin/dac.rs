@@ -10,9 +10,9 @@ use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
-use embassy_stm32::dac::{DacCh1, DacChannel, Value};
+use embassy_stm32::dac::{DacCh1, Value};
 use embassy_stm32::dma::NoDma;
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -26,9 +26,7 @@ async fn main(_spawner: Spawner) {
     #[cfg(any(feature = "stm32h755zi", feature = "stm32g071rb"))]
     let dac_peripheral = p.DAC1;
 
-    let mut dac: DacCh1<'_, _, NoDma> = DacCh1::new(dac_peripheral, NoDma, p.PA4);
-    unwrap!(dac.set_trigger_enable(false));
-
+    let mut dac = DacCh1::new(dac_peripheral, NoDma, p.PA4);
     let mut adc = Adc::new(p.ADC1, &mut Delay);
 
     #[cfg(feature = "stm32h755zi")]
@@ -36,18 +34,18 @@ async fn main(_spawner: Spawner) {
     #[cfg(any(feature = "stm32f429zi", feature = "stm32g071rb"))]
     let normalization_factor: i32 = 16;
 
-    unwrap!(dac.set(Value::Bit8(0)));
+    dac.set(Value::Bit8(0));
     // Now wait a little to obtain a stable value
-    Timer::after(Duration::from_millis(30)).await;
+    Timer::after_millis(30).await;
     let offset = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
 
     for v in 0..=255 {
         // First set the DAC output value
         let dac_output_val = to_sine_wave(v);
-        unwrap!(dac.set(Value::Bit8(dac_output_val)));
+        dac.set(Value::Bit8(dac_output_val));
 
         // Now wait a little to obtain a stable value
-        Timer::after(Duration::from_millis(30)).await;
+        Timer::after_millis(30).await;
 
         // Need to steal the peripherals here because PA4 is obviously in use already
         let measured = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);

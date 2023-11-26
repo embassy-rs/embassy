@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::time::mhz;
+use embassy_stm32::time::Hertz;
 use embassy_stm32::usb_otg::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
@@ -46,9 +46,25 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.pll48 = true;
-    config.rcc.sys_ck = Some(mhz(48));
-
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll = Some(Pll {
+            prediv: PllPreDiv::DIV4,
+            mul: PllMul::MUL168,
+            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 168 / 2 = 168Mhz.
+            divq: Some(PllQDiv::DIV7), // 8mhz / 4 * 168 / 7 = 48Mhz.
+            divr: None,
+        });
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV4;
+        config.rcc.apb2_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::PLL1_P;
+    }
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
@@ -78,6 +94,7 @@ async fn main(spawner: Spawner) {
         &mut make_static!([0; 256])[..],
         &mut make_static!([0; 256])[..],
         &mut make_static!([0; 256])[..],
+        &mut [], // no msos descriptors
         &mut make_static!([0; 128])[..],
     );
 
