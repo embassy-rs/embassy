@@ -38,7 +38,7 @@ DEFMT_LOG = "trace" # <- can change to info, warn, or error
 
 === build.rs
 
-This is the build script for your project. It links defmt (what is defmt?) and the `memory.x` file if need be. This file is pretty specific for each chipset, just copy and paste from the corresponding link:https://github.com/embassy-rs/embassy/tree/main/examples[example].
+This is the build script for your project. It links defmt (what is defmt?) and the `memory.x` file if needed. This file is pretty specific for each chipset, just copy and paste from the corresponding link:https://github.com/embassy-rs/embassy/tree/main/examples[example].
 
 === Cargo.toml
 
