@@ -109,7 +109,7 @@ You probably need to enable a time driver for your HAL (not in `embassy-time`!).
 [source,toml]
 ----
 [dependencies.embassy-stm32]
-version = "0.1.0",
+version = "0.1.0"
 features = [
     # ...
     "time-driver-any", # Add this line!
