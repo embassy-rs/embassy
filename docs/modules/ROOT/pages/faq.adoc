@@ -36,3 +36,47 @@ For Cortex-M targets, consider making sure that ALL of the following features ar
 * `nightly`
 
 For Xtensa ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
+
+== Why is my binary so big?
+
+The first step to managing your binary size is to set up your link:https://doc.rust-lang.org/cargo/reference/profiles.html[profiles].
+
+[source,toml]
+----
+[profile.release]
+debug = false
+lto = true
+opt-level = "s"
+incremental = true
+----
+
+All of these flags are elaborated on in the Rust Book page linked above.
+
+=== My binary is still big... filled with `std::fmt` stuff!
+
+This means your code is sufficiently complex that `panic!` invocation's formatting requirements could not be optimized out, despite your usage of `panic-halt` or `panic-reset`.
+
+You can remedy this by adding the following to your `.cargo/config.toml`:
+
+[source,toml]
+----
+[unstable]
+build-std = ["core"]
+build-std-features = ["panic_immediate_abort"]
+----
+
+This replaces all panics with a `UDF` (undefined) instruction.
+
+Depending on your chipset, this will exhibit different behavior.
+
+Refer to the spec for your chipset, but for `thumbv6m`, it results in a hardfault. Which can be configured like so:
+
+[source,rust]
+----
+#[exception]
+unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
+    SCB::sys_reset() // <- you could do something other than reset
+}
+----
+
+Refer to cortex-m's link:https://docs.rs/cortex-m-rt/latest/cortex_m_rt/attr.exception.html[exception handling] for more info.
