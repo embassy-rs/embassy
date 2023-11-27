@@ -31,7 +31,7 @@ stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" 
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "chrono", "rng"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
 
-eth = []
+eth = ["embassy-executor/task-arena-size-16384"]
 rng = []
 sdmmc = []
 stop = ["embassy-stm32/low-power", "embassy-stm32/low-power-debug-with-sleep"]
@@ -49,7 +49,7 @@ cm0 = ["portable-atomic/unsafe-assume-single-core"]
 teleprobe-meta = "1"
 
 embassy-sync = { version = "0.4.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.3.3", path = "../../embassy-executor", features = ["nightly", "arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-executor = { version = "0.3.3", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
 embassy-time = { version = "0.1.5", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["nightly", "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
