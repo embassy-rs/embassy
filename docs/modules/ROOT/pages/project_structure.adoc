@@ -1,6 +1,6 @@
 = Project Structure
 
-There are many ways to configure embassy and it's components for your exact application. The link:https://github.com/embassy-rs/embassy/tree/main/examples[examples] directory for each chipset demonstrate how your project structure should look. Let's break it down:
+There are many ways to configure embassy and its components for your exact application. The link:https://github.com/embassy-rs/embassy/tree/main/examples[examples] directory for each chipset demonstrates how your project structure should look. Let's break it down:
 
 The toplevel file structure of your project should look like this:
 [source,plain]
