@@ -80,3 +80,39 @@ unsafe fn HardFault(_frame: &ExceptionFrame) -> ! {
 ----
 
 Refer to cortex-m's link:https://docs.rs/cortex-m-rt/latest/cortex_m_rt/attr.exception.html[exception handling] for more info.
+
+== `embassy-time` throws linker errors
+
+If you see linker error like this:
+
+[source,text]
+----
+  = note: rust-lld: error: undefined symbol: _embassy_time_now
+          >>> referenced by driver.rs:127 (src/driver.rs:127)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::now::hefb1f99d6e069842) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+
+          rust-lld: error: undefined symbol: _embassy_time_allocate_alarm
+          >>> referenced by driver.rs:134 (src/driver.rs:134)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::allocate_alarm::hf5145b6bd46706b2) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+
+          rust-lld: error: undefined symbol: _embassy_time_set_alarm_callback
+          >>> referenced by driver.rs:139 (src/driver.rs:139)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::set_alarm_callback::h24f92388d96eafd2) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+
+          rust-lld: error: undefined symbol: _embassy_time_set_alarm
+          >>> referenced by driver.rs:144 (src/driver.rs:144)
+          >>>               embassy_time-846f66f1620ad42c.embassy_time.4f6a638abb75dd4c-cgu.0.rcgu.o:(embassy_time::driver::set_alarm::h530a5b1f444a6d5b) in archive Devel/Embedded/pogodyna/target/thumbv7em-none-eabihf/debug/deps/libembassy_time-846f66f1620ad42c.rlib
+----
+
+You probably need to enable a time driver for your HAL (not in `embassy-time`!). For example with `embassy-stm32`, you might need to enable `time-driver-any`:
+
+[source,toml]
+----
+[dependencies.embassy-stm32]
+version = "0.1.0"
+features = [
+    # ...
+    "time-driver-any", # Add this line!
+    # ...
+]
+----
