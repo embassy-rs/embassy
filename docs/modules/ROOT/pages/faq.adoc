@@ -116,3 +116,22 @@ features = [
     # ...
 ]
 ----
+
+== Error: `Only one package in the dependency graph may specify the same links value.`
+
+You have multiple versions of the same crate in your dependency tree. This means that some of your
+embassy crates are coming from crates.io, and some from git, each of them pulling in a different set
+of dependencies.
+
+To resolve this issue, make sure to only use a single source for all your embassy crates! To do this,
+you should patch your dependencies to use git sources using `[patch.crates.io]` and maybe `[patch.'https://github.com/embassy-rs/embassy.git']`.
+
+Example:
+
+[source,toml]
+----
+[patch.crates-io]
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+----
+
+Note that the git revision should match any other embassy patches or git dependencies that you are using!
