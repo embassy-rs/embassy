@@ -1,9 +1,7 @@
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
 
-#[cfg(feature = "nightly")]
 mod usb;
-#[cfg(feature = "nightly")]
 pub use usb::*;
 
 pub(crate) mod sealed {

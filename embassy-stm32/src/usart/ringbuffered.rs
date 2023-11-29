@@ -7,7 +7,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralRef;
 use futures::future::{select, Either};
 
-use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, ConfigError, Error, UartRx};
+use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, ConfigError, Error, RxDma, UartRx};
 use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
@@ -240,28 +240,20 @@ fn clear_idle_flag(r: Regs) -> Sr {
     sr
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eio {
-    use embedded_io_async::{ErrorType, Read};
+impl<T, Rx> embedded_io_async::ErrorType for RingBufferedUartRx<'_, T, Rx>
+where
+    T: BasicInstance,
+    Rx: RxDma<T>,
+{
+    type Error = Error;
+}
 
-    use super::RingBufferedUartRx;
-    use crate::usart::{BasicInstance, Error, RxDma};
-
-    impl<T, Rx> ErrorType for RingBufferedUartRx<'_, T, Rx>
-    where
-        T: BasicInstance,
-        Rx: RxDma<T>,
-    {
-        type Error = Error;
-    }
-
-    impl<T, Rx> Read for RingBufferedUartRx<'_, T, Rx>
-    where
-        T: BasicInstance,
-        Rx: RxDma<T>,
-    {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            self.read(buf).await
-        }
+impl<T, Rx> embedded_io_async::Read for RingBufferedUartRx<'_, T, Rx>
+where
+    T: BasicInstance,
+    Rx: RxDma<T>,
+{
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        self.read(buf).await
     }
 }

@@ -142,7 +142,6 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::ReadNorFlash for $type_name<'_, Async> {
                 const READ_SIZE: usize = crate::flash::READ_SIZE;
 
@@ -155,7 +154,6 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::NorFlash for $type_name<'_, Async> {
                 const WRITE_SIZE: usize = $region.write_size as usize;
                 const ERASE_SIZE: usize = $region.erase_size as usize;

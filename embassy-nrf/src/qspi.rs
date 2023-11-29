@@ -585,7 +585,6 @@ impl<'d, T: Instance> NorFlash for Qspi<'d, T> {
     }
 }
 
-#[cfg(feature = "nightly")]
 mod _eh1 {
     use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 

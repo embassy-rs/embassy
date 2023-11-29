@@ -566,82 +566,77 @@ mod eh02 {
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
+impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
+    type Error = Infallible;
+}
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
-        type Error = Infallible;
+impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
 
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Output<'d, T> {
+    type Error = Infallible;
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Output<'d, T> {
-        type Error = Infallible;
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
+    fn is_set_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
+    fn is_set_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_low())
+    }
+}
 
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Flex<'d, T> {
+    type Error = Infallible;
+}
+
+/// Implement [`InputPin`] for [`Flex`];
+///
+/// If the pin is not in input mode the result is unspecified.
+impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
 
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Flex<'d, T> {
-        type Error = Infallible;
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
+    fn is_set_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_high())
     }
 
-    /// Implement [`InputPin`] for [`Flex`];
-    ///
-    /// If the pin is not in input mode the result is unspecified.
-    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
-    }
-
-    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
-
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
-    }
-
-    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
-
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
+    fn is_set_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_low())
     }
 }

@@ -515,7 +515,6 @@ impl<'d> TcpIo<'d> {
     }
 }
 
-#[cfg(feature = "nightly")]
 mod embedded_io_impls {
     use super::*;
 
@@ -584,7 +583,6 @@ mod embedded_io_impls {
 }
 
 /// TCP client compatible with `embedded-nal-async` traits.
-#[cfg(feature = "nightly")]
 pub mod client {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;

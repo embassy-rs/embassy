@@ -4,10 +4,9 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareUpdaterConfig, State,
+    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareState, FirmwareUpdater,
+    FirmwareUpdaterConfig, State,
 };
-#[cfg(feature = "nightly")]
-pub use embassy_boot::{FirmwareState, FirmwareUpdater};
 use embedded_storage::nor_flash::NorFlash;
 
 /// A bootloader for STM32 devices.

@@ -495,72 +495,61 @@ mod eh02 {
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
-
-    impl embedded_hal_1::spi::Error for Error {
-        fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
-            match *self {
-                Self::TxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
-                Self::RxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
-                Self::BufferNotInRAM => embedded_hal_1::spi::ErrorKind::Other,
-            }
-        }
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::spi::ErrorType for Spim<'d, T> {
-        type Error = Error;
-    }
-
-    impl<'d, T: Instance> embedded_hal_1::spi::SpiBus<u8> for Spim<'d, T> {
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_transfer(words, &[])
-        }
-
-        fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(words)
-        }
-
-        fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_transfer(read, write)
-        }
-
-        fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
-            self.blocking_transfer_in_place(words)
+impl embedded_hal_1::spi::Error for Error {
+    fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
+        match *self {
+            Self::TxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
+            Self::RxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
+            Self::BufferNotInRAM => embedded_hal_1::spi::ErrorKind::Other,
         }
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eha {
+impl<'d, T: Instance> embedded_hal_1::spi::ErrorType for Spim<'d, T> {
+    type Error = Error;
+}
 
-    use super::*;
+impl<'d, T: Instance> embedded_hal_1::spi::SpiBus<u8> for Spim<'d, T> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
-    impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
-        async fn flush(&mut self) -> Result<(), Error> {
-            Ok(())
-        }
+    fn read(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_transfer(words, &[])
+    }
 
-        async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
-            self.read(words).await
-        }
+    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(words)
+    }
 
-        async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
-            self.write(data).await
-        }
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_transfer(read, write)
+    }
 
-        async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
-            self.transfer(rx, tx).await
-        }
+    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_transfer_in_place(words)
+    }
+}
 
-        async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
-            self.transfer_in_place(words).await
-        }
+impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
+    async fn flush(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
+        self.read(words).await
+    }
+
+    async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        self.write(data).await
+    }
+
+    async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(), Error> {
+        self.transfer(rx, tx).await
+    }
+
+    async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+        self.transfer_in_place(words).await
     }
 }
 

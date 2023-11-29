@@ -382,7 +382,6 @@ embassy_hal_internal::peripherals! {
     P1_15,
 }
 
-#[cfg(feature = "nightly")]
 impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);

@@ -131,7 +131,6 @@ embassy_hal_internal::peripherals! {
     QDEC,
 }
 
-#[cfg(feature = "nightly")]
 impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);

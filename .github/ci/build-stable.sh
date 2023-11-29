@@ -21,7 +21,7 @@ fi
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-sed -i 's/channel.*/channel = "stable"/g' rust-toolchain.toml
+sed -i 's/channel.*/channel = "beta"/g' rust-toolchain.toml
 
 ./ci_stable.sh
 
