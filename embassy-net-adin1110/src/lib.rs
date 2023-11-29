@@ -729,7 +729,7 @@ mod tests {
     use core::convert::Infallible;
 
     use embedded_hal_1::digital::{ErrorType, OutputPin};
-    use embedded_hal_async::delay::DelayUs;
+    use embedded_hal_async::delay::DelayNs;
     use embedded_hal_bus::spi::ExclusiveDevice;
     use embedded_hal_mock::common::Generic;
     use embedded_hal_mock::eh1::spi::{Mock as SpiMock, Transaction as SpiTransaction};
@@ -760,7 +760,11 @@ mod tests {
     // see https://github.com/rust-embedded/embedded-hal/pull/462#issuecomment-1560014426
     struct MockDelay {}
 
-    impl DelayUs for MockDelay {
+    impl DelayNs for MockDelay {
+        async fn delay_ns(&mut self, _ns: u32) {
+            todo!()
+        }
+
         async fn delay_us(&mut self, _us: u32) {
             todo!()
         }

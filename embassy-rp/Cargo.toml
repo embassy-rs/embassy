@@ -76,7 +76,7 @@ critical-section = "1.1"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 chrono = { version = "0.4", default-features = false, optional = true }
 embedded-io = { version = "0.6.0" }
-embedded-io-async = { version = "0.6.0", optional = true }
+embedded-io-async = { version = "0.6.1", optional = true }
 embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.0", optional = true }
 rand_core = "0.6.4"
@@ -85,9 +85,9 @@ fixed = "1.23.1"
 rp-pac = { version = "6" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
-embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
-embedded-hal-nb = { version = "=1.0.0-rc.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2", optional = true}
+embedded-hal-async = { version = "=1.0.0-rc.2", optional = true}
+embedded-hal-nb = { version = "=1.0.0-rc.2", optional = true}
 
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }

@@ -74,6 +74,15 @@ impl Timer {
         Self::after(Duration::from_ticks(ticks))
     }
 
+    /// Expire after the specified number of nanoseconds.
+    ///
+    /// This method is a convenience wrapper for calling `Timer::after(Duration::from_nanos())`.
+    /// For more details, refer to [`Timer::after()`] and [`Duration::from_nanos()`].
+    #[inline]
+    pub fn after_nanos(nanos: u64) -> Self {
+        Self::after(Duration::from_nanos(nanos))
+    }
+
     /// Expire after the specified number of microseconds.
     ///
     /// This method is a convenience wrapper for calling `Timer::after(Duration::from_micros())`.

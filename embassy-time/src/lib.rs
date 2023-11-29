@@ -52,6 +52,7 @@ const fn gcd(a: u64, b: u64) -> u64 {
 
 pub(crate) const GCD_1K: u64 = gcd(TICK_HZ, 1_000);
 pub(crate) const GCD_1M: u64 = gcd(TICK_HZ, 1_000_000);
+pub(crate) const GCD_1G: u64 = gcd(TICK_HZ, 1_000_000_000);
 
 #[cfg(feature = "defmt-timestamp-uptime")]
 defmt::timestamp! {"{=u64:us}", Instant::now().as_micros() }

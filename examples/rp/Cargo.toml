@@ -38,10 +38,10 @@ smart-leds = "0.3.0"
 heapless = "0.8"
 usbd-hid = "0.6.1"
 
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1" }
-embedded-hal-async = "1.0.0-rc.1"
-embedded-hal-bus = { version = "0.1.0-rc.1", features = ["async"] }
-embedded-io-async = { version = "0.6.0", features = ["defmt-03"] }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
+embedded-hal-async = "1.0.0-rc.2"
+embedded-hal-bus = { version = "0.1.0-rc.2", features = ["async"] }
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 embedded-storage = { version = "0.3" }
 static_cell = { version = "2", features = ["nightly"]}
 portable-atomic = { version = "1.5", features = ["critical-section"] }

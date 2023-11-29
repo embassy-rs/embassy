@@ -63,6 +63,10 @@ where
     CS: OutputPin,
 {
     async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
+            return Err(SpiDeviceError::DelayNotSupported);
+        }
+
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
@@ -74,12 +78,12 @@ where
                     Operation::Transfer(read, write) => bus.transfer(read, write).await,
                     Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await,
                     #[cfg(not(feature = "time"))]
-                    Operation::DelayUs(us) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    Operation::DelayNs(_) => unreachable!(),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => match bus.flush().await {
+                    Operation::DelayNs(ns) => match bus.flush().await {
                         Err(e) => Err(e),
                         Ok(()) => {
-                            embassy_time::Timer::after_micros(*us as _).await;
+                            embassy_time::Timer::after_nanos(*ns as _).await;
                             Ok(())
                         }
                     },
@@ -137,6 +141,10 @@ where
     CS: OutputPin,
 {
     async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
+            return Err(SpiDeviceError::DelayNotSupported);
+        }
+
         let mut bus = self.bus.lock().await;
         bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
@@ -149,12 +157,12 @@ where
                     Operation::Transfer(read, write) => bus.transfer(read, write).await,
                     Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await,
                     #[cfg(not(feature = "time"))]
-                    Operation::DelayUs(us) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    Operation::DelayNs(_) => unreachable!(),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => match bus.flush().await {
+                    Operation::DelayNs(ns) => match bus.flush().await {
                         Err(e) => Err(e),
                         Ok(()) => {
-                            embassy_time::Timer::after_micros(*us as _).await;
+                            embassy_time::Timer::after_nanos(*ns as _).await;
                             Ok(())
                         }
                     },

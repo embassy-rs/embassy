@@ -13,16 +13,16 @@ edition = "2021"
 heapless = "0.8"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4", default-features = false, optional = true }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1" }
-embedded-hal-async = { version = "=1.0.0-rc.1" }
-embedded-hal-bus = { version = "=0.1.0-rc.1", features = ["async"] }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
+embedded-hal-async = { version = "=1.0.0-rc.2" }
+embedded-hal-bus = { version = "=0.1.0-rc.2", features = ["async"] }
 embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel" }
 embassy-time = { version = "0.1.5", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
 [dev-dependencies]
-embedded-hal-mock = { version = "=0.10.0-rc.1", features = ["embedded-hal-async", "eh1"] }
+embedded-hal-mock = { git = "https://github.com/Dirbaio/embedded-hal-mock", rev = "c5c4dca18e043e6386aee02173f61a65fea3981e", features = ["embedded-hal-async", "eh1"] }
 crc = "3.0.1"
 env_logger = "0.10"
 critical-section = { version = "1.1.2", features = ["std"] }
