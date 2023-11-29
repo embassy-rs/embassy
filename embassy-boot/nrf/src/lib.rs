@@ -4,10 +4,9 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareUpdaterConfig,
+    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareState, FirmwareUpdater,
+    FirmwareUpdaterConfig,
 };
-#[cfg(feature = "nightly")]
-pub use embassy_boot::{FirmwareState, FirmwareUpdater};
 use embassy_nrf::nvmc::PAGE_SIZE;
 use embassy_nrf::peripherals::WDT;
 use embassy_nrf::wdt;

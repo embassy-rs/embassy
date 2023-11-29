@@ -24,26 +24,13 @@ embassy-boot = { path = "../boot", default-features = false }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.4.0", optional = true }
+embedded-storage-async = { version = "0.4.0" }
 cfg-if = "1.0.0"
 
 [features]
-defmt = [
-    "dep:defmt",
-    "embassy-boot/defmt",
-    "embassy-stm32/defmt",
-]
-log = [
-    "dep:log",
-    "embassy-boot/log",
-    "embassy-stm32/log",
-]
+defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-stm32/defmt"]
+log = ["dep:log", "embassy-boot/log", "embassy-stm32/log"]
 debug = ["defmt-rtt"]
-nightly = [
-    "dep:embedded-storage-async",
-    "embassy-boot/nightly",
-    "embassy-stm32/nightly"
-]
 
 [profile.dev]
 debug = 2

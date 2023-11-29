@@ -1,0 +1,3 @@
+[patch.crates-io]
+embedded-storage = { git = "https://github.com/rust-embedded-community/embedded-storage", rev = "634302740f8d676538c3890748e7d7dfe372a040" }
+embedded-storage-async = { git = "https://github.com/rust-embedded-community/embedded-storage", rev = "634302740f8d676538c3890748e7d7dfe372a040" }

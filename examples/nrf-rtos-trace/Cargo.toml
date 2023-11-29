@@ -5,8 +5,7 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["log", "nightly"]
-nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-nrf/unstable-traits"]
+default = ["log"]
 log = [
     "dep:log",
     "embassy-sync/log",
@@ -33,7 +32,7 @@ log = { version = "0.4.17", optional = true }
 
 [[bin]]
 name = "rtos_trace"
-required-features = ["nightly"]
+
 
 [profile.release]
 debug = 2

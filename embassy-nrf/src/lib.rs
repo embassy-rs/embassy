@@ -1,6 +1,5 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -76,7 +75,6 @@ pub mod uarte;
     feature = "nrf52833",
     feature = "nrf52840"
 ))]
-#[cfg(feature = "nightly")]
 pub mod usb;
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;

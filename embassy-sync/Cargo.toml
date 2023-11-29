@@ -16,14 +16,9 @@ categories = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-sync-v$VERSION/embassy-sync/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/src/"
-features = ["nightly"]
 target = "thumbv7em-none-eabi"
 
-[package.metadata.docs.rs]
-features = ["nightly"]
-
 [features]
-nightly = ["dep:embedded-io-async"]
 std = []
 turbowakers = []
 
@@ -35,7 +30,7 @@ futures-util = { version = "0.3.17", default-features = false }
 critical-section = "1.1"
 heapless = "0.8"
 cfg-if = "1.0.0"
-embedded-io-async = { version = "0.6.1", optional = true }
+embedded-io-async = { version = "0.6.1" }
 
 [dev-dependencies]
 futures-executor = { version = "0.3.17", features = [ "thread-pool" ] }

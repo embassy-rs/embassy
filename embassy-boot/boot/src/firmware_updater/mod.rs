@@ -1,8 +1,6 @@
-#[cfg(feature = "nightly")]
 mod asynch;
 mod blocking;
 
-#[cfg(feature = "nightly")]
 pub use asynch::{FirmwareState, FirmwareUpdater};
 pub use blocking::{BlockingFirmwareState, BlockingFirmwareUpdater};
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};

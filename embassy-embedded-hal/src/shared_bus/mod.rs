@@ -3,9 +3,7 @@ use core::fmt::Debug;
 
 use embedded_hal_1::{i2c, spi};
 
-#[cfg(feature = "nightly")]
 pub mod asynch;
-
 pub mod blocking;
 
 /// Error returned by I2C device implementations in this crate.

@@ -2,17 +2,16 @@
 //!
 //! # Example (nrf52)
 //!
-//! ```rust
+//! ```rust,ignore
 //! use embassy_embedded_hal::shared_bus::spi::SpiDevice;
 //! use embassy_sync::mutex::Mutex;
-//! use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+//! use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 //!
-//! static SPI_BUS: StaticCell<Mutex<ThreadModeRawMutex, spim::Spim<SPI3>>> = StaticCell::new();
+//! static SPI_BUS: StaticCell<Mutex<NoopRawMutex, spim::Spim<SPI3>>> = StaticCell::new();
 //! let mut config = spim::Config::default();
 //! config.frequency = spim::Frequency::M32;
-//! let irq = interrupt::take!(SPIM3);
-//! let spi = spim::Spim::new_txonly(p.SPI3, irq, p.P0_15, p.P0_18, config);
-//! let spi_bus = Mutex::<ThreadModeRawMutex, _>::new(spi);
+//! let spi = spim::Spim::new_txonly(p.SPI3, Irqs, p.P0_15, p.P0_18, config);
+//! let spi_bus = Mutex::new(spi);
 //! let spi_bus = SPI_BUS.init(spi_bus);
 //!
 //! // Device 1, using embedded-hal-async compatible driver for ST7735 LCD display
