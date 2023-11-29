@@ -15,7 +15,7 @@ embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defm
 embassy-net-adin1110 = { version = "0.2.0", path = "../../embassy-net-adin1110" }
 embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt", "nightly", "udp", "tcp", "dhcpv4", "medium-ethernet"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embedded-io-async = { version = "0.6.0", features = ["defmt-03"] }
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 embedded-io = { version = "0.6.0", features = ["defmt-03"] }
 
 defmt = "0.3"
@@ -24,9 +24,9 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1" }
-embedded-hal-async = { version = "=1.0.0-rc.1" }
-embedded-hal-bus = { version = "=0.1.0-rc.1", features = ["async"] }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
+embedded-hal-async = { version = "=1.0.0-rc.2" }
+embedded-hal-bus = { version = "=0.1.0-rc.2", features = ["async"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.8", default-features = false }

@@ -39,8 +39,8 @@ pub enum SpiDeviceError<BUS, CS> {
     Spi(BUS),
     /// Setting the value of the Chip Select (CS) pin failed.
     Cs(CS),
-    /// DelayUs operations are not supported when the `time` Cargo feature is not enabled.
-    DelayUsNotSupported,
+    /// Delay operations are not supported when the `time` Cargo feature is not enabled.
+    DelayNotSupported,
     /// The SPI bus could not be configured.
     Config,
 }
@@ -54,7 +54,7 @@ where
         match self {
             Self::Spi(e) => e.kind(),
             Self::Cs(_) => spi::ErrorKind::Other,
-            Self::DelayUsNotSupported => spi::ErrorKind::Other,
+            Self::DelayNotSupported => spi::ErrorKind::Other,
             Self::Config => spi::ErrorKind::Other,
         }
     }

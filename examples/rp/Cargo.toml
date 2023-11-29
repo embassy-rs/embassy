@@ -16,10 +16,6 @@ embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defm
 embassy-net-wiznet = { version = "0.1.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-usb-logger = { version = "0.1.0", path = "../../embassy-usb-logger" }
-embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"] }
-lora-phy = { version = "2" }
-lorawan-device = { version = "0.11.0", default-features = false, features = ["async", "external-lora-phy"] }
-lorawan = { version = "0.7.4", default-features = false, features = ["default-crypto"] }
 cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { path = "../../cyw43-pio", features = ["defmt", "overclock"] }
 
@@ -42,10 +38,10 @@ smart-leds = "0.3.0"
 heapless = "0.8"
 usbd-hid = "0.6.1"
 
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1" }
-embedded-hal-async = "1.0.0-rc.1"
-embedded-hal-bus = { version = "0.1.0-rc.1", features = ["async"] }
-embedded-io-async = { version = "0.6.0", features = ["defmt-03"] }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
+embedded-hal-async = "1.0.0-rc.2"
+embedded-hal-bus = { version = "0.1.0-rc.2", features = ["async"] }
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 embedded-storage = { version = "0.3" }
 static_cell = { version = "2", features = ["nightly"]}
 portable-atomic = { version = "1.5", features = ["critical-section"] }
