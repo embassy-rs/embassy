@@ -6,13 +6,22 @@ So you've got one of the xref:examples.adoc[examples] running, but what now? Let
 
 The full example can be found link:https://github.com/embassy-rs/embassy/tree/master/docs/modules/ROOT/examples/basic[here].
 
-=== Rust Nightly
+=== Bare metal
 
-The first thing you'll notice is a few declarations stating that Embassy requires some nightly features:
+The first thing you'll notice is a few declarations, two of which indicate that Embassy is suitable for bare metal development:
 
 [source,rust]
 ----
-include::example$basic/src/main.rs[lines="1..3"]
+include::example$basic/src/main.rs[lines="1..2"]
+----
+
+=== Rust Nightly
+
+The next declaration is a Rust Unstable feature, which means that Embassy requires Rust Nightly:
+
+[source,rust]
+----
+include::example$basic/src/main.rs[lines="3"]
 ----
 
 === Dealing with errors
