@@ -158,6 +158,11 @@ pub enum SupplyConfig {
     /// SMPS step-down converter enabled according to SDLEVEL used to supply external circuits and may supply the external source for V CORE .
     /// SMPS step-down converter forced ON in MR mode.
     SMPSExternalLDOBypass(SMPSSupplyVoltage),
+
+    /// Power supply configuration from an external source, SMPS disabled and the LDO bypassed.
+    /// V CORE supplied from external source
+    /// SMPS step-down converter disabled and LDO bypassed, voltage monitoring still active.
+    SMPSDisabledLDOBypass,
 }
 
 /// SMPS step-down converter voltage output level.
@@ -306,6 +311,13 @@ pub(crate) unsafe fn init(config: Config) {
                         SupplyConfig::SMPSLDO(_) | SupplyConfig::SMPSExternalLDO(_)
                     ));
                     w.set_bypass(matches!(config.supply_config, SupplyConfig::SMPSExternalLDOBypass(_)));
+                });
+            }
+            SupplyConfig::SMPSDisabledLDOBypass => {
+                PWR.cr3().modify(|w| {
+                    w.set_sden(false);
+                    w.set_ldoen(false);
+                    w.set_bypass(true);
                 });
             }
         }
