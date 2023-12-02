@@ -46,7 +46,10 @@ pub(crate) mod sealed {
             assert!(f > 0);
             let pclk_ticks_per_timer_period = timer_f / f;
             let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << 16)).try_into());
-            let arr: u16 = unwrap!((pclk_ticks_per_timer_period / (u32::from(psc) + 1)).try_into());
+            let divide_by = pclk_ticks_per_timer_period / (u32::from(psc) + 1);
+
+            // the timer counts `0..=arr`, we want it to count `0..divide_by`
+            let arr = unwrap!(u16::try_from(divide_by - 1));
 
             let regs = Self::regs();
             regs.psc().write(|r| r.set_psc(psc));
