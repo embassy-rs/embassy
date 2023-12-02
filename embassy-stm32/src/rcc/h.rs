@@ -120,6 +120,7 @@ impl From<TimerPrescaler> for Timpre {
 /// Power supply configuration
 /// See RM0433 Rev 4 7.4
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+#[derive(PartialEq)]
 pub enum SupplyConfig {
     /// Default power supply configuration.
     /// V CORE Power Domains are supplied from the LDO according to VOS.
@@ -143,29 +144,41 @@ pub enum SupplyConfig {
     /// LDO power mode (Main, LP, Off) will follow system low-power modes.
     /// SMPS step-down converter enabled according to SDLEVEL, and supplies the LDO.
     /// SMPS step-down converter power mode (MR, LP, Off) will follow system low-power modes.
-    SMPSLDO,
+    SMPSLDO(SMPSSupplyVoltage),
 
     /// Power supply configuration from SMPS supplying external circuits and potentially the LDO.
     /// V CORE Power Domains are supplied from voltage regulator according to VOS
     /// LDO power mode (Main, LP, Off) will follow system low-power modes.
     /// SMPS step-down converter enabled according to SDLEVEL used to supply external circuits and may supply the LDO.
     /// SMPS step-down converter forced ON in MR mode.
-    SMPSExternalLDO,
+    SMPSExternalLDO(SMPSSupplyVoltage),
 
     /// Power supply configuration from SMPS supplying external circuits and bypassing the LDO.
     /// V CORE supplied from external source
     /// SMPS step-down converter enabled according to SDLEVEL used to supply external circuits and may supply the external source for V CORE .
     /// SMPS step-down converter forced ON in MR mode.
-    SMPSExternalLDOBypass,
+    SMPSExternalLDOBypass(SMPSSupplyVoltage),
 }
 
 /// SMPS step-down converter voltage output level.
 /// This is only used in certain power supply configurations:
 /// SMPSLDO, SMPSExternalLDO, SMPSExternalLDOBypass.
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+#[derive(PartialEq)]
 pub enum SMPSSupplyVoltage {
     V1_8,
     V2_5,
+}
+
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+impl SMPSSupplyVoltage {
+    /// Convert SMPSSupplyVoltage to u8 representation.
+    fn to_u8(&self) -> u8 {
+        match self {
+            SMPSSupplyVoltage::V1_8 => 0b01,
+            SMPSSupplyVoltage::V2_5 => 0b10,
+        }
+    }
 }
 
 /// Configuration of the core clocks
@@ -198,7 +211,6 @@ pub struct Config {
 
     #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
     pub supply_config: SupplyConfig,
-    pub smps_supply_voltage: Option<SMPSSupplyVoltage>,
 }
 
 impl Default for Config {
@@ -235,7 +247,6 @@ impl Default for Config {
 
             #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
             supply_config: SupplyConfig::Default,
-            smps_supply_voltage: None,
         }
     }
 }
@@ -280,61 +291,21 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_bypass(false);
                 });
             }
-            SupplyConfig::SMPSLDO => {
+            SupplyConfig::SMPSLDO(ref smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDO(ref smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDOBypass(ref smps_supply_voltage) => {
                 PWR.cr3().modify(|w| {
-                    match config.smps_supply_voltage {
-                        Some(SMPSSupplyVoltage::V1_8) => {
-                            PWR.cr3().modify(|w| w.set_sdlevel(0b01));
-                        }
-                        Some(SMPSSupplyVoltage::V2_5) => {
-                            PWR.cr3().modify(|w| w.set_sdlevel(0b10));
-                        }
-                        None => {
-                            panic!("Supply configuration SMPSLDO requires a supply voltage to be set.");
-                        }
-                    }
-                    w.set_sdexthp(false);
+                    w.set_sdlevel(smps_supply_voltage.to_u8());
+                    w.set_sdexthp(matches!(
+                        config.supply_config,
+                        SupplyConfig::SMPSExternalLDO(_) | SupplyConfig::SMPSExternalLDOBypass(_)
+                    ));
                     w.set_sden(true);
-                    w.set_ldoen(true);
-                    w.set_bypass(false);
-                });
-            }
-            SupplyConfig::SMPSExternalLDO => {
-                PWR.cr3().modify(|w| {
-                    match config.smps_supply_voltage {
-                        Some(SMPSSupplyVoltage::V1_8) => {
-                            PWR.cr3().modify(|w| w.set_sdlevel(0b01));
-                        }
-                        Some(SMPSSupplyVoltage::V2_5) => {
-                            PWR.cr3().modify(|w| w.set_sdlevel(0b10));
-                        }
-                        None => {
-                            panic!("Supply configuration SMPSExternalLDO requires a supply voltage to be set.");
-                        }
-                    }
-                    w.set_sdexthp(true);
-                    w.set_sden(true);
-                    w.set_ldoen(true);
-                    w.set_bypass(false);
-                });
-            }
-            SupplyConfig::SMPSExternalLDOBypass => {
-                PWR.cr3().modify(|w| {
-                    match config.smps_supply_voltage {
-                        Some(SMPSSupplyVoltage::V1_8) => {
-                            PWR.cr3().modify(|w| w.set_sdlevel(0b01));
-                        }
-                        Some(SMPSSupplyVoltage::V2_5) => {
-                            PWR.cr3().modify(|w| w.set_sdlevel(0b10));
-                        }
-                        None => {
-                            panic!("Supply configuration SMPSExternalLDOBypass requires a supply voltage to be set.");
-                        }
-                    }
-                    w.set_sdexthp(true);
-                    w.set_sden(true);
-                    w.set_ldoen(false);
-                    w.set_bypass(true);
+                    w.set_ldoen(matches!(
+                        config.supply_config,
+                        SupplyConfig::SMPSLDO(_) | SupplyConfig::SMPSExternalLDO(_)
+                    ));
+                    w.set_bypass(matches!(config.supply_config, SupplyConfig::SMPSExternalLDOBypass(_)));
                 });
             }
         }
