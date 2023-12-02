@@ -119,7 +119,7 @@ impl From<TimerPrescaler> for Timpre {
 
 /// Power supply configuration
 /// See RM0433 Rev 4 7.4
-#[cfg(pwr_h7rm0399)]
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
 pub enum SupplyConfig {
     /// Default power supply configuration.
     /// V CORE Power Domains are supplied from the LDO according to VOS.
@@ -162,7 +162,7 @@ pub enum SupplyConfig {
 /// SMPS step-down converter voltage output level.
 /// This is only used in certain power supply configurations:
 /// SMPSLDO, SMPSExternalLDO, SMPSExternalLDOBypass.
-#[cfg(pwr_h7rm0399)]
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
 pub enum SMPSSupplyVoltage {
     V1_8,
     V2_5,
@@ -196,7 +196,7 @@ pub struct Config {
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
 
-    #[cfg(pwr_h7rm0399)]
+    #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
     pub supply_config: SupplyConfig,
     pub smps_supply_voltage: Option<SMPSSupplyVoltage>,
 }
@@ -233,7 +233,7 @@ impl Default for Config {
             voltage_scale: VoltageScale::Scale0,
             ls: Default::default(),
 
-            #[cfg(pwr_h7rm0399)]
+            #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
             supply_config: SupplyConfig::Default,
             smps_supply_voltage: None,
         }
@@ -253,15 +253,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_bypass(false);
     });
 
-    #[cfg(any(pwr_h7rm0455, pwr_h7rm0468))]
-    PWR.cr3().modify(|w| {
-        // hardcode "Direct SPMS" for now, this is what works on nucleos with the
-        // default solderbridge configuration.
-        w.set_sden(true);
-        w.set_ldoen(false);
-    });
-
-    #[cfg(pwr_h7rm0399)]
+    #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
     {
         match config.supply_config {
             SupplyConfig::Default => {
