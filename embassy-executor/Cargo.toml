@@ -57,7 +57,6 @@ critical-section = { version = "1.1", features = ["std"] }
 _arch = [] # some arch was picked
 arch-std = ["_arch", "critical-section/std"]
 arch-cortex-m = ["_arch", "dep:cortex-m"]
-arch-xtensa = ["_arch"]
 arch-riscv32 = ["_arch", "dep:portable-atomic"]
 arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
 
