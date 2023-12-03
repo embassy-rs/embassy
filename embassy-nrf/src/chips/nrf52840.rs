@@ -7,6 +7,7 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 512;
 pub const FLASH_SIZE: usize = 1024 * 1024;
 
 pub const RESET_PIN: u32 = 18;
+pub const APPROTECT_MIN_BUILD_CODE: u8 = b'F';
 
 embassy_hal_internal::peripherals! {
     // USB
