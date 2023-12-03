@@ -11,6 +11,7 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 255;
 pub const FLASH_SIZE: usize = 512 * 1024;
 
 pub const RESET_PIN: u32 = 21;
+pub const APPROTECT_MIN_BUILD_CODE: u8 = b'G';
 
 embassy_hal_internal::peripherals! {
     // RTC
