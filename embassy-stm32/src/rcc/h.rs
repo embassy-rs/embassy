@@ -117,6 +117,75 @@ impl From<TimerPrescaler> for Timpre {
     }
 }
 
+/// Power supply configuration
+/// See RM0433 Rev 4 7.4
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+#[derive(PartialEq)]
+pub enum SupplyConfig {
+    /// Default power supply configuration.
+    /// V CORE Power Domains are supplied from the LDO according to VOS.
+    /// SMPS step-down converter enabled at 1.2V, may be used to supply the LDO.
+    Default,
+
+    /// Power supply configuration using the LDO.
+    /// V CORE Power Domains are supplied from the LDO according to VOS.
+    /// LDO power mode (Main, LP, Off) will follow system low-power modes.
+    /// SMPS step-down converter disabled.
+    LDO,
+
+    /// Power supply configuration directly from the SMPS step-down converter.
+    /// V CORE Power Domains are supplied from SMPS step-down converter according to VOS.
+    /// LDO bypassed.
+    /// SMPS step-down converter power mode (MR, LP, Off) will follow system low-power modes.
+    DirectSMPS,
+
+    /// Power supply configuration from the SMPS step-down converter, that supplies the LDO.
+    /// V CORE Power Domains are supplied from the LDO according to VOS
+    /// LDO power mode (Main, LP, Off) will follow system low-power modes.
+    /// SMPS step-down converter enabled according to SDLEVEL, and supplies the LDO.
+    /// SMPS step-down converter power mode (MR, LP, Off) will follow system low-power modes.
+    SMPSLDO(SMPSSupplyVoltage),
+
+    /// Power supply configuration from SMPS supplying external circuits and potentially the LDO.
+    /// V CORE Power Domains are supplied from voltage regulator according to VOS
+    /// LDO power mode (Main, LP, Off) will follow system low-power modes.
+    /// SMPS step-down converter enabled according to SDLEVEL used to supply external circuits and may supply the LDO.
+    /// SMPS step-down converter forced ON in MR mode.
+    SMPSExternalLDO(SMPSSupplyVoltage),
+
+    /// Power supply configuration from SMPS supplying external circuits and bypassing the LDO.
+    /// V CORE supplied from external source
+    /// SMPS step-down converter enabled according to SDLEVEL used to supply external circuits and may supply the external source for V CORE .
+    /// SMPS step-down converter forced ON in MR mode.
+    SMPSExternalLDOBypass(SMPSSupplyVoltage),
+
+    /// Power supply configuration from an external source, SMPS disabled and the LDO bypassed.
+    /// V CORE supplied from external source
+    /// SMPS step-down converter disabled and LDO bypassed, voltage monitoring still active.
+    SMPSDisabledLDOBypass,
+}
+
+/// SMPS step-down converter voltage output level.
+/// This is only used in certain power supply configurations:
+/// SMPSLDO, SMPSExternalLDO, SMPSExternalLDOBypass.
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+#[derive(PartialEq)]
+pub enum SMPSSupplyVoltage {
+    V1_8,
+    V2_5,
+}
+
+#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+impl SMPSSupplyVoltage {
+    /// Convert SMPSSupplyVoltage to u8 representation.
+    fn to_u8(&self) -> u8 {
+        match self {
+            SMPSSupplyVoltage::V1_8 => 0b01,
+            SMPSSupplyVoltage::V2_5 => 0b10,
+        }
+    }
+}
+
 /// Configuration of the core clocks
 #[non_exhaustive]
 pub struct Config {
@@ -144,6 +213,9 @@ pub struct Config {
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
+
+    #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+    pub supply_config: SupplyConfig,
 }
 
 impl Default for Config {
@@ -177,6 +249,9 @@ impl Default for Config {
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
             ls: Default::default(),
+
+            #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
+            supply_config: SupplyConfig::Default,
         }
     }
 }
@@ -195,12 +270,58 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
-    PWR.cr3().modify(|w| {
-        // hardcode "Direct SPMS" for now, this is what works on nucleos with the
-        // default solderbridge configuration.
-        w.set_sden(true);
-        w.set_ldoen(false);
-    });
+    {
+        match config.supply_config {
+            SupplyConfig::Default => {
+                PWR.cr3().modify(|w| {
+                    w.set_sdlevel(0b00);
+                    w.set_sdexthp(false);
+                    w.set_sden(true);
+                    w.set_ldoen(true);
+                    w.set_bypass(false);
+                });
+            }
+            SupplyConfig::LDO => {
+                PWR.cr3().modify(|w| {
+                    w.set_sden(false);
+                    w.set_ldoen(true);
+                    w.set_bypass(false);
+                });
+            }
+            SupplyConfig::DirectSMPS => {
+                PWR.cr3().modify(|w| {
+                    w.set_sdexthp(false);
+                    w.set_sden(true);
+                    w.set_ldoen(false);
+                    w.set_bypass(false);
+                });
+            }
+            SupplyConfig::SMPSLDO(ref smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDO(ref smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDOBypass(ref smps_supply_voltage) => {
+                PWR.cr3().modify(|w| {
+                    w.set_sdlevel(smps_supply_voltage.to_u8());
+                    w.set_sdexthp(matches!(
+                        config.supply_config,
+                        SupplyConfig::SMPSExternalLDO(_) | SupplyConfig::SMPSExternalLDOBypass(_)
+                    ));
+                    w.set_sden(true);
+                    w.set_ldoen(matches!(
+                        config.supply_config,
+                        SupplyConfig::SMPSLDO(_) | SupplyConfig::SMPSExternalLDO(_)
+                    ));
+                    w.set_bypass(matches!(config.supply_config, SupplyConfig::SMPSExternalLDOBypass(_)));
+                });
+            }
+            SupplyConfig::SMPSDisabledLDOBypass => {
+                PWR.cr3().modify(|w| {
+                    w.set_sden(false);
+                    w.set_ldoen(false);
+                    w.set_bypass(true);
+                });
+            }
+        }
+    }
 
     // Validate the supply configuration. If you are stuck here, it is
     // because the voltages on your board do not match those specified
