@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"

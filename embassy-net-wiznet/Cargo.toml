@@ -11,7 +11,7 @@ edition = "2021"
 embedded-hal = { version = "1.0.0-rc.2" }
 embedded-hal-async = { version = "=1.0.0-rc.2" }
 embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel" }
-embassy-time = { version = "0.1.5", path = "../embassy-time" }
+embassy-time = { version = "0.2", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 defmt = { version = "0.3", optional = true }
 

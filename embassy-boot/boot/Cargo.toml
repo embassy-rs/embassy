@@ -28,7 +28,7 @@ digest = "0.10"
 log = { version = "0.4", optional = true }
 ed25519-dalek = { version = "1.0.1", default_features = false, features = ["u32_backend"], optional = true }
 embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" }
-embassy-sync = { version = "0.4.0", path = "../../embassy-sync" }
+embassy-sync = { version = "0.5.0", path = "../../embassy-sync" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 salty = { git = "https://github.com/ycrypto/salty.git", rev = "a9f17911a5024698406b75c0fac56ab5ccf6a8c7", optional = true }
