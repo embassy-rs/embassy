@@ -18,6 +18,17 @@ use crate::rtc::Rtc;
 use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
 use crate::{interrupt, peripherals};
 
+// NOTE regarding ALARM_COUNT:
+//
+// As of 2023-12-04, this driver is implemented using CC1 as the halfway rollover interrupt, and any
+// additional CC capabilities to provide timer alarms to embassy-time. embassy-time requires AT LEAST
+// one alarm to be allocatable, which means timers that only have CC1, such as TIM16/TIM17, are not
+// candidates for use as an embassy-time driver provider.
+//
+// The values of ALARM_COUNT below are not the TOTAL CC registers available, but rather the number
+// available after reserving CC1 for regular time keeping. For example, TIM2 has four CC registers:
+// CC1, CC2, CC3, and CC4, so it can provide ALARM_COUNT = 3.
+
 #[cfg(not(any(time_driver_tim12, time_driver_tim15)))]
 const ALARM_COUNT: usize = 3;
 
