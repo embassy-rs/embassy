@@ -30,7 +30,7 @@ rand_core = "0.6.3"
 critical-section = "1.1"
 micromath = "2.0.0"
 stm32-fmc = "0.3.0"
-embedded-storage = "0.3.0"
+embedded-storage = "0.3.1"
 static_cell = { version = "2", features = ["nightly"]}
 chrono = { version = "^0.4", default-features = false }
 

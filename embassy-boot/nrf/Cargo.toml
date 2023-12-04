@@ -21,8 +21,8 @@ embassy-nrf = { path = "../../embassy-nrf" }
 embassy-boot = { path = "../boot", default-features = false }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
-embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.4.0" }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
 cfg-if = "1.0.0"
 
 nrf-softdevice-mbr = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-softdevice.git", branch = "master", optional = true }

@@ -71,7 +71,7 @@ chrono = { version = "0.4", default-features = false, optional = true }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
-embedded-storage-async = { version = "0.4.0" }
+embedded-storage-async = { version = "0.4.1" }
 rand_core = "0.6.4"
 fixed = "1.23.1"
 

@@ -46,8 +46,8 @@ embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
 embedded-hal-async = { version = "=1.0.0-rc.2" }
 embedded-hal-nb = { version = "=1.0.0-rc.2" }
 
-embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.4.0" }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }

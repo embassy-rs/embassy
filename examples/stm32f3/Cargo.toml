@@ -23,7 +23,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.8", default-features = false }
 nb = "1.0.0"
-embedded-storage = "0.3.0"
+embedded-storage = "0.3.1"
 static_cell = { version = "2", features = ["nightly"]}
 
 [profile.release]

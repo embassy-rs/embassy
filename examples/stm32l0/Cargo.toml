@@ -18,7 +18,7 @@ embassy-time = { version = "0.1.5", path = "../../embassy-time", features = ["de
 defmt = "0.3"
 defmt-rtt = "0.4"
 
-embedded-storage = "0.3.0"
+embedded-storage = "0.3.1"
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
