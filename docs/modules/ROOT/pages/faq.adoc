@@ -141,7 +141,7 @@ Note that the git revision should match any other embassy patches or git depende
 * Make sure RCC is set up to go as fast as possible
 * Make sure link:https://docs.rs/cortex-m/latest/cortex_m/peripheral/struct.SCB.html[flash cache] is enabled
 * build with `--release`
-* Set the following keys for the release profile in your `Cargo.toml``:
+* Set the following keys for the release profile in your `Cargo.toml`:
     ** `opt-level=s`
     ** `lto=fat`
     ** `build-std=core`
