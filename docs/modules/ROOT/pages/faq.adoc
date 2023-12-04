@@ -135,3 +135,19 @@ embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd
 ----
 
 Note that the git revision should match any other embassy patches or git dependencies that you are using!
+
+== How can I optimize the speed of my embassy-stm32 program?
+
+* Make sure RCC is set up to go as fast as possible
+* Make sure link:https://docs.rs/cortex-m/latest/cortex_m/peripheral/struct.SCB.html[flash cache] is enabled
+* build with `--release`
+* Set the following keys for the release profile in your `Cargo.toml``:
+    ** `opt-level=s`
+    ** `lto=fat`
+    ** `build-std=core`
+    ** `build-std-features=panic_immediate_abort`
+* Enable feature `embassy-time/generic-queue`, disable feature `embassy-executor/integrated-timers`
+* When using `InterruptExecutor`:
+    ** disable `executor-thread`
+    ** make `main`` spawn everything, then enable link:https://docs.rs/cortex-m/latest/cortex_m/peripheral/struct.SCB.html#method.set_sleeponexit[SCB.SLEEPONEXIT] and `loop { cortex_m::asm::wfi() }`
+    ** *Note:*  If you need 2 priority levels, using 2 interrupt executors is better than 1 thread executor + 1 interrupt executor.
