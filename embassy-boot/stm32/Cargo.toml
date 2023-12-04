@@ -23,8 +23,8 @@ embassy-stm32 = { path = "../../embassy-stm32", default-features = false }
 embassy-boot = { path = "../boot", default-features = false }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
-embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.4.0" }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
 cfg-if = "1.0.0"
 
 [features]

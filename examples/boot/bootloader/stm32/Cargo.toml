@@ -14,7 +14,7 @@ embassy-boot-stm32 = { path = "../../../../embassy-boot/stm32" }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 embassy-sync = { version = "0.4.0", path = "../../../../embassy-sync" }
 cortex-m-rt = { version = "0.7" }
-embedded-storage = "0.3.0"
+embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
 
