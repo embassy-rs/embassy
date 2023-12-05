@@ -6,9 +6,11 @@ So you've got one of the xref:examples.adoc[examples] running, but what now? Let
 
 The full example can be found link:https://github.com/embassy-rs/embassy/tree/master/docs/modules/ROOT/examples/basic[here].
 
+NOTE: If you’re using VS Code and rust-analyzer to view and edit the examples, you may need to make some changes to `.vscode/settings.json` to tell it which project we’re working on. Follow the instructions commented in that file to get rust-analyzer working correctly.
+
 === Bare metal
 
-The first thing you'll notice is a few declarations, two of which indicate that Embassy is suitable for bare metal development:
+The first thing you’ll notice are two attributes at the top of the file. These tells the compiler that program has no access to std, and that there is no main function (because it is not run by an OS).
 
 [source,rust]
 ----
@@ -48,9 +50,9 @@ NOTE: Notice that there is no busy waiting going on in this task. It is using th
 
 === Main
 
-The main entry point of an Embassy application is defined using the `#[embassy_executor::main]` macro. The entry point is also required to take a `Spawner` and a `Peripherals` argument.
+The main entry point of an Embassy application is defined using the `#[embassy_executor::main]` macro. The entry point is passed a `Spawner`, which it can use to spawn other tasks.
 
-The `Spawner` is the way the main application spawns other tasks. The `Peripherals` type comes from the HAL and holds all peripherals that the application may use. In this case, we want to configure one of the pins as a GPIO output driving the LED:
+We then initialize the HAL with a default config, which gives us a `Peripherals` struct we can use to access the MCU’s various peripherals. In this case, we want to configure one of the pins as a GPIO output driving the LED:
 
 [source,rust]
 ----
@@ -60,7 +62,6 @@ include::example$basic/src/main.rs[lines="22..-1"]
 What happens when the `blinker` task has been spawned and main returns? Well, the main entry point is actually just like any other task, except that you can only have one and it takes some specific type arguments. The magic lies within the `#[embassy_executor::main]` macro. The macro does the following:
 
 . Creates an Embassy Executor
-. Initializes the microcontroller HAL to get the `Peripherals`
 . Defines a main task for the entry point
 . Runs the executor spawning the main task
 
