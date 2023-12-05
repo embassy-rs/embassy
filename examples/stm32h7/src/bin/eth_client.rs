@@ -93,7 +93,7 @@ async fn main(spawner: Spawner) -> ! {
     let stack = &*make_static!(Stack::new(
         device,
         config,
-        make_static!(StackResources::<2>::new()),
+        make_static!(StackResources::<3>::new()),
         seed
     ));
 
