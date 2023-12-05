@@ -7,7 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-- Removed `arch-xtensa`. Use the executor provided by the HAL crate (`esp-hal`, `esp32s3-hal`, etc...) instead. 
+## 0.4.0 - 2023-12-05
+
+- Removed `arch-xtensa`. Use the executor provided by the HAL crate (`esp-hal`, `esp32s3-hal`, etc...) instead.
+- Added an arena allocator for tasks, allowing using the `main` and `task` macros on Rust 1.75 stable. (it is only used if the `nightly` feature is not enabled. When `nightly` is enabled, `type_alias_impl_trait` is used to statically allocate tasks, as before).
 
 ## 0.3.3 - 2023-11-15
 
