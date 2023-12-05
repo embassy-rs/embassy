@@ -109,6 +109,7 @@ async fn main(spawner: Spawner) -> ! {
     let client = TcpClient::new(&stack, &state);
 
     loop {
+        // You need to start a server on the host machine, for example: `nc -l 8000`
         let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 42, 0, 1), 8000));
 
         info!("connecting...");

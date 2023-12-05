@@ -113,6 +113,7 @@ async fn main(spawner: Spawner) -> ! {
 
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
+        // You need to start a server on the host machine, for example: `nc -l 8000`
         let remote_endpoint = (Ipv4Address::new(10, 42, 0, 1), 8000);
         info!("connecting...");
         let r = socket.connect(remote_endpoint).await;
