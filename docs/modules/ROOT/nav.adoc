@@ -3,6 +3,7 @@
 ** xref:project_structure.adoc[Project Structure]
 * xref:layer_by_layer.adoc[Bare metal to async]
 * xref:runtime.adoc[Executor]
+* xref:delaying_a_task.adoc[Delaying a Task]
 * xref:hal.adoc[HAL]
 ** xref:nrf.adoc[nRF]
 ** xref:stm32.adoc[STM32]
