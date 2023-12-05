@@ -1,6 +1,6 @@
 #![macro_use]
 
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -95,8 +95,6 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::gpdma::Gpdma, channel_num: usize, in
     let ch = dma.ch(channel_num);
     let sr = ch.sr().read();
 
-    defmt::info!("DMA IRQ");
-
     if sr.dtef() {
         panic!(
             "DMA: data transfer error on DMA@{:08x} channel {}",
@@ -114,14 +112,12 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::gpdma::Gpdma, channel_num: usize, in
 
     if sr.htf() {
         //clear the flag for the half transfer complete
-        defmt::info!("half complete");
         ch.fcr().modify(|w| w.set_htf(true));
         STATE.ch_wakers[index].wake();
     }
 
     if sr.tcf() {
         //clear the flag for the transfer complete
-        defmt::info!("complete");
         ch.fcr().modify(|w| w.set_tcf(true));
         STATE.complete_count[index].fetch_add(1, Ordering::Relaxed);
         STATE.ch_wakers[index].wake();
@@ -132,7 +128,13 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::gpdma::Gpdma, channel_num: usize, in
         ch.fcr().modify(|w| w.set_suspf(true));
 
         // disable all xxIEs to prevent the irq from firing again.
-        ch.cr().write(|_| {});
+        ch.cr().modify(|w| {
+            w.set_tcie(false);
+            w.set_useie(false);
+            w.set_dteie(false);
+            w.set_suspie(false);
+            w.set_htie(false);
+        });
 
         // Wake the future. It'll look at tcf and see it's set.
         STATE.ch_wakers[index].wake();
@@ -432,7 +434,7 @@ impl RingBuffer {
                 Dir::MemoryToPeripheral => w.set_usa(true),
                 Dir::PeripheralToMemory => w.set_uda(true),
             }
-            // lower 16 bites of the address of destination address
+            // lower 16 bits of the memory address
             w.set_la(((lli >> 2usize) & 0x3fff) as u16);
         });
         ch.lbar().write(|w| {
@@ -461,7 +463,6 @@ impl RingBuffer {
 
         match dir {
             Dir::MemoryToPeripheral => {
-                defmt::info!("memory to peripheral");
                 ch.sar().write_value(mem_addr as _);
                 ch.dar().write_value(peri_addr as _);
             }
@@ -470,27 +471,6 @@ impl RingBuffer {
                 ch.dar().write_value(mem_addr as _);
             }
         }
-
-        ch.cr().write(|w| {
-            // Enable interrupts
-            w.set_tcie(true);
-            w.set_useie(true);
-            w.set_dteie(true);
-            w.set_suspie(true);
-            w.set_htie(true);
-        });
-    }
-
-    fn start(ch: &pac::gpdma::Channel) {
-        Self::clear_irqs(ch);
-        ch.cr().modify(|w| w.set_en(true));
-
-        defmt::info!("DMA CR is {}", ch.cr().read().0);
-    }
-
-    fn request_stop(ch: &pac::gpdma::Channel) {
-        // break the loop - will stop on the next transfer complete
-        ch.llr().write(|_| 0);
     }
 
     fn clear_irqs(ch: &pac::gpdma::Channel) {
@@ -503,6 +483,48 @@ impl RingBuffer {
 
     fn is_running(ch: &pac::gpdma::Channel) -> bool {
         !ch.sr().read().tcf()
+    }
+
+    fn request_suspend(ch: &pac::gpdma::Channel) {
+        ch.cr().modify(|w| {
+            w.set_susp(true);
+        });
+    }
+
+    async fn suspend(ch: &pac::gpdma::Channel, set_waker: &mut dyn FnMut(&Waker)) {
+        use core::sync::atomic::compiler_fence;
+
+        Self::request_suspend(ch);
+
+        //wait until cr.susp reads as true
+        poll_fn(|cx| {
+            set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            let cr = ch.cr().read();
+            if cr.susp() {
+                defmt::info!("Ready {}", cr.susp());
+                Poll::Ready(())
+            } else {
+                defmt::info!("still pending {}", cr.susp());
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    fn resume(ch: &pac::gpdma::Channel) {
+        Self::clear_irqs(ch);
+        ch.cr().modify(|w| {
+            w.set_susp(false);
+            w.set_en(true);
+            w.set_tcie(true);
+            w.set_useie(true);
+            w.set_dteie(true);
+            w.set_suspie(true);
+            w.set_htie(true);
+        });
     }
 }
 
@@ -541,7 +563,24 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     }
 
     pub fn start(&mut self) {
-        RingBuffer::start(&self.channel.regs().ch(self.channel.num()));
+        let ch = &self.channel.regs().ch(self.channel.num());
+        RingBuffer::clear_irqs(ch);
+        ch.cr().modify(|w| w.set_en(true));
+    }
+
+    pub fn request_stop(&mut self, ch: &pac::gpdma::Channel) {
+        ch.cr().modify(|w| w.set_en(false));
+    }
+
+    pub async fn suspend(&mut self) {
+        RingBuffer::suspend(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
+    }
+
+    pub fn resume(&mut self) {
+        RingBuffer::resume(&self.channel.regs().ch(self.channel.num()));
     }
 
     pub fn clear(&mut self) {
@@ -602,10 +641,6 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         .set_waker(waker);
     }
 
-    pub fn request_stop(&mut self) {
-        RingBuffer::request_stop(&self.channel.regs().ch(self.channel.num()));
-    }
-
     pub fn is_running(&mut self) -> bool {
         RingBuffer::is_running(&self.channel.regs().ch(self.channel.num()))
     }
@@ -613,7 +648,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
 
 impl<'a, C: Channel, W: Word> Drop for ReadableRingBuffer<'a, C, W> {
     fn drop(&mut self) {
-        self.request_stop();
+        RingBuffer::request_suspend(&self.channel.regs().ch(self.channel.num()));
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -657,7 +692,24 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     }
 
     pub fn start(&mut self) {
-        RingBuffer::start(&self.channel.regs().ch(self.channel.num()));
+        self.resume();
+    }
+
+    pub async fn suspend(&mut self) {
+        RingBuffer::suspend(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
+    }
+
+    pub fn resume(&mut self) {
+        RingBuffer::resume(&self.channel.regs().ch(self.channel.num()));
+    }
+
+    pub fn request_stop(&mut self) {
+        // reads can be stopped by disabling the enable flag
+        let ch = &self.channel.regs().ch(self.channel.num());
+        ch.cr().modify(|w| w.set_en(false));
     }
 
     pub fn clear(&mut self) {
@@ -671,6 +723,16 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
         self.ringbuf.write(
+            &mut DmaCtrlImpl {
+                channel: self.channel.reborrow(),
+                word_size: W::size(),
+            },
+            buf,
+        )
+    }
+
+    pub fn prime(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        self.ringbuf.prime(
             &mut DmaCtrlImpl {
                 channel: self.channel.reborrow(),
                 word_size: W::size(),
@@ -705,10 +767,6 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         .set_waker(waker);
     }
 
-    pub fn request_stop(&mut self) {
-        RingBuffer::request_stop(&self.channel.regs().ch(self.channel.num()));
-    }
-
     pub fn is_running(&mut self) -> bool {
         RingBuffer::is_running(&self.channel.regs().ch(self.channel.num()))
     }
@@ -716,7 +774,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
 
 impl<'a, C: Channel, W: Word> Drop for WritableRingBuffer<'a, C, W> {
     fn drop(&mut self) {
-        self.request_stop();
+        RingBuffer::request_suspend(&self.channel.regs().ch(self.channel.num()));
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
