@@ -481,7 +481,7 @@ impl Default for Config {
             slot_enable: 0b11,
             data_size: DataSize::Data16,
             stereo_mono: StereoMono::Stereo,
-            bit_order: BitOrder::LsbFirst,
+            bit_order: BitOrder::MsbFirst,
             frame_sync_offset: FrameSyncOffset::BeforeFirstBit,
             frame_sync_polarity: FrameSyncPolarity::ActiveLow,
             frame_sync_active_level_length: word::U7(16),
@@ -853,6 +853,13 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
         }
     }
 
+    pub fn prime(self: &mut Self, prime_buffer: &[W]) -> Result<(usize, usize), Error> {
+        match self.ring_buffer {
+            RingBuffer::Writable(ref mut rb) => Ok(rb.prime(prime_buffer)?),
+            RingBuffer::Readable(_) => Err(Error::NotATransmitter),
+        }
+    }
+
     fn is_transmitter(ring_buffer: &RingBuffer<C, W>) -> bool {
         match ring_buffer {
             RingBuffer::Writable(_) => true,
@@ -1002,10 +1009,24 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
         }
     }
 
-    pub fn request_stop(&mut self) {
+    pub async fn suspend(&mut self) {
         match &mut self.ring_buffer {
-            RingBuffer::Writable(buffer) => buffer.request_stop(),
-            RingBuffer::Readable(buffer) => buffer.request_stop(),
+            RingBuffer::Writable(buffer) => buffer.suspend().await,
+            RingBuffer::Readable(buffer) => buffer.suspend().await,
+        }
+    }
+
+    pub fn resume(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.resume(),
+            RingBuffer::Readable(buffer) => buffer.resume(),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        match &mut self.ring_buffer {
+            RingBuffer::Writable(buffer) => buffer.clear(),
+            RingBuffer::Readable(buffer) => buffer.clear(),
         }
     }
 
