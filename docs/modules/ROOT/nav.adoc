@@ -12,4 +12,5 @@
 * xref:examples.adoc[Examples]
 * xref:developer.adoc[Developer]
 ** xref:developer_stm32.adoc[Developer: STM32]
+* xref:embassy_in_the_wild.adoc[Embassy in the wild]
 * xref:faq.adoc[Frequently Asked Questions]
