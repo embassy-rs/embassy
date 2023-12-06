@@ -77,6 +77,7 @@ pub struct Spi<'d, T: Instance, Tx, Rx> {
     sck: Option<PeripheralRef<'d, AnyPin>>,
     mosi: Option<PeripheralRef<'d, AnyPin>>,
     miso: Option<PeripheralRef<'d, AnyPin>>,
+    cs: Option<PeripheralRef<'d, AnyPin>>,
     txdma: PeripheralRef<'d, Tx>,
     rxdma: PeripheralRef<'d, Rx>,
     current_word_size: word_impl::Config,
@@ -108,6 +109,46 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         Self::new_inner(
             peri,
+            None,
+            Some(sck.map_into()),
+            Some(mosi.map_into()),
+            Some(miso.map_into()),
+            txdma,
+            rxdma,
+            config,
+        )
+    }
+
+    /// Creates a new SPI instance with hardware CS pin.
+    pub fn new_cs(
+        peri: impl Peripheral<P = T> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        miso: impl Peripheral<P = impl MisoPin<T>> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        rxdma: impl Peripheral<P = Rx> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, peri, sck, mosi, miso);
+
+        let sck_pull_mode = match config.mode.polarity {
+            Polarity::IdleLow => Pull::Down,
+            Polarity::IdleHigh => Pull::Up,
+        };
+
+        cs.set_as_af(cs.af_num(), AFType::OutputPushPull);
+        cs.set_speed(crate::gpio::Speed::VeryHigh);
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, sck_pull_mode);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
+        mosi.set_speed(crate::gpio::Speed::VeryHigh);
+        miso.set_as_af(miso.af_num(), AFType::Input);
+        miso.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(cs.map_into()),
             Some(sck.map_into()),
             Some(mosi.map_into()),
             Some(miso.map_into()),
@@ -133,6 +174,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         Self::new_inner(
             peri,
+            None,
             Some(sck.map_into()),
             None,
             Some(miso.map_into()),
@@ -158,6 +200,36 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
 
         Self::new_inner(
             peri,
+            None,
+            Some(sck.map_into()),
+            Some(mosi.map_into()),
+            None,
+            txdma,
+            rxdma,
+            config,
+        )
+    }
+
+    pub fn new_txonly_cs(
+        peri: impl Peripheral<P = T> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T>> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        rxdma: impl Peripheral<P = Rx> + 'd, // TODO remove
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, sck, mosi);
+        cs.set_as_af(cs.af_num(), AFType::OutputPushPull);
+        cs.set_speed(crate::gpio::Speed::VeryHigh);
+        sck.set_as_af(sck.af_num(), AFType::OutputPushPull);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        mosi.set_as_af(mosi.af_num(), AFType::OutputPushPull);
+        mosi.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(cs.map_into()),
             Some(sck.map_into()),
             Some(mosi.map_into()),
             None,
@@ -178,7 +250,24 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         mosi.set_as_af_pull(mosi.af_num(), AFType::OutputPushPull, Pull::Down);
         mosi.set_speed(crate::gpio::Speed::Medium);
 
-        Self::new_inner(peri, None, Some(mosi.map_into()), None, txdma, rxdma, config)
+        Self::new_inner(peri, None, None, Some(mosi.map_into()), None, txdma, rxdma, config)
+    }
+
+    pub fn new_txonly_nosck_cs(
+        peri: impl Peripheral<P = T> + 'd,
+        cs: impl Peripheral<P = impl CsPin<T>> + 'd,
+        mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
+        txdma: impl Peripheral<P = Tx> + 'd,
+        rxdma: impl Peripheral<P = Rx> + 'd, // TODO: remove
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, mosi);
+        cs.set_as_af(cs.af_num(), AFType::OutputPushPull);
+        cs.set_speed(crate::gpio::Speed::VeryHigh);
+        mosi.set_as_af_pull(mosi.af_num(), AFType::OutputPushPull, Pull::Down);
+        mosi.set_speed(crate::gpio::Speed::Medium);
+
+        Self::new_inner(peri, Some(cs.map_into()), None, Some(mosi.map_into()), None, txdma, rxdma, config)
     }
 
     #[cfg(stm32wl)]
@@ -197,7 +286,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         config.mode = MODE_0;
         config.bit_order = BitOrder::MsbFirst;
         config.frequency = freq;
-        Self::new_inner(peri, None, None, None, txdma, rxdma, config)
+        Self::new_inner(peri, None, None, None, None, txdma, rxdma, config)
     }
 
     #[allow(dead_code)]
@@ -207,11 +296,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         rxdma: impl Peripheral<P = Rx> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, None, None, None, txdma, rxdma, config)
+        Self::new_inner(peri, None, None, None, None, txdma, rxdma, config)
     }
 
     fn new_inner(
         peri: impl Peripheral<P = T> + 'd,
+        cs: Option<PeripheralRef<'d, AnyPin>>,
         sck: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
@@ -235,7 +325,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         #[cfg(any(spi_v1, spi_f1))]
         {
             T::REGS.cr2().modify(|w| {
-                w.set_ssoe(false);
+                w.set_ssoe(cs.is_some());
             });
             T::REGS.cr1().modify(|w| {
                 w.set_cpha(cpha);
@@ -261,7 +351,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 let (ds, frxth) = <u8 as sealed::Word>::CONFIG;
                 w.set_frxth(frxth);
                 w.set_ds(ds);
-                w.set_ssoe(false);
+                w.set_ssoe(cs.is_some());
             });
             T::REGS.cr1().modify(|w| {
                 w.set_cpha(cpha);
@@ -281,8 +371,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         {
             T::REGS.ifcr().write(|w| w.0 = 0xffff_ffff);
             T::REGS.cfg2().modify(|w| {
-                //w.set_ssoe(true);
-                w.set_ssoe(false);
+                w.set_ssoe(cs.is_some());
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
@@ -315,10 +404,24 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
             sck,
             mosi,
             miso,
+            cs: None,
             txdma,
             rxdma,
             current_word_size: <u8 as sealed::Word>::CONFIG,
         }
+    }
+
+    /// Enables/disables the hardware CS pin. Requires that a hardware CS pin
+    /// was passed in during initialization. Useful if you have one device with
+    /// hardware CS and another with software/GPIO CS.
+    pub fn set_hardware_cs_enabled(&mut self, enabled: bool) {
+        if enabled && self.cs.is_none() {
+            return;
+        }
+
+        T::REGS.cfg2().modify(|w| {
+            w.set_ssoe(enabled);
+        });
     }
 
     /// Reconfigures it with the supplied config.
