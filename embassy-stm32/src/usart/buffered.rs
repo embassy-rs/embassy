@@ -560,172 +560,120 @@ impl<'d, T: BasicInstance> embedded_io::Write for BufferedUartTx<'d, T> {
     }
 }
 
-mod eh02 {
-    use super::*;
+impl<'d, T: BasicInstance> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d, T> {
+    type Error = Error;
 
-    impl<'d, T: BasicInstance> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d, T> {
-        type Error = Error;
-
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            let r = T::regs();
-            unsafe {
-                let sr = sr(r).read();
-                if sr.pe() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Parity))
-                } else if sr.fe() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Framing))
-                } else if sr.ne() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Noise))
-                } else if sr.ore() {
-                    rdr(r).read_volatile();
-                    Err(nb::Error::Other(Error::Overrun))
-                } else if sr.rxne() {
-                    Ok(rdr(r).read_volatile())
-                } else {
-                    Err(nb::Error::WouldBlock)
-                }
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        let r = T::regs();
+        unsafe {
+            let sr = sr(r).read();
+            if sr.pe() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Parity))
+            } else if sr.fe() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Framing))
+            } else if sr.ne() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Noise))
+            } else if sr.ore() {
+                rdr(r).read_volatile();
+                Err(nb::Error::Other(Error::Overrun))
+            } else if sr.rxne() {
+                Ok(rdr(r).read_volatile())
+            } else {
+                Err(nb::Error::WouldBlock)
             }
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d, T> {
-        type Error = Error;
-
-        fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
-            while !buffer.is_empty() {
-                match self.blocking_write(buffer) {
-                    Ok(0) => panic!("zero-length write."),
-                    Ok(n) => buffer = &buffer[n..],
-                    Err(e) => return Err(e),
-                }
-            }
-            Ok(())
-        }
-
-        fn bflush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_02::serial::Read<u8> for BufferedUart<'d, T> {
-        type Error = Error;
-
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            embedded_hal_02::serial::Read::read(&mut self.rx)
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d, T> {
-        type Error = Error;
-
-        fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
-            while !buffer.is_empty() {
-                match self.tx.blocking_write(buffer) {
-                    Ok(0) => panic!("zero-length write."),
-                    Ok(n) => buffer = &buffer[n..],
-                    Err(e) => return Err(e),
-                }
-            }
-            Ok(())
-        }
-
-        fn bflush(&mut self) -> Result<(), Self::Error> {
-            self.tx.blocking_flush()
         }
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
+impl<'d, T: BasicInstance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d, T> {
+    type Error = Error;
 
-    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUart<'d, T> {
-        type Error = Error;
+    fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
+        while !buffer.is_empty() {
+            match self.blocking_write(buffer) {
+                Ok(0) => panic!("zero-length write."),
+                Ok(n) => buffer = &buffer[n..],
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 
-    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d, T> {
-        type Error = Error;
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d, T> {
-        type Error = Error;
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_nb::serial::Read for BufferedUartRx<'d, T> {
-        fn read(&mut self) -> nb::Result<u8, Self::Error> {
-            embedded_hal_02::serial::Read::read(self)
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_nb::serial::Write for BufferedUartTx<'d, T> {
-        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-        }
-
-        fn flush(&mut self) -> nb::Result<(), Self::Error> {
-            self.blocking_flush().map_err(nb::Error::Other)
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_nb::serial::Read for BufferedUart<'d, T> {
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            embedded_hal_02::serial::Read::read(&mut self.rx)
-        }
-    }
-
-    impl<'d, T: BasicInstance> embedded_hal_nb::serial::Write for BufferedUart<'d, T> {
-        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.tx.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-        }
-
-        fn flush(&mut self) -> nb::Result<(), Self::Error> {
-            self.tx.blocking_flush().map_err(nb::Error::Other)
-        }
+    fn bflush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
     }
 }
 
-#[cfg(all(
-    feature = "unstable-traits",
-    feature = "nightly",
-    feature = "_todo_embedded_hal_serial"
-))]
-mod eha {
-    use core::future::Future;
+impl<'d, T: BasicInstance> embedded_hal_02::serial::Read<u8> for BufferedUart<'d, T> {
+    type Error = Error;
 
-    use super::*;
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        embedded_hal_02::serial::Read::read(&mut self.rx)
+    }
+}
 
-    impl<'d, T: BasicInstance> embedded_hal_async::serial::Write for BufferedUartTx<'d, T> {
-        async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-            Self::write(buf)
+impl<'d, T: BasicInstance> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d, T> {
+    type Error = Error;
+
+    fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
+        while !buffer.is_empty() {
+            match self.tx.blocking_write(buffer) {
+                Ok(0) => panic!("zero-length write."),
+                Ok(n) => buffer = &buffer[n..],
+                Err(e) => return Err(e),
+            }
         }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            Self::flush()
-        }
+        Ok(())
     }
 
-    impl<'d, T: BasicInstance> embedded_hal_async::serial::Read for BufferedUartRx<'d, T> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
-            Self::read(buf)
-        }
+    fn bflush(&mut self) -> Result<(), Self::Error> {
+        self.tx.blocking_flush()
+    }
+}
+
+impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUart<'d, T> {
+    type Error = Error;
+}
+
+impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d, T> {
+    type Error = Error;
+}
+
+impl<'d, T: BasicInstance> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d, T> {
+    type Error = Error;
+}
+
+impl<'d, T: BasicInstance> embedded_hal_nb::serial::Read for BufferedUartRx<'d, T> {
+    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+        embedded_hal_02::serial::Read::read(self)
+    }
+}
+
+impl<'d, T: BasicInstance> embedded_hal_nb::serial::Write for BufferedUartTx<'d, T> {
+    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+        self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
     }
 
-    impl<'d, T: BasicInstance> embedded_hal_async::serial::Write for BufferedUart<'d, T> {
-        async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-            self.tx.write(buf)
-        }
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        self.blocking_flush().map_err(nb::Error::Other)
+    }
+}
 
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            self.tx.flush()
-        }
+impl<'d, T: BasicInstance> embedded_hal_nb::serial::Read for BufferedUart<'d, T> {
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        embedded_hal_02::serial::Read::read(&mut self.rx)
+    }
+}
+
+impl<'d, T: BasicInstance> embedded_hal_nb::serial::Write for BufferedUart<'d, T> {
+    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+        self.tx.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
     }
 
-    impl<'d, T: BasicInstance> embedded_hal_async::serial::Read for BufferedUart<'d, T> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<(), Self::Error> {
-            self.rx.read(buf)
-        }
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        self.tx.blocking_flush().map_err(nb::Error::Other)
     }
 }

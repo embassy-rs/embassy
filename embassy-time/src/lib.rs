@@ -1,6 +1,7 @@
 #![cfg_attr(not(any(feature = "std", feature = "wasm", test)), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
+#![cfg_attr(nightly, feature(async_fn_in_trait, impl_trait_projections))]
+#![cfg_attr(nightly, allow(stable_features, unknown_lints))]
+#![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]
@@ -52,6 +53,7 @@ const fn gcd(a: u64, b: u64) -> u64 {
 
 pub(crate) const GCD_1K: u64 = gcd(TICK_HZ, 1_000);
 pub(crate) const GCD_1M: u64 = gcd(TICK_HZ, 1_000_000);
+pub(crate) const GCD_1G: u64 = gcd(TICK_HZ, 1_000_000_000);
 
 #[cfg(feature = "defmt-timestamp-uptime")]
 defmt::timestamp! {"{=u64:us}", Instant::now().as_micros() }

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -22,22 +22,15 @@ links = "embassy-time"
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"
-features = ["nightly", "defmt", "unstable-traits", "std"]
+features = ["defmt", "std"]
 target = "x86_64-unknown-linux-gnu"
 
 [package.metadata.docs.rs]
-features = ["nightly", "defmt", "unstable-traits", "std"]
+features = ["defmt", "std"]
 
 [features]
 std = ["tick-hz-1_000_000", "critical-section/std"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000"]
-
-# Enable nightly-only features
-nightly = ["embedded-hal-async"]
-
-# Implement embedded-hal 1.0 alpha and embedded-hal-async traits.
-# Implement embedded-hal-async traits if `nightly` is set as well.
-unstable-traits = ["embedded-hal-1"]
 
 # Display a timestamp of the number of seconds since startup next to defmt log messages
 # To use this you must have a time driver provided.
@@ -242,8 +235,8 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
-embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
+embedded-hal-async = { version = "=1.0.0-rc.2" }
 
 futures-util = { version = "0.3.17", default-features = false }
 critical-section = "1.1"
@@ -258,4 +251,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.3.3", path = "../embassy-executor", features = ["nightly"] }
+embassy-executor = { version = "0.3.3", path = "../embassy-executor" }

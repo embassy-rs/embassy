@@ -2,17 +2,16 @@
 //!
 //! # Example (nrf52)
 //!
-//! ```rust
+//! ```rust,ignore
 //! use embassy_embedded_hal::shared_bus::spi::SpiDevice;
 //! use embassy_sync::mutex::Mutex;
-//! use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+//! use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 //!
-//! static SPI_BUS: StaticCell<Mutex<ThreadModeRawMutex, spim::Spim<SPI3>>> = StaticCell::new();
+//! static SPI_BUS: StaticCell<Mutex<NoopRawMutex, spim::Spim<SPI3>>> = StaticCell::new();
 //! let mut config = spim::Config::default();
 //! config.frequency = spim::Frequency::M32;
-//! let irq = interrupt::take!(SPIM3);
-//! let spi = spim::Spim::new_txonly(p.SPI3, irq, p.P0_15, p.P0_18, config);
-//! let spi_bus = Mutex::<ThreadModeRawMutex, _>::new(spi);
+//! let spi = spim::Spim::new_txonly(p.SPI3, Irqs, p.P0_15, p.P0_18, config);
+//! let spi_bus = Mutex::new(spi);
 //! let spi_bus = SPI_BUS.init(spi_bus);
 //!
 //! // Device 1, using embedded-hal-async compatible driver for ST7735 LCD display
@@ -63,6 +62,10 @@ where
     CS: OutputPin,
 {
     async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
+            return Err(SpiDeviceError::DelayNotSupported);
+        }
+
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
@@ -74,12 +77,12 @@ where
                     Operation::Transfer(read, write) => bus.transfer(read, write).await,
                     Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await,
                     #[cfg(not(feature = "time"))]
-                    Operation::DelayUs(us) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    Operation::DelayNs(_) => unreachable!(),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => match bus.flush().await {
+                    Operation::DelayNs(ns) => match bus.flush().await {
                         Err(e) => Err(e),
                         Ok(()) => {
-                            embassy_time::Timer::after_micros(*us as _).await;
+                            embassy_time::Timer::after_nanos(*ns as _).await;
                             Ok(())
                         }
                     },
@@ -137,6 +140,10 @@ where
     CS: OutputPin,
 {
     async fn transaction(&mut self, operations: &mut [spi::Operation<'_, u8>]) -> Result<(), Self::Error> {
+        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
+            return Err(SpiDeviceError::DelayNotSupported);
+        }
+
         let mut bus = self.bus.lock().await;
         bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
@@ -149,12 +156,12 @@ where
                     Operation::Transfer(read, write) => bus.transfer(read, write).await,
                     Operation::TransferInPlace(buf) => bus.transfer_in_place(buf).await,
                     #[cfg(not(feature = "time"))]
-                    Operation::DelayUs(us) => return Err(SpiDeviceError::DelayUsNotSupported),
+                    Operation::DelayNs(_) => unreachable!(),
                     #[cfg(feature = "time")]
-                    Operation::DelayUs(us) => match bus.flush().await {
+                    Operation::DelayNs(ns) => match bus.flush().await {
                         Err(e) => Err(e),
                         Ok(()) => {
-                            embassy_time::Timer::after_micros(*us as _).await;
+                            embassy_time::Timer::after_nanos(*ns as _).await;
                             Ok(())
                         }
                     },

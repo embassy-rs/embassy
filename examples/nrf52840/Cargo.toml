@@ -7,42 +7,21 @@ license = "MIT OR Apache-2.0"
 [features]
 default = ["nightly"]
 nightly = [
-    "embedded-hal-async",
-    "embassy-executor/nightly",
-    "embassy-nrf/nightly",
-    "embassy-net/nightly",
-    "embassy-net-esp-hosted",
-    "embassy-net-enc28j60",
-    "embassy-nrf/unstable-traits",
-    "embassy-time/nightly",
-    "embassy-time/unstable-traits",
     "static_cell/nightly",
-    "embassy-usb",
-    "embedded-io-async",
-    "embedded-hal-bus/async",
-    "embassy-net",
-    "embassy-lora",
-    "lora-phy",
-    "lorawan-device",
-    "lorawan",
 ]
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-sync = { version = "0.4.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.5.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.3.3", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.1.5", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-time = { version = "0.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
-embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"], optional = true }
-embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"], optional = true }
+embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 embedded-io = { version = "0.6.0", features = ["defmt-03"]  }
-embedded-io-async = { version = "0.6.0", optional = true, features = ["defmt-03"] }
-embassy-lora = { version = "0.1.0", path = "../../embassy-lora", features = ["time", "defmt"], optional = true }
-lora-phy = { version = "2", optional = true }
-lorawan-device = { version = "0.11.0", default-features = false, features = ["async", "external-lora-phy"], optional = true }
-lorawan = { version = "0.7.4", default-features = false, features = ["default-crypto"], optional = true }
-embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"], optional = true }
-embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60", features = ["defmt"], optional = true }
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
+embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"] }
+embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60", features = ["defmt"] }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
@@ -54,12 +33,12 @@ cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
-embedded-storage = "0.3.0"
+embedded-storage = "0.3.1"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
-embedded-hal = { version = "1.0.0-rc.1" }
-embedded-hal-async = { version = "1.0.0-rc.1", optional = true }
-embedded-hal-bus = { version = "0.1.0-rc.1" }
+embedded-hal = { version = "1.0.0-rc.2" }
+embedded-hal-async = { version = "1.0.0-rc.2" }
+embedded-hal-bus = { version = "0.1.0-rc.2", features = ["async"] }
 num-integer = { version = "0.1.45", default-features = false }
 microfft = "0.5.0"
 

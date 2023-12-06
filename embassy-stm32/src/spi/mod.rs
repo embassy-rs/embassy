@@ -951,102 +951,88 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     Ok(rx_word)
 }
 
-mod eh02 {
-    use super::*;
+// Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
+// some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
+macro_rules! impl_blocking {
+    ($w:ident) => {
+        impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, T, Tx, Rx> {
+            type Error = Error;
 
-    // Note: It is not possible to impl these traits generically in embedded-hal 0.2 due to a conflict with
-    // some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
-    macro_rules! impl_blocking {
-        ($w:ident) => {
-            impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, T, Tx, Rx> {
-                type Error = Error;
-
-                fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
-                    self.blocking_write(words)
-                }
+            fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
+                self.blocking_write(words)
             }
+        }
 
-            impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, T, Tx, Rx> {
-                type Error = Error;
+        impl<'d, T: Instance, Tx, Rx> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, T, Tx, Rx> {
+            type Error = Error;
 
-                fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
-                    self.blocking_transfer_in_place(words)?;
-                    Ok(words)
-                }
+            fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
+                self.blocking_transfer_in_place(words)?;
+                Ok(words)
             }
-        };
-    }
-
-    impl_blocking!(u8);
-    impl_blocking!(u16);
+        }
+    };
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
+impl_blocking!(u8);
+impl_blocking!(u16);
 
-    impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::ErrorType for Spi<'d, T, Tx, Rx> {
-        type Error = Error;
+impl<'d, T: Instance, Tx, Rx> embedded_hal_1::spi::ErrorType for Spi<'d, T, Tx, Rx> {
+    type Error = Error;
+}
+
+impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 
-    impl<'d, T: Instance, W: Word, Tx, Rx> embedded_hal_1::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
-        fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.blocking_read(words)
-        }
-
-        fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
-            self.blocking_write(words)
-        }
-
-        fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
-            self.blocking_transfer(read, write)
-        }
-
-        fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.blocking_transfer_in_place(words)
-        }
+    fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.blocking_read(words)
     }
 
-    impl embedded_hal_1::spi::Error for Error {
-        fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
-            match *self {
-                Self::Framing => embedded_hal_1::spi::ErrorKind::FrameFormat,
-                Self::Crc => embedded_hal_1::spi::ErrorKind::Other,
-                Self::ModeFault => embedded_hal_1::spi::ErrorKind::ModeFault,
-                Self::Overrun => embedded_hal_1::spi::ErrorKind::Overrun,
-            }
+    fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
+        self.blocking_write(words)
+    }
+
+    fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
+        self.blocking_transfer(read, write)
+    }
+
+    fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.blocking_transfer_in_place(words)
+    }
+}
+
+impl embedded_hal_1::spi::Error for Error {
+    fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
+        match *self {
+            Self::Framing => embedded_hal_1::spi::ErrorKind::FrameFormat,
+            Self::Crc => embedded_hal_1::spi::ErrorKind::Other,
+            Self::ModeFault => embedded_hal_1::spi::ErrorKind::ModeFault,
+            Self::Overrun => embedded_hal_1::spi::ErrorKind::Overrun,
         }
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eha {
-    use super::*;
+impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
-    impl<'d, T: Instance, Tx: TxDma<T>, Rx: RxDma<T>, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, T, Tx, Rx> {
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            Ok(())
-        }
+    async fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
+        self.write(words).await
+    }
 
-        async fn write(&mut self, words: &[W]) -> Result<(), Self::Error> {
-            self.write(words).await
-        }
+    async fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.read(words).await
+    }
 
-        async fn read(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.read(words).await
-        }
+    async fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
+        self.transfer(read, write).await
+    }
 
-        async fn transfer(&mut self, read: &mut [W], write: &[W]) -> Result<(), Self::Error> {
-            self.transfer(read, write).await
-        }
-
-        async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
-            self.transfer_in_place(words).await
-        }
+    async fn transfer_in_place(&mut self, words: &mut [W]) -> Result<(), Self::Error> {
+        self.transfer_in_place(words).await
     }
 }
 

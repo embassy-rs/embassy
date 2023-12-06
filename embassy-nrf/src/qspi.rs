@@ -391,8 +391,13 @@ impl<'d, T: Instance> Qspi<'d, T> {
     ///
     /// The difference with `read` is that this does not do bounds checks
     /// against the flash capacity. It is intended for use when QSPI is used as
-    /// a raw bus, not with flash memory.    
+    /// a raw bus, not with flash memory.
     pub async fn read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
+        if data.len() == 0 {
+            return Ok(());
+        }
+
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_read(address, data)?;
@@ -409,6 +414,11 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// against the flash capacity. It is intended for use when QSPI is used as
     /// a raw bus, not with flash memory.
     pub async fn write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
+        if data.len() == 0 {
+            return Ok(());
+        }
+
         let ondrop = OnDrop::new(Self::blocking_wait_ready);
 
         self.start_write(address, data)?;
@@ -425,6 +435,11 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// against the flash capacity. It is intended for use when QSPI is used as
     /// a raw bus, not with flash memory.
     pub fn blocking_read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
+        // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
+        if data.len() == 0 {
+            return Ok(());
+        }
+
         self.start_read(address, data)?;
         Self::blocking_wait_ready();
         Ok(())
@@ -436,6 +451,11 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// against the flash capacity. It is intended for use when QSPI is used as
     /// a raw bus, not with flash memory.
     pub fn blocking_write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
+        // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
+        if data.len() == 0 {
+            return Ok(());
+        }
+
         self.start_write(address, data)?;
         Self::blocking_wait_ready();
         Ok(())
@@ -585,7 +605,6 @@ impl<'d, T: Instance> NorFlash for Qspi<'d, T> {
     }
 }
 
-#[cfg(feature = "nightly")]
 mod _eh1 {
     use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 

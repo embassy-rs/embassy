@@ -27,7 +27,7 @@ If you use the `#[embassy_executor::main]` macro in your application, it creates
 
 Interrupts are a common way for peripherals to signal completion of some operation and fits well with the async execution model. The following diagram describes a typical application flow where (1) a task is polled and is attempting to make progress. The task then (2) instructs the peripheral to perform some operation, and awaits. After some time has passed, (3) an interrupt is raised, marking the completion of the operation.
 
-The peripheral HAL then (4) ensures that interrupt signals are routed to to the peripheral and updating the peripheral state with the results of the operation. The executor is then (5) notified that the task should be polled, which it will do.
+The peripheral HAL then (4) ensures that interrupt signals are routed to the peripheral and updating the peripheral state with the results of the operation. The executor is then (5) notified that the task should be polled, which it will do.
 
 image::embassy_irq.png[Interrupt handling]
 

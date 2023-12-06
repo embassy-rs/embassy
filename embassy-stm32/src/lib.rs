@@ -1,6 +1,5 @@
 #![cfg_attr(not(test), no_std)]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
@@ -64,6 +63,8 @@ pub mod sai;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(uid)]
+pub mod uid;
 #[cfg(usart)]
 pub mod usart;
 #[cfg(usb)]

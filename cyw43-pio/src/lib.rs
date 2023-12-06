@@ -1,6 +1,5 @@
 #![no_std]
-#![feature(async_fn_in_trait)]
-#![allow(stable_features, unknown_lints, async_fn_in_trait)]
+#![allow(async_fn_in_trait)]
 
 use core::slice;
 

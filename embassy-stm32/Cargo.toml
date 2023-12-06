@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32/src/"
 
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time"]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
@@ -32,22 +32,22 @@ flavors = [
 ]
 
 [dependencies]
-embassy-sync = { version = "0.4.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-time = { version = "0.2", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
+embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 embassy-executor = { version = "0.3.3", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
-embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
-embedded-hal-nb = { version = "=1.0.0-rc.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
+embedded-hal-async = { version = "=1.0.0-rc.2" }
+embedded-hal-nb = { version = "=1.0.0-rc.2" }
 
-embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.4.0", optional = true }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -65,7 +65,7 @@ nb = "1.0.0"
 stm32-fmc = "0.3.0"
 cfg-if = "1.0.0"
 embedded-io = { version = "0.6.0" }
-embedded-io-async = { version = "0.6.0", optional = true }
+embedded-io-async = { version = "0.6.1" }
 chrono = { version = "^0.4", default-features = false, optional = true}
 bit_field = "0.10.2"
 document-features = "0.2.7"
@@ -86,28 +86,20 @@ default = ["rt"]
 rt = ["stm32-metapac/rt"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async?/defmt-03", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m" ]
+low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m" ]
 low-power-debug-with-sleep = []
-embassy-executor = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
 memory-x = ["stm32-metapac/memory-x"]
-
-## Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io-async", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
 
 ## Re-export stm32-metapac at `embassy_stm32::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
 ## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 ## There are no plans to make this stable.
 unstable-pac = []
-
-## Implement embedded-hal 1.0 alpha traits.
-## Implement embedded-hal-async traits if `nightly` is set as well.
-unstable-traits = ["embedded-hal-1", "dep:embedded-hal-nb"]
 
 #! ## Time
 

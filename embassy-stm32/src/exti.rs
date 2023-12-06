@@ -1,3 +1,4 @@
+use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -137,74 +138,56 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     }
 }
 
-mod eh02 {
-    use core::convert::Infallible;
+impl<'d, T: GpioPin> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, T> {
+    type Error = Infallible;
 
-    use super::*;
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
+    }
 
-    impl<'d, T: GpioPin> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, T> {
-        type Error = Infallible;
-
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use core::convert::Infallible;
+impl<'d, T: GpioPin> embedded_hal_1::digital::ErrorType for ExtiInput<'d, T> {
+    type Error = Infallible;
+}
 
-    use super::*;
-
-    impl<'d, T: GpioPin> embedded_hal_1::digital::ErrorType for ExtiInput<'d, T> {
-        type Error = Infallible;
+impl<'d, T: GpioPin> embedded_hal_1::digital::InputPin for ExtiInput<'d, T> {
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    impl<'d, T: GpioPin> embedded_hal_1::digital::InputPin for ExtiInput<'d, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
     }
 }
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eha {
 
-    use super::*;
+impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for ExtiInput<'d, T> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_high().await;
+        Ok(())
+    }
 
-    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for ExtiInput<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_high().await;
-            Ok(())
-        }
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_low().await;
+        Ok(())
+    }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_low().await;
-            Ok(())
-        }
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_rising_edge().await;
+        Ok(())
+    }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_rising_edge().await;
-            Ok(())
-        }
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_falling_edge().await;
+        Ok(())
+    }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_falling_edge().await;
-            Ok(())
-        }
-
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_any_edge().await;
-            Ok(())
-        }
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_any_edge().await;
+        Ok(())
     }
 }
 

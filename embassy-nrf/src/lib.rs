@@ -1,6 +1,5 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -76,7 +75,6 @@ pub mod uarte;
     feature = "nrf52833",
     feature = "nrf52840"
 ))]
-#[cfg(feature = "nightly")]
 pub mod usb;
 #[cfg(not(feature = "_nrf5340"))]
 pub mod wdt;
@@ -351,10 +349,11 @@ pub fn init(config: config::Config) -> Peripherals {
                 // Get the letter for the build code (b'A' .. b'F')
                 let build_code = (variant >> 8) as u8;
 
-                if build_code >= b'F' {
-                    // Chips with build code F and higher (revision 3 and higher) have an
+                if build_code >= chip::APPROTECT_MIN_BUILD_CODE {
+                    // Chips with a certain chip type-specific build code or higher have an
                     // improved APPROTECT ("hardware and software controlled access port protection")
                     // which needs explicit action by the firmware to keep it unlocked
+                    // See https://devzone.nordicsemi.com/nordic/nordic-blog/b/blog/posts/working-with-the-nrf52-series-improved-approtect
 
                     // UICR.APPROTECT = SwDisabled
                     let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);

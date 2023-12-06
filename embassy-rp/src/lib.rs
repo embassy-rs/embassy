@@ -1,6 +1,5 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -28,7 +27,6 @@ pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod timer;
 pub mod uart;
-#[cfg(feature = "nightly")]
 pub mod usb;
 pub mod watchdog;
 

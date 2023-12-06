@@ -7,6 +7,7 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 512;
 pub const FLASH_SIZE: usize = 512 * 1024;
 
 pub const RESET_PIN: u32 = 18;
+pub const APPROTECT_MIN_BUILD_CODE: u8 = b'B';
 
 embassy_hal_internal::peripherals! {
     // USB
@@ -171,7 +172,6 @@ embassy_hal_internal::peripherals! {
     I2S,
 }
 
-#[cfg(feature = "nightly")]
 impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);

@@ -55,8 +55,8 @@ where
     CS: OutputPin,
 {
     fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
-        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayUs(_))) {
-            return Err(SpiDeviceError::DelayUsNotSupported);
+        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
+            return Err(SpiDeviceError::DelayNotSupported);
         }
 
         self.bus.lock(|bus| {
@@ -69,10 +69,10 @@ where
                 Operation::Transfer(read, write) => bus.transfer(read, write),
                 Operation::TransferInPlace(buf) => bus.transfer_in_place(buf),
                 #[cfg(not(feature = "time"))]
-                Operation::DelayUs(_) => unreachable!(),
+                Operation::DelayNs(_) => unreachable!(),
                 #[cfg(feature = "time")]
-                Operation::DelayUs(us) => {
-                    embassy_time::block_for(embassy_time::Duration::from_micros(*us as _));
+                Operation::DelayNs(ns) => {
+                    embassy_time::block_for(embassy_time::Duration::from_nanos(*ns as _));
                     Ok(())
                 }
             });
@@ -165,8 +165,8 @@ where
     CS: OutputPin,
 {
     fn transaction(&mut self, operations: &mut [Operation<'_, u8>]) -> Result<(), Self::Error> {
-        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayUs(_))) {
-            return Err(SpiDeviceError::DelayUsNotSupported);
+        if cfg!(not(feature = "time")) && operations.iter().any(|op| matches!(op, Operation::DelayNs(_))) {
+            return Err(SpiDeviceError::DelayNotSupported);
         }
 
         self.bus.lock(|bus| {
@@ -180,10 +180,10 @@ where
                 Operation::Transfer(read, write) => bus.transfer(read, write),
                 Operation::TransferInPlace(buf) => bus.transfer_in_place(buf),
                 #[cfg(not(feature = "time"))]
-                Operation::DelayUs(_) => unreachable!(),
+                Operation::DelayNs(_) => unreachable!(),
                 #[cfg(feature = "time")]
-                Operation::DelayUs(us) => {
-                    embassy_time::block_for(embassy_time::Duration::from_micros(*us as _));
+                Operation::DelayNs(ns) => {
+                    embassy_time::block_for(embassy_time::Duration::from_nanos(*ns as _));
                     Ok(())
                 }
             });
