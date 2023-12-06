@@ -32,7 +32,7 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
-embassy-macros = { version = "0.2.1", path = "../embassy-macros" }
+embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macros" }
 embassy-time = { version = "0.2", path = "../embassy-time", optional = true}
 critical-section = "1.1"
 
@@ -66,7 +66,7 @@ executor-thread = []
 executor-interrupt = []
 
 # Enable nightly-only features
-nightly = ["embassy-macros/nightly"]
+nightly = ["embassy-executor-macros/nightly"]
 
 turbowakers = []
 
