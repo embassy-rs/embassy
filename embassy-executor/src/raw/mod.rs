@@ -5,7 +5,7 @@
 //! ## WARNING: here be dragons!
 //!
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
-//! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_macros::task) macro, which are fully safe.
+//! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_executor_macros::task) macro, which are fully safe.
 
 #[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
 #[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
@@ -97,7 +97,7 @@ impl TaskRef {
 /// A `TaskStorage` must live forever, it may not be deallocated even after the task has finished
 /// running. Hence the relevant methods require `&'static self`. It may be reused, however.
 ///
-/// Internally, the [embassy_executor::task](embassy_macros::task) macro allocates an array of `TaskStorage`s
+/// Internally, the [embassy_executor::task](embassy_executor_macros::task) macro allocates an array of `TaskStorage`s
 /// in a `static`. The most common reason to use the raw `Task` is to have control of where
 /// the memory for the task is allocated: on the stack, or on the heap with e.g. `Box::leak`, etc.
 

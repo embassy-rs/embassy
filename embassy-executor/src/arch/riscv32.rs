@@ -7,7 +7,7 @@ pub use thread::*;
 mod thread {
     use core::marker::PhantomData;
 
-    pub use embassy_macros::main_riscv as main;
+    pub use embassy_executor_macros::main_riscv as main;
     use portable_atomic::{AtomicBool, Ordering};
 
     use crate::{raw, Spawner};

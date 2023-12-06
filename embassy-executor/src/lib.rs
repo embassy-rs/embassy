@@ -6,7 +6,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub use embassy_macros::task;
+pub use embassy_executor_macros::task;
 
 macro_rules! check_at_most_one {
     (@amo [$($feats:literal)*] [] [$($res:tt)*]) => {
