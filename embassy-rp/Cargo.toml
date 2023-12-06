@@ -87,5 +87,5 @@ pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
 
 [dev-dependencies]
-embassy-executor = { version = "0.3.3", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
+embassy-executor = { version = "0.4.0", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
 static_cell = { version = "2" }
