@@ -8,16 +8,15 @@ Run:
 
 [source,bash]
 ----
-mkdir embassy-stm32g474
-cd embassy-stm32g474
-cargo init
+cargo new stm32g474-example
+cd stm32g474-example
 ----
 
 to create an empty rust project:
 
 [source]
 ----
-embassy-stm32g474
+stm32g474-example
 ├── Cargo.toml
 └── src
     └── main.rs
@@ -31,7 +30,7 @@ Currently, we’d need to provide cargo with a target triple every time we run `
 
 [source]
 ----
-embassy-stm32g474
+stm32g474-example
 ├── .cargo
 │   └── config.toml
 ├── Cargo.toml
@@ -113,7 +112,7 @@ Before we can build our project, we need to add an additional file to tell cargo
 
 [source]
 ----
-embassy-stm32g474
+stm32g474-example
 ├── .cargo
 │   └── config.toml
 ├── Cargo.toml
@@ -138,7 +137,7 @@ In order to produce a working binary for our target, cargo requires a custom bui
 
 [source]
 ----
-embassy-stm32g474
+stm32g474-example
 ├── build.rs
 ├── .cargo
 │   └── config.toml
@@ -161,9 +160,9 @@ should result in a blinking LED (if there’s one attached to the pin in `src/ma
 
 [source]
 ----
-   Compiling embassy-stm32g474 v0.1.0 (/home/you/embassy-stm32g474)
+   Compiling stm32g474-example v0.1.0 (/home/you/stm32g474-example)
     Finished release [optimized + debuginfo] target(s) in 0.22s
-     Running `probe-rs run --chip STM32G474RETx target/thumbv7em-none-eabi/release/embassy-stm32g474`
+     Running `probe-rs run --chip STM32G474RETx target/thumbv7em-none-eabi/release/stm32g474-example`
      Erasing sectors ✔ [00:00:00] [#########################################################] 18.00 KiB/18.00 KiB @ 54.09 KiB/s (eta 0s )
  Programming pages   ✔ [00:00:00] [#########################################################] 17.00 KiB/17.00 KiB @ 35.91 KiB/s (eta 0s )    Finished in 0.817s
 0.000000 TRACE BDCR configured: 00008200
