@@ -315,6 +315,8 @@ pub(crate) unsafe fn init(config: Config) {
         adc: adc12_ck,
         adc34: adc345_ck,
         pll1_p: None,
+        pll1_q: None, // TODO
+        hse: None,    // TODO
         rtc,
     });
 }
