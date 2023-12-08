@@ -1,0 +1,9 @@
+= Embassy in the wild!
+
+Here are known examples of real-world projects which make use of Embassy. Feel free to link:https://github.com/embassy-rs/embassy/blob/main/docs/modules/ROOT/pages/embassy_in_the_wild.adoc[add more]!
+
+* link:https://github.com/cbruiz/printhor/[Printhor: The highly reliable but not necessarily functional 3D printer firmware]
+** Targets some STM32 MCUs
+* link:https://github.com/card-io-ecg/card-io-fw[Card/IO firmware] - firmware for an open source ECG device
+** Targets the ESP32-S3 or ESP32-C6 MCU
+* The link:https://github.com/lora-rs/lora-rs[lora-rs] project includes link:https://github.com/lora-rs/lora-rs/tree/main/examples/stm32l0/src/bin[various standalone examples] for NRF52840, RP2040, STM32L0 and STM32WL
