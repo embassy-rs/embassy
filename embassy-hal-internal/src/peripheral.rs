@@ -20,6 +20,7 @@ pub struct PeripheralRef<'a, T> {
 }
 
 impl<'a, T> PeripheralRef<'a, T> {
+    /// Create a new reference to a peripheral.
     #[inline]
     pub fn new(inner: T) -> Self {
         Self {
