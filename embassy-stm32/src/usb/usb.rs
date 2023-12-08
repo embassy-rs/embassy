@@ -263,7 +263,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let regs = T::regs();
 
-        #[cfg(stm32l5)]
+        #[cfg(any(stm32l5, stm32wb))]
         crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
 
         #[cfg(pwr_h5)]
