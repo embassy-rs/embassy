@@ -47,7 +47,8 @@ The first step to managing your binary size is to set up your link:https://doc.r
 debug = false
 lto = true
 opt-level = "s"
-incremental = true
+incremental = false
+codegen-units = 1
 ----
 
 All of these flags are elaborated on in the Rust Book page linked above.
