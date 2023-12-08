@@ -3,6 +3,7 @@
 #[cfg(not(adc_f3_v2))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_f3, path = "f3.rs")]
+#[cfg_attr(adc_f3_v1_1, path = "f3_v1_1.rs")]
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0), path = "v3.rs")]
@@ -26,20 +27,20 @@ use crate::peripherals;
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::PeripheralRef<'d, T>,
-    #[cfg(not(adc_f3_v2))]
+    #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
     sample_time: SampleTime,
 }
 
 pub(crate) mod sealed {
-    #[cfg(any(adc_f1, adc_f3, adc_v1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
     use embassy_sync::waitqueue::AtomicWaker;
 
-    #[cfg(any(adc_f1, adc_f3, adc_v1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
     pub struct State {
         pub waker: AtomicWaker,
     }
 
-    #[cfg(any(adc_f1, adc_f3, adc_v1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
     impl State {
         pub const fn new() -> Self {
             Self {
@@ -54,11 +55,11 @@ pub(crate) mod sealed {
 
     pub trait Instance: InterruptableInstance {
         fn regs() -> crate::pac::adc::Adc;
-        #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_g0)))]
+        #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
         #[cfg(adc_f3)]
         fn frequency() -> crate::time::Hertz;
-        #[cfg(any(adc_f1, adc_f3, adc_v1))]
+        #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
         fn state() -> &'static State;
     }
 
@@ -74,9 +75,9 @@ pub(crate) mod sealed {
     }
 }
 
-#[cfg(not(any(adc_f1, adc_v1, adc_v2, adc_v3, adc_v4, adc_f3, adc_g0)))]
+#[cfg(not(any(adc_f1, adc_v1, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0)))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> {}
-#[cfg(any(adc_f1, adc_v1, adc_v2, adc_v3, adc_v4, adc_f3, adc_g0))]
+#[cfg(any(adc_f1, adc_v1, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
@@ -89,7 +90,7 @@ foreach_adc!(
                 crate::pac::$inst
             }
 
-            #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_g0)))]
+            #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
             }
@@ -99,7 +100,7 @@ foreach_adc!(
                 unsafe { crate::rcc::get_freqs() }.$clock.unwrap()
             }
 
-            #[cfg(any(adc_f1, adc_f3, adc_v1))]
+            #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
             fn state() -> &'static sealed::State {
                 static STATE: sealed::State = sealed::State::new();
                 &STATE

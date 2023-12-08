@@ -10,14 +10,14 @@ stm32c031c6 = ["embassy-stm32/stm32c031c6", "cm0", "not-gpdma"]
 stm32f103c8 = ["embassy-stm32/stm32f103c8", "not-gpdma"]
 stm32f207zg = ["embassy-stm32/stm32f207zg", "chrono", "not-gpdma", "eth", "rng"]
 stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono", "not-gpdma"]
-stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "eth", "stop", "can", "not-gpdma", "dac-adc-pin", "rng"]
-stm32f446re = ["embassy-stm32/stm32f446re", "chrono", "stop", "can", "not-gpdma", "dac-adc-pin", "sdmmc"]
+stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "eth", "stop", "can", "not-gpdma", "dac", "rng"]
+stm32f446re = ["embassy-stm32/stm32f446re", "chrono", "stop", "can", "not-gpdma", "dac", "sdmmc"]
 stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "not-gpdma", "eth", "rng"]
-stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac-adc-pin"]
+stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac"]
 stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng"]
 stm32h563zi = ["embassy-stm32/stm32h563zi", "chrono", "eth", "rng"]
 stm32h753zi = ["embassy-stm32/stm32h753zi", "chrono", "not-gpdma", "eth", "rng"]
-stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "chrono", "not-gpdma", "eth", "dac-adc-pin", "rng"]
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "chrono", "not-gpdma", "eth", "dac", "rng"]
 stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-gpdma", "rng"]
 stm32l073rz = ["embassy-stm32/stm32l073rz", "cm0", "not-gpdma", "rng"]
 stm32l152re = ["embassy-stm32/stm32l152re", "chrono", "not-gpdma"]
@@ -41,7 +41,7 @@ ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/mac"]
 embassy-stm32-wpan = []
 not-gpdma = []
-dac-adc-pin = []
+dac = []
 
 cm0 = ["portable-atomic/unsafe-assume-single-core"]
 
@@ -84,7 +84,12 @@ required-features = [ "can",]
 [[bin]]
 name = "dac"
 path = "src/bin/dac.rs"
-required-features = [ "dac-adc-pin",]
+required-features = [ "dac",]
+
+[[bin]]
+name = "dac_l1"
+path = "src/bin/dac_l1.rs"
+required-features = [ "stm32l152re",]
 
 [[bin]]
 name = "eth"
