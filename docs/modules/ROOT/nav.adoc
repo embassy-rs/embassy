@@ -1,6 +1,7 @@
 * xref:getting_started.adoc[Getting started]
 ** xref:basic_application.adoc[Basic application]
 ** xref:project_structure.adoc[Project Structure]
+** xref:new_project.adoc[Starting a new Embassy project]
 * xref:layer_by_layer.adoc[Bare metal to async]
 * xref:runtime.adoc[Executor]
 * xref:delaying_a_task.adoc[Delaying a Task]
