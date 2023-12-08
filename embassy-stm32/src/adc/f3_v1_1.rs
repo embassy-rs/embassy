@@ -175,7 +175,12 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn resolution(&self) -> Resolution {
-        T::regs().cr1().read().res().into()
+        match T::regs().cr1().read().res() {
+            crate::pac::adc::vals::Res::TWELVEBIT => Resolution::TwelveBit,
+            crate::pac::adc::vals::Res::TENBIT => Resolution::TenBit,
+            crate::pac::adc::vals::Res::EIGHTBIT => Resolution::EightBit,
+            crate::pac::adc::vals::Res::SIXBIT => Resolution::SixBit,
+        }
     }
 
     pub fn enable_vref(&self) -> Vref<T> {

@@ -48,22 +48,6 @@ impl From<Resolution> for crate::pac::adc::vals::Res {
     }
 }
 
-impl From<crate::pac::adc::vals::Res> for Resolution {
-    fn from(res: crate::pac::adc::vals::Res) -> Resolution {
-        match res {
-            #[cfg(adc_v4)]
-            crate::pac::adc::vals::Res::SIXTEENBIT => Resolution::SixteenBit,
-            #[cfg(adc_v4)]
-            crate::pac::adc::vals::Res::FOURTEENBITV => Resolution::FourteenBit,
-            crate::pac::adc::vals::Res::TWELVEBIT => Resolution::TwelveBit,
-            crate::pac::adc::vals::Res::TENBIT => Resolution::TenBit,
-            crate::pac::adc::vals::Res::EIGHTBIT => Resolution::EightBit,
-            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3, adc_f3_v1_1, adc_f3_v3))]
-            crate::pac::adc::vals::Res::SIXBIT => Resolution::SixBit,
-        }
-    }
-}
-
 impl Resolution {
     pub fn to_max_count(&self) -> u32 {
         match self {
