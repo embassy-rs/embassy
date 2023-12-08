@@ -86,12 +86,25 @@ impl_bytes!(PayloadHeader);
 #[allow(unused)]
 #[repr(u8)]
 enum InterfaceType {
-    Sta = 0,
-    Ap = 1,
-    Serial = 2,
-    Hci = 3,
-    Priv = 4,
-    Test = 5,
+    Invalid = 0,
+    Sta = 1,
+    Ap = 2,
+    Serial = 3,
+    Hci = 4,
+    Priv = 5,
+    Test = 6,
+    Dummy = 7,
+}
+
+impl InterfaceType {
+    /// Convert from u8
+    ///
+    /// # Safety
+    ///
+    /// The value must be in the range 0..=7
+    fn from_u8(v: u8) -> Self {
+        unsafe { core::mem::transmute(v & 0x07) }
+    }
 }
 
 const MAX_SPI_BUFFER_SIZE: usize = 1600;
@@ -274,17 +287,15 @@ where
 
         let payload = &mut buf[PayloadHeader::SIZE..][..payload_len];
 
-        match if_type_and_num & 0x0f {
-            // STA
-            0 => match self.ch.try_rx_buf() {
+        match InterfaceType::from_u8(if_type_and_num) {
+            InterfaceType::Sta => match self.ch.try_rx_buf() {
                 Some(buf) => {
                     buf[..payload.len()].copy_from_slice(payload);
                     self.ch.rx_done(payload.len())
                 }
                 None => warn!("failed to push rxd packet to the channel."),
             },
-            // serial
-            2 => {
+            InterfaceType::Serial => {
                 trace!("serial rx: {:02x}", payload);
                 if payload.len() < 14 {
                     warn!("serial rx: too short");
@@ -312,6 +323,9 @@ where
                 } else {
                     self.shared.ioctl_done(data);
                 }
+            }
+            InterfaceType::Priv => {
+                trace!("received INIT event");
             }
             _ => warn!("unknown iftype {}", if_type_and_num),
         }
