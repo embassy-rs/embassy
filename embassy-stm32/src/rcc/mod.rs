@@ -95,6 +95,7 @@ pub struct Clocks {
         rcc_h7rm0433,
         rcc_h7ab,
         rcc_u5,
+        rcc_g4,
         rcc_wb,
         rcc_wl5,
         rcc_wle
