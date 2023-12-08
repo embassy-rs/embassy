@@ -101,14 +101,14 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PC4, UART_RX = PC5, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
-    DAC = DAC1, DAC_PIN = PA4,
+    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32f429zi")]
 define_peris!(
     UART = USART6, UART_TX = PG14, UART_RX = PG9, UART_TX_DMA = DMA2_CH6, UART_RX_DMA = DMA2_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
-    DAC = DAC, DAC_PIN = PA4,
+    ADC = ADC1, DAC = DAC, DAC_PIN = PA4,
     CAN = CAN1, CAN_RX = PD0, CAN_TX = PD1,
     @irq UART = {USART6 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART6>;},
 );
@@ -116,7 +116,7 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA2_CH7, UART_RX_DMA = DMA2_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA2_CH3, SPI_RX_DMA = DMA2_CH2,
-    DAC = DAC, DAC_PIN = PA4,
+    ADC = ADC1, DAC = DAC, DAC_PIN = PA4,
     CAN = CAN1, CAN_RX = PA11, CAN_TX = PA12,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
@@ -130,7 +130,7 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
-    DAC = DAC1, DAC_PIN = PA4,
+    ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32h7a3zi")]
@@ -191,6 +191,7 @@ define_peris!(
 define_peris!(
     UART = USART3, UART_TX = PB10, UART_RX = PB11, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    ADC = ADC, DAC = DAC, DAC_PIN = PA4,
     @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
 );
 #[cfg(feature = "stm32l552ze")]
