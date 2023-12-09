@@ -120,6 +120,10 @@ time-driver-tim3 = ["_time-driver"]
 time-driver-tim4 = ["_time-driver"]
 ## Use TIM5 as time driver
 time-driver-tim5 = ["_time-driver"]
+## Use TIM9 as time driver
+time-driver-tim9 = ["_time-driver"]
+## Use TIM11 as time driver
+time-driver-tim11 = ["_time-driver"]
 ## Use TIM12 as time driver
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver

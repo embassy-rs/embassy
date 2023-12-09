@@ -43,7 +43,10 @@ type T = peripherals::TIM3;
 type T = peripherals::TIM4;
 #[cfg(time_driver_tim5)]
 type T = peripherals::TIM5;
-
+#[cfg(time_driver_tim9)]
+type T = peripherals::TIM9;
+#[cfg(time_driver_tim11)]
+type T = peripherals::TIM11;
 #[cfg(time_driver_tim12)]
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
@@ -76,6 +79,22 @@ foreach_interrupt! {
     };
     (TIM5, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim5)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM9, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim9)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM11, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim11)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
