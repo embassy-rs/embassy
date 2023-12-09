@@ -97,6 +97,28 @@ mod chip;
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
 /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use embassy_nrf::{bind_interrupts, spim, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+/// });
+/// ```
+///
+/// Example of how to bind multiple interrupts in a single macro invocation:
+///
+/// ```rust,ignore
+/// use embassy_nrf::{bind_interrupts, spim, twim, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
+///     SPIM0_SPIS0_TWIM0_TWIS0_SPI0_TWI0 => twim::InterruptHandler<peripherals::TWISPI0>;
+/// });
+/// ```
+
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {

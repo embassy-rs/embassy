@@ -148,7 +148,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_cont(false);
             reg.set_exttrig(true);
             reg.set_swstart(false);
-            reg.set_extsel(crate::pac::adc::vals::Extsel::SWSTART);
+            reg.set_extsel(7); // SWSTART
         });
 
         // Configure the channel to sample

@@ -1,3 +1,4 @@
+/// Types for the peripheral singletons.
 #[macro_export]
 macro_rules! peripherals_definition {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
@@ -29,6 +30,7 @@ macro_rules! peripherals_definition {
     };
 }
 
+/// Define the peripherals struct.
 #[macro_export]
 macro_rules! peripherals_struct {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
@@ -87,6 +89,7 @@ macro_rules! peripherals_struct {
     };
 }
 
+/// Defining peripheral type.
 #[macro_export]
 macro_rules! peripherals {
     ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
@@ -105,6 +108,7 @@ macro_rules! peripherals {
     };
 }
 
+/// Convenience converting into reference.
 #[macro_export]
 macro_rules! into_ref {
     ($($name:ident),*) => {
@@ -114,6 +118,7 @@ macro_rules! into_ref {
     }
 }
 
+/// Implement the peripheral trait.
 #[macro_export]
 macro_rules! impl_peripheral {
     ($type:ident) => {

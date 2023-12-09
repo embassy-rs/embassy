@@ -86,6 +86,17 @@ embassy_hal_internal::interrupt_mod!(
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
 /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use embassy_rp::{bind_interrupts, usb, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
+/// });
+/// ```
+///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {

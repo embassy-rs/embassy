@@ -3,6 +3,7 @@ macro_rules! impl_sample_time {
     ($default_doc:expr, $default:ident, ($(($doc:expr, $variant:ident, $pac_variant:ident)),*)) => {
         #[doc = concat!("ADC sample time\n\nThe default setting is ", $default_doc, " ADC clock cycles.")]
         #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum SampleTime {
             $(
                 #[doc = concat!($doc, " ADC clock cycles.")]
@@ -14,6 +15,14 @@ macro_rules! impl_sample_time {
             fn from(sample_time: SampleTime) -> crate::pac::adc::vals::SampleTime {
                 match sample_time {
                     $(SampleTime::$variant => crate::pac::adc::vals::SampleTime::$pac_variant),*
+                }
+            }
+        }
+
+        impl From<crate::pac::adc::vals::SampleTime> for SampleTime {
+            fn from(sample_time: crate::pac::adc::vals::SampleTime) -> SampleTime {
+                match sample_time {
+                    $(crate::pac::adc::vals::SampleTime::$pac_variant => SampleTime::$variant),*
                 }
             }
         }
@@ -119,5 +128,21 @@ impl_sample_time!(
         ("61.5", Cycles61_5, CYCLES61_5),
         ("181.5", Cycles181_5, CYCLES181_5),
         ("601.5", Cycles601_5, CYCLES601_5)
+    )
+);
+
+#[cfg(any(adc_f3_v1_1))]
+impl_sample_time!(
+    "4",
+    Cycles4,
+    (
+        ("4", Cycles4, CYCLES4),
+        ("9", Cycles9, CYCLES9),
+        ("16", Cycles16, CYCLES16),
+        ("24", Cycles24, CYCLES24),
+        ("48", Cycles48, CYCLES48),
+        ("96", Cycles96, CYCLES96),
+        ("192", Cycles192, CYCLES192),
+        ("384", Cycles384, CYCLES384)
     )
 );
