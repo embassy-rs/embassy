@@ -55,6 +55,7 @@ critical-section = { version = "1.1", features = ["std"] }
 
 # Architecture
 _arch = [] # some arch was picked
+arch-avr = ["_arch", "dep:portable-atomic"]
 arch-std = ["_arch", "critical-section/std"]
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 arch-riscv32 = ["_arch", "dep:portable-atomic"]
