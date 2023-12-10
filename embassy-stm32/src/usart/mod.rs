@@ -132,6 +132,14 @@ pub struct Config {
     /// Set this to true to swap the RX and TX pins.
     #[cfg(any(usart_v3, usart_v4))]
     pub swap_rx_tx: bool,
+
+    /// Set this to true to invert TX pin signal values (V<sub>DD</sub> =0/mark, Gnd = 1/idle).
+    #[cfg(any(usart_v3, usart_v4))]
+    pub invert_tx: bool,
+
+    /// Set this to true to invert RX pin signal values (V<sub>DD</sub> =0/mark, Gnd = 1/idle).
+    #[cfg(any(usart_v3, usart_v4))]
+    pub invert_rx: bool,
 }
 
 impl Default for Config {
@@ -147,6 +155,10 @@ impl Default for Config {
             assume_noise_free: false,
             #[cfg(any(usart_v3, usart_v4))]
             swap_rx_tx: false,
+            #[cfg(any(usart_v3, usart_v4))]
+            invert_tx: false,
+            #[cfg(any(usart_v3, usart_v4))]
+            invert_rx: false,
         }
     }
 }
@@ -972,7 +984,11 @@ fn configure(
         });
 
         #[cfg(any(usart_v3, usart_v4))]
-        w.set_swap(config.swap_rx_tx);
+        {
+            w.set_txinv(config.invert_tx);
+            w.set_rxinv(config.invert_rx);
+            w.set_swap(config.swap_rx_tx);
+        }
     });
 
     #[cfg(not(usart_v1))]
