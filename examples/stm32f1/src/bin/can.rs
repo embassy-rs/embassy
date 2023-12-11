@@ -7,7 +7,6 @@ use embassy_executor::Spawner;
 use embassy_stm32::can::bxcan::filter::Mask32;
 use embassy_stm32::can::bxcan::{Fifo, Frame, Id, StandardId};
 use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
-
 use embassy_stm32::peripherals::CAN;
 use embassy_stm32::{bind_interrupts, Config};
 use {defmt_rtt as _, panic_probe as _};
@@ -54,7 +53,7 @@ async fn main(_spawner: Spawner) {
             Ok(env) => match env.frame.id() {
                 Id::Extended(id) => {
                     defmt::println!("Extended Frame id={:x}", id.as_raw());
-                 }
+                }
                 Id::Standard(id) => {
                     defmt::println!("Standard Frame id={:x}", id.as_raw());
                 }
