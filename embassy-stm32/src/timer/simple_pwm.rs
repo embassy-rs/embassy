@@ -1,3 +1,4 @@
+use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
@@ -8,6 +9,25 @@ use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::Peripheral;
+use crate::_generated::interrupt::typelevel::Interrupt;
+
+pub struct InterruptHandler<T: CaptureCompare16bitInstance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: CaptureCompare16bitInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let regs = T::regs();
+        let sr = regs.sr().read();
+        if sr.uif() {
+            T::state().signal.signal(0);
+            // clear the flag
+            critical_section::with(|_| {
+                regs.sr().modify(|w| w.set_uif(false));
+            })
+        }
+    }
+}
 
 pub struct Ch1;
 pub struct Ch2;
@@ -82,6 +102,9 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
             .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
         this.inner
             .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
         this
     }
 
@@ -102,8 +125,20 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         self.inner.set_frequency(freq * multiplier);
     }
 
+    pub fn reset(&mut self) {
+        self.inner.reset()
+    }
+
     pub fn get_max_duty(&self) -> u16 {
         self.inner.get_max_compare_value() + 1
+    }
+
+    pub fn enable_update_interrupt(&mut self, enable: bool) {
+        self.inner.enable_update_interrupt(enable);
+    }
+
+    pub fn wait_update_interrupt(&self) -> impl Future<Output = usize> {
+        T::state().signal.wait()
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u16) {
