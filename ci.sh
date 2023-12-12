@@ -207,6 +207,10 @@ cargo batch  \
     --- build --release --manifest-path tests/riscv32/Cargo.toml --target riscv32imac-unknown-none-elf \
     $BUILD_EXTRA
 
+# walkaround: "-Z" option not working on cargo batch
+cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-unknown-gnu-atmega328 -Z build-std=core,alloc --features nightly,arch-avr
+cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-unknown-gnu-atmega328 -Z build-std=core,alloc --features nightly,arch-avr,integrated-timers
+
 
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
