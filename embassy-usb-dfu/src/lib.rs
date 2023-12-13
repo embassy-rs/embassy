@@ -12,5 +12,8 @@ mod application;
 #[cfg(feature = "application")]
 pub use self::application::*;
 
-#[cfg(any(all(feature = "bootloader", feature = "application"), not(any(feature = "bootloader", feature = "application"))))]
+#[cfg(any(
+    all(feature = "bootloader", feature = "application"),
+    not(any(feature = "bootloader", feature = "application"))
+))]
 compile_error!("usb-dfu must be compiled with exactly one of `bootloader`, or `application` features");

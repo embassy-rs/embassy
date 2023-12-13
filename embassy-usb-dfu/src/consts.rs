@@ -1,4 +1,3 @@
-
 pub(crate) const USB_CLASS_APPN_SPEC: u8 = 0xFE;
 pub(crate) const APPN_SPEC_SUBCLASS_DFU: u8 = 0x01;
 #[allow(unused)]

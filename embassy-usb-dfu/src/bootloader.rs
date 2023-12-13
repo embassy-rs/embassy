@@ -1,12 +1,13 @@
 use embassy_boot::BlockingFirmwareUpdater;
-use embassy_usb::{
-    control::{InResponse, OutResponse, Recipient, RequestType},
-    driver::Driver,
-    Builder, Handler,
-};
-use embedded_storage::nor_flash::{NorFlashErrorKind, NorFlash};
+use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
+use embassy_usb::driver::Driver;
+use embassy_usb::{Builder, Handler};
+use embedded_storage::nor_flash::{NorFlash, NorFlashErrorKind};
 
-use crate::consts::{DfuAttributes, Request, State, Status, USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU, DESC_DFU_FUNCTIONAL};
+use crate::consts::{
+    DfuAttributes, Request, State, Status, APPN_SPEC_SUBCLASS_DFU, DESC_DFU_FUNCTIONAL, DFU_PROTOCOL_DFU,
+    USB_CLASS_APPN_SPEC,
+};
 
 /// Internal state for USB DFU
 pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> {
@@ -69,17 +70,11 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Co
                             match e {
                                 embassy_boot::FirmwareUpdaterError::Flash(e) => match e {
                                     NorFlashErrorKind::NotAligned => self.status = Status::ErrWrite,
-                                    NorFlashErrorKind::OutOfBounds => {
-                                        self.status = Status::ErrAddress
-                                    }
+                                    NorFlashErrorKind::OutOfBounds => self.status = Status::ErrAddress,
                                     _ => self.status = Status::ErrUnknown,
                                 },
-                                embassy_boot::FirmwareUpdaterError::Signature(_) => {
-                                    self.status = Status::ErrVerify
-                                }
-                                embassy_boot::FirmwareUpdaterError::BadState => {
-                                    self.status = Status::ErrUnknown
-                                }
+                                embassy_boot::FirmwareUpdaterError::Signature(_) => self.status = Status::ErrVerify,
+                                embassy_boot::FirmwareUpdaterError::BadState => self.status = Status::ErrUnknown,
                             }
                         }
                     }
@@ -101,17 +96,11 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Co
                             match e {
                                 embassy_boot::FirmwareUpdaterError::Flash(e) => match e {
                                     NorFlashErrorKind::NotAligned => self.status = Status::ErrWrite,
-                                    NorFlashErrorKind::OutOfBounds => {
-                                        self.status = Status::ErrAddress
-                                    }
+                                    NorFlashErrorKind::OutOfBounds => self.status = Status::ErrAddress,
                                     _ => self.status = Status::ErrUnknown,
                                 },
-                                embassy_boot::FirmwareUpdaterError::Signature(_) => {
-                                    self.status = Status::ErrVerify
-                                }
-                                embassy_boot::FirmwareUpdaterError::BadState => {
-                                    self.status = Status::ErrUnknown
-                                }
+                                embassy_boot::FirmwareUpdaterError::Signature(_) => self.status = Status::ErrVerify,
+                                embassy_boot::FirmwareUpdaterError::BadState => self.status = Status::ErrUnknown,
                             }
                         }
                     }
@@ -162,10 +151,10 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Co
 }
 
 /// An implementation of the USB DFU 1.1 protocol
-/// 
+///
 /// This function will add a DFU interface descriptor to the provided Builder, and register the provided Control as a handler for the USB device
 /// The handler is responsive to DFU GetState, GetStatus, Abort, and ClrStatus commands, as well as Download if configured by the user.
-/// 
+///
 /// Once the host has initiated a DFU download operation, the chunks sent by the host will be written to the DFU partition.
 /// Once the final sync in the manifestation phase has been received, the handler will trigger a system reset to swap the new firmware.
 pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize>(
@@ -174,20 +163,17 @@ pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, const BLOCK_SI
 ) {
     let mut func = builder.function(0x00, 0x00, 0x00);
     let mut iface = func.interface();
-    let mut alt = iface.alt_setting(
-        USB_CLASS_APPN_SPEC,
-        APPN_SPEC_SUBCLASS_DFU,
-        DFU_PROTOCOL_DFU,
-        None,
-    );
+    let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU, None);
     alt.descriptor(
         DESC_DFU_FUNCTIONAL,
         &[
             handler.attrs.bits(),
-            0xc4, 0x09, // 2500ms timeout, doesn't affect operation as DETACH not necessary in bootloader code
+            0xc4,
+            0x09, // 2500ms timeout, doesn't affect operation as DETACH not necessary in bootloader code
             (BLOCK_SIZE & 0xff) as u8,
             ((BLOCK_SIZE & 0xff00) >> 8) as u8,
-            0x10, 0x01, // DFU 1.1
+            0x10,
+            0x01, // DFU 1.1
         ],
     );
 
