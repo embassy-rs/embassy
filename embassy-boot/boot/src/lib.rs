@@ -23,6 +23,7 @@ pub use firmware_updater::{
 
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
+pub(crate) const DFU_DETACH_MAGIC: u8 = 0xE0;
 
 /// The state of the bootloader after running prepare.
 #[derive(PartialEq, Eq, Debug)]
@@ -32,6 +33,8 @@ pub enum State {
     Boot,
     /// Bootloader has swapped the active partition with the dfu partition and will attempt boot.
     Swap,
+    /// Application has received a DFU_DETACH request over USB, and is rebooting into the bootloader to apply a DFU.
+    DfuDetach,
 }
 
 /// Buffer aligned to 32 byte boundary, largest known alignment requirement for embassy-boot.

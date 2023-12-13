@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage_async::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC, DFU_DETACH_MAGIC};
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -161,6 +161,12 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         self.state.mark_updated().await
     }
 
+    /// Mark to trigger USB DFU on next boot.
+    pub async fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
+        self.state.mark_dfu().await
+    }
+
     /// Mark firmware boot successful and stop rollback on reset.
     pub async fn mark_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.state.mark_booted().await
@@ -245,6 +251,11 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     /// Mark to trigger firmware swap on next boot.
     pub async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.set_magic(SWAP_MAGIC).await
+    }
+
+    /// Mark to trigger USB DFU on next boot.
+    pub async fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(DFU_DETACH_MAGIC).await
     }
 
     /// Mark firmware boot successful and stop rollback on reset.

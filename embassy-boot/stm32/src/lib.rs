@@ -10,7 +10,10 @@ pub use embassy_boot::{
 use embedded_storage::nor_flash::NorFlash;
 
 /// A bootloader for STM32 devices.
-pub struct BootLoader;
+pub struct BootLoader {
+    /// The reported state of the bootloader after preparing for boot
+    pub state: State,
+}
 
 impl BootLoader {
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
@@ -19,8 +22,8 @@ impl BootLoader {
     ) -> Self {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
-        boot.prepare_boot(aligned_buf.as_mut()).expect("Boot prepare error");
-        Self
+        let state = boot.prepare_boot(aligned_buf.as_mut()).expect("Boot prepare error");
+        Self { state }
     }
 
     /// Boots the application.
