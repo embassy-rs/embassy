@@ -471,9 +471,11 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
             }
             Event::Suspend => {
                 trace!("usb: suspend");
-                self.suspended = true;
-                for h in &mut self.handlers {
-                    h.suspended(true);
+                if self.config.suspendable {
+                    self.suspended = true;
+                    for h in &mut self.handlers {
+                        h.suspended(true);
+                    }
                 }
             }
             Event::PowerDetected => {
