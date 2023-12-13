@@ -224,6 +224,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         assert_eq!(0, aligned_buf.len() % ACTIVE::WRITE_SIZE);
         assert_eq!(0, aligned_buf.len() % DFU::WRITE_SIZE);
 
+        // Ensure our partitions are able to handle boot operations
         assert_partitions(&self.active, &self.dfu, &self.state, Self::PAGE_SIZE);
 
         // Copy contents from partition N to active
@@ -400,6 +401,7 @@ fn assert_partitions<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
 ) {
     assert_eq!(active.capacity() as u32 % page_size, 0);
     assert_eq!(dfu.capacity() as u32 % page_size, 0);
+    // DFU partition has to be bigger than ACTIVE partition to handle swap algorithm
     assert!(dfu.capacity() as u32 - active.capacity() as u32 >= page_size);
     assert!(2 + 2 * (active.capacity() as u32 / page_size) <= state.capacity() as u32 / STATE::WRITE_SIZE as u32);
 }
