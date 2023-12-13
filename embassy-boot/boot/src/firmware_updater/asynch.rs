@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage_async::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC, DFU_DETACH_MAGIC};
+use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
