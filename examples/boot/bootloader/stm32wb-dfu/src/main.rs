@@ -31,7 +31,6 @@ fn main() -> ! {
     for _ in 0..10000000 {
         cortex_m::asm::nop();
     }
-    
 
     let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
     let flash = Mutex::new(RefCell::new(layout.bank1_region));
