@@ -5,7 +5,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, BOOT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -371,6 +371,8 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
 
         if !state_word.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
+        } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
+            Ok(State::DfuDetach)
         } else {
             Ok(State::Boot)
         }
