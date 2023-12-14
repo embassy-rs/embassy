@@ -77,7 +77,7 @@ pub(crate) mod sealed {
             Self::regs().dier().write(|r| r.set_uie(enable));
         }
 
-        fn set_autoreload_preload(&mut self, enable: vals::Arpe) {
+        fn set_autoreload_preload(&mut self, enable: bool) {
             Self::regs().cr1().modify(|r| r.set_arpe(enable));
         }
 
