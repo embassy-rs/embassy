@@ -14,7 +14,7 @@ use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::Builder;
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{usb_dfu, Control};
+use embassy_usb_dfu::{usb_dfu, Control, ResetImmediate};
 
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
@@ -64,7 +64,7 @@ fn main() -> ! {
             &mut control_buf,
         );
 
-        usb_dfu::<_, _, _, 4096>(&mut builder, &mut state);
+        usb_dfu::<_, _, _, ResetImmediate, 4096>(&mut builder, &mut state);
 
         let mut dev = builder.build();
         embassy_futures::block_on(dev.run());

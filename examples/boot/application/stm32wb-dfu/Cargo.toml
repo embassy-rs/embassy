@@ -12,7 +12,7 @@ embassy-stm32 = { version = "0.1.0", path = "../../../../embassy-stm32", feature
 embassy-boot-stm32 = { version = "0.1.0", path = "../../../../embassy-boot/stm32", features = [] }
 embassy-embedded-hal = { version = "0.1.0", path = "../../../../embassy-embedded-hal" }
 embassy-usb = { version = "0.1.0", path = "../../../../embassy-usb" }
-embassy-usb-dfu = { version = "0.1.0", path = "../../../../embassy-usb-dfu", features = ["application"] }
+embassy-usb-dfu = { version = "0.1.0", path = "../../../../embassy-usb-dfu", features = ["application", "cortex-m"] }
 
 defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.4", optional = true }

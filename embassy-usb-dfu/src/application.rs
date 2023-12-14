@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 use embassy_boot::BlockingFirmwareState;
 use embassy_time::{Duration, Instant};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
@@ -9,17 +11,19 @@ use crate::consts::{
     DfuAttributes, Request, State, Status, APPN_SPEC_SUBCLASS_DFU, DESC_DFU_FUNCTIONAL, DFU_PROTOCOL_RT,
     USB_CLASS_APPN_SPEC,
 };
+use crate::Reset;
 
 /// Internal state for the DFU class
-pub struct Control<'d, STATE: NorFlash> {
+pub struct Control<'d, STATE: NorFlash, RST: Reset> {
     firmware_state: BlockingFirmwareState<'d, STATE>,
     attrs: DfuAttributes,
     state: State,
     timeout: Option<Duration>,
     detach_start: Option<Instant>,
+    _rst: PhantomData<RST>,
 }
 
-impl<'d, STATE: NorFlash> Control<'d, STATE> {
+impl<'d, STATE: NorFlash, RST: Reset> Control<'d, STATE, RST> {
     pub fn new(firmware_state: BlockingFirmwareState<'d, STATE>, attrs: DfuAttributes) -> Self {
         Control {
             firmware_state,
@@ -27,11 +31,12 @@ impl<'d, STATE: NorFlash> Control<'d, STATE> {
             state: State::AppIdle,
             detach_start: None,
             timeout: None,
+            _rst: PhantomData,
         }
     }
 }
 
-impl<'d, STATE: NorFlash> Handler for Control<'d, STATE> {
+impl<'d, STATE: NorFlash, RST: Reset> Handler for Control<'d, STATE, RST> {
     fn reset(&mut self) {
         if let Some(start) = self.detach_start {
             let delta = Instant::now() - start;
@@ -45,7 +50,7 @@ impl<'d, STATE: NorFlash> Handler for Control<'d, STATE> {
                 self.firmware_state
                     .mark_dfu()
                     .expect("Failed to mark DFU mode in bootloader");
-                cortex_m::peripheral::SCB::sys_reset();
+                RST::sys_reset()
             }
         }
     }
@@ -103,9 +108,9 @@ impl<'d, STATE: NorFlash> Handler for Control<'d, STATE> {
 /// it should expose a DFU device, and a software reset will be issued.
 ///
 /// To apply USB DFU updates, the bootloader must be capable of recognizing the DFU magic and exposing a device to handle the full DFU transaction with the host.
-pub fn usb_dfu<'d, D: Driver<'d>, STATE: NorFlash>(
+pub fn usb_dfu<'d, D: Driver<'d>, STATE: NorFlash, RST: Reset>(
     builder: &mut Builder<'d, D>,
-    handler: &'d mut Control<'d, STATE>,
+    handler: &'d mut Control<'d, STATE, RST>,
     timeout: Duration,
 ) {
     let mut func = builder.function(0x00, 0x00, 0x00);

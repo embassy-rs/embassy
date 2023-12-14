@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
@@ -8,17 +10,19 @@ use crate::consts::{
     DfuAttributes, Request, State, Status, APPN_SPEC_SUBCLASS_DFU, DESC_DFU_FUNCTIONAL, DFU_PROTOCOL_DFU,
     USB_CLASS_APPN_SPEC,
 };
+use crate::Reset;
 
 /// Internal state for USB DFU
-pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> {
+pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> {
     updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
     attrs: DfuAttributes,
     state: State,
     status: Status,
     offset: usize,
+    _rst: PhantomData<RST>,
 }
 
-impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Control<'d, DFU, STATE, BLOCK_SIZE> {
+impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Control<'d, DFU, STATE, RST, BLOCK_SIZE> {
     pub fn new(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, attrs: DfuAttributes) -> Self {
         Self {
             updater,
@@ -26,6 +30,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Control<'d, DF
             state: State::DfuIdle,
             status: Status::Ok,
             offset: 0,
+            _rst: PhantomData,
         }
     }
 
@@ -36,7 +41,9 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Control<'d, DF
     }
 }
 
-impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Control<'d, DFU, STATE, BLOCK_SIZE> {
+impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Handler
+    for Control<'d, DFU, STATE, RST, BLOCK_SIZE>
+{
     fn control_out(
         &mut self,
         req: embassy_usb::control::Request,
@@ -131,7 +138,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Co
                 buf[0..6].copy_from_slice(&[self.status as u8, 0x32, 0x00, 0x00, self.state as u8, 0x00]);
                 match self.state {
                     State::DlSync => self.state = State::Download,
-                    State::ManifestSync => cortex_m::peripheral::SCB::sys_reset(),
+                    State::ManifestSync => RST::sys_reset(),
                     _ => {}
                 }
 
@@ -157,9 +164,9 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Co
 ///
 /// Once the host has initiated a DFU download operation, the chunks sent by the host will be written to the DFU partition.
 /// Once the final sync in the manifestation phase has been received, the handler will trigger a system reset to swap the new firmware.
-pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize>(
+pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>(
     builder: &mut Builder<'d, D>,
-    handler: &'d mut Control<'d, DFU, STATE, BLOCK_SIZE>,
+    handler: &'d mut Control<'d, DFU, STATE, RST, BLOCK_SIZE>,
 ) {
     let mut func = builder.function(0x00, 0x00, 0x00);
     let mut iface = func.interface();

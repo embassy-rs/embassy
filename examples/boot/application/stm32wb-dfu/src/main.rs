@@ -16,7 +16,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Duration;
 use embassy_usb::Builder;
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{usb_dfu, Control};
+use embassy_usb_dfu::{usb_dfu, Control, ResetImmediate};
 use panic_reset as _;
 
 bind_interrupts!(struct Irqs {
@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    usb_dfu::<_, _>(&mut builder, &mut state, Duration::from_millis(2500));
+    usb_dfu::<_, _, ResetImmediate>(&mut builder, &mut state, Duration::from_millis(2500));
 
     let mut dev = builder.build();
     dev.run().await
