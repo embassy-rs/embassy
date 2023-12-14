@@ -6,7 +6,7 @@ use core::cell::RefCell;
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;
-use embassy_boot_stm32::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig};
+use embassy_boot_stm32::{AlignedBuffer, BlockingFirmwareState, FirmwareUpdaterConfig};
 use embassy_executor::Spawner;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::rcc::WPAN_DEFAULT;
@@ -33,8 +33,8 @@ async fn main(_spawner: Spawner) {
 
     let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
-    let mut updater = BlockingFirmwareUpdater::new(config, &mut magic.0);
-    updater.mark_booted().expect("Failed to mark booted");
+    let mut firmware_state = BlockingFirmwareState::from_config(config, &mut magic.0);
+    firmware_state.mark_booted().expect("Failed to mark booted");
 
     let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD);
+    let mut state = Control::new(firmware_state, DfuAttributes::CAN_DOWNLOAD);
     let mut builder = Builder::new(
         driver,
         config,
@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
         &mut control_buf,
     );
 
-    usb_dfu::<_, _, _>(&mut builder, &mut state, Duration::from_millis(2500));
+    usb_dfu::<_, _>(&mut builder, &mut state, Duration::from_millis(2500));
 
     let mut dev = builder.build();
     dev.run().await

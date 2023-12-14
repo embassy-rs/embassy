@@ -1,8 +1,8 @@
 [package]
 edition = "2021"
-name = "stm32-bootloader-example"
+name = "stm32wb-dfu-bootloader-example"
 version = "0.1.0"
-description = "Example bootloader for STM32 chips"
+description = "Example USB DFUbootloader for the STM32WB series of chips"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
