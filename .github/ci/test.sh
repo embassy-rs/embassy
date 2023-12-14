@@ -4,6 +4,10 @@
 
 set -euo pipefail
 
+export RUSTUP_HOME=/ci/cache/rustup
+export CARGO_HOME=/ci/cache/cargo
+export CARGO_TARGET_DIR=/ci/cache/target
+
 MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml
 MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml --features nightly
 
