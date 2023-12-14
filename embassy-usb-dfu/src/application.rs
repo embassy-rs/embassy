@@ -45,7 +45,6 @@ impl<'d, STATE: NorFlash> Handler for Control<'d, STATE> {
                 self.firmware_state
                     .mark_dfu()
                     .expect("Failed to mark DFU mode in bootloader");
-                cortex_m::asm::dsb();
                 cortex_m::peripheral::SCB::sys_reset();
             }
         }
