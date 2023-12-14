@@ -135,51 +135,44 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     /// The provided aligned_buf argument must satisfy any alignment requirements
     /// given by the partition flashes. All flash operations will use this buffer.
     ///
-    /// SWAPPING
+    /// ## SWAPPING
     ///
     /// Assume a flash size of 3 pages for the active partition, and 4 pages for the DFU partition.
     /// The swap index contains the copy progress, as to allow continuation of the copy process on
     /// power failure. The index counter is represented within 1 or more pages (depending on total
-    /// flash size), where a page X is considered swapped if index at location (X + WRITE_SIZE)
+    /// flash size), where a page X is considered swapped if index at location (`X + WRITE_SIZE`)
     /// contains a zero value. This ensures that index updates can be performed atomically and
     /// avoid a situation where the wrong index value is set (page write size is "atomic").
     ///
-    /// +-----------+------------+--------+--------+--------+--------+
+    ///
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
-    /// +-----------+------------+--------+--------+--------+--------+
+    /// |-----------|------------|--------|--------|--------|--------|
     /// |    Active |          0 |      1 |      2 |      3 |      - |
     /// |       DFU |          0 |      3 |      2 |      1 |      X |
-    /// +-----------+------------+--------+--------+--------+--------+
     ///
     /// The algorithm starts by copying 'backwards', and after the first step, the layout is
     /// as follows:
     ///
-    /// +-----------+------------+--------+--------+--------+--------+
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
-    /// +-----------+------------+--------+--------+--------+--------+
+    /// |-----------|------------|--------|--------|--------|--------|
     /// |    Active |          1 |      1 |      2 |      1 |      - |
     /// |       DFU |          1 |      3 |      2 |      1 |      3 |
-    /// +-----------+------------+--------+--------+--------+--------+
     ///
     /// The next iteration performs the same steps
     ///
-    /// +-----------+------------+--------+--------+--------+--------+
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
-    /// +-----------+------------+--------+--------+--------+--------+
+    /// |-----------|------------|--------|--------|--------|--------|
     /// |    Active |          2 |      1 |      2 |      1 |      - |
     /// |       DFU |          2 |      3 |      2 |      2 |      3 |
-    /// +-----------+------------+--------+--------+--------+--------+
     ///
     /// And again until we're done
     ///
-    /// +-----------+------------+--------+--------+--------+--------+
     /// | Partition | Swap Index | Page 0 | Page 1 | Page 3 | Page 4 |
-    /// +-----------+------------+--------+--------+--------+--------+
+    /// |-----------|------------|--------|--------|--------|--------|
     /// |    Active |          3 |      3 |      2 |      1 |      - |
     /// |       DFU |          3 |      3 |      1 |      2 |      3 |
-    /// +-----------+------------+--------+--------+--------+--------+
     ///
-    /// REVERTING
+    /// ## REVERTING
     ///
     /// The reverting algorithm uses the swap index to discover that images were swapped, but that
     /// the application failed to mark the boot successful. In this case, the revert algorithm will
@@ -190,28 +183,21 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
     ///
     /// The revert algorithm works forwards, by starting copying into the 'unused' DFU page at the start.
     ///
-    /// +-----------+--------------+--------+--------+--------+--------+
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
-    //*/
-    /// +-----------+--------------+--------+--------+--------+--------+
+    /// |-----------|--------------|--------|--------|--------|--------|
     /// |    Active |            3 |      1 |      2 |      1 |      - |
     /// |       DFU |            3 |      3 |      1 |      2 |      3 |
-    /// +-----------+--------------+--------+--------+--------+--------+
     ///
     ///
-    /// +-----------+--------------+--------+--------+--------+--------+
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
-    /// +-----------+--------------+--------+--------+--------+--------+
+    /// |-----------|--------------|--------|--------|--------|--------|
     /// |    Active |            3 |      1 |      2 |      1 |      - |
     /// |       DFU |            3 |      3 |      2 |      2 |      3 |
-    /// +-----------+--------------+--------+--------+--------+--------+
     ///
-    /// +-----------+--------------+--------+--------+--------+--------+
     /// | Partition | Revert Index | Page 0 | Page 1 | Page 3 | Page 4 |
-    /// +-----------+--------------+--------+--------+--------+--------+
+    /// |-----------|--------------|--------|--------|--------|--------|
     /// |    Active |            3 |      1 |      2 |      3 |      - |
     /// |       DFU |            3 |      3 |      2 |      1 |      3 |
-    /// +-----------+--------------+--------+--------+--------+--------+
     ///
     pub fn prepare_boot(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
         // Ensure we have enough progress pages to store copy progress
