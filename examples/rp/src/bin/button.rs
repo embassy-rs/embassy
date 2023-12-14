@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
 
     // Use PIN_28, Pin34 on J0 for RP Pico, as a input.
     // You need to add your own button.
-    let button = Input::new(p.PIN_28, Pull::Up);
+    let mut button = Input::new(p.PIN_28, Pull::Up);
 
     loop {
         if button.is_high() {

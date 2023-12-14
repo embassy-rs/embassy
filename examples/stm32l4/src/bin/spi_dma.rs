@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
     let _wake = Output::new(p.PB13, Level::Low, Speed::VeryHigh);
     let mut reset = Output::new(p.PE8, Level::Low, Speed::VeryHigh);
     let mut cs = Output::new(p.PE0, Level::High, Speed::VeryHigh);
-    let ready = Input::new(p.PE1, Pull::Up);
+    let mut ready = Input::new(p.PE1, Pull::Up);
 
     cortex_m::asm::delay(100_000);
     reset.set_high();

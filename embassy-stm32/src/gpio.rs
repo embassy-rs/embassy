@@ -142,36 +142,46 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     #[inline]
-    pub fn is_high(&self) -> bool {
-        !self.is_low()
+    pub fn is_high(&mut self) -> bool {
+        !self.ref_is_low()
     }
 
     #[inline]
-    pub fn is_low(&self) -> bool {
+    pub fn is_low(&mut self) -> bool {
+        self.ref_is_low()
+    }
+
+    #[inline]
+    pub(crate) fn ref_is_low(&self) -> bool {
         let state = self.pin.block().idr().read().idr(self.pin.pin() as _);
         state == vals::Idr::LOW
     }
 
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn get_level(&mut self) -> Level {
         self.is_high().into()
     }
 
     #[inline]
-    pub fn is_set_high(&self) -> bool {
-        !self.is_set_low()
+    pub fn is_set_high(&mut self) -> bool {
+        !self.ref_is_set_low()
     }
 
     /// Is the output pin set as low?
     #[inline]
-    pub fn is_set_low(&self) -> bool {
+    pub fn is_set_low(&mut self) -> bool {
+        self.ref_is_set_low()
+    }
+
+    #[inline]
+    pub(crate) fn ref_is_set_low(&self) -> bool {
         let state = self.pin.block().odr().read().odr(self.pin.pin() as _);
         state == vals::Odr::LOW
     }
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn get_output_level(&mut self) -> Level {
         self.is_set_high().into()
     }
 
@@ -310,17 +320,17 @@ impl<'d, T: Pin> Input<'d, T> {
     }
 
     #[inline]
-    pub fn is_high(&self) -> bool {
+    pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
     #[inline]
-    pub fn is_low(&self) -> bool {
+    pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn get_level(&mut self) -> Level {
         self.pin.get_level()
     }
 }
@@ -399,19 +409,19 @@ impl<'d, T: Pin> Output<'d, T> {
 
     /// Is the output pin set as high?
     #[inline]
-    pub fn is_set_high(&self) -> bool {
+    pub fn is_set_high(&mut self) -> bool {
         self.pin.is_set_high()
     }
 
     /// Is the output pin set as low?
     #[inline]
-    pub fn is_set_low(&self) -> bool {
+    pub fn is_set_low(&mut self) -> bool {
         self.pin.is_set_low()
     }
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn get_output_level(&mut self) -> Level {
         self.pin.get_output_level()
     }
 
@@ -453,18 +463,18 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     }
 
     #[inline]
-    pub fn is_high(&self) -> bool {
+    pub fn is_high(&mut self) -> bool {
         !self.pin.is_low()
     }
 
     #[inline]
-    pub fn is_low(&self) -> bool {
+    pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
     /// Returns current pin level
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn get_level(&mut self) -> Level {
         self.pin.get_level()
     }
 
@@ -488,19 +498,19 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 
     /// Is the output pin set as high?
     #[inline]
-    pub fn is_set_high(&self) -> bool {
+    pub fn is_set_high(&mut self) -> bool {
         self.pin.is_set_high()
     }
 
     /// Is the output pin set as low?
     #[inline]
-    pub fn is_set_low(&self) -> bool {
+    pub fn is_set_low(&mut self) -> bool {
         self.pin.is_set_low()
     }
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn get_output_level(&mut self) -> Level {
         self.pin.get_output_level()
     }
 
@@ -777,12 +787,12 @@ impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for Input<'d, T> {
 
     #[inline]
     fn is_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_high())
+        Ok(!self.pin.ref_is_low())
     }
 
     #[inline]
     fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_low())
+        Ok(self.pin.ref_is_low())
     }
 }
 
@@ -805,13 +815,13 @@ impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for Output<'d, T> {
 impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d, T> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_high())
+        Ok(!self.pin.ref_is_set_low())
     }
 
     /// Is the output pin set as low?
     #[inline]
     fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_low())
+        Ok(self.pin.ref_is_set_low())
     }
 }
 
@@ -843,13 +853,13 @@ impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d,
 impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d, T> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_high())
+        Ok(!self.pin.ref_is_set_low())
     }
 
     /// Is the output pin set as low?
     #[inline]
     fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_low())
+        Ok(self.pin.ref_is_set_low())
     }
 }
 
@@ -867,12 +877,12 @@ impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for Flex<'d, T> {
 
     #[inline]
     fn is_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_high())
+        Ok(!self.ref_is_low())
     }
 
     #[inline]
     fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_low())
+        Ok(self.ref_is_low())
     }
 }
 
@@ -895,13 +905,13 @@ impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for Flex<'d, T> {
 impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d, T> {
     #[inline]
     fn is_set_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_high())
+        Ok(!self.ref_is_set_low())
     }
 
     /// Is the output pin set as low?
     #[inline]
     fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_low())
+        Ok(self.ref_is_set_low())
     }
 }
 
@@ -920,12 +930,12 @@ impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
 
 impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
     #[inline]
-    fn is_high(&self) -> Result<bool, Self::Error> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_high())
     }
 
     #[inline]
-    fn is_low(&self) -> Result<bool, Self::Error> {
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_low())
     }
 }
@@ -948,13 +958,13 @@ impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
 
 impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
     #[inline]
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_set_high())
     }
 
     /// Is the output pin set as low?
     #[inline]
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_set_low())
     }
 }
@@ -972,12 +982,12 @@ impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d, T> {
 
 impl<'d, T: Pin> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d, T> {
     #[inline]
-    fn is_high(&self) -> Result<bool, Self::Error> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_high())
     }
 
     #[inline]
-    fn is_low(&self) -> Result<bool, Self::Error> {
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_low())
     }
 }
@@ -996,13 +1006,13 @@ impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d, T> {
 
 impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d, T> {
     #[inline]
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_set_high())
     }
 
     /// Is the output pin set as low?
     #[inline]
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_set_low())
     }
 }
@@ -1016,12 +1026,12 @@ impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for OutputOpenDrai
 
 impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
     #[inline]
-    fn is_high(&self) -> Result<bool, Self::Error> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_high())
     }
 
     #[inline]
-    fn is_low(&self) -> Result<bool, Self::Error> {
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_low())
     }
 }
@@ -1051,13 +1061,13 @@ impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Flex<'d, T> {
 
 impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
     #[inline]
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_set_high())
     }
 
     /// Is the output pin set as low?
     #[inline]
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_set_low())
     }
 }
