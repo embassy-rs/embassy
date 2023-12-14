@@ -4,6 +4,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use pac::i2c;
+use pac::i2c::vals::Speed;
 
 use crate::i2c::{
     i2c_reserved_addr, set_up_i2c_pin, AbortReason, Instance, InterruptHandler, SclPin, SdaPin, FIFO_SIZE,
@@ -20,6 +21,16 @@ pub enum Error {
     Abort(AbortReason),
     /// User passed in a response buffer that was 0 length
     InvalidResponseBufferLength,
+    /// The response buffer length was too short to contain the message
+    ///
+    /// The length parameter will always be the length of the buffer, and is
+    /// provided as a convenience for matching alongside `Command::Write`.
+    PartialWrite(usize),
+    /// The response buffer length was too short to contain the message
+    ///
+    /// The length parameter will always be the length of the buffer, and is
+    /// provided as a convenience for matching alongside `Command::GeneralCall`.
+    PartialGeneralCall(usize),
 }
 
 /// Received command
@@ -63,7 +74,29 @@ impl Default for Config {
     }
 }
 
+#[derive(Default, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum State {
+    #[default]
+    Idle,
+    Active,
+    Read,
+    Write,
+}
+
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum I2cSlaveEvent {
+    Start,
+    Restart,
+    DataRequested,
+    DataTransmitted,
+    Stop,
+}
+
 pub struct I2cSlave<'d, T: Instance> {
+    state: State,
+    pending_byte: Option<u8>,
     phantom: PhantomData<&'d mut T>,
 }
 
@@ -93,6 +126,15 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             w.set_master_mode(false);
             w.set_ic_slave_disable(false);
             w.set_tx_empty_ctrl(true);
+            w.set_rx_fifo_full_hld_ctrl(true);
+
+            // This typically makes no sense for a slave, but it is used to
+            // tune spike suppression, according to the datasheet.
+            w.set_speed(Speed::FAST);
+
+            // Generate stop interrupts for general calls (and other devices
+            // on the bus).
+            w.set_stop_det_ifaddressed(false);
         });
 
         // Set FIFO watermarks to 1 to make things simpler. This is encoded
@@ -112,11 +154,21 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         p.ic_enable().write(|w| w.set_enable(true));
 
         // mask everything initially
-        p.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
+        Self::set_intr_mask(|_| {});
         T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
 
-        Self { phantom: PhantomData }
+        Self {
+            state: State::Idle,
+            pending_byte: None,
+            phantom: PhantomData,
+        }
+    }
+
+    #[inline(always)]
+    fn set_intr_mask(f: impl FnOnce(&mut i2c::regs::IcIntrMask)) {
+        let mut value = i2c::regs::IcIntrMask(0);
+        f(&mut value);
+        T::regs().ic_intr_mask().write_value(value);
     }
 
     /// Calls `f` to check if we are ready or not.
@@ -128,13 +180,14 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         G: FnMut(&mut Self),
     {
         future::poll_fn(|cx| {
-            let r = f(self);
+            T::Interrupt::disable();
 
-            trace!("intr p: {:013b}", T::regs().ic_raw_intr_stat().read().0);
+            let r = f(self);
 
             if r.is_pending() {
                 T::waker().register(cx.waker());
                 g(self);
+                unsafe { T::Interrupt::enable() };
             }
 
             r
@@ -143,14 +196,36 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     }
 
     #[inline(always)]
-    fn drain_fifo(&mut self, buffer: &mut [u8], offset: usize) -> usize {
+    fn drain_fifo(&mut self, buffer: &mut [u8], offset: &mut usize) {
         let p = T::regs();
-        let len = p.ic_rxflr().read().rxflr() as usize;
-        let end = offset + len;
-        for i in offset..end {
-            buffer[i] = p.ic_data_cmd().read().dat();
+
+        for b in &mut buffer[*offset..] {
+            if let Some(pending) = self.pending_byte.take() {
+                *b = pending;
+                *offset += 1;
+                continue;
+            }
+
+            let status = p.ic_status().read();
+            if !status.rfne() {
+                break;
+            }
+
+            let dat = p.ic_data_cmd().read();
+            if *offset != 0 && dat.first_data_byte() {
+                // The RP2040 state machine will keep placing bytes into the
+                // FIFO, even if they are part of a subsequent write transaction.
+                //
+                // Unfortunately merely reading ic_data_cmd will consume that
+                // byte, the first byte of the next transaction, so we need
+                // to store it elsewhere
+                self.pending_byte = Some(dat.dat());
+                break;
+            }
+
+            *b = dat.dat();
+            *offset += 1;
         }
-        end
     }
 
     #[inline(always)]
@@ -161,53 +236,139 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         }
     }
 
+    #[inline(always)]
+    fn rx_not_empty(&self) -> bool {
+        let p = T::regs();
+        self.pending_byte.is_some() || p.ic_status().read().rfne()
+    }
+
+    #[inline(always)]
+    async fn next_event(&mut self) -> I2cSlaveEvent {
+        self.wait_on(
+            |me| {
+                let p = T::regs();
+
+                let i_stat = p.ic_raw_intr_stat().read();
+                p.ic_clr_activity().read();
+
+                match me.state {
+                    State::Idle if me.pending_byte.is_some() => {
+                        // 2. Continue emulating the end of a transaction, this
+                        // is the start of the next transaction.
+                        me.state = State::Active;
+                        Poll::Ready(I2cSlaveEvent::Start)
+                    }
+                    State::Idle if i_stat.start_det() => {
+                        p.ic_clr_start_det().read();
+                        me.state = State::Active;
+                        Poll::Ready(I2cSlaveEvent::Start)
+                    }
+                    State::Active if me.rx_not_empty() => {
+                        // 3. Will catch normal starts as well as emulated
+                        // transactions.
+
+                        // Reduce interrupt noise.
+                        p.ic_rx_tl().write(|w| w.set_rx_tl(11));
+                        me.state = State::Write;
+                        Poll::Ready(I2cSlaveEvent::DataTransmitted)
+                    }
+                    State::Active if i_stat.rd_req() => {
+                        // We intentionally don't reset rd_req here, because
+                        // resetting it will stop stretching the clock. Instead
+                        // it gets reset in respond_to_read.
+                        me.state = State::Read;
+                        Poll::Ready(I2cSlaveEvent::DataRequested)
+                    }
+                    State::Read if i_stat.rd_req() => Poll::Ready(I2cSlaveEvent::DataRequested),
+                    State::Read if i_stat.restart_det() => {
+                        p.ic_clr_restart_det().read();
+                        me.state = State::Active;
+                        Poll::Ready(I2cSlaveEvent::Restart)
+                    }
+                    State::Write if me.pending_byte.is_some() => {
+                        me.state = State::Idle;
+                        // 1. Start emulating the end of a transaction.
+                        // We know it is the end because it is not valid to
+                        // issue a restart between transmissions in the same
+                        // direction
+                        Poll::Ready(I2cSlaveEvent::Stop)
+                    }
+                    State::Write if me.rx_not_empty() => Poll::Ready(I2cSlaveEvent::DataTransmitted),
+                    State::Write if i_stat.restart_det() => {
+                        p.ic_clr_restart_det().read();
+                        me.state = State::Active;
+                        Poll::Ready(I2cSlaveEvent::Restart)
+                    }
+                    State::Idle if i_stat.stop_det() => {
+                        // Probably another device on the bus.
+                        p.ic_clr_stop_det().read();
+                        Poll::Pending
+                    }
+                    _ if i_stat.stop_det() => {
+                        p.ic_clr_stop_det().read();
+
+                        // The bus is going idle here, make sure the interrupt
+                        // occurs as soon as possible if a write occurs.
+                        p.ic_rx_tl().write(|w| w.set_rx_tl(0));
+
+                        me.state = State::Idle;
+                        Poll::Ready(I2cSlaveEvent::Stop)
+                    }
+                    _ => Poll::Pending,
+                }
+            },
+            |_me| {
+                Self::set_intr_mask(|w| {
+                    w.set_m_start_det(true);
+                    w.set_m_stop_det(true);
+                    w.set_m_restart_det(true);
+                    w.set_m_rd_req(true);
+                    w.set_m_rx_full(true);
+                })
+            },
+        )
+        .await
+    }
+
     /// Wait asynchronously for commands from an I2C master.
     /// `buffer` is provided in case master does a 'write' and is unused for 'read'.
     pub async fn listen(&mut self, buffer: &mut [u8]) -> Result<Command, Error> {
         let p = T::regs();
 
-        p.ic_clr_intr().read();
-        // set rx fifo watermark to 1 byte
-        p.ic_rx_tl().write(|w| w.set_rx_tl(0));
-
-        let mut len = 0;
-        let ret = self
-            .wait_on(
-                |me| {
-                    let stat = p.ic_raw_intr_stat().read();
-                    if p.ic_rxflr().read().rxflr() > 0 {
-                        len = me.drain_fifo(buffer, len);
-                        // we're recieving data, set rx fifo watermark to 12 bytes to reduce interrupt noise
-                        p.ic_rx_tl().write(|w| w.set_rx_tl(11));
-                    }
-
-                    if stat.restart_det() && stat.rd_req() {
-                        Poll::Ready(Ok(Command::WriteRead(len)))
-                    } else if stat.gen_call() && stat.stop_det() && len > 0 {
-                        Poll::Ready(Ok(Command::GeneralCall(len)))
-                    } else if stat.stop_det() {
-                        Poll::Ready(Ok(Command::Write(len)))
-                    } else if stat.rd_req() {
-                        Poll::Ready(Ok(Command::Read))
+        let mut offset = 0;
+        loop {
+            let stat = p.ic_raw_intr_stat().read();
+            let evt = self.next_event().await;
+            match evt {
+                I2cSlaveEvent::Start | I2cSlaveEvent::Restart => {}
+                I2cSlaveEvent::DataRequested if offset == 0 => {
+                    return Ok(Command::Read);
+                }
+                I2cSlaveEvent::DataRequested => {
+                    return Ok(Command::WriteRead(offset));
+                }
+                I2cSlaveEvent::DataTransmitted if offset == buffer.len() => {
+                    if stat.gen_call() {
+                        p.ic_clr_gen_call().read();
+                        return Err(Error::PartialGeneralCall(offset));
                     } else {
-                        Poll::Pending
+                        return Err(Error::PartialWrite(offset));
                     }
-                },
-                |_me| {
-                    p.ic_intr_mask().modify(|w| {
-                        w.set_m_stop_det(true);
-                        w.set_m_restart_det(true);
-                        w.set_m_gen_call(true);
-                        w.set_m_rd_req(true);
-                        w.set_m_rx_full(true);
-                    });
-                },
-            )
-            .await;
-
-        p.ic_clr_intr().read();
-
-        ret
+                }
+                I2cSlaveEvent::DataTransmitted => {
+                    self.drain_fifo(buffer, &mut offset);
+                }
+                I2cSlaveEvent::Stop if offset == 0 => {}
+                I2cSlaveEvent::Stop => {
+                    if stat.gen_call() {
+                        p.ic_clr_gen_call().read();
+                        return Ok(Command::GeneralCall(offset));
+                    } else {
+                        return Ok(Command::Write(offset));
+                    }
+                }
+            }
+        }
     }
 
     /// Respond to an I2C master READ command, asynchronously.
@@ -220,47 +381,50 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
         let mut chunks = buffer.chunks(FIFO_SIZE as usize);
 
-        let ret = self
-            .wait_on(
-                |me| {
-                    if let Err(abort_reason) = me.read_and_clear_abort_reason() {
-                        if let Error::Abort(AbortReason::TxNotEmpty(bytes)) = abort_reason {
-                            return Poll::Ready(Ok(ReadStatus::LeftoverBytes(bytes)));
-                        } else {
-                            return Poll::Ready(Err(abort_reason));
-                        }
-                    }
-
-                    if let Some(chunk) = chunks.next() {
-                        me.write_to_fifo(chunk);
-
-                        Poll::Pending
+        self.wait_on(
+            |me| {
+                if let Err(abort_reason) = me.read_and_clear_abort_reason() {
+                    if let Error::Abort(AbortReason::TxNotEmpty(bytes)) = abort_reason {
+                        return Poll::Ready(Ok(ReadStatus::LeftoverBytes(bytes)));
                     } else {
-                        let stat = p.ic_raw_intr_stat().read();
-
-                        if stat.rx_done() && stat.stop_det() {
-                            Poll::Ready(Ok(ReadStatus::Done))
-                        } else if stat.rd_req() {
-                            Poll::Ready(Ok(ReadStatus::NeedMoreBytes))
-                        } else {
-                            Poll::Pending
-                        }
+                        return Poll::Ready(Err(abort_reason));
                     }
-                },
-                |_me| {
-                    p.ic_intr_mask().modify(|w| {
-                        w.set_m_stop_det(true);
-                        w.set_m_rx_done(true);
-                        w.set_m_tx_empty(true);
-                        w.set_m_tx_abrt(true);
-                    })
-                },
-            )
-            .await;
+                }
 
-        p.ic_clr_intr().read();
+                let stat = p.ic_raw_intr_stat().read();
+                p.ic_clr_activity().read();
 
-        ret
+                if let Some(chunk) = chunks.next() {
+                    me.write_to_fifo(chunk);
+
+                    // Stop stretching the clk
+                    p.ic_clr_rd_req().read();
+
+                    Poll::Pending
+                } else {
+                    if stat.rx_done() && stat.stop_det() {
+                        p.ic_clr_rx_done().read();
+                        p.ic_clr_stop_det().read();
+                        me.state = State::Idle;
+                        Poll::Ready(Ok(ReadStatus::Done))
+                    } else if stat.rd_req() {
+                        Poll::Ready(Ok(ReadStatus::NeedMoreBytes))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+            },
+            |_me| {
+                p.ic_intr_mask().modify(|w| {
+                    w.set_m_rd_req(true);
+                    w.set_m_stop_det(true);
+                    w.set_m_rx_done(true);
+                    w.set_m_tx_empty(true);
+                    w.set_m_tx_abrt(true);
+                })
+            },
+        )
+        .await
     }
 
     /// Respond to reads with the fill byte until the controller stops asking
