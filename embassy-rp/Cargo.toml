@@ -78,9 +78,9 @@ fixed = "1.23.1"
 rp-pac = { version = "6" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
-embedded-hal-async = { version = "=1.0.0-rc.2" }
-embedded-hal-nb = { version = "=1.0.0-rc.2" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
+embedded-hal-async = { version = "=1.0.0-rc.3" }
+embedded-hal-nb = { version = "=1.0.0-rc.3" }
 
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }

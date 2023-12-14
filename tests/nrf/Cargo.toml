@@ -16,8 +16,8 @@ embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
 embassy-net-esp-hosted = { version = "0.1.0", path = "../../embassy-net-esp-hosted", features = ["defmt"] }
 embassy-net-enc28j60 = { version = "0.1.0", path = "../../embassy-net-enc28j60", features = ["defmt"] }
-embedded-hal-async = { version = "1.0.0-rc.2" }
-embedded-hal-bus = { version = "0.1.0-rc.2", features = ["async"] }
+embedded-hal-async = { version = "1.0.0-rc.3" }
+embedded-hal-bus = { version = "0.1.0-rc.3", features = ["async"] }
 static_cell = { version = "2", features = [ "nightly" ] }
 perf-client = { path = "../perf-client" }
 

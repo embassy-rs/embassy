@@ -114,8 +114,8 @@ async fn main(spawner: Spawner) {
     let led_uc4_blue = Output::new(dp.PG15, Level::High, Speed::Low);
 
     // Read the uc_cfg switches
-    let uc_cfg0 = Input::new(dp.PB2, Pull::None);
-    let uc_cfg1 = Input::new(dp.PF11, Pull::None);
+    let mut uc_cfg0 = Input::new(dp.PB2, Pull::None);
+    let mut uc_cfg1 = Input::new(dp.PF11, Pull::None);
     let _uc_cfg2 = Input::new(dp.PG6, Pull::None);
     let _uc_cfg3 = Input::new(dp.PG11, Pull::None);
 
@@ -133,8 +133,8 @@ async fn main(spawner: Spawner) {
 
     // Setup IO and SPI for the SPE chip
     let spe_reset_n = Output::new(dp.PC7, Level::Low, Speed::Low);
-    let spe_cfg0 = Input::new(dp.PC8, Pull::None);
-    let spe_cfg1 = Input::new(dp.PC9, Pull::None);
+    let mut spe_cfg0 = Input::new(dp.PC8, Pull::None);
+    let mut spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
     let spe_int = Input::new(dp.PB11, Pull::None);
