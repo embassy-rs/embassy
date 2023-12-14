@@ -17,7 +17,7 @@ cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
-embassy-usb-dfu = { version = "0.1.0", path = "../../../../embassy-usb-dfu", features = ["bootloader", "cortex-m"] }
+embassy-usb-dfu = { version = "0.1.0", path = "../../../../embassy-usb-dfu", features = ["dfu", "cortex-m"] }
 embassy-usb = { version = "0.1.0", path = "../../../../embassy-usb", default-features = false }
 embassy-futures = { version = "0.1.1", path = "../../../../embassy-futures" }
 
