@@ -22,7 +22,7 @@ embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
 [dev-dependencies]
-embedded-hal-mock = { git = "https://github.com/Dirbaio/embedded-hal-mock", rev = "b5a2274759a8c484f4fae71a22f8a083fdd9d5da", features = ["embedded-hal-async", "eh1"] }
+embedded-hal-mock = { version = "0.10.0-rc.4", features = ["embedded-hal-async", "eh1"] }
 crc = "3.0.1"
 env_logger = "0.10"
 critical-section = { version = "1.1.2", features = ["std"] }
