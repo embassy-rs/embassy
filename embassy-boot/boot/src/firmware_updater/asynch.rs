@@ -213,6 +213,16 @@ pub struct FirmwareState<'d, STATE> {
 }
 
 impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
+    /// Create a firmware state instance from a FirmwareUpdaterConfig with a buffer for magic content and state partition.
+    ///
+    /// # Safety
+    ///
+    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being read from
+    /// and written to.
+    pub fn from_config<DFU: NorFlash>(config: FirmwareUpdaterConfig<DFU, STATE>, aligned: &'d mut [u8]) -> Self {
+        Self::new(config.state, aligned)
+    }
+
     /// Create a firmware state instance with a buffer for magic content and state partition.
     ///
     /// # Safety

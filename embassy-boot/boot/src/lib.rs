@@ -33,7 +33,7 @@ pub enum State {
     Boot,
     /// Bootloader has swapped the active partition with the dfu partition and will attempt boot.
     Swap,
-    /// Application has received a DFU_DETACH request over USB, and is rebooting into the bootloader to apply a DFU.
+    /// Application has received a request to reboot into DFU mode to apply an update.
     DfuDetach,
 }
 

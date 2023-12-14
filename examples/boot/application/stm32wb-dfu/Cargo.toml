@@ -25,6 +25,7 @@ cortex-m-rt = "0.7.0"
 [features]
 defmt = [
       "dep:defmt",
+      "dep:defmt-rtt",
       "embassy-stm32/defmt",
       "embassy-boot-stm32/defmt",
       "embassy-sync/defmt",

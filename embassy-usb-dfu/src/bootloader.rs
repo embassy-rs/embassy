@@ -1,4 +1,4 @@
-use embassy_boot::BlockingFirmwareUpdater;
+use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, Handler};
@@ -56,8 +56,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Co
                     self.offset = 0;
                 }
 
-                let mut buf = [0; BLOCK_SIZE];
-                buf[..data.len()].copy_from_slice(data);
+                let mut buf = AlignedBuffer([0; BLOCK_SIZE]);
+                buf.as_mut()[..data.len()].copy_from_slice(data);
 
                 if req.length == 0 {
                     match self.updater.mark_updated() {
@@ -85,7 +85,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, const BLOCK_SIZE: usize> Handler for Co
                         self.state = State::Error;
                         return Some(OutResponse::Rejected);
                     }
-                    match self.updater.write_firmware(self.offset, &buf[..]) {
+                    match self.updater.write_firmware(self.offset, buf.as_ref()) {
                         Ok(_) => {
                             self.status = Status::Ok;
                             self.state = State::DlSync;

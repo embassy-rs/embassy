@@ -1,4 +1,5 @@
 #![no_std]
+mod fmt;
 
 pub mod consts;
 

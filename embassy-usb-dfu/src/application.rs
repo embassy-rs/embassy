@@ -1,4 +1,4 @@
-use embassy_boot::BlockingFirmwareUpdater;
+use embassy_boot::BlockingFirmwareState;
 use embassy_time::{Duration, Instant};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
@@ -11,18 +11,18 @@ use crate::consts::{
 };
 
 /// Internal state for the DFU class
-pub struct Control<'d, DFU: NorFlash, STATE: NorFlash> {
-    updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
+pub struct Control<'d, STATE: NorFlash> {
+    firmware_state: BlockingFirmwareState<'d, STATE>,
     attrs: DfuAttributes,
     state: State,
     timeout: Option<Duration>,
     detach_start: Option<Instant>,
 }
 
-impl<'d, DFU: NorFlash, STATE: NorFlash> Control<'d, DFU, STATE> {
-    pub fn new(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, attrs: DfuAttributes) -> Self {
+impl<'d, STATE: NorFlash> Control<'d, STATE> {
+    pub fn new(firmware_state: BlockingFirmwareState<'d, STATE>, attrs: DfuAttributes) -> Self {
         Control {
-            updater,
+            firmware_state,
             attrs,
             state: State::AppIdle,
             detach_start: None,
@@ -31,19 +31,20 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> Control<'d, DFU, STATE> {
     }
 }
 
-impl<'d, DFU: NorFlash, STATE: NorFlash> Handler for Control<'d, DFU, STATE> {
+impl<'d, STATE: NorFlash> Handler for Control<'d, STATE> {
     fn reset(&mut self) {
         if let Some(start) = self.detach_start {
             let delta = Instant::now() - start;
             let timeout = self.timeout.unwrap();
-            #[cfg(feature = "defmt")]
-            defmt::info!(
+            trace!(
                 "Received RESET with delta = {}, timeout = {}",
                 delta.as_millis(),
                 timeout.as_millis()
             );
             if delta < timeout {
-                self.updater.mark_dfu().expect("Failed to mark DFU mode in bootloader");
+                self.firmware_state
+                    .mark_dfu()
+                    .expect("Failed to mark DFU mode in bootloader");
                 cortex_m::asm::dsb();
                 cortex_m::peripheral::SCB::sys_reset();
             }
@@ -59,13 +60,11 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> Handler for Control<'d, DFU, STATE> {
             return None;
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("Received request {}", req);
+        trace!("Received request {}", req);
 
         match Request::try_from(req.request) {
             Ok(Request::Detach) => {
-                #[cfg(feature = "defmt")]
-                defmt::info!("Received DETACH, awaiting USB reset");
+                trace!("Received DETACH, awaiting USB reset");
                 self.detach_start = Some(Instant::now());
                 self.timeout = Some(Duration::from_millis(req.value as u64));
                 self.state = State::AppDetach;
@@ -84,8 +83,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> Handler for Control<'d, DFU, STATE> {
             return None;
         }
 
-        #[cfg(feature = "defmt")]
-        defmt::info!("Received request {}", req);
+        trace!("Received request {}", req);
 
         match Request::try_from(req.request) {
             Ok(Request::GetStatus) => {
@@ -106,13 +104,11 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> Handler for Control<'d, DFU, STATE> {
 /// it should expose a DFU device, and a software reset will be issued.
 ///
 /// To apply USB DFU updates, the bootloader must be capable of recognizing the DFU magic and exposing a device to handle the full DFU transaction with the host.
-pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash>(
+pub fn usb_dfu<'d, D: Driver<'d>, STATE: NorFlash>(
     builder: &mut Builder<'d, D>,
-    handler: &'d mut Control<'d, DFU, STATE>,
+    handler: &'d mut Control<'d, STATE>,
     timeout: Duration,
 ) {
-    #[cfg(feature = "defmt")]
-    defmt::info!("Application USB DFU initializing");
     let mut func = builder.function(0x00, 0x00, 0x00);
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_RT, None);
