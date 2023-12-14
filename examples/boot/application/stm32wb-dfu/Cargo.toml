@@ -30,4 +30,3 @@ defmt = [
       "embassy-boot-stm32/defmt",
       "embassy-sync/defmt",
 ]
-skip-include = []
