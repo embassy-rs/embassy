@@ -478,7 +478,14 @@ pub(crate) unsafe fn init(config: Config) {
         VoltageScale::Scale2 => (Hertz(160_000_000), Hertz(160_000_000), Hertz(80_000_000)),
         VoltageScale::Scale3 => (Hertz(88_000_000), Hertz(88_000_000), Hertz(44_000_000)),
     };
-    #[cfg(all(stm32h7, not(pwr_h7rm0455)))]
+    #[cfg(pwr_h7rm0468)]
+    let (d1cpre_clk_max, hclk_max, pclk_max) = match config.voltage_scale {
+        VoltageScale::Scale0 => (Hertz(550_000_000), Hertz(275_000_000), Hertz(137_500_000)),
+        VoltageScale::Scale1 => (Hertz(400_000_000), Hertz(200_000_000), Hertz(100_000_000)),
+        VoltageScale::Scale2 => (Hertz(300_000_000), Hertz(150_000_000), Hertz(75_000_000)),
+        VoltageScale::Scale3 => (Hertz(170_000_000), Hertz(85_000_000), Hertz(42_500_000)),
+    };
+    #[cfg(all(stm32h7, not(any(pwr_h7rm0455, pwr_h7rm0468))))]
     let (d1cpre_clk_max, hclk_max, pclk_max) = match config.voltage_scale {
         VoltageScale::Scale0 => (Hertz(480_000_000), Hertz(240_000_000), Hertz(120_000_000)),
         VoltageScale::Scale1 => (Hertz(400_000_000), Hertz(200_000_000), Hertz(100_000_000)),
