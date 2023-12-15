@@ -832,7 +832,7 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         _ => unreachable!(),
     };
 
-    #[cfg(flash_h7)]
+    #[cfg(all(flash_h7, not(pwr_h7rm0468)))]
     let (latency, wrhighfreq) = match (vos, clk.0) {
         // VOS 0 range VCORE 1.26V - 1.40V
         (VoltageScale::Scale0, ..=70_000_000) => (0, 0),
@@ -858,6 +858,30 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         (VoltageScale::Scale3, ..=135_000_000) => (2, 1),
         (VoltageScale::Scale3, ..=180_000_000) => (3, 2),
         (VoltageScale::Scale3, ..=224_000_000) => (4, 2),
+        _ => unreachable!(),
+    };
+
+    // See RM0468 Rev 3 Table 16. FLASH recommended number of wait
+    // states and programming delay
+    #[cfg(all(flash_h7, pwr_h7rm0468))]
+    let (latency, wrhighfreq) = match (vos, clk.0) {
+        // VOS 0 range VCORE 1.26V - 1.40V
+        (VoltageScale::Scale0, ..=70_000_000) => (0, 0),
+        (VoltageScale::Scale0, ..=140_000_000) => (1, 1),
+        (VoltageScale::Scale0, ..=210_000_000) => (2, 2),
+        (VoltageScale::Scale0, ..=275_000_000) => (3, 3),
+        // VOS 1 range VCORE 1.15V - 1.26V
+        (VoltageScale::Scale1, ..=67_000_000) => (0, 0),
+        (VoltageScale::Scale1, ..=133_000_000) => (1, 1),
+        (VoltageScale::Scale1, ..=200_000_000) => (2, 2),
+        // VOS 2 range VCORE 1.05V - 1.15V
+        (VoltageScale::Scale2, ..=50_000_000) => (0, 0),
+        (VoltageScale::Scale2, ..=100_000_000) => (1, 1),
+        (VoltageScale::Scale2, ..=150_000_000) => (2, 2),
+        // VOS 3 range VCORE 0.95V - 1.05V
+        (VoltageScale::Scale3, ..=35_000_000) => (0, 0),
+        (VoltageScale::Scale3, ..=70_000_000) => (1, 1),
+        (VoltageScale::Scale3, ..=85_000_000) => (2, 2),
         _ => unreachable!(),
     };
 
