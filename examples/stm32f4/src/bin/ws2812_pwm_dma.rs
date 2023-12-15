@@ -11,18 +11,12 @@
 #![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
-
-use embassy_stm32::{
-    gpio::OutputType,
-    pac,
-    time::khz,
-    timer::{
-        simple_pwm::{PwmPin, SimplePwm},
-        Channel, CountingMode,
-    },
-};
+use embassy_stm32::gpio::OutputType;
+use embassy_stm32::pac;
+use embassy_stm32::time::khz;
+use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::timer::{Channel, CountingMode};
 use embassy_time::Timer;
-
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
