@@ -85,8 +85,10 @@ async fn main(_spawner: Spawner) {
 
     let color_list = [&turn_off, &dim_white];
 
+    let pwm_channel = Channel::Ch1;
+
     // make sure PWM output keep low on first start
-    ws2812_pwm.set_duty(Channel::Ch1, 0);
+    ws2812_pwm.set_duty(pwm_channel, 0);
 
     {
         use embassy_stm32::dma::{Burst, FifoThreshold, Transfer, TransferOptions};
@@ -100,7 +102,7 @@ async fn main(_spawner: Spawner) {
 
         loop {
             // start PWM output
-            ws2812_pwm.enable(Channel::Ch1);
+            ws2812_pwm.enable(pwm_channel);
 
             unsafe {
                 Transfer::new_write(
@@ -108,7 +110,7 @@ async fn main(_spawner: Spawner) {
                     &mut dp.DMA1_CH2,
                     5,
                     color_list[color_list_index],
-                    pac::TIM3.ccr(0).as_ptr() as *mut _,
+                    pac::TIM3.ccr(pwm_channel.raw()).as_ptr() as *mut _,
                     dma_transfer_option,
                 )
                 .await;
@@ -117,7 +119,7 @@ async fn main(_spawner: Spawner) {
             }
 
             // stop PWM output for saving some energy
-            ws2812_pwm.disable(Channel::Ch1);
+            ws2812_pwm.disable(pwm_channel);
 
             // wait another half second, so that we can see color change
             Timer::after_millis(500).await;
