@@ -70,7 +70,9 @@ pub struct Pll {
     pub mul: PllMul,
 
     /// PLL P division factor. If None, PLL P output is disabled.
-    /// On PLL1, it must be even (in particular, it cannot be 1.)
+    /// On PLL1, it must be even for most series (in particular,
+    /// it cannot be 1 in series other than STM32H723/733,
+    /// STM32H725/735 and STM32H730.)
     pub divp: Option<PllDiv>,
     /// PLL Q division factor. If None, PLL Q output is disabled.
     pub divq: Option<PllDiv>,
@@ -729,9 +731,12 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
     let p = config.divp.map(|div| {
         if num == 0 {
-            // on PLL1, DIVP must be even.
+            // on PLL1, DIVP must be even for most series.
             // The enum value is 1 less than the divider, so check it's odd.
+            #[cfg(not(pwr_h7rm0468))]
             assert!(div.to_bits() % 2 == 1);
+            #[cfg(pwr_h7rm0468)]
+            assert!(div.to_bits() % 2 == 1 || div.to_bits() == 0);
         }
 
         vco_clk / div
