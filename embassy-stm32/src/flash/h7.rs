@@ -113,7 +113,7 @@ pub(crate) unsafe fn clear_all_err() {
 
 unsafe fn bank_clear_all_err(bank: pac::flash::Bank) {
     // read and write back the same value.
-    // This clears all "write 0 to clear" bits.
+    // This clears all "write 1 to clear" bits.
     bank.sr().modify(|_| {});
 }
 
