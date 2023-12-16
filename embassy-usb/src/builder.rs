@@ -94,15 +94,6 @@ pub struct Config<'a> {
     /// Default: 100mA
     /// Max: 500mA
     pub max_power: u16,
-
-    /// Allow the bus to be suspended.
-    ///
-    /// If set to `true`, the bus will put itself in the suspended state
-    /// when it receives a `driver::Event::Suspend` bus event. If you wish
-    /// to override this behavior, set this field to `false`.
-    ///
-    /// Default: `true`
-    pub suspendable: bool,
 }
 
 impl<'a> Config<'a> {
@@ -123,7 +114,6 @@ impl<'a> Config<'a> {
             supports_remote_wakeup: false,
             composite_with_iads: false,
             max_power: 100,
-            suspendable: true,
         }
     }
 }
