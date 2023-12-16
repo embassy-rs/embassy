@@ -119,7 +119,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             Some(nss.map_into()),
             dma,
             config,
-            FlashSelection::Flash2,
+            FlashSelection::Flash1,
         )
     }
 
