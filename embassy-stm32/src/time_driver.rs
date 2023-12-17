@@ -474,16 +474,29 @@ impl Driver for RtcDriver {
                 return false;
             }
 
-            let safe_timestamp = timestamp.max(t + 3);
-
             // Write the CCR value regardless of whether we're going to enable it now or not.
             // This way, when we enable it later, the right value is already set.
-            r.ccr(n + 1).write(|w| w.set_ccr(safe_timestamp as u16));
+            r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
 
             // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
             let diff = timestamp - t;
             r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
 
+            // Reevaluate if the alarm timestamp is still in the future
+            let t = self.now();
+            if timestamp <= t {
+                // If alarm timestamp has passed since we set it, we have a race condition and
+                // the alarm may or may not have fired.
+                // Disarm the alarm and return `false` to indicate that.
+                // It is the caller's responsibility to handle this ambiguity.
+                r.dier().modify(|w| w.set_ccie(n + 1, false));
+
+                alarm.timestamp.set(u64::MAX);
+
+                return false;
+            }
+
+            // We're confident the alarm will ring in the future.
             true
         })
     }
