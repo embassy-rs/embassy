@@ -39,7 +39,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
         let rx_dma = unsafe { self.rx_dma.clone_unchecked() };
         let _peri = unsafe { self._peri.clone_unchecked() };
 
-        let ring_buf = unsafe { ReadableRingBuffer::new_read(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
 
         // Don't disable the clock
         mem::forget(self);

@@ -50,19 +50,19 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
-    /// Test if current pin level is high.
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
-    /// Test if current pin level is low.
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
-    /// Returns current pin level
+    /// Get the pin input level.
     #[inline]
     pub fn get_level(&mut self) -> Level {
         self.pin.get_level()
@@ -158,19 +158,19 @@ impl<'d, T: Pin> Output<'d, T> {
         self.pin.set_level(level)
     }
 
-    /// Is the output pin set as high?
+    /// Get whether the output level is set to high.
     #[inline]
     pub fn is_set_high(&mut self) -> bool {
         self.pin.is_set_high()
     }
 
-    /// Is the output pin set as low?
+    /// Get whether the output level is set to low.
     #[inline]
     pub fn is_set_low(&mut self) -> bool {
         self.pin.is_set_low()
     }
 
-    /// What level output is set to
+    /// Get the current output level.
     #[inline]
     pub fn get_output_level(&mut self) -> Level {
         self.pin.get_output_level()
@@ -275,13 +275,13 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.conf().reset();
     }
 
-    /// Test if current pin level is high.
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         !self.is_low()
     }
 
-    /// Test if current pin level is low.
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&mut self) -> bool {
         self.ref_is_low()
@@ -292,7 +292,7 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0
     }
 
-    /// Returns current pin level
+    /// Get the pin input level.
     #[inline]
     pub fn get_level(&mut self) -> Level {
         self.is_high().into()
@@ -319,25 +319,24 @@ impl<'d, T: Pin> Flex<'d, T> {
         }
     }
 
-    /// Is the output pin set as high?
+    /// Get whether the output level is set to high.
     #[inline]
     pub fn is_set_high(&mut self) -> bool {
         !self.is_set_low()
     }
 
-    /// Is the output pin set as low?
+    /// Get whether the output level is set to low.
     #[inline]
     pub fn is_set_low(&mut self) -> bool {
         self.ref_is_set_low()
     }
 
-    /// Is the output pin set as low?
     #[inline]
     pub(crate) fn ref_is_set_low(&self) -> bool {
         self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0
     }
 
-    /// What level output is set to
+    /// Get the current output level.
     #[inline]
     pub fn get_output_level(&mut self) -> Level {
         self.is_set_high().into()

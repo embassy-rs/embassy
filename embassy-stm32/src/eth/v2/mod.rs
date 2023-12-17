@@ -34,6 +34,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
     }
 }
 
+/// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: PHY> {
     _peri: PeripheralRef<'d, T>,
     pub(crate) tx: TDesRing<'d>,
@@ -56,6 +57,7 @@ macro_rules! config_pins {
 }
 
 impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
+    /// Create a new Ethernet driver.
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: impl Peripheral<P = T> + 'd,
@@ -237,6 +239,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     }
 }
 
+/// Ethernet SMI driver.
 pub struct EthernetStationManagement<T: Instance> {
     peri: PhantomData<T>,
     clock_range: u8,
