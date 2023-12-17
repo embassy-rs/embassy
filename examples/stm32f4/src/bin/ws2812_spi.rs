@@ -78,7 +78,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     spi_config.frequency = khz(12_800);
 
     // Since we only output waveform, then the Rx and Sck it is not considered
-    let mut ws2812_spi = spi::Spi::new_txonly_nosck(dp.SPI1, dp.PB5, dp.DMA2_CH2, dma::NoDma, spi_config);
+    let mut ws2812_spi = spi::Spi::new_txonly_nosck(dp.SPI1, dp.PB5, dp.DMA2_CH3, dma::NoDma, spi_config);
 
     // flip color at 2 Hz
     let mut ticker = Ticker::every(Duration::from_millis(500));
