@@ -59,7 +59,7 @@ impl embedded_storage_async::nor_flash::ReadNorFlash for Flash<'_, Async> {
     const READ_SIZE: usize = super::READ_SIZE;
 
     async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
-        self.read(offset, bytes)
+        self.blocking_read(offset, bytes)
     }
 
     fn capacity(&self) -> usize {

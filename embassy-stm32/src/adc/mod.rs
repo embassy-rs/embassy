@@ -1,3 +1,4 @@
+//! Analog to Digital (ADC) converter driver.
 #![macro_use]
 
 #[cfg(not(adc_f3_v2))]
@@ -24,6 +25,7 @@ pub use sample_time::SampleTime;
 
 use crate::peripherals;
 
+/// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::PeripheralRef<'d, T>,
@@ -75,12 +77,16 @@ pub(crate) mod sealed {
     }
 }
 
+/// ADC instance.
 #[cfg(not(any(adc_f1, adc_v1, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0)))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> {}
+/// ADC instance.
 #[cfg(any(adc_f1, adc_v1, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 
+/// ADC pin.
 pub trait AdcPin<T: Instance>: sealed::AdcPin<T> {}
+/// ADC internal channel.
 pub trait InternalChannel<T>: sealed::InternalChannel<T> {}
 
 foreach_adc!(

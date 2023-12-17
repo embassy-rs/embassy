@@ -13,15 +13,23 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::peripherals;
 
+/// I2C error.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Bus error
     Bus,
+    /// Arbitration lost
     Arbitration,
+    /// ACK not received (either to the address or to a data byte)
     Nack,
+    /// Timeout
     Timeout,
+    /// CRC error
     Crc,
+    /// Overrun error
     Overrun,
+    /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
 }
 
@@ -47,8 +55,11 @@ pub(crate) mod sealed {
     }
 }
 
+/// I2C peripheral instance
 pub trait Instance: sealed::Instance + 'static {
+    /// Event interrupt for this instance
     type EventInterrupt: interrupt::typelevel::Interrupt;
+    /// Error interrupt for this instance
     type ErrorInterrupt: interrupt::typelevel::Interrupt;
 }
 
@@ -57,7 +68,7 @@ pin_trait!(SdaPin, Instance);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 
-/// Interrupt handler.
+/// Event interrupt handler.
 pub struct EventInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -68,6 +79,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::EventInterrupt> for EventInte
     }
 }
 
+/// Error interrupt handler.
 pub struct ErrorInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }

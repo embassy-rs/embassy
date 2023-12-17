@@ -102,6 +102,7 @@ unsafe impl PHY for GenericSMI {
 
 /// Public functions for the PHY
 impl GenericSMI {
+    /// Set the SMI polling interval.
     #[cfg(feature = "time")]
     pub fn set_poll_interval(&mut self, poll_interval: Duration) {
         self.poll_interval = poll_interval
