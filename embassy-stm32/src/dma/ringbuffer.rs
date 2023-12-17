@@ -260,15 +260,11 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
 
     /// The current position of the ringbuffer
     fn pos(&self, dma: &mut impl DmaCtrl) -> usize {
-        let result = self.cap() - dma.get_remaining_transfers();
-        if result >= self.cap() / 2 {
-            self.cap() / 2
-        } else {
-            0
-        }
+        self.cap() - dma.get_remaining_transfers()
     }
 
-    pub fn prime(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<(usize, usize), OverrunError> {
+    /// Write elements directl to the buffer. This should be done before the DMA is started.
+    pub fn write_immediate(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<(usize, usize), OverrunError> {
         if self.end != 0 {
             return Err(OverrunError);
         }

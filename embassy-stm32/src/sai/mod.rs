@@ -435,6 +435,8 @@ impl MasterClockDivider {
     }
 }
 
+pub const MAX_FRAME_LENGTH: u8 = 0;
+
 /// [`SAI`] configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -853,13 +855,6 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
         }
     }
 
-    pub fn prime(self: &mut Self, prime_buffer: &[W]) -> Result<(usize, usize), Error> {
-        match self.ring_buffer {
-            RingBuffer::Writable(ref mut rb) => Ok(rb.prime(prime_buffer)?),
-            RingBuffer::Readable(_) => Err(Error::NotATransmitter),
-        }
-    }
-
     fn is_transmitter(ring_buffer: &RingBuffer<C, W>) -> bool {
         match ring_buffer {
             RingBuffer::Writable(_) => true,
@@ -943,7 +938,11 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
                 w.set_fspol(config.frame_sync_polarity.fspol());
                 w.set_fsdef(config.frame_sync_definition.fsdef());
                 w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
-                w.set_frl(config.frame_length - 1);
+                if config.frame_length == MAX_FRAME_LENGTH {
+                    w.set_frl(255);
+                } else {
+                    w.set_frl(config.frame_length - 1);
+                }
             });
 
             ch.slotr().modify(|w| {
@@ -1027,6 +1026,16 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => buffer.clear(),
             RingBuffer::Readable(buffer) => buffer.clear(),
+        }
+    }
+
+    /// Write elements directly to the raw buffer.
+    /// This should be used before starting the audio stream. This will give the CPU time to
+    /// prepare the next audio frame while the initial audio frame is playing.
+    pub fn write_immediate(self: &mut Self, source_buffer: &[W]) -> Result<(usize, usize), Error> {
+        match self.ring_buffer {
+            RingBuffer::Writable(ref mut rb) => Ok(rb.write_immediate(source_buffer)?),
+            RingBuffer::Readable(_) => Err(Error::NotATransmitter),
         }
     }
 
