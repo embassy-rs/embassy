@@ -1,3 +1,5 @@
+//! Timers, PWM, quadrature decoder.
+
 pub mod complementary_pwm;
 pub mod qei;
 pub mod simple_pwm;
@@ -8,6 +10,7 @@ use crate::interrupt;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
+/// Low-level timer access.
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
     pub use super::sealed::*;
