@@ -1,6 +1,5 @@
 #![macro_use]
 
-use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 pub use crate::dma::word;
@@ -988,14 +987,6 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
-    #[allow(dead_code)]
-    /// Reconfigures it with the supplied config.
-    fn reconfigure(&mut self, _config: Config) {}
-
-    pub fn get_current_config(&self) -> Config {
-        Config::default()
-    }
-
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
@@ -1060,13 +1051,3 @@ foreach_peripheral!(
         impl Instance for peripherals::$inst {}
     };
 );
-
-impl<'d, T: Instance> SetConfig for Sai<'d, T> {
-    type Config = Config;
-    type ConfigError = ();
-    fn set_config(&mut self, _config: &Self::Config) -> Result<(), ()> {
-        // self.reconfigure(*config);
-
-        Ok(())
-    }
-}
