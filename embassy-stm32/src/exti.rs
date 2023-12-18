@@ -1,3 +1,4 @@
+//! External Interrupts (EXTI)
 use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;

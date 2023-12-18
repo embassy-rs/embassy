@@ -1,3 +1,4 @@
+//! Inter-Integrated-Circuit (I2C)
 #![macro_use]
 
 #[cfg_attr(i2c_v1, path = "v1.rs")]

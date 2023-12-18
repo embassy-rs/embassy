@@ -1,3 +1,4 @@
+//! Random Number Generator (RNG)
 #![macro_use]
 
 use core::future::poll_fn;

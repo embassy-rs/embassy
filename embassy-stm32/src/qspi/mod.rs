@@ -1,3 +1,5 @@
+//! Quad Serial Peripheral Interface (QSPI)
+
 #![macro_use]
 
 pub mod enums;

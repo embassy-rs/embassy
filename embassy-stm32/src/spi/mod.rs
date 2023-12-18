@@ -1,3 +1,4 @@
+//! Serial Peripheral Interface (SPI)
 #![macro_use]
 
 use core::ptr;

@@ -1,3 +1,4 @@
+//! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
 use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;

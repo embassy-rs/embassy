@@ -1,3 +1,4 @@
+//! Secure Digital / MultiMedia Card (SDMMC)
 #![macro_use]
 
 use core::default::Default;
