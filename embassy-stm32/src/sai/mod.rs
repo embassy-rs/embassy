@@ -904,8 +904,6 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait Word: word::Word {}
-
 pub trait SubBlockInstance: sealed::SubBlock {}
 
 pub enum A {}
