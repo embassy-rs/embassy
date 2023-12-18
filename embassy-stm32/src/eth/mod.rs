@@ -1,3 +1,4 @@
+//! Ethernet (ETH)
 #![macro_use]
 
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]

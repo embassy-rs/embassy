@@ -1,3 +1,5 @@
+//! High Resolution Timer (HRTIM)
+
 mod traits;
 
 use core::marker::PhantomData;

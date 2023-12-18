@@ -1,4 +1,4 @@
-//! RTC peripheral abstraction
+//! Real Time Clock (RTC)
 mod datetime;
 
 #[cfg(feature = "low-power")]
@@ -163,7 +163,7 @@ impl RtcTimeProvider {
     }
 }
 
-/// RTC Abstraction
+/// RTC driver.
 pub struct Rtc {
     #[cfg(feature = "low-power")]
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,

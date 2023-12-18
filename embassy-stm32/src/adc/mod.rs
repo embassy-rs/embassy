@@ -1,4 +1,5 @@
-//! Analog to Digital (ADC) converter driver.
+//! Analog to Digital Converter (ADC)
+
 #![macro_use]
 #![allow(missing_docs)] // TODO
 

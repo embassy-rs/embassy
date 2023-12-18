@@ -1,3 +1,4 @@
+//! Inter-IC Sound (I2S)
 use embassy_hal_internal::into_ref;
 
 use crate::gpio::sealed::{AFType, Pin as _};

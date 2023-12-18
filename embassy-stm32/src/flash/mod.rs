@@ -1,3 +1,4 @@
+//! Flash memory (FLASH)
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 #[cfg(flash_f4)]

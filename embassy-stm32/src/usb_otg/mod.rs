@@ -1,3 +1,5 @@
+//! USB On The Go (OTG)
+
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals};
 

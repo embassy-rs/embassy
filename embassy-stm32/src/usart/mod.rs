@@ -1,3 +1,4 @@
+//! Universal Synchronous/Asynchronous Receiver Transmitter (USART, UART, LPUART)
 #![macro_use]
 
 use core::future::poll_fn;
