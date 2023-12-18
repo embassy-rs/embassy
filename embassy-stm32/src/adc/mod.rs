@@ -1,5 +1,6 @@
 //! Analog to Digital (ADC) converter driver.
 #![macro_use]
+#![allow(missing_docs)] // TODO
 
 #[cfg(not(adc_f3_v2))]
 #[cfg_attr(adc_f1, path = "f1.rs")]

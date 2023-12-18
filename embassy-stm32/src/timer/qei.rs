@@ -1,3 +1,5 @@
+//! Quadrature decoder using a timer.
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};

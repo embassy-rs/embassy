@@ -9,9 +9,9 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
 
-use self::datetime::day_of_week_to_u8;
 #[cfg(not(rtc_v2f2))]
 use self::datetime::RtcInstant;
+use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
@@ -102,7 +102,7 @@ pub enum RtcError {
     NotRunning,
 }
 
-pub struct RtcTimeProvider {
+pub(crate) struct RtcTimeProvider {
     _private: (),
 }
 
@@ -127,7 +127,7 @@ impl RtcTimeProvider {
             let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
             let hour = bcd2_to_byte((tr.ht(), tr.hu()));
 
-            let weekday = dr.wdu();
+            let weekday = day_of_week_from_u8(dr.wdu()).map_err(RtcError::InvalidDateTime)?;
             let day = bcd2_to_byte((dr.dt(), dr.du()));
             let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
             let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
@@ -171,6 +171,7 @@ pub struct Rtc {
     _private: (),
 }
 
+/// RTC configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone, PartialEq)]
 pub struct RtcConfig {
@@ -188,6 +189,7 @@ impl Default for RtcConfig {
     }
 }
 
+/// Calibration cycle period.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum RtcCalibrationCyclePeriod {
@@ -206,6 +208,7 @@ impl Default for RtcCalibrationCyclePeriod {
 }
 
 impl Rtc {
+    /// Create a new RTC instance.
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         <RTC as crate::rcc::sealed::RccPeripheral>::enable_and_reset();
@@ -240,7 +243,7 @@ impl Rtc {
     }
 
     /// Acquire a [`RtcTimeProvider`] instance.
-    pub const fn time_provider(&self) -> RtcTimeProvider {
+    pub(crate) const fn time_provider(&self) -> RtcTimeProvider {
         RtcTimeProvider { _private: () }
     }
 
@@ -315,6 +318,7 @@ impl Rtc {
         })
     }
 
+    /// Number of backup registers of this instance.
     pub const BACKUP_REGISTER_COUNT: usize = RTC::BACKUP_REGISTER_COUNT;
 
     /// Read content of the backup register.

@@ -8,30 +8,42 @@ use crate::spi::{Config as SpiConfig, *};
 use crate::time::Hertz;
 use crate::{Peripheral, PeripheralRef};
 
+/// I2S mode
 #[derive(Copy, Clone)]
 pub enum Mode {
+    /// Master mode
     Master,
+    /// Slave mode
     Slave,
 }
 
+/// I2S function
 #[derive(Copy, Clone)]
 pub enum Function {
+    /// Transmit audio data
     Transmit,
+    /// Receive audio data
     Receive,
 }
 
+/// I2C standard
 #[derive(Copy, Clone)]
 pub enum Standard {
+    /// Philips
     Philips,
+    /// Most significant bit first.
     MsbFirst,
+    /// Least significant bit first.
     LsbFirst,
+    /// PCM with long sync.
     PcmLongSync,
+    /// PCM with short sync.
     PcmShortSync,
 }
 
 impl Standard {
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn i2sstd(&self) -> vals::I2sstd {
+    const fn i2sstd(&self) -> vals::I2sstd {
         match self {
             Standard::Philips => vals::I2sstd::PHILIPS,
             Standard::MsbFirst => vals::I2sstd::MSB,
@@ -42,7 +54,7 @@ impl Standard {
     }
 
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn pcmsync(&self) -> vals::Pcmsync {
+    const fn pcmsync(&self) -> vals::Pcmsync {
         match self {
             Standard::PcmLongSync => vals::Pcmsync::LONG,
             _ => vals::Pcmsync::SHORT,
@@ -50,6 +62,7 @@ impl Standard {
     }
 }
 
+/// I2S data format.
 #[derive(Copy, Clone)]
 pub enum Format {
     /// 16 bit data length on 16 bit wide channel
@@ -64,7 +77,7 @@ pub enum Format {
 
 impl Format {
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn datlen(&self) -> vals::Datlen {
+    const fn datlen(&self) -> vals::Datlen {
         match self {
             Format::Data16Channel16 => vals::Datlen::SIXTEENBIT,
             Format::Data16Channel32 => vals::Datlen::SIXTEENBIT,
@@ -74,7 +87,7 @@ impl Format {
     }
 
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn chlen(&self) -> vals::Chlen {
+    const fn chlen(&self) -> vals::Chlen {
         match self {
             Format::Data16Channel16 => vals::Chlen::SIXTEENBIT,
             Format::Data16Channel32 => vals::Chlen::THIRTYTWOBIT,
@@ -84,15 +97,18 @@ impl Format {
     }
 }
 
+/// Clock polarity
 #[derive(Copy, Clone)]
 pub enum ClockPolarity {
+    /// Low on idle.
     IdleLow,
+    /// High on idle.
     IdleHigh,
 }
 
 impl ClockPolarity {
     #[cfg(any(spi_v1, spi_f1))]
-    pub const fn ckpol(&self) -> vals::Ckpol {
+    const fn ckpol(&self) -> vals::Ckpol {
         match self {
             ClockPolarity::IdleHigh => vals::Ckpol::IDLEHIGH,
             ClockPolarity::IdleLow => vals::Ckpol::IDLELOW,
@@ -109,11 +125,17 @@ impl ClockPolarity {
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Mode
     pub mode: Mode,
+    /// Function (transmit, receive)
     pub function: Function,
+    /// Which I2S standard to use.
     pub standard: Standard,
+    /// Data format.
     pub format: Format,
+    /// Clock polarity.
     pub clock_polarity: ClockPolarity,
+    /// True to eanble master clock output from this instance.
     pub master_clock: bool,
 }
 
@@ -130,6 +152,7 @@ impl Default for Config {
     }
 }
 
+/// I2S driver.
 pub struct I2S<'d, T: Instance, Tx, Rx> {
     _peri: Spi<'d, T, Tx, Rx>,
     sd: Option<PeripheralRef<'d, AnyPin>>,
@@ -242,6 +265,7 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         }
     }
 
+    /// Write audio data.
     pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
@@ -249,6 +273,7 @@ impl<'d, T: Instance, Tx, Rx> I2S<'d, T, Tx, Rx> {
         self._peri.write(data).await
     }
 
+    /// Read audio data.
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,

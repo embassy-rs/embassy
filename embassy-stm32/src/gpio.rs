@@ -1,3 +1,5 @@
+//! General-purpose Input/Output (GPIO)
+
 #![macro_use]
 use core::convert::Infallible;
 

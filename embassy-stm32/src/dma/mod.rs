@@ -1,3 +1,5 @@
+//! Direct Memory Access (DMA)
+
 #[cfg(dma)]
 pub(crate) mod dma;
 #[cfg(dma)]

@@ -1,3 +1,5 @@
+//! Simple PWM driver.
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};

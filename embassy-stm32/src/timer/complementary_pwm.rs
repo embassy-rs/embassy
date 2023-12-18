@@ -1,3 +1,5 @@
+//! PWM driver with complementary output support.
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
