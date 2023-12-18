@@ -1,3 +1,4 @@
+//! Serial Audio Interface (SAI)
 #![macro_use]
 
 use core::marker::PhantomData;
@@ -13,46 +14,30 @@ use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
+/// SAI error
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// `write` called on a SAI in receive mode.
     NotATransmitter,
+    /// `read` called on a SAI in transmit mode.
     NotAReceiver,
-    OverrunError,
+    /// Overrun
+    Overrun,
 }
 
 impl From<ringbuffer::OverrunError> for Error {
     fn from(_: ringbuffer::OverrunError) -> Self {
-        Self::OverrunError
+        Self::Overrun
     }
 }
 
+/// Master/slave mode.
 #[derive(Copy, Clone)]
-pub enum SyncBlock {
-    None,
-    Sai1BlockA,
-    Sai1BlockB,
-    Sai2BlockA,
-    Sai2BlockB,
-}
-
-#[derive(Copy, Clone)]
-pub enum SyncIn {
-    None,
-    ChannelZero,
-    ChannelOne,
-}
-
-#[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum Mode {
     Master,
     Slave,
-}
-
-#[derive(Copy, Clone)]
-pub enum TxRx {
-    Transmitter,
-    Receiver,
 }
 
 impl Mode {
@@ -71,7 +56,17 @@ impl Mode {
     }
 }
 
+/// Direction: transmit or receive
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
+pub enum TxRx {
+    Transmitter,
+    Receiver,
+}
+
+/// Data slot size.
+#[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum SlotSize {
     DataSize,
     /// 16 bit data length on 16 bit wide channel
@@ -82,7 +77,7 @@ pub enum SlotSize {
 
 impl SlotSize {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn slotsz(&self) -> vals::Slotsz {
+    const fn slotsz(&self) -> vals::Slotsz {
         match self {
             SlotSize::DataSize => vals::Slotsz::DATASIZE,
             SlotSize::Channel16 => vals::Slotsz::BIT16,
@@ -91,7 +86,9 @@ impl SlotSize {
     }
 }
 
+/// Data size.
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum DataSize {
     Data8,
     Data10,
@@ -103,7 +100,7 @@ pub enum DataSize {
 
 impl DataSize {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn ds(&self) -> vals::Ds {
+    const fn ds(&self) -> vals::Ds {
         match self {
             DataSize::Data8 => vals::Ds::BIT8,
             DataSize::Data10 => vals::Ds::BIT10,
@@ -115,7 +112,9 @@ impl DataSize {
     }
 }
 
+/// FIFO threshold level.
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum FifoThreshold {
     Empty,
     Quarter,
@@ -126,7 +125,7 @@ pub enum FifoThreshold {
 
 impl FifoThreshold {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn fth(&self) -> vals::Fth {
+    const fn fth(&self) -> vals::Fth {
         match self {
             FifoThreshold::Empty => vals::Fth::EMPTY,
             FifoThreshold::Quarter => vals::Fth::QUARTER1,
@@ -137,38 +136,9 @@ impl FifoThreshold {
     }
 }
 
+/// Output value on mute.
 #[derive(Copy, Clone)]
-pub enum FifoLevel {
-    Empty,
-    FirstQuarter,
-    SecondQuarter,
-    ThirdQuarter,
-    FourthQuarter,
-    Full,
-}
-
-#[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-impl From<vals::Flvl> for FifoLevel {
-    fn from(flvl: vals::Flvl) -> Self {
-        match flvl {
-            vals::Flvl::EMPTY => FifoLevel::Empty,
-            vals::Flvl::QUARTER1 => FifoLevel::FirstQuarter,
-            vals::Flvl::QUARTER2 => FifoLevel::SecondQuarter,
-            vals::Flvl::QUARTER3 => FifoLevel::ThirdQuarter,
-            vals::Flvl::QUARTER4 => FifoLevel::FourthQuarter,
-            vals::Flvl::FULL => FifoLevel::Full,
-            _ => FifoLevel::Empty,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-pub enum MuteDetection {
-    NoMute,
-    Mute,
-}
-
-#[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum MuteValue {
     Zero,
     LastValue,
@@ -176,7 +146,7 @@ pub enum MuteValue {
 
 impl MuteValue {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn muteval(&self) -> vals::Muteval {
+    const fn muteval(&self) -> vals::Muteval {
         match self {
             MuteValue::Zero => vals::Muteval::SENDZERO,
             MuteValue::LastValue => vals::Muteval::SENDLAST,
@@ -184,13 +154,9 @@ impl MuteValue {
     }
 }
 
+/// Protocol variant to use.
 #[derive(Copy, Clone)]
-pub enum OverUnderStatus {
-    NoError,
-    OverUnderRunDetected,
-}
-
-#[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum Protocol {
     Free,
     Spdif,
@@ -199,7 +165,7 @@ pub enum Protocol {
 
 impl Protocol {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn prtcfg(&self) -> vals::Prtcfg {
+    const fn prtcfg(&self) -> vals::Prtcfg {
         match self {
             Protocol::Free => vals::Prtcfg::FREE,
             Protocol::Spdif => vals::Prtcfg::SPDIF,
@@ -208,7 +174,9 @@ impl Protocol {
     }
 }
 
+/// Sync input between SAI units/blocks.
 #[derive(Copy, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub enum SyncInput {
     /// Not synced to any other SAI unit.
     None,
@@ -220,7 +188,7 @@ pub enum SyncInput {
 }
 
 impl SyncInput {
-    pub const fn syncen(&self) -> vals::Syncen {
+    const fn syncen(&self) -> vals::Syncen {
         match self {
             SyncInput::None => vals::Syncen::ASYNCHRONOUS,
             SyncInput::Internal => vals::Syncen::INTERNAL,
@@ -230,8 +198,10 @@ impl SyncInput {
     }
 }
 
+/// SAI instance to sync from.
 #[cfg(sai_v4)]
 #[derive(Copy, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub enum SyncInputInstance {
     #[cfg(peri_sai1)]
     Sai1 = 0,
@@ -243,7 +213,9 @@ pub enum SyncInputInstance {
     Sai4 = 3,
 }
 
+/// Channels (stereo or mono).
 #[derive(Copy, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub enum StereoMono {
     Stereo,
     Mono,
@@ -251,7 +223,7 @@ pub enum StereoMono {
 
 impl StereoMono {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn mono(&self) -> vals::Mono {
+    const fn mono(&self) -> vals::Mono {
         match self {
             StereoMono::Stereo => vals::Mono::STEREO,
             StereoMono::Mono => vals::Mono::MONO,
@@ -259,15 +231,18 @@ impl StereoMono {
     }
 }
 
+/// Bit order
 #[derive(Copy, Clone)]
 pub enum BitOrder {
+    /// Least significant bit first.
     LsbFirst,
+    /// Most significant bit first.
     MsbFirst,
 }
 
 impl BitOrder {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn lsbfirst(&self) -> vals::Lsbfirst {
+    const fn lsbfirst(&self) -> vals::Lsbfirst {
         match self {
             BitOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
             BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
@@ -275,6 +250,7 @@ impl BitOrder {
     }
 }
 
+/// Frame sync offset.
 #[derive(Copy, Clone)]
 pub enum FrameSyncOffset {
     /// This is used in modes other than standard I2S phillips mode
@@ -285,7 +261,7 @@ pub enum FrameSyncOffset {
 
 impl FrameSyncOffset {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn fsoff(&self) -> vals::Fsoff {
+    const fn fsoff(&self) -> vals::Fsoff {
         match self {
             FrameSyncOffset::OnFirstBit => vals::Fsoff::ONFIRST,
             FrameSyncOffset::BeforeFirstBit => vals::Fsoff::BEFOREFIRST,
@@ -293,15 +269,18 @@ impl FrameSyncOffset {
     }
 }
 
+/// Frame sync polarity
 #[derive(Copy, Clone)]
 pub enum FrameSyncPolarity {
+    /// Sync signal is active low.
     ActiveLow,
+    /// Sync signal is active high
     ActiveHigh,
 }
 
 impl FrameSyncPolarity {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn fspol(&self) -> vals::Fspol {
+    const fn fspol(&self) -> vals::Fspol {
         match self {
             FrameSyncPolarity::ActiveLow => vals::Fspol::FALLINGEDGE,
             FrameSyncPolarity::ActiveHigh => vals::Fspol::RISINGEDGE,
@@ -309,7 +288,9 @@ impl FrameSyncPolarity {
     }
 }
 
+/// Sync definition.
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum FrameSyncDefinition {
     StartOfFrame,
     ChannelIdentification,
@@ -317,7 +298,7 @@ pub enum FrameSyncDefinition {
 
 impl FrameSyncDefinition {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn fsdef(&self) -> bool {
+    const fn fsdef(&self) -> bool {
         match self {
             FrameSyncDefinition::StartOfFrame => false,
             FrameSyncDefinition::ChannelIdentification => true,
@@ -325,7 +306,9 @@ impl FrameSyncDefinition {
     }
 }
 
+/// Clock strobe.
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum ClockStrobe {
     Falling,
     Rising,
@@ -333,7 +316,7 @@ pub enum ClockStrobe {
 
 impl ClockStrobe {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn ckstr(&self) -> vals::Ckstr {
+    const fn ckstr(&self) -> vals::Ckstr {
         match self {
             ClockStrobe::Falling => vals::Ckstr::FALLINGEDGE,
             ClockStrobe::Rising => vals::Ckstr::RISINGEDGE,
@@ -341,7 +324,9 @@ impl ClockStrobe {
     }
 }
 
+/// Complements format for negative samples.
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum ComplementFormat {
     OnesComplement,
     TwosComplement,
@@ -349,7 +334,7 @@ pub enum ComplementFormat {
 
 impl ComplementFormat {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn cpl(&self) -> vals::Cpl {
+    const fn cpl(&self) -> vals::Cpl {
         match self {
             ComplementFormat::OnesComplement => vals::Cpl::ONESCOMPLEMENT,
             ComplementFormat::TwosComplement => vals::Cpl::TWOSCOMPLEMENT,
@@ -357,7 +342,9 @@ impl ComplementFormat {
     }
 }
 
+/// Companding setting.
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum Companding {
     None,
     MuLaw,
@@ -366,7 +353,7 @@ pub enum Companding {
 
 impl Companding {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn comp(&self) -> vals::Comp {
+    const fn comp(&self) -> vals::Comp {
         match self {
             Companding::None => vals::Comp::NOCOMPANDING,
             Companding::MuLaw => vals::Comp::MULAW,
@@ -375,7 +362,9 @@ impl Companding {
     }
 }
 
+/// Output drive
 #[derive(Copy, Clone)]
+#[allow(missing_docs)]
 pub enum OutputDrive {
     OnStart,
     Immediately,
@@ -383,7 +372,7 @@ pub enum OutputDrive {
 
 impl OutputDrive {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn outdriv(&self) -> vals::Outdriv {
+    const fn outdriv(&self) -> vals::Outdriv {
         match self {
             OutputDrive::OnStart => vals::Outdriv::ONSTART,
             OutputDrive::Immediately => vals::Outdriv::IMMEDIATELY,
@@ -391,7 +380,9 @@ impl OutputDrive {
     }
 }
 
+/// Master clock divider.
 #[derive(Copy, Clone, PartialEq)]
+#[allow(missing_docs)]
 pub enum MasterClockDivider {
     MasterClockDisabled,
     Div1,
@@ -414,7 +405,7 @@ pub enum MasterClockDivider {
 
 impl MasterClockDivider {
     #[cfg(any(sai_v1, sai_v2, sai_v3, sai_v4))]
-    pub const fn mckdiv(&self) -> u8 {
+    const fn mckdiv(&self) -> u8 {
         match self {
             MasterClockDivider::MasterClockDisabled => 0,
             MasterClockDivider::Div1 => 0,
@@ -438,6 +429,7 @@ impl MasterClockDivider {
 }
 
 /// [`SAI`] configuration.
+#[allow(missing_docs)]
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
@@ -575,11 +567,15 @@ fn update_synchronous_config(config: &mut Config) {
     }
 }
 
+/// SAI subblock instance.
 pub struct SubBlock<'d, T, S: SubBlockInstance> {
     peri: PeripheralRef<'d, T>,
     _phantom: PhantomData<S>,
 }
 
+/// Split the main SAIx peripheral into the two subblocks.
+///
+/// You can then create a [`Sai`] driver for each each half.
 pub fn split_subblocks<'d, T: Instance>(peri: impl Peripheral<P = T> + 'd) -> (SubBlock<'d, T, A>, SubBlock<'d, T, B>) {
     into_ref!(peri);
     T::enable_and_reset();
@@ -596,7 +592,7 @@ pub fn split_subblocks<'d, T: Instance>(peri: impl Peripheral<P = T> + 'd) -> (S
     )
 }
 
-/// SAI sub-block driver
+/// SAI sub-block driver.
 pub struct Sai<'d, T: Instance, C: Channel, W: word::Word> {
     _peri: PeripheralRef<'d, T>,
     sd: Option<PeripheralRef<'d, AnyPin>>,
@@ -608,6 +604,9 @@ pub struct Sai<'d, T: Instance, C: Channel, W: word::Word> {
 }
 
 impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
+    /// Create a new SAI driver in asynchronous mode with MCLK.
+    ///
+    /// You can obtain the [`SubBlock`] with [`split_subblocks`].
     pub fn new_asynchronous_with_mclk<S: SubBlockInstance>(
         peri: SubBlock<'d, T, S>,
         sck: impl Peripheral<P = impl SckPin<T, S>> + 'd,
@@ -635,6 +634,9 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         Self::new_asynchronous(peri, sck, sd, fs, dma, dma_buf, config)
     }
 
+    /// Create a new SAI driver in asynchronous mode without MCLK.
+    ///
+    /// You can obtain the [`SubBlock`] with [`split_subblocks`].
     pub fn new_asynchronous<S: SubBlockInstance>(
         peri: SubBlock<'d, T, S>,
         sck: impl Peripheral<P = impl SckPin<T, S>> + 'd,
@@ -674,6 +676,9 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         )
     }
 
+    /// Create a new SAI driver in synchronous mode.
+    ///
+    /// You can obtain the [`SubBlock`] with [`split_subblocks`].
     pub fn new_synchronous<S: SubBlockInstance>(
         peri: SubBlock<'d, T, S>,
         sd: impl Peripheral<P = impl SdPin<T, S>> + 'd,
@@ -813,6 +818,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         }
     }
 
+    /// Start the SAI driver.
     pub fn start(&mut self) {
         match self.ring_buffer {
             RingBuffer::Writable(ref mut rb) => {
@@ -831,10 +837,12 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         }
     }
 
+    /// Reset SAI operation.
     pub fn reset() {
         T::enable_and_reset();
     }
 
+    /// Flush.
     pub fn flush(&mut self) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
@@ -849,11 +857,18 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         ch.cr1().modify(|w| w.set_saien(true));
     }
 
+    /// Enable or disable mute.
     pub fn set_mute(&mut self, value: bool) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
+    /// Write data to the SAI ringbuffer.
+    ///
+    /// This appends the data to the buffer and returns immediately. The
+    /// data will be transmitted in the background.
+    ///
+    /// If there's no space in the buffer, this waits until there is.
     pub async fn write(&mut self, data: &[W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => {
@@ -864,6 +879,12 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         }
     }
 
+    /// Read data from the SAI ringbuffer.
+    ///
+    /// SAI is always receiving data in the background. This function pops already-received
+    /// data from the buffer.
+    ///
+    /// If there's less than `data.len()` data in the buffer, this waits until there is.
     pub async fn read(&mut self, data: &mut [W]) -> Result<(), Error> {
         match &mut self.ring_buffer {
             RingBuffer::Readable(buffer) => {
@@ -904,19 +925,24 @@ pub(crate) mod sealed {
     }
 }
 
+/// Sub-block instance trait.
 pub trait SubBlockInstance: sealed::SubBlock {}
 
+/// Sub-block A.
 pub enum A {}
 impl sealed::SubBlock for A {
     const WHICH: WhichSubBlock = WhichSubBlock::A;
 }
 impl SubBlockInstance for A {}
+
+/// Sub-block B.
 pub enum B {}
 impl sealed::SubBlock for B {
     const WHICH: WhichSubBlock = WhichSubBlock::B;
 }
 impl SubBlockInstance for B {}
 
+/// SAI instance trait.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
 pin_trait!(SckPin, Instance, SubBlockInstance);
 pin_trait!(FsPin, Instance, SubBlockInstance);
