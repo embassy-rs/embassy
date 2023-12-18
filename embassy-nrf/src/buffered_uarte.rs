@@ -607,7 +607,6 @@ impl<'u, 'd, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'u, 'd, U, T> {
     }
 }
 
-#[cfg(feature = "nightly")]
 mod _embedded_io {
     use super::*;
 

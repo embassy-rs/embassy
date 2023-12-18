@@ -1,3 +1,6 @@
+//! DMA word sizes.
+
+#[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WordSize {
@@ -7,6 +10,7 @@ pub enum WordSize {
 }
 
 impl WordSize {
+    /// Amount of bytes of this word size.
     pub fn bytes(&self) -> usize {
         match self {
             Self::OneByte => 1,
@@ -20,8 +24,13 @@ mod sealed {
     pub trait Word {}
 }
 
+/// DMA word trait.
+///
+/// This is implemented for u8, u16, u32, etc.
 pub trait Word: sealed::Word + Default + Copy + 'static {
+    /// Word size
     fn size() -> WordSize;
+    /// Amount of bits of this word size.
     fn bits() -> usize;
 }
 
@@ -40,6 +49,7 @@ macro_rules! impl_word {
     ($T:ident, $uX:ident, $bits:literal, $size:ident) => {
         #[repr(transparent)]
         #[derive(Copy, Clone, Default)]
+        #[doc = concat!(stringify!($T), " word size")]
         pub struct $T(pub $uX);
         impl_word!(_, $T, $bits, $size);
     };

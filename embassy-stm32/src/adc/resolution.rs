@@ -1,5 +1,8 @@
-#[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
+/// ADC resolution
+#[allow(missing_docs)]
+#[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3, adc_f3_v1_1))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Resolution {
     TwelveBit,
     TenBit,
@@ -7,8 +10,11 @@ pub enum Resolution {
     SixBit,
 }
 
+/// ADC resolution
+#[allow(missing_docs)]
 #[cfg(adc_v4)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Resolution {
     SixteenBit,
     FourteenBit,
@@ -19,7 +25,7 @@ pub enum Resolution {
 
 impl Default for Resolution {
     fn default() -> Self {
-        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3, adc_f3_v1_1))]
         {
             Self::TwelveBit
         }
@@ -40,13 +46,16 @@ impl From<Resolution> for crate::pac::adc::vals::Res {
             Resolution::TwelveBit => crate::pac::adc::vals::Res::TWELVEBIT,
             Resolution::TenBit => crate::pac::adc::vals::Res::TENBIT,
             Resolution::EightBit => crate::pac::adc::vals::Res::EIGHTBIT,
-            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
+            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3, adc_f3_v1_1))]
             Resolution::SixBit => crate::pac::adc::vals::Res::SIXBIT,
         }
     }
 }
 
 impl Resolution {
+    /// Get the maximum reading value for this resolution.
+    ///
+    /// This is `2**n - 1`.
     pub fn to_max_count(&self) -> u32 {
         match self {
             #[cfg(adc_v4)]
@@ -56,7 +65,7 @@ impl Resolution {
             Resolution::TwelveBit => (1 << 12) - 1,
             Resolution::TenBit => (1 << 10) - 1,
             Resolution::EightBit => (1 << 8) - 1,
-            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3))]
+            #[cfg(any(adc_v1, adc_v2, adc_v3, adc_g0, adc_f3, adc_f3_v1_1))]
             Resolution::SixBit => (1 << 6) - 1,
         }
     }

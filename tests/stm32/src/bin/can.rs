@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 // required-features: can
 
@@ -27,21 +26,21 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut p = embassy_stm32::init(config());
+    let p = embassy_stm32::init(config());
     info!("Hello World!");
 
-    // HW is connected as follows:
-    // PB13 -> PD0
-    // PB12 -> PD1
+    let can = peri!(p, CAN);
+    let tx = peri!(p, CAN_TX);
+    let mut rx = peri!(p, CAN_RX);
 
     // The next two lines are a workaround for testing without transceiver.
     // To synchronise to the bus the RX input needs to see a high level.
     // Use `mem::forget()` to release the borrow on the pin but keep the
     // pull-up resistor enabled.
-    let rx_pin = Input::new(&mut p.PD0, Pull::Up);
+    let rx_pin = Input::new(&mut rx, Pull::Up);
     core::mem::forget(rx_pin);
 
-    let mut can = Can::new(p.CAN1, p.PD0, p.PD1, Irqs);
+    let mut can = Can::new(can, rx, tx, Irqs);
 
     info!("Configuring can...");
 

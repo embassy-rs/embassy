@@ -243,7 +243,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     /// Create a new GPIOTE output channel driver.
-    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = C> + 'd, mut pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
         into_ref!(ch);
         let g = regs();
         let num = ch.number();
@@ -481,79 +481,69 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
+            Ok(!self.pin.pin.ref_is_low())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
+            Ok(self.pin.pin.ref_is_low())
         }
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
+impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::ErrorType for InputChannel<'d, C, T> {
+    type Error = Infallible;
+}
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::ErrorType for InputChannel<'d, C, T> {
-        type Error = Infallible;
+impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChannel<'d, C, T> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.pin.is_high())
     }
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChannel<'d, C, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
-        }
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.pin.is_low())
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eha {
-    use super::*;
-
-    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_high().await)
-        }
-
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_low().await)
-        }
-
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_rising_edge().await)
-        }
-
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_falling_edge().await)
-        }
-
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_any_edge().await)
-        }
+impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
     }
 
-    impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_high().await)
-        }
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_low().await)
-        }
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_rising_edge().await)
-        }
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_falling_edge().await)
-        }
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
+    }
+}
 
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            Ok(self.wait_for_any_edge().await)
-        }
+impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
     }
 }

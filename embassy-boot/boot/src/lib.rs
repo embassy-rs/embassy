@@ -1,6 +1,5 @@
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
 #![no_std]
+#![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 mod fmt;
@@ -18,13 +17,13 @@ mod test_flash;
 pub(crate) const STATE_ERASE_VALUE: u8 = 0xFF;
 pub use boot_loader::{BootError, BootLoader, BootLoaderConfig};
 pub use firmware_updater::{
-    BlockingFirmwareState, BlockingFirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError,
+    BlockingFirmwareState, BlockingFirmwareUpdater, FirmwareState, FirmwareUpdater, FirmwareUpdaterConfig,
+    FirmwareUpdaterError,
 };
-#[cfg(feature = "nightly")]
-pub use firmware_updater::{FirmwareState, FirmwareUpdater};
 
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
+pub(crate) const DFU_DETACH_MAGIC: u8 = 0xE0;
 
 /// The state of the bootloader after running prepare.
 #[derive(PartialEq, Eq, Debug)]
@@ -34,6 +33,8 @@ pub enum State {
     Boot,
     /// Bootloader has swapped the active partition with the dfu partition and will attempt boot.
     Swap,
+    /// Application has received a request to reboot into DFU mode to apply an update.
+    DfuDetach,
 }
 
 /// Buffer aligned to 32 byte boundary, largest known alignment requirement for embassy-boot.
@@ -57,7 +58,6 @@ mod tests {
     #![allow(unused_imports)]
 
     use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
-    #[cfg(feature = "nightly")]
     use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
     use futures::executor::block_on;
 
@@ -65,9 +65,7 @@ mod tests {
     use crate::boot_loader::BootLoaderConfig;
     use crate::firmware_updater::FirmwareUpdaterConfig;
     use crate::mem_flash::MemFlash;
-    #[cfg(feature = "nightly")]
-    use crate::test_flash::AsyncTestFlash;
-    use crate::test_flash::BlockingTestFlash;
+    use crate::test_flash::{AsyncTestFlash, BlockingTestFlash};
 
     /*
     #[test]
@@ -105,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "nightly", not(feature = "_verify")))]
+    #[cfg(not(feature = "_verify"))]
     fn test_swap_state() {
         const FIRMWARE_SIZE: usize = 57344;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
@@ -183,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "nightly", not(feature = "_verify")))]
+    #[cfg(not(feature = "_verify"))]
     fn test_swap_state_active_page_biggest() {
         const FIRMWARE_SIZE: usize = 12288;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
@@ -228,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "nightly", not(feature = "_verify")))]
+    #[cfg(not(feature = "_verify"))]
     fn test_swap_state_dfu_page_biggest() {
         const FIRMWARE_SIZE: usize = 12288;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
@@ -272,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(all(feature = "nightly", feature = "_verify"))]
+    #[cfg(feature = "_verify")]
     fn test_verify() {
         // The following key setup is based on:
         // https://docs.rs/ed25519-dalek/latest/ed25519_dalek/#example

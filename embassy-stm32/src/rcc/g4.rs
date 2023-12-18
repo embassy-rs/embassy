@@ -308,6 +308,7 @@ pub(crate) unsafe fn init(config: Config) {
         sys: sys_clk,
         hclk1: ahb_freq,
         hclk2: ahb_freq,
+        hclk3: ahb_freq,
         pclk1: apb1_freq,
         pclk1_tim: apb1_tim_freq,
         pclk2: apb2_freq,
@@ -315,6 +316,8 @@ pub(crate) unsafe fn init(config: Config) {
         adc: adc12_ck,
         adc34: adc345_ck,
         pll1_p: None,
+        pll1_q: None, // TODO
+        hse: None,    // TODO
         rtc,
     });
 }

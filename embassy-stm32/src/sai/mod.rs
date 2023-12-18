@@ -584,10 +584,10 @@ fn get_ring_buffer<'d, T: Instance, C: Channel, W: word::Word>(
     };
     match tx_rx {
         TxRx::Transmitter => RingBuffer::Writable(unsafe {
-            WritableRingBuffer::new_write(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
+            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
         }),
         TxRx::Receiver => RingBuffer::Readable(unsafe {
-            ReadableRingBuffer::new_read(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
+            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
         }),
     }
 }

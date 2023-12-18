@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32/src/"
 
-features = ["nightly", "defmt", "unstable-pac", "unstable-traits", "exti", "time-driver-any", "time"]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time"]
 flavors = [
     { regex_feature = "stm32f0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32f1.*", target = "thumbv7m-none-eabi" },
@@ -32,22 +32,22 @@ flavors = [
 ]
 
 [dependencies]
-embassy-sync = { version = "0.4.0", path = "../embassy-sync" }
-embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-time = { version = "0.2", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver", optional = true }
-embassy-executor = { version = "0.3.3", path = "../embassy-executor", optional = true }
+embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
+embassy-executor = { version = "0.4.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.1", optional = true}
-embedded-hal-async = { version = "=1.0.0-rc.1", optional = true}
-embedded-hal-nb = { version = "=1.0.0-rc.1", optional = true}
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
+embedded-hal-async = { version = "=1.0.0-rc.3" }
+embedded-hal-nb = { version = "=1.0.0-rc.3" }
 
-embedded-storage = "0.3.0"
-embedded-storage-async = { version = "0.4.0", optional = true }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -58,15 +58,14 @@ rand_core = "0.6.3"
 sdio-host = "0.5.0"
 embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "a4f293d3a6f72158385f79c98634cb8a14d0d2fc", optional = true }
 critical-section = "1.1"
-atomic-polyfill = "1.0.1"
-stm32-metapac = { path = "../../stm32-data/build/stm32-metapac" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-91cee0d1fdcb4e447b65a09756b506f4af91b7e2" }
 vcell = "0.1.3"
 bxcan = "0.7.0"
 nb = "1.0.0"
 stm32-fmc = "0.3.0"
 cfg-if = "1.0.0"
 embedded-io = { version = "0.6.0" }
-embedded-io-async = { version = "0.6.0", optional = true }
+embedded-io-async = { version = "0.6.1" }
 chrono = { version = "^0.4", default-features = false, optional = true}
 bit_field = "0.10.2"
 document-features = "0.2.7"
@@ -77,8 +76,8 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { path = "../../stm32-data/build/stm32-metapac", default-features = false, features = ["metadata"]}
-#stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-e6e51db6cdd7d533e52ca7a3237f7816a0486cd4", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-91cee0d1fdcb4e447b65a09756b506f4af91b7e2", default-features = false, features = ["metadata"]}
+
 
 [features]
 default = ["rt"]
@@ -87,28 +86,20 @@ default = ["rt"]
 rt = ["stm32-metapac/rt"]
 
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async?/defmt-03", "embassy-usb-driver?/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
+defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "embassy-executor/arch-cortex-m" ]
+low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m" ]
 low-power-debug-with-sleep = []
-embassy-executor = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
 memory-x = ["stm32-metapac/memory-x"]
-
-## Enable nightly-only features
-nightly = ["embedded-hal-1", "embedded-hal-async", "embedded-storage-async", "dep:embedded-io-async", "dep:embassy-usb-driver", "embassy-embedded-hal/nightly"]
 
 ## Re-export stm32-metapac at `embassy_stm32::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-stm32 may major-bump (breaking) the stm32-metapac version.
 ## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 ## There are no plans to make this stable.
 unstable-pac = []
-
-## Implement embedded-hal 1.0 alpha traits.
-## Implement embedded-hal-async traits if `nightly` is set as well.
-unstable-traits = ["embedded-hal-1", "dep:embedded-hal-nb"]
 
 #! ## Time
 
@@ -129,6 +120,10 @@ time-driver-tim3 = ["_time-driver"]
 time-driver-tim4 = ["_time-driver"]
 ## Use TIM5 as time driver
 time-driver-tim5 = ["_time-driver"]
+## Use TIM9 as time driver
+time-driver-tim9 = ["_time-driver"]
+## Use TIM11 as time driver
+time-driver-tim11 = ["_time-driver"]
 ## Use TIM12 as time driver
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver

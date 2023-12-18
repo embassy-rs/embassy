@@ -1,3 +1,4 @@
+//! Atomic reusable ringbuffer.
 use core::slice;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
@@ -14,8 +15,9 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 /// One concurrent writer and one concurrent reader are supported, even at
 /// different execution priorities (like main and irq).
 pub struct RingBuffer {
+    #[doc(hidden)]
     pub buf: AtomicPtr<u8>,
-    pub len: AtomicUsize,
+    len: AtomicUsize,
 
     // start and end wrap at len*2, not at len.
     // This allows distinguishing "full" and "empty".
@@ -24,11 +26,16 @@ pub struct RingBuffer {
     //
     // This avoids having to consider the ringbuffer "full" at len-1 instead of len.
     // The usual solution is adding a "full" flag, but that can't be made atomic
+    #[doc(hidden)]
     pub start: AtomicUsize,
+    #[doc(hidden)]
     pub end: AtomicUsize,
 }
 
+/// A type which can only read from a ring buffer.
 pub struct Reader<'a>(&'a RingBuffer);
+
+/// A type which can only write to a ring buffer.
 pub struct Writer<'a>(&'a RingBuffer);
 
 impl RingBuffer {
@@ -89,10 +96,12 @@ impl RingBuffer {
         Writer(self)
     }
 
+    /// Return length of buffer.
     pub fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
     }
 
+    /// Check if buffer is full.
     pub fn is_full(&self) -> bool {
         let len = self.len.load(Ordering::Relaxed);
         let start = self.start.load(Ordering::Relaxed);
@@ -101,6 +110,7 @@ impl RingBuffer {
         self.wrap(start + len) == end
     }
 
+    /// Check if buffer is empty.
     pub fn is_empty(&self) -> bool {
         let start = self.start.load(Ordering::Relaxed);
         let end = self.end.load(Ordering::Relaxed);
@@ -238,6 +248,7 @@ impl<'a> Writer<'a> {
         [(unsafe { buf.add(end) }, n0), (buf, n1)]
     }
 
+    /// Mark n bytes as written and advance the write index.
     pub fn push_done(&mut self, n: usize) {
         trace!("  ringbuf: push {:?}", n);
         let end = self.0.end.load(Ordering::Relaxed);
@@ -323,6 +334,7 @@ impl<'a> Reader<'a> {
         (unsafe { buf.add(start) }, n)
     }
 
+    /// Mark n bytes as read and allow advance the read index.
     pub fn pop_done(&mut self, n: usize) {
         trace!("  ringbuf: pop {:?}", n);
 

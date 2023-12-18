@@ -2,7 +2,9 @@
 
 macro_rules! pin_trait {
     ($signal:ident, $instance:path) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
         pub trait $signal<T: $instance>: crate::gpio::Pin {
+            #[doc = concat!("Get the AF number needed to use this pin as", stringify!($signal))]
             fn af_num(&self) -> u8;
         }
     };
@@ -22,7 +24,11 @@ macro_rules! pin_trait_impl {
 
 macro_rules! dma_trait {
     ($signal:ident, $instance:path) => {
+        #[doc = concat!(stringify!($signal), " DMA request trait")]
         pub trait $signal<T: $instance>: crate::dma::Channel {
+            #[doc = concat!("Get the DMA request number needed to use this channel as", stringify!($signal))]
+            /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
+            /// `embassy-stm32` always uses the "channel" and "request number" names.
             fn request(&self) -> crate::dma::Request;
         }
     };

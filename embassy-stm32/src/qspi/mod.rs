@@ -54,7 +54,7 @@ pub struct Config {
     /// Number of bytes to trigger FIFO threshold flag.
     pub fifo_threshold: FIFOThresholdLevel,
     /// Minimum number of cycles that chip select must be high between issued commands
-    pub cs_high_time: ChipSelectHightTime,
+    pub cs_high_time: ChipSelectHighTime,
 }
 
 impl Default for Config {
@@ -64,7 +64,7 @@ impl Default for Config {
             address_size: AddressSize::_24bit,
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
-            cs_high_time: ChipSelectHightTime::_5Cycle,
+            cs_high_time: ChipSelectHighTime::_5Cycle,
         }
     }
 }
@@ -119,7 +119,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
             Some(nss.map_into()),
             dma,
             config,
-            FlashSelection::Flash2,
+            FlashSelection::Flash1,
         )
     }
 

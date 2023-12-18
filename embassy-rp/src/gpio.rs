@@ -1,4 +1,5 @@
 #![macro_use]
+use core::convert::Infallible;
 use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
@@ -104,18 +105,18 @@ impl<'d, T: Pin> Input<'d, T> {
     }
 
     #[inline]
-    pub fn is_high(&self) -> bool {
+    pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
     #[inline]
-    pub fn is_low(&self) -> bool {
+    pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
     /// Returns current pin level
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn get_level(&mut self) -> Level {
         self.pin.get_level()
     }
 
@@ -356,19 +357,19 @@ impl<'d, T: Pin> Output<'d, T> {
 
     /// Is the output pin set as high?
     #[inline]
-    pub fn is_set_high(&self) -> bool {
+    pub fn is_set_high(&mut self) -> bool {
         self.pin.is_set_high()
     }
 
     /// Is the output pin set as low?
     #[inline]
-    pub fn is_set_low(&self) -> bool {
+    pub fn is_set_low(&mut self) -> bool {
         self.pin.is_set_low()
     }
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn get_output_level(&mut self) -> Level {
         self.pin.get_output_level()
     }
 
@@ -433,19 +434,19 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
 
     /// Is the output level high?
     #[inline]
-    pub fn is_set_high(&self) -> bool {
+    pub fn is_set_high(&mut self) -> bool {
         !self.is_set_low()
     }
 
     /// Is the output level low?
     #[inline]
-    pub fn is_set_low(&self) -> bool {
+    pub fn is_set_low(&mut self) -> bool {
         self.pin.is_set_as_output()
     }
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn get_output_level(&mut self) -> Level {
         self.is_set_high().into()
     }
 
@@ -456,18 +457,18 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     }
 
     #[inline]
-    pub fn is_high(&self) -> bool {
+    pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
     #[inline]
-    pub fn is_low(&self) -> bool {
+    pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
     /// Returns current pin level
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn get_level(&mut self) -> Level {
         self.is_high().into()
     }
 
@@ -589,7 +590,12 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     #[inline]
-    fn is_set_as_output(&self) -> bool {
+    pub fn is_set_as_output(&mut self) -> bool {
+        self.ref_is_set_as_output()
+    }
+
+    #[inline]
+    pub(crate) fn ref_is_set_as_output(&self) -> bool {
         (self.pin.sio_oe().value().read() & self.bit()) != 0
     }
 
@@ -599,18 +605,23 @@ impl<'d, T: Pin> Flex<'d, T> {
     }
 
     #[inline]
-    pub fn is_high(&self) -> bool {
+    pub fn is_high(&mut self) -> bool {
         !self.is_low()
     }
 
     #[inline]
-    pub fn is_low(&self) -> bool {
+    pub fn is_low(&mut self) -> bool {
+        self.ref_is_low()
+    }
+
+    #[inline]
+    pub(crate) fn ref_is_low(&self) -> bool {
         self.pin.sio_in().read() & self.bit() == 0
     }
 
     /// Returns current pin level
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn get_level(&mut self) -> Level {
         self.is_high().into()
     }
 
@@ -637,19 +648,24 @@ impl<'d, T: Pin> Flex<'d, T> {
 
     /// Is the output level high?
     #[inline]
-    pub fn is_set_high(&self) -> bool {
+    pub fn is_set_high(&mut self) -> bool {
         !self.is_set_low()
     }
 
     /// Is the output level low?
     #[inline]
-    pub fn is_set_low(&self) -> bool {
+    pub fn is_set_low(&mut self) -> bool {
+        self.ref_is_set_low()
+    }
+
+    #[inline]
+    pub(crate) fn ref_is_set_low(&self) -> bool {
         (self.pin.sio_out().value().read() & self.bit()) == 0
     }
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn get_output_level(&mut self) -> Level {
         self.is_set_high().into()
     }
 
@@ -911,11 +927,11 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
+            Ok(!self.pin.ref_is_low())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
+            Ok(self.pin.ref_is_low())
         }
     }
 
@@ -933,11 +949,11 @@ mod eh02 {
 
     impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
+            Ok(!self.pin.ref_is_set_low())
         }
 
         fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
+            Ok(self.pin.ref_is_set_low())
         }
     }
 
@@ -953,11 +969,11 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
+            Ok(!self.pin.ref_is_low())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
+            Ok(self.pin.ref_is_low())
         }
     }
 
@@ -977,11 +993,11 @@ mod eh02 {
 
     impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for OutputOpenDrain<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
+            Ok(!self.pin.ref_is_set_as_output())
         }
 
         fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
+            Ok(self.pin.ref_is_set_as_output())
         }
     }
 
@@ -997,11 +1013,11 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
+            Ok(!self.ref_is_low())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
+            Ok(self.ref_is_low())
         }
     }
 
@@ -1019,11 +1035,11 @@ mod eh02 {
 
     impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d, T> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
+            Ok(!self.ref_is_set_low())
         }
 
         fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
+            Ok(self.ref_is_set_low())
         }
     }
 
@@ -1036,217 +1052,207 @@ mod eh02 {
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use core::convert::Infallible;
+impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
+    type Error = Infallible;
+}
 
-    use super::*;
-
-    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
-        type Error = Infallible;
+impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
 
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Output<'d, T> {
+    type Error = Infallible;
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Output<'d, T> {
-        type Error = Infallible;
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_low())
+    }
+}
 
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Output<'d, T> {
+    fn toggle(&mut self) -> Result<(), Self::Error> {
+        Ok(self.toggle())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d, T> {
+    type Error = Infallible;
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d, T> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
 
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d, T> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Output<'d, T> {
-        fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
-        }
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_low())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for OutputOpenDrain<'d, T> {
+    fn toggle(&mut self) -> Result<(), Self::Error> {
+        Ok(self.toggle())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d, T> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d, T> {
-        type Error = Infallible;
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Flex<'d, T> {
+    type Error = Infallible;
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for OutputOpenDrain<'d, T> {
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
 
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<'d, T> {
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.set_low())
+    }
+}
 
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
+impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_high())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for OutputOpenDrain<'d, T> {
-        fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
-        }
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok(self.is_set_low())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Flex<'d, T> {
+    fn toggle(&mut self) -> Result<(), Self::Error> {
+        Ok(self.toggle())
+    }
+}
+
+impl<'d, T: Pin> embedded_hal_async::digital::Wait for Flex<'d, T> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_high().await;
+        Ok(())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for OutputOpenDrain<'d, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_low().await;
+        Ok(())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Flex<'d, T> {
-        type Error = Infallible;
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_rising_edge().await;
+        Ok(())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
-        fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_high())
-        }
-
-        fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_low())
-        }
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_falling_edge().await;
+        Ok(())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
-        fn set_high(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_high())
-        }
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_any_edge().await;
+        Ok(())
+    }
+}
 
-        fn set_low(&mut self) -> Result<(), Self::Error> {
-            Ok(self.set_low())
-        }
+impl<'d, T: Pin> embedded_hal_async::digital::Wait for Input<'d, T> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_high().await;
+        Ok(())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
-        fn is_set_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_high())
-        }
-
-        fn is_set_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.is_set_low())
-        }
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_low().await;
+        Ok(())
     }
 
-    impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Flex<'d, T> {
-        fn toggle(&mut self) -> Result<(), Self::Error> {
-            Ok(self.toggle())
-        }
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_rising_edge().await;
+        Ok(())
     }
 
-    #[cfg(feature = "nightly")]
-    impl<'d, T: Pin> embedded_hal_async::digital::Wait for Flex<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_high().await;
-            Ok(())
-        }
-
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_low().await;
-            Ok(())
-        }
-
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_rising_edge().await;
-            Ok(())
-        }
-
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_falling_edge().await;
-            Ok(())
-        }
-
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_any_edge().await;
-            Ok(())
-        }
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_falling_edge().await;
+        Ok(())
     }
 
-    #[cfg(feature = "nightly")]
-    impl<'d, T: Pin> embedded_hal_async::digital::Wait for Input<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_high().await;
-            Ok(())
-        }
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_any_edge().await;
+        Ok(())
+    }
+}
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_low().await;
-            Ok(())
-        }
-
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_rising_edge().await;
-            Ok(())
-        }
-
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_falling_edge().await;
-            Ok(())
-        }
-
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_any_edge().await;
-            Ok(())
-        }
+impl<'d, T: Pin> embedded_hal_async::digital::Wait for OutputOpenDrain<'d, T> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_high().await;
+        Ok(())
     }
 
-    #[cfg(feature = "nightly")]
-    impl<'d, T: Pin> embedded_hal_async::digital::Wait for OutputOpenDrain<'d, T> {
-        async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_high().await;
-            Ok(())
-        }
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_low().await;
+        Ok(())
+    }
 
-        async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_low().await;
-            Ok(())
-        }
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_rising_edge().await;
+        Ok(())
+    }
 
-        async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_rising_edge().await;
-            Ok(())
-        }
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_falling_edge().await;
+        Ok(())
+    }
 
-        async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_falling_edge().await;
-            Ok(())
-        }
-
-        async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
-            self.wait_for_any_edge().await;
-            Ok(())
-        }
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        self.wait_for_any_edge().await;
+        Ok(())
     }
 }

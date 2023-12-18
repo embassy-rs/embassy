@@ -10,10 +10,18 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum HseMode {
+    /// crystal/ceramic oscillator (HSEBYP=0)
+    Oscillator,
+    /// external analog clock (low swing) (HSEBYP=1)
+    Bypass,
+}
+
 /// System clock mux source
 #[derive(Clone, Copy)]
 pub enum ClockSrc {
-    HSE(Hertz),
+    HSE(Hertz, HseMode),
     HSI(HSIPrescaler),
     PLL(PllConfig),
     LSI,
@@ -61,7 +69,7 @@ impl Default for PllConfig {
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum PllSource {
     HSI,
-    HSE(Hertz),
+    HSE(Hertz, HseMode),
 }
 
 /// Clocks configutation
@@ -90,7 +98,7 @@ impl PllConfig {
     pub(crate) fn init(self) -> Hertz {
         let (src, input_freq) = match self.source {
             PllSource::HSI => (vals::Pllsrc::HSI, HSI_FREQ),
-            PllSource::HSE(freq) => (vals::Pllsrc::HSE, freq),
+            PllSource::HSE(freq, _) => (vals::Pllsrc::HSE, freq),
         };
 
         let m_freq = input_freq / self.m;
@@ -125,8 +133,11 @@ impl PllConfig {
                 RCC.cr().write(|w| w.set_hsion(true));
                 while !RCC.cr().read().hsirdy() {}
             }
-            PllSource::HSE(_) => {
-                RCC.cr().write(|w| w.set_hseon(true));
+            PllSource::HSE(_, mode) => {
+                RCC.cr().write(|w| {
+                    w.set_hsebyp(mode != HseMode::Oscillator);
+                    w.set_hseon(true);
+                });
                 while !RCC.cr().read().hserdy() {}
             }
         }
@@ -177,9 +188,12 @@ pub(crate) unsafe fn init(config: Config) {
 
             (HSI_FREQ / div, Sw::HSI)
         }
-        ClockSrc::HSE(freq) => {
+        ClockSrc::HSE(freq, mode) => {
             // Enable HSE
-            RCC.cr().write(|w| w.set_hseon(true));
+            RCC.cr().write(|w| {
+                w.set_hseon(true);
+                w.set_hsebyp(mode != HseMode::Oscillator);
+            });
             while !RCC.cr().read().hserdy() {}
 
             (freq, Sw::HSE)

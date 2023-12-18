@@ -5,8 +5,7 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [features]
-default = ["log", "nightly"]
-nightly = ["embassy-executor/nightly", "embassy-nrf/nightly", "embassy-nrf/unstable-traits"]
+default = ["log"]
 log = [
     "dep:log",
     "embassy-sync/log",
@@ -16,9 +15,9 @@ log = [
 ]
 
 [dependencies]
-embassy-sync = { version = "0.4.0", path = "../../embassy-sync" }
-embassy-executor = { version = "0.3.3", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "rtos-trace", "integrated-timers"] }
-embassy-time = { version = "0.1.5", path = "../../embassy-time" }
+embassy-sync = { version = "0.5.0", path = "../../embassy-sync" }
+embassy-executor = { version = "0.4.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "rtos-trace", "integrated-timers"] }
+embassy-time = { version = "0.2", path = "../../embassy-time" }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
@@ -33,7 +32,7 @@ log = { version = "0.4.17", optional = true }
 
 [[bin]]
 name = "rtos_trace"
-required-features = ["nightly"]
+
 
 [profile.release]
 debug = 2

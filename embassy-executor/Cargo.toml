@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
@@ -32,8 +32,8 @@ defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
-embassy-macros = { version = "0.2.1", path = "../embassy-macros" }
-embassy-time = { version = "0.1.5", path = "../embassy-time", optional = true}
+embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macros" }
+embassy-time = { version = "0.2", path = "../embassy-time", optional = true}
 critical-section = "1.1"
 
 # needed for riscv
@@ -57,7 +57,6 @@ critical-section = { version = "1.1", features = ["std"] }
 _arch = [] # some arch was picked
 arch-std = ["_arch", "critical-section/std"]
 arch-cortex-m = ["_arch", "dep:cortex-m"]
-arch-xtensa = ["_arch"]
 arch-riscv32 = ["_arch", "dep:portable-atomic"]
 arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
 
@@ -67,7 +66,7 @@ executor-thread = []
 executor-interrupt = []
 
 # Enable nightly-only features
-nightly = ["embassy-macros/nightly"]
+nightly = ["embassy-executor-macros/nightly"]
 
 turbowakers = []
 

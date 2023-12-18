@@ -7,13 +7,13 @@ edition = "2021"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-time = { version = "0.1.5", path = "../embassy-time" }
-embassy-sync = { version = "0.4.0", path = "../embassy-sync"}
+embassy-time = { version = "0.2", path = "../embassy-time" }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync"}
 embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
 embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel"}
 
-embedded-hal = { version = "1.0.0-rc.1" }
-embedded-hal-async = { version = "=1.0.0-rc.1" }
+embedded-hal = { version = "1.0.0-rc.3" }
+embedded-hal-async = { version = "=1.0.0-rc.3" }
 
 noproto = { git="https://github.com/embassy-rs/noproto", rev = "f5e6d1f325b6ad4e344f60452b09576e24671f62", default-features = false, features = ["derive"] }
 #noproto = { version = "0.1", path = "/home/dirbaio/noproto", default-features = false, features = ["derive"] }

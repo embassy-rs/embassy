@@ -132,6 +132,14 @@ pub struct Config {
     /// Set this to true to swap the RX and TX pins.
     #[cfg(any(usart_v3, usart_v4))]
     pub swap_rx_tx: bool,
+
+    /// Set this to true to invert TX pin signal values (V<sub>DD</sub> =0/mark, Gnd = 1/idle).
+    #[cfg(any(usart_v3, usart_v4))]
+    pub invert_tx: bool,
+
+    /// Set this to true to invert RX pin signal values (V<sub>DD</sub> =0/mark, Gnd = 1/idle).
+    #[cfg(any(usart_v3, usart_v4))]
+    pub invert_rx: bool,
 }
 
 impl Default for Config {
@@ -147,6 +155,10 @@ impl Default for Config {
             assume_noise_free: false,
             #[cfg(any(usart_v3, usart_v4))]
             swap_rx_tx: false,
+            #[cfg(any(usart_v3, usart_v4))]
+            invert_tx: false,
+            #[cfg(any(usart_v3, usart_v4))]
+            invert_rx: false,
         }
     }
 }
@@ -972,7 +984,11 @@ fn configure(
         });
 
         #[cfg(any(usart_v3, usart_v4))]
-        w.set_swap(config.swap_rx_tx);
+        {
+            w.set_txinv(config.invert_tx);
+            w.set_rxinv(config.invert_rx);
+            w.set_swap(config.swap_rx_tx);
+        }
     });
 
     #[cfg(not(usart_v1))]
@@ -1010,102 +1026,93 @@ fn configure(
     Ok(())
 }
 
-mod eh02 {
-    use super::*;
-
-    impl<'d, T: BasicInstance, RxDma> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, RxDma> {
-        type Error = Error;
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            self.nb_read()
-        }
+impl<'d, T: BasicInstance, RxDma> embedded_hal_02::serial::Read<u8> for UartRx<'d, T, RxDma> {
+    type Error = Error;
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        self.nb_read()
     }
+}
 
-    impl<'d, T: BasicInstance, TxDma> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, TxDma> {
-        type Error = Error;
-        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-        fn bflush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
-        }
+impl<'d, T: BasicInstance, TxDma> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, T, TxDma> {
+    type Error = Error;
+    fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(buffer)
     }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
-        type Error = Error;
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            self.nb_read()
-        }
+    fn bflush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
     }
+}
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, TxDma, RxDma> {
-        type Error = Error;
-        fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
-            self.blocking_write(buffer)
-        }
-        fn bflush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
+impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::serial::Read<u8> for Uart<'d, T, TxDma, RxDma> {
+    type Error = Error;
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        self.nb_read()
+    }
+}
+
+impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, T, TxDma, RxDma> {
+    type Error = Error;
+    fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(buffer)
+    }
+    fn bflush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
+impl embedded_hal_nb::serial::Error for Error {
+    fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
+        match *self {
+            Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
+            Self::Noise => embedded_hal_nb::serial::ErrorKind::Noise,
+            Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
+            Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
+            Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
         }
     }
 }
 
-#[cfg(feature = "unstable-traits")]
-mod eh1 {
-    use super::*;
+impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
+    type Error = Error;
+}
 
-    impl embedded_hal_nb::serial::Error for Error {
-        fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
-            match *self {
-                Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
-                Self::Noise => embedded_hal_nb::serial::ErrorKind::Noise,
-                Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
-                Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
-                Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
-            }
-        }
+impl<'d, T: BasicInstance, TxDma> embedded_hal_nb::serial::ErrorType for UartTx<'d, T, TxDma> {
+    type Error = Error;
+}
+
+impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::ErrorType for UartRx<'d, T, RxDma> {
+    type Error = Error;
+}
+
+impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::Read for UartRx<'d, T, RxDma> {
+    fn read(&mut self) -> nb::Result<u8, Self::Error> {
+        self.nb_read()
+    }
+}
+
+impl<'d, T: BasicInstance, TxDma> embedded_hal_nb::serial::Write for UartTx<'d, T, TxDma> {
+    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+        self.blocking_write(&[char]).map_err(nb::Error::Other)
     }
 
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::ErrorType for Uart<'d, T, TxDma, RxDma> {
-        type Error = Error;
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        self.blocking_flush().map_err(nb::Error::Other)
+    }
+}
+
+impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Read for Uart<'d, T, TxDma, RxDma> {
+    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
+        self.nb_read()
+    }
+}
+
+impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Write for Uart<'d, T, TxDma, RxDma> {
+    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
+        self.blocking_write(&[char]).map_err(nb::Error::Other)
     }
 
-    impl<'d, T: BasicInstance, TxDma> embedded_hal_nb::serial::ErrorType for UartTx<'d, T, TxDma> {
-        type Error = Error;
-    }
-
-    impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::ErrorType for UartRx<'d, T, RxDma> {
-        type Error = Error;
-    }
-
-    impl<'d, T: BasicInstance, RxDma> embedded_hal_nb::serial::Read for UartRx<'d, T, RxDma> {
-        fn read(&mut self) -> nb::Result<u8, Self::Error> {
-            self.nb_read()
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma> embedded_hal_nb::serial::Write for UartTx<'d, T, TxDma> {
-        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map_err(nb::Error::Other)
-        }
-
-        fn flush(&mut self) -> nb::Result<(), Self::Error> {
-            self.blocking_flush().map_err(nb::Error::Other)
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Read for Uart<'d, T, TxDma, RxDma> {
-        fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-            self.nb_read()
-        }
-    }
-
-    impl<'d, T: BasicInstance, TxDma, RxDma> embedded_hal_nb::serial::Write for Uart<'d, T, TxDma, RxDma> {
-        fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-            self.blocking_write(&[char]).map_err(nb::Error::Other)
-        }
-
-        fn flush(&mut self) -> nb::Result<(), Self::Error> {
-            self.blocking_flush().map_err(nb::Error::Other)
-        }
+    fn flush(&mut self) -> nb::Result<(), Self::Error> {
+        self.blocking_flush().map_err(nb::Error::Other)
     }
 }
 
@@ -1159,47 +1166,39 @@ where
     }
 }
 
-#[cfg(all(feature = "unstable-traits", feature = "nightly"))]
-mod eio {
-    use super::*;
-
-    impl<T, TxDma, RxDma> embedded_io_async::Write for Uart<'_, T, TxDma, RxDma>
-    where
-        T: BasicInstance,
-        TxDma: super::TxDma<T>,
-    {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            self.write(buf).await?;
-            Ok(buf.len())
-        }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
-        }
+impl<T, TxDma, RxDma> embedded_io_async::Write for Uart<'_, T, TxDma, RxDma>
+where
+    T: BasicInstance,
+    TxDma: self::TxDma<T>,
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.write(buf).await?;
+        Ok(buf.len())
     }
 
-    impl<T, TxDma> embedded_io_async::Write for UartTx<'_, T, TxDma>
-    where
-        T: BasicInstance,
-        TxDma: super::TxDma<T>,
-    {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            self.write(buf).await?;
-            Ok(buf.len())
-        }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            self.blocking_flush()
-        }
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
     }
 }
 
-#[cfg(feature = "nightly")]
+impl<T, TxDma> embedded_io_async::Write for UartTx<'_, T, TxDma>
+where
+    T: BasicInstance,
+    TxDma: self::TxDma<T>,
+{
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.write(buf).await?;
+        Ok(buf.len())
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.blocking_flush()
+    }
+}
+
 pub use buffered::*;
 
-#[cfg(feature = "nightly")]
 pub use crate::usart::buffered::InterruptHandler as BufferedInterruptHandler;
-#[cfg(feature = "nightly")]
 mod buffered;
 
 #[cfg(not(gpdma))]
@@ -1284,7 +1283,6 @@ pub(crate) mod sealed {
         fn regs() -> Regs;
         fn state() -> &'static State;
 
-        #[cfg(feature = "nightly")]
         fn buffered_state() -> &'static buffered::State;
     }
 
@@ -1322,7 +1320,6 @@ macro_rules! impl_usart {
                 &STATE
             }
 
-            #[cfg(feature = "nightly")]
             fn buffered_state() -> &'static buffered::State {
                 static STATE: buffered::State = buffered::State::new();
                 &STATE

@@ -1,5 +1,4 @@
 #![cfg_attr(not(any(feature = "arch-std", feature = "arch-wasm")), no_std)]
-#![cfg_attr(feature = "arch-xtensa", feature(asm_experimental_arch))]
 #![allow(clippy::new_without_default)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
@@ -7,7 +6,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub use embassy_macros::task;
+pub use embassy_executor_macros::task;
 
 macro_rules! check_at_most_one {
     (@amo [$($feats:literal)*] [] [$($res:tt)*]) => {
@@ -21,12 +20,11 @@ macro_rules! check_at_most_one {
         check_at_most_one!(@amo [$($f)*] [$($f)*] []);
     };
 }
-check_at_most_one!("arch-cortex-m", "arch-riscv32", "arch-xtensa", "arch-std", "arch-wasm",);
+check_at_most_one!("arch-cortex-m", "arch-riscv32", "arch-std", "arch-wasm",);
 
 #[cfg(feature = "_arch")]
 #[cfg_attr(feature = "arch-cortex-m", path = "arch/cortex_m.rs")]
 #[cfg_attr(feature = "arch-riscv32", path = "arch/riscv32.rs")]
-#[cfg_attr(feature = "arch-xtensa", path = "arch/xtensa.rs")]
 #[cfg_attr(feature = "arch-std", path = "arch/std.rs")]
 #[cfg_attr(feature = "arch-wasm", path = "arch/wasm.rs")]
 mod arch;

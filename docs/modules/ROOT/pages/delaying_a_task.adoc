@@ -1,0 +1,28 @@
+= Delaying a Task
+
+In an embedded program, delaying a task is one of the most common actions taken. In an event loop, delays will need to be inserted to ensure
+that other tasks have a chance to run before the next iteration of the loop is called, if no other I/O is performed. Embassy provides an abstraction
+to delay the current task for a specified interval of time.
+
+Timing is serviced by the `embassy::time::Timer` struct, which provides two timing methods.
+
+`Timer::at` creates a future that completes at the specified `Instant`, relative to the system boot time.
+`Timer::after` creates a future that completes after the specified `Duration`, relative to when the future was created.
+
+An example of a delay is provided as follows:
+
+[,rust]
+----
+use embassy::executor::{task, Executor};
+use embassy::time::{Duration, Timer};
+
+#[task]
+/// Task that ticks periodically
+async fn tick_periodic() -> ! {
+    loop {
+        rprintln!("tick!");
+        // async sleep primitive, suspends the task for 500ms.
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+----

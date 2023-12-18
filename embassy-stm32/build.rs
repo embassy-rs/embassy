@@ -187,6 +187,8 @@ fn main() {
         Some("tim3") => "TIM3",
         Some("tim4") => "TIM4",
         Some("tim5") => "TIM5",
+        Some("tim9") => "TIM9",
+        Some("tim11") => "TIM11",
         Some("tim12") => "TIM12",
         Some("tim15") => "TIM15",
         Some("any") => {
@@ -198,12 +200,16 @@ fn main() {
                 "TIM4"
             } else if singletons.contains(&"TIM5".to_string()) {
                 "TIM5"
+            } else if singletons.contains(&"TIM9".to_string()) {
+                "TIM9"
+            } else if singletons.contains(&"TIM11".to_string()) {
+                "TIM11"
             } else if singletons.contains(&"TIM12".to_string()) {
                 "TIM12"
             } else if singletons.contains(&"TIM15".to_string()) {
                 "TIM15"
             } else {
-                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM12 or TIM15.")
+                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM9, TIM11, TIM12 or TIM15.")
             }
         }
         _ => panic!("unknown time_driver {:?}", time_driver),
@@ -930,6 +936,10 @@ fn main() {
                     } else if pin.signal.starts_with("INN") {
                         // TODO handle in the future when embassy supports differential measurements
                         None
+                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with("b") {
+                        // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
+                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix("b").unwrap();
+                        Some(32u8 + signal.parse::<u8>().unwrap())
                     } else if pin.signal.starts_with("IN") {
                         Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
                     } else {

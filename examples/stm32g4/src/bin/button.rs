@@ -13,7 +13,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let button = Input::new(p.PC13, Pull::Down);
+    let mut button = Input::new(p.PC13, Pull::Down);
 
     loop {
         if button.is_high() {

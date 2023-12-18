@@ -36,6 +36,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// The level on the VSync pin when the data is not valid on the parallel interface.
+#[allow(missing_docs)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum VSyncDataInvalidLevel {
     Low,
@@ -43,6 +44,7 @@ pub enum VSyncDataInvalidLevel {
 }
 
 /// The level on the VSync pin when the data is not valid on the parallel interface.
+#[allow(missing_docs)]
 #[derive(Clone, Copy, PartialEq)]
 pub enum HSyncDataInvalidLevel {
     Low,
@@ -50,14 +52,16 @@ pub enum HSyncDataInvalidLevel {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+#[allow(missing_docs)]
 pub enum PixelClockPolarity {
     RisingEdge,
     FallingEdge,
 }
 
-pub struct State {
+struct State {
     waker: AtomicWaker,
 }
+
 impl State {
     const fn new() -> State {
         State {
@@ -68,18 +72,25 @@ impl State {
 
 static STATE: State = State::new();
 
+/// DCMI error.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// Overrun error: the hardware generated data faster than we could read it.
     Overrun,
+    /// Internal peripheral error.
     PeripheralError,
 }
 
+/// DCMI configuration.
 #[non_exhaustive]
 pub struct Config {
+    /// VSYNC level.
     pub vsync_level: VSyncDataInvalidLevel,
+    /// HSYNC level.
     pub hsync_level: HSyncDataInvalidLevel,
+    /// PIXCLK polarity.
     pub pixclk_polarity: PixelClockPolarity,
 }
 
@@ -105,6 +116,7 @@ macro_rules! config_pins {
     };
 }
 
+/// DCMI driver.
 pub struct Dcmi<'d, T: Instance, Dma: FrameDma<T>> {
     inner: PeripheralRef<'d, T>,
     dma: PeripheralRef<'d, Dma>,
@@ -115,6 +127,7 @@ where
     T: Instance,
     Dma: FrameDma<T>,
 {
+    /// Create a new DCMI driver with 8 data bits.
     pub fn new_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -139,6 +152,7 @@ where
         Self::new_inner(peri, dma, config, false, 0b00)
     }
 
+    /// Create a new DCMI driver with 10 data bits.
     pub fn new_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -165,6 +179,7 @@ where
         Self::new_inner(peri, dma, config, false, 0b01)
     }
 
+    /// Create a new DCMI driver with 12 data bits.
     pub fn new_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -193,6 +208,7 @@ where
         Self::new_inner(peri, dma, config, false, 0b10)
     }
 
+    /// Create a new DCMI driver with 14 data bits.
     pub fn new_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -223,6 +239,7 @@ where
         Self::new_inner(peri, dma, config, false, 0b11)
     }
 
+    /// Create a new DCMI driver with 8 data bits, with embedded synchronization.
     pub fn new_es_8bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -245,6 +262,7 @@ where
         Self::new_inner(peri, dma, config, true, 0b00)
     }
 
+    /// Create a new DCMI driver with 10 data bits, with embedded synchronization.
     pub fn new_es_10bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -269,6 +287,7 @@ where
         Self::new_inner(peri, dma, config, true, 0b01)
     }
 
+    /// Create a new DCMI driver with 12 data bits, with embedded synchronization.
     pub fn new_es_12bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -295,6 +314,7 @@ where
         Self::new_inner(peri, dma, config, true, 0b10)
     }
 
+    /// Create a new DCMI driver with 14 data bits, with embedded synchronization.
     pub fn new_es_14bit(
         peri: impl Peripheral<P = T> + 'd,
         dma: impl Peripheral<P = Dma> + 'd,
@@ -538,7 +558,9 @@ mod sealed {
     }
 }
 
+/// DCMI instance.
 pub trait Instance: sealed::Instance + 'static {
+    /// Interrupt for this instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 

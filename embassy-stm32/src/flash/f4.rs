@@ -142,7 +142,6 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::ReadNorFlash for $type_name<'_, Async> {
                 const READ_SIZE: usize = crate::flash::READ_SIZE;
 
@@ -155,7 +154,6 @@ mod alt_regions {
                 }
             }
 
-            #[cfg(feature = "nightly")]
             impl embedded_storage_async::nor_flash::NorFlash for $type_name<'_, Async> {
                 const WRITE_SIZE: usize = $region.write_size as usize;
                 const ERASE_SIZE: usize = $region.erase_size as usize;
@@ -339,7 +337,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
 pub(crate) fn clear_all_err() {
     // read and write back the same value.
-    // This clears all "write 0 to clear" bits.
+    // This clears all "write 1 to clear" bits.
     pac::FLASH.sr().modify(|_| {});
 }
 

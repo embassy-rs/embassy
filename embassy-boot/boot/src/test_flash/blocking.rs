@@ -51,7 +51,6 @@ where
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<ACTIVE, DFU, STATE> BlockingTestFlash<ACTIVE, DFU, STATE>
 where
     ACTIVE: NorFlash + embedded_storage_async::nor_flash::NorFlash,

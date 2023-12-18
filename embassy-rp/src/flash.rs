@@ -352,7 +352,6 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> NorFlash for Flash<'d, T
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::ReadNorFlash
     for Flash<'d, T, Async, FLASH_SIZE>
 {
@@ -367,7 +366,6 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash::NorFlash
     for Flash<'d, T, Async, FLASH_SIZE>
 {

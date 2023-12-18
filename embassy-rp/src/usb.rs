@@ -363,7 +363,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             let siestatus = regs.sie_status().read();
             let intrstatus = regs.intr().read();
 
-            if siestatus.resume() {
+            if siestatus.resume() || intrstatus.dev_resume_from_host() {
                 regs.sie_status().write(|w| w.set_resume(true));
                 return Poll::Ready(Event::Resume);
             }

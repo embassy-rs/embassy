@@ -1,6 +1,5 @@
 #![no_std]
-#![cfg_attr(feature = "nightly", feature(async_fn_in_trait, impl_trait_projections))]
-#![cfg_attr(feature = "nightly", allow(stable_features, unknown_lints, async_fn_in_trait))]
+#![allow(async_fn_in_trait)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -28,7 +27,6 @@ pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod timer;
 pub mod uart;
-#[cfg(feature = "nightly")]
 pub mod usb;
 pub mod watchdog;
 
@@ -88,6 +86,17 @@ embassy_hal_internal::interrupt_mod!(
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
 /// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use embassy_rp::{bind_interrupts, usb, peripherals};
+///
+/// bind_interrupts!(struct Irqs {
+///     USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
+/// });
+/// ```
+///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {

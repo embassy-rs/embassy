@@ -36,7 +36,7 @@ The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> cr
 The <a href="https://github.com/embassy-rs/embassy/tree/main/embassy-stm32-wpan">embassy-stm32-wpan</a> crate provides Bluetooth Low Energy 5.x support for stm32wb microcontrollers.
 
 - **LoRa** - 
-<a href="https://docs.embassy.dev/embassy-lora/">embassy-lora</a> supports LoRa networking.
+<a href="hthttps://github.com/lora-rs/lora-rs">The lora-rs project</a> provides an async LoRa and LoRaWAN stack that works well on Embassy.
 
 - **USB** - 
 <a href="https://docs.embassy.dev/embassy-usb/">embassy-usb</a> implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.

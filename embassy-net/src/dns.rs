@@ -72,7 +72,6 @@ where
     }
 }
 
-#[cfg(feature = "nightly")]
 impl<'a, D> embedded_nal_async::Dns for DnsSocket<'a, D>
 where
     D: Driver + 'static,

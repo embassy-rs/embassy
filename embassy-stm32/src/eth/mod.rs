@@ -22,6 +22,14 @@ const RX_BUFFER_SIZE: usize = 1536;
 #[derive(Copy, Clone)]
 pub(crate) struct Packet<const N: usize>([u8; N]);
 
+/// Ethernet packet queue.
+///
+/// This struct owns the memory used for reading and writing packets.
+///
+/// `TX` is the number of packets in the transmit queue, `RX` in the receive
+/// queue. A bigger queue allows the hardware to receive more packets while the
+/// CPU is busy doing other things, which may increase performance (especially for RX)
+/// at the cost of more RAM usage.
 pub struct PacketQueue<const TX: usize, const RX: usize> {
     tx_desc: [TDes; TX],
     rx_desc: [RDes; RX],
@@ -30,6 +38,7 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
 }
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
+    /// Create a new packet queue.
     pub const fn new() -> Self {
         const NEW_TDES: TDes = TDes::new();
         const NEW_RDES: RDes = RDes::new();
@@ -41,7 +50,18 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
         }
     }
 
-    // Allow to initialize a Self without requiring it to go on the stack
+    /// Initialize a packet queue in-place.
+    ///
+    /// This can be helpful to avoid accidentally stack-allocating the packet queue in the stack. The
+    /// Rust compiler can sometimes be a bit dumb when working with large owned values: if you call `new()`
+    /// and then store the returned PacketQueue in its final place (like a `static`), the compiler might
+    /// place it temporarily on the stack then move it. Since this struct is quite big, it may result
+    /// in a stack overflow.
+    ///
+    /// With this function, you can create an uninitialized `static` with type `MaybeUninit<PacketQueue<...>>`
+    /// and initialize it in-place, guaranteeing no stack usage.
+    ///
+    /// After calling this function, calling `assume_init` on the MaybeUninit is guaranteed safe.
     pub fn init(this: &mut MaybeUninit<Self>) {
         unsafe {
             this.as_mut_ptr().write_bytes(0u8, 1);
@@ -93,6 +113,7 @@ impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> 
     }
 }
 
+/// `embassy-net` RX token.
 pub struct RxToken<'a, 'd> {
     rx: &'a mut RDesRing<'d>,
 }
@@ -110,6 +131,7 @@ impl<'a, 'd> embassy_net_driver::RxToken for RxToken<'a, 'd> {
     }
 }
 
+/// `embassy-net` TX token.
 pub struct TxToken<'a, 'd> {
     tx: &'a mut TDesRing<'d>,
 }
@@ -159,6 +181,7 @@ pub(crate) mod sealed {
     }
 }
 
+/// Ethernet instance.
 pub trait Instance: sealed::Instance + Send + 'static {}
 
 impl sealed::Instance for crate::peripherals::ETH {

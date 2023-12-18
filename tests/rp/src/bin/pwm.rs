@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::{assert, assert_eq, assert_ne, *};
@@ -46,7 +45,7 @@ async fn main(_spawner: Spawner) {
 
         // Test output from A
         {
-            let pin1 = Input::new(&mut p9, Pull::None);
+            let mut pin1 = Input::new(&mut p9, Pull::None);
             let _pwm = Pwm::new_output_a(&mut p.PWM_CH3, &mut p6, cfg.clone());
             Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);
@@ -60,7 +59,7 @@ async fn main(_spawner: Spawner) {
 
         // Test output from B
         {
-            let pin2 = Input::new(&mut p11, Pull::None);
+            let mut pin2 = Input::new(&mut p11, Pull::None);
             let _pwm = Pwm::new_output_b(&mut p.PWM_CH3, &mut p7, cfg.clone());
             Timer::after_millis(1).await;
             assert_ne!(pin2.is_low(), invert_a);
@@ -74,8 +73,8 @@ async fn main(_spawner: Spawner) {
 
         // Test output from A+B
         {
-            let pin1 = Input::new(&mut p9, Pull::None);
-            let pin2 = Input::new(&mut p11, Pull::None);
+            let mut pin1 = Input::new(&mut p9, Pull::None);
+            let mut pin2 = Input::new(&mut p11, Pull::None);
             let _pwm = Pwm::new_output_ab(&mut p.PWM_CH3, &mut p6, &mut p7, cfg.clone());
             Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);

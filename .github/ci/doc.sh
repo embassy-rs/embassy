@@ -22,7 +22,6 @@ docserver-builder -i ./embassy-boot/stm32 -o webroot/crates/embassy-boot-stm32/g
 docserver-builder -i ./embassy-embedded-hal -o webroot/crates/embassy-embedded-hal/git.zup
 docserver-builder -i ./embassy-executor -o webroot/crates/embassy-executor/git.zup
 docserver-builder -i ./embassy-futures -o webroot/crates/embassy-futures/git.zup
-docserver-builder -i ./embassy-lora -o webroot/crates/embassy-lora/git.zup
 docserver-builder -i ./embassy-net -o webroot/crates/embassy-net/git.zup
 docserver-builder -i ./embassy-net-driver -o webroot/crates/embassy-net-driver/git.zup
 docserver-builder -i ./embassy-net-driver-channel -o webroot/crates/embassy-net-driver-channel/git.zup
