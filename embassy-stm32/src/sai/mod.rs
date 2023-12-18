@@ -453,7 +453,7 @@ pub struct Config {
     pub clock_strobe: ClockStrobe,
     pub output_drive: OutputDrive,
     pub master_clock_divider: MasterClockDivider,
-    pub is_high_impedenane_on_inactive_slot: bool,
+    pub is_high_impedance_on_inactive_slot: bool,
     pub fifo_threshold: FifoThreshold,
     pub companding: Companding,
     pub complement_format: ComplementFormat,
@@ -484,7 +484,7 @@ impl Default for Config {
             master_clock_divider: MasterClockDivider::MasterClockDisabled,
             clock_strobe: ClockStrobe::Rising,
             output_drive: OutputDrive::Immediately,
-            is_high_impedenane_on_inactive_slot: false,
+            is_high_impedance_on_inactive_slot: false,
             fifo_threshold: FifoThreshold::ThreeQuarters,
             companding: Companding::None,
             complement_format: ComplementFormat::TwosComplement,
@@ -782,7 +782,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
                 w.set_cpl(config.complement_format.cpl());
                 w.set_muteval(config.mute_value.muteval());
                 w.set_mutecnt(config.mute_detection_counter.0 as u8);
-                w.set_tris(config.is_high_impedenane_on_inactive_slot);
+                w.set_tris(config.is_high_impedance_on_inactive_slot);
             });
 
             ch.frcr().modify(|w| {
