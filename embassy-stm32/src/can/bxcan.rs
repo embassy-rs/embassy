@@ -585,29 +585,17 @@ pub(crate) mod sealed {
     pub trait Instance {
         const REGISTERS: *mut bxcan::RegisterBlock;
 
-        fn regs() -> &'static crate::pac::can::Can;
+        fn regs() -> crate::pac::can::Can;
         fn state() -> &'static State;
     }
 }
 
-pub trait TXInstance {
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {
     type TXInterrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-pub trait RX0Instance {
     type RX0Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-pub trait RX1Instance {
     type RX1Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-pub trait SCEInstance {
     type SCEInterrupt: crate::interrupt::typelevel::Interrupt;
 }
-
-pub trait InterruptableInstance: TXInstance + RX0Instance + RX1Instance + SCEInstance {}
-pub trait Instance: sealed::Instance + RccPeripheral + InterruptableInstance + 'static {}
 
 pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
@@ -620,8 +608,8 @@ foreach_peripheral!(
         impl sealed::Instance for peripherals::$inst {
             const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
 
-            fn regs() -> &'static crate::pac::can::Can {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::can::Can {
+                crate::pac::$inst
             }
 
             fn state() -> &'static sealed::State {
@@ -630,32 +618,12 @@ foreach_peripheral!(
             }
         }
 
-        impl Instance for peripherals::$inst {}
-
-        foreach_interrupt!(
-            ($inst,can,CAN,TX,$irq:ident) => {
-                impl TXInstance for peripherals::$inst {
-                    type TXInterrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,CAN,RX0,$irq:ident) => {
-                impl RX0Instance for peripherals::$inst {
-                    type RX0Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,CAN,RX1,$irq:ident) => {
-                impl RX1Instance for peripherals::$inst {
-                    type RX1Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,CAN,SCE,$irq:ident) => {
-                impl SCEInstance for peripherals::$inst {
-                    type SCEInterrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-        );
-
-        impl InterruptableInstance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type TXInterrupt = crate::_generated::peripheral_interrupts::$inst::TX;
+            type RX0Interrupt = crate::_generated::peripheral_interrupts::$inst::RX0;
+            type RX1Interrupt = crate::_generated::peripheral_interrupts::$inst::RX1;
+            type SCEInterrupt = crate::_generated::peripheral_interrupts::$inst::SCE;
+        }
     };
 );
 
