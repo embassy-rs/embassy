@@ -443,6 +443,90 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         }
         unreachable!("unrecognized rx error");
     }
+
+    pub async fn read_to_break<'a>(&mut self, buffer: &'a mut [u8]) -> Result<&'a mut [u8], Error> {
+        // clear error flags before we drain the fifo. errors that have accumulated
+        // in the flags will also be present in the fifo.
+        T::dma_state().rx_errs.store(0, Ordering::Relaxed);
+        T::regs().uarticr().write(|w| {
+            w.set_oeic(true);
+            w.set_beic(true);
+            w.set_peic(true);
+            w.set_feic(true);
+        });
+
+        // then drain the fifo. we need to read at most 32 bytes. errors that apply
+        // to fifo bytes will be reported directly.
+        let sbuffer = match {
+            let limit = buffer.len().min(32);
+            self.drain_fifo(&mut buffer[0..limit])
+        } {
+            Ok(len) if len < buffer.len() => &mut buffer[len..],
+            Ok(_) => return Ok(buffer),
+            Err(e) => return Err(e),
+        };
+
+        // start a dma transfer. if errors have happened in the interim some error
+        // interrupt flags will have been raised, and those will be picked up immediately
+        // by the interrupt handler.
+        let mut ch = self.rx_dma.as_mut().unwrap();
+        T::regs().uartimsc().write_set(|w| {
+            w.set_oeim(true);
+            w.set_beim(true);
+            w.set_peim(true);
+            w.set_feim(true);
+        });
+        T::regs().uartdmacr().write_set(|reg| {
+            reg.set_rxdmae(true);
+            reg.set_dmaonerr(true);
+        });
+        let transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::read(&mut ch, T::regs().uartdr().as_ptr() as *const _, sbuffer, T::RX_DREQ)
+        };
+
+        // wait for either the transfer to complete or an error to happen.
+        let transfer_result = select(
+            transfer,
+            poll_fn(|cx| {
+                T::dma_state().rx_err_waker.register(cx.waker());
+                match T::dma_state().rx_errs.swap(0, Ordering::Relaxed) {
+                    0 => Poll::Pending,
+                    e => Poll::Ready(Uartris(e as u32)),
+                }
+            }),
+        )
+        .await;
+
+        let errors = match transfer_result {
+            Either::First(()) => return Ok(buffer),
+            Either::Second(e) => e,
+        };
+
+        if errors.0 == 0 {
+            return Ok(buffer);
+        } else if errors.oeris() {
+            return Err(Error::Overrun);
+        } else if errors.beris() {
+            // Begin "James is a chicken" region - I'm not certain if there is ever
+            // a case where the write addr WOULDN'T exist between the start and end.
+            // This assert checks that and hasn't fired (yet).
+            let sval = buffer.as_ptr() as usize;
+            let eval = sval + buffer.len();
+            // Note: the `write_addr()` is where the NEXT write would be, BUT we also
+            // received one extra byte that represents the line break.
+            let val = ch.regs().write_addr().read() as usize - 1;
+            assert!((val >= sval) && (val <= eval));
+            let taken = val - sval;
+            return Ok(&mut buffer[..taken]);
+        } else if errors.peris() {
+            return Err(Error::Parity);
+        } else if errors.feris() {
+            return Err(Error::Framing);
+        }
+        unreachable!("unrecognized rx error");
+    }
 }
 
 impl<'d, T: Instance> Uart<'d, T, Blocking> {
@@ -742,6 +826,10 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
     /// Read from UART RX into the provided buffer.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.read(buffer).await
+    }
+
+    pub async fn read_to_break<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Error> {
+        self.rx.read_to_break(buf).await
     }
 }
 
