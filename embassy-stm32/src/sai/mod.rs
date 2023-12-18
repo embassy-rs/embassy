@@ -1008,17 +1008,10 @@ impl<'d, T: Instance, C: Channel, W: word::Word> SubBlock<'d, T, C, W> {
         }
     }
 
-    pub async fn suspend(&mut self) {
+    pub async fn stop(&mut self) {
         match &mut self.ring_buffer {
-            RingBuffer::Writable(buffer) => buffer.suspend().await,
-            RingBuffer::Readable(buffer) => buffer.suspend().await,
-        }
-    }
-
-    pub fn resume(&mut self) {
-        match &mut self.ring_buffer {
-            RingBuffer::Writable(buffer) => buffer.resume(),
-            RingBuffer::Readable(buffer) => buffer.resume(),
+            RingBuffer::Writable(buffer) => buffer.stop().await,
+            RingBuffer::Readable(buffer) => buffer.stop().await,
         }
     }
 

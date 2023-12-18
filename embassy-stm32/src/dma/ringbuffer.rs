@@ -264,7 +264,7 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// Write elements directl to the buffer. This should be done before the DMA is started.
-    pub fn write_immediate(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<(usize, usize), OverrunError> {
+    pub fn write_immediate(&mut self, buffer: &[W]) -> Result<(usize, usize), OverrunError> {
         if self.end != 0 {
             return Err(OverrunError);
         }

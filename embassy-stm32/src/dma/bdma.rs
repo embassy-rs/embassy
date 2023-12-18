@@ -1,6 +1,6 @@
 //! Basic Direct Memory Acccess (BDMA)
 
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -431,6 +431,45 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     }
 }
 
+struct RingBuffer {}
+
+impl RingBuffer {
+    fn is_running(ch: &pac::bdma::Ch) -> bool {
+        ch.cr().read().en()
+    }
+
+    fn request_stop(ch: &pac::bdma::Ch) {
+        // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        // If the channel is enabled and transfer is not completed, we need to perform
+        // two separate write access to the CR register to disable the channel.
+        ch.cr().write(|w| {
+            w.set_teie(true);
+            w.set_htie(true);
+            w.set_tcie(true);
+        });
+    }
+
+    async fn stop(ch: &pac::bdma::Ch, set_waker: &mut dyn FnMut(&Waker)) {
+        use core::sync::atomic::compiler_fence;
+
+        Self::request_stop(ch);
+
+        //wait until cr.susp reads as true
+        poll_fn(|cx| {
+            set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            if !Self::is_running(ch) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
 /// Ringbuffer for reading data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
     cr: regs::Cr,
@@ -508,6 +547,13 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
+    }
+
     /// Read elements from the ring buffer
     /// Return a tuple of the length read and the length remaining in the buffer
     /// If not all of the elements were read, then there will be some elements in the buffer remaining
@@ -557,16 +603,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
-        let ch = self.channel.regs().ch(self.channel.num());
-
-        // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        // If the channel is enabled and transfer is not completed, we need to perform
-        // two separate write access to the CR register to disable the channel.
-        ch.cr().write(|w| {
-            w.set_teie(true);
-            w.set_htie(true);
-            w.set_tcie(true);
-        });
+        RingBuffer::request_stop(&self.channel.regs().ch(self.channel.num()));
     }
 
     /// Return whether DMA is still running.
@@ -574,8 +611,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     /// If this returns `false`, it can be because either the transfer finished, or
     /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
-        let ch = self.channel.regs().ch(self.channel.num());
-        ch.cr().read().en()
+        RingBuffer::is_running(&self.channel.regs().ch(self.channel.num()))
     }
 }
 
@@ -666,6 +702,20 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
+    /// Write elements directly to the raw buffer.
+    /// This can be used to fill the buffer before starting the DMA transfer.
+    #[allow(dead_code)]
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        self.ringbuf.write_immediate(buf)
+    }
+
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
+    }
+
     /// Write elements to the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
@@ -702,16 +752,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
-        let ch = self.channel.regs().ch(self.channel.num());
-
-        // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        // If the channel is enabled and transfer is not completed, we need to perform
-        // two separate write access to the CR register to disable the channel.
-        ch.cr().write(|w| {
-            w.set_teie(true);
-            w.set_htie(true);
-            w.set_tcie(true);
-        });
+        RingBuffer::request_stop(&self.channel.regs().ch(self.channel.num()));
     }
 
     /// Return whether DMA is still running.
@@ -719,8 +760,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     /// If this returns `false`, it can be because either the transfer finished, or
     /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
-        let ch = self.channel.regs().ch(self.channel.num());
-        ch.cr().read().en()
+        RingBuffer::is_running(&self.channel.regs().ch(self.channel.num()))
     }
 }
 

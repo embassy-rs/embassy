@@ -491,7 +491,7 @@ impl RingBuffer {
         });
     }
 
-    async fn suspend(ch: &pac::gpdma::Channel, set_waker: &mut dyn FnMut(&Waker)) {
+    async fn stop(ch: &pac::gpdma::Channel, set_waker: &mut dyn FnMut(&Waker)) {
         use core::sync::atomic::compiler_fence;
 
         Self::request_suspend(ch);
@@ -504,17 +504,15 @@ impl RingBuffer {
 
             let cr = ch.cr().read();
             if cr.susp() {
-                defmt::info!("Ready {}", cr.susp());
                 Poll::Ready(())
             } else {
-                defmt::info!("still pending {}", cr.susp());
                 Poll::Pending
             }
         })
         .await
     }
 
-    fn resume(ch: &pac::gpdma::Channel) {
+    fn start(ch: &pac::gpdma::Channel) {
         Self::clear_irqs(ch);
         ch.cr().modify(|w| {
             w.set_susp(false);
@@ -534,7 +532,7 @@ pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
 }
 
 impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
-    pub unsafe fn new_read(
+    pub unsafe fn new(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
         peri_addr: *mut W,
@@ -564,23 +562,19 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
 
     pub fn start(&mut self) {
         let ch = &self.channel.regs().ch(self.channel.num());
-        RingBuffer::clear_irqs(ch);
-        ch.cr().modify(|w| w.set_en(true));
+        RingBuffer::start(ch);
+        //ch.cr().modify(|w| w.set_en(true));
     }
 
-    pub fn request_stop(&mut self, ch: &pac::gpdma::Channel) {
-        ch.cr().modify(|w| w.set_en(false));
+    pub fn request_stop(&mut self) {
+        RingBuffer::request_suspend(&self.channel.regs().ch(self.channel.num()));
     }
 
-    pub async fn suspend(&mut self) {
-        RingBuffer::suspend(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
             self.set_waker(waker)
         })
         .await
-    }
-
-    pub fn resume(&mut self) {
-        RingBuffer::resume(&self.channel.regs().ch(self.channel.num()));
     }
 
     pub fn clear(&mut self) {
@@ -648,7 +642,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
 
 impl<'a, C: Channel, W: Word> Drop for ReadableRingBuffer<'a, C, W> {
     fn drop(&mut self) {
-        RingBuffer::request_suspend(&self.channel.regs().ch(self.channel.num()));
+        self.request_stop();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -663,7 +657,7 @@ pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
 }
 
 impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
-    pub unsafe fn new_write(
+    pub unsafe fn new(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
         peri_addr: *mut W,
@@ -692,24 +686,26 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     }
 
     pub fn start(&mut self) {
-        self.resume();
+        RingBuffer::start(&self.channel.regs().ch(self.channel.num()));
     }
 
-    pub async fn suspend(&mut self) {
-        RingBuffer::suspend(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
             self.set_waker(waker)
         })
         .await
-    }
-
-    pub fn resume(&mut self) {
-        RingBuffer::resume(&self.channel.regs().ch(self.channel.num()));
     }
 
     pub fn request_stop(&mut self) {
         // reads can be stopped by disabling the enable flag
         let ch = &self.channel.regs().ch(self.channel.num());
         ch.cr().modify(|w| w.set_en(false));
+    }
+
+    /// Write elements directly to the raw buffer.
+    /// This can be used to fill the buffer before starting the DMA transfer.
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        self.ringbuf.write_immediate(buf)
     }
 
     pub fn clear(&mut self) {
@@ -723,18 +719,6 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
         self.ringbuf.write(
-            &mut DmaCtrlImpl {
-                channel: self.channel.reborrow(),
-                word_size: W::size(),
-            },
-            buf,
-        )
-    }
-
-    /// Write elements directly to the raw buffer.
-    /// This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
-        self.ringbuf.write_immediate(
             &mut DmaCtrlImpl {
                 channel: self.channel.reborrow(),
                 word_size: W::size(),
@@ -776,7 +760,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
 
 impl<'a, C: Channel, W: Word> Drop for WritableRingBuffer<'a, C, W> {
     fn drop(&mut self) {
-        RingBuffer::request_suspend(&self.channel.regs().ch(self.channel.num()));
+        self.request_stop();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
