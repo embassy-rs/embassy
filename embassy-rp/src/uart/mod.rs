@@ -820,6 +820,10 @@ impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::ErrorType for Uart<'d, T
 impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, T, M> {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
         let r = T::regs();
+        if r.uartfr().read().rxfe() {
+            return Err(nb::Error::WouldBlock);
+        }
+
         let dr = r.uartdr().read();
 
         if dr.oe() {
@@ -830,10 +834,8 @@ impl<'d, T: Instance, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, T, M
             Err(nb::Error::Other(Error::Parity))
         } else if dr.fe() {
             Err(nb::Error::Other(Error::Framing))
-        } else if dr.fe() {
-            Ok(dr.data())
         } else {
-            Err(nb::Error::WouldBlock)
+            Ok(dr.data())
         }
     }
 }
