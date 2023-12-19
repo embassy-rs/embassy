@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
+#![warn(missing_docs)]
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
@@ -79,6 +80,7 @@ pub(crate) mod _generated {
     #![allow(dead_code)]
     #![allow(unused_imports)]
     #![allow(non_snake_case)]
+    #![allow(missing_docs)]
 
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }
@@ -149,15 +151,33 @@ use crate::interrupt::Priority;
 pub use crate::pac::NVIC_PRIO_BITS;
 use crate::rcc::sealed::RccPeripheral;
 
+/// `embassy-stm32` global configuration.
 #[non_exhaustive]
 pub struct Config {
+    /// RCC config.
     pub rcc: rcc::Config,
+
+    /// Enable debug during sleep.
+    ///
+    /// May incrase power consumption. Defaults to true.
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
+
+    /// BDMA interrupt priority.
+    ///
+    /// Defaults to P0 (highest).
     #[cfg(bdma)]
     pub bdma_interrupt_priority: Priority,
+
+    /// DMA interrupt priority.
+    ///
+    /// Defaults to P0 (highest).
     #[cfg(dma)]
     pub dma_interrupt_priority: Priority,
+
+    /// GPDMA interrupt priority.
+    ///
+    /// Defaults to P0 (highest).
     #[cfg(gpdma)]
     pub gpdma_interrupt_priority: Priority,
 }
@@ -178,7 +198,11 @@ impl Default for Config {
     }
 }
 
-/// Initialize embassy.
+/// Initialize the `embassy-stm32` HAL with the provided configuration.
+///
+/// This returns the peripheral singletons that can be used for creating drivers.
+///
+/// This should only be called once at startup, otherwise it panics.
 pub fn init(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let p = Peripherals::take_with_cs(cs);

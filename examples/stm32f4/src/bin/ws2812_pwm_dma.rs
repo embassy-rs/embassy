@@ -110,7 +110,7 @@ async fn main(_spawner: Spawner) {
                     &mut dp.DMA1_CH2,
                     5,
                     color_list[color_list_index],
-                    pac::TIM3.ccr(pwm_channel.raw()).as_ptr() as *mut _,
+                    pac::TIM3.ccr(pwm_channel.index()).as_ptr() as *mut _,
                     dma_transfer_option,
                 )
                 .await;

@@ -68,22 +68,22 @@ mod sealed {
 pub trait AdvancedChannel<T: Instance>: sealed::AdvancedChannel<T> {}
 
 /// HRTIM PWM pin.
-pub struct PwmPin<'d, Perip, Channel> {
+pub struct PwmPin<'d, T, C> {
     _pin: PeripheralRef<'d, AnyPin>,
-    phantom: PhantomData<(Perip, Channel)>,
+    phantom: PhantomData<(T, C)>,
 }
 
 /// HRTIM complementary PWM pin.
-pub struct ComplementaryPwmPin<'d, Perip, Channel> {
+pub struct ComplementaryPwmPin<'d, T, C> {
     _pin: PeripheralRef<'d, AnyPin>,
-    phantom: PhantomData<(Perip, Channel)>,
+    phantom: PhantomData<(T, C)>,
 }
 
 macro_rules! advanced_channel_impl {
     ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
-        impl<'d, Perip: Instance> PwmPin<'d, Perip, $channel<Perip>> {
+        impl<'d, T: Instance> PwmPin<'d, T, $channel<T>> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
+            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
@@ -98,9 +98,9 @@ macro_rules! advanced_channel_impl {
             }
         }
 
-        impl<'d, Perip: Instance> ComplementaryPwmPin<'d, Perip, $channel<Perip>> {
+        impl<'d, T: Instance> ComplementaryPwmPin<'d, T, $channel<T>> {
             #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<Perip>> + 'd) -> Self {
+            pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<T>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
