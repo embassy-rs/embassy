@@ -293,6 +293,7 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
 
 #[cfg(sdmmc_v1)]
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
+    /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -327,6 +328,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         )
     }
 
+    /// Create a new SDMMC driver, with 4 data lanes.
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,

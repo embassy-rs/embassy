@@ -80,6 +80,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         let _ = self.next_u32();
     }
 
+    /// Reset the RNG.
     #[cfg(not(rng_v1))]
     pub fn reset(&mut self) {
         T::regs().cr().write(|reg| {

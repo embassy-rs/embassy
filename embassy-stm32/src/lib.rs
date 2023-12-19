@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
+#![warn(missing_docs)]
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
