@@ -1,3 +1,4 @@
+//! Clock configuration for the RP2040
 use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
@@ -44,6 +45,7 @@ static CLOCKS: Clocks = Clocks {
     rtc: AtomicU16::new(0),
 };
 
+/// Enumeration of supported clock sources.
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,15 +59,24 @@ pub enum PeriClkSrc {
     // Gpin1 = ClkPeriCtrlAuxsrc::CLKSRC_GPIN1 as _ ,
 }
 
+/// CLock configuration.
 #[non_exhaustive]
 pub struct ClockConfig {
+    /// Ring oscillator configuration.
     pub rosc: Option<RoscConfig>,
+    /// External oscillator configuration.
     pub xosc: Option<XoscConfig>,
+    /// Reference clock configuration.
     pub ref_clk: RefClkConfig,
+    /// System clock configuration.
     pub sys_clk: SysClkConfig,
+    /// Peripheral clock source configuration.
     pub peri_clk_src: Option<PeriClkSrc>,
+    /// USB clock configuration.
     pub usb_clk: Option<UsbClkConfig>,
+    /// ADC clock configuration.
     pub adc_clk: Option<AdcClkConfig>,
+    /// RTC clock configuration.
     pub rtc_clk: Option<RtcClkConfig>,
     // gpin0: Option<(u32, Gpin<'static, AnyPin>)>,
     // gpin1: Option<(u32, Gpin<'static, AnyPin>)>,
@@ -189,31 +200,46 @@ pub enum RoscRange {
     TooHigh = pac::rosc::vals::FreqRange::TOOHIGH.0,
 }
 
+/// On-chip ring oscillator configuration.
 pub struct RoscConfig {
     /// Final frequency of the oscillator, after the divider has been applied.
     /// The oscillator has a nominal frequency of 6.5MHz at medium range with
     /// divider 16 and all drive strengths set to 0, other values should be
     /// measured in situ.
     pub hz: u32,
+    /// Oscillator range.
     pub range: RoscRange,
+    /// Drive strength for oscillator.
     pub drive_strength: [u8; 8],
+    /// Output divider.
     pub div: u16,
 }
 
+/// Crystal oscillator configuration.
 pub struct XoscConfig {
+    /// Final frequency of the oscillator.
     pub hz: u32,
+    /// Configuring PLL for the system clock.
     pub sys_pll: Option<PllConfig>,
+    /// Configuring PLL for the USB clock.
     pub usb_pll: Option<PllConfig>,
+    /// Multiplier for the startup delay.
     pub delay_multiplier: u32,
 }
 
+/// PLL configuration.
 pub struct PllConfig {
+    /// Reference divisor.
     pub refdiv: u8,
+    /// Feedback divisor.
     pub fbdiv: u16,
+    /// Output divisor 1.
     pub post_div1: u8,
+    /// Output divisor 2.
     pub post_div2: u8,
 }
 
+/// Reference
 pub struct RefClkConfig {
     pub src: RefClkSrc,
     pub div: u8,

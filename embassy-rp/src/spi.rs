@@ -11,6 +11,7 @@ use crate::gpio::sealed::Pin as _;
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::{pac, peripherals, Peripheral};
 
+/// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -18,11 +19,15 @@ pub enum Error {
     // No errors for now
 }
 
+/// SPI configuration.
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct Config {
+    /// Frequency.
     pub frequency: u32,
+    /// Phase.
     pub phase: Phase,
+    /// Polarity.
     pub polarity: Polarity,
 }
 
@@ -36,6 +41,7 @@ impl Default for Config {
     }
 }
 
+/// SPI driver.
 pub struct Spi<'d, T: Instance, M: Mode> {
     inner: PeripheralRef<'d, T>,
     tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
@@ -119,6 +125,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         }
     }
 
+    /// Write data to SPI blocking execution until done.
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
         let p = self.inner.regs();
         for &b in data {
@@ -131,6 +138,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         Ok(())
     }
 
+    /// Transfer data in place to SPI blocking execution until done.
     pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
         let p = self.inner.regs();
         for b in data {
@@ -143,6 +151,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         Ok(())
     }
 
+    /// Read data from SPI blocking execution until done.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
         let p = self.inner.regs();
         for b in data {
@@ -155,6 +164,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         Ok(())
     }
 
+    /// Transfer data to SPI blocking execution until done.
     pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         let p = self.inner.regs();
         let len = read.len().max(write.len());
@@ -172,12 +182,14 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         Ok(())
     }
 
+    /// Block execution until SPI is done.
     pub fn flush(&mut self) -> Result<(), Error> {
         let p = self.inner.regs();
         while p.sr().read().bsy() {}
         Ok(())
     }
 
+    /// Set SPI frequency.
     pub fn set_frequency(&mut self, freq: u32) {
         let (presc, postdiv) = calc_prescs(freq);
         let p = self.inner.regs();
@@ -196,6 +208,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 }
 
 impl<'d, T: Instance> Spi<'d, T, Blocking> {
+    /// Create an SPI driver in blocking mode.
     pub fn new_blocking(
         inner: impl Peripheral<P = T> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
@@ -216,6 +229,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         )
     }
 
+    /// Create an SPI driver in blocking mode supporting writes only.
     pub fn new_blocking_txonly(
         inner: impl Peripheral<P = T> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
@@ -235,6 +249,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         )
     }
 
+    /// Create an SPI driver in blocking mode supporting reads only.
     pub fn new_blocking_rxonly(
         inner: impl Peripheral<P = T> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
@@ -256,6 +271,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance> Spi<'d, T, Async> {
+    /// Create an SPI driver in async mode supporting DMA operations.
     pub fn new(
         inner: impl Peripheral<P = T> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
@@ -278,6 +294,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         )
     }
 
+    /// Create an SPI driver in async mode supporting DMA write operations only.
     pub fn new_txonly(
         inner: impl Peripheral<P = T> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
@@ -298,6 +315,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         )
     }
 
+    /// Create an SPI driver in async mode supporting DMA read operations only.
     pub fn new_rxonly(
         inner: impl Peripheral<P = T> + 'd,
         clk: impl Peripheral<P = impl ClkPin<T> + 'd> + 'd,
@@ -318,6 +336,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         )
     }
 
+    /// Write data to SPI using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let tx_ch = self.tx_dma.as_mut().unwrap();
         let tx_transfer = unsafe {
@@ -340,6 +359,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         Ok(())
     }
 
+    /// Read data from SPI using DMA.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         // Start RX first. Transfer starts when TX starts, if RX
         // is not started yet we might lose bytes.
@@ -365,10 +385,12 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         Ok(())
     }
 
+    /// Transfer data to SPI using DMA.
     pub async fn transfer(&mut self, rx_buffer: &mut [u8], tx_buffer: &[u8]) -> Result<(), Error> {
         self.transfer_inner(rx_buffer, tx_buffer).await
     }
 
+    /// Transfer data in place to SPI using DMA.
     pub async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
         self.transfer_inner(words, words).await
     }
@@ -434,7 +456,10 @@ mod sealed {
     }
 }
 
+/// Mode.
 pub trait Mode: sealed::Mode {}
+
+/// SPI instance trait.
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
@@ -454,9 +479,13 @@ macro_rules! impl_instance {
 impl_instance!(SPI0, Spi0, 16, 17);
 impl_instance!(SPI1, Spi1, 18, 19);
 
+/// CLK pin.
 pub trait ClkPin<T: Instance>: GpioPin {}
+/// CS pin.
 pub trait CsPin<T: Instance>: GpioPin {}
+/// MOSI pin.
 pub trait MosiPin<T: Instance>: GpioPin {}
+/// MISO pin.
 pub trait MisoPin<T: Instance>: GpioPin {}
 
 macro_rules! impl_pin {
@@ -503,7 +532,9 @@ macro_rules! impl_mode {
     };
 }
 
+/// Blocking mode.
 pub struct Blocking;
+/// Async mode.
 pub struct Async;
 
 impl_mode!(Blocking);

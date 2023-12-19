@@ -20,11 +20,16 @@ use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
 
+/// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {
+    /// 5 bits.
     DataBits5,
+    /// 6 bits.
     DataBits6,
+    /// 7 bits.
     DataBits7,
+    /// 8 bits.
     DataBits8,
 }
 
@@ -39,13 +44,18 @@ impl DataBits {
     }
 }
 
+/// Parity bit.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Parity {
+    /// No parity.
     ParityNone,
+    /// Even parity.
     ParityEven,
+    /// Odd parity.
     ParityOdd,
 }
 
+/// Stop bits.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StopBits {
     #[doc = "1 stop bit"]
@@ -54,20 +64,25 @@ pub enum StopBits {
     STOP2,
 }
 
+/// UART config.
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Config {
+    /// Baud rate.
     pub baudrate: u32,
+    /// Word length.
     pub data_bits: DataBits,
+    /// Stop bits.
     pub stop_bits: StopBits,
+    /// Parity bit.
     pub parity: Parity,
     /// Invert the tx pin output
     pub invert_tx: bool,
     /// Invert the rx pin input
     pub invert_rx: bool,
-    // Invert the rts pin
+    /// Invert the rts pin
     pub invert_rts: bool,
-    // Invert the cts pin
+    /// Invert the cts pin
     pub invert_cts: bool,
 }
 
@@ -102,21 +117,25 @@ pub enum Error {
     Framing,
 }
 
+/// Internal DMA state of UART RX.
 pub struct DmaState {
     rx_err_waker: AtomicWaker,
     rx_errs: AtomicU16,
 }
 
+/// UART driver.
 pub struct Uart<'d, T: Instance, M: Mode> {
     tx: UartTx<'d, T, M>,
     rx: UartRx<'d, T, M>,
 }
 
+/// UART TX driver.
 pub struct UartTx<'d, T: Instance, M: Mode> {
     tx_dma: Option<PeripheralRef<'d, AnyChannel>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
+/// UART RX driver.
 pub struct UartRx<'d, T: Instance, M: Mode> {
     rx_dma: Option<PeripheralRef<'d, AnyChannel>>,
     phantom: PhantomData<(&'d mut T, M)>,
@@ -142,6 +161,7 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
         }
     }
 
+    /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = T::regs();
         for &b in buffer {
@@ -151,12 +171,14 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
         Ok(())
     }
 
+    /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         let r = T::regs();
         while !r.uartfr().read().txfe() {}
         Ok(())
     }
 
+    /// Check if UART is busy transmitting.
     pub fn busy(&self) -> bool {
         T::regs().uartfr().read().busy()
     }
@@ -191,6 +213,8 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
 }
 
 impl<'d, T: Instance> UartTx<'d, T, Blocking> {
+    /// Convert this uart TX instance into a buffered uart using the provided
+    /// irq and transmit buffer.
     pub fn into_buffered(
         self,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -203,6 +227,7 @@ impl<'d, T: Instance> UartTx<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance> UartTx<'d, T, Async> {
+    /// Write to UART TX from the provided buffer using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let ch = self.tx_dma.as_mut().unwrap();
         let transfer = unsafe {
@@ -246,6 +271,7 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
         }
     }
 
+    /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, mut buffer: &mut [u8]) -> Result<(), Error> {
         while buffer.len() > 0 {
             let received = self.drain_fifo(buffer)?;
@@ -294,6 +320,7 @@ impl<'d, T: Instance, M: Mode> Drop for UartRx<'d, T, M> {
 }
 
 impl<'d, T: Instance> UartRx<'d, T, Blocking> {
+    /// Create a new UART RX instance for blocking mode operations.
     pub fn new_blocking(
         _uart: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
@@ -304,6 +331,8 @@ impl<'d, T: Instance> UartRx<'d, T, Blocking> {
         Self::new_inner(false, None)
     }
 
+    /// Convert this uart RX instance into a buffered uart using the provided
+    /// irq and receive buffer.
     pub fn into_buffered(
         self,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -315,6 +344,7 @@ impl<'d, T: Instance> UartRx<'d, T, Blocking> {
     }
 }
 
+/// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
@@ -338,6 +368,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 impl<'d, T: Instance> UartRx<'d, T, Async> {
+    /// Read from UART RX into the provided buffer.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         // clear error flags before we drain the fifo. errors that have accumulated
         // in the flags will also be present in the fifo.
@@ -458,6 +489,8 @@ impl<'d, T: Instance> Uart<'d, T, Blocking> {
         )
     }
 
+    /// Convert this uart instance into a buffered uart using the provided
+    /// irq, transmit and receive buffers.
     pub fn into_buffered(
         self,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -667,22 +700,27 @@ impl<'d, T: Instance + 'd, M: Mode> Uart<'d, T, M> {
 }
 
 impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
+    /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
     }
 
+    /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         self.tx.blocking_flush()
     }
 
+    /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
     }
 
+    /// Check if UART is busy transmitting.
     pub fn busy(&self) -> bool {
         self.tx.busy()
     }
 
+    /// Wait until TX is empty and send break condition.
     pub async fn send_break(&mut self, bits: u32) {
         self.tx.send_break(bits).await
     }
@@ -695,10 +733,12 @@ impl<'d, T: Instance, M: Mode> Uart<'d, T, M> {
 }
 
 impl<'d, T: Instance> Uart<'d, T, Async> {
+    /// Write to UART TX from the provided buffer.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.write(buffer).await
     }
 
+    /// Read from UART RX into the provided buffer.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.read(buffer).await
     }
@@ -889,6 +929,7 @@ mod sealed {
     pub trait RtsPin<T: Instance> {}
 }
 
+/// UART mode.
 pub trait Mode: sealed::Mode {}
 
 macro_rules! impl_mode {
@@ -898,12 +939,15 @@ macro_rules! impl_mode {
     };
 }
 
+/// Blocking mode.
 pub struct Blocking;
+/// Async mode.
 pub struct Async;
 
 impl_mode!(Blocking);
 impl_mode!(Async);
 
+/// UART instance trait.
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
@@ -938,9 +982,13 @@ macro_rules! impl_instance {
 impl_instance!(UART0, UART0_IRQ, 20, 21);
 impl_instance!(UART1, UART1_IRQ, 22, 23);
 
+/// Trait for TX pins.
 pub trait TxPin<T: Instance>: sealed::TxPin<T> + crate::gpio::Pin {}
+/// Trait for RX pins.
 pub trait RxPin<T: Instance>: sealed::RxPin<T> + crate::gpio::Pin {}
+/// Trait for Clear To Send (CTS) pins.
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> + crate::gpio::Pin {}
+/// Trait for Request To Send (RTS) pins.
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> + crate::gpio::Pin {}
 
 macro_rules! impl_pin {
