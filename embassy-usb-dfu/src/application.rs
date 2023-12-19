@@ -24,6 +24,7 @@ pub struct Control<'d, STATE: NorFlash, RST: Reset> {
 }
 
 impl<'d, STATE: NorFlash, RST: Reset> Control<'d, STATE, RST> {
+    /// Create a new DFU instance to expose a DFU interface.
     pub fn new(firmware_state: BlockingFirmwareState<'d, STATE>, attrs: DfuAttributes) -> Self {
         Control {
             firmware_state,
