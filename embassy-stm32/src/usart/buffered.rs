@@ -82,6 +82,7 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
     }
 }
 
+/// Buffered UART State
 pub struct State {
     rx_waker: AtomicWaker,
     rx_buf: RingBuffer,
@@ -91,6 +92,7 @@ pub struct State {
 }
 
 impl State {
+    /// Create new state
     pub const fn new() -> Self {
         Self {
             rx_buf: RingBuffer::new(),
@@ -101,15 +103,18 @@ impl State {
     }
 }
 
+/// Bidirectional buffered UART
 pub struct BufferedUart<'d, T: BasicInstance> {
     rx: BufferedUartRx<'d, T>,
     tx: BufferedUartTx<'d, T>,
 }
 
+/// Tx-only buffered UART
 pub struct BufferedUartTx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }
 
+/// Rx-only buffered UART
 pub struct BufferedUartRx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }
@@ -142,6 +147,7 @@ impl<'d, T: BasicInstance> SetConfig for BufferedUartTx<'d, T> {
 }
 
 impl<'d, T: BasicInstance> BufferedUart<'d, T> {
+    /// Create a new bidirectional buffered UART driver
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -158,6 +164,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
 
+    /// Create a new bidirectional buffered UART driver with request-to-send and clear-to-send pins
     pub fn new_with_rtscts(
         peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -185,6 +192,7 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         Self::new_inner(peri, rx, tx, tx_buffer, rx_buffer, config)
     }
 
+    /// Create a new bidirectional buffered UART driver with a driver-enable pin
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de(
         peri: impl Peripheral<P = T> + 'd,
@@ -246,10 +254,12 @@ impl<'d, T: BasicInstance> BufferedUart<'d, T> {
         })
     }
 
+    /// Split the driver into a Tx and Rx part (useful for sending to separate tasks)
     pub fn split(self) -> (BufferedUartTx<'d, T>, BufferedUartRx<'d, T>) {
         (self.tx, self.rx)
     }
 
+    /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)?;
 
@@ -337,6 +347,7 @@ impl<'d, T: BasicInstance> BufferedUartRx<'d, T> {
         }
     }
 
+    /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)?;
 
@@ -418,6 +429,7 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
         }
     }
 
+    /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure::<T>(config)?;
 
