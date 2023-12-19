@@ -45,6 +45,10 @@ nc 192.168.0.250 1234
 ```
 Send it some data, you should see it echoed back and printed in the firmware's logs.
 
+## Minimum supported Rust version (MSRV)
+
+Embassy is guaranteed to compile on the latest stable Rust version at the time of release. It might compile with older versions but that may change in any new patch release.
+
 ## License
 
 This work is licensed under either of

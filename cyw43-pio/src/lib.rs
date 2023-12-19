@@ -1,5 +1,7 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 use core::slice;
 
@@ -11,6 +13,7 @@ use embassy_rp::{Peripheral, PeripheralRef};
 use fixed::FixedU32;
 use pio_proc::pio_asm;
 
+/// SPI comms driven by PIO.
 pub struct PioSpi<'d, CS: Pin, PIO: Instance, const SM: usize, DMA> {
     cs: Output<'d, CS>,
     sm: StateMachine<'d, PIO, SM>,
@@ -25,6 +28,7 @@ where
     CS: Pin,
     PIO: Instance,
 {
+    /// Create a new instance of PioSpi.
     pub fn new<DIO, CLK>(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
@@ -143,6 +147,7 @@ where
         }
     }
 
+    /// Write data to peripheral and return status.
     pub async fn write(&mut self, write: &[u32]) -> u32 {
         self.sm.set_enable(false);
         let write_bits = write.len() * 32 - 1;
@@ -170,6 +175,7 @@ where
         status
     }
 
+    /// Send command and read response into buffer.
     pub async fn cmd_read(&mut self, cmd: u32, read: &mut [u32]) -> u32 {
         self.sm.set_enable(false);
         let write_bits = 31;
