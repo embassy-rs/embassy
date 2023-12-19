@@ -8,14 +8,17 @@ use core::ops::{Div, Mul};
 pub struct Hertz(pub u32);
 
 impl Hertz {
+    /// Create a `Hertz` from the given hertz.
     pub const fn hz(hertz: u32) -> Self {
         Self(hertz)
     }
 
+    /// Create a `Hertz` from the given kilohertz.
     pub const fn khz(kilohertz: u32) -> Self {
         Self(kilohertz * 1_000)
     }
 
+    /// Create a `Hertz` from the given megahertz.
     pub const fn mhz(megahertz: u32) -> Self {
         Self(megahertz * 1_000_000)
     }

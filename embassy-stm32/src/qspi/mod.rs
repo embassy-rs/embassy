@@ -14,6 +14,7 @@ use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
+/// QSPI transfer configuration.
 pub struct TransferConfig {
     /// Instraction width (IMODE)
     pub iwidth: QspiWidth,
@@ -45,6 +46,7 @@ impl Default for TransferConfig {
     }
 }
 
+/// QSPI driver configuration.
 pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.
@@ -71,6 +73,7 @@ impl Default for Config {
     }
 }
 
+/// QSPI driver.
 #[allow(dead_code)]
 pub struct Qspi<'d, T: Instance, Dma> {
     _peri: PeripheralRef<'d, T>,
@@ -85,6 +88,7 @@ pub struct Qspi<'d, T: Instance, Dma> {
 }
 
 impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
+    /// Create a new QSPI driver for bank 1.
     pub fn new_bk1(
         peri: impl Peripheral<P = T> + 'd,
         d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
@@ -125,6 +129,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         )
     }
 
+    /// Create a new QSPI driver for bank 2.
     pub fn new_bk2(
         peri: impl Peripheral<P = T> + 'd,
         d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
@@ -223,6 +228,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         }
     }
 
+    /// Do a QSPI command.
     pub fn command(&mut self, transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
@@ -232,6 +238,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking read data.
     pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) {
         #[cfg(not(stm32h7))]
         T::REGS.cr().modify(|v| v.set_dmaen(false));
@@ -256,6 +263,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking write data.
     pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) {
         // STM32H7 does not have dmaen
         #[cfg(not(stm32h7))]
@@ -278,6 +286,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
     }
 
+    /// Blocking read data, using DMA.
     pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
@@ -310,6 +319,7 @@ impl<'d, T: Instance, Dma> Qspi<'d, T, Dma> {
         transfer.blocking_wait();
     }
 
+    /// Blocking write data, using DMA.
     pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig)
     where
         Dma: QuadDma<T>,
@@ -379,6 +389,7 @@ pub(crate) mod sealed {
     }
 }
 
+/// QSPI instance trait.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
