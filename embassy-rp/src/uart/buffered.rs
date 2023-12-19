@@ -38,15 +38,18 @@ impl State {
     }
 }
 
+/// Buffered UART driver.
 pub struct BufferedUart<'d, T: Instance> {
     pub(crate) rx: BufferedUartRx<'d, T>,
     pub(crate) tx: BufferedUartTx<'d, T>,
 }
 
+/// Buffered UART RX handle.
 pub struct BufferedUartRx<'d, T: Instance> {
     pub(crate) phantom: PhantomData<&'d mut T>,
 }
 
+/// Buffered UART TX handle.
 pub struct BufferedUartTx<'d, T: Instance> {
     pub(crate) phantom: PhantomData<&'d mut T>,
 }
@@ -84,6 +87,7 @@ pub(crate) fn init_buffers<'d, T: Instance + 'd>(
 }
 
 impl<'d, T: Instance> BufferedUart<'d, T> {
+    /// Create a buffered UART instance.
     pub fn new(
         _uart: impl Peripheral<P = T> + 'd,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -104,6 +108,7 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         }
     }
 
+    /// Create a buffered UART instance with flow control.
     pub fn new_with_rtscts(
         _uart: impl Peripheral<P = T> + 'd,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -132,32 +137,39 @@ impl<'d, T: Instance> BufferedUart<'d, T> {
         }
     }
 
+    /// Write to UART TX buffer blocking execution until done.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<usize, Error> {
         self.tx.blocking_write(buffer)
     }
 
+    /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         self.tx.blocking_flush()
     }
 
+    /// Read from UART RX buffer blocking execution until done.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.blocking_read(buffer)
     }
 
+    /// Check if UART is busy transmitting.
     pub fn busy(&self) -> bool {
         self.tx.busy()
     }
 
+    /// Wait until TX is empty and send break condition.
     pub async fn send_break(&mut self, bits: u32) {
         self.tx.send_break(bits).await
     }
 
+    /// Split into separate RX and TX handles.
     pub fn split(self) -> (BufferedUartRx<'d, T>, BufferedUartTx<'d, T>) {
         (self.rx, self.tx)
     }
 }
 
 impl<'d, T: Instance> BufferedUartRx<'d, T> {
+    /// Create a new buffered UART RX.
     pub fn new(
         _uart: impl Peripheral<P = T> + 'd,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -173,6 +185,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         Self { phantom: PhantomData }
     }
 
+    /// Create a new buffered UART RX with flow control.
     pub fn new_with_rts(
         _uart: impl Peripheral<P = T> + 'd,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -253,6 +266,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
         Poll::Ready(result)
     }
 
+    /// Read from UART RX buffer blocking execution until done.
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         loop {
             match Self::try_read(buf) {
@@ -303,6 +317,7 @@ impl<'d, T: Instance> BufferedUartRx<'d, T> {
 }
 
 impl<'d, T: Instance> BufferedUartTx<'d, T> {
+    /// Create a new buffered UART TX.
     pub fn new(
         _uart: impl Peripheral<P = T> + 'd,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -318,6 +333,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         Self { phantom: PhantomData }
     }
 
+    /// Create a new buffered UART TX with flow control.
     pub fn new_with_cts(
         _uart: impl Peripheral<P = T> + 'd,
         irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
@@ -373,6 +389,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         })
     }
 
+    /// Write to UART TX buffer blocking execution until done.
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         if buf.is_empty() {
             return Ok(0);
@@ -398,6 +415,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         }
     }
 
+    /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         loop {
             let state = T::buffered_state();
@@ -407,6 +425,7 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         }
     }
 
+    /// Check if UART is busy.
     pub fn busy(&self) -> bool {
         T::regs().uartfr().read().busy()
     }
@@ -466,6 +485,7 @@ impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
     }
 }
 
+/// Interrupt handler.
 pub struct BufferedInterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }

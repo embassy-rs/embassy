@@ -938,9 +938,13 @@ macro_rules! impl_instance {
 impl_instance!(UART0, UART0_IRQ, 20, 21);
 impl_instance!(UART1, UART1_IRQ, 22, 23);
 
+/// Trait for TX pins.
 pub trait TxPin<T: Instance>: sealed::TxPin<T> + crate::gpio::Pin {}
+/// Trait for RX pins.
 pub trait RxPin<T: Instance>: sealed::RxPin<T> + crate::gpio::Pin {}
+/// Trait for Clear To Send (CTS) pins.
 pub trait CtsPin<T: Instance>: sealed::CtsPin<T> + crate::gpio::Pin {}
+/// Trait for Request To Send (RTS) pins.
 pub trait RtsPin<T: Instance>: sealed::RtsPin<T> + crate::gpio::Pin {}
 
 macro_rules! impl_pin {

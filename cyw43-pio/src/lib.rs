@@ -6,8 +6,8 @@ use core::slice;
 use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pin, Pull, SlewRate};
-use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::{pio_instr_util, Peripheral, PeripheralRef};
+use embassy_rp::pio::{instr, Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
+use embassy_rp::{Peripheral, PeripheralRef};
 use fixed::FixedU32;
 use pio_proc::pio_asm;
 
@@ -152,10 +152,10 @@ where
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
         unsafe {
-            pio_instr_util::set_x(&mut self.sm, write_bits as u32);
-            pio_instr_util::set_y(&mut self.sm, read_bits as u32);
-            pio_instr_util::set_pindir(&mut self.sm, 0b1);
-            pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+            instr::set_x(&mut self.sm, write_bits as u32);
+            instr::set_y(&mut self.sm, read_bits as u32);
+            instr::set_pindir(&mut self.sm, 0b1);
+            instr::exec_jmp(&mut self.sm, self.wrap_target);
         }
 
         self.sm.set_enable(true);
@@ -179,10 +179,10 @@ where
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
         unsafe {
-            pio_instr_util::set_y(&mut self.sm, read_bits as u32);
-            pio_instr_util::set_x(&mut self.sm, write_bits as u32);
-            pio_instr_util::set_pindir(&mut self.sm, 0b1);
-            pio_instr_util::exec_jmp(&mut self.sm, self.wrap_target);
+            instr::set_y(&mut self.sm, read_bits as u32);
+            instr::set_x(&mut self.sm, write_bits as u32);
+            instr::set_pindir(&mut self.sm, 0b1);
+            instr::exec_jmp(&mut self.sm, self.wrap_target);
         }
 
         // self.cs.set_low();
