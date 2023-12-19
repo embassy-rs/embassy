@@ -148,37 +148,30 @@ struct Timeout {
 
 #[allow(dead_code)]
 impl Timeout {
-    #[cfg(not(feature = "time"))]
     #[inline]
     fn check(self) -> Result<(), Error> {
+        #[cfg(feature = "time")]
+        if Instant::now() > self.deadline {
+            return Err(Error::Timeout);
+        }
+
         Ok(())
     }
 
-    #[cfg(feature = "time")]
     #[inline]
-    fn check(self) -> Result<(), Error> {
-        if Instant::now() > self.deadline {
-            Err(Error::Timeout)
-        } else {
-            Ok(())
+    fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
+        #[cfg(feature = "time")]
+        {
+            use futures::FutureExt;
+
+            embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
+                embassy_futures::select::Either::First(_) => Err(Error::Timeout),
+                embassy_futures::select::Either::Second(r) => r,
+            })
         }
-    }
 
-    #[cfg(not(feature = "time"))]
-    #[inline]
-    fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
+        #[cfg(not(feature = "time"))]
         fut
-    }
-
-    #[cfg(feature = "time")]
-    #[inline]
-    fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
-        use futures::FutureExt;
-
-        embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
-            embassy_futures::select::Either::First(_) => Err(Error::Timeout),
-            embassy_futures::select::Either::Second(r) => r,
-        })
     }
 }
 
