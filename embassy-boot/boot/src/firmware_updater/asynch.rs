@@ -89,7 +89,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
 
         #[cfg(feature = "ed25519-dalek")]
         {
-            use ed25519_dalek::{VerifyingKey, Signature, SignatureError, Verifier};
+            use ed25519_dalek::{Signature, SignatureError, Verifier, VerifyingKey};
 
             use crate::digest_adapters::ed25519_dalek::Sha512;
 
