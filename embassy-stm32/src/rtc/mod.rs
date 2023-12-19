@@ -130,7 +130,7 @@ impl RtcTimeProvider {
             let weekday = day_of_week_from_u8(dr.wdu()).map_err(RtcError::InvalidDateTime)?;
             let day = bcd2_to_byte((dr.dt(), dr.du()));
             let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
-            let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
+            let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 2000_u16;
 
             DateTime::from(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
         })
@@ -261,7 +261,7 @@ impl Rtc {
             let (dt, du) = byte_to_bcd2(t.day() as u8);
             let (mt, mu) = byte_to_bcd2(t.month() as u8);
             let yr = t.year() as u16;
-            let yr_offset = (yr - 1970_u16) as u8;
+            let yr_offset = (yr - 2000_u16) as u8;
             let (yt, yu) = byte_to_bcd2(yr_offset);
 
             use crate::pac::rtc::vals::Ampm;
