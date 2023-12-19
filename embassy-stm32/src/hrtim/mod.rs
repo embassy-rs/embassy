@@ -15,38 +15,42 @@ use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
 
-pub enum Source {
-    Master,
-    ChA,
-    ChB,
-    ChC,
-    ChD,
-    ChE,
-    #[cfg(hrtim_v2)]
-    ChF,
-}
-
+/// HRTIM burst controller instance.
 pub struct BurstController<T: Instance> {
     phantom: PhantomData<T>,
 }
+
+/// HRTIM master instance.
 pub struct Master<T: Instance> {
     phantom: PhantomData<T>,
 }
+
+/// HRTIM channel A instance.
 pub struct ChA<T: Instance> {
     phantom: PhantomData<T>,
 }
+
+/// HRTIM channel B instance.
 pub struct ChB<T: Instance> {
     phantom: PhantomData<T>,
 }
+
+/// HRTIM channel C instance.
 pub struct ChC<T: Instance> {
     phantom: PhantomData<T>,
 }
+
+/// HRTIM channel D instance.
 pub struct ChD<T: Instance> {
     phantom: PhantomData<T>,
 }
+
+/// HRTIM channel E instance.
 pub struct ChE<T: Instance> {
     phantom: PhantomData<T>,
 }
+
+/// HRTIM channel F instance.
 #[cfg(hrtim_v2)]
 pub struct ChF<T: Instance> {
     phantom: PhantomData<T>,
@@ -60,13 +64,16 @@ mod sealed {
     }
 }
 
+/// Advanced channel instance trait.
 pub trait AdvancedChannel<T: Instance>: sealed::AdvancedChannel<T> {}
 
+/// HRTIM PWM pin.
 pub struct PwmPin<'d, Perip, Channel> {
     _pin: PeripheralRef<'d, AnyPin>,
     phantom: PhantomData<(Perip, Channel)>,
 }
 
+/// HRTIM complementary PWM pin.
 pub struct ComplementaryPwmPin<'d, Perip, Channel> {
     _pin: PeripheralRef<'d, AnyPin>,
     phantom: PhantomData<(Perip, Channel)>,
@@ -75,6 +82,7 @@ pub struct ComplementaryPwmPin<'d, Perip, Channel> {
 macro_rules! advanced_channel_impl {
     ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
         impl<'d, Perip: Instance> PwmPin<'d, Perip, $channel<Perip>> {
+            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
@@ -91,6 +99,7 @@ macro_rules! advanced_channel_impl {
         }
 
         impl<'d, Perip: Instance> ComplementaryPwmPin<'d, Perip, $channel<Perip>> {
+            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<Perip>> + 'd) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
@@ -126,18 +135,29 @@ advanced_channel_impl!(new_chf, ChF, 5, ChannelFPin, ChannelFComplementaryPin);
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {
     _inner: PeripheralRef<'d, T>,
+    /// Master instance.
     pub master: Master<T>,
+    /// Burst controller.
     pub burst_controller: BurstController<T>,
+    /// Channel A.
     pub ch_a: ChA<T>,
+    /// Channel B.
     pub ch_b: ChB<T>,
+    /// Channel C.
     pub ch_c: ChC<T>,
+    /// Channel D.
     pub ch_d: ChD<T>,
+    /// Channel E.
     pub ch_e: ChE<T>,
+    /// Channel F.
     #[cfg(hrtim_v2)]
     pub ch_f: ChF<T>,
 }
 
 impl<'d, T: Instance> AdvancedPwm<'d, T> {
+    /// Create a new HRTIM driver.
+    ///
+    /// This splits the HRTIM into its constituent parts, which you can then use individually.
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         _cha: Option<PwmPin<'d, T, ChA<T>>>,
@@ -200,13 +220,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
     }
 }
 
-impl<T: Instance> BurstController<T> {
-    pub fn set_source(&mut self, _source: Source) {
-        todo!("burst mode control registers not implemented")
-    }
-}
-
-/// Represents a fixed-frequency bridge converter
+/// Fixed-frequency bridge converter driver.
 ///
 /// Our implementation of the bridge converter uses a single channel and three compare registers,
 /// allowing implementation of a synchronous buck or boost converter in continuous or discontinuous
@@ -225,6 +239,7 @@ pub struct BridgeConverter<T: Instance, C: AdvancedChannel<T>> {
 }
 
 impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
+    /// Create a new HRTIM bridge converter driver.
     pub fn new(_channel: C, frequency: Hertz) -> Self {
         use crate::pac::hrtim::vals::{Activeeffect, Inactiveeffect};
 
@@ -281,14 +296,17 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
         }
     }
 
+    /// Start HRTIM.
     pub fn start(&mut self) {
         T::regs().mcr().modify(|w| w.set_tcen(C::raw(), true));
     }
 
+    /// Stop HRTIM.
     pub fn stop(&mut self) {
         T::regs().mcr().modify(|w| w.set_tcen(C::raw(), false));
     }
 
+    /// Enable burst mode.
     pub fn enable_burst_mode(&mut self) {
         T::regs().tim(C::raw()).outr().modify(|w| {
             // Enable Burst Mode
@@ -301,6 +319,7 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
         })
     }
 
+    /// Disable burst mode.
     pub fn disable_burst_mode(&mut self) {
         T::regs().tim(C::raw()).outr().modify(|w| {
             // Disable Burst Mode
@@ -357,7 +376,7 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
     }
 }
 
-/// Represents a variable-frequency resonant converter
+/// Variable-frequency resonant converter driver.
 ///
 /// This implementation of a resonsant converter is appropriate for a half or full bridge,
 /// but does not include secondary rectification, which is appropriate for applications
@@ -370,6 +389,7 @@ pub struct ResonantConverter<T: Instance, C: AdvancedChannel<T>> {
 }
 
 impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
+    /// Create a new variable-frequency resonant converter driver.
     pub fn new(_channel: C, min_frequency: Hertz, max_frequency: Hertz) -> Self {
         T::set_channel_frequency(C::raw(), min_frequency);
 
@@ -408,6 +428,7 @@ impl<T: Instance, C: AdvancedChannel<T>> ResonantConverter<T, C> {
         T::set_channel_dead_time(C::raw(), value);
     }
 
+    /// Set the timer period.
     pub fn set_period(&mut self, period: u16) {
         assert!(period < self.max_period);
         assert!(period > self.min_period);

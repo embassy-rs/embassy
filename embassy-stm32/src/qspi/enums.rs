@@ -1,3 +1,5 @@
+//! Enums used in QSPI configuration.
+
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub(crate) enum QspiMode {
