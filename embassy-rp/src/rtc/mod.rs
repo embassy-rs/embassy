@@ -1,3 +1,4 @@
+//! RTC driver.
 mod filter;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};

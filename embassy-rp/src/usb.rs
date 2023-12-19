@@ -1,3 +1,4 @@
+//! USB driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;

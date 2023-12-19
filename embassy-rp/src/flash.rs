@@ -1,3 +1,4 @@
+//! Flash driver.
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
@@ -13,9 +14,10 @@ use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::pac;
 use crate::peripherals::FLASH;
 
+/// Flash base address.
 pub const FLASH_BASE: *const u32 = 0x10000000 as _;
 
-// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
+/// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
 // TODO: when run-from-ram is set, completely skip the "pause cores and jumpp to RAM" dance.
 pub const USE_BOOT2: bool = !cfg!(feature = "run-from-ram");
 
@@ -24,10 +26,15 @@ pub const USE_BOOT2: bool = !cfg!(feature = "run-from-ram");
 // These limitations are currently enforced because of using the
 // RP2040 boot-rom flash functions, that are optimized for flash compatibility
 // rather than performance.
+/// Flash page size.
 pub const PAGE_SIZE: usize = 256;
+/// Flash write size.
 pub const WRITE_SIZE: usize = 1;
+/// Flash read size.
 pub const READ_SIZE: usize = 1;
+/// Flash erase size.
 pub const ERASE_SIZE: usize = 4096;
+/// Flash DMA read size.
 pub const ASYNC_READ_SIZE: usize = 4;
 
 /// Error type for NVMC operations.
@@ -38,7 +45,9 @@ pub enum Error {
     OutOfBounds,
     /// Unaligned operation or using unaligned buffers.
     Unaligned,
+    /// Accessed from the wrong core.
     InvalidCore,
+    /// Other error
     Other,
 }
 
@@ -96,12 +105,18 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
     }
 }
 
+/// Flash driver.
 pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
     dma: Option<PeripheralRef<'d, AnyChannel>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
 impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SIZE> {
+    /// Blocking read.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         trace!(
             "Reading from 0x{:x} to 0x{:x}",
@@ -116,10 +131,14 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
         Ok(())
     }
 
+    /// Flash capacity.
     pub fn capacity(&self) -> usize {
         FLASH_SIZE
     }
 
+    /// Blocking erase.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn blocking_erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
         check_erase(self, from, to)?;
 
@@ -136,6 +155,11 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
         Ok(())
     }
 
+    /// Blocking write.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
         check_write(self, offset, bytes.len())?;
 
@@ -219,6 +243,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE> {
+    /// Create a new flash driver in blocking mode.
     pub fn new_blocking(_flash: impl Peripheral<P = T> + 'd) -> Self {
         Self {
             dma: None,
@@ -228,6 +253,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE
 }
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
+    /// Create a new flash driver in async mode.
     pub fn new(_flash: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = impl Channel> + 'd) -> Self {
         into_ref!(dma);
         Self {
@@ -236,6 +262,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         }
     }
 
+    /// Start a background read operation.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub fn background_read<'a>(
         &'a mut self,
         offset: u32,
@@ -279,6 +310,11 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         })
     }
 
+    /// Async read.
+    ///
+    /// The offset and buffer must be aligned.
+    ///
+    /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
         use core::mem::MaybeUninit;
 
@@ -874,7 +910,9 @@ mod sealed {
     pub trait Mode {}
 }
 
+/// Flash instance.
 pub trait Instance: sealed::Instance {}
+/// Flash mode.
 pub trait Mode: sealed::Mode {}
 
 impl sealed::Instance for FLASH {}
@@ -887,7 +925,9 @@ macro_rules! impl_mode {
     };
 }
 
+/// Flash blocking mode.
 pub struct Blocking;
+/// Flash async mode.
 pub struct Async;
 
 impl_mode!(Blocking);

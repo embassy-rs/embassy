@@ -1,3 +1,4 @@
+//! UART driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -947,7 +948,7 @@ pub struct Async;
 impl_mode!(Blocking);
 impl_mode!(Async);
 
-/// UART instance trait.
+/// UART instance.
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {

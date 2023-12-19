@@ -1,3 +1,4 @@
+//! Buffered UART driver.
 use core::future::{poll_fn, Future};
 use core::slice;
 use core::task::Poll;

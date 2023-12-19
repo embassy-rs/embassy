@@ -1,3 +1,4 @@
+//! Timer driver.
 use core::cell::Cell;
 
 use atomic_polyfill::{AtomicU8, Ordering};
