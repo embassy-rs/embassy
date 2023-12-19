@@ -1,3 +1,4 @@
+//! GPIO driver.
 #![macro_use]
 use core::convert::Infallible;
 use core::future::Future;
@@ -23,7 +24,9 @@ static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [NEW_AW; QSPI_PIN_COUNT];
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Level {
+    /// Logical low.
     Low,
+    /// Logical high.
     High,
 }
 
@@ -48,48 +51,66 @@ impl From<Level> for bool {
 /// Represents a pull setting for an input.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Pull {
+    /// No pull.
     None,
+    /// Internal pull-up resistor.
     Up,
+    /// Internal pull-down resistor.
     Down,
 }
 
 /// Drive strength of an output
 #[derive(Debug, Eq, PartialEq)]
 pub enum Drive {
+    /// 2 mA drive.
     _2mA,
+    /// 4 mA drive.
     _4mA,
+    /// 8 mA drive.
     _8mA,
+    /// 1 2mA drive.
     _12mA,
 }
 /// Slew rate of an output
 #[derive(Debug, Eq, PartialEq)]
 pub enum SlewRate {
+    /// Fast slew rate.
     Fast,
+    /// Slow slew rate.
     Slow,
 }
 
 /// A GPIO bank with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Bank {
+    /// Bank 0.
     Bank0 = 0,
+    /// QSPI.
     #[cfg(feature = "qspi-as-gpio")]
     Qspi = 1,
 }
 
+/// Dormant mode config.
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DormantWakeConfig {
+    /// Wake on edge high.
     pub edge_high: bool,
+    /// Wake on edge low.
     pub edge_low: bool,
+    /// Wake on level high.
     pub level_high: bool,
+    /// Wake on level low.
     pub level_low: bool,
 }
 
+/// GPIO input driver.
 pub struct Input<'d, T: Pin> {
     pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> Input<'d, T> {
+    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
@@ -104,11 +125,13 @@ impl<'d, T: Pin> Input<'d, T> {
         self.pin.set_schmitt(enable)
     }
 
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
@@ -120,31 +143,37 @@ impl<'d, T: Pin> Input<'d, T> {
         self.pin.get_level()
     }
 
+    /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await;
     }
 
+    /// Wait until the pin is low. If it is already low, return immediately.
     #[inline]
     pub async fn wait_for_low(&mut self) {
         self.pin.wait_for_low().await;
     }
 
+    /// Wait for the pin to undergo a transition from low to high.
     #[inline]
     pub async fn wait_for_rising_edge(&mut self) {
         self.pin.wait_for_rising_edge().await;
     }
 
+    /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub async fn wait_for_falling_edge(&mut self) {
         self.pin.wait_for_falling_edge().await;
     }
 
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     #[inline]
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await;
     }
 
+    /// Configure dormant wake.
     #[inline]
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<T> {
         self.pin.dormant_wake(cfg)
@@ -155,10 +184,15 @@ impl<'d, T: Pin> Input<'d, T> {
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InterruptTrigger {
+    /// Trigger on pin low.
     LevelLow,
+    /// Trigger on pin high.
     LevelHigh,
+    /// Trigger on high to low transition.
     EdgeLow,
+    /// Trigger on low to high transition.
     EdgeHigh,
+    /// Trigger on any transition.
     AnyEdge,
 }
 
@@ -226,6 +260,7 @@ struct InputFuture<'a, T: Pin> {
 }
 
 impl<'d, T: Pin> InputFuture<'d, T> {
+    /// Create a new future wiating for input trigger.
     pub fn new(pin: impl Peripheral<P = T> + 'd, level: InterruptTrigger) -> Self {
         into_ref!(pin);
         let pin_group = (pin.pin() % 8) as usize;
@@ -308,11 +343,13 @@ impl<'d, T: Pin> Future for InputFuture<'d, T> {
     }
 }
 
+/// GPIO output driver.
 pub struct Output<'d, T: Pin> {
     pin: Flex<'d, T>,
 }
 
 impl<'d, T: Pin> Output<'d, T> {
+    /// Create GPIO output driver for a [Pin] with the provided [Level].
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
@@ -331,7 +368,7 @@ impl<'d, T: Pin> Output<'d, T> {
         self.pin.set_drive_strength(strength)
     }
 
-    // Set the pin's slew rate.
+    /// Set the pin's slew rate.
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.set_slew_rate(slew_rate)
@@ -386,6 +423,7 @@ pub struct OutputOpenDrain<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
+    /// Create GPIO output driver for a [Pin] in open drain mode with the provided [Level].
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
@@ -403,7 +441,7 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         self.pin.set_drive_strength(strength)
     }
 
-    // Set the pin's slew rate.
+    /// Set the pin's slew rate.
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.set_slew_rate(slew_rate)
@@ -456,11 +494,13 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         self.pin.toggle_set_as_output()
     }
 
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
@@ -472,26 +512,31 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         self.is_high().into()
     }
 
+    /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await;
     }
 
+    /// Wait until the pin is low. If it is already low, return immediately.
     #[inline]
     pub async fn wait_for_low(&mut self) {
         self.pin.wait_for_low().await;
     }
 
+    /// Wait for the pin to undergo a transition from low to high.
     #[inline]
     pub async fn wait_for_rising_edge(&mut self) {
         self.pin.wait_for_rising_edge().await;
     }
 
+    /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub async fn wait_for_falling_edge(&mut self) {
         self.pin.wait_for_falling_edge().await;
     }
 
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     #[inline]
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await;
@@ -508,6 +553,10 @@ pub struct Flex<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Flex<'d, T> {
+    /// Wrap the pin in a `Flex`.
+    ///
+    /// The pin remains disconnected. The initial output level is unspecified, but can be changed
+    /// before the pin is put into output mode.
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd) -> Self {
         into_ref!(pin);
@@ -556,7 +605,7 @@ impl<'d, T: Pin> Flex<'d, T> {
         });
     }
 
-    // Set the pin's slew rate.
+    /// Set the pin's slew rate.
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.pad_ctrl().modify(|w| {
@@ -589,6 +638,7 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.sio_oe().value_set().write_value(self.bit())
     }
 
+    /// Set as output pin.
     #[inline]
     pub fn is_set_as_output(&mut self) -> bool {
         self.ref_is_set_as_output()
@@ -599,15 +649,18 @@ impl<'d, T: Pin> Flex<'d, T> {
         (self.pin.sio_oe().value().read() & self.bit()) != 0
     }
 
+    /// Toggle output pin.
     #[inline]
     pub fn toggle_set_as_output(&mut self) {
         self.pin.sio_oe().value_xor().write_value(self.bit())
     }
 
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         !self.is_low()
     }
+    /// Get whether the pin input level is low.
 
     #[inline]
     pub fn is_low(&mut self) -> bool {
@@ -675,31 +728,37 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.sio_out().value_xor().write_value(self.bit())
     }
 
+    /// Wait until the pin is high. If it is already high, return immediately.
     #[inline]
     pub async fn wait_for_high(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::LevelHigh).await;
     }
 
+    /// Wait until the pin is low. If it is already low, return immediately.
     #[inline]
     pub async fn wait_for_low(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::LevelLow).await;
     }
 
+    /// Wait for the pin to undergo a transition from low to high.
     #[inline]
     pub async fn wait_for_rising_edge(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::EdgeHigh).await;
     }
 
+    /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub async fn wait_for_falling_edge(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::EdgeLow).await;
     }
 
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     #[inline]
     pub async fn wait_for_any_edge(&mut self) {
         InputFuture::new(&mut self.pin, InterruptTrigger::AnyEdge).await;
     }
 
+    /// Configure dormant wake.
     #[inline]
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<T> {
         let idx = self.pin._pin() as usize;
@@ -737,6 +796,7 @@ impl<'d, T: Pin> Drop for Flex<'d, T> {
     }
 }
 
+/// Dormant wake driver.
 pub struct DormantWake<'w, T: Pin> {
     pin: PeripheralRef<'w, T>,
     cfg: DormantWakeConfig,
@@ -818,6 +878,7 @@ pub(crate) mod sealed {
     }
 }
 
+/// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
     /// Degrade to a generic pin struct
     fn degrade(self) -> AnyPin {
@@ -839,6 +900,7 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'stat
     }
 }
 
+/// Type-erased GPIO pin
 pub struct AnyPin {
     pin_bank: u8,
 }

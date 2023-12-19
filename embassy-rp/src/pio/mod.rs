@@ -1,3 +1,4 @@
+//! PIO driver.
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
