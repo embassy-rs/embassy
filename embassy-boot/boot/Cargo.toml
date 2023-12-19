@@ -31,7 +31,7 @@ embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" 
 embassy-sync = { version = "0.5.0", path = "../../embassy-sync" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
-salty = { git = "https://github.com/ycrypto/salty.git", rev = "a9f17911a5024698406b75c0fac56ab5ccf6a8c7", optional = true }
+salty = { version = "0.3", optional = true }
 signature = { version = "1.6.4", default-features = false }
 
 [dev-dependencies]
