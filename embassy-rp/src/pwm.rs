@@ -61,9 +61,13 @@ impl Default for Config {
     }
 }
 
+/// PWM input mode.
 pub enum InputMode {
+    /// Level mode.
     Level,
+    /// Rising edge mode.
     RisingEdge,
+    /// Falling edge mode.
     FallingEdge,
 }
 
@@ -77,6 +81,7 @@ impl From<InputMode> for Divmode {
     }
 }
 
+/// PWM driver.
 pub struct Pwm<'d, T: Channel> {
     inner: PeripheralRef<'d, T>,
     pin_a: Option<PeripheralRef<'d, AnyPin>>,

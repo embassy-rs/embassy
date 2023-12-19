@@ -194,6 +194,7 @@ mod sealed {
     }
 }
 
+/// RTC peripheral instance.
 pub trait Instance: sealed::Instance {}
 
 impl sealed::Instance for crate::peripherals::RTC {
