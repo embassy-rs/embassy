@@ -17,12 +17,12 @@
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
     // Uncomment if the example has a "nightly" feature.
-    //"nightly",
+    "nightly",
   ],
   "rust-analyzer.linkedProjects": [
     // Uncomment ONE line for the chip you want to work on.
     // This makes rust-analyzer work on the example crate and all its dependencies.
-    //"examples/nrf52840/Cargo.toml",
+    "examples/nrf52840/Cargo.toml",
     // "examples/nrf52840-rtic/Cargo.toml",
     // "examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",
@@ -39,7 +39,7 @@
     // "examples/stm32g0/Cargo.toml",
     // "examples/stm32g4/Cargo.toml",
     // "examples/stm32h5/Cargo.toml",
-     "examples/stm32h7/Cargo.toml",
+    // "examples/stm32h7/Cargo.toml",
     // "examples/stm32l0/Cargo.toml",
     // "examples/stm32l1/Cargo.toml",
     // "examples/stm32l4/Cargo.toml",
