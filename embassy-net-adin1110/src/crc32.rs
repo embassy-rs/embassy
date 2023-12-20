@@ -264,8 +264,7 @@ pub const CRC32R_LOOKUP_TABLE: [u32; 256] = [
 pub struct ETH_FCS(pub u32);
 
 impl ETH_FCS {
-    /// CRC32_OK
-    pub const CRC32_OK: u32 = 0x2144_df1c;
+    const CRC32_OK: u32 = 0x2144_df1c;
 
     /// Create a new frame check sequence from `data`.
     #[must_use]
