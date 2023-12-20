@@ -117,7 +117,10 @@ where
             let state = cell.replace(State::None);
             match state {
                 State::Signaled(res) => Some(res),
-                _ => None,
+                state => {
+                    cell.set(state);
+                    None
+                }
             }
         })
     }
