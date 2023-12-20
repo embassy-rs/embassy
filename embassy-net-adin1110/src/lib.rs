@@ -5,6 +5,7 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 // must go first!
 mod fmt;
@@ -446,6 +447,7 @@ pub struct Runner<'d, SPI, INT, RST> {
 }
 
 impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
+    /// Run the driver.
     #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> ! {
         loop {
