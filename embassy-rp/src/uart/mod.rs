@@ -116,10 +116,16 @@ pub enum Error {
     Parity,
     /// Triggered when the received character didn't have a valid stop bit.
     Framing,
-    /// There was an issue when calculating the number of transferred items
-    /// in an aborted DMA transaction. This is likely an error in the
-    /// driver implementation, please open an embassy issue.
-    Calculation,
+}
+
+/// Read To Break error
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum ReadToBreakError {
+    /// Read this many bytes, but never received a line break.
+    MissingBreak(usize),
+    Other(Error),
 }
 
 /// Internal DMA state of UART RX.
@@ -432,12 +438,10 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         )
         .await;
 
-        let mut did_finish = false;
         let errors = match transfer_result {
             Either::First(()) => {
                 // We're here because the DMA finished, BUT if an error occurred on the LAST
                 // byte, then we may still need to grab the error state!
-                did_finish = true;
                 Uartris(T::dma_state().rx_errs.swap(0, Ordering::Relaxed) as u32)
             }
             Either::Second(e) => {
@@ -452,12 +456,7 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             return Ok(());
         }
 
-        // If we DID get an error, and DID finish, we'll have one error byte left in the FIFO.
-        // Pop it since we are reporting the error on THIS transaction.
-        if did_finish {
-            let _ = T::regs().uartdr().read();
-        }
-
+        // If we DID get an error, we need to figure out which one it was.
         if errors.oeris() {
             return Err(Error::Overrun);
         } else if errors.beris() {
@@ -470,15 +469,27 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         unreachable!("unrecognized rx error");
     }
 
-    /// Read from the UART, until one of the following occurs:
+    /// Read from the UART, waiting for a line break.
+    ///
+    /// We read until one of the following occurs:
     ///
     /// * We read `buffer.len()` bytes without a line break
-    ///     * returns `Ok(buffer)`
+    ///     * returns `Err(ReadToBreakError::MissingBreak(buffer.len()))`
     /// * We read `n` bytes then a line break occurs
-    ///     * returns `Ok(&mut buffer[..n])`
+    ///     * returns `Ok(n)`
     /// * We encounter some error OTHER than a line break
-    ///     * returns `Err(Error)`
-    pub async fn read_to_break<'a>(&mut self, buffer: &'a mut [u8]) -> Result<&'a mut [u8], Error> {
+    ///     * returns `Err(ReadToBreakError::Other(error))`
+    ///
+    /// **NOTE**: you MUST provide a buffer one byte larger than your largest expected
+    /// message to reliably detect the framing on one single call to `read_to_break()`.
+    ///
+    /// * If you expect a message of 20 bytes + line break, and provide a 20-byte buffer:
+    ///     * The first call to `read_to_break()` will return `Err(ReadToBreakError::MissingBreak(20))`
+    ///     * The next call to `read_to_break()` will immediately return `Ok(0)`, from the "stale" line break
+    /// * If you expect a message of 20 bytes + line break, and provide a 21-byte buffer:
+    ///     * The first call to `read_to_break()` will return `Ok(20)`.
+    ///     * The next call to `read_to_break()` will work as expected
+    pub async fn read_to_break(&mut self, buffer: &mut [u8]) -> Result<usize, ReadToBreakError> {
         // clear error flags before we drain the fifo. errors that have accumulated
         // in the flags will also be present in the fifo.
         T::dma_state().rx_errs.store(0, Ordering::Relaxed);
@@ -498,11 +509,11 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             // Drained fifo, still some room left!
             Ok(len) if len < buffer.len() => &mut buffer[len..],
             // Drained (some/all of the fifo), no room left
-            Ok(_) => return Ok(buffer),
+            Ok(len) => return Err(ReadToBreakError::MissingBreak(len)),
             // We got a break WHILE draining the FIFO, return what we did get before the break
-            Err((i, Error::Break)) => return Ok(&mut buffer[..i]),
+            Err((i, Error::Break)) => return Ok(i),
             // Some other error, just return the error
-            Err((_i, e)) => return Err(e),
+            Err((_i, e)) => return Err(ReadToBreakError::Other(e)),
         };
 
         // start a dma transfer. if errors have happened in the interim some error
@@ -538,14 +549,11 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
         )
         .await;
 
-        let mut did_finish = false;
-
         // Figure out our error state
         let errors = match transfer_result {
             Either::First(()) => {
                 // We're here because the DMA finished, BUT if an error occurred on the LAST
                 // byte, then we may still need to grab the error state!
-                did_finish = true;
                 Uartris(T::dma_state().rx_errs.swap(0, Ordering::Relaxed) as u32)
             }
             Either::Second(e) => {
@@ -557,7 +565,8 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
 
         if errors.0 == 0 {
             // No errors? That means we filled the buffer without a line break.
-            return Ok(buffer);
+            // For THIS function, that's a problem.
+            return Err(ReadToBreakError::MissingBreak(buffer.len()));
         } else if errors.beris() {
             // We got a Line Break! By this point, we've finished/aborted the DMA
             // transaction, which means that we need to figure out where it left off
@@ -568,36 +577,60 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             let sval = buffer.as_ptr() as usize;
             let eval = sval + buffer.len();
 
-            // Note: the `write_addr()` is where the NEXT write would be.
-            let mut last_written = ch.regs().write_addr().read() as usize;
+            // Note: the `write_addr()` is where the NEXT write would be, but we ALSO
+            // got a line break, so take an offset of 1
+            let mut next_addr = ch.regs().write_addr().read() as usize;
 
-            // Did we finish the whole DMA transfer?
-            if !did_finish {
-                // No, we did not! We stopped because we got a line break. That means the
-                // DMA transferred one "garbage byte" from the FIFO that held an error.
-                last_written -= 1;
-            } else {
-                // We did finish and got a "late break", where the interrupt error fired AFTER
-                // we got the last byte. Pop that from the FIFO so we don't trip on it next time.
-                let dr = T::regs().uartdr().read();
-                if !dr.be() {
-                    // Got an error after DMA but no error in the FIFO?
-                    return Err(Error::Calculation);
+            // If we DON'T end up inside the range, something has gone really wrong.
+            if (next_addr < sval) || (next_addr > eval) {
+                unreachable!("UART DMA reported invalid `write_addr`");
+            }
+
+            // If we finished the full DMA, AND the FIFO is not-empty, AND that
+            // byte reports a break error, THAT byte caused the error, and not data
+            // in the DMA transfer! Otherwise: our DMA grabbed one "bad" byte.
+            //
+            // Note: even though we COULD detect this and return `Ok(buffer.len())`,
+            // we DON'T, as that is racy: if we read the error state AFTER the data
+            // was transferred but BEFORE the line break interrupt fired, we'd return
+            // `MissingBreak`. Ignoring the fact that there's a line break in the FIFO
+            // means callers consistently see the same error regardless of
+            let regs = T::regs();
+            let is_end = next_addr == eval;
+            let not_empty = !regs.uartfr().read().rxfe();
+            let is_break = regs.uartrsr().read().be();
+            let last_good = is_end && not_empty && is_break;
+
+            defmt::println!("next: {=usize}, sval: {=usize}, eval: {=usize}", next_addr, sval, eval);
+            defmt::println!("lg: {=bool}, is_end: {=bool}, not_empty: {=bool}, is_break: {=bool}", last_good, is_end, not_empty, is_break);
+
+            if is_end && not_empty && !is_break {
+                let val = regs.uartdr().read();
+                let tb = regs.uartrsr().read().be();
+                let te = regs.uartfr().read().rxfe();
+                defmt::println!("THEN: {=bool}, {=bool}", tb, te);
+                if val.be() {
+                    panic!("Oh what the hell");
                 }
             }
 
-            // If we DON'T end up inside the range, something has gone really wrong.
-            if (last_written < sval) || (last_written > eval) {
-                return Err(Error::Calculation);
+            if !last_good {
+                defmt::println!("Last not good!");
+                // The last is NOT good (it's the line-break `0x00`), so elide it
+                next_addr -= 1;
+            } else {
+                defmt::println!("last good!");
             }
-            let taken = last_written - sval;
-            return Ok(&mut buffer[..taken]);
+
+            defmt::println!("->{=usize}", next_addr - sval);
+
+            return Ok(next_addr - sval);
         } else if errors.oeris() {
-            return Err(Error::Overrun);
+            return Err(ReadToBreakError::Other(Error::Overrun));
         } else if errors.peris() {
-            return Err(Error::Parity);
+            return Err(ReadToBreakError::Other(Error::Parity));
         } else if errors.feris() {
-            return Err(Error::Framing);
+            return Err(ReadToBreakError::Other(Error::Framing));
         }
         unreachable!("unrecognized rx error");
     }
@@ -902,7 +935,7 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
         self.rx.read(buffer).await
     }
 
-    pub async fn read_to_break<'a>(&mut self, buf: &'a mut [u8]) -> Result<&'a mut [u8], Error> {
+    pub async fn read_to_break<'a>(&mut self, buf: &'a mut [u8]) -> Result<usize, ReadToBreakError> {
         self.rx.read_to_break(buf).await
     }
 }
@@ -1004,7 +1037,6 @@ impl embedded_hal_nb::serial::Error for Error {
             Self::Break => embedded_hal_nb::serial::ErrorKind::Other,
             Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
             Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
-            Self::Calculation => embedded_hal_nb::serial::ErrorKind::Other,
         }
     }
 }
