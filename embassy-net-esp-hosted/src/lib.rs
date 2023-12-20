@@ -97,14 +97,14 @@ enum InterfaceType {
 const MAX_SPI_BUFFER_SIZE: usize = 1600;
 const HEARTBEAT_MAX_GAP: Duration = Duration::from_secs(20);
 
-/// Shared driver state.
+/// State for the esp-hosted driver.
 pub struct State {
     shared: Shared,
     ch: ch::State<MTU, 4, 4>,
 }
 
 impl State {
-    /// Shared state for the
+    /// Create a new state.
     pub fn new() -> Self {
         Self {
             shared: Shared::new(),
