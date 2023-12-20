@@ -56,7 +56,6 @@ cortex-m = "0.7.6"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
-embedded-sdmmc = { git = "https://github.com/embassy-rs/embedded-sdmmc-rs", rev = "a4f293d3a6f72158385f79c98634cb8a14d0d2fc", optional = true }
 critical-section = "1.1"
 stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-2234f380f51d16d0398b8e547088b33ea623cc7c" }
 vcell = "0.1.3"
