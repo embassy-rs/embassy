@@ -278,13 +278,16 @@ impl<'d, T: Instance, M: Mode> UartRx<'d, T, M> {
 
     /// Read from UART RX blocking execution until done.
     pub fn blocking_read(&mut self, mut buffer: &mut [u8]) -> Result<(), Error> {
-        while buffer.len() > 0 {
+        while !buffer.is_empty() {
             let received = self.drain_fifo(buffer).map_err(|(_i, e)| e)?;
             buffer = &mut buffer[received..];
         }
         Ok(())
     }
 
+    /// Returns Ok(len) if no errors occurred. Returns Err((len, err)) if an error was
+    /// encountered. in both cases, `len` is the number of *good* bytes copied into
+    /// `buffer`.
     fn drain_fifo(&mut self, buffer: &mut [u8]) -> Result<usize, (usize, Error)> {
         let r = T::regs();
         for (i, b) in buffer.iter_mut().enumerate() {
