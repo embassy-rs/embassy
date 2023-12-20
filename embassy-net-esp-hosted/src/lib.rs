@@ -1,4 +1,6 @@
 #![no_std]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 use embassy_futures::select::{select4, Either4};
 use embassy_net_driver_channel as ch;
