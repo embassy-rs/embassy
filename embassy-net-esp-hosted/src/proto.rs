@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use heapless::{String, Vec};
 
 /// internal supporting structures for CtrlMsg

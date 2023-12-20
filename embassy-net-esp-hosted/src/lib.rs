@@ -97,12 +97,14 @@ enum InterfaceType {
 const MAX_SPI_BUFFER_SIZE: usize = 1600;
 const HEARTBEAT_MAX_GAP: Duration = Duration::from_secs(20);
 
+/// Shared driver state.
 pub struct State {
     shared: Shared,
     ch: ch::State<MTU, 4, 4>,
 }
 
 impl State {
+    /// Shared state for the
     pub fn new() -> Self {
         Self {
             shared: Shared::new(),
@@ -111,8 +113,13 @@ impl State {
     }
 }
 
+/// Type alias for network driver.
 pub type NetDriver<'a> = ch::Device<'a, MTU>;
 
+/// Create a new esp-hosted driver using the provided state, SPI peripheral and pins.
+///
+/// Returns a device handle for interfacing with embassy-net, a control handle for
+/// interacting with the driver, and a runner for communicating with the WiFi device.
 pub async fn new<'a, SPI, IN, OUT>(
     state: &'a mut State,
     spi: SPI,
@@ -144,6 +151,7 @@ where
     (device, Control::new(state_ch, &state.shared), runner)
 }
 
+/// Runner for communicating with the WiFi device.
 pub struct Runner<'a, SPI, IN, OUT> {
     ch: ch::Runner<'a, MTU>,
     state_ch: ch::StateRunner<'a>,
@@ -166,6 +174,7 @@ where
 {
     async fn init(&mut self) {}
 
+    /// Run the packet processing.
     pub async fn run(mut self) -> ! {
         debug!("resetting...");
         self.reset.set_low().unwrap();
