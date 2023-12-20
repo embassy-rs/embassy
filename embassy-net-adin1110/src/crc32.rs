@@ -1,3 +1,4 @@
+/// CRC32 lookup table.
 pub const CRC32R_LOOKUP_TABLE: [u32; 256] = [
     0x0000_0000,
     0x7707_3096,
@@ -263,8 +264,9 @@ pub const CRC32R_LOOKUP_TABLE: [u32; 256] = [
 pub struct ETH_FCS(pub u32);
 
 impl ETH_FCS {
-    pub const CRC32_OK: u32 = 0x2144_df1c;
+    const CRC32_OK: u32 = 0x2144_df1c;
 
+    /// Create a new frame check sequence from `data`.
     #[must_use]
     pub fn new(data: &[u8]) -> Self {
         let fcs = data.iter().fold(u32::MAX, |crc, byte| {
@@ -274,6 +276,7 @@ impl ETH_FCS {
         Self(fcs)
     }
 
+    /// Update the frame check sequence with `data`.
     #[must_use]
     pub fn update(self, data: &[u8]) -> Self {
         let fcs = data.iter().fold(self.0 ^ u32::MAX, |crc, byte| {
@@ -283,16 +286,19 @@ impl ETH_FCS {
         Self(fcs)
     }
 
+    /// Check if the frame check sequence is correct.
     #[must_use]
     pub fn crc_ok(&self) -> bool {
         self.0 == Self::CRC32_OK
     }
 
+    /// Switch byte order.
     #[must_use]
     pub fn hton_bytes(&self) -> [u8; 4] {
         self.0.to_le_bytes()
     }
 
+    /// Switch byte order as a u32.
     #[must_use]
     pub fn hton(&self) -> u32 {
         self.0.to_le()
