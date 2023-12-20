@@ -170,6 +170,7 @@ pub(crate) mod sealed {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a, C: Channel> {
     channel: PeripheralRef<'a, C>,
+    circular: bool,
 }
 
 impl<'a, C: Channel> Transfer<'a, C> {
@@ -290,7 +291,10 @@ impl<'a, C: Channel> Transfer<'a, C> {
         #[cfg(bdma_v2)]
         critical_section::with(|_| channel.regs().cselr().modify(|w| w.set_cs(channel.num(), _request)));
 
-        let mut this = Self { channel };
+        let mut this = Self {
+            channel,
+            circular: options.circular,
+        };
         this.clear_irqs();
         STATE.complete_count[this.channel.index()].store(0, Ordering::Release);
 
@@ -387,7 +391,7 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         STATE.ch_wakers[self.channel.index()].register(cx.waker());
 
-        if self.is_running() {
+        if !self.circular && self.is_running() {
             Poll::Pending
         } else {
             Poll::Ready(())
