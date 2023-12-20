@@ -27,8 +27,9 @@ use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::{Error, Operation, SpiDevice};
 use heapless::Vec;
 pub use mdio::MdioBus;
-pub use phy::{Phy10BaseT1x, RegsC22, RegsC45};
-pub use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
+pub use phy::Phy10BaseT1x;
+use phy::{RegsC22, RegsC45};
+use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
 use crate::fmt::Bytes;
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};

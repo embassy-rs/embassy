@@ -30,7 +30,6 @@ pub mod RegsC45 {
     }
 
     impl DA1 {
-        #[allow(missing_docs)]
         #[must_use]
         pub fn into(self) -> (u8, u16) {
             (0x01, self as u16)
@@ -50,7 +49,6 @@ pub mod RegsC45 {
     }
 
     impl DA3 {
-        #[allow(missing_docs)]
         #[must_use]
         pub fn into(self) -> (u8, u16) {
             (0x03, self as u16)
@@ -66,7 +64,6 @@ pub mod RegsC45 {
     }
 
     impl DA7 {
-        #[allow(missing_docs)]
         #[must_use]
         pub fn into(self) -> (u8, u16) {
             (0x07, self as u16)
@@ -90,7 +87,6 @@ pub mod RegsC45 {
     }
 
     impl DA1E {
-        #[allow(missing_docs)]
         #[must_use]
         pub fn into(self) -> (u8, u16) {
             (0x1e, self as u16)
@@ -108,7 +104,6 @@ pub mod RegsC45 {
     }
 
     impl DA1F {
-        #[allow(missing_docs)]
         #[must_use]
         pub fn into(self) -> (u8, u16) {
             (0x1f, self as u16)
