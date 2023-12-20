@@ -577,54 +577,55 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             let sval = buffer.as_ptr() as usize;
             let eval = sval + buffer.len();
 
-            // Note: the `write_addr()` is where the NEXT write would be, but we ALSO
-            // got a line break, so take an offset of 1
-            let mut next_addr = ch.regs().write_addr().read() as usize;
+            // This is the address where the DMA would write to next
+            let next_addr = ch.regs().write_addr().read() as usize;
 
             // If we DON'T end up inside the range, something has gone really wrong.
+            // Note that it's okay that `eval` is one past the end of the slice, as
+            // this is where the write pointer will end up at the end of a full
+            // transfer.
             if (next_addr < sval) || (next_addr > eval) {
                 unreachable!("UART DMA reported invalid `write_addr`");
             }
 
-            // If we finished the full DMA, AND the FIFO is not-empty, AND that
-            // byte reports a break error, THAT byte caused the error, and not data
-            // in the DMA transfer! Otherwise: our DMA grabbed one "bad" byte.
-            //
-            // Note: even though we COULD detect this and return `Ok(buffer.len())`,
-            // we DON'T, as that is racy: if we read the error state AFTER the data
-            // was transferred but BEFORE the line break interrupt fired, we'd return
-            // `MissingBreak`. Ignoring the fact that there's a line break in the FIFO
-            // means callers consistently see the same error regardless of
             let regs = T::regs();
-            let is_end = next_addr == eval;
-            let not_empty = !regs.uartfr().read().rxfe();
-            let is_break = regs.uartrsr().read().be();
-            let last_good = is_end && not_empty && is_break;
+            let all_full = next_addr == eval;
 
-            defmt::println!("next: {=usize}, sval: {=usize}, eval: {=usize}", next_addr, sval, eval);
-            defmt::println!("lg: {=bool}, is_end: {=bool}, not_empty: {=bool}, is_break: {=bool}", last_good, is_end, not_empty, is_break);
+            // NOTE: This is off label usage of RSR! See the issue below for
+            // why I am not checking if there is an "extra" FIFO byte, and why
+            // I am checking RSR directly (it seems to report the status of the LAST
+            // POPPED value, rather than the NEXT TO POP value like the datasheet
+            // suggests!)
+            //
+            // issue: https://github.com/raspberrypi/pico-feedback/issues/367
+            let last_was_break = regs.uartrsr().read().be();
 
-            if is_end && not_empty && !is_break {
-                let val = regs.uartdr().read();
-                let tb = regs.uartrsr().read().be();
-                let te = regs.uartfr().read().rxfe();
-                defmt::println!("THEN: {=bool}, {=bool}", tb, te);
-                if val.be() {
-                    panic!("Oh what the hell");
+            return match (all_full, last_was_break) {
+                (true, true) | (false, _) => {
+                    // We got less than the full amount + a break, or the full amount
+                    // and the last byte was a break. Subtract the break off.
+                    Ok((next_addr - 1) - sval)
                 }
-            }
-
-            if !last_good {
-                defmt::println!("Last not good!");
-                // The last is NOT good (it's the line-break `0x00`), so elide it
-                next_addr -= 1;
-            } else {
-                defmt::println!("last good!");
-            }
-
-            defmt::println!("->{=usize}", next_addr - sval);
-
-            return Ok(next_addr - sval);
+                (true, false) => {
+                    // We finished the whole DMA, and the last DMA'd byte was NOT a break
+                    // character. This is an error.
+                    //
+                    // NOTE: we COULD potentially return Ok(buffer.len()) here, since we
+                    // know a line break occured at SOME POINT after the DMA completed.
+                    //
+                    // However, we have no way of knowing if there was extra data BEFORE
+                    // that line break, so instead return an Err to signal to the caller
+                    // that there are "leftovers", and they'll catch the actual line break
+                    // on the next call.
+                    //
+                    // Doing it like this also avoids racyness: now whether you finished
+                    // the full read BEFORE the line break occurred or AFTER the line break
+                    // occurs, you still get `MissingBreak(buffer.len())` instead of sometimes
+                    // getting `Ok(buffer.len())` if you were "late enough" to observe the
+                    // line break.
+                    Err(ReadToBreakError::MissingBreak(buffer.len()))
+                }
+            };
         } else if errors.oeris() {
             return Err(ReadToBreakError::Other(Error::Overrun));
         } else if errors.peris() {
