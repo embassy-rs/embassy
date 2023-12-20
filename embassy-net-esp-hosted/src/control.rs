@@ -9,8 +9,11 @@ use crate::proto::{self, CtrlMsg};
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// The operation failed with the given error code.
     Failed(u32),
+    /// The operation timed out.
     Timeout,
+    /// Internal error.
     Internal,
 }
 
