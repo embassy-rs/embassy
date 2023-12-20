@@ -6,6 +6,7 @@ keywords = ["embedded", "wiznet", "embassy-net", "embedded-hal-async", "ethernet
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
+repository = "https://github.com/embassy-rs/embassy"
 
 [dependencies]
 embedded-hal = { version = "1.0.0-rc.3" }

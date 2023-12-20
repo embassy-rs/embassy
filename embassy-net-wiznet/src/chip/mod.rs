@@ -1,3 +1,4 @@
+//! Wiznet W5100s and W5500 family driver.
 mod w5500;
 pub use w5500::W5500;
 mod w5100s;
@@ -45,4 +46,5 @@ pub(crate) mod sealed {
     }
 }
 
+/// Trait for Wiznet chips.
 pub trait Chip: sealed::Chip {}
