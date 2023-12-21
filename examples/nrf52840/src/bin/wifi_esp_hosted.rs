@@ -13,7 +13,7 @@ use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, embassy_net_esp_hosted as hosted, panic_probe as _};
 
 const WIFI_NETWORK: &str = "EmbassyTest";
@@ -61,8 +61,9 @@ async fn main(spawner: Spawner) {
     let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
+    static ESP_STATE: StaticCell<embassy_net_esp_hosted::State> = StaticCell::new();
     let (device, mut control, runner) = embassy_net_esp_hosted::new(
-        make_static!(embassy_net_esp_hosted::State::new()),
+        ESP_STATE.init(embassy_net_esp_hosted::State::new()),
         spi,
         handshake,
         ready,
@@ -89,11 +90,13 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+    static STACK: StaticCell<Stack<hosted::NetDriver<'static>>> = StaticCell::new();
+    let stack = &*STACK.init(Stack::new(
         device,
         config,
-        make_static!(StackResources::<2>::new()),
-        seed
+        RESOURCES.init(StackResources::<2>::new()),
+        seed,
     ));
 
     unwrap!(spawner.spawn(net_task(stack)));

@@ -15,7 +15,7 @@ use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config};
 use embassy_time::Timer;
 use embedded_io_async::{Read, Write};
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -27,8 +27,10 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let (tx_pin, rx_pin, uart) = (p.PIN_0, p.PIN_1, p.UART0);
 
-    let tx_buf = &mut make_static!([0u8; 16])[..];
-    let rx_buf = &mut make_static!([0u8; 16])[..];
+    static TX_BUF: StaticCell<[u8; 16]> = StaticCell::new();
+    let tx_buf = &mut TX_BUF.init([0; 16])[..];
+    static RX_BUF: StaticCell<[u8; 16]> = StaticCell::new();
+    let rx_buf = &mut RX_BUF.init([0; 16])[..];
     let uart = BufferedUart::new(uart, Irqs, tx_pin, rx_pin, tx_buf, rx_buf, Config::default());
     let (rx, mut tx) = uart.split();
 

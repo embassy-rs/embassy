@@ -24,7 +24,7 @@
 //! use embassy_executor::Spawner;
 //! use embassy_stm32::low_power::Executor;
 //! use embassy_stm32::rtc::{Rtc, RtcConfig};
-//! use static_cell::make_static;
+//! use static_cell::StaticCell;
 //!
 //! #[cortex_m_rt::entry]
 //! fn main() -> ! {
@@ -41,7 +41,8 @@
 //!
 //!     // give the RTC to the executor...
 //!     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
-//!     let rtc = make_static!(rtc);
+//!     static RTC: StaticCell<Rtc> = StaticCell::new();
+//!     let rtc = RTC.init(rtc);
 //!     embassy_stm32::low_power::stop_with_rtc(rtc);
 //!
 //!     // your application here...
