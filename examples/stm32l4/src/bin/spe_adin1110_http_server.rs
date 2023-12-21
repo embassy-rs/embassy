@@ -1,10 +1,7 @@
-#![deny(clippy::pedantic)]
-#![allow(clippy::doc_markdown)]
 #![no_main]
 #![no_std]
-// Needed unitl https://github.com/rust-lang/rust/issues/63063 is stablised.
-#![feature(type_alias_impl_trait)]
-#![feature(associated_type_bounds)]
+#![deny(clippy::pedantic)]
+#![allow(clippy::doc_markdown)]
 #![allow(clippy::missing_errors_doc)]
 
 // This example works on a ANALOG DEVICE EVAL-ADIN110EBZ board.

@@ -247,7 +247,6 @@ select_bootloader! {
 /// # Usage
 ///
 /// ```no_run
-/// #![feature(type_alias_impl_trait)]
 /// use embassy_rp::install_core0_stack_guard;
 /// use embassy_executor::{Executor, Spawner};
 ///

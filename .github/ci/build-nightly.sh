@@ -7,6 +7,7 @@ set -euo pipefail
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
+mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 # needed for "dumb HTTP" transport support
 # used when pointing stm32-metapac to a CI-built one.
@@ -21,9 +22,7 @@ fi
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-sed -i 's/channel.*/channel = "beta"/g' rust-toolchain.toml
-
-./ci_stable.sh
+./ci-nightly.sh
 
 # Save lockfiles
 echo Saving lockfiles...

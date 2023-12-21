@@ -8,7 +8,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 #![allow(async_fn_in_trait)]
 
 use defmt::{info, panic, trace};
