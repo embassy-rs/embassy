@@ -1,0 +1,12 @@
+[toolchain]
+channel = "nightly-2023-12-20"
+components = [ "rust-src", "rustfmt", "llvm-tools", "miri" ]
+targets = [
+    "thumbv7em-none-eabi",
+    "thumbv7m-none-eabi",
+    "thumbv6m-none-eabi",
+    "thumbv7em-none-eabihf",
+    "thumbv8m.main-none-eabihf",
+    "riscv32imac-unknown-none-elf",
+    "wasm32-unknown-unknown",
+]

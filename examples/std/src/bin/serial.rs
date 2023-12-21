@@ -1,5 +1,3 @@
-#![feature(type_alias_impl_trait)]
-
 #[path = "../serial_port.rs"]
 mod serial_port;
 

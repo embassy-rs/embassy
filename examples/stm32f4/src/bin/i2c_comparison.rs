@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 // Example originally designed for stm32f411ceu6 with three A1454 hall effect sensors, connected to I2C1, 2 and 3
 // on the pins referenced in the peripheral definitions.

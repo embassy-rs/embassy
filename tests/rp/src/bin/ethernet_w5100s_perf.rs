@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 teleprobe_meta::target!(b"w5100s-evb-pico");
 teleprobe_meta::timeout!(120);
 

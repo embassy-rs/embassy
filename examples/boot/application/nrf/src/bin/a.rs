@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 #![macro_use]
-#![feature(type_alias_impl_trait)]
 
 use embassy_boot_nrf::{FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;

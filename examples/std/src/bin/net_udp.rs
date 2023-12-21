@@ -1,5 +1,3 @@
-#![feature(type_alias_impl_trait)]
-
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
