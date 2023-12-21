@@ -62,6 +62,22 @@ mod thread {
                 self.signaler.wait()
             }
         }
+
+        /// Returns the spawner of the executor
+        pub(crate) fn spawner(&'static self) -> Spawner {
+            self.inner.spawner()
+        }
+
+        /// Run the executor until the closure returns true.
+        pub(crate) fn run_until(&'static self, f: impl Fn() -> bool) {
+            loop {
+                unsafe { self.inner.poll() };
+                if f() {
+                    break;
+                }
+                self.signaler.wait();
+            }
+        }
     }
 
     struct Signaler {

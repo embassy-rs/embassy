@@ -7,6 +7,8 @@
 pub(crate) mod fmt;
 
 pub use embassy_executor_macros::task;
+#[cfg(feature = "arch-std")]
+pub use embassy_executor_macros::test;
 
 macro_rules! check_at_most_one {
     (@amo [$($feats:literal)*] [] [$($res:tt)*]) => {
@@ -37,6 +39,15 @@ pub mod raw;
 
 mod spawner;
 pub use spawner::*;
+
+#[cfg(feature = "arch-std")]
+mod testutils;
+
+#[cfg(feature = "arch-std")]
+#[doc(hidden)]
+pub mod _export_testutils {
+    pub use crate::testutils::*;
+}
 
 mod config {
     #![allow(unused)]

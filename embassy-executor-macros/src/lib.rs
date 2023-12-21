@@ -62,6 +62,35 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
     task::run(&args.meta, f).unwrap_or_else(|x| x).into()
 }
 
+/// Declares a unit test which uses the embassy executor to run the test on std.
+///
+/// The following restrictions apply:
+///
+/// * The function may accept exactly 1 parameter, an `embassy_executor::Spawner` handle that it can use to spawn additional tasks.
+/// * The function must be declared `async`.
+/// * The function must not use generics.
+/// * The function must not return anything
+///
+/// ## Examples
+/// Creating a testcase:
+///
+/// ``` rust
+///#[cfg(test)]
+/// mod tests
+/// {
+////  #[embassy_executor::test]
+///   async fn test1() {
+///     // Test case body
+///   }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn test(_args: TokenStream, item: TokenStream) -> TokenStream {
+    let f = syn::parse_macro_input!(item as syn::ItemFn);
+
+    test::run(f).unwrap_or_else(|x| x).into()
+}
+
 /// Creates a new `executor` instance and declares an application entry point for Cortex-M spawning the corresponding function body as an async task.
 ///
 /// The following restrictions apply:
