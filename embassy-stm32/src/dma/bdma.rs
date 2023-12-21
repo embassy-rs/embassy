@@ -23,6 +23,10 @@ use crate::pac::bdma::{regs, vals};
 #[non_exhaustive]
 pub struct TransferOptions {
     /// Enable circular DMA
+    ///
+    /// Note:
+    /// If you enable circular mode manually, you may want to build and `.await` the `Transfer` in a separate task.
+    /// Since DMA in circular mode need manually stop, `.await` in current task would block the task forever.
     pub circular: bool,
     /// Enable half transfer interrupt
     pub half_transfer_ir: bool,
