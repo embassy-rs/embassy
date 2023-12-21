@@ -64,9 +64,6 @@ async fn main(_spawner: Spawner) {
         CountingMode::EdgeAlignedUp,
     );
 
-    // PAC level hacking, enable timer-update-event trigger DMA
-    pac::TIM3.dier().modify(|v| v.set_ude(true));
-
     // construct ws2812 non-return-to-zero (NRZ) code bit by bit
     // ws2812 only need 24 bits for each LED, but we add one bit more to keep PWM output low
 
@@ -104,12 +101,15 @@ async fn main(_spawner: Spawner) {
         dma_transfer_option.mburst = Burst::Incr8;
 
         // flip color at 2 Hz
-        let mut ticker = Ticker::every(Duration::from_micros(500));
+        let mut ticker = Ticker::every(Duration::from_millis(500));
 
         loop {
             for &color in color_list {
                 // start PWM output
                 ws2812_pwm.enable(pwm_channel);
+
+                // PAC level hacking, enable timer-update-event trigger DMA
+                pac::TIM3.dier().modify(|v| v.set_ude(true));
 
                 unsafe {
                     Transfer::new_write(
@@ -121,6 +121,14 @@ async fn main(_spawner: Spawner) {
                         dma_transfer_option,
                     )
                     .await;
+
+                    // Turn off timer-update-event trigger DMA as soon as possible.
+                    // Then clean the FIFO Error Flag if set.
+                    pac::TIM3.dier().modify(|v| v.set_ude(false));
+                    if pac::DMA1.isr(0).read().feif(2) {
+                        pac::DMA1.ifcr(0).write(|v| v.set_feif(2, true));
+                    }
+
                     // ws2812 need at least 50 us low level input to confirm the input data and change it's state
                     Timer::after_micros(50).await;
                 }
