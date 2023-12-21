@@ -1,3 +1,4 @@
+//! Watchdog Timer (IWDG, WWDG)
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral};
@@ -5,6 +6,7 @@ use stm32_metapac::iwdg::vals::{Key, Pr};
 
 use crate::rcc::LSI_FREQ;
 
+/// Independent watchdog (IWDG) driver.
 pub struct IndependentWatchdog<'d, T: Instance> {
     wdg: PhantomData<&'d mut T>,
 }
@@ -63,10 +65,12 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         IndependentWatchdog { wdg: PhantomData }
     }
 
+    /// Unleash (start) the watchdog.
     pub fn unleash(&mut self) {
         T::regs().kr().write(|w| w.set_key(Key::START));
     }
 
+    /// Pet (reload, refresh) the watchdog.
     pub fn pet(&mut self) {
         T::regs().kr().write(|w| w.set_key(Key::RESET));
     }
@@ -78,6 +82,7 @@ mod sealed {
     }
 }
 
+/// IWDG instance trait.
 pub trait Instance: sealed::Instance {}
 
 foreach_peripheral!(

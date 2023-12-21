@@ -1,3 +1,4 @@
+//! I2C driver.
 use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -22,6 +23,7 @@ pub enum AbortReason {
     ArbitrationLoss,
     /// Transmit ended with data still in fifo
     TxNotEmpty(u16),
+    /// Other reason.
     Other(u32),
 }
 
@@ -41,9 +43,11 @@ pub enum Error {
     AddressReserved(u16),
 }
 
+/// I2C config.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Frequency.
     pub frequency: u32,
 }
 
@@ -53,13 +57,16 @@ impl Default for Config {
     }
 }
 
+/// Size of I2C FIFO.
 pub const FIFO_SIZE: u8 = 16;
 
+/// I2C driver.
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
+    /// Create a new driver instance in blocking mode.
     pub fn new_blocking(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
@@ -72,6 +79,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance> I2c<'d, T, Async> {
+    /// Create a new driver instance in async mode.
     pub fn new_async(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
@@ -292,16 +300,19 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         }
     }
 
+    /// Read from address into buffer using DMA.
     pub async fn read_async(&mut self, addr: u16, buffer: &mut [u8]) -> Result<(), Error> {
         Self::setup(addr)?;
         self.read_async_internal(buffer, true, true).await
     }
 
+    /// Write to address from buffer using DMA.
     pub async fn write_async(&mut self, addr: u16, bytes: impl IntoIterator<Item = u8>) -> Result<(), Error> {
         Self::setup(addr)?;
         self.write_async_internal(bytes, true).await
     }
 
+    /// Write to address from bytes and read from address into buffer using DMA.
     pub async fn write_read_async(
         &mut self,
         addr: u16,
@@ -314,6 +325,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
     }
 }
 
+/// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
@@ -569,17 +581,20 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     // Blocking public API
     // =========================
 
+    /// Read from address into buffer blocking caller until done.
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 
+    /// Write to address from buffer blocking caller until done.
     pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, true)
     }
 
+    /// Write to address from bytes and read from address into buffer blocking caller until done.
     pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, false)?;
@@ -742,6 +757,7 @@ where
     }
 }
 
+/// Check if address is reserved.
 pub fn i2c_reserved_addr(addr: u16) -> bool {
     ((addr & 0x78) == 0 || (addr & 0x78) == 0x78) && addr != 0
 }
@@ -768,6 +784,7 @@ mod sealed {
     pub trait SclPin<T: Instance> {}
 }
 
+/// Driver mode.
 pub trait Mode: sealed::Mode {}
 
 macro_rules! impl_mode {
@@ -777,12 +794,15 @@ macro_rules! impl_mode {
     };
 }
 
+/// Blocking mode.
 pub struct Blocking;
+/// Async mode.
 pub struct Async;
 
 impl_mode!(Blocking);
 impl_mode!(Async);
 
+/// I2C instance.
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
@@ -819,7 +839,9 @@ macro_rules! impl_instance {
 impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
 impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
 
+/// SDA pin.
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
+/// SCL pin.
 pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
 
 macro_rules! impl_pin {

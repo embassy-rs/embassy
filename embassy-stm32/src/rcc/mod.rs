@@ -1,4 +1,7 @@
+//! Reset and Clock Control (RCC)
+
 #![macro_use]
+#![allow(missing_docs)] // TODO
 
 use core::mem::MaybeUninit;
 

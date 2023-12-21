@@ -14,7 +14,7 @@ categories = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor/src/"
-features = ["nightly", "defmt"]
+features = ["defmt"]
 flavors = [
     { name = "std",             target = "x86_64-unknown-linux-gnu",     features = ["arch-std", "executor-thread"] },
     { name = "wasm",            target = "wasm32-unknown-unknown",       features = ["arch-wasm", "executor-thread"] },
@@ -25,7 +25,7 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["nightly", "defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
+features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
 
 [dependencies]
 defmt = { version = "0.3", optional = true }

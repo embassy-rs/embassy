@@ -1,3 +1,4 @@
+//! Serial Peripheral Interface (SPI)
 #![macro_use]
 
 use core::ptr;
@@ -15,27 +16,38 @@ use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
+/// SPI error.
 #[derive(Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Invalid framing.
     Framing,
+    /// CRC error (only if hardware CRC checking is enabled).
     Crc,
+    /// Mode fault
     ModeFault,
+    /// Overrun.
     Overrun,
 }
 
-// TODO move upwards in the tree
+/// SPI bit order
 #[derive(Copy, Clone)]
 pub enum BitOrder {
+    /// Least significant bit first.
     LsbFirst,
+    /// Most significant bit first.
     MsbFirst,
 }
 
+/// SPI configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// SPI mode.
     pub mode: Mode,
+    /// Bit order.
     pub bit_order: BitOrder,
+    /// Clock frequency.
     pub frequency: Hertz,
 }
 
@@ -72,6 +84,7 @@ impl Config {
     }
 }
 
+/// SPI driver.
 pub struct Spi<'d, T: Instance, Tx, Rx> {
     _peri: PeripheralRef<'d, T>,
     sck: Option<PeripheralRef<'d, AnyPin>>,
@@ -83,6 +96,7 @@ pub struct Spi<'d, T: Instance, Tx, Rx> {
 }
 
 impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
+    /// Create a new SPI driver.
     pub fn new(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
@@ -117,6 +131,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
+    /// Create a new SPI driver, in RX-only mode (only MISO pin, no MOSI).
     pub fn new_rxonly(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
@@ -142,6 +157,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
+    /// Create a new SPI driver, in TX-only mode (only MOSI pin, no MISO).
     pub fn new_txonly(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
@@ -167,6 +183,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         )
     }
 
+    /// Create a new SPI driver, in TX-only mode, without SCK pin.
+    ///
+    /// This can be useful for bit-banging non-SPI protocols.
     pub fn new_txonly_nosck(
         peri: impl Peripheral<P = T> + 'd,
         mosi: impl Peripheral<P = impl MosiPin<T>> + 'd,
@@ -354,6 +373,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
+    /// Get current SPI configuration.
     pub fn get_current_config(&self) -> Config {
         #[cfg(any(spi_v1, spi_f1, spi_v2))]
         let cfg = T::REGS.cr1().read();
@@ -443,6 +463,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         self.current_word_size = word_size;
     }
 
+    /// SPI write, using DMA.
     pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
@@ -476,6 +497,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
+    /// SPI read, using DMA.
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
@@ -579,6 +601,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
+    /// Bidirectional transfer, using DMA.
+    ///
+    /// This transfers both buffers at the same time, so it is NOT equivalent to `write` followed by `read`.
+    ///
+    /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
+    /// If `write` is shorter it is padded with zero bytes.
     pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
@@ -587,6 +615,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         self.transfer_inner(read, write).await
     }
 
+    /// In-place bidirectional transfer, using DMA.
+    ///
+    /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error>
     where
         Tx: TxDma<T>,
@@ -595,6 +626,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         self.transfer_inner(data, data).await
     }
 
+    /// Blocking write.
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
         T::REGS.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(T::REGS);
@@ -605,6 +637,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
+    /// Blocking read.
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
         T::REGS.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(T::REGS);
@@ -615,6 +648,9 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
+    /// Blocking in-place bidirectional transfer.
+    ///
+    /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
         T::REGS.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(T::REGS);
@@ -625,6 +661,12 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
         Ok(())
     }
 
+    /// Blocking bidirectional transfer.
+    ///
+    /// This transfers both buffers at the same time, so it is NOT equivalent to `write` followed by `read`.
+    ///
+    /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
+    /// If `write` is shorter it is padded with zero bytes.
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
         T::REGS.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(T::REGS);
@@ -945,6 +987,7 @@ pub(crate) mod sealed {
     }
 }
 
+/// Word sizes usable for SPI.
 pub trait Word: word::Word + sealed::Word {}
 
 macro_rules! impl_word {
@@ -1024,7 +1067,9 @@ mod word_impl {
     impl_word!(u32, 32 - 1);
 }
 
+/// SPI instance trait.
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + RccPeripheral {}
+
 pin_trait!(SckPin, Instance);
 pin_trait!(MosiPin, Instance);
 pin_trait!(MisoPin, Instance);

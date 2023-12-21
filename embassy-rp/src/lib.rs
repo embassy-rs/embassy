@@ -1,5 +1,7 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
@@ -31,9 +33,7 @@ pub mod usb;
 pub mod watchdog;
 
 // PIO
-// TODO: move `pio_instr_util` and `relocate` to inside `pio`
 pub mod pio;
-pub mod pio_instr_util;
 pub(crate) mod relocate;
 
 // Reexports
@@ -247,7 +247,6 @@ select_bootloader! {
 /// # Usage
 ///
 /// ```no_run
-/// #![feature(type_alias_impl_trait)]
 /// use embassy_rp::install_core0_stack_guard;
 /// use embassy_executor::{Executor, Spawner};
 ///
@@ -302,11 +301,14 @@ fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     Ok(())
 }
 
+/// HAL configuration for RP.
 pub mod config {
     use crate::clocks::ClockConfig;
 
+    /// HAL configuration passed when initializing.
     #[non_exhaustive]
     pub struct Config {
+        /// Clock configuration.
         pub clocks: ClockConfig,
     }
 
@@ -319,12 +321,18 @@ pub mod config {
     }
 
     impl Config {
+        /// Create a new configuration with the provided clock config.
         pub fn new(clocks: ClockConfig) -> Self {
             Self { clocks }
         }
     }
 }
 
+/// Initialize the `embassy-rp` HAL with the provided configuration.
+///
+/// This returns the peripheral singletons that can be used for creating drivers.
+///
+/// This should only be called once at startup, otherwise it panics.
 pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.

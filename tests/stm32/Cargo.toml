@@ -69,7 +69,7 @@ micromath = "2.0.0"
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 rand_core = { version = "0.6", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
-static_cell = { version = "2", features = ["nightly"] }
+static_cell = "2"
 portable-atomic = { version = "1.5", features = [] }
 
 chrono = { version = "^0.4", default-features = false, optional = true}

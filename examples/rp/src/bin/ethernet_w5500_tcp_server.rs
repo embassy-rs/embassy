@@ -5,7 +5,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -21,7 +20,7 @@ use embassy_time::{Delay, Duration};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
 use rand::RngCore;
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
@@ -57,7 +56,8 @@ async fn main(spawner: Spawner) {
     let w5500_reset = Output::new(p.PIN_20, Level::High);
 
     let mac_addr = [0x02, 0x00, 0x00, 0x00, 0x00, 0x00];
-    let state = make_static!(State::<8, 8>::new());
+    static STATE: StaticCell<State<8, 8>> = StaticCell::new();
+    let state = STATE.init(State::<8, 8>::new());
     let (device, runner) = embassy_net_wiznet::new(
         mac_addr,
         state,
@@ -72,11 +72,13 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static STACK: StaticCell<Stack<Device<'static>>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+    let stack = &*STACK.init(Stack::new(
         device,
         embassy_net::Config::dhcpv4(Default::default()),
-        make_static!(StackResources::<2>::new()),
-        seed
+        RESOURCES.init(StackResources::<2>::new()),
+        seed,
     ));
 
     // Launch network task

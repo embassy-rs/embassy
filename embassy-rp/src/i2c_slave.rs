@@ -1,3 +1,4 @@
+//! I2C slave driver.
 use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -63,11 +64,13 @@ impl Default for Config {
     }
 }
 
+/// I2CSlave driver.
 pub struct I2cSlave<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
 }
 
 impl<'d, T: Instance> I2cSlave<'d, T> {
+    /// Create a new instance.
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,

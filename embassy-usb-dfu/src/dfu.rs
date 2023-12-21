@@ -23,6 +23,7 @@ pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_S
 }
 
 impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Control<'d, DFU, STATE, RST, BLOCK_SIZE> {
+    /// Create a new DFU instance to handle DFU transfers.
     pub fn new(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, attrs: DfuAttributes) -> Self {
         Self {
             updater,

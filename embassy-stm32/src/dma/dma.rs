@@ -16,6 +16,7 @@ use crate::interrupt::Priority;
 use crate::pac::dma::{regs, vals};
 use crate::{interrupt, pac};
 
+/// DMA transfer options.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
@@ -29,6 +30,10 @@ pub struct TransferOptions {
     /// FIFO threshold for DMA FIFO mode. If none, direct mode is used.
     pub fifo_threshold: Option<FifoThreshold>,
     /// Enable circular DMA
+    ///
+    /// Note:
+    /// If you enable circular mode manually, you may want to build and `.await` the `Transfer` in a separate task.
+    /// Since DMA in circular mode need manually stop, `.await` in current task would block the task forever.
     pub circular: bool,
     /// Enable half transfer interrupt
     pub half_transfer_ir: bool,
@@ -69,6 +74,7 @@ impl From<Dir> for vals::Dir {
     }
 }
 
+/// DMA transfer burst setting.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Burst {
@@ -93,6 +99,7 @@ impl From<Burst> for vals::Burst {
     }
 }
 
+/// DMA flow control setting.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlowControl {
@@ -111,6 +118,7 @@ impl From<FlowControl> for vals::Pfctrl {
     }
 }
 
+/// DMA FIFO threshold.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FifoThreshold {
@@ -208,13 +216,17 @@ pub(crate) unsafe fn on_irq_inner(dma: pac::dma::Dma, channel_num: usize, index:
     STATE.ch_wakers[index].wake();
 }
 
+/// DMA request type alias. (also known as DMA channel number in some chips)
 #[cfg(any(dma_v2, dmamux))]
 pub type Request = u8;
+/// DMA request type alias. (also known as DMA channel number in some chips)
 #[cfg(not(any(dma_v2, dmamux)))]
 pub type Request = ();
 
+/// DMA channel.
 #[cfg(dmamux)]
 pub trait Channel: sealed::Channel + Peripheral<P = Self> + 'static + super::dmamux::MuxChannel {}
+/// DMA channel.
 #[cfg(not(dmamux))]
 pub trait Channel: sealed::Channel + Peripheral<P = Self> + 'static {}
 
@@ -229,12 +241,14 @@ pub(crate) mod sealed {
     }
 }
 
+/// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a, C: Channel> {
     channel: PeripheralRef<'a, C>,
 }
 
 impl<'a, C: Channel> Transfer<'a, C> {
+    /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read<W: Word>(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
@@ -245,6 +259,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         Self::new_read_raw(channel, request, peri_addr, buf, options)
     }
 
+    /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
     pub unsafe fn new_read_raw<W: Word>(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
@@ -270,6 +285,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         )
     }
 
+    /// Create a new write DMA transfer (memory to peripheral).
     pub unsafe fn new_write<W: Word>(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
@@ -280,6 +296,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         Self::new_write_raw(channel, request, buf, peri_addr, options)
     }
 
+    /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
     pub unsafe fn new_write_raw<W: Word>(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
@@ -305,6 +322,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         )
     }
 
+    /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
     pub unsafe fn new_write_repeated<W: Word>(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
@@ -368,18 +386,13 @@ impl<'a, C: Channel> Transfer<'a, C> {
             w.set_msize(data_size.into());
             w.set_psize(data_size.into());
             w.set_pl(vals::Pl::VERYHIGH);
-            w.set_minc(match incr_mem {
-                true => vals::Inc::INCREMENTED,
-                false => vals::Inc::FIXED,
-            });
-            w.set_pinc(vals::Inc::FIXED);
+            w.set_minc(incr_mem);
+            w.set_pinc(false);
             w.set_teie(true);
             w.set_tcie(options.complete_transfer_ir);
+            w.set_circ(options.circular);
             if options.circular {
-                w.set_circ(vals::Circ::ENABLED);
                 debug!("Setting circular mode");
-            } else {
-                w.set_circ(vals::Circ::DISABLED);
             }
             #[cfg(dma_v1)]
             w.set_trbuff(true);
@@ -407,6 +420,9 @@ impl<'a, C: Channel> Transfer<'a, C> {
         });
     }
 
+    /// Request the transfer to stop.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
 
@@ -417,6 +433,10 @@ impl<'a, C: Channel> Transfer<'a, C> {
         });
     }
 
+    /// Return whether this transfer is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().read().en()
@@ -429,6 +449,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         ch.ndtr().read().ndt()
     }
 
+    /// Blocking wait until the transfer finishes.
     pub fn blocking_wait(mut self) {
         while self.is_running() {}
 
@@ -465,12 +486,14 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
 
 // ==================================
 
+/// Double-buffered DMA transfer.
 pub struct DoubleBuffered<'a, C: Channel, W: Word> {
     channel: PeripheralRef<'a, C>,
     _phantom: PhantomData<W>,
 }
 
 impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
+    /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read(
         channel: impl Peripheral<P = C> + 'a,
         _request: Request,
@@ -521,8 +544,8 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
             w.set_msize(data_size.into());
             w.set_psize(data_size.into());
             w.set_pl(vals::Pl::VERYHIGH);
-            w.set_minc(vals::Inc::INCREMENTED);
-            w.set_pinc(vals::Inc::FIXED);
+            w.set_minc(true);
+            w.set_pinc(false);
             w.set_teie(true);
             w.set_tcie(true);
             #[cfg(dma_v1)]
@@ -554,25 +577,36 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         });
     }
 
+    /// Set the first buffer address.
+    ///
+    /// You may call this while DMA is transferring the other buffer.
     pub unsafe fn set_buffer0(&mut self, buffer: *mut W) {
         let ch = self.channel.regs().st(self.channel.num());
         ch.m0ar().write_value(buffer as _);
     }
 
+    /// Set the second buffer address.
+    ///
+    /// You may call this while DMA is transferring the other buffer.
     pub unsafe fn set_buffer1(&mut self, buffer: *mut W) {
         let ch = self.channel.regs().st(self.channel.num());
         ch.m1ar().write_value(buffer as _);
     }
 
+    /// Returh whether buffer0 is accessible (i.e. whether DMA is transferring buffer1 now)
     pub fn is_buffer0_accessible(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().read().ct() == vals::Ct::MEMORY1
     }
 
+    /// Set a waker to be woken when one of the buffers is being transferred.
     pub fn set_waker(&mut self, waker: &Waker) {
         STATE.ch_wakers[self.channel.index()].register(waker);
     }
 
+    /// Request the transfer to stop.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
 
@@ -583,6 +617,10 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         });
     }
 
+    /// Return whether this transfer is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().read().en()
@@ -629,6 +667,7 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     }
 }
 
+/// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
     cr: regs::Cr,
     channel: PeripheralRef<'a, C>,
@@ -636,7 +675,8 @@ pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
 }
 
 impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
-    pub unsafe fn new_read(
+    /// Create a new ring buffer.
+    pub unsafe fn new(
         channel: impl Peripheral<P = C> + 'a,
         _request: Request,
         peri_addr: *mut W,
@@ -662,12 +702,12 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         w.set_msize(data_size.into());
         w.set_psize(data_size.into());
         w.set_pl(vals::Pl::VERYHIGH);
-        w.set_minc(vals::Inc::INCREMENTED);
-        w.set_pinc(vals::Inc::FIXED);
+        w.set_minc(true);
+        w.set_pinc(false);
         w.set_teie(true);
         w.set_htie(options.half_transfer_ir);
         w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
+        w.set_circ(true);
         #[cfg(dma_v1)]
         w.set_trbuff(true);
         #[cfg(dma_v2)]
@@ -706,11 +746,15 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         this
     }
 
+    /// Start the ring buffer operation.
+    ///
+    /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().write_value(self.cr);
     }
 
+    /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
@@ -741,11 +785,12 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
             .await
     }
 
-    // The capacity of the ringbuffer
-    pub const fn cap(&self) -> usize {
+    /// The capacity of the ringbuffer
+    pub const fn capacity(&self) -> usize {
         self.ringbuf.cap()
     }
 
+    /// Set a waker to be woken when at least one byte is received.
     pub fn set_waker(&mut self, waker: &Waker) {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
@@ -763,6 +808,9 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         });
     }
 
+    /// Request DMA to stop.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
 
@@ -774,6 +822,10 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         });
     }
 
+    /// Return whether DMA is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().read().en()
@@ -790,6 +842,7 @@ impl<'a, C: Channel, W: Word> Drop for ReadableRingBuffer<'a, C, W> {
     }
 }
 
+/// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
     cr: regs::Cr,
     channel: PeripheralRef<'a, C>,
@@ -797,7 +850,8 @@ pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
 }
 
 impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
-    pub unsafe fn new_write(
+    /// Create a new ring buffer.
+    pub unsafe fn new(
         channel: impl Peripheral<P = C> + 'a,
         _request: Request,
         peri_addr: *mut W,
@@ -823,12 +877,12 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         w.set_msize(data_size.into());
         w.set_psize(data_size.into());
         w.set_pl(vals::Pl::VERYHIGH);
-        w.set_minc(vals::Inc::INCREMENTED);
-        w.set_pinc(vals::Inc::FIXED);
+        w.set_minc(true);
+        w.set_pinc(false);
         w.set_teie(true);
         w.set_htie(options.half_transfer_ir);
         w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
+        w.set_circ(true);
         #[cfg(dma_v1)]
         w.set_trbuff(true);
         #[cfg(dma_v2)]
@@ -867,11 +921,15 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         this
     }
 
+    /// Start the ring buffer operation.
+    ///
+    /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().write_value(self.cr);
     }
 
+    /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
@@ -889,11 +947,12 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
             .await
     }
 
-    // The capacity of the ringbuffer
-    pub const fn cap(&self) -> usize {
+    /// The capacity of the ringbuffer
+    pub const fn capacity(&self) -> usize {
         self.ringbuf.cap()
     }
 
+    /// Set a waker to be woken when at least one byte is received.
     pub fn set_waker(&mut self, waker: &Waker) {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
@@ -911,6 +970,9 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         });
     }
 
+    /// Request DMA to stop.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
 
@@ -922,6 +984,10 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         });
     }
 
+    /// Return whether DMA is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().read().en()

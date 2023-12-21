@@ -1,3 +1,4 @@
+//! PIO driver.
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
@@ -19,8 +20,11 @@ use crate::gpio::{self, AnyPin, Drive, Level, Pull, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::pac::dma::vals::TreqSel;
 use crate::relocate::RelocatedProgram;
-use crate::{pac, peripherals, pio_instr_util, RegExt};
+use crate::{pac, peripherals, RegExt};
 
+pub mod instr;
+
+/// Wakers for interrupts and FIFOs.
 pub struct Wakers([AtomicWaker; 12]);
 
 impl Wakers {
@@ -38,6 +42,7 @@ impl Wakers {
     }
 }
 
+/// FIFO config.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -51,6 +56,8 @@ pub enum FifoJoin {
     TxOnly,
 }
 
+/// Shift direction.
+#[allow(missing_docs)]
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -60,6 +67,8 @@ pub enum ShiftDirection {
     Left = 0,
 }
 
+/// Pin direction.
+#[allow(missing_docs)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -68,12 +77,15 @@ pub enum Direction {
     Out = 1,
 }
 
+/// Which fifo level to use in status check.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum StatusSource {
     #[default]
+    /// All-ones if TX FIFO level < N, otherwise all-zeroes.
     TxFifoLevel = 0,
+    /// All-ones if RX FIFO level < N, otherwise all-zeroes.
     RxFifoLevel = 1,
 }
 
@@ -81,6 +93,7 @@ const RXNEMPTY_MASK: u32 = 1 << 0;
 const TXNFULL_MASK: u32 = 1 << 4;
 const SMIRQ_MASK: u32 = 1 << 8;
 
+/// Interrupt handler for PIO.
 pub struct InterruptHandler<PIO: Instance> {
     _pio: PhantomData<PIO>,
 }
@@ -105,6 +118,7 @@ pub struct FifoOutFuture<'a, 'd, PIO: Instance, const SM: usize> {
 }
 
 impl<'a, 'd, PIO: Instance, const SM: usize> FifoOutFuture<'a, 'd, PIO, SM> {
+    /// Create a new future waiting for TX-FIFO to become writable.
     pub fn new(sm: &'a mut StateMachineTx<'d, PIO, SM>, value: u32) -> Self {
         FifoOutFuture { sm_tx: sm, value }
     }
@@ -136,13 +150,14 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Drop for FifoOutFuture<'a, 'd, PIO,
     }
 }
 
-/// Future that waits for RX-FIFO to become readable
+/// Future that waits for RX-FIFO to become readable.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct FifoInFuture<'a, 'd, PIO: Instance, const SM: usize> {
     sm_rx: &'a mut StateMachineRx<'d, PIO, SM>,
 }
 
 impl<'a, 'd, PIO: Instance, const SM: usize> FifoInFuture<'a, 'd, PIO, SM> {
+    /// Create future that waits for RX-FIFO to become readable.
     pub fn new(sm: &'a mut StateMachineRx<'d, PIO, SM>) -> Self {
         FifoInFuture { sm_rx: sm }
     }
@@ -207,6 +222,7 @@ impl<'a, 'd, PIO: Instance> Drop for IrqFuture<'a, 'd, PIO> {
     }
 }
 
+/// Type representing a PIO pin.
 pub struct Pin<'l, PIO: Instance> {
     pin: PeripheralRef<'l, AnyPin>,
     pio: PhantomData<PIO>,
@@ -226,7 +242,7 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
         });
     }
 
-    // Set the pin's slew rate.
+    /// Set the pin's slew rate.
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.pad_ctrl().modify(|w| {
@@ -251,6 +267,7 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
         });
     }
 
+    /// Set the pin's input sync bypass.
     pub fn set_input_sync_bypass<'a>(&mut self, bypass: bool) {
         let mask = 1 << self.pin();
         if bypass {
@@ -260,28 +277,34 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
         }
     }
 
+    /// Get the underlying pin number.
     pub fn pin(&self) -> u8 {
         self.pin._pin()
     }
 }
 
+/// Type representing a state machine RX FIFO.
 pub struct StateMachineRx<'d, PIO: Instance, const SM: usize> {
     pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
+    /// Check if RX FIFO is empty.
     pub fn empty(&self) -> bool {
         PIO::PIO.fstat().read().rxempty() & (1u8 << SM) != 0
     }
 
+    /// Check if RX FIFO is full.
     pub fn full(&self) -> bool {
         PIO::PIO.fstat().read().rxfull() & (1u8 << SM) != 0
     }
 
+    /// Check RX FIFO level.
     pub fn level(&self) -> u8 {
         (PIO::PIO.flevel().read().0 >> (SM * 8 + 4)) as u8 & 0x0f
     }
 
+    /// Check if state machine has stalled on full RX FIFO.
     pub fn stalled(&self) -> bool {
         let fdebug = PIO::PIO.fdebug();
         let ret = fdebug.read().rxstall() & (1 << SM) != 0;
@@ -291,6 +314,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         ret
     }
 
+    /// Check if RX FIFO underflow (i.e. read-on-empty by the system) has occurred.
     pub fn underflowed(&self) -> bool {
         let fdebug = PIO::PIO.fdebug();
         let ret = fdebug.read().rxunder() & (1 << SM) != 0;
@@ -300,10 +324,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         ret
     }
 
+    /// Pull data from RX FIFO.
     pub fn pull(&mut self) -> u32 {
         PIO::PIO.rxf(SM).read()
     }
 
+    /// Attempt pulling data from RX FIFO.
     pub fn try_pull(&mut self) -> Option<u32> {
         if self.empty() {
             return None;
@@ -311,10 +337,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         Some(self.pull())
     }
 
+    /// Wait for RX FIFO readable.
     pub fn wait_pull<'a>(&'a mut self) -> FifoInFuture<'a, 'd, PIO, SM> {
         FifoInFuture::new(self)
     }
 
+    /// Prepare DMA transfer from RX FIFO.
     pub fn dma_pull<'a, C: Channel, W: Word>(
         &'a mut self,
         ch: PeripheralRef<'a, C>,
@@ -340,22 +368,28 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     }
 }
 
+/// Type representing a state machine TX FIFO.
 pub struct StateMachineTx<'d, PIO: Instance, const SM: usize> {
     pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
+    /// Check if TX FIFO is empty.
     pub fn empty(&self) -> bool {
         PIO::PIO.fstat().read().txempty() & (1u8 << SM) != 0
     }
+
+    /// Check if TX FIFO is full.
     pub fn full(&self) -> bool {
         PIO::PIO.fstat().read().txfull() & (1u8 << SM) != 0
     }
 
+    /// Check TX FIFO level.
     pub fn level(&self) -> u8 {
         (PIO::PIO.flevel().read().0 >> (SM * 8)) as u8 & 0x0f
     }
 
+    /// Check state machine has stalled on empty TX FIFO.
     pub fn stalled(&self) -> bool {
         let fdebug = PIO::PIO.fdebug();
         let ret = fdebug.read().txstall() & (1 << SM) != 0;
@@ -365,6 +399,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         ret
     }
 
+    /// Check if FIFO overflowed.
     pub fn overflowed(&self) -> bool {
         let fdebug = PIO::PIO.fdebug();
         let ret = fdebug.read().txover() & (1 << SM) != 0;
@@ -374,10 +409,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         ret
     }
 
+    /// Force push data to TX FIFO.
     pub fn push(&mut self, v: u32) {
         PIO::PIO.txf(SM).write_value(v);
     }
 
+    /// Attempt to push data to TX FIFO.
     pub fn try_push(&mut self, v: u32) -> bool {
         if self.full() {
             return false;
@@ -386,10 +423,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         true
     }
 
+    /// Wait until FIFO is ready for writing.
     pub fn wait_push<'a>(&'a mut self, value: u32) -> FifoOutFuture<'a, 'd, PIO, SM> {
         FifoOutFuture::new(self, value)
     }
 
+    /// Prepare a DMA transfer to TX FIFO.
     pub fn dma_push<'a, C: Channel, W: Word>(&'a mut self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
         let pio_no = PIO::PIO_NO;
         let p = ch.regs();
@@ -411,6 +450,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     }
 }
 
+/// A type representing a single PIO state machine.
 pub struct StateMachine<'d, PIO: Instance, const SM: usize> {
     rx: StateMachineRx<'d, PIO, SM>,
     tx: StateMachineTx<'d, PIO, SM>,
@@ -430,52 +470,78 @@ fn assert_consecutive<'d, PIO: Instance>(pins: &[&Pin<'d, PIO>]) {
     }
 }
 
+/// PIO Execution config.
 #[derive(Clone, Copy, Default, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct ExecConfig {
+    /// If true, the MSB of the Delay/Side-set instruction field is used as side-set enable, rather than a side-set data bit.
     pub side_en: bool,
+    /// If true, side-set data is asserted to pin directions, instead of pin values.
     pub side_pindir: bool,
+    /// Pin to trigger jump.
     pub jmp_pin: u8,
+    /// After reaching this address, execution is wrapped to wrap_bottom.
     pub wrap_top: u8,
+    /// After reaching wrap_top, execution is wrapped to this address.
     pub wrap_bottom: u8,
 }
 
+/// PIO shift register config for input or output.
 #[derive(Clone, Copy, Default, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ShiftConfig {
+    /// Number of bits shifted out of OSR before autopull.
     pub threshold: u8,
+    /// Shift direction.
     pub direction: ShiftDirection,
+    /// For output: Pull automatically output shift register is emptied.
+    /// For input: Push automatically when the input shift register is filled.
     pub auto_fill: bool,
 }
 
+/// PIO pin config.
 #[derive(Clone, Copy, Default, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PinConfig {
+    /// The number of MSBs of the Delay/Side-set instruction field which are used for side-set.
     pub sideset_count: u8,
+    /// The number of pins asserted by a SET. In the range 0 to 5 inclusive.
     pub set_count: u8,
+    /// The number of pins asserted by an OUT PINS, OUT PINDIRS or MOV PINS instruction. In the range 0 to 32 inclusive.
     pub out_count: u8,
+    /// The pin which is mapped to the least-significant bit of a state machine's IN data bus.
     pub in_base: u8,
+    /// The lowest-numbered pin that will be affected by a side-set operation.
     pub sideset_base: u8,
+    /// The lowest-numbered pin that will be affected by a SET PINS or SET PINDIRS instruction.
     pub set_base: u8,
+    /// The lowest-numbered pin that will be affected by an OUT PINS, OUT PINDIRS or MOV PINS instruction.
     pub out_base: u8,
 }
 
+/// PIO config.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'d, PIO: Instance> {
-    // CLKDIV
+    /// Clock divisor register for state machines.
     pub clock_divider: FixedU32<U8>,
-    // EXECCTRL
+    /// Which data bit to use for inline OUT enable.
     pub out_en_sel: u8,
+    /// Use a bit of OUT data as an auxiliary write enable When used in conjunction with OUT_STICKY.
     pub inline_out_en: bool,
+    /// Continuously assert the most recent OUT/SET to the pins.
     pub out_sticky: bool,
+    /// Which source to use for checking status.
     pub status_sel: StatusSource,
+    /// Status comparison level.
     pub status_n: u8,
     exec: ExecConfig,
     origin: Option<u8>,
-    // SHIFTCTRL
+    /// Configure FIFO allocation.
     pub fifo_join: FifoJoin,
+    /// Input shifting config.
     pub shift_in: ShiftConfig,
+    /// Output shifting config.
     pub shift_out: ShiftConfig,
     // PINCTRL
     pins: PinConfig,
@@ -505,16 +571,22 @@ impl<'d, PIO: Instance> Default for Config<'d, PIO> {
 }
 
 impl<'d, PIO: Instance> Config<'d, PIO> {
+    /// Get execution configuration.
     pub fn get_exec(&self) -> ExecConfig {
         self.exec
     }
+
+    /// Update execution configuration.
     pub unsafe fn set_exec(&mut self, e: ExecConfig) {
         self.exec = e;
     }
 
+    /// Get pin configuration.
     pub fn get_pins(&self) -> PinConfig {
         self.pins
     }
+
+    /// Update pin configuration.
     pub unsafe fn set_pins(&mut self, p: PinConfig) {
         self.pins = p;
     }
@@ -537,6 +609,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
         self.origin = Some(prog.origin);
     }
 
+    /// Set pin used to signal jump.
     pub fn set_jmp_pin(&mut self, pin: &Pin<'d, PIO>) {
         self.exec.jmp_pin = pin.pin();
     }
@@ -571,6 +644,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
 }
 
 impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
+    /// Set the config for a given PIO state machine.
     pub fn set_config(&mut self, config: &Config<'d, PIO>) {
         // sm expects 0 for 65536, truncation makes that happen
         assert!(config.clock_divider <= 65536, "clkdiv must be <= 65536");
@@ -617,7 +691,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_out_base(config.pins.out_base);
         });
         if let Some(origin) = config.origin {
-            unsafe { pio_instr_util::exec_jmp(self, origin) }
+            unsafe { instr::exec_jmp(self, origin) }
         }
     }
 
@@ -626,10 +700,13 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         PIO::PIO.sm(SM)
     }
 
+    /// Restart this state machine.
     pub fn restart(&mut self) {
         let mask = 1u8 << SM;
         PIO::PIO.ctrl().write_set(|w| w.set_sm_restart(mask));
     }
+
+    /// Enable state machine.
     pub fn set_enable(&mut self, enable: bool) {
         let mask = 1u8 << SM;
         if enable {
@@ -639,10 +716,12 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         }
     }
 
+    /// Check if state machine is enabled.
     pub fn is_enabled(&self) -> bool {
         PIO::PIO.ctrl().read().sm_enable() & (1u8 << SM) != 0
     }
 
+    /// Restart a state machine's clock divider from an initial phase of 0.
     pub fn clkdiv_restart(&mut self) {
         let mask = 1u8 << SM;
         PIO::PIO.ctrl().write_set(|w| w.set_clkdiv_restart(mask));
@@ -690,6 +769,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         });
     }
 
+    /// Flush FIFOs for state machine.
     pub fn clear_fifos(&mut self) {
         // Toggle FJOIN_RX to flush FIFOs
         let shiftctrl = Self::this_sm().shiftctrl();
@@ -701,21 +781,31 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         });
     }
 
+    /// Instruct state machine to execute a given instructions
+    ///
+    /// SAFETY: The state machine must be in a state where executing
+    /// an arbitrary instruction does not crash it.
     pub unsafe fn exec_instr(&mut self, instr: u16) {
         Self::this_sm().instr().write(|w| w.set_instr(instr));
     }
 
+    /// Return a read handle for reading state machine outputs.
     pub fn rx(&mut self) -> &mut StateMachineRx<'d, PIO, SM> {
         &mut self.rx
     }
+
+    /// Return a handle for writing to inputs.
     pub fn tx(&mut self) -> &mut StateMachineTx<'d, PIO, SM> {
         &mut self.tx
     }
+
+    /// Return both read and write handles for the state machine.
     pub fn rx_tx(&mut self) -> (&mut StateMachineRx<'d, PIO, SM>, &mut StateMachineTx<'d, PIO, SM>) {
         (&mut self.rx, &mut self.tx)
     }
 }
 
+/// PIO handle.
 pub struct Common<'d, PIO: Instance> {
     instructions_used: u32,
     pio: PhantomData<&'d mut PIO>,
@@ -727,18 +817,25 @@ impl<'d, PIO: Instance> Drop for Common<'d, PIO> {
     }
 }
 
+/// Memory of PIO instance.
 pub struct InstanceMemory<'d, PIO: Instance> {
     used_mask: u32,
     pio: PhantomData<&'d mut PIO>,
 }
 
+/// A loaded PIO program.
 pub struct LoadedProgram<'d, PIO: Instance> {
+    /// Memory used by program.
     pub used_memory: InstanceMemory<'d, PIO>,
+    /// Program origin for loading.
     pub origin: u8,
+    /// Wrap controls what to do once program is done executing.
     pub wrap: Wrap,
+    /// Data for 'side' set instruction parameters.
     pub side_set: SideSet,
 }
 
+/// Errors loading a PIO program.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum LoadError {
@@ -834,6 +931,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         self.instructions_used &= !instrs.used_mask;
     }
 
+    /// Bypass flipflop synchronizer on GPIO inputs.
     pub fn set_input_sync_bypass<'a>(&'a mut self, bypass: u32, mask: u32) {
         // this can interfere with per-pin bypass functions. splitting the
         // modification is going to be fine since nothing that relies on
@@ -842,6 +940,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         PIO::PIO.input_sync_bypass().write_clear(|w| *w = mask & !bypass);
     }
 
+    /// Get bypass configuration.
     pub fn get_input_sync_bypass(&self) -> u32 {
         PIO::PIO.input_sync_bypass().read()
     }
@@ -861,6 +960,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         }
     }
 
+    /// Apply changes to all state machines in a batch.
     pub fn apply_sm_batch(&mut self, f: impl FnOnce(&mut PioBatch<'d, PIO>)) {
         let mut batch = PioBatch {
             clkdiv_restart: 0,
@@ -878,6 +978,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     }
 }
 
+/// Represents multiple state machines in a single type.
 pub struct PioBatch<'a, PIO: Instance> {
     clkdiv_restart: u8,
     sm_restart: u8,
@@ -887,25 +988,25 @@ pub struct PioBatch<'a, PIO: Instance> {
 }
 
 impl<'a, PIO: Instance> PioBatch<'a, PIO> {
-    pub fn restart_clockdiv<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>) {
-        self.clkdiv_restart |= 1 << SM;
-    }
-
+    /// Restart a state machine's clock divider from an initial phase of 0.
     pub fn restart<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>) {
         self.clkdiv_restart |= 1 << SM;
     }
 
+    /// Enable a specific state machine.
     pub fn set_enable<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>, enable: bool) {
         self.sm_enable_mask |= 1 << SM;
         self.sm_enable |= (enable as u8) << SM;
     }
 }
 
+/// Type representing a PIO interrupt.
 pub struct Irq<'d, PIO: Instance, const N: usize> {
     pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance, const N: usize> Irq<'d, PIO, N> {
+    /// Wait for an IRQ to fire.
     pub fn wait<'a>(&'a mut self) -> IrqFuture<'a, 'd, PIO> {
         IrqFuture {
             pio: PhantomData,
@@ -914,59 +1015,79 @@ impl<'d, PIO: Instance, const N: usize> Irq<'d, PIO, N> {
     }
 }
 
+/// Interrupt flags for a PIO instance.
 #[derive(Clone)]
 pub struct IrqFlags<'d, PIO: Instance> {
     pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance> IrqFlags<'d, PIO> {
+    /// Check if interrupt fired.
     pub fn check(&self, irq_no: u8) -> bool {
         assert!(irq_no < 8);
         self.check_any(1 << irq_no)
     }
 
+    /// Check if any of the interrupts in the bitmap fired.
     pub fn check_any(&self, irqs: u8) -> bool {
         PIO::PIO.irq().read().irq() & irqs != 0
     }
 
+    /// Check if all interrupts have fired.
     pub fn check_all(&self, irqs: u8) -> bool {
         PIO::PIO.irq().read().irq() & irqs == irqs
     }
 
+    /// Clear interrupt for interrupt number.
     pub fn clear(&self, irq_no: usize) {
         assert!(irq_no < 8);
         self.clear_all(1 << irq_no);
     }
 
+    /// Clear all interrupts set in the bitmap.
     pub fn clear_all(&self, irqs: u8) {
         PIO::PIO.irq().write(|w| w.set_irq(irqs))
     }
 
+    /// Fire a given interrupt.
     pub fn set(&self, irq_no: usize) {
         assert!(irq_no < 8);
         self.set_all(1 << irq_no);
     }
 
+    /// Fire all interrupts.
     pub fn set_all(&self, irqs: u8) {
         PIO::PIO.irq_force().write(|w| w.set_irq_force(irqs))
     }
 }
 
+/// An instance of the PIO driver.
 pub struct Pio<'d, PIO: Instance> {
+    /// PIO handle.
     pub common: Common<'d, PIO>,
+    /// PIO IRQ flags.
     pub irq_flags: IrqFlags<'d, PIO>,
+    /// IRQ0 configuration.
     pub irq0: Irq<'d, PIO, 0>,
+    /// IRQ1 configuration.
     pub irq1: Irq<'d, PIO, 1>,
+    /// IRQ2 configuration.
     pub irq2: Irq<'d, PIO, 2>,
+    /// IRQ3 configuration.
     pub irq3: Irq<'d, PIO, 3>,
+    /// State machine 0 handle.
     pub sm0: StateMachine<'d, PIO, 0>,
+    /// State machine 1 handle.
     pub sm1: StateMachine<'d, PIO, 1>,
+    /// State machine 2 handle.
     pub sm2: StateMachine<'d, PIO, 2>,
+    /// State machine 3 handle.
     pub sm3: StateMachine<'d, PIO, 3>,
     _pio: PhantomData<&'d mut PIO>,
 }
 
 impl<'d, PIO: Instance> Pio<'d, PIO> {
+    /// Create a new instance of a PIO peripheral.
     pub fn new(_pio: impl Peripheral<P = PIO> + 'd, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
@@ -1003,9 +1124,10 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
     }
 }
 
-// we need to keep a record of which pins are assigned to each PIO. make_pio_pin
-// notionally takes ownership of the pin it is given, but the wrapped pin cannot
-// be treated as an owned resource since dropping it would have to deconfigure
+/// Representation of the PIO state keeping a record of which pins are assigned to
+/// each PIO.
+// make_pio_pin notionally takes ownership of the pin it is given, but the wrapped pin
+// cannot be treated as an owned resource since dropping it would have to deconfigure
 // the pin, breaking running state machines in the process. pins are also shared
 // between all state machines, which makes ownership even messier to track any
 // other way.
@@ -1059,6 +1181,7 @@ mod sealed {
     }
 }
 
+/// PIO instance.
 pub trait Instance: sealed::Instance + Sized + Unpin {}
 
 macro_rules! impl_pio {
@@ -1076,6 +1199,7 @@ macro_rules! impl_pio {
 impl_pio!(PIO0, 0, PIO0, PIO0_0, PIO0_IRQ_0);
 impl_pio!(PIO1, 1, PIO1, PIO1_0, PIO1_IRQ_0);
 
+/// PIO pin.
 pub trait PioPin: sealed::PioPin + gpio::Pin {}
 
 macro_rules! impl_pio_pin {

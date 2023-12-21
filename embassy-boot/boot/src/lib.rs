@@ -275,21 +275,19 @@ mod tests {
         // The following key setup is based on:
         // https://docs.rs/ed25519-dalek/latest/ed25519_dalek/#example
 
-        use ed25519_dalek::Keypair;
+        use ed25519_dalek::{Digest, Sha512, Signature, Signer, SigningKey, VerifyingKey};
         use rand::rngs::OsRng;
 
         let mut csprng = OsRng {};
-        let keypair: Keypair = Keypair::generate(&mut csprng);
+        let keypair = SigningKey::generate(&mut csprng);
 
-        use ed25519_dalek::{Digest, Sha512, Signature, Signer};
         let firmware: &[u8] = b"This are bytes that would otherwise be firmware bytes for DFU.";
         let mut digest = Sha512::new();
         digest.update(&firmware);
         let message = digest.finalize();
         let signature: Signature = keypair.sign(&message);
 
-        use ed25519_dalek::PublicKey;
-        let public_key: PublicKey = keypair.public;
+        let public_key = keypair.verifying_key();
 
         // Setup flash
         let flash = BlockingTestFlash::new(BootLoaderConfig {

@@ -1,3 +1,5 @@
+#![warn(missing_docs)]
+#![doc = include_str!("../README.md")]
 use std::io;
 use std::io::{Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
@@ -7,12 +9,19 @@ use async_io::Async;
 use embassy_net_driver::{self, Capabilities, Driver, HardwareAddress, LinkState};
 use log::*;
 
+/// Get the MTU of the given interface.
 pub const SIOCGIFMTU: libc::c_ulong = 0x8921;
+/// Get the index of the given interface.
 pub const _SIOCGIFINDEX: libc::c_ulong = 0x8933;
+/// Capture all packages.
 pub const _ETH_P_ALL: libc::c_short = 0x0003;
+/// Set the interface flags.
 pub const TUNSETIFF: libc::c_ulong = 0x400454CA;
+/// TUN device.
 pub const _IFF_TUN: libc::c_int = 0x0001;
+/// TAP device.
 pub const IFF_TAP: libc::c_int = 0x0002;
+/// No packet information.
 pub const IFF_NO_PI: libc::c_int = 0x1000;
 
 const ETHERNET_HEADER_LEN: usize = 14;
@@ -47,6 +56,7 @@ fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq, cmd: libc::c_ulong) -> io:
     Ok(ifreq.ifr_data)
 }
 
+/// A TUN/TAP device.
 #[derive(Debug)]
 pub struct TunTap {
     fd: libc::c_int,
@@ -60,6 +70,7 @@ impl AsRawFd for TunTap {
 }
 
 impl TunTap {
+    /// Create a new TUN/TAP device.
     pub fn new(name: &str) -> io::Result<TunTap> {
         unsafe {
             let fd = libc::open(
@@ -126,11 +137,13 @@ impl io::Write for TunTap {
     }
 }
 
+/// A TUN/TAP device, wrapped in an async interface.
 pub struct TunTapDevice {
     device: Async<TunTap>,
 }
 
 impl TunTapDevice {
+    /// Create a new TUN/TAP device.
     pub fn new(name: &str) -> io::Result<TunTapDevice> {
         Ok(Self {
             device: Async::new(TunTap::new(name)?)?,

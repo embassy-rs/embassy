@@ -1,7 +1,6 @@
 //! This example shows how to use the 2040 as an i2c slave.
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;

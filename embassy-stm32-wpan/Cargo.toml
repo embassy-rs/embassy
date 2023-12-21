@@ -26,7 +26,7 @@ aligned = "0.4.1"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.1.4", optional = true }
+stm32wb-hci = { git = "https://github.com/Dirbaio/stm32wb-hci", rev = "0aff47e009c30c5fc5d520672625173d75f7505c", optional = true }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 bitflags = { version = "2.3.3", optional = true }
 

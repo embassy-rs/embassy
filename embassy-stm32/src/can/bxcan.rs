@@ -21,8 +21,10 @@ use crate::{interrupt, peripherals, Peripheral};
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Envelope {
+    /// Reception time.
     #[cfg(feature = "time")]
     pub ts: embassy_time::Instant,
+    /// The actual CAN frame.
     pub frame: bxcan::Frame,
 }
 
@@ -43,6 +45,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::TXInterrupt> for TxInterruptH
     }
 }
 
+/// RX0 interrupt handler.
 pub struct Rx0InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -54,6 +57,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::RX0Interrupt> for Rx0Interrup
     }
 }
 
+/// RX1 interrupt handler.
 pub struct Rx1InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -65,6 +69,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::RX1Interrupt> for Rx1Interrup
     }
 }
 
+/// SCE interrupt handler.
 pub struct SceInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -82,10 +87,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
     }
 }
 
+/// CAN driver
 pub struct Can<'d, T: Instance> {
-    pub can: bxcan::Can<BxcanInstance<'d, T>>,
+    can: bxcan::Can<BxcanInstance<'d, T>>,
 }
 
+/// CAN bus error
+#[allow(missing_docs)]
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BusError {
@@ -101,6 +109,7 @@ pub enum BusError {
     BusWarning,
 }
 
+/// Error returned by `try_read`
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TryReadError {
@@ -110,6 +119,7 @@ pub enum TryReadError {
     Empty,
 }
 
+/// Error returned by `try_write`
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TryWriteError {
@@ -177,6 +187,7 @@ impl<'d, T: Instance> Can<'d, T> {
         Self { can }
     }
 
+    /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = Self::calc_bxcan_timings(T::frequency(), bitrate).unwrap();
         self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
@@ -194,7 +205,9 @@ impl<'d, T: Instance> Can<'d, T> {
         }
     }
 
-    /// Queues the message to be sent but exerts backpressure
+    /// Queues the message to be sent.
+    ///
+    /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         self.split().0.write(frame).await
     }
@@ -221,12 +234,16 @@ impl<'d, T: Instance> Can<'d, T> {
         CanTx::<T>::flush_all_inner().await
     }
 
+    /// Read a CAN frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    ///
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.split().1.read().await
     }
 
-    /// Attempts to read a can frame without blocking.
+    /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
     pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
@@ -288,7 +305,7 @@ impl<'d, T: Instance> Can<'d, T> {
         }
     }
 
-    pub const fn calc_bxcan_timings(periph_clock: Hertz, can_bitrate: u32) -> Option<u32> {
+    const fn calc_bxcan_timings(periph_clock: Hertz, can_bitrate: u32) -> Option<u32> {
         const BS1_MAX: u8 = 16;
         const BS2_MAX: u8 = 8;
         const MAX_SAMPLE_POINT_PERMILL: u16 = 900;
@@ -379,21 +396,29 @@ impl<'d, T: Instance> Can<'d, T> {
         Some((sjw - 1) << 24 | (bs1 as u32 - 1) << 16 | (bs2 as u32 - 1) << 20 | (prescaler - 1))
     }
 
+    /// Split the CAN driver into transmit and receive halves.
+    ///
+    /// Useful for doing separate transmit/receive tasks.
     pub fn split<'c>(&'c mut self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
         let (tx, rx0, rx1) = self.can.split_by_ref();
         (CanTx { tx }, CanRx { rx0, rx1 })
     }
 
+    /// Get mutable access to the lower-level driver from the `bxcan` crate.
     pub fn as_mut(&mut self) -> &mut bxcan::Can<BxcanInstance<'d, T>> {
         &mut self.can
     }
 }
 
+/// CAN driver, transmit half.
 pub struct CanTx<'c, 'd, T: Instance> {
     tx: &'c mut bxcan::Tx<BxcanInstance<'d, T>>,
 }
 
 impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
+    /// Queues the message to be sent.
+    ///
+    /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
     pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
@@ -475,6 +500,7 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     }
 }
 
+/// CAN driver, receive half.
 #[allow(dead_code)]
 pub struct CanRx<'c, 'd, T: Instance> {
     rx0: &'c mut bxcan::Rx0<BxcanInstance<'d, T>>,
@@ -482,6 +508,11 @@ pub struct CanRx<'c, 'd, T: Instance> {
 }
 
 impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
+    /// Read a CAN frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    ///
+    /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         poll_fn(|cx| {
             T::state().err_waker.register(cx.waker());
@@ -585,30 +616,24 @@ pub(crate) mod sealed {
     pub trait Instance {
         const REGISTERS: *mut bxcan::RegisterBlock;
 
-        fn regs() -> &'static crate::pac::can::Can;
+        fn regs() -> crate::pac::can::Can;
         fn state() -> &'static State;
     }
 }
 
-pub trait TXInstance {
+/// CAN instance trait.
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+    /// TX interrupt for this instance.
     type TXInterrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-pub trait RX0Instance {
+    /// RX0 interrupt for this instance.
     type RX0Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-pub trait RX1Instance {
+    /// RX1 interrupt for this instance.
     type RX1Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-pub trait SCEInstance {
+    /// SCE interrupt for this instance.
     type SCEInterrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-pub trait InterruptableInstance: TXInstance + RX0Instance + RX1Instance + SCEInstance {}
-pub trait Instance: sealed::Instance + RccPeripheral + InterruptableInstance + 'static {}
-
+/// BXCAN instance newtype.
 pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
 unsafe impl<'d, T: Instance> bxcan::Instance for BxcanInstance<'d, T> {
@@ -620,8 +645,8 @@ foreach_peripheral!(
         impl sealed::Instance for peripherals::$inst {
             const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
 
-            fn regs() -> &'static crate::pac::can::Can {
-                &crate::pac::$inst
+            fn regs() -> crate::pac::can::Can {
+                crate::pac::$inst
             }
 
             fn state() -> &'static sealed::State {
@@ -630,32 +655,12 @@ foreach_peripheral!(
             }
         }
 
-        impl Instance for peripherals::$inst {}
-
-        foreach_interrupt!(
-            ($inst,can,CAN,TX,$irq:ident) => {
-                impl TXInstance for peripherals::$inst {
-                    type TXInterrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,CAN,RX0,$irq:ident) => {
-                impl RX0Instance for peripherals::$inst {
-                    type RX0Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,CAN,RX1,$irq:ident) => {
-                impl RX1Instance for peripherals::$inst {
-                    type RX1Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,CAN,SCE,$irq:ident) => {
-                impl SCEInstance for peripherals::$inst {
-                    type SCEInterrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-        );
-
-        impl InterruptableInstance for peripherals::$inst {}
+        impl Instance for peripherals::$inst {
+            type TXInterrupt = crate::_generated::peripheral_interrupts::$inst::TX;
+            type RX0Interrupt = crate::_generated::peripheral_interrupts::$inst::RX0;
+            type RX1Interrupt = crate::_generated::peripheral_interrupts::$inst::RX1;
+            type SCEInterrupt = crate::_generated::peripheral_interrupts::$inst::SCE;
+        }
     };
 );
 

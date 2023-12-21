@@ -64,6 +64,11 @@ nfc-pins-as-gpio = []
 # nrf52820, nrf52833, nrf52840: P0_18
 reset-pin-as-gpio = []
 
+# Implements the MultiwriteNorFlash trait for QSPI. Should only be enabled if your external
+# flash supports the semantics described in
+# https://docs.rs/embedded-storage/0.3.1/embedded_storage/nor_flash/trait.MultiwriteNorFlash.html
+qspi-multiwrite-flash = []
+
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 

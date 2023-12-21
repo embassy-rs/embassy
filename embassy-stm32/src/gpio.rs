@@ -1,3 +1,5 @@
+//! General-purpose Input/Output (GPIO)
+
 #![macro_use]
 use core::convert::Infallible;
 
@@ -29,6 +31,11 @@ impl<'d, T: Pin> Flex<'d, T> {
         Self { pin }
     }
 
+    /// Type-erase (degrade) this pin into an `AnyPin`.
+    ///
+    /// This converts pin singletons (`PA5`, `PB6`, ...), which
+    /// are all different types, into the same type. It is useful for
+    /// creating arrays of pins, or avoiding generics.
     #[inline]
     pub fn degrade(self) -> Flex<'d, AnyPin> {
         // Safety: We are about to drop the other copy of this pin, so
@@ -141,11 +148,13 @@ impl<'d, T: Pin> Flex<'d, T> {
         });
     }
 
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         !self.ref_is_low()
     }
 
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&mut self) -> bool {
         self.ref_is_low()
@@ -157,17 +166,19 @@ impl<'d, T: Pin> Flex<'d, T> {
         state == vals::Idr::LOW
     }
 
+    /// Get the current pin input level.
     #[inline]
     pub fn get_level(&mut self) -> Level {
         self.is_high().into()
     }
 
+    /// Get whether the output level is set to high.
     #[inline]
     pub fn is_set_high(&mut self) -> bool {
         !self.ref_is_set_low()
     }
 
-    /// Is the output pin set as low?
+    /// Get whether the output level is set to low.
     #[inline]
     pub fn is_set_low(&mut self) -> bool {
         self.ref_is_set_low()
@@ -179,12 +190,13 @@ impl<'d, T: Pin> Flex<'d, T> {
         state == vals::Odr::LOW
     }
 
-    /// What level output is set to
+    /// Get the current output level.
     #[inline]
     pub fn get_output_level(&mut self) -> Level {
         self.is_set_high().into()
     }
 
+    /// Set the output as high.
     #[inline]
     pub fn set_high(&mut self) {
         self.pin.set_high();
@@ -196,6 +208,7 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.set_low();
     }
 
+    /// Set the output level.
     #[inline]
     pub fn set_level(&mut self, level: Level) {
         match level {
@@ -204,7 +217,7 @@ impl<'d, T: Pin> Flex<'d, T> {
         }
     }
 
-    /// Toggle pin output
+    /// Toggle the output level.
     #[inline]
     pub fn toggle(&mut self) {
         if self.is_set_low() {
@@ -242,8 +255,11 @@ impl<'d, T: Pin> Drop for Flex<'d, T> {
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
+    /// No pull
     None,
+    /// Pull up
     Up,
+    /// Pull down
     Down,
 }
 
@@ -261,6 +277,9 @@ impl From<Pull> for vals::Pupdr {
 }
 
 /// Speed settings
+///
+/// These vary dpeending on the chip, ceck the reference manual or datasheet for details.
+#[allow(missing_docs)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Speed {
@@ -305,6 +324,7 @@ pub struct Input<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Input<'d, T> {
+    /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
@@ -312,6 +332,11 @@ impl<'d, T: Pin> Input<'d, T> {
         Self { pin }
     }
 
+    /// Type-erase (degrade) this pin into an `AnyPin`.
+    ///
+    /// This converts pin singletons (`PA5`, `PB6`, ...), which
+    /// are all different types, into the same type. It is useful for
+    /// creating arrays of pins, or avoiding generics.
     #[inline]
     pub fn degrade(self) -> Input<'d, AnyPin> {
         Input {
@@ -319,16 +344,19 @@ impl<'d, T: Pin> Input<'d, T> {
         }
     }
 
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
+    /// Get the current pin input level.
     #[inline]
     pub fn get_level(&mut self) -> Level {
         self.pin.get_level()
@@ -339,7 +367,9 @@ impl<'d, T: Pin> Input<'d, T> {
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
+    /// Low
     Low,
+    /// High
     High,
 }
 
@@ -371,6 +401,7 @@ pub struct Output<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> Output<'d, T> {
+    /// Create GPIO output driver for a [Pin] with the provided [Level] and [Speed] configuration.
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level, speed: Speed) -> Self {
         let mut pin = Flex::new(pin);
@@ -382,6 +413,11 @@ impl<'d, T: Pin> Output<'d, T> {
         Self { pin }
     }
 
+    /// Type-erase (degrade) this pin into an `AnyPin`.
+    ///
+    /// This converts pin singletons (`PA5`, `PB6`, ...), which
+    /// are all different types, into the same type. It is useful for
+    /// creating arrays of pins, or avoiding generics.
     #[inline]
     pub fn degrade(self) -> Output<'d, AnyPin> {
         Output {
@@ -442,6 +478,7 @@ pub struct OutputOpenDrain<'d, T: Pin> {
 }
 
 impl<'d, T: Pin> OutputOpenDrain<'d, T> {
+    /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level] and [Speed], [Pull] configuration.
     #[inline]
     pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
@@ -455,6 +492,11 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         Self { pin }
     }
 
+    /// Type-erase (degrade) this pin into an `AnyPin`.
+    ///
+    /// This converts pin singletons (`PA5`, `PB6`, ...), which
+    /// are all different types, into the same type. It is useful for
+    /// creating arrays of pins, or avoiding generics.
     #[inline]
     pub fn degrade(self) -> Output<'d, AnyPin> {
         Output {
@@ -462,17 +504,19 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         }
     }
 
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&mut self) -> bool {
         !self.pin.is_low()
     }
 
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
-    /// Returns current pin level
+    /// Get the current pin input level.
     #[inline]
     pub fn get_level(&mut self) -> Level {
         self.pin.get_level()
@@ -496,19 +540,19 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
         self.pin.set_level(level);
     }
 
-    /// Is the output pin set as high?
+    /// Get whether the output level is set to high.
     #[inline]
     pub fn is_set_high(&mut self) -> bool {
         self.pin.is_set_high()
     }
 
-    /// Is the output pin set as low?
+    /// Get whether the output level is set to low.
     #[inline]
     pub fn is_set_low(&mut self) -> bool {
         self.pin.is_set_low()
     }
 
-    /// What level output is set to
+    /// Get the current output level.
     #[inline]
     pub fn get_output_level(&mut self) -> Level {
         self.pin.get_output_level()
@@ -521,8 +565,11 @@ impl<'d, T: Pin> OutputOpenDrain<'d, T> {
     }
 }
 
+/// GPIO output type
 pub enum OutputType {
+    /// Drive the pin both high or low.
     PushPull,
+    /// Drive the pin low, or don't drive it at all if the output level is high.
     OpenDrain,
 }
 
@@ -535,6 +582,7 @@ impl From<OutputType> for sealed::AFType {
     }
 }
 
+#[allow(missing_docs)]
 pub(crate) mod sealed {
     use super::*;
 
@@ -542,8 +590,11 @@ pub(crate) mod sealed {
     #[derive(Debug, Copy, Clone)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AFType {
+        /// Input
         Input,
+        /// Output, drive the pin both high or low.
         OutputPushPull,
+        /// Output, drive the pin low, or don't drive it at all if the output level is high.
         OutputOpenDrain,
     }
 
@@ -686,7 +737,11 @@ pub(crate) mod sealed {
     }
 }
 
+/// GPIO pin trait.
 pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'static {
+    /// EXTI channel assigned to this pin.
+    ///
+    /// For example, PC4 uses EXTI4.
     #[cfg(feature = "exti")]
     type ExtiChannel: crate::exti::Channel;
 
@@ -702,7 +757,11 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'stat
         self._port()
     }
 
-    /// Convert from concrete pin type PX_XX to type erased `AnyPin`.
+    /// Type-erase (degrade) this pin into an `AnyPin`.
+    ///
+    /// This converts pin singletons (`PA5`, `PB6`, ...), which
+    /// are all different types, into the same type. It is useful for
+    /// creating arrays of pins, or avoiding generics.
     #[inline]
     fn degrade(self) -> AnyPin {
         AnyPin {
@@ -711,12 +770,15 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + sealed::Pin + Sized + 'stat
     }
 }
 
-// Type-erased GPIO pin
+/// Type-erased GPIO pin
 pub struct AnyPin {
     pin_port: u8,
 }
 
 impl AnyPin {
+    /// Unsafely create an `AnyPin` from a pin+port number.
+    ///
+    /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
     #[inline]
     pub unsafe fn steal(pin_port: u8) -> Self {
         Self { pin_port }
@@ -727,6 +789,8 @@ impl AnyPin {
         self.pin_port / 16
     }
 
+    /// Get the GPIO register block for this pin.
+    #[cfg(feature = "unstable-pac")]
     #[inline]
     pub fn block(&self) -> gpio::Gpio {
         pac::GPIO(self._port() as _)
@@ -1072,6 +1136,7 @@ impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
     }
 }
 
+/// Low-level GPIO manipulation.
 #[cfg(feature = "unstable-pac")]
 pub mod low_level {
     pub use super::sealed::*;

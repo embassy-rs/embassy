@@ -34,6 +34,7 @@ impl Default for LogState {
     }
 }
 
+/// Driver communicating with the WiFi chip.
 pub struct Runner<'a, PWR, SPI> {
     ch: ch::Runner<'a, MTU>,
     bus: Bus<PWR, SPI>,
@@ -222,6 +223,7 @@ where
         }
     }
 
+    /// Run the
     pub async fn run(mut self) -> ! {
         let mut buf = [0; 512];
         loop {

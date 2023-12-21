@@ -1,3 +1,5 @@
+//! Inter-Process Communication Controller (IPCC)
+
 use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
@@ -41,6 +43,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for Receive
     }
 }
 
+/// TX interrupt handler.
 pub struct TransmitInterruptHandler {}
 
 impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for TransmitInterruptHandler {
@@ -72,6 +75,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for Transmi
     }
 }
 
+/// IPCC config.
 #[non_exhaustive]
 #[derive(Clone, Copy, Default)]
 pub struct Config {
@@ -79,6 +83,8 @@ pub struct Config {
     // reserved for future use
 }
 
+/// Channel.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub enum IpccChannel {
@@ -90,9 +96,11 @@ pub enum IpccChannel {
     Channel6 = 5,
 }
 
+/// IPCC driver.
 pub struct Ipcc;
 
 impl Ipcc {
+    /// Enable IPCC.
     pub fn enable(_config: Config) {
         IPCC::enable_and_reset();
         IPCC::set_cpu2(true);

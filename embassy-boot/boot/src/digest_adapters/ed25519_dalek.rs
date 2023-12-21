@@ -1,6 +1,6 @@
 use digest::typenum::U64;
 use digest::{FixedOutput, HashMarker, OutputSizeUser, Update};
-use ed25519_dalek::Digest as _;
+use ed25519_dalek::Digest;
 
 pub struct Sha512(ed25519_dalek::Sha512);
 
@@ -12,7 +12,7 @@ impl Default for Sha512 {
 
 impl Update for Sha512 {
     fn update(&mut self, data: &[u8]) {
-        self.0.update(data)
+        Digest::update(&mut self.0, data)
     }
 }
 
