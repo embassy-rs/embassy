@@ -12,6 +12,7 @@ use embassy_stm32::can::{
 };
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN3;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -43,7 +44,8 @@ async fn main(spawner: Spawner) {
     let rx_pin = Input::new(&mut p.PA15, Pull::Up);
     core::mem::forget(rx_pin);
 
-    let can: &'static mut Can<'static, CAN3> = static_cell::make_static!(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
+    static CAN: StaticCell<Can<'static, CAN3>> = StaticCell::new();
+    let can = CAN.init(Can::new(p.CAN3, p.PA8, p.PA15, Irqs));
     can.as_mut()
         .modify_filters()
         .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
@@ -56,7 +58,8 @@ async fn main(spawner: Spawner) {
 
     let (tx, mut rx) = can.split();
 
-    let tx: &'static mut CanTx<'static, 'static, CAN3> = static_cell::make_static!(tx);
+    static CAN_TX: StaticCell<CanTx<'static, 'static, CAN3>> = StaticCell::new();
+    let tx = CAN_TX.init(tx);
     spawner.spawn(send_can_message(tx)).unwrap();
 
     loop {

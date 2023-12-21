@@ -411,10 +411,12 @@ impl<D: Driver> Stack<D> {
     /// ```ignore
     /// let config = embassy_net::Config::dhcpv4(Default::default());
     ///// Init network stack
-    /// let stack = &*make_static!(embassy_net::Stack::new(
+    /// static RESOURCES: StaticCell<embassy_net::StackResources<2> = StaticCell::new();
+    /// static STACK: StaticCell<embassy_net::Stack> = StaticCell::new();
+    /// let stack = &*STACK.init(embassy_net::Stack::new(
     ///    device,
     ///    config,
-    ///    make_static!(embassy_net::StackResources::<2>::new()),
+    ///    RESOURCES.init(embassy_net::StackResources::new()),
     ///    seed
     /// ));
     /// // Launch network task that runs `stack.run().await`
