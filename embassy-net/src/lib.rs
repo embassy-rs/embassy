@@ -5,6 +5,9 @@
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
 #[cfg(not(any(feature = "proto-ipv4", feature = "proto-ipv6")))]
 compile_error!("You must enable at least one of the following features: proto-ipv4, proto-ipv6");
 
