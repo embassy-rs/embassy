@@ -3,8 +3,8 @@
 Timekeeping, delays and timeouts.
 
 Timekeeping is done with elapsed time since system boot. Time is represented in
-ticks, where the tick rate is defined either by the driver (in the case of a fixed-
-rate tick) or chosen by the user with a [tick rate](#tick-rate) feature. The chosen
+ticks, where the tick rate is defined either by the driver (in the case of a fixed-rate
+tick) or chosen by the user with a [tick rate](#tick-rate) feature. The chosen
 tick rate applies to everything in `embassy-time` and thus determines the maximum 
 timing resolution of <code>(1 / tick_rate) seconds</code>.
 

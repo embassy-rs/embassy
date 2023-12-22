@@ -41,11 +41,11 @@ mock-driver = ["tick-hz-1_000_000"]
 
 #! ### Generic Queue
 
-## Create a global, generic queue that can be used with any executor
+## Create a global, generic queue that can be used with any executor.
 ## To use this you must have a time driver provided.
 generic-queue = []
 
-#! The following features set how many timers are used for the generic queue. At most 1
+#! The following features set how many timers are used for the generic queue. At most one
 #! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
 #! 
 #! When using embassy-time from libraries, you should *not* enable any `generic-queue-*` feature, to allow the
