@@ -14,7 +14,7 @@ flavors = [
 
 [features]
 default = [ "rt" ]
-## Enable the RP runtime. On by default
+## Enable the RP runtime.
 rt = [ "rp-pac/rt" ]
 
 ## Enable defmt
