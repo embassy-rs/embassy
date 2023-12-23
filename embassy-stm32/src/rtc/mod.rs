@@ -102,7 +102,8 @@ pub enum RtcError {
     NotRunning,
 }
 
-pub(crate) struct RtcTimeProvider {
+/// Provides immutable access to the current time of the RTC.
+pub struct RtcTimeProvider {
     _private: (),
 }
 
@@ -243,7 +244,7 @@ impl Rtc {
     }
 
     /// Acquire a [`RtcTimeProvider`] instance.
-    pub(crate) const fn time_provider(&self) -> RtcTimeProvider {
+    pub const fn time_provider(&self) -> RtcTimeProvider {
         RtcTimeProvider { _private: () }
     }
 
