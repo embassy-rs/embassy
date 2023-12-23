@@ -53,8 +53,8 @@ time-driver-rtc1 = ["_time-driver"]
 nfc-pins-as-gpio = []
 
 ## Allow using the RST pin as a regular GPIO pin.
-##  * nrf52805, nrf52810, nrf52811, nrf52832: P0_21
-##  * nrf52820, nrf52833, nrf52840: P0_18
+##  * nRF52805, nRF52810, nRF52811, nRF52832: P0_21
+##  * nRF52820, nRF52833, nRF52840: P0_18
 reset-pin-as-gpio = []
 
 ## Implements the MultiwriteNorFlash trait for QSPI. Should only be enabled if your external
@@ -62,29 +62,29 @@ reset-pin-as-gpio = []
 qspi-multiwrite-flash = []
 
 #! ### Chip selection features
-## NRF52805
+## nRF52805
 nrf52805 = ["nrf52805-pac", "_nrf52"]
-## NRF52810
+## nRF52810
 nrf52810 = ["nrf52810-pac", "_nrf52"]
-## NRF52811
+## nRF52811
 nrf52811 = ["nrf52811-pac", "_nrf52"]
-## NRF52820
+## nRF52820
 nrf52820 = ["nrf52820-pac", "_nrf52"]
-## NRF52832
+## nRF52832
 nrf52832 = ["nrf52832-pac", "_nrf52", "_nrf52832_anomaly_109"]
-## NRF52833
+## nRF52833
 nrf52833 = ["nrf52833-pac", "_nrf52", "_gpio-p1"]
-## NRF52840
+## nRF52840
 nrf52840 = ["nrf52840-pac", "_nrf52", "_gpio-p1"]
-## NRF5340-app-s
+## nRF5340 application core in Secure mode
 nrf5340-app-s = ["_nrf5340-app", "_s"]
-## NRF5340-app-ns
+## nRF5340 application core in Non-Secure mode
 nrf5340-app-ns = ["_nrf5340-app", "_ns"]
-## NRF5340-net
+## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
-## NRF9160-s
+## nRF9160 in Secure mode
 nrf9160-s = ["_nrf9160", "_s"]
-## NRF9160-ns
+## nRF9160 in Non-Secure mode
 nrf9160-ns = ["_nrf9160", "_ns"]
 
 # Features starting with `_` are for internal use only. They're not intended
