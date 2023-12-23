@@ -1,5 +1,4 @@
 import os
-import toml
 from glob import glob
 
 abspath = os.path.abspath(__file__)
@@ -25,11 +24,11 @@ for i in range(15, 50):
     ticks.append(20 * i * 1_000_000)
 
 seen = set()
-ticks = [x for x in ticks if not (x in seen or seen.add(x))]
+ticks = sorted([x for x in ticks if not (x in seen or seen.add(x))])
 
 # ========= Update Cargo.toml
 
-things = {f'tick-hz-{hz:_}': [] for hz in ticks}
+things = [(hz, f'tick-hz-{hz:_}') for hz in ticks]
 
 SEPARATOR_START = '# BEGIN TICKS\n'
 SEPARATOR_END = '# END TICKS\n'
@@ -38,8 +37,22 @@ with open('Cargo.toml', 'r') as f:
     data = f.read()
 before, data = data.split(SEPARATOR_START, maxsplit=1)
 _, after = data.split(SEPARATOR_END, maxsplit=1)
-data = before + SEPARATOR_START + HELP + \
-    toml.dumps(things) + SEPARATOR_END + after
+
+data = before + SEPARATOR_START + HELP
+for freq, feature in things:
+    if freq >= 1_000_000_000:
+        freq_human = f"{freq / 1_000_000_000}GHz"
+    elif freq >= 1_000_000:
+        freq_human = f"{freq / 1_000_000}MHz"
+    elif freq >= 1_000:
+        freq_human = f"{freq / 1000}kHz"
+    else:
+        freq_human = f"{freq}Hz"
+
+    data += f"## {freq_human} Tick Rate\n"
+    data += f"{feature} = []\n"
+data += SEPARATOR_END + after
+
 with open('Cargo.toml', 'w') as f:
     f.write(data)
 
