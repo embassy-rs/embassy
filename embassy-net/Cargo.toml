@@ -25,18 +25,34 @@ features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6", "medium-ethern
 default = []
 std = []
 
+## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03"]
 
+#! Many of the following feature flags are re-exports of smoltcp feature flags. See 
+#! the [smoltcp feature flag documentation](https://github.com/smoltcp-rs/smoltcp#feature-flags)
+#! for more details
+
+## Enable UDP support
 udp = ["smoltcp/socket-udp"]
+## Enable TCP support
 tcp = ["smoltcp/socket-tcp"]
+## Enable DNS support
 dns = ["smoltcp/socket-dns", "smoltcp/proto-dns"]
+## Enable DHCPv4 support
 dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
+## Enable DHCPv4 support with hostname
 dhcpv4-hostname = ["dhcpv4"]
+## Enable IPv4 support
 proto-ipv4 = ["smoltcp/proto-ipv4"]
+## Enable IPv6 support
 proto-ipv6 = ["smoltcp/proto-ipv6"]
+## Enable the Ethernet medium
 medium-ethernet = ["smoltcp/medium-ethernet"]
+## Enable the IP medium
 medium-ip = ["smoltcp/medium-ip"]
+## Enable the IEEE 802.15.4 medium
 medium-ieee802154 = ["smoltcp/medium-ieee802154"]
+## Enable IGMP support
 igmp = ["smoltcp/proto-igmp"]
 
 [dependencies]
@@ -62,3 +78,4 @@ stable_deref_trait = { version = "1.2.0", default-features = false }
 futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
 atomic-pool = "1.0"
 embedded-nal-async = { version = "0.7.1" }
+document-features = "0.2.7"
