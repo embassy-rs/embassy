@@ -1,17 +1,24 @@
+//! Inter-Integrated-Circuit (I2C)
 #![macro_use]
-
-use core::marker::PhantomData;
-
-use crate::dma::NoDma;
-use crate::interrupt;
 
 #[cfg_attr(i2c_v1, path = "v1.rs")]
 #[cfg_attr(i2c_v2, path = "v2.rs")]
 mod _version;
-pub use _version::*;
-use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::peripherals;
+use core::future::Future;
+use core::marker::PhantomData;
+
+use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "time")]
+use embassy_time::{Duration, Instant};
+
+use crate::dma::NoDma;
+use crate::gpio::sealed::AFType;
+use crate::gpio::Pull;
+use crate::interrupt::typelevel::Interrupt;
+use crate::time::Hertz;
+use crate::{interrupt, peripherals};
 
 /// I2C error.
 #[derive(Debug, PartialEq, Eq)]
@@ -31,6 +38,141 @@ pub enum Error {
     Overrun,
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
+}
+
+/// I2C config
+#[non_exhaustive]
+#[derive(Copy, Clone)]
+pub struct Config {
+    /// Enable internal pullup on SDA.
+    ///
+    /// Using external pullup resistors is recommended for I2C. If you do
+    /// have external pullups you should not enable this.
+    pub sda_pullup: bool,
+    /// Enable internal pullup on SCL.
+    ///
+    /// Using external pullup resistors is recommended for I2C. If you do
+    /// have external pullups you should not enable this.
+    pub scl_pullup: bool,
+    /// Timeout.
+    #[cfg(feature = "time")]
+    pub timeout: embassy_time::Duration,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            sda_pullup: false,
+            scl_pullup: false,
+            #[cfg(feature = "time")]
+            timeout: embassy_time::Duration::from_millis(1000),
+        }
+    }
+}
+
+/// I2C driver.
+pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
+    _peri: PeripheralRef<'d, T>,
+    #[allow(dead_code)]
+    tx_dma: PeripheralRef<'d, TXDMA>,
+    #[allow(dead_code)]
+    rx_dma: PeripheralRef<'d, RXDMA>,
+    #[cfg(feature = "time")]
+    timeout: Duration,
+}
+
+impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
+    /// Create a new I2C driver.
+    pub fn new(
+        peri: impl Peripheral<P = T> + 'd,
+        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
+        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
+            + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+            + 'd,
+        tx_dma: impl Peripheral<P = TXDMA> + 'd,
+        rx_dma: impl Peripheral<P = RXDMA> + 'd,
+        freq: Hertz,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, scl, sda, tx_dma, rx_dma);
+
+        T::enable_and_reset();
+
+        scl.set_as_af_pull(
+            scl.af_num(),
+            AFType::OutputOpenDrain,
+            match config.scl_pullup {
+                true => Pull::Up,
+                false => Pull::None,
+            },
+        );
+        sda.set_as_af_pull(
+            sda.af_num(),
+            AFType::OutputOpenDrain,
+            match config.sda_pullup {
+                true => Pull::Up,
+                false => Pull::None,
+            },
+        );
+
+        unsafe { T::EventInterrupt::enable() };
+        unsafe { T::ErrorInterrupt::enable() };
+
+        let mut this = Self {
+            _peri: peri,
+            tx_dma,
+            rx_dma,
+            #[cfg(feature = "time")]
+            timeout: config.timeout,
+        };
+
+        this.init(freq, config);
+
+        this
+    }
+
+    fn timeout(&self) -> Timeout {
+        Timeout {
+            #[cfg(feature = "time")]
+            deadline: Instant::now() + self.timeout,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Timeout {
+    #[cfg(feature = "time")]
+    deadline: Instant,
+}
+
+#[allow(dead_code)]
+impl Timeout {
+    #[inline]
+    fn check(self) -> Result<(), Error> {
+        #[cfg(feature = "time")]
+        if Instant::now() > self.deadline {
+            return Err(Error::Timeout);
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
+        #[cfg(feature = "time")]
+        {
+            use futures::FutureExt;
+
+            embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
+                embassy_futures::select::Either::First(_) => Err(Error::Timeout),
+                embassy_futures::select::Either::Second(r) => r,
+            })
+        }
+
+        #[cfg(not(feature = "time"))]
+        fut
+    }
 }
 
 pub(crate) mod sealed {

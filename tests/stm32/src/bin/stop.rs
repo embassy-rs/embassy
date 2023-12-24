@@ -2,7 +2,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 #[path = "../common.rs"]
 mod common;
 
@@ -15,7 +14,7 @@ use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
 use embassy_time::Timer;
-use static_cell::make_static;
+use static_cell::StaticCell;
 
 #[entry]
 fn main() -> ! {
@@ -64,7 +63,8 @@ async fn async_main(spawner: Spawner) {
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
-    let rtc = make_static!(rtc);
+    static RTC: StaticCell<Rtc> = StaticCell::new();
+    let rtc = RTC.init(rtc);
 
     stop_with_rtc(rtc);
 

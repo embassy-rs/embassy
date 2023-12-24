@@ -1,3 +1,5 @@
+//! USB On The Go (OTG)
+
 use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals};
 
@@ -18,7 +20,9 @@ pub(crate) mod sealed {
     }
 }
 
+/// USB OTG instance.
 pub trait Instance: sealed::Instance + RccPeripheral {
+    /// Interrupt for this USB OTG instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 

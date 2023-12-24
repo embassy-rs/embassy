@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 // Example originally designed for stm32f411ceu6 reading an A1454 hall effect sensor on I2C1
 // DMA peripherals changed to compile for stm32f429zi, for the CI.

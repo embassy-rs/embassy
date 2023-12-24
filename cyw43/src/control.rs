@@ -12,17 +12,23 @@ use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
 use crate::{countries, events, PowerManagementMode};
 
+/// Control errors.
 #[derive(Debug)]
 pub struct Error {
+    /// Status code.
     pub status: u32,
 }
 
+/// Multicast errors.
 #[derive(Debug)]
 pub enum AddMulticastAddressError {
+    /// Not a multicast address.
     NotMulticast,
+    /// No free address slots.
     NoFreeSlots,
 }
 
+/// Control driver.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
@@ -38,6 +44,7 @@ impl<'a> Control<'a> {
         }
     }
 
+    /// Initialize WiFi controller.
     pub async fn init(&mut self, clm: &[u8]) {
         const CHUNK_SIZE: usize = 1024;
 
@@ -154,6 +161,7 @@ impl<'a> Control<'a> {
         self.ioctl(IoctlType::Set, IOCTL_CMD_DOWN, 0, &mut []).await;
     }
 
+    /// Set power management mode.
     pub async fn set_power_management(&mut self, mode: PowerManagementMode) {
         // power save mode
         let mode_num = mode.mode();
@@ -166,6 +174,7 @@ impl<'a> Control<'a> {
         self.ioctl_set_u32(86, 0, mode_num).await;
     }
 
+    /// Join an unprotected network with the provided ssid.
     pub async fn join_open(&mut self, ssid: &str) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
@@ -183,6 +192,7 @@ impl<'a> Control<'a> {
         self.wait_for_join(i).await
     }
 
+    /// Join an protected network with the provided ssid and passphrase.
     pub async fn join_wpa2(&mut self, ssid: &str, passphrase: &str) -> Result<(), Error> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
@@ -250,16 +260,19 @@ impl<'a> Control<'a> {
         }
     }
 
+    /// Set GPIO pin on WiFi chip.
     pub async fn gpio_set(&mut self, gpio_n: u8, gpio_en: bool) {
         assert!(gpio_n < 3);
         self.set_iovar_u32x2("gpioout", 1 << gpio_n, if gpio_en { 1 << gpio_n } else { 0 })
             .await
     }
 
+    /// Start open access point.
     pub async fn start_ap_open(&mut self, ssid: &str, channel: u8) {
         self.start_ap(ssid, "", Security::OPEN, channel).await;
     }
 
+    /// Start WPA2 protected access point.
     pub async fn start_ap_wpa2(&mut self, ssid: &str, passphrase: &str, channel: u8) {
         self.start_ap(ssid, passphrase, Security::WPA2_AES_PSK, channel).await;
     }
@@ -494,13 +507,14 @@ impl<'a> Control<'a> {
     }
 }
 
+/// WiFi network scanner.
 pub struct Scanner<'a> {
     subscriber: EventSubscriber<'a>,
     events: &'a Events,
 }
 
 impl Scanner<'_> {
-    /// wait for the next found network
+    /// Wait for the next found network.
     pub async fn next(&mut self) -> Option<BssInfo> {
         let event = self.subscriber.next_message_pure().await;
         if event.header.status != EStatus::PARTIAL {

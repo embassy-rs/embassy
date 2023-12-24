@@ -22,7 +22,7 @@ Tasks are allocated from the arena when spawned for the first time. If the task 
 The arena size can be configured in two ways:
 
 - Via Cargo features: enable a Cargo feature like `task-arena-size-8192`. Only a selection of values
-  is available, check `Cargo.toml` for the list.
+  is available, see [Task Area Sizes](#task-arena-size) for reference.
 - Via environment variables at build time: set the variable named `EMBASSY_EXECUTOR_TASK_ARENA_SIZE`. For example
   `EMBASSY_EXECUTOR_TASK_ARENA_SIZE=4321 cargo build`. You can also set them in the `[env]` section of `.cargo/config.toml`.
   Any value can be set, unlike with Cargo features.

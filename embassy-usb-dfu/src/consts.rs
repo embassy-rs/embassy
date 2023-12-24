@@ -1,3 +1,4 @@
+//! USB DFU constants.
 pub(crate) const USB_CLASS_APPN_SPEC: u8 = 0xFE;
 pub(crate) const APPN_SPEC_SUBCLASS_DFU: u8 = 0x01;
 #[allow(unused)]
@@ -18,10 +19,15 @@ defmt::bitflags! {
 
 #[cfg(not(feature = "defmt"))]
 bitflags::bitflags! {
+    /// Attributes supported by the DFU controller.
     pub struct DfuAttributes: u8 {
+        /// Generate WillDetache sequence on bus.
         const WILL_DETACH = 0b0000_1000;
+        /// Device can communicate during manifestation phase.
         const MANIFESTATION_TOLERANT = 0b0000_0100;
+        /// Capable of upload.
         const CAN_UPLOAD = 0b0000_0010;
+        /// Capable of download.
         const CAN_DOWNLOAD = 0b0000_0001;
     }
 }
@@ -29,7 +35,7 @@ bitflags::bitflags! {
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 #[allow(unused)]
-pub enum State {
+pub(crate) enum State {
     AppIdle = 0,
     AppDetach = 1,
     DfuIdle = 2,
@@ -46,7 +52,7 @@ pub enum State {
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 #[allow(unused)]
-pub enum Status {
+pub(crate) enum Status {
     Ok = 0x00,
     ErrTarget = 0x01,
     ErrFile = 0x02,
@@ -67,7 +73,7 @@ pub enum Status {
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
-pub enum Request {
+pub(crate) enum Request {
     Detach = 0,
     Dnload = 1,
     Upload = 2,

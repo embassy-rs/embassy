@@ -6,8 +6,7 @@ keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethern
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+repository = "https://github.com/embassy-rs/embassy"
 
 [dependencies]
 heapless = "0.8"

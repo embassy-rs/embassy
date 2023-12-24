@@ -30,6 +30,10 @@ pub struct TransferOptions {
     /// FIFO threshold for DMA FIFO mode. If none, direct mode is used.
     pub fifo_threshold: Option<FifoThreshold>,
     /// Enable circular DMA
+    ///
+    /// Note:
+    /// If you enable circular mode manually, you may want to build and `.await` the `Transfer` in a separate task.
+    /// Since DMA in circular mode need manually stop, `.await` in current task would block the task forever.
     pub circular: bool,
     /// Enable half transfer interrupt
     pub half_transfer_ir: bool,
@@ -382,18 +386,13 @@ impl<'a, C: Channel> Transfer<'a, C> {
             w.set_msize(data_size.into());
             w.set_psize(data_size.into());
             w.set_pl(vals::Pl::VERYHIGH);
-            w.set_minc(match incr_mem {
-                true => vals::Inc::INCREMENTED,
-                false => vals::Inc::FIXED,
-            });
-            w.set_pinc(vals::Inc::FIXED);
+            w.set_minc(incr_mem);
+            w.set_pinc(false);
             w.set_teie(true);
             w.set_tcie(options.complete_transfer_ir);
+            w.set_circ(options.circular);
             if options.circular {
-                w.set_circ(vals::Circ::ENABLED);
                 debug!("Setting circular mode");
-            } else {
-                w.set_circ(vals::Circ::DISABLED);
             }
             #[cfg(dma_v1)]
             w.set_trbuff(true);
@@ -545,8 +544,8 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
             w.set_msize(data_size.into());
             w.set_psize(data_size.into());
             w.set_pl(vals::Pl::VERYHIGH);
-            w.set_minc(vals::Inc::INCREMENTED);
-            w.set_pinc(vals::Inc::FIXED);
+            w.set_minc(true);
+            w.set_pinc(false);
             w.set_teie(true);
             w.set_tcie(true);
             #[cfg(dma_v1)]
@@ -736,12 +735,12 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         w.set_msize(data_size.into());
         w.set_psize(data_size.into());
         w.set_pl(vals::Pl::VERYHIGH);
-        w.set_minc(vals::Inc::INCREMENTED);
-        w.set_pinc(vals::Inc::FIXED);
+        w.set_minc(true);
+        w.set_pinc(false);
         w.set_teie(true);
         w.set_htie(true);
         w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
+        w.set_circ(true);
         #[cfg(dma_v1)]
         w.set_trbuff(true);
         #[cfg(dma_v2)]
@@ -918,12 +917,12 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         w.set_msize(data_size.into());
         w.set_psize(data_size.into());
         w.set_pl(vals::Pl::VERYHIGH);
-        w.set_minc(vals::Inc::INCREMENTED);
-        w.set_pinc(vals::Inc::FIXED);
+        w.set_minc(true);
+        w.set_pinc(false);
         w.set_teie(true);
         w.set_htie(true);
         w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
+        w.set_circ(true);
         #[cfg(dma_v1)]
         w.set_trbuff(true);
         #[cfg(dma_v2)]

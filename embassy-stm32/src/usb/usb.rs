@@ -244,6 +244,7 @@ struct EndpointData {
     used_out: bool,
 }
 
+/// USB driver.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     alloc: [EndpointData; EP_COUNT],
@@ -251,6 +252,7 @@ pub struct Driver<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Driver<'d, T> {
+    /// Create a new USB driver.
     pub fn new(
         _usb: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -465,6 +467,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     }
 }
 
+/// USB bus.
 pub struct Bus<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     ep_types: [EpType; EP_COUNT - 1],
@@ -640,6 +643,7 @@ trait Dir {
     fn waker(i: usize) -> &'static AtomicWaker;
 }
 
+/// Marker type for the "IN" direction.
 pub enum In {}
 impl Dir for In {
     fn dir() -> Direction {
@@ -652,6 +656,7 @@ impl Dir for In {
     }
 }
 
+/// Marker type for the "OUT" direction.
 pub enum Out {}
 impl Dir for Out {
     fn dir() -> Direction {
@@ -664,6 +669,7 @@ impl Dir for Out {
     }
 }
 
+/// USB endpoint.
 pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
@@ -813,6 +819,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
+/// USB control pipe.
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     max_packet_size: u16,

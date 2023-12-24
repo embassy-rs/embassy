@@ -11,7 +11,6 @@
 //! # Usage
 //!
 //! ```no_run
-//! # #![feature(type_alias_impl_trait)]
 //! use embassy_rp::multicore::Stack;
 //! use static_cell::StaticCell;
 //! use embassy_executor::Executor;

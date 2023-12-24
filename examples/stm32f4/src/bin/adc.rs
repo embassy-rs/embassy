@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;

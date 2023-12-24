@@ -1,3 +1,4 @@
+//! Controller Area Network (CAN)
 #![macro_use]
 
 #[cfg_attr(can_bxcan, path = "bxcan.rs")]

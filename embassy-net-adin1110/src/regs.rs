@@ -2,6 +2,7 @@ use core::fmt::{Debug, Display};
 
 use bitfield::{bitfield, bitfield_bitrange, bitfield_fields};
 
+#[allow(missing_docs)]
 #[allow(non_camel_case_types)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

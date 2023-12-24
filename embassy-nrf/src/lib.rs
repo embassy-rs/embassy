@@ -3,6 +3,9 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
 #[cfg(not(any(
     feature = "nrf51",
     feature = "nrf52805",
@@ -354,7 +357,11 @@ unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteRe
     WriteResult::Written
 }
 
-/// Initialize peripherals with the provided configuration. This should only be called once at startup.
+/// Initialize the `embassy-nrf` HAL with the provided configuration.
+///
+/// This returns the peripheral singletons that can be used for creating drivers.
+///
+/// This should only be called once at startup, otherwise it panics.
 pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.

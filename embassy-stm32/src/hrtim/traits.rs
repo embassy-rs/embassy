@@ -125,7 +125,6 @@ pub(crate) mod sealed {
         }
 
         /// Set the dead time as a proportion of max_duty
-
         fn set_channel_dead_time(channel: usize, dead_time: u16) {
             let regs = Self::regs();
 
@@ -148,13 +147,10 @@ pub(crate) mod sealed {
                 w.set_dtr(dt_val as u16);
             });
         }
-
-        //        fn enable_outputs(enable: bool);
-        //
-        //        fn enable_channel(&mut self, channel: usize, enable: bool);
     }
 }
 
+/// HRTIM instance trait.
 pub trait Instance: sealed::Instance + 'static {}
 
 foreach_interrupt! {

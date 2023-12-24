@@ -7,11 +7,16 @@
 //! - Define a struct `MyDriver`
 //! - Implement [`Driver`] for it
 //! - Register it as the global driver with [`time_driver_impl`](crate::time_driver_impl).
-//! - Enable the Cargo features `embassy-executor/time` and one of `embassy-time/tick-*` corresponding to the
-//!   tick rate of your driver.
+//! - Enable the Cargo feature `embassy-executor/time`
 //!
-//! If you wish to make the tick rate configurable by the end user, you should do so by exposing your own
-//! Cargo features and having each enable the corresponding `embassy-time/tick-*`.
+//! If your driver has a single set tick rate, enable the corresponding [`tick-hz-*`](crate#tick-rate) feature,
+//! which will prevent users from needing to configure it themselves (or selecting an incorrect configuration).
+//!
+//! If your driver supports a small number of set tick rates, expose your own cargo features and have each one
+//! enable the corresponding `embassy-time/tick-*`.
+//!
+//! Otherwise, don’t enable any `tick-hz-*` feature to let the user configure the tick rate themselves by
+//! enabling a feature on `embassy-time`.
 //!
 //! # Linkage details
 //!

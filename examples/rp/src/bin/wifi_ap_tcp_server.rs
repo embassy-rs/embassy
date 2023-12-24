@@ -3,7 +3,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 #![allow(async_fn_in_trait)]
 
 use core::str::from_utf8;
@@ -19,7 +18,7 @@ use embassy_rp::peripherals::{DMA_CH0, PIN_23, PIN_25, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::Duration;
 use embedded_io_async::Write;
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -59,7 +58,8 @@ async fn main(spawner: Spawner) {
     let mut pio = Pio::new(p.PIO0, Irqs);
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
 
-    let state = make_static!(cyw43::State::new());
+    static STATE: StaticCell<cyw43::State> = StaticCell::new();
+    let state = STATE.init(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
     unwrap!(spawner.spawn(wifi_task(runner)));
 
@@ -79,11 +79,13 @@ async fn main(spawner: Spawner) {
     let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guarenteed to be random.
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+    let stack = &*STACK.init(Stack::new(
         net_device,
         config,
-        make_static!(StackResources::<2>::new()),
-        seed
+        RESOURCES.init(StackResources::<2>::new()),
+        seed,
     ));
 
     unwrap!(spawner.spawn(net_task(stack)));

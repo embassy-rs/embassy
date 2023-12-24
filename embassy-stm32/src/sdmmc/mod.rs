@@ -1,3 +1,4 @@
+//! Secure Digital / MultiMedia Card (SDMMC)
 #![macro_use]
 
 use core::default::Default;
@@ -53,6 +54,7 @@ const SD_INIT_FREQ: Hertz = Hertz(400_000);
 
 /// The signalling scheme used on the SDMMC bus
 #[non_exhaustive]
+#[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Signalling {
@@ -69,6 +71,9 @@ impl Default for Signalling {
     }
 }
 
+/// Aligned data block for SDMMC transfers.
+///
+/// This is a 512-byte array, aligned to 4 bytes to satisfy DMA requirements.
 #[repr(align(4))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -93,17 +98,23 @@ impl DerefMut for DataBlock {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
+    /// Timeout reported by the hardware
     Timeout,
+    /// Timeout reported by the software driver.
     SoftwareTimeout,
+    /// Unsupported card version.
     UnsupportedCardVersion,
+    /// Unsupported card type.
     UnsupportedCardType,
+    /// CRC error.
     Crc,
-    DataCrcFail,
-    RxOverFlow,
+    /// No card inserted.
     NoCard,
+    /// Bad clock supplied to the SDMMC peripheral.
     BadClock,
+    /// Signaling switch failed.
     SignalingSwitchFailed,
-    PeripheralBusy,
+    /// ST bit error.
     #[cfg(sdmmc_v1)]
     StBitErr,
 }
@@ -282,6 +293,7 @@ pub struct Sdmmc<'d, T: Instance, Dma: SdmmcDma<T> = NoDma> {
 
 #[cfg(sdmmc_v1)]
 impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
+    /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -316,6 +328,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
         )
     }
 
+    /// Create a new SDMMC driver, with 4 data lanes.
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -362,6 +375,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T>> Sdmmc<'d, T, Dma> {
 
 #[cfg(sdmmc_v2)]
 impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
+    /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -395,6 +409,7 @@ impl<'d, T: Instance> Sdmmc<'d, T, NoDma> {
         )
     }
 
+    /// Create a new SDMMC driver, with 4 data lanes.
     pub fn new_4bit(
         sdmmc: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -496,7 +511,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 
     /// Data transfer is in progress
-    #[inline(always)]
+    #[inline]
     fn data_active() -> bool {
         let regs = T::regs();
 
@@ -508,7 +523,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 
     /// Coammand transfer is in progress
-    #[inline(always)]
+    #[inline]
     fn cmd_active() -> bool {
         let regs = T::regs();
 
@@ -520,7 +535,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 
     /// Wait idle on CMDACT, RXACT and TXACT (v1) or DOSNACT and CPSMACT (v2)
-    #[inline(always)]
+    #[inline]
     fn wait_idle() {
         while Self::data_active() || Self::cmd_active() {}
     }
@@ -836,7 +851,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     }
 
     /// Clear flags in interrupt clear register
-    #[inline(always)]
+    #[inline]
     fn clear_interrupt_flags() {
         let regs = T::regs();
         regs.icr().write(|w| {
@@ -1151,7 +1166,8 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         Ok(())
     }
 
-    #[inline(always)]
+    /// Read a data block.
+    #[inline]
     pub async fn read_block(&mut self, block_idx: u32, buffer: &mut DataBlock) -> Result<(), Error> {
         let card_capacity = self.card()?.card_type;
 
@@ -1203,6 +1219,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         res
     }
 
+    /// Write a data block.
     pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
 
@@ -1282,7 +1299,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     ///
     /// Returns Error::NoCard if [`init_card`](#method.init_card)
     /// has not previously succeeded
-    #[inline(always)]
+    #[inline]
     pub fn card(&self) -> Result<&Card, Error> {
         self.card.as_ref().ok_or(Error::NoCard)
     }
@@ -1418,7 +1435,9 @@ pub(crate) mod sealed {
     pub trait Pins<T: Instance> {}
 }
 
+/// SDMMC instance trait.
 pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
+
 pin_trait!(CkPin, Instance);
 pin_trait!(CmdPin, Instance);
 pin_trait!(D0Pin, Instance);
@@ -1433,7 +1452,10 @@ pin_trait!(D7Pin, Instance);
 #[cfg(sdmmc_v1)]
 dma_trait!(SdmmcDma, Instance);
 
-// SDMMCv2 uses internal DMA
+/// DMA instance trait.
+///
+/// This is only implemented for `NoDma`, since SDMMCv2 has DMA built-in, instead of
+/// using ST's system-wide DMA peripheral.
 #[cfg(sdmmc_v2)]
 pub trait SdmmcDma<T: Instance> {}
 #[cfg(sdmmc_v2)]
@@ -1516,53 +1538,3 @@ foreach_peripheral!(
         impl Instance for peripherals::$inst {}
     };
 );
-
-#[cfg(feature = "embedded-sdmmc")]
-mod sdmmc_rs {
-    use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
-
-    use super::*;
-
-    impl<'d, T: Instance, Dma: SdmmcDma<T>> BlockDevice for Sdmmc<'d, T, Dma> {
-        type Error = Error;
-
-        async fn read(
-            &mut self,
-            blocks: &mut [Block],
-            start_block_idx: BlockIdx,
-            _reason: &str,
-        ) -> Result<(), Self::Error> {
-            let mut address = start_block_idx.0;
-
-            for block in blocks.iter_mut() {
-                let block: &mut [u8; 512] = &mut block.contents;
-
-                // NOTE(unsafe) Block uses align(4)
-                let block = unsafe { &mut *(block as *mut _ as *mut DataBlock) };
-                self.read_block(address, block).await?;
-                address += 1;
-            }
-            Ok(())
-        }
-
-        async fn write(&mut self, blocks: &[Block], start_block_idx: BlockIdx) -> Result<(), Self::Error> {
-            let mut address = start_block_idx.0;
-
-            for block in blocks.iter() {
-                let block: &[u8; 512] = &block.contents;
-
-                // NOTE(unsafe) DataBlock uses align 4
-                let block = unsafe { &*(block as *const _ as *const DataBlock) };
-                self.write_block(address, block).await?;
-                address += 1;
-            }
-            Ok(())
-        }
-
-        fn num_blocks(&self) -> Result<BlockCount, Self::Error> {
-            let card = self.card()?;
-            let count = card.csd.block_count();
-            Ok(BlockCount(count))
-        }
-    }
-}

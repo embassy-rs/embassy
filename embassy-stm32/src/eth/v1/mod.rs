@@ -43,6 +43,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
     }
 }
 
+/// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: PHY> {
     _peri: PeripheralRef<'d, T>,
     pub(crate) tx: TDesRing<'d>,
@@ -266,6 +267,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     }
 }
 
+/// Ethernet station management interface.
 pub struct EthernetStationManagement<T: Instance> {
     peri: PhantomData<T>,
     clock_range: Cr,

@@ -4,6 +4,12 @@ name = "embassy-boot-stm32"
 version = "0.1.0"
 description = "Bootloader lib for STM32 chips"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot/stm32/src/"

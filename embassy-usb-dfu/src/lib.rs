@@ -1,12 +1,14 @@
 #![no_std]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
 mod fmt;
 
 pub mod consts;
 
 #[cfg(feature = "dfu")]
-mod bootloader;
+mod dfu;
 #[cfg(feature = "dfu")]
-pub use self::bootloader::*;
+pub use self::dfu::*;
 
 #[cfg(feature = "application")]
 mod application;
@@ -17,7 +19,7 @@ pub use self::application::*;
     all(feature = "dfu", feature = "application"),
     not(any(feature = "dfu", feature = "application"))
 ))]
-compile_error!("usb-dfu must be compiled with exactly one of `bootloader`, or `application` features");
+compile_error!("usb-dfu must be compiled with exactly one of `dfu`, or `application` features");
 
 /// Provides a platform-agnostic interface for initiating a system reset.
 ///
@@ -26,9 +28,11 @@ compile_error!("usb-dfu must be compiled with exactly one of `bootloader`, or `a
 ///
 /// If alternate behaviour is desired, a custom implementation of Reset can be provided as a type argument to the usb_dfu function.
 pub trait Reset {
+    /// Reset the device.
     fn sys_reset() -> !;
 }
 
+/// Reset immediately.
 #[cfg(feature = "esp32c3-hal")]
 pub struct ResetImmediate;
 
@@ -40,6 +44,7 @@ impl Reset for ResetImmediate {
     }
 }
 
+/// Reset immediately.
 #[cfg(feature = "cortex-m")]
 pub struct ResetImmediate;
 

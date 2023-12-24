@@ -23,6 +23,10 @@ use crate::pac::bdma::{regs, vals};
 #[non_exhaustive]
 pub struct TransferOptions {
     /// Enable circular DMA
+    ///
+    /// Note:
+    /// If you enable circular mode manually, you may want to build and `.await` the `Transfer` in a separate task.
+    /// Since DMA in circular mode need manually stop, `.await` in current task would block the task forever.
     pub circular: bool,
     /// Enable half transfer interrupt
     pub half_transfer_ir: bool,
@@ -303,20 +307,14 @@ impl<'a, C: Channel> Transfer<'a, C> {
         ch.cr().write(|w| {
             w.set_psize(data_size.into());
             w.set_msize(data_size.into());
-            if incr_mem {
-                w.set_minc(vals::Inc::ENABLED);
-            } else {
-                w.set_minc(vals::Inc::DISABLED);
-            }
+            w.set_minc(incr_mem);
             w.set_dir(dir.into());
             w.set_teie(true);
             w.set_tcie(options.complete_transfer_ir);
             w.set_htie(options.half_transfer_ir);
+            w.set_circ(options.circular);
             if options.circular {
-                w.set_circ(vals::Circ::ENABLED);
                 debug!("Setting circular mode");
-            } else {
-                w.set_circ(vals::Circ::DISABLED);
             }
             w.set_pl(vals::Pl::VERYHIGH);
             w.set_en(true);
@@ -352,7 +350,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
     pub fn is_running(&mut self) -> bool {
         let ch = self.channel.regs().ch(self.channel.num());
         let en = ch.cr().read().en();
-        let circular = ch.cr().read().circ() == vals::Circ::ENABLED;
+        let circular = ch.cr().read().circ();
         let tcif = STATE.complete_count[self.channel.index()].load(Ordering::Acquire) != 0;
         en && (circular || !tcif)
     }
@@ -501,12 +499,12 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         let mut w = regs::Cr(0);
         w.set_psize(data_size.into());
         w.set_msize(data_size.into());
-        w.set_minc(vals::Inc::ENABLED);
+        w.set_minc(true);
         w.set_dir(dir.into());
         w.set_teie(true);
         w.set_htie(true);
         w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
+        w.set_circ(true);
         w.set_pl(vals::Pl::VERYHIGH);
         w.set_en(true);
 
@@ -656,12 +654,12 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         let mut w = regs::Cr(0);
         w.set_psize(data_size.into());
         w.set_msize(data_size.into());
-        w.set_minc(vals::Inc::ENABLED);
+        w.set_minc(true);
         w.set_dir(dir.into());
         w.set_teie(true);
         w.set_htie(true);
         w.set_tcie(true);
-        w.set_circ(vals::Circ::ENABLED);
+        w.set_circ(true);
         w.set_pl(vals::Pl::VERYHIGH);
         w.set_en(true);
 

@@ -1,5 +1,3 @@
-#![feature(type_alias_impl_trait)]
-
 use std::default::Default;
 
 use clap::Parser;
@@ -12,7 +10,7 @@ use embedded_io_async::Write;
 use heapless::Vec;
 use log::*;
 use rand_core::{OsRng, RngCore};
-use static_cell::{make_static, StaticCell};
+use static_cell::StaticCell;
 
 #[derive(Parser)]
 #[clap(version = "1.0")]
@@ -54,11 +52,13 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static STACK: StaticCell<Stack<TunTapDevice>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let stack = &*STACK.init(Stack::new(
         device,
         config,
-        make_static!(StackResources::<3>::new()),
-        seed
+        RESOURCES.init(StackResources::<3>::new()),
+        seed,
     ));
 
     // Launch network task

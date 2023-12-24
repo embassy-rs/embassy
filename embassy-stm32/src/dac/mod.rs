@@ -1,4 +1,4 @@
-//! Provide access to the STM32 digital-to-analog converter (DAC).
+//! Digital to Analog Converter (DAC)
 #![macro_use]
 
 use core::marker::PhantomData;

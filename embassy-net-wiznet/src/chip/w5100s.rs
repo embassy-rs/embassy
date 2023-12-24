@@ -4,6 +4,7 @@ const SOCKET_BASE: u16 = 0x400;
 const TX_BASE: u16 = 0x4000;
 const RX_BASE: u16 = 0x6000;
 
+/// Wizard W5100S chip.
 pub enum W5100S {}
 
 impl super::Chip for W5100S {}

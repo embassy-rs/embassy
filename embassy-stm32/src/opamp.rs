@@ -1,9 +1,12 @@
+//! Operational Amplifier (OPAMP)
 #![macro_use]
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use crate::Peripheral;
 
+/// Gain
+#[allow(missing_docs)]
 #[derive(Clone, Copy)]
 pub enum OpAmpGain {
     Mul1,
@@ -13,6 +16,8 @@ pub enum OpAmpGain {
     Mul16,
 }
 
+/// Speed
+#[allow(missing_docs)]
 #[derive(Clone, Copy)]
 pub enum OpAmpSpeed {
     Normal,
@@ -180,6 +185,7 @@ impl<'d, T: Instance> Drop for OpAmpInternalOutput<'d, T> {
     }
 }
 
+/// Opamp instance trait.
 pub trait Instance: sealed::Instance + 'static {}
 
 pub(crate) mod sealed {
@@ -198,8 +204,11 @@ pub(crate) mod sealed {
     pub trait OutputPin<T: Instance> {}
 }
 
+/// Non-inverting pin trait.
 pub trait NonInvertingPin<T: Instance>: sealed::NonInvertingPin<T> {}
+/// Inverting pin trait.
 pub trait InvertingPin<T: Instance>: sealed::InvertingPin<T> {}
+/// Output pin trait.
 pub trait OutputPin<T: Instance>: sealed::OutputPin<T> {}
 
 macro_rules! impl_opamp_external_output {

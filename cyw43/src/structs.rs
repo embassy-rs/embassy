@@ -4,13 +4,16 @@ use crate::fmt::Bytes;
 macro_rules! impl_bytes {
     ($t:ident) => {
         impl $t {
+            /// Bytes consumed by this type.
             pub const SIZE: usize = core::mem::size_of::<Self>();
 
+            /// Convert to byte array.
             #[allow(unused)]
             pub fn to_bytes(&self) -> [u8; Self::SIZE] {
                 unsafe { core::mem::transmute(*self) }
             }
 
+            /// Create from byte array.
             #[allow(unused)]
             pub fn from_bytes(bytes: &[u8; Self::SIZE]) -> &Self {
                 let alignment = core::mem::align_of::<Self>();
@@ -23,6 +26,7 @@ macro_rules! impl_bytes {
                 unsafe { core::mem::transmute(bytes) }
             }
 
+            /// Create from mutable byte array.
             #[allow(unused)]
             pub fn from_bytes_mut(bytes: &mut [u8; Self::SIZE]) -> &mut Self {
                 let alignment = core::mem::align_of::<Self>();
@@ -204,6 +208,7 @@ pub struct EthernetHeader {
 }
 
 impl EthernetHeader {
+    /// Swap endianness.
     pub fn byteswap(&mut self) {
         self.ether_type = self.ether_type.to_be();
     }
@@ -472,19 +477,26 @@ impl ScanResults {
 #[repr(C, packed(2))]
 #[non_exhaustive]
 pub struct BssInfo {
+    /// Version.
     pub version: u32,
+    /// Length.
     pub length: u32,
+    /// BSSID.
     pub bssid: [u8; 6],
+    /// Beacon period.
     pub beacon_period: u16,
+    /// Capability.
     pub capability: u16,
+    /// SSID length.
     pub ssid_len: u8,
+    /// SSID.
     pub ssid: [u8; 32],
     // there will be more stuff here
 }
 impl_bytes!(BssInfo);
 
 impl BssInfo {
-    pub fn parse(packet: &mut [u8]) -> Option<&mut Self> {
+    pub(crate) fn parse(packet: &mut [u8]) -> Option<&mut Self> {
         if packet.len() < BssInfo::SIZE {
             return None;
         }

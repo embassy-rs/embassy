@@ -6,6 +6,9 @@
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]
 
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
@@ -37,10 +40,7 @@ pub use timer::{with_timeout, Ticker, TimeoutError, Timer};
 
 /// Ticks per second of the global timebase.
 ///
-/// This value is specified by the `tick-*` Cargo features, which
-/// should be set by the time driver. Some drivers support a fixed tick rate, others
-/// allow you to choose a tick rate with Cargo features of their own. You should not
-/// set the `tick-*` features for embassy yourself as an end user.
+/// This value is specified by the [`tick-*` Cargo features](crate#tick-rate)
 pub const TICK_HZ: u64 = tick::TICK_HZ;
 
 const fn gcd(a: u64, b: u64) -> u64 {

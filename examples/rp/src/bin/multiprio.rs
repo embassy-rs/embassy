@@ -55,7 +55,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};

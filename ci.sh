@@ -15,26 +15,24 @@ if [ $TARGET = "x86_64-unknown-linux-gnu" ]; then
     BUILD_EXTRA="--- build --release --manifest-path examples/std/Cargo.toml --target $TARGET --out-dir out/examples/std"
 fi
 
-find . -name '*.rs' -not -path '*target*' | xargs rustfmt --check  --skip-children --unstable-features --edition 2021
-
 cargo batch  \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,log \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,defmt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt,arch-cortex-m,executor-thread,executor-interrupt,integrated-timers \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,integrated-timers \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-thread \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-thread,integrated-timers \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-interrupt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-interrupt,integrated-timers \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-thread,executor-interrupt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-thread,executor-interrupt,integrated-timers \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32 \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32,integrated-timers \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32,executor-thread \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32,executor-thread,integrated-timers \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features log \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features defmt \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv6m-none-eabi --features defmt \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv6m-none-eabi --features defmt,arch-cortex-m,executor-thread,executor-interrupt,integrated-timers \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,integrated-timers \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread,integrated-timers \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt,integrated-timers \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread,executor-interrupt \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread,executor-interrupt,integrated-timers \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32 \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32,integrated-timers \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32,executor-thread \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32,executor-thread,integrated-timers \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target thumbv6m-none-eabi --features defmt \
     --- build --release --manifest-path embassy-time/Cargo.toml --target thumbv6m-none-eabi --features defmt,defmt-timestamp-uptime,tick-hz-32_768,generic-queue-8 \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,medium-ethernet \
@@ -91,12 +89,12 @@ cargo batch  \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f417zg,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f423zh,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f427zi,defmt,exti,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi,log,exti,time-driver-any,embedded-sdmmc,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi,log,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f437zi,log,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f439zi,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f446ze,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f469zi,defmt,exti,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f479zi,defmt,exti,time-driver-any,embedded-sdmmc,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f479zi,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f730i8,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h753zi,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h735zg,defmt,exti,time-driver-any,time \
@@ -140,7 +138,6 @@ cargo batch  \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-irq/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/modules/ROOT/examples/layer-by-layer/blinky-async/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840 \
-    --- build --release --manifest-path examples/nrf52840-rtic/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840-rtic \
     --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf5340 \
     --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/rp \
     --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32f0 \

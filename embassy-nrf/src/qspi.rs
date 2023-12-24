@@ -605,6 +605,9 @@ impl<'d, T: Instance> NorFlash for Qspi<'d, T> {
     }
 }
 
+#[cfg(feature = "qspi-multiwrite-flash")]
+impl<'d, T: Instance> embedded_storage::nor_flash::MultiwriteNorFlash for Qspi<'d, T> {}
+
 mod _eh1 {
     use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
 
