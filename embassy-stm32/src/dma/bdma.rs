@@ -439,13 +439,8 @@ impl RingBuffer {
     }
 
     fn request_stop(ch: &pac::bdma::Ch) {
-        // Disable the channel. Keep the IEs enabled so the irqs still fire.
-        // If the channel is enabled and transfer is not completed, we need to perform
-        // two separate write access to the CR register to disable the channel.
-        ch.cr().write(|w| {
-            w.set_teie(true);
-            w.set_htie(true);
-            w.set_tcie(true);
+        ch.cr().modify(|w| {
+            w.set_circ(vals::Circ::DISABLED);
         });
     }
 

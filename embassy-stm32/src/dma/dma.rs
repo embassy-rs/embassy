@@ -676,10 +676,8 @@ impl RingBuffer {
     }
 
     fn request_stop(ch: &pac::dma::St) {
-        ch.cr().write(|w| {
-            w.set_teie(true);
-            w.set_htie(true);
-            w.set_tcie(true);
+        ch.cr().modify(|w| {
+            w.set_circ(vals::Circ::DISABLED);
         });
     }
 
@@ -688,7 +686,6 @@ impl RingBuffer {
 
         Self::request_stop(ch);
 
-        //wait until cr.susp reads as true
         poll_fn(|cx| {
             set_waker(cx.waker());
 
@@ -742,7 +739,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         w.set_minc(vals::Inc::INCREMENTED);
         w.set_pinc(vals::Inc::FIXED);
         w.set_teie(true);
-        w.set_htie(options.half_transfer_ir);
+        w.set_htie(true);
         w.set_tcie(true);
         w.set_circ(vals::Circ::ENABLED);
         #[cfg(dma_v1)]
@@ -796,10 +793,6 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
             self.set_waker(waker)
         })
         .await
-    }
-
-    pub fn resume(&mut self) {
-        self.start();
     }
 
     /// Clear all data in the ring buffer.
@@ -928,7 +921,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         w.set_minc(vals::Inc::INCREMENTED);
         w.set_pinc(vals::Inc::FIXED);
         w.set_teie(true);
-        w.set_htie(options.half_transfer_ir);
+        w.set_htie(true);
         w.set_tcie(true);
         w.set_circ(vals::Circ::ENABLED);
         #[cfg(dma_v1)]
