@@ -428,6 +428,7 @@ impl MasterClockDivider {
     }
 }
 
+/// Use this value for a frame length of 256. (256 won't fit in u8).
 pub const MAX_FRAME_LENGTH: u8 = 0;
 
 /// [`SAI`] configuration.
@@ -868,14 +869,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
-    #[allow(dead_code)]
-    /// Reconfigures it with the supplied config.
-    fn reconfigure(&mut self, _config: Config) {}
-
-    pub fn get_current_config(&self) -> Config {
-        Config::default()
-    }
-
+    /// Returns true if the hardware is running.
     pub fn is_running(&mut self) -> bool {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => buffer.is_running(),
@@ -883,6 +877,8 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         }
     }
 
+    /// Stops the hardware from reading/writing once the current buffers are exhausted.
+    /// After awaiting, the hardware will be off.
     pub async fn stop(&mut self) {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => buffer.stop().await,
@@ -890,6 +886,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
         }
     }
 
+    /// Clear the ring buffer. Doesn't write any value. Just resets the internal pointers.
     pub fn clear(&mut self) {
         match &mut self.ring_buffer {
             RingBuffer::Writable(buffer) => buffer.clear(),

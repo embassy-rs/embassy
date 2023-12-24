@@ -676,7 +676,7 @@ impl RingBuffer {
 
     fn request_stop(ch: &pac::dma::St) {
         ch.cr().modify(|w| {
-            w.set_circ(vals::Circ::DISABLED);
+            w.set_circ(false);
         });
     }
 
@@ -787,6 +787,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         ch.cr().write_value(self.cr);
     }
 
+    /// Disables the circular DMA transfer. The transfer will complete on the next iteration
     pub async fn stop(&mut self) {
         RingBuffer::stop(&self.channel.regs().st(self.channel.num()), &mut |waker| {
             self.set_waker(waker)
@@ -969,6 +970,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         ch.cr().write_value(self.cr);
     }
 
+    /// Disables the circular DMA transfer. The transfer will complete on the next iteration
     pub async fn stop(&mut self) {
         RingBuffer::stop(&self.channel.regs().st(self.channel.num()), &mut |waker| {
             self.set_waker(waker)

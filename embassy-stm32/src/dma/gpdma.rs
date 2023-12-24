@@ -544,12 +544,15 @@ impl RingBuffer {
     }
 }
 
+/// This is a Readable ring buffer. It reads data from a peripheral into a buffer. The reads happen in circular mode.
+/// There are interrupts on complete and half complete. You should read half the buffer on every read.
 pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
     channel: PeripheralRef<'a, C>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
 impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
+    /// Create a new Readable ring buffer.
     pub unsafe fn new(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
@@ -578,16 +581,19 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         }
     }
 
+    /// Start reading the peripheral in ciccular mode.
     pub fn start(&mut self) {
         let ch = &self.channel.regs().ch(self.channel.num());
         RingBuffer::start(ch);
-        //ch.cr().modify(|w| w.set_en(true));
     }
 
+    /// Request the transfer to stop. Use is_running() to see when the transfer is complete.
     pub fn request_stop(&mut self) {
         RingBuffer::request_suspend(&self.channel.regs().ch(self.channel.num()));
     }
 
+    /// Await until the stop completes. This is not used with request_stop(). Just call and await.
+    /// It will stop when the current transfer is complete.
     pub async fn stop(&mut self) {
         RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
             self.set_waker(waker)
@@ -595,6 +601,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         .await
     }
 
+    /// Clear the buffers internal pointers.
     pub fn clear(&mut self) {
         self.ringbuf.clear(&mut DmaCtrlImpl {
             channel: self.channel.reborrow(),
@@ -640,11 +647,12 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
             .await
     }
 
-    // The capacity of the ringbuffer
+    /// The capacity of the ringbuffer
     pub const fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
 
+    /// Set the waker for the DMA controller.
     pub fn set_waker(&mut self, waker: &Waker) {
         DmaCtrlImpl {
             channel: self.channel.reborrow(),
@@ -653,6 +661,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         .set_waker(waker);
     }
 
+    /// Return whether this transfer is still running.
     pub fn is_running(&mut self) -> bool {
         RingBuffer::is_running(&self.channel.regs().ch(self.channel.num()))
     }
@@ -668,6 +677,7 @@ impl<'a, C: Channel, W: Word> Drop for ReadableRingBuffer<'a, C, W> {
     }
 }
 
+/// This is a Writable ring buffer. It writes data from a buffer to a peripheral. The writes happen in circular mode.
 pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
     #[allow(dead_code)] //this is only read by the DMA controller
     channel: PeripheralRef<'a, C>,
@@ -675,6 +685,7 @@ pub struct WritableRingBuffer<'a, C: Channel, W: Word> {
 }
 
 impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
+    /// Create a new Writable ring buffer.
     pub unsafe fn new(
         channel: impl Peripheral<P = C> + 'a,
         request: Request,
@@ -703,10 +714,12 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         }
     }
 
+    /// Start writing to the peripheral in circular mode.
     pub fn start(&mut self) {
         RingBuffer::start(&self.channel.regs().ch(self.channel.num()));
     }
 
+    /// Await until the stop completes. This is not used with request_stop(). Just call and await.
     pub async fn stop(&mut self) {
         RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
             self.set_waker(waker)
@@ -714,6 +727,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         .await
     }
 
+    /// Request the transfer to stop. Use is_running() to see when the transfer is complete.
     pub fn request_stop(&mut self) {
         // reads can be stopped by disabling the enable flag
         let ch = &self.channel.regs().ch(self.channel.num());
@@ -726,6 +740,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         self.ringbuf.write_immediate(buf)
     }
 
+    /// Clear the buffers internal pointers.
     pub fn clear(&mut self) {
         self.ringbuf.clear(&mut DmaCtrlImpl {
             channel: self.channel.reborrow(),
@@ -758,11 +773,12 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
             .await
     }
 
-    // The capacity of the ringbuffer
+    /// The capacity of the ringbuffer
     pub const fn cap(&self) -> usize {
         self.ringbuf.cap()
     }
 
+    /// Set the waker for the DMA controller.
     pub fn set_waker(&mut self, waker: &Waker) {
         DmaCtrlImpl {
             channel: self.channel.reborrow(),
@@ -771,6 +787,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         .set_waker(waker);
     }
 
+    /// Return whether this transfer is still running.
     pub fn is_running(&mut self) -> bool {
         RingBuffer::is_running(&self.channel.regs().ch(self.channel.num()))
     }

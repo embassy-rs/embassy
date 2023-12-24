@@ -438,7 +438,7 @@ impl RingBuffer {
 
     fn request_stop(ch: &pac::bdma::Ch) {
         ch.cr().modify(|w| {
-            w.set_circ(vals::Circ::DISABLED);
+            w.set_circ(false);
         });
     }
 
@@ -540,6 +540,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
+    /// This disables the circular DMA causing the DMA transfer to stop when the buffer is full.
     pub async fn stop(&mut self) {
         RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
             self.set_waker(waker)
@@ -702,6 +703,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         self.ringbuf.write_immediate(buf)
     }
 
+    /// This will disable the circular DMA and wait for the current buffer to finish writing to the peripheral.
     pub async fn stop(&mut self) {
         RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
             self.set_waker(waker)
