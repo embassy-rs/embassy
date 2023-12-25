@@ -1,3 +1,4 @@
+use core::convert::AsMut;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
@@ -10,7 +11,7 @@ use futures::FutureExt;
 
 use crate::gpio::sealed::AFType;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::can::vals::{Lec, RirIde};
+use crate::pac::can::vals::{Ide, Lec};
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::{interrupt, peripherals, Peripheral};
@@ -148,15 +149,11 @@ impl<'d, T: Instance> Can<'d, T> {
         T::enable_and_reset();
 
         {
-            use crate::pac::can::vals::{Errie, Fmpie, Tmeie};
-
             T::regs().ier().write(|w| {
-                // TODO: fix metapac
-
-                w.set_errie(Errie::from_bits(1));
-                w.set_fmpie(0, Fmpie::from_bits(1));
-                w.set_fmpie(1, Fmpie::from_bits(1));
-                w.set_tmeie(Tmeie::from_bits(1));
+                w.set_errie(true);
+                w.set_fmpie(0, true);
+                w.set_fmpie(1, true);
+                w.set_tmeie(true);
             });
 
             T::regs().mcr().write(|w| {
@@ -276,7 +273,7 @@ impl<'d, T: Instance> Can<'d, T> {
             }
 
             let rir = fifo.rir().read();
-            let id = if rir.ide() == RirIde::STANDARD {
+            let id = if rir.ide() == Ide::STANDARD {
                 Id::from(StandardId::new_unchecked(rir.stid()))
             } else {
                 let stid = (rir.stid() & 0x7FF) as u32;
@@ -403,9 +400,11 @@ impl<'d, T: Instance> Can<'d, T> {
         let (tx, rx0, rx1) = self.can.split_by_ref();
         (CanTx { tx }, CanRx { rx0, rx1 })
     }
+}
 
+impl<'d, T: Instance> AsMut<bxcan::Can<BxcanInstance<'d, T>>> for Can<'d, T> {
     /// Get mutable access to the lower-level driver from the `bxcan` crate.
-    pub fn as_mut(&mut self) -> &mut bxcan::Can<BxcanInstance<'d, T>> {
+    fn as_mut(&mut self) -> &mut bxcan::Can<BxcanInstance<'d, T>> {
         &mut self.can
     }
 }

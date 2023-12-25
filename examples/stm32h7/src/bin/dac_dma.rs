@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::{DacCh1, DacCh2, ValueArray};
-use embassy_stm32::pac::timer::vals::{Mms, Opm};
+use embassy_stm32::pac::timer::vals::Mms;
 use embassy_stm32::peripherals::{DAC1, DMA1_CH3, DMA1_CH4, TIM6, TIM7};
 use embassy_stm32::rcc::low_level::RccPeripheral;
 use embassy_stm32::time::Hertz;
@@ -78,7 +78,7 @@ async fn dac_task1(mut dac: DacCh1<'static, DAC1, DMA1_CH3>) {
     TIM6::regs().arr().modify(|w| w.set_arr(reload as u16 - 1));
     TIM6::regs().cr2().modify(|w| w.set_mms(Mms::UPDATE));
     TIM6::regs().cr1().modify(|w| {
-        w.set_opm(Opm::DISABLED);
+        w.set_opm(false);
         w.set_cen(true);
     });
 
@@ -115,7 +115,7 @@ async fn dac_task2(mut dac: DacCh2<'static, DAC1, DMA1_CH4>) {
     TIM7::regs().arr().modify(|w| w.set_arr(reload as u16 - 1));
     TIM7::regs().cr2().modify(|w| w.set_mms(Mms::UPDATE));
     TIM7::regs().cr1().modify(|w| {
-        w.set_opm(Opm::DISABLED);
+        w.set_opm(false);
         w.set_cen(true);
     });
 

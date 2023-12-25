@@ -21,7 +21,6 @@
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::pac;
-use embassy_stm32::pac::timer::vals::Ocpe;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::timer::{Channel, CountingMode};
@@ -94,7 +93,7 @@ async fn main(_spawner: Spawner) {
     // keep output waveform integrity
     pac::TIM3
         .ccmr_output(pwm_channel.index())
-        .modify(|v| v.set_ocpe(0, Ocpe::ENABLED));
+        .modify(|v| v.set_ocpe(0, true));
 
     // make sure PWM output keep low on first start
     ws2812_pwm.set_duty(pwm_channel, 0);
