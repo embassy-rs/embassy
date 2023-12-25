@@ -311,7 +311,7 @@ impl<'d, T: Instance, Tx, Rx> Spi<'d, T, Tx, Rx> {
                 w.set_ssom(vals::Ssom::ASSERTED);
                 w.set_midi(0);
                 w.set_mssi(0);
-                w.set_afcntr(vals::Afcntr::CONTROLLED);
+                w.set_afcntr(true);
                 w.set_ssiop(vals::Ssiop::ACTIVEHIGH);
             });
             T::REGS.cfg1().modify(|w| {
