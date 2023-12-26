@@ -701,7 +701,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
     }
 
     async fn wait_enabled(&mut self) {
-        trace!("wait_enabled OUT WAITING");
+        trace!("wait_enabled IN WAITING");
         let index = self.info.addr.index();
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
@@ -713,7 +713,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
             }
         })
         .await;
-        trace!("wait_enabled OUT OK");
+        trace!("wait_enabled IN OK");
     }
 }
 
