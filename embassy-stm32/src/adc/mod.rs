@@ -12,6 +12,7 @@
 #[cfg_attr(any(adc_v3, adc_g0), path = "v3.rs")]
 #[cfg_attr(adc_v4, path = "v4.rs")]
 mod _version;
+dma_trait!(RxDma, Instance);
 
 #[cfg(not(any(adc_f1, adc_f3_v2)))]
 mod resolution;
@@ -36,15 +37,15 @@ pub struct Adc<'d, T: Instance> {
 }
 
 pub(crate) mod sealed {
-    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1, adc_v2))]
     use embassy_sync::waitqueue::AtomicWaker;
 
-    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1, adc_v2))]
     pub struct State {
         pub waker: AtomicWaker,
     }
 
-    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
+    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1, adc_v2))]
     impl State {
         pub const fn new() -> Self {
             Self {
@@ -63,7 +64,7 @@ pub(crate) mod sealed {
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
         #[cfg(adc_f3)]
         fn frequency() -> crate::time::Hertz;
-        #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
+        #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1, adc_v2))]
         fn state() -> &'static State;
     }
 
@@ -108,7 +109,7 @@ foreach_adc!(
                 unsafe { crate::rcc::get_freqs() }.$clock.unwrap()
             }
 
-            #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
+            #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1, adc_v2))]
             fn state() -> &'static sealed::State {
                 static STATE: sealed::State = sealed::State::new();
                 &STATE
