@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 edition = "2021"
 
 [dependencies]
-embedded-hal = { version = "1.0.0-rc.3" }
-embedded-hal-async = { version = "=1.0.0-rc.3" }
+embedded-hal = { version = "1.0" }
+embedded-hal-async = { version = "1.0" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-time = { version = "0.2", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }

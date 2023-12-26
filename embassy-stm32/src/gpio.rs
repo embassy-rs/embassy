@@ -1033,13 +1033,6 @@ impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
     }
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Output<'d, T> {
-    #[inline]
-    fn toggle(&mut self) -> Result<(), Self::Error> {
-        Ok(self.toggle())
-    }
-}
-
 impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for OutputOpenDrain<'d, T> {
     type Error = Infallible;
 }
@@ -1081,13 +1074,6 @@ impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for OutputOpenDrain<
     }
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for OutputOpenDrain<'d, T> {
-    #[inline]
-    fn toggle(&mut self) -> Result<(), Self::Error> {
-        Ok(self.toggle())
-    }
-}
-
 impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
     #[inline]
     fn is_high(&mut self) -> Result<bool, Self::Error> {
@@ -1109,13 +1095,6 @@ impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
     #[inline]
     fn set_low(&mut self) -> Result<(), Self::Error> {
         Ok(self.set_low())
-    }
-}
-
-impl<'d, T: Pin> embedded_hal_1::digital::ToggleableOutputPin for Flex<'d, T> {
-    #[inline]
-    fn toggle(&mut self) -> Result<(), Self::Error> {
-        Ok(self.toggle())
     }
 }
 

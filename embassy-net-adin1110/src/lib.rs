@@ -777,19 +777,19 @@ mod tests {
     }
 
     struct TestHarnass {
-        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>>,
-        spi: Generic<SpiTransaction>,
+        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>>,
+        spi: Generic<SpiTransaction<u8>>,
     }
 
     impl TestHarnass {
-        pub fn new(expectations: &[SpiTransaction], spi_crc: bool, append_fcs_on_tx: bool) -> Self {
+        pub fn new(expectations: &[SpiTransaction<u8>], spi_crc: bool, append_fcs_on_tx: bool) -> Self {
             let cs = CsPinMock::default();
             let delay = MockDelay {};
             let spi = SpiMock::new(expectations);
-            let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay> =
+            let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay> =
                 ExclusiveDevice::new(spi.clone(), cs, delay);
             let spe: ADIN1110<
-                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction>, CsPinMock, MockDelay>,
+                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>,
             > = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
 
             Self { spe, spi }
