@@ -704,7 +704,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         trace!("wait_enabled OUT WAITING");
         let index = self.info.addr.index();
         poll_fn(|cx| {
-            EP_OUT_WAKERS[index].register(cx.waker());
+            EP_IN_WAKERS[index].register(cx.waker());
             let regs = T::regs();
             if regs.epr(index).read().stat_tx() == Stat::DISABLED {
                 Poll::Pending
