@@ -152,6 +152,12 @@ impl<'d, T: Pin> Output<'d, T> {
         self.pin.set_low()
     }
 
+    /// Toggle the output level.
+    #[inline]
+    pub fn toggle(&mut self) {
+        self.pin.toggle()
+    }
+
     /// Set the output level.
     #[inline]
     pub fn set_level(&mut self, level: Level) {
@@ -308,6 +314,16 @@ impl<'d, T: Pin> Flex<'d, T> {
     #[inline]
     pub fn set_low(&mut self) {
         self.pin.set_low()
+    }
+
+    /// Toggle the output level.
+    #[inline]
+    pub fn toggle(&mut self) {
+        if self.is_set_low() {
+            self.set_high()
+        } else {
+            self.set_low()
+        }
     }
 
     /// Set the output level.
@@ -538,6 +554,15 @@ mod eh02 {
         }
     }
 
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d, T> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            self.toggle();
+            Ok(())
+        }
+    }
+
     /// Implement [`embedded_hal_02::digital::v2::InputPin`] for [`Flex`];
     ///
     /// If the pin is not in input mode the result is unspecified.
@@ -572,6 +597,15 @@ mod eh02 {
 
         fn is_set_low(&self) -> Result<bool, Self::Error> {
             Ok(self.ref_is_set_low())
+        }
+    }
+
+    impl<'d, T: Pin> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d, T> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            self.toggle();
+            Ok(())
         }
     }
 }
