@@ -1,5 +1,5 @@
 [toolchain]
-channel = "beta-2023-12-17"
+channel = "1.75"
 components = [ "rust-src", "rustfmt", "llvm-tools" ]
 targets = [
     "thumbv7em-none-eabi",
