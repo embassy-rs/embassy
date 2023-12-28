@@ -91,7 +91,12 @@ pub(crate) mod sealed {
 
         /// Enable/disable the update interrupt.
         fn enable_update_interrupt(&mut self, enable: bool) {
-            Self::regs().dier().write(|r| r.set_uie(enable));
+            Self::regs().dier().modify(|r| r.set_uie(enable));
+        }
+
+        /// Enable/disable the update dma.
+        fn enable_update_dma(&mut self, enable: bool) {
+            Self::regs().dier().modify(|r| r.set_ude(enable));
         }
 
         /// Enable/disable autoreload preload.
@@ -287,6 +292,14 @@ pub(crate) mod sealed {
         /// Get compare value for a channel.
         fn get_compare_value(&self, channel: Channel) -> u16 {
             Self::regs_gp16().ccr(channel.index()).read().ccr()
+        }
+
+        /// Set output compare preload.
+        fn set_output_compare_preload(&mut self, channel: Channel, preload: bool) {
+            let channel_index = channel.index();
+            Self::regs_gp16()
+                .ccmr_output(channel_index / 2)
+                .modify(|w| w.set_ocpe(channel_index % 2, preload));
         }
     }
 
@@ -676,3 +689,6 @@ foreach_interrupt! {
         }
     };
 }
+
+// Update Event trigger DMA for every timer
+dma_trait!(UpDma, Basic16bitInstance);

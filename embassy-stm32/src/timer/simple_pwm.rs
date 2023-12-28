@@ -55,11 +55,12 @@ channel_impl!(new_ch3, Ch3, Channel3Pin);
 channel_impl!(new_ch4, Ch4, Channel4Pin);
 
 /// Simple PWM driver.
-pub struct SimplePwm<'d, T> {
+pub struct SimplePwm<'d, T, Dma> {
     inner: PeripheralRef<'d, T>,
+    dma: PeripheralRef<'d, Dma>,
 }
 
-impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
+impl<'d, T: CaptureCompare16bitInstance, Dma> SimplePwm<'d, T, Dma> {
     /// Create a new simple PWM driver.
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
@@ -69,16 +70,22 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         _ch4: Option<PwmPin<'d, T, Ch4>>,
         freq: Hertz,
         counting_mode: CountingMode,
+        dma: impl Peripheral<P = Dma> + 'd,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode)
+        Self::new_inner(tim, freq, counting_mode, dma)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
-        into_ref!(tim);
+    fn new_inner(
+        tim: impl Peripheral<P = T> + 'd,
+        freq: Hertz,
+        counting_mode: CountingMode,
+        dma: impl Peripheral<P = Dma> + 'd,
+    ) -> Self {
+        into_ref!(tim, dma);
 
         T::enable_and_reset();
 
-        let mut this = Self { inner: tim };
+        let mut this = Self { inner: tim, dma };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
@@ -86,14 +93,13 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
 
         this.inner.enable_outputs();
 
-        this.inner
-            .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch2, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+                this.inner.set_output_compare_preload(channel, true)
+            });
+
         this
     }
 
@@ -141,7 +147,71 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 }
 
-impl<'d, T: CaptureCompare16bitInstance> embedded_hal_02::Pwm for SimplePwm<'d, T> {
+impl<'d, T: CaptureCompare16bitInstance + Basic16bitInstance, Dma> SimplePwm<'d, T, Dma>
+where
+    Dma: super::UpDma<T>,
+{
+    /// Generate a sequence of PWM waveform
+    pub async fn gen_waveform(&mut self, channel: Channel, duty: &[u16]) {
+        duty.iter().all(|v| v.le(&self.get_max_duty()));
+
+        self.inner.enable_update_dma(true);
+
+        #[cfg_attr(any(stm32f334, stm32f378), allow(clippy::let_unit_value))]
+        let req = self.dma.request();
+
+        self.enable(channel);
+
+        #[cfg(not(any(bdma, gpdma)))]
+        let dma_regs = self.dma.regs();
+        #[cfg(not(any(bdma, gpdma)))]
+        let isr_num = self.dma.num() / 4;
+        #[cfg(not(any(bdma, gpdma)))]
+        let isr_bit = self.dma.num() % 4;
+
+        #[cfg(not(any(bdma, gpdma)))]
+        // clean DMA FIFO error before a transfer
+        if dma_regs.isr(isr_num).read().feif(isr_bit) {
+            dma_regs.ifcr(isr_num).write(|v| v.set_feif(isr_bit, true));
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                &mut self.dma,
+                req,
+                duty,
+                T::regs_gp16().ccr(channel.index()).as_ptr() as *mut _,
+                dma_transfer_option,
+            )
+            .await
+        };
+
+        self.disable(channel);
+
+        self.inner.enable_update_dma(false);
+
+        #[cfg(not(any(bdma, gpdma)))]
+        // Since DMA is closed before timer update event trigger DMA is turn off, it will almost always trigger a DMA FIFO error.
+        // Thus, we will always clean DMA FEIF after each transfer
+        if dma_regs.isr(isr_num).read().feif(isr_bit) {
+            dma_regs.ifcr(isr_num).write(|v| v.set_feif(isr_bit, true));
+        }
+    }
+}
+
+impl<'d, T: CaptureCompare16bitInstance, Dma> embedded_hal_02::Pwm for SimplePwm<'d, T, Dma> {
     type Channel = Channel;
     type Time = Hertz;
     type Duty = u16;

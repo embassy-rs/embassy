@@ -2,15 +2,9 @@
 // We assume the DIN pin of ws2812 connect to GPIO PB4, and ws2812 is properly powered.
 //
 // The idea is that the data rate of ws2812 is 800 kHz, and it use different duty ratio to represent bit 0 and bit 1.
-// Thus we can set TIM overflow at 800 kHz, and let TIM Update Event trigger a DMA transfer, then let DMA change CCR value,
-// such that pwm duty ratio meet the bit representation of ws2812.
+// Thus we can set TIM overflow at 800 kHz, and change duty ratio of TIM to meet the bit representation of ws2812.
 //
-// You may want to modify TIM CCR with Cortex core directly,
-// but according to my test, Cortex core will need to run far more than 100 MHz to catch up with TIM.
-// Thus we need to use a DMA.
-//
-// This demo is a combination of HAL, PAC, and manually invoke `dma::Transfer`.
-// If you need a simpler way to control ws2812, you may want to take a look at `ws2812_spi.rs` file, which make use of SPI.
+// you may also want to take a look at `ws2812_spi.rs` file, which make use of SPI instead.
 //
 // Warning:
 // DO NOT stare at ws2812 directy (especially after each MCU Reset), its (max) brightness could easily make your eyes feel burn.
@@ -20,7 +14,6 @@
 
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
-use embassy_stm32::pac;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::timer::{Channel, CountingMode};
@@ -52,7 +45,7 @@ async fn main(_spawner: Spawner) {
         device_config.rcc.sys = Sysclk::PLL1_P;
     }
 
-    let mut dp = embassy_stm32::init(device_config);
+    let dp = embassy_stm32::init(device_config);
 
     let mut ws2812_pwm = SimplePwm::new(
         dp.TIM3,
@@ -62,6 +55,7 @@ async fn main(_spawner: Spawner) {
         None,
         khz(800), // data rate of ws2812
         CountingMode::EdgeAlignedUp,
+        dp.DMA1_CH2,
     );
 
     // construct ws2812 non-return-to-zero (NRZ) code bit by bit
@@ -89,62 +83,19 @@ async fn main(_spawner: Spawner) {
 
     let pwm_channel = Channel::Ch1;
 
-    // PAC level hacking, enable output compare preload
-    // keep output waveform integrity
-    pac::TIM3
-        .ccmr_output(pwm_channel.index())
-        .modify(|v| v.set_ocpe(0, true));
-
     // make sure PWM output keep low on first start
     ws2812_pwm.set_duty(pwm_channel, 0);
 
-    {
-        use embassy_stm32::dma::{Burst, FifoThreshold, Transfer, TransferOptions};
+    // flip color at 2 Hz
+    let mut ticker = Ticker::every(Duration::from_millis(500));
 
-        // configure FIFO and MBURST of DMA, to minimize DMA occupation on AHB/APB
-        let mut dma_transfer_option = TransferOptions::default();
-        dma_transfer_option.fifo_threshold = Some(FifoThreshold::Full);
-        dma_transfer_option.mburst = Burst::Incr8;
-
-        // flip color at 2 Hz
-        let mut ticker = Ticker::every(Duration::from_millis(500));
-
-        loop {
-            for &color in color_list {
-                // start PWM output
-                ws2812_pwm.enable(pwm_channel);
-
-                // PAC level hacking, enable timer-update-event trigger DMA
-                pac::TIM3.dier().modify(|v| v.set_ude(true));
-
-                unsafe {
-                    Transfer::new_write(
-                        // with &mut, we can easily reuse same DMA channel multiple times
-                        &mut dp.DMA1_CH2,
-                        5,
-                        color,
-                        pac::TIM3.ccr(pwm_channel.index()).as_ptr() as *mut _,
-                        dma_transfer_option,
-                    )
-                    .await;
-
-                    // Turn off timer-update-event trigger DMA as soon as possible.
-                    // Then clean the FIFO Error Flag if set.
-                    pac::TIM3.dier().modify(|v| v.set_ude(false));
-                    if pac::DMA1.isr(0).read().feif(2) {
-                        pac::DMA1.ifcr(0).write(|v| v.set_feif(2, true));
-                    }
-
-                    // ws2812 need at least 50 us low level input to confirm the input data and change it's state
-                    Timer::after_micros(50).await;
-                }
-
-                // stop PWM output for saving some energy
-                ws2812_pwm.disable(pwm_channel);
-
-                // wait until ticker tick
-                ticker.next().await;
-            }
+    loop {
+        for &color in color_list {
+            ws2812_pwm.gen_waveform(Channel::Ch1, color).await;
+            // ws2812 need at least 50 us low level input to confirm the input data and change it's state
+            Timer::after_micros(50).await;
+            // wait until ticker tick
+            ticker.next().await;
         }
     }
 }
