@@ -449,6 +449,11 @@ impl<'a, C: Channel> Transfer<'a, C> {
         ch.ndtr().read().ndt()
     }
 
+    /// Set a waker to be woken when at least one byte is received.
+    pub fn set_waker(&mut self, waker: &Waker) {
+        DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
+    }
+
     /// Blocking wait until the transfer finishes.
     pub fn blocking_wait(mut self) {
         while self.is_running() {}
@@ -481,6 +486,25 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
         } else {
             Poll::Ready(())
         }
+    }
+}
+
+impl<'a, C: Channel> DmaCtrl for Transfer<'a, C> {
+    fn get_remaining_transfers(&self) -> usize {
+        let ch = self.channel.regs().st(self.channel.num());
+        ch.ndtr().read().ndt() as usize
+    }
+
+    fn get_complete_count(&self) -> usize {
+        STATE.complete_count[self.channel.index()].load(Ordering::Acquire)
+    }
+
+    fn reset_complete_count(&mut self) -> usize {
+        STATE.complete_count[self.channel.index()].swap(0, Ordering::AcqRel)
+    }
+
+    fn set_waker(&mut self, waker: &Waker) {
+        STATE.ch_wakers[self.channel.index()].register(waker);
     }
 }
 
@@ -593,7 +617,7 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         ch.m1ar().write_value(buffer as _);
     }
 
-    /// Returh whether buffer0 is accessible (i.e. whether DMA is transferring buffer1 now)
+    /// Return whether buffer0 is accessible (i.e. whether DMA is transferring buffer1 now)
     pub fn is_buffer0_accessible(&mut self) -> bool {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().read().ct() == vals::Ct::MEMORY1
@@ -783,6 +807,12 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         self.ringbuf
             .read_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
             .await
+    }
+
+    pub fn get_remaining_transfers(&self) -> u16 {
+        STATE.complete_count[self.channel.index()].load(Ordering::Acquire) as u16
+        //let ch = self.channel.regs().st(self.channel.num());
+        //ch.ndtr().read().ndt()
     }
 
     /// The capacity of the ringbuffer

@@ -30,6 +30,7 @@
     // "examples/stm32f2/Cargo.toml",
     // "examples/stm32f3/Cargo.toml",
     // "examples/stm32f334/Cargo.toml",
+    // "embassy-stm32/Cargo.toml",
     "examples/stm32f4/Cargo.toml",
     // "examples/stm32f7/Cargo.toml",
     // "examples/stm32g0/Cargo.toml",

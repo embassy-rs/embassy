@@ -1,11 +1,10 @@
 #![no_std]
 #![no_main]
-
+#![feature(type_alias_impl_trait)]
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::InterruptHandler;
-use embassy_stm32::adc::{Adc, Resolution, Temperature, Vref};
+use embassy_stm32::adc::{Adc, InterruptHandler, Resolution, Temperature, Vref};
 use embassy_stm32::interrupt::{InterruptExt, Priority};
 use embassy_stm32::peripherals::{PA0, PC0};
 use embassy_stm32::{bind_interrupts, interrupt};
@@ -61,7 +60,7 @@ async fn main(_spawner: Spawner) {
     loop {
         // Read pin
         let tic = Instant::now();
-        let data = adc.read_sample_sequence(&[0, 1, 2, 3, 4, 5, 6]).await;
+        let data = adc.read_sample_sequence(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).await;
 
         let toc = Instant::elapsed(&tic);
         info!("Data: {:?} | {} us", data, toc.as_micros());
@@ -79,6 +78,6 @@ async fn main(_spawner: Spawner) {
         // let t = adc.read(&mut temp).await;
         // info!("bits: {}, T: {} C", t, convert_to_celcius(t));
 
-        // Timer::after_millis(1).await;
+        Timer::after_millis(100).await;
     }
 }
