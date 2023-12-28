@@ -375,6 +375,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         T::regs().sr2().read();
                         Poll::Ready(Ok(()))
                     } else {
+                        // If we need to go around, then re-enable the interrupts, otherwise nothing
+                        // can wake us up and we'll hang.
+                        Self::enable_interrupts();
                         Poll::Pending
                     }
                 }
