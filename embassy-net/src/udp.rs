@@ -222,6 +222,11 @@ impl<'a> UdpSocket<'a> {
     pub fn payload_send_capacity(&self) -> usize {
         self.with(|s, _| s.payload_send_capacity())
     }
+
+    /// Set the hop limit field in the IP header of sent packets.
+    pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
+        self.with_mut(|s, _| s.set_hop_limit(hop_limit))
+    }
 }
 
 impl Drop for UdpSocket<'_> {
