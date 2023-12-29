@@ -62,6 +62,12 @@ pub struct SimplePwm<'d, T, Dma> {
 
 impl<'d, T: CaptureCompare16bitInstance, Dma> SimplePwm<'d, T, Dma> {
     /// Create a new simple PWM driver.
+    ///
+    /// Note:  
+    /// If you want to use [`Self::gen_waveform()`], you need to provide corresponding TIMx_UP DMA channel.
+    /// Otherwise you can just put a [`dma::NoDma`](crate::dma::NoDma)  
+    /// Currently, you can only use one channel at a time to generate waveform with [`Self::gen_waveform()`].  
+    /// But you can always use multiple TIM to generate multiple waveform simultaneously.
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         _ch1: Option<PwmPin<'d, T, Ch1>>,
@@ -113,6 +119,11 @@ impl<'d, T: CaptureCompare16bitInstance, Dma> SimplePwm<'d, T, Dma> {
         self.inner.enable_channel(channel, false);
     }
 
+    /// Check whether given channel is enabled
+    pub fn is_enabled(&self, channel: Channel) -> bool {
+        self.inner.get_channel_enable_state(channel)
+    }
+
     /// Set PWM frequency.
     ///
     /// Note: when you call this, the max duty value changes, so you will have to
@@ -141,6 +152,13 @@ impl<'d, T: CaptureCompare16bitInstance, Dma> SimplePwm<'d, T, Dma> {
         self.inner.set_compare_value(channel, duty)
     }
 
+    /// Get the duty for a given channel.
+    ///
+    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
+    pub fn get_duty(&self, channel: Channel) -> u16 {
+        self.inner.get_compare_value(channel)
+    }
+
     /// Set the output polarity for a given channel.
     pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
         self.inner.set_output_polarity(channel, polarity);
@@ -153,14 +171,10 @@ where
 {
     /// Generate a sequence of PWM waveform
     pub async fn gen_waveform(&mut self, channel: Channel, duty: &[u16]) {
-        duty.iter().all(|v| v.le(&self.get_max_duty()));
-
-        self.inner.enable_update_dma(true);
+        assert!(duty.iter().all(|v| *v <= self.get_max_duty()));
 
         #[cfg_attr(any(stm32f334, stm32f378), allow(clippy::let_unit_value))]
         let req = self.dma.request();
-
-        self.enable(channel);
 
         #[cfg(not(any(bdma, gpdma)))]
         let dma_regs = self.dma.regs();
@@ -168,11 +182,27 @@ where
         let isr_num = self.dma.num() / 4;
         #[cfg(not(any(bdma, gpdma)))]
         let isr_bit = self.dma.num() % 4;
+        #[cfg(not(any(bdma, gpdma)))]
+        let isr_reg = dma_regs.isr(isr_num);
+        #[cfg(not(any(bdma, gpdma)))]
+        let ifcr_reg = dma_regs.ifcr(isr_num);
 
         #[cfg(not(any(bdma, gpdma)))]
         // clean DMA FIFO error before a transfer
-        if dma_regs.isr(isr_num).read().feif(isr_bit) {
-            dma_regs.ifcr(isr_num).write(|v| v.set_feif(isr_bit, true));
+        if isr_reg.read().feif(isr_bit) {
+            ifcr_reg.write(|v| v.set_feif(isr_bit, true));
+        }
+
+        let original_duty_state = self.get_duty(channel);
+        let original_enable_state = self.is_enabled(channel);
+        let original_update_dma_state = self.inner.get_update_dma_state();
+
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(true);
+        }
+
+        if !original_enable_state {
+            self.enable(channel);
         }
 
         unsafe {
@@ -198,15 +228,20 @@ where
             .await
         };
 
-        self.disable(channel);
+        // restore output compare state
+        if !original_enable_state {
+            self.disable(channel);
+        }
+        self.set_duty(channel, original_duty_state);
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(false);
 
-        self.inner.enable_update_dma(false);
-
-        #[cfg(not(any(bdma, gpdma)))]
-        // Since DMA is closed before timer update event trigger DMA is turn off, it will almost always trigger a DMA FIFO error.
-        // Thus, we will always clean DMA FEIF after each transfer
-        if dma_regs.isr(isr_num).read().feif(isr_bit) {
-            dma_regs.ifcr(isr_num).write(|v| v.set_feif(isr_bit, true));
+            #[cfg(not(any(bdma, gpdma)))]
+            // Since DMA could be closed before timer update event trigger DMA is turn off, this can almost always trigger a DMA FIFO error.
+            // Thus, we will try clean DMA FEIF after each transfer
+            if isr_reg.read().feif(isr_bit) {
+                ifcr_reg.write(|v| v.set_feif(isr_bit, true));
+            }
         }
     }
 }

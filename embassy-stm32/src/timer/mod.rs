@@ -99,6 +99,11 @@ pub(crate) mod sealed {
             Self::regs().dier().modify(|r| r.set_ude(enable));
         }
 
+        /// Get the update dma enable/disable state.
+        fn get_update_dma_state(&self) -> bool {
+            Self::regs().dier().read().ude()
+        }
+
         /// Enable/disable autoreload preload.
         fn set_autoreload_preload(&mut self, enable: bool) {
             Self::regs().cr1().modify(|r| r.set_arpe(enable));
@@ -272,6 +277,11 @@ pub(crate) mod sealed {
         /// Enable/disable a channel.
         fn enable_channel(&mut self, channel: Channel, enable: bool) {
             Self::regs_gp16().ccer().modify(|w| w.set_cce(channel.index(), enable));
+        }
+
+        /// Get enable/disable state of a channel
+        fn get_channel_enable_state(&self, channel: Channel) -> bool {
+            Self::regs_gp16().ccer().read().cce(channel.index())
         }
 
         /// Set compare value for a channel.
