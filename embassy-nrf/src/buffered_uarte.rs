@@ -342,6 +342,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         s.tx_count.store(0, Ordering::Relaxed);
         s.rx_started_count.store(0, Ordering::Relaxed);
         s.rx_ended_count.store(0, Ordering::Relaxed);
+        s.rx_started.store(false, Ordering::Relaxed);
         let len = tx_buffer.len();
         unsafe { s.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
         let len = rx_buffer.len();
