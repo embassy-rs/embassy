@@ -177,15 +177,14 @@ where
         let req = self.dma.request();
 
         #[cfg(not(any(bdma, gpdma)))]
-        let dma_regs = self.dma.regs();
-        #[cfg(not(any(bdma, gpdma)))]
-        let isr_num = self.dma.num() / 4;
-        #[cfg(not(any(bdma, gpdma)))]
-        let isr_bit = self.dma.num() % 4;
-        #[cfg(not(any(bdma, gpdma)))]
-        let isr_reg = dma_regs.isr(isr_num);
-        #[cfg(not(any(bdma, gpdma)))]
-        let ifcr_reg = dma_regs.ifcr(isr_num);
+        let (isr_bit, isr_reg, ifcr_reg) = {
+            let dma_regs = self.dma.regs();
+            let isr_num = self.dma.num() / 4;
+            let isr_bit = self.dma.num() % 4;
+            let isr_reg = dma_regs.isr(isr_num);
+            let ifcr_reg = dma_regs.ifcr(isr_num);
+            (isr_bit, isr_reg, ifcr_reg)
+        };
 
         #[cfg(not(any(bdma, gpdma)))]
         // clean DMA FIFO error before a transfer

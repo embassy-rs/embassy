@@ -91,7 +91,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         for &color in color_list {
-            ws2812_pwm.gen_waveform(Channel::Ch1, color).await;
+            ws2812_pwm.gen_waveform(pwm_channel, color).await;
             // ws2812 need at least 50 us low level input to confirm the input data and change it's state
             Timer::after_micros(50).await;
             // wait until ticker tick
