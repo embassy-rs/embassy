@@ -36,9 +36,10 @@ embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macro
 embassy-time = { version = "0.2", path = "../embassy-time", optional = true}
 critical-section = "1.1"
 
-# needed for riscv
+# needed for riscv and avr
 # remove when https://github.com/rust-lang/rust/pull/114499 is merged
 portable-atomic = { version = "1.5", optional = true }
+
 
 # arch-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }
@@ -46,6 +47,9 @@ cortex-m = { version = "0.7.6", optional = true }
 # arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }
+
+# arch-avr dependencies
+avr-device = { version = "0.5.3", optional = true }
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
@@ -55,7 +59,7 @@ critical-section = { version = "1.1", features = ["std"] }
 
 # Architecture
 _arch = [] # some arch was picked
-arch-avr = ["_arch", "dep:portable-atomic"]
+arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
 arch-std = ["_arch", "critical-section/std"]
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 arch-riscv32 = ["_arch", "dep:portable-atomic"]

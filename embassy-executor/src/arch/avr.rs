@@ -8,11 +8,16 @@ mod thread {
     use core::marker::PhantomData;
 
     pub use embassy_executor_macros::main_avr as main;
+    use portable_atomic::{AtomicBool, Ordering};
 
     use crate::{raw, Spawner};
 
+    static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
+
     #[export_name = "__pender"]
-    fn __pender(_context: *mut ()) {}
+    fn __pender(_context: *mut ()) {
+        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
+    }
 
     /// avr Executor
     pub struct Executor {
@@ -52,7 +57,11 @@ mod thread {
 
             loop {
                 unsafe {
-                    self.inner.poll();
+                    if SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
+                        self.inner.poll();
+                    } else {
+                        avr_device::asm::sleep();
+                    }
                 }
             }
         }
