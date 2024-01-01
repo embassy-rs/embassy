@@ -743,7 +743,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         T::enable_and_reset();
         T::enable_and_reset();
 
-        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
+        Self::new_inner_configure(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
@@ -770,7 +770,7 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
             w.set_rtse(true);
             w.set_ctse(true);
         });
-        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
+        Self::new_inner_configure(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
     #[cfg(not(any(usart_v1, usart_v2)))]
@@ -795,10 +795,76 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         T::regs().cr3().write(|w| {
             w.set_dem(true);
         });
-        Self::new_inner(peri, rx, tx, tx_dma, rx_dma, config)
+        Self::new_inner_configure(peri, rx, tx, tx_dma, rx_dma, config)
     }
 
-    fn new_inner(
+    /// Create a single-wire half-duplex Uart transceiver on a single Tx pin.
+    ///
+    /// See [`new_half_duplex_on_rx`][`Self::new_half_duplex_on_rx`] if you would prefer to use an Rx pin.
+    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    ///
+    /// The pin is always released when no data is transmitted. Thus, it acts as a standard
+    /// I/O in idle or in reception.
+    /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
+    /// on the line must be managed by software (for instance by using a centralized arbiter).
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    #[doc(alias("HDSEL"))]
+    pub fn new_half_duplex(
+        peri: impl Peripheral<P = T> + 'd,
+        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        mut config: Config,
+    ) -> Result<Self, ConfigError> {
+        // UartRx and UartTx have one refcount ea.
+        T::enable_and_reset();
+        T::enable_and_reset();
+
+        config.swap_rx_tx = false;
+
+        into_ref!(peri, tx, tx_dma, rx_dma);
+
+        T::regs().cr3().write(|w| w.set_hdsel(true));
+        tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
+
+        Self::new_inner(peri, tx_dma, rx_dma, config)
+    }
+
+    /// Create a single-wire half-duplex Uart transceiver on a single Rx pin.
+    ///
+    /// See [`new_half_duplex`][`Self::new_half_duplex`] if you would prefer to use an Tx pin.
+    /// There is no functional difference between these methods, as both allow bidirectional communication.
+    ///
+    /// The pin is always released when no data is transmitted. Thus, it acts as a standard
+    /// I/O in idle or in reception.
+    /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
+    /// on the line must be managed by software (for instance by using a centralized arbiter).
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    #[doc(alias("HDSEL"))]
+    pub fn new_half_duplex_on_rx(
+        peri: impl Peripheral<P = T> + 'd,
+        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        tx_dma: impl Peripheral<P = TxDma> + 'd,
+        rx_dma: impl Peripheral<P = RxDma> + 'd,
+        mut config: Config,
+    ) -> Result<Self, ConfigError> {
+        // UartRx and UartTx have one refcount ea.
+        T::enable_and_reset();
+        T::enable_and_reset();
+
+        config.swap_rx_tx = true;
+
+        into_ref!(peri, rx, tx_dma, rx_dma);
+
+        T::regs().cr3().write(|w| w.set_hdsel(true));
+        rx.set_as_af(rx.af_num(), AFType::OutputPushPull);
+
+        Self::new_inner(peri, tx_dma, rx_dma, config)
+    }
+
+    fn new_inner_configure(
         peri: impl Peripheral<P = T> + 'd,
         rx: impl Peripheral<P = impl RxPin<T>> + 'd,
         tx: impl Peripheral<P = impl TxPin<T>> + 'd,
@@ -807,8 +873,6 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         into_ref!(peri, rx, tx, tx_dma, rx_dma);
-
-        let r = T::regs();
 
         // Some chips do not have swap_rx_tx bit
         cfg_if::cfg_if! {
@@ -826,6 +890,17 @@ impl<'d, T: BasicInstance, TxDma, RxDma> Uart<'d, T, TxDma, RxDma> {
                 tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
             }
         }
+
+        Self::new_inner(peri, tx_dma, rx_dma, config)
+    }
+
+    fn new_inner(
+        peri: PeripheralRef<'d, T>,
+        tx_dma: PeripheralRef<'d, TxDma>,
+        rx_dma: PeripheralRef<'d, RxDma>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        let r = T::regs();
 
         configure(r, &config, T::frequency(), T::KIND, true, true)?;
 
