@@ -1,4 +1,4 @@
-use stm32_metapac::rtc::vals::{Init, Osel, Pol};
+use stm32_metapac::rtc::vals::{Osel, Pol};
 
 use super::sealed;
 use crate::pac::rtc::Rtc;
@@ -49,7 +49,7 @@ impl super::Rtc {
             clock_drift = RTC_CALR_MAX_PPM;
         }
 
-        clock_drift = clock_drift / RTC_CALR_RESOLUTION_PPM;
+        clock_drift /= RTC_CALR_RESOLUTION_PPM;
 
         self.write(false, |rtc| {
             rtc.calr().write(|w| {
@@ -107,7 +107,7 @@ impl super::Rtc {
         // true if initf bit indicates RTC peripheral is in init mode
         if init_mode && !r.isr().read().initf() {
             // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
-            r.isr().modify(|w| w.set_init(Init::INITMODE));
+            r.isr().modify(|w| w.set_init(true));
             // wait till init state entered
             // ~2 RTCCLK cycles
             while !r.isr().read().initf() {}
@@ -116,7 +116,7 @@ impl super::Rtc {
         let result = f(&r);
 
         if init_mode {
-            r.isr().modify(|w| w.set_init(Init::FREERUNNINGMODE)); // Exits init mode
+            r.isr().modify(|w| w.set_init(false)); // Exits init mode
         }
 
         // Re-enable write protection.

@@ -204,6 +204,7 @@ pub enum PhyType {
 }
 
 impl PhyType {
+    /// Get whether this PHY is any of the internal types.
     pub fn internal(&self) -> bool {
         match self {
             PhyType::InternalFullSpeed | PhyType::InternalHighSpeed => true,
@@ -211,6 +212,7 @@ impl PhyType {
         }
     }
 
+    /// Get whether this PHY is any of the high-speed types.
     pub fn high_speed(&self) -> bool {
         match self {
             PhyType::InternalFullSpeed => false,
@@ -218,7 +220,7 @@ impl PhyType {
         }
     }
 
-    pub fn to_dspd(&self) -> vals::Dspd {
+    fn to_dspd(&self) -> vals::Dspd {
         match self {
             PhyType::InternalFullSpeed => vals::Dspd::FULL_SPEED_INTERNAL,
             PhyType::InternalHighSpeed => vals::Dspd::HIGH_SPEED,
@@ -230,6 +232,7 @@ impl PhyType {
 /// Indicates that [State::ep_out_buffers] is empty.
 const EP_OUT_BUFFER_EMPTY: u16 = u16::MAX;
 
+/// USB OTG driver state.
 pub struct State<const EP_COUNT: usize> {
     /// Holds received SETUP packets. Available if [State::ep0_setup_ready] is true.
     ep0_setup_data: UnsafeCell<[u8; 8]>,
@@ -247,6 +250,7 @@ unsafe impl<const EP_COUNT: usize> Send for State<EP_COUNT> {}
 unsafe impl<const EP_COUNT: usize> Sync for State<EP_COUNT> {}
 
 impl<const EP_COUNT: usize> State<EP_COUNT> {
+    /// Create a new State.
     pub const fn new() -> Self {
         const NEW_AW: AtomicWaker = AtomicWaker::new();
         const NEW_BUF: UnsafeCell<*mut u8> = UnsafeCell::new(0 as _);
@@ -271,6 +275,7 @@ struct EndpointData {
     fifo_size_words: u16,
 }
 
+/// USB driver config.
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Config {
@@ -297,6 +302,7 @@ impl Default for Config {
     }
 }
 
+/// USB driver.
 pub struct Driver<'d, T: Instance> {
     config: Config,
     phantom: PhantomData<&'d mut T>,
@@ -527,6 +533,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     }
 }
 
+/// USB bus.
 pub struct Bus<'d, T: Instance> {
     config: Config,
     phantom: PhantomData<&'d mut T>,
@@ -1092,6 +1099,7 @@ trait Dir {
     fn dir() -> Direction;
 }
 
+/// Marker type for the "IN" direction.
 pub enum In {}
 impl Dir for In {
     fn dir() -> Direction {
@@ -1099,6 +1107,7 @@ impl Dir for In {
     }
 }
 
+/// Marker type for the "OUT" direction.
 pub enum Out {}
 impl Dir for Out {
     fn dir() -> Direction {
@@ -1106,6 +1115,7 @@ impl Dir for Out {
     }
 }
 
+/// USB endpoint.
 pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
@@ -1299,6 +1309,7 @@ impl<'d, T: Instance> embassy_usb_driver::EndpointIn for Endpoint<'d, T, In> {
     }
 }
 
+/// USB control pipe.
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     max_packet_size: u16,

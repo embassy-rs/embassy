@@ -11,6 +11,7 @@ use super::{clear_interrupt_flags, rdr, reconfigure, sr, BasicInstance, Config, 
 use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
+/// Rx-only Ring-buffered UART Driver
 pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     _peri: PeripheralRef<'d, T>,
     ring_buf: ReadableRingBuffer<'d, RxDma, u8>,
@@ -27,8 +28,8 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> SetConfig for RingBufferedUar
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
     /// Turn the `UartRx` into a buffered uart which can continously receive in the background
-    /// without the possibility of loosing bytes. The `dma_buf` is a buffer registered to the
-    /// DMA controller, and must be sufficiently large, such that it will not overflow.
+    /// without the possibility of losing bytes. The `dma_buf` is a buffer registered to the
+    /// DMA controller, and must be large enough to prevent overflows.
     pub fn into_ring_buffered(self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d, T, RxDma> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
@@ -39,7 +40,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
         let rx_dma = unsafe { self.rx_dma.clone_unchecked() };
         let _peri = unsafe { self._peri.clone_unchecked() };
 
-        let ring_buf = unsafe { ReadableRingBuffer::new_read(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(T::regs()), dma_buf, opts) };
 
         // Don't disable the clock
         mem::forget(self);
@@ -49,6 +50,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> UartRx<'d, T, RxDma> {
 }
 
 impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxDma> {
+    /// Clear the ring buffer and start receiving in the background
     pub fn start(&mut self) -> Result<(), Error> {
         // Clear the ring buffer so that it is ready to receive data
         self.ring_buf.clear();
@@ -64,6 +66,7 @@ impl<'d, T: BasicInstance, RxDma: super::RxDma<T>> RingBufferedUartRx<'d, T, RxD
         Err(err)
     }
 
+    /// Cleanly stop and reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         self.teardown_uart();
         reconfigure::<T>(config)

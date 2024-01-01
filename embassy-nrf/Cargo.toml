@@ -17,6 +17,7 @@ flavors = [
 
 [features]
 default = ["rt"]
+## Cortex-M runtime (enabled by default)
 rt = [
     "nrf52805-pac?/rt",
     "nrf52810-pac?/rt",
@@ -30,39 +31,61 @@ rt = [
     "nrf9160-pac?/rt",
 ]
 
+## Enable features requiring `embassy-time`
 time = ["dep:embassy-time"]
 
+## Enable defmt
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
 
-# Reexport the PAC for the currently enabled chip at `embassy_nrf::pac`.
+## Reexport the PAC for the currently enabled chip at `embassy_nrf::pac` (unstable)
+unstable-pac = []
 # This is unstable because semver-minor (non-breaking) releases of embassy-nrf may major-bump (breaking) the PAC version.
 # If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 # There are no plans to make this stable.
-unstable-pac = []
 
-nrf52805 = ["nrf52805-pac", "_nrf52"]
-nrf52810 = ["nrf52810-pac", "_nrf52"]
-nrf52811 = ["nrf52811-pac", "_nrf52"]
-nrf52820 = ["nrf52820-pac", "_nrf52"]
-nrf52832 = ["nrf52832-pac", "_nrf52", "_nrf52832_anomaly_109"]
-nrf52833 = ["nrf52833-pac", "_nrf52", "_gpio-p1"]
-nrf52840 = ["nrf52840-pac", "_nrf52", "_gpio-p1"]
-nrf5340-app-s = ["_nrf5340-app", "_s"]
-nrf5340-app-ns = ["_nrf5340-app", "_ns"]
-nrf5340-net = ["_nrf5340-net"]
-nrf9160-s = ["_nrf9160", "_s"]
-nrf9160-ns = ["_nrf9160", "_ns"]
-
+## Enable GPIO tasks and events
 gpiote = []
+
+## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
 time-driver-rtc1 = ["_time-driver"]
 
-# Allow using the NFC pins as regular GPIO pins (P0_09/P0_10 on nRF52, P0_02/P0_03 on nRF53)
+## Allow using the NFC pins as regular GPIO pins (P0_09/P0_10 on nRF52, P0_02/P0_03 on nRF53)
 nfc-pins-as-gpio = []
 
-# Allow using the RST pin as a regular GPIO pin.
-# nrf52805, nrf52810, nrf52811, nrf52832: P0_21
-# nrf52820, nrf52833, nrf52840: P0_18
+## Allow using the RST pin as a regular GPIO pin.
+##  * nRF52805, nRF52810, nRF52811, nRF52832: P0_21
+##  * nRF52820, nRF52833, nRF52840: P0_18
 reset-pin-as-gpio = []
+
+## Implements the MultiwriteNorFlash trait for QSPI. Should only be enabled if your external
+## flash supports the semantics described [here](https://docs.rs/embedded-storage/0.3.1/embedded_storage/nor_flash/trait.MultiwriteNorFlash.html)
+qspi-multiwrite-flash = []
+
+#! ### Chip selection features
+## nRF52805
+nrf52805 = ["nrf52805-pac", "_nrf52"]
+## nRF52810
+nrf52810 = ["nrf52810-pac", "_nrf52"]
+## nRF52811
+nrf52811 = ["nrf52811-pac", "_nrf52"]
+## nRF52820
+nrf52820 = ["nrf52820-pac", "_nrf52"]
+## nRF52832
+nrf52832 = ["nrf52832-pac", "_nrf52", "_nrf52832_anomaly_109"]
+## nRF52833
+nrf52833 = ["nrf52833-pac", "_nrf52", "_gpio-p1"]
+## nRF52840
+nrf52840 = ["nrf52840-pac", "_nrf52", "_gpio-p1"]
+## nRF5340 application core in Secure mode
+nrf5340-app-s = ["_nrf5340-app", "_s"]
+## nRF5340 application core in Non-Secure mode
+nrf5340-app-ns = ["_nrf5340-app", "_ns"]
+## nRF5340 network core
+nrf5340-net = ["_nrf5340-net"]
+## nRF9160 in Secure mode
+nrf9160-s = ["_nrf9160", "_s"]
+## nRF9160 in Non-Secure mode
+nrf9160-ns = ["_nrf9160", "_ns"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
@@ -94,8 +117,8 @@ embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
-embedded-hal-async = { version = "=1.0.0-rc.2" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
+embedded-hal-async = { version = "=1.0.0-rc.3" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
@@ -109,6 +132,7 @@ fixed = "1.10.0"
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
+document-features = "0.2.7"
 
 nrf52805-pac = { version = "0.12.0", optional = true }
 nrf52810-pac = { version = "0.12.0", optional = true }
@@ -120,4 +144,3 @@ nrf52840-pac = { version = "0.12.0", optional = true }
 nrf5340-app-pac = { version = "0.12.0", optional = true }
 nrf5340-net-pac = { version = "0.12.0", optional = true }
 nrf9160-pac = { version = "0.12.0", optional = true }
-

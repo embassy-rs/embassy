@@ -1,3 +1,4 @@
+//! RTC driver.
 mod filter;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
@@ -194,6 +195,7 @@ mod sealed {
     }
 }
 
+/// RTC peripheral instance.
 pub trait Instance: sealed::Instance {}
 
 impl sealed::Instance for crate::peripherals::RTC {

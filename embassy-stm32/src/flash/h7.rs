@@ -6,7 +6,7 @@ use super::{FlashRegion, FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub const fn is_default_layout() -> bool {
+pub(crate) const fn is_default_layout() -> bool {
     true
 }
 
@@ -14,7 +14,7 @@ const fn is_dual_bank() -> bool {
     FLASH_REGIONS.len() >= 2
 }
 
-pub fn get_flash_regions() -> &'static [&'static FlashRegion] {
+pub(crate) fn get_flash_regions() -> &'static [&'static FlashRegion] {
     &FLASH_REGIONS
 }
 
@@ -113,7 +113,7 @@ pub(crate) unsafe fn clear_all_err() {
 
 unsafe fn bank_clear_all_err(bank: pac::flash::Bank) {
     // read and write back the same value.
-    // This clears all "write 0 to clear" bits.
+    // This clears all "write 1 to clear" bits.
     bank.sr().modify(|_| {});
 }
 

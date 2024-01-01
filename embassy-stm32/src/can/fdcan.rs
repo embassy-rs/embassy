@@ -1,6 +1,3 @@
-pub use bxcan;
-use embassy_hal_internal::PeripheralRef;
-
 use crate::peripherals;
 
 pub(crate) mod sealed {
@@ -25,27 +22,19 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        const REGISTERS: *mut bxcan::RegisterBlock;
-
         fn regs() -> &'static crate::pac::can::Fdcan;
         fn state() -> &'static State;
     }
 }
 
+/// Interruptable FDCAN instance.
 pub trait InterruptableInstance {}
+/// FDCAN instance.
 pub trait Instance: sealed::Instance + InterruptableInstance + 'static {}
-
-pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
-
-unsafe impl<'d, T: Instance> bxcan::Instance for BxcanInstance<'d, T> {
-    const REGISTERS: *mut bxcan::RegisterBlock = T::REGISTERS;
-}
 
 foreach_peripheral!(
     (can, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
-
             fn regs() -> &'static crate::pac::can::Fdcan {
                 &crate::pac::$inst
             }

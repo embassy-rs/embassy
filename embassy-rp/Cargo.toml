@@ -14,42 +14,56 @@ flavors = [
 
 [features]
 default = [ "rt" ]
+## Enable the RP runtime.
 rt = [ "rp-pac/rt" ]
 
+## Enable defmt
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
 
-# critical section that is safe for multicore use
+## critical section that is safe for multicore use
 critical-section-impl = ["critical-section/restore-state-u8"]
 
-# Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
-# This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
-# If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
-# There are no plans to make this stable.
+## Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
+## This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
+## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+## There are no plans to make this stable.
 unstable-pac = []
 
+## Enable the timer for use with `embassy-time` with a 1MHz tick rate
 time-driver = []
 
+## Enable ROM function cache
 rom-func-cache = []
+## Enable intrinsics
 intrinsics = []
+## Enable ROM v2 intrinsics
 rom-v2-intrinsics = []
 
-# boot2 flash chip support. if none of these is enabled we'll default to w25q080 (used on the pico)
-boot2-at25sf128a = []
-boot2-gd25q64cs = []
-boot2-generic-03h = []
-boot2-is25lp080 = []
-boot2-ram-memcpy = []
-boot2-w25q080 = []
-boot2-w25x10cl = []
-
-# Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash lives there)
-# and would add both code and memory overhead when enabled needlessly.
+## Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash lives there)
+## and would add both code and memory overhead when enabled needlessly.
 qspi-as-gpio = []
 
-# Indicate code is running from RAM.
-# Set this if all code is in RAM, and the cores never access memory-mapped flash memory through XIP.
-# This allows the flash driver to not force pausing execution on both cores when doing flash operations.
+## Indicate code is running from RAM.
+## Set this if all code is in RAM, and the cores never access memory-mapped flash memory through XIP.
+## This allows the flash driver to not force pausing execution on both cores when doing flash operations.
 run-from-ram = []
+
+#! ### boot2 flash chip support
+#! If none of these are enabled, w25q080 is used by default (used on the pico)
+## AT25SF128a
+boot2-at25sf128a = []
+## GD25Q64cs
+boot2-gd25q64cs = []
+## generic-03h
+boot2-generic-03h = []
+## IS25LP080
+boot2-is25lp080 = []
+## ram-memcpy
+boot2-ram-memcpy = []
+## W25Q080
+boot2-w25q080 = []
+## W25X10cl
+boot2-w25x10cl = []
 
 [dependencies]
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
@@ -78,14 +92,15 @@ fixed = "1.23.1"
 rp-pac = { version = "6" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
-embedded-hal-async = { version = "=1.0.0-rc.2" }
-embedded-hal-nb = { version = "=1.0.0-rc.2" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
+embedded-hal-async = { version = "=1.0.0-rc.3" }
+embedded-hal-nb = { version = "=1.0.0-rc.3" }
 
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
+document-features = "0.2.7"
 
 [dev-dependencies]
-embassy-executor = { version = "0.4.0", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
+embassy-executor = { version = "0.4.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }

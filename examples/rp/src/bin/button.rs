@@ -4,7 +4,6 @@
 
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
@@ -17,7 +16,7 @@ async fn main(_spawner: Spawner) {
 
     // Use PIN_28, Pin34 on J0 for RP Pico, as a input.
     // You need to add your own button.
-    let button = Input::new(p.PIN_28, Pull::Up);
+    let mut button = Input::new(p.PIN_28, Pull::Up);
 
     loop {
         if button.is_high() {

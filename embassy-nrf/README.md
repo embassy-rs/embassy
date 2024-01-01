@@ -6,6 +6,8 @@ The Embassy nRF HAL targets the Nordic Semiconductor nRF family of hardware. The
 for many peripherals. The benefit of using the async APIs is that the HAL takes care of waiting for peripherals to
 complete operations in low power mod and handling interrupts, so that applications can focus on more important matters.
 
+NOTE: The Embassy HALs can be used both for non-async and async operations. For async, you can choose which runtime you want to use.
+
 ## EasyDMA considerations
 
 On nRF chips, peripherals can use the so called EasyDMA feature to offload the task of interacting

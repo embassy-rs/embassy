@@ -63,13 +63,13 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
-embedded-hal-async = { version = "=1.0.0-rc.2" }
+embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
+embedded-hal-async = { version = "=1.0.0-rc.3" }
 micromath = "2.0.0"
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 rand_core = { version = "0.6", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
-static_cell = { version = "2", features = ["nightly"] }
+static_cell = "2"
 portable-atomic = { version = "1.5", features = [] }
 
 chrono = { version = "^0.4", default-features = false, optional = true}

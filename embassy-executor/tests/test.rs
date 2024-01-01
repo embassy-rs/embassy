@@ -135,3 +135,17 @@ fn executor_task_self_wake_twice() {
         ]
     )
 }
+
+#[test]
+fn executor_task_cfg_args() {
+    // simulate cfg'ing away argument c
+    #[task]
+    async fn task1(a: u32, b: u32, #[cfg(any())] c: u32) {
+        let (_, _) = (a, b);
+    }
+
+    #[task]
+    async fn task2(a: u32, b: u32, #[cfg(all())] c: u32) {
+        let (_, _, _) = (a, b, c);
+    }
+}

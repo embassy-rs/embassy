@@ -24,8 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.1.3 - 2023-08-28
 
-- Update `embedded-hal-async` to `1.0.0-rc.2`
-- Update `embedded-hal v1` to `1.0.0-rc.2`
+- Update `embedded-hal-async` to `1.0.0-rc.3`
+- Update `embedded-hal v1` to `1.0.0-rc.3`
 
 ## 0.1.2 - 2023-07-05
 

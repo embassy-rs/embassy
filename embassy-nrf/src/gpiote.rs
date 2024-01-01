@@ -243,7 +243,7 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
 
 impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
     /// Create a new GPIOTE output channel driver.
-    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = C> + 'd, mut pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
         into_ref!(ch);
         let g = regs();
         let num = ch.number();
@@ -481,11 +481,11 @@ mod eh02 {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_high())
+            Ok(!self.pin.pin.ref_is_low())
         }
 
         fn is_low(&self) -> Result<bool, Self::Error> {
-            Ok(self.pin.is_low())
+            Ok(self.pin.pin.ref_is_low())
         }
     }
 }
@@ -495,11 +495,11 @@ impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::ErrorType for InputCha
 }
 
 impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChannel<'d, C, T> {
-    fn is_high(&self) -> Result<bool, Self::Error> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.pin.is_high())
     }
 
-    fn is_low(&self) -> Result<bool, Self::Error> {
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.pin.is_low())
     }
 }

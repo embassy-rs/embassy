@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_stm32::gpio::{Input, Pull};
@@ -12,7 +11,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let button = Input::new(p.PC13, Pull::Up);
+    let mut button = Input::new(p.PC13, Pull::Up);
 
     loop {
         if button.is_high() {

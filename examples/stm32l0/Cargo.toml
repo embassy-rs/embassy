@@ -4,10 +4,6 @@ name = "embassy-stm32l0-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
-[features]
-default = ["nightly"]
-nightly = ["embassy-executor/nightly"]
-
 [dependencies]
 # Change stm32l072cz to your chip name, if necessary.
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = ["defmt", "stm32l072cz", "time-driver-any", "exti", "memory-x"]  }

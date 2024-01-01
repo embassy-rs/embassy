@@ -8,6 +8,7 @@ pub enum RegisterBlock {
     RxBuf = 0x03,
 }
 
+/// Wiznet W5500 chip.
 pub enum W5500 {}
 
 impl super::Chip for W5500 {}

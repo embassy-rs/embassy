@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use cortex_m_rt::entry;
 use defmt::*;
@@ -13,7 +12,7 @@ fn main() -> ! {
 
     let p = embassy_stm32::init(Default::default());
 
-    let button = Input::new(p.PA0, Pull::Up);
+    let mut button = Input::new(p.PA0, Pull::Up);
     let mut led1 = Output::new(p.PB15, Level::High, Speed::Low);
     let mut led2 = Output::new(p.PB9, Level::High, Speed::Low);
 

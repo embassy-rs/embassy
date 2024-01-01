@@ -7,11 +7,16 @@
 //! - Define a struct `MyDriver`
 //! - Implement [`Driver`] for it
 //! - Register it as the global driver with [`time_driver_impl`](crate::time_driver_impl).
-//! - Enable the Cargo features `embassy-executor/time` and one of `embassy-time/tick-*` corresponding to the
-//!   tick rate of your driver.
+//! - Enable the Cargo feature `embassy-executor/time`
 //!
-//! If you wish to make the tick rate configurable by the end user, you should do so by exposing your own
-//! Cargo features and having each enable the corresponding `embassy-time/tick-*`.
+//! If your driver has a single set tick rate, enable the corresponding [`tick-hz-*`](crate#tick-rate) feature,
+//! which will prevent users from needing to configure it themselves (or selecting an incorrect configuration).
+//!
+//! If your driver supports a small number of set tick rates, expose your own cargo features and have each one
+//! enable the corresponding `embassy-time/tick-*`.
+//!
+//! Otherwise, don’t enable any `tick-hz-*` feature to let the user configure the tick rate themselves by
+//! enabling a feature on `embassy-time`.
 //!
 //! # Linkage details
 //!
@@ -108,6 +113,10 @@ pub trait Driver: Send + Sync + 'static {
     /// The `Driver` implementation should guarantee that the alarm callback is never called synchronously from `set_alarm`.
     /// Rather - if `timestamp` is already in the past - `false` should be returned and alarm should not be set,
     /// or alternatively, the driver should return `true` and arrange to call the alarm callback as soon as possible, but not synchronously.
+    /// There is a rare third possibility that the alarm was barely in the future, and by the time it was enabled, it had slipped into the
+    /// past.  This is can be detected by double-checking that the alarm is still in the future after enabling it; if it isn't, `false`
+    /// should also be returned to indicate that the callback may have been called already by the alarm, but it is not guaranteed, so the
+    /// caller should also call the callback, just like in the more common `false` case. (Note: This requires idempotency of the callback.)
     ///
     /// When callback is called, it is guaranteed that now() will return a value greater or equal than timestamp.
     ///

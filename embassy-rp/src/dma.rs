@@ -38,6 +38,9 @@ pub(crate) unsafe fn init() {
     interrupt::DMA_IRQ_0.enable();
 }
 
+/// DMA read.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn read<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const W,
@@ -57,6 +60,9 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     )
 }
 
+/// DMA write.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: *const [W],
@@ -79,6 +85,9 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
 // static mut so that this is allocated in RAM.
 static mut DUMMY: u32 = 0;
 
+/// DMA repeated write.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     to: *mut W,
@@ -97,6 +106,9 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
     )
 }
 
+/// DMA copy between slices.
+///
+/// SAFETY: Slices must point to locations reachable by DMA.
 pub unsafe fn copy<'a, C: Channel, W: Word>(
     ch: impl Peripheral<P = C> + 'a,
     from: &[W],
@@ -152,6 +164,7 @@ fn copy_inner<'a, C: Channel>(
     Transfer::new(ch)
 }
 
+/// DMA transfer driver.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a, C: Channel> {
     channel: PeripheralRef<'a, C>,
@@ -201,19 +214,25 @@ mod sealed {
     pub trait Word {}
 }
 
+/// DMA channel interface.
 pub trait Channel: Peripheral<P = Self> + sealed::Channel + Into<AnyChannel> + Sized + 'static {
+    /// Channel number.
     fn number(&self) -> u8;
 
+    /// Channel registry block.
     fn regs(&self) -> pac::dma::Channel {
         pac::DMA.ch(self.number() as _)
     }
 
+    /// Convert into type-erased [AnyChannel].
     fn degrade(self) -> AnyChannel {
         AnyChannel { number: self.number() }
     }
 }
 
+/// DMA word.
 pub trait Word: sealed::Word {
+    /// Word size.
     fn size() -> vals::DataSize;
 }
 
@@ -238,6 +257,7 @@ impl Word for u32 {
     }
 }
 
+/// Type erased DMA channel.
 pub struct AnyChannel {
     number: u8,
 }

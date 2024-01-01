@@ -45,6 +45,8 @@ The BOOTLOADER_STATE partition must be big enough to store one word per page in 
 
 The bootloader has a platform-agnostic part, which implements the power fail safe swapping algorithm given the boundaries set by the partitions. The platform-specific part is a minimal shim that provides additional functionality such as watchdogs or supporting the nRF52 softdevice.
 
+NOTE: The linker scripts for the application and bootloader look similar, but the FLASH region must point to the BOOTLOADER partition for the bootloader, and the ACTIVE partition for the application.
+
 === FirmwareUpdater
 
 The `FirmwareUpdater` is an object for conveniently flashing firmware to the DFU partition and subsequently marking it as being ready for swapping with the active partition on the next reset. Its principle methods are `write_firmware`, which is called once per the size of the flash "write block" (typically 4KiB), and `mark_updated`, which is the final call.

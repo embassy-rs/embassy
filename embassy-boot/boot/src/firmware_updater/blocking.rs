@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 
 /// Blocking FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -86,8 +86,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
     #[cfg(feature = "_verify")]
     pub fn verify_and_mark_updated(
         &mut self,
-        _public_key: &[u8],
-        _signature: &[u8],
+        _public_key: &[u8; 32],
+        _signature: &[u8; 64],
         _update_len: u32,
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(_update_len <= self.dfu.capacity() as u32);
@@ -96,14 +96,14 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
 
         #[cfg(feature = "ed25519-dalek")]
         {
-            use ed25519_dalek::{PublicKey, Signature, SignatureError, Verifier};
+            use ed25519_dalek::{Signature, SignatureError, Verifier, VerifyingKey};
 
             use crate::digest_adapters::ed25519_dalek::Sha512;
 
             let into_signature_error = |e: SignatureError| FirmwareUpdaterError::Signature(e.into());
 
-            let public_key = PublicKey::from_bytes(_public_key).map_err(into_signature_error)?;
-            let signature = Signature::from_bytes(_signature).map_err(into_signature_error)?;
+            let public_key = VerifyingKey::from_bytes(_public_key).map_err(into_signature_error)?;
+            let signature = Signature::from_bytes(_signature);
 
             let mut message = [0; 64];
             let mut chunk_buf = [0; 2];
@@ -113,7 +113,6 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         }
         #[cfg(feature = "ed25519-salty")]
         {
-            use salty::constants::{PUBLICKEY_SERIALIZED_LENGTH, SIGNATURE_SERIALIZED_LENGTH};
             use salty::{PublicKey, Signature};
 
             use crate::digest_adapters::salty::Sha512;
@@ -122,10 +121,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
                 FirmwareUpdaterError::Signature(signature::Error::default())
             }
 
-            let public_key: [u8; PUBLICKEY_SERIALIZED_LENGTH] = _public_key.try_into().map_err(into_signature_error)?;
-            let public_key = PublicKey::try_from(&public_key).map_err(into_signature_error)?;
-            let signature: [u8; SIGNATURE_SERIALIZED_LENGTH] = _signature.try_into().map_err(into_signature_error)?;
-            let signature = Signature::try_from(&signature).map_err(into_signature_error)?;
+            let public_key = PublicKey::try_from(_public_key).map_err(into_signature_error)?;
+            let signature = Signature::try_from(_signature).map_err(into_signature_error)?;
 
             let mut message = [0; 64];
             let mut chunk_buf = [0; 2];
@@ -166,6 +163,12 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
     #[cfg(not(feature = "_verify"))]
     pub fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.state.mark_updated()
+    }
+
+    /// Mark to trigger USB DFU device on next boot.
+    pub fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted()?;
+        self.state.mark_dfu()
     }
 
     /// Mark firmware boot successful and stop rollback on reset.
@@ -213,6 +216,16 @@ pub struct BlockingFirmwareState<'d, STATE> {
 }
 
 impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
+    /// Creates a firmware state instance from a FirmwareUpdaterConfig, with a buffer for magic content and state partition.
+    ///
+    /// # Safety
+    ///
+    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being read from
+    /// and written to.
+    pub fn from_config<DFU: NorFlash>(config: FirmwareUpdaterConfig<DFU, STATE>, aligned: &'d mut [u8]) -> Self {
+        Self::new(config.state, aligned)
+    }
+
     /// Create a firmware state instance with a buffer for magic content and state partition.
     ///
     /// # Safety
@@ -226,7 +239,7 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
     fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
-        if self.get_state()? == State::Boot {
+        if self.get_state()? == State::Boot || self.get_state()? == State::DfuDetach {
             Ok(())
         } else {
             Err(FirmwareUpdaterError::BadState)
@@ -243,6 +256,8 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
 
         if !self.aligned.iter().any(|&b| b != SWAP_MAGIC) {
             Ok(State::Swap)
+        } else if !self.aligned.iter().any(|&b| b != DFU_DETACH_MAGIC) {
+            Ok(State::DfuDetach)
         } else {
             Ok(State::Boot)
         }
@@ -251,6 +266,11 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     /// Mark to trigger firmware swap on next boot.
     pub fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.set_magic(SWAP_MAGIC)
+    }
+
+    /// Mark to trigger USB DFU on next boot.
+    pub fn mark_dfu(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.set_magic(DFU_DETACH_MAGIC)
     }
 
     /// Mark firmware boot successful and stop rollback on reset.

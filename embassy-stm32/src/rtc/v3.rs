@@ -1,4 +1,4 @@
-use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Init, Key, Osel, Pol, TampalrmPu, TampalrmType};
+use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Key, Osel, Pol, TampalrmType};
 
 use super::{sealed, RtcCalibrationCyclePeriod};
 use crate::pac::rtc::Rtc;
@@ -26,7 +26,7 @@ impl super::Rtc {
             rtc.cr().modify(|w| {
                 w.set_out2en(false);
                 w.set_tampalrm_type(TampalrmType::PUSHPULL);
-                w.set_tampalrm_pu(TampalrmPu::NOPULLUP);
+                w.set_tampalrm_pu(false);
             });
         });
     }
@@ -106,7 +106,7 @@ impl super::Rtc {
         r.wpr().write(|w| w.set_key(Key::DEACTIVATE2));
 
         if init_mode && !r.icsr().read().initf() {
-            r.icsr().modify(|w| w.set_init(Init::INITMODE));
+            r.icsr().modify(|w| w.set_init(true));
             // wait till init state entered
             // ~2 RTCCLK cycles
             while !r.icsr().read().initf() {}
@@ -115,7 +115,7 @@ impl super::Rtc {
         let result = f(&r);
 
         if init_mode {
-            r.icsr().modify(|w| w.set_init(Init::FREERUNNINGMODE)); // Exits init mode
+            r.icsr().modify(|w| w.set_init(false)); // Exits init mode
         }
 
         // Re-enable write protection.
@@ -134,6 +134,12 @@ impl sealed::Instance for crate::peripherals::RTC {
 
     #[cfg(all(feature = "low-power", stm32g4))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+
+    #[cfg(all(feature = "low-power", stm32l5))]
+    const EXTI_WAKEUP_LINE: usize = 17;
+
+    #[cfg(all(feature = "low-power", stm32l5))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
 
     fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]

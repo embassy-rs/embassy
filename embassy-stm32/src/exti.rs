@@ -1,3 +1,4 @@
+//! External Interrupts (EXTI)
 use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
@@ -39,7 +40,7 @@ fn exticr_regs() -> pac::afio::Afio {
     pac::AFIO
 }
 
-pub unsafe fn on_irq() {
+unsafe fn on_irq() {
     #[cfg(feature = "low-power")]
     crate::low_power::on_wakeup_irq();
 
@@ -85,7 +86,13 @@ impl Iterator for BitIter {
     }
 }
 
-/// EXTI input driver
+/// EXTI input driver.
+///
+/// This driver augments a GPIO `Input` with EXTI functionality. EXTI is not
+/// built into `Input` itself because it needs to take ownership of the corresponding
+/// EXTI channel, which is a limited resource.
+///
+/// Pins PA5, PB5, PC5... all use EXTI channel 5, so you can't use EXTI on, say, PA5 and PC5 at the same time.
 pub struct ExtiInput<'d, T: GpioPin> {
     pin: Input<'d, T>,
 }
@@ -93,23 +100,30 @@ pub struct ExtiInput<'d, T: GpioPin> {
 impl<'d, T: GpioPin> Unpin for ExtiInput<'d, T> {}
 
 impl<'d, T: GpioPin> ExtiInput<'d, T> {
+    /// Create an EXTI input.
     pub fn new(pin: Input<'d, T>, _ch: impl Peripheral<P = T::ExtiChannel> + 'd) -> Self {
         Self { pin }
     }
 
-    pub fn is_high(&self) -> bool {
+    /// Get whether the pin is high.
+    pub fn is_high(&mut self) -> bool {
         self.pin.is_high()
     }
 
-    pub fn is_low(&self) -> bool {
+    /// Get whether the pin is low.
+    pub fn is_low(&mut self) -> bool {
         self.pin.is_low()
     }
 
-    pub fn get_level(&self) -> Level {
+    /// Get the pin level.
+    pub fn get_level(&mut self) -> Level {
         self.pin.get_level()
     }
 
-    pub async fn wait_for_high<'a>(&'a mut self) {
+    /// Asynchronously wait until the pin is high.
+    ///
+    /// This returns immediately if the pin is already high.
+    pub async fn wait_for_high(&mut self) {
         let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false);
         if self.is_high() {
             return;
@@ -117,7 +131,10 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
         fut.await
     }
 
-    pub async fn wait_for_low<'a>(&'a mut self) {
+    /// Asynchronously wait until the pin is low.
+    ///
+    /// This returns immediately if the pin is already low.
+    pub async fn wait_for_low(&mut self) {
         let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true);
         if self.is_low() {
             return;
@@ -125,15 +142,22 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
         fut.await
     }
 
-    pub async fn wait_for_rising_edge<'a>(&'a mut self) {
+    /// Asynchronously wait until the pin sees a rising edge.
+    ///
+    /// If the pin is already high, it will wait for it to go low then back high.
+    pub async fn wait_for_rising_edge(&mut self) {
         ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false).await
     }
 
-    pub async fn wait_for_falling_edge<'a>(&'a mut self) {
+    /// Asynchronously wait until the pin sees a falling edge.
+    ///
+    /// If the pin is already low, it will wait for it to go high then back low.
+    pub async fn wait_for_falling_edge(&mut self) {
         ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true).await
     }
 
-    pub async fn wait_for_any_edge<'a>(&'a mut self) {
+    /// Asynchronously wait until the pin sees any edge (either rising or falling).
+    pub async fn wait_for_any_edge(&mut self) {
         ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true).await
     }
 }
@@ -142,11 +166,11 @@ impl<'d, T: GpioPin> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, T>
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_high())
+        Ok(!self.pin.pin.ref_is_low())
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_low())
+        Ok(self.pin.pin.ref_is_low())
     }
 }
 
@@ -155,11 +179,11 @@ impl<'d, T: GpioPin> embedded_hal_1::digital::ErrorType for ExtiInput<'d, T> {
 }
 
 impl<'d, T: GpioPin> embedded_hal_1::digital::InputPin for ExtiInput<'d, T> {
-    fn is_high(&self) -> Result<bool, Self::Error> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_high())
     }
 
-    fn is_low(&self) -> Result<bool, Self::Error> {
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
         Ok(self.is_low())
     }
 }
@@ -284,6 +308,7 @@ macro_rules! foreach_exti_irq {
 
 macro_rules! impl_irq {
     ($e:ident) => {
+        #[allow(non_snake_case)]
         #[cfg(feature = "rt")]
         #[interrupt]
         unsafe fn $e() {
@@ -298,8 +323,16 @@ pub(crate) mod sealed {
     pub trait Channel {}
 }
 
+/// EXTI channel trait.
 pub trait Channel: sealed::Channel + Sized {
+    /// Get the EXTI channel number.
     fn number(&self) -> usize;
+
+    /// Type-erase (degrade) this channel into an `AnyChannel`.
+    ///
+    /// This converts EXTI channel singletons (`EXTI0`, `EXTI1`, ...), which
+    /// are all different types, into the same type. It is useful for
+    /// creating arrays of channels, or avoiding generics.
     fn degrade(self) -> AnyChannel {
         AnyChannel {
             number: self.number() as u8,
@@ -307,9 +340,13 @@ pub trait Channel: sealed::Channel + Sized {
     }
 }
 
+/// Type-erased (degraded) EXTI channel.
+///
+/// This represents ownership over any EXTI channel, known at runtime.
 pub struct AnyChannel {
     number: u8,
 }
+
 impl_peripheral!(AnyChannel);
 impl sealed::Channel for AnyChannel {}
 impl Channel for AnyChannel {

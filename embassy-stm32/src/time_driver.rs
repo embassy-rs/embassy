@@ -43,7 +43,10 @@ type T = peripherals::TIM3;
 type T = peripherals::TIM4;
 #[cfg(time_driver_tim5)]
 type T = peripherals::TIM5;
-
+#[cfg(time_driver_tim9)]
+type T = peripherals::TIM9;
+#[cfg(time_driver_tim11)]
+type T = peripherals::TIM11;
 #[cfg(time_driver_tim12)]
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
@@ -76,6 +79,22 @@ foreach_interrupt! {
     };
     (TIM5, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim5)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM9, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim9)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM11, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim11)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
@@ -455,16 +474,29 @@ impl Driver for RtcDriver {
                 return false;
             }
 
-            let safe_timestamp = timestamp.max(t + 3);
-
             // Write the CCR value regardless of whether we're going to enable it now or not.
             // This way, when we enable it later, the right value is already set.
-            r.ccr(n + 1).write(|w| w.set_ccr(safe_timestamp as u16));
+            r.ccr(n + 1).write(|w| w.set_ccr(timestamp as u16));
 
             // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
             let diff = timestamp - t;
             r.dier().modify(|w| w.set_ccie(n + 1, diff < 0xc000));
 
+            // Reevaluate if the alarm timestamp is still in the future
+            let t = self.now();
+            if timestamp <= t {
+                // If alarm timestamp has passed since we set it, we have a race condition and
+                // the alarm may or may not have fired.
+                // Disarm the alarm and return `false` to indicate that.
+                // It is the caller's responsibility to handle this ambiguity.
+                r.dier().modify(|w| w.set_ccie(n + 1, false));
+
+                alarm.timestamp.set(u64::MAX);
+
+                return false;
+            }
+
+            // We're confident the alarm will ring in the future.
             true
         })
     }

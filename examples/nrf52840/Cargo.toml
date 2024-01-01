@@ -4,12 +4,6 @@ name = "embassy-nrf52840-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
-[features]
-default = ["nightly"]
-nightly = [
-    "static_cell/nightly",
-]
-
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-sync = { version = "0.5.0", path = "../../embassy-sync", features = ["defmt"] }
@@ -36,9 +30,9 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.1"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
-embedded-hal = { version = "1.0.0-rc.2" }
-embedded-hal-async = { version = "1.0.0-rc.2" }
-embedded-hal-bus = { version = "0.1.0-rc.2", features = ["async"] }
+embedded-hal = { version = "1.0.0-rc.3" }
+embedded-hal-async = { version = "1.0.0-rc.3" }
+embedded-hal-bus = { version = "0.1.0-rc.3", features = ["async"] }
 num-integer = { version = "0.1.45", default-features = false }
 microfft = "0.5.0"
 

@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -85,7 +84,7 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
 
         let mut this = Self { inner: tim };
 
-        this.set_freq(freq);
+        this.set_frequency(freq);
         this.inner.start();
 
         let r = T::regs_gp32();
@@ -102,14 +101,14 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     }
 
     pub fn enable(&mut self, channel: Channel) {
-        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), true));
+        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.index(), true));
     }
 
     pub fn disable(&mut self, channel: Channel) {
-        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.raw(), false));
+        T::regs_gp32().ccer().modify(|w| w.set_cce(channel.index(), false));
     }
 
-    pub fn set_freq(&mut self, freq: Hertz) {
+    pub fn set_frequency(&mut self, freq: Hertz) {
         <T as embassy_stm32::timer::low_level::GeneralPurpose32bitInstance>::set_frequency(&mut self.inner, freq);
     }
 
@@ -119,6 +118,6 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
 
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         defmt::assert!(duty < self.get_max_duty());
-        T::regs_gp32().ccr(channel.raw()).modify(|w| w.set_ccr(duty))
+        T::regs_gp32().ccr(channel.index()).modify(|w| w.set_ccr(duty))
     }
 }

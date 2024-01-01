@@ -1,3 +1,4 @@
+//! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
 use core::marker::PhantomData;
 
 use embassy_hal_internal::into_ref;
@@ -6,6 +7,7 @@ use crate::gpio::sealed::AFType;
 use crate::gpio::{Pull, Speed};
 use crate::Peripheral;
 
+/// FMC driver
 pub struct Fmc<'d, T: Instance> {
     peri: PhantomData<&'d mut T>,
 }
@@ -38,6 +40,7 @@ where
         T::REGS.bcr1().modify(|r| r.set_fmcen(true));
     }
 
+    /// Get the kernel clock currently in use for this FMC instance.
     pub fn source_clock_hz(&self) -> u32 {
         <T as crate::rcc::sealed::RccPeripheral>::frequency().0
     }
@@ -85,6 +88,7 @@ macro_rules! fmc_sdram_constructor {
         nbl: [$(($nbl_pin_name:ident: $nbl_signal:ident)),*],
         ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
     )) => {
+        /// Create a new FMC instance.
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
             _instance: impl Peripheral<P = T> + 'd,
             $($addr_pin_name: impl Peripheral<P = impl $addr_signal<T>> + 'd),*,
@@ -199,6 +203,7 @@ pub(crate) mod sealed {
     }
 }
 
+/// FMC instance trait.
 pub trait Instance: sealed::Instance + 'static {}
 
 foreach_peripheral!(

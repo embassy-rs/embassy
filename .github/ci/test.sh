@@ -4,8 +4,9 @@
 
 set -euo pipefail
 
-MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml
-MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test --manifest-path ./embassy-executor/Cargo.toml --features nightly
+export RUSTUP_HOME=/ci/cache/rustup
+export CARGO_HOME=/ci/cache/cargo
+export CARGO_TARGET_DIR=/ci/cache/target
 
 cargo test --manifest-path ./embassy-sync/Cargo.toml 
 cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml 

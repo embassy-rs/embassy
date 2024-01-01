@@ -45,6 +45,12 @@ things = ""
 for f in features:
     name = f["name"].replace("_", "-")
     for val in f["vals"]:
+        things += f"## {val}"
+        if val == f["default"]:
+            things += " (default)\n"
+        else:
+            things += "\n"
+            
         things += f"{name}-{val} = []"
         if val == f["default"]:
             things += " # Default"

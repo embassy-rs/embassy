@@ -22,11 +22,15 @@ pub(crate) mod dmamux_sealed {
     }
 }
 
+/// DMAMUX1 instance.
 pub struct DMAMUX1;
+/// DMAMUX2 instance.
 #[cfg(stm32h7)]
 pub struct DMAMUX2;
 
+/// DMAMUX channel trait.
 pub trait MuxChannel: dmamux_sealed::MuxChannel {
+    /// DMAMUX instance this channel is on.
     type Mux;
 }
 

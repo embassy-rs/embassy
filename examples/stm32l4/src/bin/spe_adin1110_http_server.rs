@@ -1,10 +1,7 @@
-#![deny(clippy::pedantic)]
-#![allow(clippy::doc_markdown)]
 #![no_main]
 #![no_std]
-// Needed unitl https://github.com/rust-lang/rust/issues/63063 is stablised.
-#![feature(type_alias_impl_trait)]
-#![feature(associated_type_bounds)]
+#![deny(clippy::pedantic)]
+#![allow(clippy::doc_markdown)]
 #![allow(clippy::missing_errors_doc)]
 
 // This example works on a ANALOG DEVICE EVAL-ADIN110EBZ board.
@@ -36,7 +33,7 @@ use hal::rng::{self, Rng};
 use hal::{bind_interrupts, exti, pac, peripherals};
 use heapless::Vec;
 use rand::RngCore;
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {embassy_stm32 as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -114,8 +111,8 @@ async fn main(spawner: Spawner) {
     let led_uc4_blue = Output::new(dp.PG15, Level::High, Speed::Low);
 
     // Read the uc_cfg switches
-    let uc_cfg0 = Input::new(dp.PB2, Pull::None);
-    let uc_cfg1 = Input::new(dp.PF11, Pull::None);
+    let mut uc_cfg0 = Input::new(dp.PB2, Pull::None);
+    let mut uc_cfg1 = Input::new(dp.PF11, Pull::None);
     let _uc_cfg2 = Input::new(dp.PG6, Pull::None);
     let _uc_cfg3 = Input::new(dp.PG11, Pull::None);
 
@@ -133,8 +130,8 @@ async fn main(spawner: Spawner) {
 
     // Setup IO and SPI for the SPE chip
     let spe_reset_n = Output::new(dp.PC7, Level::Low, Speed::Low);
-    let spe_cfg0 = Input::new(dp.PC8, Pull::None);
-    let spe_cfg1 = Input::new(dp.PC9, Pull::None);
+    let mut spe_cfg0 = Input::new(dp.PC8, Pull::None);
+    let mut spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
     let spe_int = Input::new(dp.PB11, Pull::None);
@@ -180,7 +177,8 @@ async fn main(spawner: Spawner) {
         }
     };
 
-    let state = make_static!(embassy_net_adin1110::State::<8, 8>::new());
+    static STATE: StaticCell<embassy_net_adin1110::State<8, 8>> = StaticCell::new();
+    let state = STATE.init(embassy_net_adin1110::State::<8, 8>::new());
 
     let (device, runner) = embassy_net_adin1110::new(
         MAC,
@@ -217,11 +215,13 @@ async fn main(spawner: Spawner) {
     };
 
     // Init network stack
-    let stack = &*make_static!(Stack::new(
+    static STACK: StaticCell<Stack<Device<'static>>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+    let stack = &*STACK.init(Stack::new(
         device,
         ip_cfg,
-        make_static!(StackResources::<2>::new()),
-        seed
+        RESOURCES.init(StackResources::<2>::new()),
+        seed,
     ));
 
     // Launch network task

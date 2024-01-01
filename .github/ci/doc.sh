@@ -8,6 +8,7 @@ export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
 export BUILDER_THREADS=4
 export BUILDER_COMPRESS=true
+mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 # force rustup to download the toolchain before starting building.
 # Otherwise, the docs builder is running multiple instances of cargo rustdoc concurrently.

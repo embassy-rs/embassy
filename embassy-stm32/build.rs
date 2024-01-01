@@ -187,6 +187,8 @@ fn main() {
         Some("tim3") => "TIM3",
         Some("tim4") => "TIM4",
         Some("tim5") => "TIM5",
+        Some("tim9") => "TIM9",
+        Some("tim11") => "TIM11",
         Some("tim12") => "TIM12",
         Some("tim15") => "TIM15",
         Some("any") => {
@@ -198,12 +200,16 @@ fn main() {
                 "TIM4"
             } else if singletons.contains(&"TIM5".to_string()) {
                 "TIM5"
+            } else if singletons.contains(&"TIM9".to_string()) {
+                "TIM9"
+            } else if singletons.contains(&"TIM11".to_string()) {
+                "TIM11"
             } else if singletons.contains(&"TIM12".to_string()) {
                 "TIM12"
             } else if singletons.contains(&"TIM15".to_string()) {
                 "TIM15"
             } else {
-                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM12 or TIM15.")
+                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM9, TIM11, TIM12 or TIM15.")
             }
         }
         _ => panic!("unknown time_driver {:?}", time_driver),
@@ -666,14 +672,14 @@ fn main() {
         (("lpuart", "RTS"), quote!(crate::usart::RtsPin)),
         (("lpuart", "CK"), quote!(crate::usart::CkPin)),
         (("lpuart", "DE"), quote!(crate::usart::DePin)),
-        (("sai", "SCK_A"), quote!(crate::sai::SckAPin)),
-        (("sai", "SCK_B"), quote!(crate::sai::SckBPin)),
-        (("sai", "FS_A"), quote!(crate::sai::FsAPin)),
-        (("sai", "FS_B"), quote!(crate::sai::FsBPin)),
-        (("sai", "SD_A"), quote!(crate::sai::SdAPin)),
-        (("sai", "SD_B"), quote!(crate::sai::SdBPin)),
-        (("sai", "MCLK_A"), quote!(crate::sai::MclkAPin)),
-        (("sai", "MCLK_B"), quote!(crate::sai::MclkBPin)),
+        (("sai", "SCK_A"), quote!(crate::sai::SckPin<A>)),
+        (("sai", "SCK_B"), quote!(crate::sai::SckPin<B>)),
+        (("sai", "FS_A"), quote!(crate::sai::FsPin<A>)),
+        (("sai", "FS_B"), quote!(crate::sai::FsPin<B>)),
+        (("sai", "SD_A"), quote!(crate::sai::SdPin<A>)),
+        (("sai", "SD_B"), quote!(crate::sai::SdPin<B>)),
+        (("sai", "MCLK_A"), quote!(crate::sai::MclkPin<A>)),
+        (("sai", "MCLK_B"), quote!(crate::sai::MclkPin<B>)),
         (("sai", "WS"), quote!(crate::sai::WsPin)),
         (("spi", "SCK"), quote!(crate::spi::SckPin)),
         (("spi", "MOSI"), quote!(crate::spi::MosiPin)),
@@ -989,8 +995,8 @@ fn main() {
         (("usart", "TX"), quote!(crate::usart::TxDma)),
         (("lpuart", "RX"), quote!(crate::usart::RxDma)),
         (("lpuart", "TX"), quote!(crate::usart::TxDma)),
-        (("sai", "A"), quote!(crate::sai::DmaA)),
-        (("sai", "B"), quote!(crate::sai::DmaB)),
+        (("sai", "A"), quote!(crate::sai::Dma<A>)),
+        (("sai", "B"), quote!(crate::sai::Dma<B>)),
         (("spi", "RX"), quote!(crate::spi::RxDma)),
         (("spi", "TX"), quote!(crate::spi::TxDma)),
         (("i2c", "RX"), quote!(crate::i2c::RxDma)),

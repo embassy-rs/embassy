@@ -23,6 +23,7 @@ pub use firmware_updater::{
 
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
+pub(crate) const DFU_DETACH_MAGIC: u8 = 0xE0;
 
 /// The state of the bootloader after running prepare.
 #[derive(PartialEq, Eq, Debug)]
@@ -32,6 +33,8 @@ pub enum State {
     Boot,
     /// Bootloader has swapped the active partition with the dfu partition and will attempt boot.
     Swap,
+    /// Application has received a request to reboot into DFU mode to apply an update.
+    DfuDetach,
 }
 
 /// Buffer aligned to 32 byte boundary, largest known alignment requirement for embassy-boot.
@@ -272,21 +275,19 @@ mod tests {
         // The following key setup is based on:
         // https://docs.rs/ed25519-dalek/latest/ed25519_dalek/#example
 
-        use ed25519_dalek::Keypair;
+        use ed25519_dalek::{Digest, Sha512, Signature, Signer, SigningKey, VerifyingKey};
         use rand::rngs::OsRng;
 
         let mut csprng = OsRng {};
-        let keypair: Keypair = Keypair::generate(&mut csprng);
+        let keypair = SigningKey::generate(&mut csprng);
 
-        use ed25519_dalek::{Digest, Sha512, Signature, Signer};
         let firmware: &[u8] = b"This are bytes that would otherwise be firmware bytes for DFU.";
         let mut digest = Sha512::new();
         digest.update(&firmware);
         let message = digest.finalize();
         let signature: Signature = keypair.sign(&message);
 
-        use ed25519_dalek::PublicKey;
-        let public_key: PublicKey = keypair.public;
+        let public_key = keypair.verifying_key();
 
         // Setup flash
         let flash = BlockingTestFlash::new(BootLoaderConfig {
