@@ -179,6 +179,7 @@ impl Executor {
         }
     }
 
+    #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
         #[cfg(stm32l5)]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
