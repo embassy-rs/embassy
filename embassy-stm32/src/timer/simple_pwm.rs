@@ -86,14 +86,13 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
 
         this.inner.enable_outputs();
 
-        this.inner
-            .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch2, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+                this.inner.set_output_compare_preload(channel, true)
+            });
+
         this
     }
 
@@ -105,6 +104,11 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     /// Disable the given channel.
     pub fn disable(&mut self, channel: Channel) {
         self.inner.enable_channel(channel, false);
+    }
+
+    /// Check whether given channel is enabled
+    pub fn is_enabled(&self, channel: Channel) -> bool {
+        self.inner.get_channel_enable_state(channel)
     }
 
     /// Set PWM frequency.
@@ -135,9 +139,85 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         self.inner.set_compare_value(channel, duty)
     }
 
+    /// Get the duty for a given channel.
+    ///
+    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
+    pub fn get_duty(&self, channel: Channel) -> u16 {
+        self.inner.get_compare_value(channel)
+    }
+
     /// Set the output polarity for a given channel.
     pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
         self.inner.set_output_polarity(channel, polarity);
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:  
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn gen_waveform(
+        &mut self,
+        dma: impl Peripheral<P = impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &[u16],
+    ) {
+        assert!(duty.iter().all(|v| *v <= self.get_max_duty()));
+
+        into_ref!(dma);
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_duty_state = self.get_duty(channel);
+        let original_enable_state = self.is_enabled(channel);
+        let original_update_dma_state = self.inner.get_update_dma_state();
+
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(true);
+        }
+
+        if !original_enable_state {
+            self.enable(channel);
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                &mut dma,
+                req,
+                duty,
+                T::regs_gp16().ccr(channel.index()).as_ptr() as *mut _,
+                dma_transfer_option,
+            )
+            .await
+        };
+
+        // restore output compare state
+        if !original_enable_state {
+            self.disable(channel);
+        }
+
+        self.set_duty(channel, original_duty_state);
+
+        // Since DMA is closed before timer update event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(false);
+        }
     }
 }
 

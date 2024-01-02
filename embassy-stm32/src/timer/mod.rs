@@ -91,7 +91,17 @@ pub(crate) mod sealed {
 
         /// Enable/disable the update interrupt.
         fn enable_update_interrupt(&mut self, enable: bool) {
-            Self::regs().dier().write(|r| r.set_uie(enable));
+            Self::regs().dier().modify(|r| r.set_uie(enable));
+        }
+
+        /// Enable/disable the update dma.
+        fn enable_update_dma(&mut self, enable: bool) {
+            Self::regs().dier().modify(|r| r.set_ude(enable));
+        }
+
+        /// Get the update dma enable/disable state.
+        fn get_update_dma_state(&self) -> bool {
+            Self::regs().dier().read().ude()
         }
 
         /// Enable/disable autoreload preload.
@@ -269,6 +279,11 @@ pub(crate) mod sealed {
             Self::regs_gp16().ccer().modify(|w| w.set_cce(channel.index(), enable));
         }
 
+        /// Get enable/disable state of a channel
+        fn get_channel_enable_state(&self, channel: Channel) -> bool {
+            Self::regs_gp16().ccer().read().cce(channel.index())
+        }
+
         /// Set compare value for a channel.
         fn set_compare_value(&mut self, channel: Channel, value: u16) {
             Self::regs_gp16().ccr(channel.index()).modify(|w| w.set_ccr(value));
@@ -287,6 +302,14 @@ pub(crate) mod sealed {
         /// Get compare value for a channel.
         fn get_compare_value(&self, channel: Channel) -> u16 {
             Self::regs_gp16().ccr(channel.index()).read().ccr()
+        }
+
+        /// Set output compare preload.
+        fn set_output_compare_preload(&mut self, channel: Channel, preload: bool) {
+            let channel_index = channel.index();
+            Self::regs_gp16()
+                .ccmr_output(channel_index / 2)
+                .modify(|w| w.set_ocpe(channel_index % 2, preload));
         }
     }
 
@@ -535,13 +558,16 @@ impl From<OutputPolarity> for bool {
 pub trait Basic16bitInstance: sealed::Basic16bitInstance + 'static {}
 
 /// Gneral-purpose 16-bit timer instance.
-pub trait GeneralPurpose16bitInstance: sealed::GeneralPurpose16bitInstance + 'static {}
+pub trait GeneralPurpose16bitInstance: sealed::GeneralPurpose16bitInstance + Basic16bitInstance + 'static {}
 
 /// Gneral-purpose 32-bit timer instance.
-pub trait GeneralPurpose32bitInstance: sealed::GeneralPurpose32bitInstance + 'static {}
+pub trait GeneralPurpose32bitInstance:
+    sealed::GeneralPurpose32bitInstance + GeneralPurpose16bitInstance + 'static
+{
+}
 
 /// Advanced control timer instance.
-pub trait AdvancedControlInstance: sealed::AdvancedControlInstance + 'static {}
+pub trait AdvancedControlInstance: sealed::AdvancedControlInstance + GeneralPurpose16bitInstance + 'static {}
 
 /// Capture/Compare 16-bit timer instance.
 pub trait CaptureCompare16bitInstance:
@@ -551,7 +577,7 @@ pub trait CaptureCompare16bitInstance:
 
 /// Capture/Compare 16-bit timer instance with complementary pin support.
 pub trait ComplementaryCaptureCompare16bitInstance:
-    sealed::ComplementaryCaptureCompare16bitInstance + AdvancedControlInstance + 'static
+    sealed::ComplementaryCaptureCompare16bitInstance + CaptureCompare16bitInstance + AdvancedControlInstance + 'static
 {
 }
 
@@ -676,3 +702,6 @@ foreach_interrupt! {
         }
     };
 }
+
+// Update Event trigger DMA for every timer
+dma_trait!(UpDma, Basic16bitInstance);
