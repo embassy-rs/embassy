@@ -45,7 +45,7 @@ async fn main(_spawner: Spawner) {
         device_config.rcc.sys = Sysclk::PLL1_P;
     }
 
-    let dp = embassy_stm32::init(device_config);
+    let mut dp = embassy_stm32::init(device_config);
 
     let mut ws2812_pwm = SimplePwm::new(
         dp.TIM3,
@@ -55,7 +55,6 @@ async fn main(_spawner: Spawner) {
         None,
         khz(800), // data rate of ws2812
         CountingMode::EdgeAlignedUp,
-        dp.DMA1_CH2,
     );
 
     // construct ws2812 non-return-to-zero (NRZ) code bit by bit
@@ -91,7 +90,8 @@ async fn main(_spawner: Spawner) {
 
     loop {
         for &color in color_list {
-            ws2812_pwm.gen_waveform(pwm_channel, color).await;
+            // with &mut, we can easily reuse same DMA channel multiple times
+            ws2812_pwm.gen_waveform(&mut dp.DMA1_CH2, pwm_channel, color).await;
             // ws2812 need at least 50 us low level input to confirm the input data and change it's state
             Timer::after_micros(50).await;
             // wait until ticker tick

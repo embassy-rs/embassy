@@ -55,19 +55,12 @@ channel_impl!(new_ch3, Ch3, Channel3Pin);
 channel_impl!(new_ch4, Ch4, Channel4Pin);
 
 /// Simple PWM driver.
-pub struct SimplePwm<'d, T, Dma> {
+pub struct SimplePwm<'d, T> {
     inner: PeripheralRef<'d, T>,
-    dma: PeripheralRef<'d, Dma>,
 }
 
-impl<'d, T: CaptureCompare16bitInstance, Dma> SimplePwm<'d, T, Dma> {
+impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     /// Create a new simple PWM driver.
-    ///
-    /// Note:  
-    /// If you want to use [`Self::gen_waveform()`], you need to provide corresponding TIMx_UP DMA channel.
-    /// Otherwise you can just put a [`dma::NoDma`](crate::dma::NoDma)  
-    /// Currently, you can only use one channel at a time to generate waveform with [`Self::gen_waveform()`].  
-    /// But you can always use multiple TIM to generate multiple waveform simultaneously.
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         _ch1: Option<PwmPin<'d, T, Ch1>>,
@@ -76,22 +69,16 @@ impl<'d, T: CaptureCompare16bitInstance, Dma> SimplePwm<'d, T, Dma> {
         _ch4: Option<PwmPin<'d, T, Ch4>>,
         freq: Hertz,
         counting_mode: CountingMode,
-        dma: impl Peripheral<P = Dma> + 'd,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode, dma)
+        Self::new_inner(tim, freq, counting_mode)
     }
 
-    fn new_inner(
-        tim: impl Peripheral<P = T> + 'd,
-        freq: Hertz,
-        counting_mode: CountingMode,
-        dma: impl Peripheral<P = Dma> + 'd,
-    ) -> Self {
-        into_ref!(tim, dma);
+    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
+        into_ref!(tim);
 
         T::enable_and_reset();
 
-        let mut this = Self { inner: tim, dma };
+        let mut this = Self { inner: tim };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
@@ -165,32 +152,23 @@ impl<'d, T: CaptureCompare16bitInstance, Dma> SimplePwm<'d, T, Dma> {
     }
 }
 
-impl<'d, T: CaptureCompare16bitInstance + Basic16bitInstance, Dma> SimplePwm<'d, T, Dma>
-where
-    Dma: super::UpDma<T>,
-{
+impl<'d, T: CaptureCompare16bitInstance + Basic16bitInstance> SimplePwm<'d, T> {
     /// Generate a sequence of PWM waveform
-    pub async fn gen_waveform(&mut self, channel: Channel, duty: &[u16]) {
+    ///
+    /// Note:  
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn gen_waveform(
+        &mut self,
+        dma: impl Peripheral<P = impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &[u16],
+    ) {
         assert!(duty.iter().all(|v| *v <= self.get_max_duty()));
 
-        #[cfg_attr(any(stm32f334, stm32f378), allow(clippy::let_unit_value))]
-        let req = self.dma.request();
+        into_ref!(dma);
 
-        #[cfg(not(any(bdma, gpdma)))]
-        let (isr_bit, isr_reg, ifcr_reg) = {
-            let dma_regs = self.dma.regs();
-            let isr_num = self.dma.num() / 4;
-            let isr_bit = self.dma.num() % 4;
-            let isr_reg = dma_regs.isr(isr_num);
-            let ifcr_reg = dma_regs.ifcr(isr_num);
-            (isr_bit, isr_reg, ifcr_reg)
-        };
-
-        #[cfg(not(any(bdma, gpdma)))]
-        // clean DMA FIFO error before a transfer
-        if isr_reg.read().feif(isr_bit) {
-            ifcr_reg.write(|v| v.set_feif(isr_bit, true));
-        }
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
 
         let original_duty_state = self.get_duty(channel);
         let original_enable_state = self.is_enabled(channel);
@@ -218,7 +196,7 @@ where
             };
 
             Transfer::new_write(
-                &mut self.dma,
+                &mut dma,
                 req,
                 duty,
                 T::regs_gp16().ccr(channel.index()).as_ptr() as *mut _,
@@ -231,21 +209,21 @@ where
         if !original_enable_state {
             self.disable(channel);
         }
+
         self.set_duty(channel, original_duty_state);
+
+        // Since DMA is closed before timer update event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
         if !original_update_dma_state {
             self.inner.enable_update_dma(false);
-
-            #[cfg(not(any(bdma, gpdma)))]
-            // Since DMA could be closed before timer update event trigger DMA is turn off, this can almost always trigger a DMA FIFO error.
-            // Thus, we will try clean DMA FEIF after each transfer
-            if isr_reg.read().feif(isr_bit) {
-                ifcr_reg.write(|v| v.set_feif(isr_bit, true));
-            }
         }
     }
 }
 
-impl<'d, T: CaptureCompare16bitInstance, Dma> embedded_hal_02::Pwm for SimplePwm<'d, T, Dma> {
+impl<'d, T: CaptureCompare16bitInstance> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     type Channel = Channel;
     type Time = Hertz;
     type Duty = u16;
