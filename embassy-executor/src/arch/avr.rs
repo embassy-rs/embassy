@@ -57,10 +57,13 @@ mod thread {
 
             loop {
                 unsafe {
+                    avr_device::interrupt::disable();
                     if SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
-                        self.inner.poll();
-                    } else {
+                        avr_device::interrupt::enable();
                         avr_device::asm::sleep();
+                    } else {
+                        avr_device::interrupt::enable();
+                        self.inner.poll();
                     }
                 }
             }
