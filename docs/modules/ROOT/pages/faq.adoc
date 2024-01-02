@@ -153,3 +153,9 @@ Note that the git revision should match any other embassy patches or git depende
     ** disable `executor-thread`
     ** make `main`` spawn everything, then enable link:https://docs.rs/cortex-m/latest/cortex_m/peripheral/struct.SCB.html#method.set_sleeponexit[SCB.SLEEPONEXIT] and `loop { cortex_m::asm::wfi() }`
     ** *Note:*  If you need 2 priority levels, using 2 interrupt executors is better than 1 thread executor + 1 interrupt executor.
+
+== How do I set up the task arenas on stable?
+
+When you aren't using the `nightly` feature of `embassy-executor`, the executor uses a bump allocator, which may require configuration.
+
+Check out link:https://docs.embassy.dev/embassy-executor/git/cortex-m/index.html#task-arena[Task Arena Documentation] for more details.
