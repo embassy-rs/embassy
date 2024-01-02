@@ -24,7 +24,7 @@ flavors = [
     { regex_feature = "stm32l0.*", target = "thumbv6m-none-eabi", features = ["low-power"] },
     { regex_feature = "stm32l1.*", target = "thumbv7m-none-eabi" },
     { regex_feature = "stm32l4.*", target = "thumbv7em-none-eabi" },
-    { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32wba.*", target = "thumbv8m.main-none-eabihf" },
