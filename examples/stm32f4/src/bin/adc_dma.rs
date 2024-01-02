@@ -52,7 +52,7 @@ async fn continous_read<T: Instance + Peripheral<P = T>, RXDMA: RxDma<T> + Perip
 async fn main(_spawner: Spawner) {
     info!("Hello World!");
     let p = embassy_stm32::init(Default::default());
-    let mut adc = Adc::new(p.ADC1, p.DMA2_CH0, &mut Delay);
+    let mut adc = Adc::new(p.ADC1, p.DMA1_CH0, &mut Delay);
     let mut pin = p.PA0;
 
     // let mut vref = adc.enable_vref();

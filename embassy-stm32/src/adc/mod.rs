@@ -29,17 +29,29 @@ pub use resolution::Resolution;
 #[cfg(not(adc_f3_v2))]
 pub use sample_time::SampleTime;
 
-use crate::peripherals;
+use crate::dma::{self, Channel};
+use crate::peripherals::{self, DMA1_CH0};
+
+// ADC States
+pub enum ADCState {
+    Off,
+    ContinuousScan,
+    Scan,
+    SingleShot,
+    On,
+}
 
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance, RXDMA> {
     #[allow(unused)]
-    // adc: crate::PeripheralRef<'d, T>,
     #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
     sample_time: SampleTime,
     calibrated_vdda: u32,
     rxdma: PeripheralRef<'d, RXDMA>,
+    data: &'static mut [u16],
+    // circbuf: Option<crate::dma::Transfer<'d, RXDMA>>,
     phantom: PhantomData<&'d mut T>,
+    state: ADCState,
 }
 
 pub(crate) mod sealed {

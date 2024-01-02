@@ -14,10 +14,10 @@ use stm32_metapac::adc::{self, vals};
 use stm32_metapac::common::R;
 
 use super::RxDma;
-use crate::adc::{sample_time, Adc, AdcPin, Instance, Resolution, SampleTime};
+use crate::adc::{sample_time, ADCState, Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer};
-use crate::dma::{Channel, DoubleBuffered, ReadableRingBuffer, Transfer};
-use crate::peripherals::{ADC1, DMA1, DMA1_CH1};
+use crate::dma::{Channel, DoubleBuffered, NoDma, ReadableRingBuffer, Transfer};
+use crate::peripherals::{ADC1, DMA1, DMA1_CH0, DMA1_CH1};
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -35,7 +35,7 @@ pub const VREF_CALIB_MV: u32 = 3300;
 /// ADC turn-on time
 pub const ADC_POWERUP_TIME_US: u32 = 3;
 
-/// Interrupt handler.
+// Interrupt handler.
 // pub struct InterruptHandler<T: Instance> {
 //     _phantom: PhantomData<T>,
 // }
@@ -81,13 +81,13 @@ impl<T: Instance> Vref<T> {
         ADC_MAX as u16
     }
 
-    // pub async fn calibrate(&mut self, adc: &mut Adc<'_, T, Channel>) -> Calibration {
-    //     let vref_val = adc.read(self);
-    //     Calibration {
-    //         vref_cal: self.calibrated_value(),
-    //         vref_val,
-    //     }
-    // }
+    pub async fn calibrate(&mut self, adc: &mut Adc<'_, T, NoDma>) -> Calibration {
+        let vref_val = adc.read(self);
+        Calibration {
+            vref_cal: self.calibrated_value(),
+            vref_val,
+        }
+    }
 }
 
 pub struct Calibration {
@@ -196,6 +196,7 @@ impl<'d, T: Instance, RXDMA> Adc<'d, T, RXDMA> {
     pub fn new(
         _adc: impl Peripheral<P = T> + 'd,
         rxdma: impl Peripheral<P = RXDMA> + 'd,
+        data: &'static mut [u16],
         delay: &mut impl DelayUs<u32>,
     ) -> Self {
         into_ref!(_adc);
@@ -211,6 +212,8 @@ impl<'d, T: Instance, RXDMA> Adc<'d, T, RXDMA> {
             calibrated_vdda: VDDA_CALIB_MV,
             phantom: PhantomData,
             rxdma,
+            data,
+            state: ADCState::Off,
         }
     }
 
@@ -476,8 +479,7 @@ impl<'d, T: Instance, RXDMA> Adc<'d, T, RXDMA> {
             complete_transfer_ir: true,
         };
 
-        let mut dma =
-            unsafe { Transfer::new_read_raw(self.rxdma.reborrow(), rx_request, rx_src, data.as_mut_slice(), options) };
+        let mut dma = unsafe { Transfer::new_read_raw(self.rxdma.reborrow(), rx_request, rx_src, self.data, options) };
 
         //Enable ADC
         T::regs().cr2().modify(|reg| {
@@ -545,6 +547,7 @@ impl<'d, T: Instance, RXDMA> Adc<'d, T, RXDMA> {
             if running {
                 if complete > 0 {
                     //trace!("Buffer0 accessible, reading Buffer0");
+                    data.copy_from_slice(self.data);
                     let sampler_state: SamplerState = sampler(&data);
                     //dma.reset_complete_count();
                     T::regs().cr2().write(|reg| reg.set_swstart(true));
