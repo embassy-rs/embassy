@@ -135,6 +135,12 @@ impl sealed::Instance for crate::peripherals::RTC {
     #[cfg(all(feature = "low-power", stm32g4))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
 
+    #[cfg(all(feature = "low-power", stm32l5))]
+    const EXTI_WAKEUP_LINE: usize = 17;
+
+    #[cfg(all(feature = "low-power", stm32l5))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+
     fn read_backup_register(_rtc: &Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]
         if register < Self::BACKUP_REGISTER_COUNT {

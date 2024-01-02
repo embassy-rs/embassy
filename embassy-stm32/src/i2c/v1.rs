@@ -1,3 +1,9 @@
+//! # I2Cv1
+//!
+//! This implementation is used for STM32F1, STM32F2, STM32F4, and STM32L1 devices.
+//!
+//! All other devices (as of 2023-12-28) use [`v2`](super::v2) instead.
+
 use core::future::poll_fn;
 use core::task::Poll;
 
@@ -10,6 +16,17 @@ use crate::dma::Transfer;
 use crate::pac::i2c;
 use crate::time::Hertz;
 
+// /!\                      /!\
+// /!\ Implementation note! /!\
+// /!\                      /!\
+//
+// It's somewhat unclear whether using interrupts here in a *strictly* one-shot style is actually
+// what we want! If you are looking in this file because you are doing async I2C and your code is
+// just totally hanging (sometimes), maybe swing by this issue:
+// <https://github.com/embassy-rs/embassy/issues/2372>.
+//
+// There's some more details there, and we might have a fix for you. But please let us know if you
+// hit a case like this!
 pub unsafe fn on_interrupt<T: Instance>() {
     let regs = T::regs();
     // i2c v2 only woke the task on transfer complete interrupts. v1 uses interrupts for a bunch of
@@ -375,6 +392,9 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                         T::regs().sr2().read();
                         Poll::Ready(Ok(()))
                     } else {
+                        // If we need to go around, then re-enable the interrupts, otherwise nothing
+                        // can wake us up and we'll hang.
+                        Self::enable_interrupts();
                         Poll::Pending
                     }
                 }

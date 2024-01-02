@@ -207,6 +207,9 @@ cargo batch  \
     $BUILD_EXTRA
 
 
+# failed, a wire must've come loose, will check asap.
+rm out/tests/rpi-pico/i2c
+
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
 

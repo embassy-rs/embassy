@@ -35,8 +35,7 @@ The <a href="https://docs.embassy.dev/embassy-net/">embassy-net</a> network stac
 The <a href="https://github.com/embassy-rs/nrf-softdevice">nrf-softdevice</a> crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
 The <a href="https://github.com/embassy-rs/embassy/tree/main/embassy-stm32-wpan">embassy-stm32-wpan</a> crate provides Bluetooth Low Energy 5.x support for stm32wb microcontrollers.
 
-- **LoRa** - 
-<a href="hthttps://github.com/lora-rs/lora-rs">The lora-rs project</a> provides an async LoRa and LoRaWAN stack that works well on Embassy.
+- **LoRa** - The <a href="https://github.com/lora-rs/lora-rs">lora-rs</a> project provides an async LoRa and LoRaWAN stack that works well on Embassy.
 
 - **USB** - 
 <a href="https://docs.embassy.dev/embassy-usb/">embassy-usb</a> implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
