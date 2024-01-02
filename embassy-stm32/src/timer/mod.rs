@@ -558,13 +558,16 @@ impl From<OutputPolarity> for bool {
 pub trait Basic16bitInstance: sealed::Basic16bitInstance + 'static {}
 
 /// Gneral-purpose 16-bit timer instance.
-pub trait GeneralPurpose16bitInstance: sealed::GeneralPurpose16bitInstance + 'static {}
+pub trait GeneralPurpose16bitInstance: sealed::GeneralPurpose16bitInstance + Basic16bitInstance + 'static {}
 
 /// Gneral-purpose 32-bit timer instance.
-pub trait GeneralPurpose32bitInstance: sealed::GeneralPurpose32bitInstance + 'static {}
+pub trait GeneralPurpose32bitInstance:
+    sealed::GeneralPurpose32bitInstance + GeneralPurpose16bitInstance + 'static
+{
+}
 
 /// Advanced control timer instance.
-pub trait AdvancedControlInstance: sealed::AdvancedControlInstance + 'static {}
+pub trait AdvancedControlInstance: sealed::AdvancedControlInstance + GeneralPurpose16bitInstance + 'static {}
 
 /// Capture/Compare 16-bit timer instance.
 pub trait CaptureCompare16bitInstance:
@@ -574,7 +577,7 @@ pub trait CaptureCompare16bitInstance:
 
 /// Capture/Compare 16-bit timer instance with complementary pin support.
 pub trait ComplementaryCaptureCompare16bitInstance:
-    sealed::ComplementaryCaptureCompare16bitInstance + AdvancedControlInstance + 'static
+    sealed::ComplementaryCaptureCompare16bitInstance + CaptureCompare16bitInstance + AdvancedControlInstance + 'static
 {
 }
 
