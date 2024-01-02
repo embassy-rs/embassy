@@ -57,7 +57,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-8caf2f0bda28baf4393899dc67ba57f058087f5a" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-4d06d091219322837b7cef21748a180d09d7a34f" }
 vcell = "0.1.3"
 bxcan = "0.7.0"
 nb = "1.0.0"
@@ -75,7 +75,7 @@ critical-section = { version = "1.1", features = ["std"] }
 [build-dependencies]
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-8caf2f0bda28baf4393899dc67ba57f058087f5a", default-features = false, features = ["metadata"]}
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-4d06d091219322837b7cef21748a180d09d7a34f", default-features = false, features = ["metadata"]}
 
 
 [features]
