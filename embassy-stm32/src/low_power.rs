@@ -37,6 +37,8 @@
 //! async fn async_main(spawner: Spawner) {
 //!     // initialize the platform...
 //!     let mut config = embassy_stm32::Config::default();
+//!     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
+//!     config.enable_debug_during_sleep = false;
 //!     let p = embassy_stm32::init(config);
 //!
 //!     // give the RTC to the executor...
@@ -107,6 +109,19 @@ pub enum StopMode {
     Stop2,
 }
 
+#[cfg(stm32l5)]
+use stm32_metapac::pwr::vals::Lpms;
+
+#[cfg(stm32l5)]
+impl Into<Lpms> for StopMode {
+    fn into(self) -> Lpms {
+        match self {
+            StopMode::Stop1 => Lpms::STOP1,
+            StopMode::Stop2 => Lpms::STOP2,
+        }
+    }
+}
+
 /// Thread mode executor, using WFE/SEV.
 ///
 /// This is the simplest and most common kind of executor. It runs on
@@ -164,8 +179,10 @@ impl Executor {
         }
     }
 
-    fn configure_stop(&mut self, _stop_mode: StopMode) {
-        // TODO: configure chip-specific settings for stop
+    #[allow(unused_variables)]
+    fn configure_stop(&mut self, stop_mode: StopMode) {
+        #[cfg(stm32l5)]
+        crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
     }
 
     fn configure_pwr(&mut self) {
