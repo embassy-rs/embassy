@@ -150,9 +150,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
         self.inner.set_output_polarity(channel, polarity);
     }
-}
 
-impl<'d, T: CaptureCompare16bitInstance + Basic16bitInstance> SimplePwm<'d, T> {
     /// Generate a sequence of PWM waveform
     ///
     /// Note:  
