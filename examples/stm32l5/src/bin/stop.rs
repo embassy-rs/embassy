@@ -3,11 +3,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output, Speed, AnyPin};
+use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
 use embassy_stm32::low_power::Executor;
+use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
-use embassy_stm32::rcc::LsConfig;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
