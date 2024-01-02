@@ -157,7 +157,7 @@ pub struct Config {
     /// RCC config.
     pub rcc: rcc::Config,
 
-    /// Enable debug during sleep.
+    /// Enable debug during sleep and stop.
     ///
     /// May incrase power consumption. Defaults to true.
     #[cfg(dbgmcu)]
