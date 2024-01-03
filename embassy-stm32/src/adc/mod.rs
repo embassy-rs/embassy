@@ -23,14 +23,13 @@ use core::marker::PhantomData;
 #[allow(unused)]
 #[cfg(not(adc_f3_v2))]
 pub use _version::*;
-use embassy_hal_internal::{Peripheral, PeripheralRef};
+use embassy_hal_internal::PeripheralRef;
 #[cfg(not(any(adc_f1, adc_f3, adc_f3_v2)))]
 pub use resolution::Resolution;
 #[cfg(not(adc_f3_v2))]
 pub use sample_time::SampleTime;
 
-use crate::dma::{self, Channel};
-use crate::peripherals::{self, DMA1_CH0};
+use crate::{dma, peripherals};
 
 // ADC States
 pub enum ADCState {
@@ -42,14 +41,14 @@ pub enum ADCState {
 }
 
 /// Analog to Digital driver.
-pub struct Adc<'d, T: Instance, RXDMA> {
+pub struct Adc<'d, T: Instance, RXDMA: dma::Channel> {
     #[allow(unused)]
     #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
     sample_time: SampleTime,
     calibrated_vdda: u32,
-    rxdma: PeripheralRef<'d, RXDMA>,
-    data: &'static mut [u16],
-    // circbuf: Option<crate::dma::Transfer<'d, RXDMA>>,
+    rxdma: Option<PeripheralRef<'d, RXDMA>>,
+    pub data: &'static mut [u16],
+    transfer: Option<crate::dma::Transfer<'d, RXDMA>>,
     phantom: PhantomData<&'d mut T>,
     state: ADCState,
 }
