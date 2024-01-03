@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -510,6 +510,30 @@ impl AnyChannel {
             DmaInfo::Bdma(r) => r.ch(info.num).ndtr().read().ndt(),
         }
     }
+
+    fn disable_circular_mode(&self) {
+        let info = self.info();
+        let channel = match self.info().dma {
+        #[cfg(dma)]
+        DmaInfo::Dma(regs) => regs.st(info.num),
+        #[cfg(bdma)]
+        DmaInfo::Bdma(regs) => regs.ch(info.num),
+        };
+        channel.cr().modify(|w| {
+            w.set_circ(false);
+        });
+    }
+
+    fn poll_stop(&self) -> Poll<()>{
+        use core::sync::atomic::compiler_fence;
+        compiler_fence(Ordering::SeqCst);
+
+        if !self.is_running() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
 }
 
 /// DMA transfer.
@@ -829,6 +853,25 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
     }
+
+    /// Stop the DMA transfer and await until the buffer is full.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when the buffer is full.
+    ///
+    /// This is designed to be used with streaming input data such as the
+    /// I2S/SAI or ADC.
+    ///
+    /// When using the UART, you probably want `request_stop()`.
+    pub async fn stop(&mut self) {
+        self.channel.disable_circular_mode();
+        //wait until cr.susp reads as true
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+            self.channel.poll_stop()
+        })
+        .await
+    }
 }
 
 impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
@@ -939,6 +982,23 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
+    }
+
+    /// Stop the DMA transfer and await until the buffer is empty.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when all available data has been written.
+    ///
+    /// This is designed to be used with streaming output data such as the
+    /// I2S/SAI or DAC.
+    pub async fn stop(&mut self) {
+        self.channel.disable_circular_mode();
+        //wait until cr.susp reads as true
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+            self.channel.poll_stop()
+        })
+        .await
     }
 }
 
