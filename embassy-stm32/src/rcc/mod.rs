@@ -121,9 +121,9 @@ pub struct Clocks {
     #[cfg(rcc_l4)]
     pub pllsai2_p: Option<Hertz>,
 
-    #[cfg(any(stm32g4, rcc_l4))]
+    #[cfg(any(stm32g0, stm32g4, rcc_l4))]
     pub pll1_p: Option<Hertz>,
-    #[cfg(any(stm32h5, stm32h7, stm32f2, stm32f4, stm32f7, rcc_l4, stm32g4))]
+    #[cfg(any(stm32h5, stm32h7, stm32f2, stm32f4, stm32f7, rcc_l4, stm32g0, stm32g4))]
     pub pll1_q: Option<Hertz>,
     #[cfg(any(stm32h5, stm32h7))]
     pub pll2_p: Option<Hertz>,
@@ -160,16 +160,16 @@ pub struct Clocks {
 
     pub rtc: Option<Hertz>,
 
-    #[cfg(any(stm32h5, stm32h7, rcc_l4, rcc_c0))]
+    #[cfg(any(stm32h5, stm32h7, rcc_l4, rcc_c0, stm32g0))]
     pub hsi: Option<Hertz>,
     #[cfg(stm32h5)]
     pub hsi48: Option<Hertz>,
-    #[cfg(stm32h5)]
+    #[cfg(any(stm32g0, stm32h5))]
     pub lsi: Option<Hertz>,
     #[cfg(any(stm32h5, stm32h7))]
     pub csi: Option<Hertz>,
 
-    #[cfg(any(stm32h5, stm32h7, rcc_l4, rcc_c0))]
+    #[cfg(any(stm32h5, stm32h7, rcc_l4, rcc_c0, stm32g0))]
     pub lse: Option<Hertz>,
     #[cfg(any(stm32h5, stm32h7, stm32g4))]
     pub hse: Option<Hertz>,

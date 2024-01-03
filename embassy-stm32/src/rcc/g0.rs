@@ -95,7 +95,7 @@ impl Default for Config {
 }
 
 impl PllConfig {
-    pub(crate) fn init(self) -> Hertz {
+    pub(crate) fn init(self) -> (Hertz, Option<Hertz>, Option<Hertz>) {
         let (src, input_freq) = match self.source {
             PllSource::HSI => (vals::Pllsrc::HSI, HSI_FREQ),
             PllSource::HSE(freq, _) => (vals::Pllsrc::HSE, freq),
@@ -117,6 +117,9 @@ impl PllConfig {
         // RM0454 § 5.4.4:
         // > Caution: The software must set this bitfield so as not to exceed 64 MHz on this clock.
         debug_assert!(r_freq.0 <= 64_000_000);
+
+        let q_freq = self.q.map(|q| n_freq / q);
+        let p_freq = self.p.map(|p| n_freq / p);
 
         // RM0454 § 5.2.3:
         // > To modify the PLL configuration, proceed as follows:
@@ -172,11 +175,14 @@ impl PllConfig {
             w.set_pllpen(self.p.is_some());
         });
 
-        r_freq
+        (r_freq, q_freq, p_freq)
     }
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    let mut pll1_q_freq = None;
+    let mut pll1_p_freq = None;
+
     let (sys_clk, sw) = match config.mux {
         ClockSrc::HSI(div) => {
             // Enable HSI
@@ -199,8 +205,12 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, Sw::HSE)
         }
         ClockSrc::PLL(pll) => {
-            let freq = pll.init();
-            (freq, Sw::PLL1_R)
+            let (r_freq, q_freq, p_freq) = pll.init();
+
+            pll1_q_freq = q_freq;
+            pll1_p_freq = p_freq;
+
+            (r_freq, Sw::PLL1_R)
         }
         ClockSrc::LSI => {
             // Enable LSI
@@ -286,12 +296,21 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     let rtc = config.ls.init();
+    let lse_freq = config.ls.lse.map(|lse| lse.frequency);
+
+    let hsi_freq = (sw == Sw::HSI).then_some(HSI_FREQ);
+    let lsi_freq = (sw == Sw::LSI).then_some(super::LSI_FREQ);
 
     set_freqs(Clocks {
         sys: sys_clk,
         hclk1: ahb_freq,
         pclk1: apb_freq,
         pclk1_tim: apb_tim_freq,
+        hsi: hsi_freq,
+        lse: lse_freq,
+        lsi: lsi_freq,
+        pll1_q: pll1_q_freq,
+        pll1_p: pll1_p_freq,
         rtc,
     });
 }

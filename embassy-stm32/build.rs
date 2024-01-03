@@ -505,7 +505,7 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
-            let mux_supported = HashSet::from(["c0", "h5", "h50", "h7", "h7ab", "h7rm0433", "g4", "l4"])
+            let mux_supported = HashSet::from(["c0", "h5", "h50", "h7", "h7ab", "h7rm0433", "g0", "g4", "l4"])
                 .contains(rcc_registers.version);
             let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
                 // restrict mux implementation to supported versions
@@ -534,7 +534,7 @@ fn main() {
                             let variant_name = format_ident!("{}", v.name);
                             let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
 
-                            if v.name.starts_with("HCLK") || v.name.starts_with("PCLK") || v.name == "SYS" { 
+                            if v.name.starts_with("HCLK") || v.name.starts_with("PCLK") || v.name == "SYS" {
                                 quote! {
                                     #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
                                 }
