@@ -99,7 +99,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         into_ref!(sck, miso, mosi);
         Self::new_inner(
             spim,
-            sck.map_into(),
+            Some(sck.map_into()),
             Some(miso.map_into()),
             Some(mosi.map_into()),
             config,
@@ -115,7 +115,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(sck, mosi);
-        Self::new_inner(spim, sck.map_into(), None, Some(mosi.map_into()), config)
+        Self::new_inner(spim, Some(sck.map_into()), None, Some(mosi.map_into()), config)
     }
 
     /// Create a new SPIM driver, capable of RX only (MISO only).
@@ -127,12 +127,23 @@ impl<'d, T: Instance> Spim<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(sck, miso);
-        Self::new_inner(spim, sck.map_into(), Some(miso.map_into()), None, config)
+        Self::new_inner(spim, Some(sck.map_into()), Some(miso.map_into()), None, config)
+    }
+
+    /// Create a new SPIM driver, capable of TX only (MOSI only), without SCK pin.
+    pub fn new_txonly_nosck(
+        spim: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(mosi);
+        Self::new_inner(spim, None, None, Some(mosi.map_into()), config)
     }
 
     fn new_inner(
         spim: impl Peripheral<P = T> + 'd,
-        sck: PeripheralRef<'d, AnyPin>,
+        sck: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
@@ -142,7 +153,9 @@ impl<'d, T: Instance> Spim<'d, T> {
         let r = T::regs();
 
         // Configure pins
-        sck.conf().write(|w| w.dir().output().drive().h0h1());
+        if let Some(sck) = &sck {
+            sck.conf().write(|w| w.dir().output().drive().h0h1());
+        }
         if let Some(mosi) = &mosi {
             mosi.conf().write(|w| w.dir().output().drive().h0h1());
         }
@@ -152,13 +165,17 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         match config.mode.polarity {
             Polarity::IdleHigh => {
-                sck.set_high();
+                if let Some(sck) = &sck {
+                    sck.set_high();
+                }
                 if let Some(mosi) = &mosi {
                     mosi.set_high();
                 }
             }
             Polarity::IdleLow => {
-                sck.set_low();
+                if let Some(sck) = &sck {
+                    sck.set_low();
+                }
                 if let Some(mosi) = &mosi {
                     mosi.set_low();
                 }
