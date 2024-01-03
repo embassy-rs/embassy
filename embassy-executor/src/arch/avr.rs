@@ -58,7 +58,7 @@ mod thread {
             loop {
                 unsafe {
                     avr_device::interrupt::disable();
-                    if SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
+                    if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
                         avr_device::interrupt::enable();
                         avr_device::asm::sleep();
                     } else {
