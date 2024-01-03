@@ -1,6 +1,6 @@
 //! Basic Direct Memory Acccess (BDMA)
 
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll, Waker};
@@ -429,6 +429,40 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     }
 }
 
+struct RingBuffer {}
+
+impl RingBuffer {
+    fn is_running(ch: &pac::bdma::Ch) -> bool {
+        ch.cr().read().en()
+    }
+
+    fn disable_circular_mode(ch: &pac::bdma::Ch) {
+        ch.cr().modify(|w| {
+            w.set_circ(false);
+        });
+    }
+
+    async fn stop(ch: &pac::bdma::Ch, set_waker: &mut dyn FnMut(&Waker)) {
+        use core::sync::atomic::compiler_fence;
+
+        Self::disable_circular_mode(ch);
+
+        //wait until cr.susp reads as true
+        poll_fn(|cx| {
+            set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            if !Self::is_running(ch) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
 /// Ringbuffer for reading data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
     cr: regs::Cr,
@@ -499,6 +533,22 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     pub fn start(&mut self) {
         let ch = self.channel.regs().ch(self.channel.num());
         ch.cr().write_value(self.cr)
+    }
+
+    /// Stop the DMA transfer and await until the buffer is full.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when the buffer is full.
+    ///
+    /// This is designed to be used with streaming input data such as the
+    /// I2S/SAI or ADC.
+    ///
+    /// When using the UART, you probably want `request_stop()`.
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
     }
 
     /// Clear all data in the ring buffer.
@@ -657,6 +707,20 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
     pub fn start(&mut self) {
         let ch = self.channel.regs().ch(self.channel.num());
         ch.cr().write_value(self.cr)
+    }
+
+    /// Stop the DMA transfer and await until the buffer is empty.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when all available data has been written.
+    ///
+    /// This is designed to be used with streaming output data such as the
+    /// I2S/SAI or DAC.
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().ch(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
     }
 
     /// Clear all data in the ring buffer.
