@@ -26,6 +26,8 @@ async fn main(_spawner: Spawner) {
         source: PllSource::HSI,
         m: Pllm::DIV2,
         n: Plln::MUL10,
+        p: Plldiv::DIV1,
+        q: Plldiv::DIV1,
         r: Plldiv::DIV1,
     });
     config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
