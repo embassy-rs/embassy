@@ -13,7 +13,7 @@
   // uncomment the target of your chip.
   //"rust-analyzer.cargo.target": "thumbv6m-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv7m-none-eabi",
-  "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+  //"rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.linkedProjects": [
     // Uncomment ONE line for the chip you want to work on.
@@ -31,7 +31,7 @@
     // "examples/stm32f3/Cargo.toml",
     // "examples/stm32f334/Cargo.toml",
     // "embassy-stm32/Cargo.toml",
-    "examples/stm32f4/Cargo.toml",
+    // "examples/stm32f4/Cargo.toml",
     // "examples/stm32f7/Cargo.toml",
     // "examples/stm32g0/Cargo.toml",
     // "examples/stm32g4/Cargo.toml",
