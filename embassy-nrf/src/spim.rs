@@ -165,13 +165,17 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         match config.mode.polarity {
             Polarity::IdleHigh => {
-                sck.set_high();
+                if let Some(sck) = &sck {
+                    sck.set_high();
+                }
                 if let Some(mosi) = &mosi {
                     mosi.set_high();
                 }
             }
             Polarity::IdleLow => {
-                sck.set_low();
+                if let Some(sck) = &sck {
+                    sck.set_low();
+                }
                 if let Some(mosi) = &mosi {
                     mosi.set_low();
                 }
