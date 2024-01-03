@@ -37,7 +37,6 @@ pub struct Adc<'d, T: Instance, RXDMA: dma::Channel> {
     #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
     sample_time: SampleTime,
     calibrated_vdda: u32,
-    // rxdma: Option<PeripheralRef<'d, RXDMA>>,
     rxdma: PeripheralRef<'d, RXDMA>,
     pub data: &'static mut [u16],
     transfer: Option<crate::dma::Transfer<'d, RXDMA>>,

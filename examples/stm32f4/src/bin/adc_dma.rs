@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
 
     let mut buf = [0u16; 6];
     let mut i = 0;
-    while i < 3 {
+    loop {
         adc.get_dma_buf(&mut buf);
         info!(
             "\n [{:?}mV, {:?}mV, {:?}mV] \n [{:?}mV, {:?}mV, {:?}mV] ",
@@ -52,30 +52,31 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(100).await;
         i += 1;
     }
+    // adc.stop_continuous_conversion().await;
 
-    adc.start_read_continuous();
-    adc.set_sample_sequence(config::Sequence::One, &mut p.PA0, SampleTime::Cycles112)
-        .await;
+    // adc.start_read_continuous();
+    // adc.set_sample_sequence(config::Sequence::One, &mut p.PA0, SampleTime::Cycles112)
+    //     .await;
 
-    adc.set_sample_sequence(config::Sequence::Two, &mut p.PA1, SampleTime::Cycles112)
-        .await;
+    // adc.set_sample_sequence(config::Sequence::Two, &mut p.PA1, SampleTime::Cycles112)
+    //     .await;
 
-    adc.set_sample_sequence(config::Sequence::Three, &mut p.PC0, SampleTime::Cycles112)
-        .await;
+    // adc.set_sample_sequence(config::Sequence::Three, &mut p.PC0, SampleTime::Cycles112)
+    //     .await;
 
-    let mut buf1 = [0u16; 6];
-    loop {
-        adc.get_dma_buf(&mut buf1);
-        info!(
-            "\n [{:?}mV, {:?}mV, {:?}mV] \n [{:?}mV, {:?}mV, {:?}mV] ",
-            cal.cal_uv(buf1[0], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf1[1], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf1[2], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf1[3], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf1[4], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf1[5], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-        );
-        Timer::after_millis(100).await;
-    }
+    // let mut buf1 = [0u16; 6];
+    // loop {
+    //     adc.get_dma_buf(&mut buf1);
+    //     info!(
+    //         "\n [{:?}mV, {:?}mV, {:?}mV] \n [{:?}mV, {:?}mV, {:?}mV] ",
+    //         cal.cal_uv(buf1[0], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+    //         cal.cal_uv(buf1[1], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+    //         cal.cal_uv(buf1[2], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+    //         cal.cal_uv(buf1[3], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+    //         cal.cal_uv(buf1[4], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+    //         cal.cal_uv(buf1[5], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+    //     );
+    //     Timer::after_millis(100).await;
+    // }
     // continous_read(&mut adc, &mut pin).await;
 }

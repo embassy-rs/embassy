@@ -822,6 +822,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
             .await
     }
 
+    /// Get the number of transfer remaining in the request.
     pub fn get_remaining_transfers(&self) -> u16 {
         STATE.complete_count[self.channel.index()].load(Ordering::Acquire) as u16
         //let ch = self.channel.regs().st(self.channel.num());
