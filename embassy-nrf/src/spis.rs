@@ -105,7 +105,7 @@ impl<'d, T: Instance> Spis<'d, T> {
         Self::new_inner(
             spis,
             cs.map_into(),
-            sck.map_into(),
+            Some(sck.map_into()),
             Some(miso.map_into()),
             Some(mosi.map_into()),
             config,
@@ -122,7 +122,14 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, miso);
-        Self::new_inner(spis, cs.map_into(), sck.map_into(), Some(miso.map_into()), None, config)
+        Self::new_inner(
+            spis,
+            cs.map_into(),
+            Some(sck.map_into()),
+            Some(miso.map_into()),
+            None,
+            config,
+        )
     }
 
     /// Create a new SPIS driver, capable of RX only (MOSI only).
@@ -135,13 +142,32 @@ impl<'d, T: Instance> Spis<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(cs, sck, mosi);
-        Self::new_inner(spis, cs.map_into(), sck.map_into(), None, Some(mosi.map_into()), config)
+        Self::new_inner(
+            spis,
+            cs.map_into(),
+            Some(sck.map_into()),
+            None,
+            Some(mosi.map_into()),
+            config,
+        )
+    }
+
+    /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
+    pub fn new_txonly_nosck(
+        spis: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        cs: impl Peripheral<P = impl GpioPin> + 'd,
+        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(cs, miso);
+        Self::new_inner(spis, cs.map_into(), None, Some(miso.map_into()), None, config)
     }
 
     fn new_inner(
         spis: impl Peripheral<P = T> + 'd,
         cs: PeripheralRef<'d, AnyPin>,
-        sck: PeripheralRef<'d, AnyPin>,
+        sck: Option<PeripheralRef<'d, AnyPin>>,
         miso: Option<PeripheralRef<'d, AnyPin>>,
         mosi: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
@@ -153,10 +179,12 @@ impl<'d, T: Instance> Spis<'d, T> {
         let r = T::regs();
 
         // Configure pins.
-        sck.conf().write(|w| w.input().connect().drive().h0h1());
-        r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
         cs.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.csn.write(|w| unsafe { w.bits(cs.psel_bits()) });
+        if let Some(sck) = &sck {
+            sck.conf().write(|w| w.input().connect().drive().h0h1());
+            r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
+        }
         if let Some(mosi) = &mosi {
             mosi.conf().write(|w| w.input().connect().drive().h0h1());
             r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
