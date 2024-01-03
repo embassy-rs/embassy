@@ -639,6 +639,9 @@ mod _eh1 {
             self.capacity as usize
         }
     }
+
+    #[cfg(feature = "qspi-multiwrite-flash")]
+    impl<'d, T: Instance> embedded_storage_async::nor_flash::MultiwriteNorFlash for Qspi<'d, T> {}
 }
 
 pub(crate) mod sealed {
