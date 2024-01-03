@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::future::{poll_fn, Future};
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
@@ -667,6 +667,39 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     }
 }
 
+struct RingBuffer {}
+
+impl RingBuffer {
+    fn is_running(ch: &pac::dma::St) -> bool {
+        ch.cr().read().en()
+    }
+
+    fn request_stop(ch: &pac::dma::St) {
+        ch.cr().modify(|w| {
+            w.set_circ(false);
+        });
+    }
+
+    async fn stop(ch: &pac::dma::St, set_waker: &mut dyn FnMut(&Waker)) {
+        use core::sync::atomic::compiler_fence;
+
+        Self::request_stop(ch);
+
+        poll_fn(|cx| {
+            set_waker(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            if !Self::is_running(ch) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
 /// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, C: Channel, W: Word> {
     cr: regs::Cr,
@@ -705,7 +738,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         w.set_minc(true);
         w.set_pinc(false);
         w.set_teie(true);
-        w.set_htie(options.half_transfer_ir);
+        w.set_htie(true);
         w.set_tcie(true);
         w.set_circ(true);
         #[cfg(dma_v1)]
@@ -752,6 +785,14 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
     pub fn start(&mut self) {
         let ch = self.channel.regs().st(self.channel.num());
         ch.cr().write_value(self.cr);
+    }
+
+    /// Disables the circular DMA transfer. The transfer will complete on the next iteration
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().st(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
     }
 
     /// Clear all data in the ring buffer.
@@ -880,7 +921,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         w.set_minc(true);
         w.set_pinc(false);
         w.set_teie(true);
-        w.set_htie(options.half_transfer_ir);
+        w.set_htie(true);
         w.set_tcie(true);
         w.set_circ(true);
         #[cfg(dma_v1)]
@@ -929,9 +970,24 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         ch.cr().write_value(self.cr);
     }
 
+    /// Disables the circular DMA transfer. The transfer will complete on the next iteration
+    pub async fn stop(&mut self) {
+        RingBuffer::stop(&self.channel.regs().st(self.channel.num()), &mut |waker| {
+            self.set_waker(waker)
+        })
+        .await
+    }
+
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
+    }
+
+    /// Write elements directly to the raw buffer.
+    /// This can be used to fill the buffer before starting the DMA transfer.
+    #[allow(dead_code)]
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        self.ringbuf.write_immediate(buf)
     }
 
     /// Write elements from the ring buffer

@@ -45,6 +45,18 @@ pub struct PllConfig {
     /// The multiplied clock – `source` divided by `m` times `n` – must be between 128 and 544
     /// MHz. The upper limit may be lower depending on the `Config { voltage_range }`.
     pub n: Plln,
+    /// The divider for the P output.
+    ///
+    /// When used to drive the system clock, `source` divided by `m` times `n` divided by `r`
+    /// must not exceed 160 MHz. System clocks above 55 MHz require a non-default
+    /// `Config { voltage_range }`.
+    pub p: Plldiv,
+    /// The divider for the Q output.
+    ///
+    /// When used to drive the system clock, `source` divided by `m` times `n` divided by `r`
+    /// must not exceed 160 MHz. System clocks above 55 MHz require a non-default
+    /// `Config { voltage_range }`.
+    pub q: Plldiv,
     /// The divider for the R output.
     ///
     /// When used to drive the system clock, `source` divided by `m` times `n` divided by `r`
@@ -60,6 +72,8 @@ impl PllConfig {
             source: PllSource::HSI,
             m: Pllm::DIV1,
             n: Plln::MUL10,
+            p: Plldiv::DIV3,
+            q: Plldiv::DIV2,
             r: Plldiv::DIV1,
         }
     }
@@ -70,7 +84,9 @@ impl PllConfig {
             source: PllSource::MSIS(Msirange::RANGE_48MHZ),
             m: Pllm::DIV3,
             n: Plln::MUL10,
-            r: Plldiv::DIV1,
+            p: Plldiv::DIV3,
+            q: Plldiv::DIV12,
+            r: Plldiv::DIV2,
         }
     }
 }
@@ -301,7 +317,9 @@ pub(crate) unsafe fn init(config: Config) {
             RCC.pll1divr().modify(|w| {
                 // Set the VCO multiplier
                 w.set_plln(pll.n);
-                // Set the R output divisor
+                // Set the divisors
+                w.set_pllp(pll.p);
+                w.set_pllq(pll.q);
                 w.set_pllr(pll.r);
             });
 
