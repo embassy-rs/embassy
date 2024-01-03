@@ -11,14 +11,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    info!(
-        " \n_________________________\n
-    DAQAstra goes meow    |\n
-      /l、                |\n
-    （ﾟ､ ｡ 7   < meowwww  |\n
-      l、ﾞ ~ヽ            |\n
-      じしf_, )ノ         |\n_________________________\n"
-    );
+
     let mut p = embassy_stm32::init(Default::default());
     let adc_data = singleton!(ADCDAT : [u16; 6] = [0u16; 6]).unwrap();
     let mut adc = Adc::new(p.ADC1, p.DMA2_CH0, adc_data, &mut Delay);
