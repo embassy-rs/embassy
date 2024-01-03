@@ -299,7 +299,9 @@ pub(crate) unsafe fn init(config: Config) {
     let lse_freq = config.ls.lse.map(|lse| lse.frequency);
 
     let hsi_freq = (sw == Sw::HSI).then_some(HSI_FREQ);
+    let hsi_div_8_freq = hsi_freq.map(|f| f / 8u32);
     let lsi_freq = (sw == Sw::LSI).then_some(super::LSI_FREQ);
+    let hse_freq = (sw == Sw::HSE).then_some(sys_clk);
 
     set_freqs(Clocks {
         sys: sys_clk,
@@ -307,6 +309,9 @@ pub(crate) unsafe fn init(config: Config) {
         pclk1: apb_freq,
         pclk1_tim: apb_tim_freq,
         hsi: hsi_freq,
+        hsi48: None,
+        hsi_div_8: hsi_div_8_freq,
+        hse: hse_freq,
         lse: lse_freq,
         lsi: lsi_freq,
         pll1_q: pll1_q_freq,
