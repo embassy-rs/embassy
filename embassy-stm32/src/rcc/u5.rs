@@ -45,13 +45,13 @@ pub struct PllConfig {
     /// The multiplied clock – `source` divided by `m` times `n` – must be between 128 and 544
     /// MHz. The upper limit may be lower depending on the `Config { voltage_range }`.
     pub n: Plln,
-    /// The divider for the P output. 
-    /// 
+    /// The divider for the P output.
+    ///
     /// The P output is one of several options
     /// that can be used to feed the SAI/MDF/ADF Clock mux's.
     pub p: Plldiv,
-    /// The divider for the Q output. 
-    /// 
+    /// The divider for the Q output.
+    ///
     /// The Q ouput is one of severals options that can be used to feed the 48MHz clocks
     /// and the OCTOSPI clock. It may also be used on the MDF/ADF clock mux's.
     pub q: Plldiv,
