@@ -156,7 +156,7 @@ where
     fn convert(&mut self) -> u16 {
         // clear end of conversion flag
         T::regs().sr().modify(|reg| {
-            reg.set_eoc(crate::pac::adc::vals::Eoc::NOTCOMPLETE);
+            reg.set_eoc(false);
         });
 
         // Start conversion
@@ -164,10 +164,10 @@ where
             reg.set_swstart(true);
         });
 
-        while T::regs().sr().read().strt() == crate::pac::adc::vals::Strt::NOTSTARTED {
+        while T::regs().sr().read().strt() == false {
             // spin //wait for actual start
         }
-        while T::regs().sr().read().eoc() == crate::pac::adc::vals::Eoc::NOTCOMPLETE {
+        while T::regs().sr().read().eoc() == false {
             // spin //wait for finish
         }
 
