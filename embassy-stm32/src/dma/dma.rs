@@ -433,6 +433,19 @@ impl<'a, C: Channel> Transfer<'a, C> {
         });
     }
 
+    /// Request the transfer to restart.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_restart(&mut self) {
+        let ch = self.channel.regs().st(self.channel.num());
+        // Disable the channel. Keep the IEs enabled so the irqs still fire.
+        ch.cr().write(|w| {
+            w.set_en(true);
+            w.set_teie(true);
+            w.set_tcie(true);
+        });
+    }
+
     /// Return whether this transfer is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or

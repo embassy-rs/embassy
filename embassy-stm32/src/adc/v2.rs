@@ -1,27 +1,19 @@
-use core::borrow::{Borrow, BorrowMut};
-use core::future::poll_fn;
+use core::borrow::Borrow;
 use core::marker::PhantomData;
-use core::ops::Deref;
-use core::task::Poll;
 
 use embassy_futures::yield_now;
-use embassy_hal_internal::{atomic_ring_buffer, into_ref, PeripheralRef};
+use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_time::Instant;
 use embedded_hal_02::blocking::delay::DelayUs;
-use embedded_hal_02::blocking::i2c::Read;
-use embedded_hal_02::can::Frame;
-use futures::future::OrElse;
 use stm32_metapac::adc::{self, vals};
-use stm32_metapac::common::R;
 
-use super::RxDma;
-use crate::adc::{sample_time, ADCState, Adc, AdcPin, Instance, Resolution, SampleTime};
-use crate::dma::ringbuffer::{DmaCtrl, ReadableDmaRingBuffer};
-use crate::dma::{dma, Channel, DoubleBuffered, NoDma, ReadableRingBuffer, Transfer};
-use crate::interrupt::typelevel;
-use crate::peripherals::{ADC1, DMA1, DMA1_CH0, DMA1_CH1};
+// use super::sealed::AdcPin;
+use super::{AdcPin, RxDma};
+use crate::adc::{Adc, Instance, Resolution, SampleTime};
+use crate::dma::ringbuffer::DmaCtrl;
+use crate::dma::{dma, Transfer};
+use crate::peripherals::ADC1;
 use crate::time::Hertz;
-use crate::Peripheral;
 const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
 
 pub const VDDA_CALIB_MV: u32 = 3300;
@@ -36,28 +28,77 @@ pub const VREF_CALIB_MV: u32 = 3300;
 /// ADC turn-on time
 pub const ADC_POWERUP_TIME_US: u32 = 3;
 
-// Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+/// Contains types related to ADC configuration
+pub mod config {
+    /// The place in the sequence a given channel should be captured
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+    #[repr(u8)]
+    pub enum Sequence {
+        /// 1
+        One = 0,
+        /// 2
+        Two = 1,
+        /// 3
+        Three = 2,
+        /// 4
+        Four = 3,
+        /// 5
+        Five = 4,
+        /// 6
+        Six = 5,
+        /// 7
+        Seven = 6,
+        /// 8
+        Eight = 7,
+        /// 9
+        Nine = 8,
+        /// 10
+        Ten = 9,
+        /// 11
+        Eleven = 10,
+        /// 12
+        Twelve = 11,
+        /// 13
+        Thirteen = 12,
+        /// 14
+        Fourteen = 13,
+        /// 15
+        Fifteen = 14,
+        /// 16
+        Sixteen = 15,
+    }
+
+    impl From<Sequence> for u8 {
+        fn from(s: Sequence) -> u8 {
+            s as _
+        }
+    }
+
+    impl From<u8> for Sequence {
+        fn from(bits: u8) -> Self {
+            match bits {
+                0 => Sequence::One,
+                1 => Sequence::Two,
+                2 => Sequence::Three,
+                3 => Sequence::Four,
+                4 => Sequence::Five,
+                5 => Sequence::Six,
+                6 => Sequence::Seven,
+                7 => Sequence::Eight,
+                8 => Sequence::Nine,
+                9 => Sequence::Ten,
+                10 => Sequence::Eleven,
+                11 => Sequence::Twelve,
+                12 => Sequence::Thirteen,
+                13 => Sequence::Fourteen,
+                14 => Sequence::Fifteen,
+                15 => Sequence::Sixteen,
+                _ => unimplemented!(),
+            }
+        }
+    }
 }
-
-// impl<T: Instance> typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-//     unsafe fn on_interrupt() {
-//         if T::regs().sr().read().eoc().to_bits() == 0x01 {
-//             // T::regs().cr1().write(|w| w.set_eocie(false));
-//             trace!("EOC interrupt");
-//             T::regs().sr().write(|w| w.set_eoc(vals::Eoc::NOTCOMPLETE));
-//             T::regs().sr().write(|w| w.set_strt(vals::Strt::NOTSTARTED));
-//         } else {
-//             let ovr = T::regs().sr().read().ovr();
-//             let strt = T::regs().sr().read().strt();
-//             trace!("ovr: {:?}, strt: {:?}", ovr.to_bits(), strt.to_bits());
-//             return;
-//         }
-
-//         T::state().waker.wake();
-//     }
-// }
 
 fn update_vref<T: Instance>(op: i8) {
     static VREF_STATUS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
@@ -159,13 +200,15 @@ pub enum SamplerState {
     Stopped,
 }
 
-pub struct Vbat;
-impl AdcPin<ADC1> for Vbat {}
-impl super::sealed::AdcPin<ADC1> for Vbat {
-    fn channel(&self) -> u8 {
-        18
-    }
-}
+// pub struct Vbat;
+// impl<AdcPin<ADC1>> Vbat<T> {}
+// impl AdcPin<ADC1> for Vbat {
+//     fn channel(&self) -> u8 {
+//         18
+//     }
+
+//     fn set_as_analog(&mut self) {}
+// }
 
 enum Prescaler {
     Div2,
@@ -221,9 +264,8 @@ where
             calibrated_vdda: VDDA_CALIB_MV,
             phantom: PhantomData,
             transfer: None,
-            rxdma: Some(rxdma),
+            rxdma: rxdma,
             data,
-            state: ADCState::Off,
         }
     }
 
@@ -329,13 +371,13 @@ where
 
     /// Enables vbat input and returns [Vbat], which can be used in
     /// [Adc::read_internal()] to perform conversion.
-    pub fn enable_vbat(&self) -> Vbat {
-        T::common_regs().ccr().modify(|reg| {
-            reg.set_vbate(true);
-        });
+    // pub fn enable_vbat(&self) -> Vbat {
+    //     T::common_regs().ccr().modify(|reg| {
+    //         reg.set_vbate(true);
+    //     });
 
-        Vbat {}
-    }
+    //     Vbat {}
+    // }
 
     pub async fn set_sample_time(&mut self, pin: &mut impl AdcPin<T>, sample_time: SampleTime) {
         if Self::get_channel_sample_time(pin.channel()) != sample_time {
@@ -386,7 +428,59 @@ where
         }
         .into()
     }
+    pub async fn set_sample_sequence(
+        &mut self,
+        sequence: config::Sequence,
+        channel: &mut impl AdcPin<T>,
+        sample_time: SampleTime,
+    ) {
+        let was_on = Self::is_on();
+        if !was_on {
+            self.start_adc().await;
+        }
 
+        //Check the sequence is long enough
+        T::regs().sqr1().modify(|r| {
+            let prev: config::Sequence = r.l().into();
+            trace!("Previous sequence length: {:?}", prev);
+            if prev < sequence {
+                let new_l: config::Sequence = sequence.into();
+                trace!("Setting sequence length to {:?}", new_l);
+                r.set_l(sequence.into())
+            } else {
+                r.set_l(prev.into())
+            }
+        });
+
+        //Set this GPIO as an analog input.
+        channel.set_as_analog();
+
+        //Set the channel in the right sequence field.
+        match sequence {
+            config::Sequence::One => T::regs().sqr3().modify(|w| w.set_sq(0, channel.channel())),
+            config::Sequence::Two => T::regs().sqr3().modify(|w| w.set_sq(1, channel.channel())),
+            config::Sequence::Three => T::regs().sqr3().modify(|w| w.set_sq(2, channel.channel())),
+            config::Sequence::Four => T::regs().sqr3().modify(|w| w.set_sq(3, channel.channel())),
+            config::Sequence::Five => T::regs().sqr3().modify(|w| w.set_sq(4, channel.channel())),
+            config::Sequence::Six => T::regs().sqr3().modify(|w| w.set_sq(5, channel.channel())),
+            config::Sequence::Seven => T::regs().sqr2().modify(|w| w.set_sq(6, channel.channel())),
+            config::Sequence::Eight => T::regs().sqr2().modify(|w| w.set_sq(7, channel.channel())),
+            config::Sequence::Nine => T::regs().sqr2().modify(|w| w.set_sq(8, channel.channel())),
+            config::Sequence::Ten => T::regs().sqr2().modify(|w| w.set_sq(9, channel.channel())),
+            config::Sequence::Eleven => T::regs().sqr2().modify(|w| w.set_sq(10, channel.channel())),
+            config::Sequence::Twelve => T::regs().sqr2().modify(|w| w.set_sq(11, channel.channel())),
+            config::Sequence::Thirteen => T::regs().sqr1().modify(|w| w.set_sq(12, channel.channel())),
+            config::Sequence::Fourteen => T::regs().sqr1().modify(|w| w.set_sq(13, channel.channel())),
+            config::Sequence::Fifteen => T::regs().sqr1().modify(|w| w.set_sq(14, channel.channel())),
+            config::Sequence::Sixteen => T::regs().sqr1().modify(|w| w.set_sq(15, channel.channel())),
+        };
+
+        if !was_on {
+            self.stop_adc().await;
+        }
+
+        self.set_channels_sample_time(&[channel.channel()], sample_time);
+    }
     /// Sets the sequence to sample the ADC. Must be less than  elements.
     pub async fn set_channel_sample_sequence(&self, sequence: &[u8]) {
         assert!(sequence.len() <= 8);
@@ -480,12 +574,6 @@ where
         RXDMA: RxDma<T>,
     {
         use crate::dma::{Burst, FlowControl, TransferOptions};
-        let rxdma = match self.rxdma.take() {
-            Some(rxdma) => rxdma,
-            None => panic!("DMA already taken"),
-        };
-
-        let rx_request = rxdma.request();
         let rx_src = T::regs().dr().as_ptr() as *mut u16;
         let options = TransferOptions {
             pburst: Burst::Single,
@@ -497,7 +585,27 @@ where
             complete_transfer_ir: true,
         };
 
-        self.transfer = Some(unsafe { Transfer::new_read_raw(rxdma, rx_request, rx_src, self.data, options) });
+        match self.transfer.take() {
+            Some(mut transfer) => {
+                info!("Transfer already exists");
+                transfer.request_stop();
+                transfer.blocking_wait();
+                let req = self.rxdma.request();
+                let mut transfer = unsafe {
+                    dma::Transfer::new_read_raw(self.rxdma.clone_unchecked(), req, rx_src, self.data, options)
+                };
+
+                while !transfer.is_running() {}
+                self.transfer = Some(transfer);
+            }
+            None => {
+                info!("Transfer does not exist");
+                let req = self.rxdma.request();
+                self.transfer = Some(unsafe {
+                    Transfer::new_read_raw(self.rxdma.clone_unchecked(), req, rx_src, self.data, options)
+                });
+            }
+        };
 
         //Enable ADC
         let was_on = Self::is_on();
@@ -506,24 +614,6 @@ where
                 reg.set_adon(false);
             });
         }
-
-        unsafe { Self::set_channel_sample_time(0, self.sample_time) };
-        unsafe { Self::set_channel_sample_time(1, self.sample_time) };
-        // unsafe { Self::set_channel_sample_time(2, self.sample_time) };
-        // unsafe { Self::set_channel_sample_time(3, self.sample_time) };
-        // unsafe { Self::set_channel_sample_time(4, self.sample_time) };
-        // unsafe { Self::set_channel_sample_time(5, self.sample_time) };
-
-        // Configure the channel to sample
-        T::regs().sqr1().modify(|reg| reg.set_l(2));
-        T::regs().sqr3().modify(|reg| {
-            reg.set_sq(0, 0);
-            reg.set_sq(1, 1);
-            // reg.set_sq(2, 2);
-            // reg.set_sq(3, 3);
-            // reg.set_sq(4, 4);
-            // reg.set_sq(5, 5);
-        });
 
         T::regs().cr1().modify(|reg| {
             reg.set_scan(true);
@@ -544,86 +634,27 @@ where
             reg.set_adon(true);
             reg.set_swstart(true);
         });
-
-        // while T::regs().sr().read().strt() != vals::Strt::STARTED {}
-
-        //Loop for retrieving data
-        // let mut buf_index = 0;
-        // poll_fn(|cx: &mut core::task::Context<'_>| {
-        //     dma.set_waker(cx.waker());
-
-        //     let complete = dma.get_complete_count();
-        //     let remaining_xfr = dma.get_remaining_transfers();
-        //     let running = dma.is_running();
-
-        //     // trace!(
-        //     //     "n_complete: {}, remaining_xfr: {}, running: {}",
-        //     //     complete,
-        //     //     remaining_xfr,
-        //     //     running
-        //     // );
-
-        //     // trace!("buf: {}", &data);
-
-        //     if running {
-        //         if complete > 0 {
-        //             //trace!("Buffer0 accessible, reading Buffer0");
-
-        //             //data.clone_from_slice(self.data);
-        //             let sampler_state: SamplerState = sampler(&data);
-        //             //dma.reset_complete_count();
-        //             // T::regs().cr2().write(|reg| reg.set_swstart(true));
-
-        //             if sampler_state == SamplerState::Sampled {
-        //                 // buf_index = !buf_index & 0x01; // switch the buffer index (0/1)
-        //                 return Poll::Pending;
-        //             } else {
-        //                 // dma.set_waker(cx.waker());
-
-        //                 dma.reset_complete_count();
-        //                 return Poll::Ready(());
-        //             }
-        //         } else {
-        //             //trace!("Buffer0 not accessible, but DMA still running, Reading Buffer1");
-        //             //  T::regs().cr2().write(|reg| reg.set_swstart(true));
-
-        //             // data.clone_from_slice(self.data);
-        //             let sampler_state: SamplerState = sampler(&data);
-
-        //             if sampler_state == SamplerState::Sampled {
-        //                 return Poll::Pending;
-        //             } else {
-        //                 return Poll::Ready(());
-        //             }
-        //         }
-        //     } else {
-        //         // trace!("DMA not running, transfer completed.");
-        //         if remaining_xfr == 0 {
-        //             return Poll::Ready(());
-        //         } else {
-        //             T::regs().cr2().write(|reg| reg.set_swstart(true));
-        //             dma.reset_complete_count();
-        //             return Poll::Pending;
-        //         }
-        //     }
-        // })
-        // .await;
-        // dma.request_stop();
-        // while dma.is_running() {}
-
-        // trace!("buf: {}", self.data);
-        // //Enable ADC
-        // T::regs().cr2().modify(|reg| {
-        //     reg.set_swstart(false);
-        //     reg.set_adon(false);
-        // });
-        // }
     }
 
     pub fn get_dma_buf<const N: usize>(&self, buf: &mut [u16; N]) {
-        // trace!("buf: {}", self.data[0]);
         while self.borrow().transfer.as_ref().unwrap().get_complete_count() < 1 {}
         buf.copy_from_slice(self.data);
+    }
+
+    pub async fn stop_continuous_conversion(&mut self)
+    where
+        RXDMA: RxDma<T>,
+    {
+        T::regs().cr2().write(|reg| reg.set_adon(false));
+        T::regs().cr2().modify(|reg| {
+            reg.set_swstart(false);
+            reg.set_dma(false);
+        });
+        T::regs().cr1().modify(|reg| {
+            reg.set_eocie(false);
+        });
+
+        while T::regs().cr2().read().adon() {}
     }
 }
 
