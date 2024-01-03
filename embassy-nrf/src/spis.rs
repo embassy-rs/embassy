@@ -174,7 +174,7 @@ impl<'d, T: Instance> Spis<'d, T> {
     ) -> Self {
         compiler_fence(Ordering::SeqCst);
 
-        into_ref!(spis, cs, sck);
+        into_ref!(spis, cs);
 
         let r = T::regs();
 
