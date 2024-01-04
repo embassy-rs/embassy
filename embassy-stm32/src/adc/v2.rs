@@ -581,8 +581,8 @@ where
             flow_ctrl: FlowControl::Dma,
             fifo_threshold: None,
             circular: true,
-            half_transfer_ir: false,
-            complete_transfer_ir: true,
+            half_transfer_ir: true,
+            complete_transfer_ir: false,
         };
 
         match self.transfer.take() {
@@ -637,8 +637,11 @@ where
     }
 
     pub fn get_dma_buf<const N: usize>(&self, buf: &mut [u16; N]) {
-        while self.borrow().transfer.as_ref().unwrap().get_complete_count() < 1 {}
-        buf.copy_from_slice(self.data);
+        if self.borrow().transfer.as_ref().unwrap().get_remaining_transfers() < N as u16 {
+            buf.copy_from_slice(self.data[0..N].borrow());
+        } else {
+            buf.copy_from_slice(self.data[N..(2 * N)].borrow());
+        }
     }
 
     pub async fn stop_continuous_conversion(&mut self)

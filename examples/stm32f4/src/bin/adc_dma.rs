@@ -11,7 +11,6 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-
     let mut p = embassy_stm32::init(Default::default());
     let adc_data = singleton!(ADCDAT : [u16; 6] = [0u16; 6]).unwrap();
     let mut adc = Adc::new(p.ADC1, p.DMA2_CH0, adc_data, &mut Delay);
@@ -36,18 +35,18 @@ async fn main(_spawner: Spawner) {
 
     adc.start_read_continuous();
 
-    let mut buf = [0u16; 6];
+    let mut buf: [u16; 3] = [0u16; 3];
     let mut i = 0;
     loop {
         adc.get_dma_buf(&mut buf);
         info!(
-            "\n [{:?}mV, {:?}mV, {:?}mV] \n [{:?}mV, {:?}mV, {:?}mV] ",
+            "\n [{:?}mV, {:?}mV, {:?}mV]",
             cal.cal_uv(buf[0], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
             cal.cal_uv(buf[1], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
             cal.cal_uv(buf[2], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf[3], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf[4], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
-            cal.cal_uv(buf[5], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+            // cal.cal_uv(buf[3], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+            // cal.cal_uv(buf[4], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
+            // cal.cal_uv(buf[5], embassy_stm32::adc::Resolution::TwelveBit) / 1000,
         );
         Timer::after_millis(100).await;
         i += 1;
