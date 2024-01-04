@@ -54,7 +54,7 @@ embassy-time = { version = "0.2", path = "../../embassy-time", features = ["defm
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt", "stm32wb55rg", "ble"] }
-embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.3", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
 
 defmt = "0.3.0"
