@@ -20,8 +20,8 @@ pub(crate) unsafe fn lock() {
 
 pub(crate) unsafe fn unlock() {
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_fkeyr(0x4567_0123));
-        pac::FLASH.keyr().write(|w| w.set_fkeyr(0xCDEF_89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
@@ -58,6 +58,14 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     pac::FLASH.cr().modify(|w| {
         w.set_strt(true);
     });
+
+    // Wait for at least one clock cycle before reading the
+    // BSY bit, because there is a one-cycle delay between
+    // setting the STRT bit and the BSY bit being asserted
+    // by hardware. See STM32F105xx, STM32F107xx device errata,
+    // section 2.2.8
+    #[cfg(stm32f1)]
+    pac::FLASH.cr().read();
 
     let mut ret: Result<(), Error> = wait_ready_blocking();
 

@@ -29,21 +29,21 @@ pub(crate) unsafe fn unlock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     {
         if pac::FLASH.cr().read().lock() {
-            pac::FLASH.keyr().write(|w| w.set_keyr(0x4567_0123));
-            pac::FLASH.keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+            pac::FLASH.keyr().write_value(0x4567_0123);
+            pac::FLASH.keyr().write_value(0xCDEF_89AB);
         }
     }
 
     #[cfg(any(flash_l0, flash_l1))]
     {
         if pac::FLASH.pecr().read().pelock() {
-            pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x89ABCDEF));
-            pac::FLASH.pekeyr().write(|w| w.set_pekeyr(0x02030405));
+            pac::FLASH.pekeyr().write_value(0x89AB_CDEF);
+            pac::FLASH.pekeyr().write_value(0x0203_0405);
         }
 
         if pac::FLASH.pecr().read().prglock() {
-            pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x8C9DAEBF));
-            pac::FLASH.prgkeyr().write(|w| w.set_prgkeyr(0x13141516));
+            pac::FLASH.prgkeyr().write_value(0x8C9D_AEBF);
+            pac::FLASH.prgkeyr().write_value(0x1314_1516);
         }
     }
 }
