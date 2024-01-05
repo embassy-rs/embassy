@@ -133,14 +133,18 @@ SECTIONS
   {
     . = ALIGN(4);
     __sdata = .;
+    __edata = .; /* RAM: By setting __sdata=__edata cortex-m-rt has to copy 0 bytes as .data is already in RAM */
+
     *(.data .data.*);
     . = ALIGN(4); /* 4-byte align the end (VMA) of this section */
   } > RAM
   /* Allow sections from user `memory.x` injected using `INSERT AFTER .data` to
    * use the .data loading mechanism by pushing __edata. Note: do not change
    * output region or load region in those user sections! */
+  /* Link from RAM: Disabled, now __sdata == __edata
   . = ALIGN(4);
   __edata = .;
+  */
 
   /* LMA of .data */
   __sidata = LOADADDR(.data);
