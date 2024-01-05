@@ -25,8 +25,8 @@ pub(crate) unsafe fn unlock() {
 
     // Unlock flash
     if pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write(|w| w.set_keyr(0x4567_0123));
-        pac::FLASH.keyr().write(|w| w.set_keyr(0xCDEF_89AB));
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
