@@ -1,5 +1,5 @@
 /* ##### EMBASSY NOTE
-    Originally from https://github.com/rust-embedded/cortex-m-rt/blob/master/link.x.in
+    Originally from https://github.com/rust-embedded/cortex-m/blob/master/cortex-m-rt/link.x.in
     Adjusted to put everything in RAM
 */
 
@@ -65,22 +65,30 @@ PROVIDE(__pre_init = DefaultPreInit);
 /* # Sections */
 SECTIONS
 {
-  PROVIDE(_stack_start = ORIGIN(RAM) + LENGTH(RAM));
+  PROVIDE(_ram_start = ORIGIN(RAM));
+  PROVIDE(_ram_end = ORIGIN(RAM) + LENGTH(RAM));
+  PROVIDE(_stack_start = _ram_end);
 
   /* ## Sections in RAM */
   /* ### Vector table */
   .vector_table ORIGIN(RAM) :
   {
-    /* Initial Stack Pointer (SP) value */
-    LONG(_stack_start);
+    __vector_table = .;
+
+    /* Initial Stack Pointer (SP) value.
+     * We mask the bottom three bits to force 8-byte alignment.
+     * Despite having an assert for this later, it's possible that a separate
+     * linker script could override _stack_start after the assert is checked.
+     */
+    LONG(_stack_start & 0xFFFFFFF8);
 
     /* Reset vector */
     KEEP(*(.vector_table.reset_vector)); /* this is the `__RESET_VECTOR` symbol */
-    __reset_vector = .;
 
     /* Exceptions */
+    __exceptions = .; /* start of exceptions */
     KEEP(*(.vector_table.exceptions)); /* this is the `__EXCEPTIONS` symbol */
-    __eexceptions = .;
+    __eexceptions = .; /* end of exceptions */
 
     /* Device specific interrupts */
     KEEP(*(.vector_table.interrupts)); /* this is the `__INTERRUPTS` symbol */
@@ -125,14 +133,18 @@ SECTIONS
   {
     . = ALIGN(4);
     __sdata = .;
-    __edata = .;
+    __edata = .; /* RAM: By setting __sdata=__edata cortex-m-rt has to copy 0 bytes as .data is already in RAM */
+
     *(.data .data.*);
     . = ALIGN(4); /* 4-byte align the end (VMA) of this section */
   } > RAM
   /* Allow sections from user `memory.x` injected using `INSERT AFTER .data` to
    * use the .data loading mechanism by pushing __edata. Note: do not change
    * output region or load region in those user sections! */
+  /* Link from RAM: Disabled, now __sdata == __edata
   . = ALIGN(4);
+  __edata = .;
+  */
 
   /* LMA of .data */
   __sidata = LOADADDR(.data);
@@ -147,8 +159,12 @@ SECTIONS
     __veneer_base = .;
     *(.gnu.sgstubs*)
     . = ALIGN(32);
-    __veneer_limit = .;
   } > RAM
+  /* Place `__veneer_limit` outside the `.gnu.sgstubs` section because veneers are
+   * always inserted last in the section, which would otherwise be _after_ the `__veneer_limit` symbol.
+   */
+  . = ALIGN(32);
+  __veneer_limit = .;
 
   /* ### .bss */
   .bss (NOLOAD) : ALIGN(4)
@@ -213,10 +229,21 @@ BUG(cortex-m-rt): .bss is not 4-byte aligned");
 ASSERT(__sheap % 4 == 0, "
 BUG(cortex-m-rt): start of .heap is not 4-byte aligned");
 
+ASSERT(_stack_start % 8 == 0, "
+ERROR(cortex-m-rt): stack start address is not 8-byte aligned.
+If you have set _stack_start, check it's set to an address which is a multiple of 8 bytes.
+If you haven't, stack starts at the end of RAM by default. Check that both RAM
+origin and length are set to multiples of 8 in the `memory.x` file.");
+
 /* # Position checks */
 
-/* ## .vector_table */
-ASSERT(__reset_vector == ADDR(.vector_table) + 0x8, "
+/* ## .vector_table
+ *
+ * If the *start* of exception vectors is not 8 bytes past the start of the
+ * vector table, then we somehow did not place the reset vector, which should
+ * live 4 bytes past the start of the vector table.
+ */
+ASSERT(__exceptions == ADDR(.vector_table) + 0x8, "
 BUG(cortex-m-rt): the reset vector is missing");
 
 ASSERT(__eexceptions == ADDR(.vector_table) + 0x40, "
@@ -247,7 +274,6 @@ Dynamic relocations are not supported. If you are linking to C code compiled usi
 the 'cc' crate then modify your build script to compile the C code _without_
 the -fPIC flag. See the documentation of the `cc::Build.pic` method for details.");
 /* Do not exceed this mark in the error messages above                                    | */
-
 
 /* Provides weak aliases (cf. PROVIDED) for device specific interrupt handlers */
 /* This will usually be provided by a device crate generated using svd2rust (see `device.x`) */
