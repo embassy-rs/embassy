@@ -224,10 +224,10 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     ///
     /// # Safety
     ///
-    /// The `aligned` buffer must have a size of STATE::WRITE_SIZE, and follow the alignment rules for the flash being read from
-    /// and written to.
+    /// The `aligned` buffer must have a size of maximum of STATE::WRITE_SIZE and STATE::READ_SIZE,
+    /// and follow the alignment rules for the flash being read from and written to.
     pub fn new(state: STATE, aligned: &'d mut [u8]) -> Self {
-        assert_eq!(aligned.len(), STATE::WRITE_SIZE);
+        assert_eq!(aligned.len(), STATE::WRITE_SIZE.max(STATE::READ_SIZE));
         Self { state, aligned }
     }
 
