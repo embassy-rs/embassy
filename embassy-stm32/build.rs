@@ -1009,6 +1009,10 @@ fn main() {
         (("dac", "CH1"), quote!(crate::dac::DacDma1)),
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
+        (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
+        (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
+        (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
+        (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
     ]
     .into();
 
@@ -1024,16 +1028,6 @@ fn main() {
                 }
 
                 if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
-                    // TIM6 of stm32f334 is special, DMA channel for TIM6 depending on SYSCFG state
-                    if chip_name.starts_with("stm32f334") && p.name == "TIM6" {
-                        continue;
-                    }
-
-                    // TIM6 of stm32f378 is special, DMA channel for TIM6 depending on SYSCFG state
-                    if chip_name.starts_with("stm32f378") && p.name == "TIM6" {
-                        continue;
-                    }
-
                     let peri = format_ident!("{}", p.name);
 
                     let channel = if let Some(channel) = &ch.channel {
