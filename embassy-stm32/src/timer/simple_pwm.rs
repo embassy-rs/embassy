@@ -323,7 +323,7 @@ impl<'d, T: CaptureCompare16bitInstance> embedded_hal_02::Pwm for SimplePwm<'d, 
     }
 
     fn get_period(&self) -> Self::Time {
-        self.inner.get_frequency().into()
+        self.inner.get_frequency()
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {

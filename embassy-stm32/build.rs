@@ -936,9 +936,9 @@ fn main() {
                     } else if pin.signal.starts_with("INN") {
                         // TODO handle in the future when embassy supports differential measurements
                         None
-                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with("b") {
+                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
                         // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
-                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix("b").unwrap();
+                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
                         Some(32u8 + signal.parse::<u8>().unwrap())
                     } else if pin.signal.starts_with("IN") {
                         Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
@@ -1186,7 +1186,7 @@ fn main() {
         ADC3 and higher are assigned to the adc34 clock in the table
         The adc3_common cfg directive is added if ADC3_COMMON exists
     */
-    let has_adc3 = METADATA.peripherals.iter().find(|p| p.name == "ADC3_COMMON").is_some();
+    let has_adc3 = METADATA.peripherals.iter().any(|p| p.name == "ADC3_COMMON");
     let set_adc345 = HashSet::from(["ADC3", "ADC4", "ADC5"]);
 
     for m in METADATA
@@ -1370,6 +1370,7 @@ fn main() {
 
     // =======
     // ADC3_COMMON is present
+    #[allow(clippy::print_literal)]
     if has_adc3 {
         println!("cargo:rustc-cfg={}", "adc3_common");
     }

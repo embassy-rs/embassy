@@ -54,6 +54,7 @@ pub struct ComplementaryPwm<'d, T> {
 
 impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         _ch1: Option<PwmPin<'d, T, Ch1>>,
@@ -165,7 +166,7 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> embedded_hal_02::Pwm for C
     }
 
     fn get_period(&self) -> Self::Time {
-        self.inner.get_frequency().into()
+        self.inner.get_frequency()
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {

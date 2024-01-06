@@ -470,20 +470,17 @@ pub enum CountingMode {
 impl CountingMode {
     /// Return whether this mode is edge-aligned (up or down).
     pub fn is_edge_aligned(&self) -> bool {
-        match self {
-            CountingMode::EdgeAlignedUp | CountingMode::EdgeAlignedDown => true,
-            _ => false,
-        }
+        matches!(self, CountingMode::EdgeAlignedUp | CountingMode::EdgeAlignedDown)
     }
 
     /// Return whether this mode is center-aligned.
     pub fn is_center_aligned(&self) -> bool {
-        match self {
+        matches!(
+            self,
             CountingMode::CenterAlignedDownInterrupts
-            | CountingMode::CenterAlignedUpInterrupts
-            | CountingMode::CenterAlignedBothInterrupts => true,
-            _ => false,
-        }
+                | CountingMode::CenterAlignedUpInterrupts
+                | CountingMode::CenterAlignedBothInterrupts
+        )
     }
 }
 
