@@ -111,7 +111,7 @@ impl<const N: usize> UsbLogger<N> {
 
     /// Creates the futures needed for the logger from a given class
     /// This can be used in cases where the usb device is already in use for another connection
-    pub async fn create_future_from_class<'d, D>(&'d self, class: CdcAcmClass<'d, D> )
+    pub async fn create_future_from_class<'d, D>(&'d self, class: CdcAcmClass<'d, D>)
     where
         D: Driver<'d>,
     {
@@ -121,7 +121,7 @@ impl<const N: usize> UsbLogger<N> {
         loop {
             let log_fut = async {
                 let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
-                sender.wait_connection().await; 
+                sender.wait_connection().await;
                 loop {
                     let len = self.buffer.read(&mut rx[..]).await;
                     let _ = sender.write_packet(&rx[..len]).await;
@@ -204,13 +204,11 @@ macro_rules! run {
 /// This macro should only be invoked only once since it is setting the global logging state of the application.
 #[macro_export]
 macro_rules! with_class {
-    ( $x:expr, $l:expr, $p:ident ) => {
-        {
-            static LOGGER: ::embassy_usb_logger::UsbLogger<$x> = ::embassy_usb_logger::UsbLogger::new();
-            unsafe {
-                let _ = ::log::set_logger_racy(&LOGGER).map(|()| log::set_max_level_racy($l));
-            }
-            LOGGER.create_future_from_class($p)
+    ( $x:expr, $l:expr, $p:ident ) => {{
+        static LOGGER: ::embassy_usb_logger::UsbLogger<$x> = ::embassy_usb_logger::UsbLogger::new();
+        unsafe {
+            let _ = ::log::set_logger_racy(&LOGGER).map(|()| log::set_max_level_racy($l));
         }
-    };
+        LOGGER.create_future_from_class($p)
+    }};
 }
