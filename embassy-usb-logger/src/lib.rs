@@ -109,7 +109,8 @@ impl<const N: usize> UsbLogger<N> {
         }
     }
 
-    // Creates the futures needed for the logger from a given class
+    /// Creates the futures needed for the logger from a given class
+    /// This can be used in cases where the usb device is already in use for another connection
     pub async fn create_future_from_class<'d, D>(&'d self, class: CdcAcmClass<'d, D> )
     where
         D: Driver<'d>,
