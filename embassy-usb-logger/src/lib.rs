@@ -105,6 +105,34 @@ impl<const N: usize> UsbLogger<N> {
             join(run_fut, join(log_fut, discard_fut)).await;
         }
     }
+
+    // Creates the futures needed for the logger from a given class
+    pub async fn create_future_from_class<'d, D>(&'d self, class: CdcAcmClass<'d, D> )
+    where
+        D: Driver<'d>,
+    {
+        const MAX_PACKET_SIZE: u8 = 64;
+        let (mut sender, mut receiver) = class.split();
+
+        loop {
+            let log_fut = async {
+                let mut rx: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+                sender.wait_connection().await; 
+                loop {
+                    let len = self.buffer.read(&mut rx[..]).await;
+                    let _ = sender.write_packet(&rx[..len]).await;
+                }
+            };
+            let discard_fut = async {
+                let mut discard_buf: [u8; MAX_PACKET_SIZE as usize] = [0; MAX_PACKET_SIZE as usize];
+                receiver.wait_connection().await;
+                loop {
+                    let _ = receiver.read_packet(&mut discard_buf).await;
+                }
+            };
+            join(log_fut, discard_fut).await;
+        }
+    }
 }
 
 impl<const N: usize> log::Log for UsbLogger<N> {
@@ -151,5 +179,31 @@ macro_rules! run {
             let _ = ::log::set_logger_racy(&LOGGER).map(|()| log::set_max_level_racy($l));
         }
         let _ = LOGGER.run(&mut ::embassy_usb_logger::LoggerState::new(), $p).await;
+    };
+}
+
+/// Initialize the USB serial logger from a serial class and return the future to run it.
+///
+/// Arguments specify the buffer size, log level and the serial class, respectively.
+///
+/// # Usage
+///
+/// ```
+/// embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, class);
+/// ```
+///
+/// # Safety
+///
+/// This macro should only be invoked only once since it is setting the global logging state of the application.
+#[macro_export]
+macro_rules! with_class {
+    ( $x:expr, $l:expr, $p:ident ) => {
+        {
+            static LOGGER: ::embassy_usb_logger::UsbLogger<$x> = ::embassy_usb_logger::UsbLogger::new();
+            unsafe {
+                let _ = ::log::set_logger_racy(&LOGGER).map(|()| log::set_max_level_racy($l));
+            }
+            LOGGER.create_future_from_class($p)
+        }
     };
 }
