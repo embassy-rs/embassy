@@ -93,6 +93,9 @@ impl<const N: usize> UsbLogger<N> {
                 loop {
                     let len = self.buffer.read(&mut rx[..]).await;
                     let _ = sender.write_packet(&rx[..len]).await;
+                    if len as u8 == MAX_PACKET_SIZE {
+                        let _ = sender.write_packet(&[]).await;
+                    }
                 }
             };
             let discard_fut = async {
@@ -121,6 +124,9 @@ impl<const N: usize> UsbLogger<N> {
                 loop {
                     let len = self.buffer.read(&mut rx[..]).await;
                     let _ = sender.write_packet(&rx[..len]).await;
+                    if len as u8 == MAX_PACKET_SIZE {
+                        let _ = sender.write_packet(&[]).await;
+                    }
                 }
             };
             let discard_fut = async {
