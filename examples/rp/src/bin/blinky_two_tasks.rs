@@ -10,8 +10,7 @@ use embassy_executor::Spawner;
 use embassy_rp::{gpio, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
-use embassy_time::Duration;
-use embassy_time::{Ticker, Timer};
+use embassy_time::{Duration, Ticker};
 use gpio::{AnyPin, Level, Output};
 use {defmt_rtt as _, panic_probe as _};
 
