@@ -1,5 +1,6 @@
 use core::future::poll_fn;
 use core::slice;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
@@ -61,6 +62,18 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
             state.rx_waker.wake();
         }
 
+        // With `usart_v4` hardware FIFO is enabled, making `state.tx_buf`
+        // insufficient to determine if all bytes are sent out.
+        // Transmission complete (TC) interrupt here indicates that all bytes are pushed out from the FIFO.
+        #[cfg(usart_v4)]
+        if sr_val.tc() {
+            r.cr1().modify(|w| {
+                w.set_tcie(false);
+            });
+            state.tx_done.store(true, Ordering::Release);
+            state.rx_waker.wake();
+        }
+
         // TX
         if sr(r).read().txe() {
             let mut tx_reader = state.tx_buf.reader();
@@ -69,6 +82,12 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
                 r.cr1().modify(|w| {
                     w.set_txeie(true);
                 });
+
+                #[cfg(usart_v4)]
+                r.cr1().modify(|w| {
+                    w.set_tcie(true);
+                });
+
                 tdr(r).write_volatile(buf[0].into());
                 tx_reader.pop_done(1);
                 state.tx_waker.wake();
@@ -90,6 +109,7 @@ pub(crate) mod sealed {
         pub(crate) rx_buf: RingBuffer,
         pub(crate) tx_waker: AtomicWaker,
         pub(crate) tx_buf: RingBuffer,
+        pub(crate) tx_done: AtomicBool,
     }
 
     impl State {
@@ -100,6 +120,7 @@ pub(crate) mod sealed {
                 tx_buf: RingBuffer::new(),
                 rx_waker: AtomicWaker::new(),
                 tx_waker: AtomicWaker::new(),
+                tx_done: AtomicBool::new(true),
             }
         }
     }
@@ -366,6 +387,8 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
     async fn write(&self, buf: &[u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
+            state.tx_done.store(false, Ordering::Release);
+
             let empty = state.tx_buf.is_empty();
 
             let mut tx_writer = unsafe { state.tx_buf.writer() };
@@ -391,6 +414,13 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
     async fn flush(&self) -> Result<(), Error> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
+
+            #[cfg(usart_v4)]
+            if !state.tx_done.load(Ordering::Acquire) {
+                state.tx_waker.register(cx.waker());
+                return Poll::Pending;
+            }
+            #[cfg(not(usart_v4))]
             if !state.tx_buf.is_empty() {
                 state.tx_waker.register(cx.waker());
                 return Poll::Pending;
