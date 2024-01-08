@@ -1,4 +1,4 @@
-use core::cell::Cell;
+use core::cell::RefCell;
 
 use critical_section::Mutex as CsMutex;
 
@@ -8,7 +8,7 @@ use crate::{Duration, Instant};
 /// A mock driver that can be manually advanced.
 /// This is useful for testing code that works with [`Instant`] and [`Duration`].
 ///
-/// This driver cannot currently be used to test runtime functionality, such as
+/// This driver can also be used to test runtime functionality, such as
 /// timers, delays, etc.
 ///
 /// # Example
@@ -26,43 +26,141 @@ use crate::{Duration, Instant};
 ///     assert_eq!(true, has_a_second_passed(reference));
 /// }
 /// ```
-pub struct MockDriver {
-    now: CsMutex<Cell<Instant>>,
-}
+pub struct MockDriver(CsMutex<RefCell<InnerMockDriver>>);
 
-crate::time_driver_impl!(static DRIVER: MockDriver = MockDriver {
-    now: CsMutex::new(Cell::new(Instant::from_ticks(0))),
-});
+crate::time_driver_impl!(static DRIVER: MockDriver = MockDriver::new());
 
 impl MockDriver {
+    /// Creates a new mock driver.
+    pub const fn new() -> Self {
+        Self(CsMutex::new(RefCell::new(InnerMockDriver::new())))
+    }
+
     /// Gets a reference to the global mock driver.
     pub fn get() -> &'static MockDriver {
         &DRIVER
     }
 
-    /// Advances the time by the specified [`Duration`].
-    pub fn advance(&self, duration: Duration) {
+    /// Resets the internal state of the mock driver
+    /// This will clear and deallocate all alarms, and reset the current time to 0.
+    fn reset(&self) {
         critical_section::with(|cs| {
-            let now = self.now.borrow(cs).get().as_ticks();
-            self.now.borrow(cs).set(Instant::from_ticks(now + duration.as_ticks()));
+            self.0.borrow(cs).replace(InnerMockDriver::new());
         });
+    }
+
+    /// Advances the time by the specified [`Duration`].
+    /// Calling any alarm callbacks that are due.
+    pub fn advance(&self, duration: Duration) {
+        let notify = {
+            critical_section::with(|cs| {
+                let mut inner = self.0.borrow_ref_mut(cs);
+
+                // TODO: store as Instant?
+                let now = (Instant::from_ticks(inner.now) + duration).as_ticks();
+
+
+                    inner.now = now;
+
+                    if inner.alarm <= now {
+                        inner.alarm = u64::MAX;
+
+                        Some((inner.callback, inner.ctx))
+                    } else {
+                        None
+                    }
+            })
+        };
+
+        if let Some((callback, ctx)) = notify {
+            (callback)(ctx);
+        }
     }
 }
 
 impl Driver for MockDriver {
     fn now(&self) -> u64 {
-        critical_section::with(|cs| self.now.borrow(cs).get().as_ticks() as u64)
+        critical_section::with(|cs| self.0.borrow_ref(cs).now)
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        unimplemented!("MockDriver does not support runtime features that require an executor");
+        Some(AlarmHandle::new(0))
     }
 
-    fn set_alarm_callback(&self, _alarm: AlarmHandle, _callback: fn(*mut ()), _ctx: *mut ()) {
-        unimplemented!("MockDriver does not support runtime features that require an executor");
+    fn set_alarm_callback(&self, _alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+        critical_section::with(|cs| {
+            let mut inner = self.0.borrow_ref_mut(cs);
+
+            inner.callback = callback;
+            inner.ctx = ctx;
+        });
     }
 
-    fn set_alarm(&self, _alarm: AlarmHandle, _timestamp: u64) -> bool {
-        unimplemented!("MockDriver does not support runtime features that require an executor");
+    fn set_alarm(&self, _alarm: AlarmHandle, timestamp: u64) -> bool {
+        critical_section::with(|cs| {
+            let mut inner = self.0.borrow_ref_mut(cs);
+
+            if timestamp <= inner.now {
+                false
+            } else {
+                inner.alarm = timestamp;
+                true
+            }
+        })
+    }
+}
+
+struct InnerMockDriver {
+    now: u64,
+    alarm: u64,
+    callback: fn(*mut ()),
+    ctx: *mut (),
+}
+
+impl InnerMockDriver {
+    const fn new() -> Self {
+        Self {
+            now: 0,
+            alarm: u64::MAX,
+            callback: Self::noop,
+            ctx: core::ptr::null_mut(),
+        }
+    }
+
+    fn noop(_ctx: *mut ()) {}
+}
+
+unsafe impl Send for InnerMockDriver {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_advance() {
+        let driver = MockDriver::get();
+        let reference = driver.now();
+        driver.advance(Duration::from_secs(1));
+        assert_eq!(Duration::from_secs(1).as_ticks(), driver.now() - reference);
+    }
+
+    #[test]
+    fn test_set_alarm_not_in_future() {
+        let driver = MockDriver::get();
+        let alarm = unsafe { AlarmHandle::new(0) };
+        assert_eq!(false, driver.set_alarm(alarm, driver.now()));
+    }
+
+    #[test]
+    fn test_alarm() {
+        let driver = MockDriver::get();
+        let alarm = unsafe { driver.allocate_alarm() }.expect("No alarms available");
+        static mut CALLBACK_CALLED: bool = false;
+        let ctx = &mut () as *mut ();
+        driver.set_alarm_callback(alarm, |_| unsafe { CALLBACK_CALLED = true }, ctx);
+        driver.set_alarm(alarm, driver.now() + 1);
+        assert_eq!(false, unsafe { CALLBACK_CALLED });
+        driver.advance(Duration::from_secs(1));
+        assert_eq!(true, unsafe { CALLBACK_CALLED });
     }
 }
