@@ -245,7 +245,8 @@ macro_rules! impl_waveform_chx {
                 let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ONUPDATE;
                 let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
 
-                if original_cc_dma_on_update {
+                // redirect CC DMA request onto Update Event
+                if !original_cc_dma_on_update {
                     self.inner.set_cc_dma_selection(Ccds::ONUPDATE)
                 }
 
