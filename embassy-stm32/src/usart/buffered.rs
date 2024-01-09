@@ -62,10 +62,9 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
             state.rx_waker.wake();
         }
 
-        // With `usart_v4` hardware FIFO is enabled, making `state.tx_buf` insufficient
-        // to determine if all bytes are sent out.
-        // Transmission complete (TC) interrupt here indicates that all bytes are pushed out from the FIFO.
-        #[cfg(usart_v4)]
+        // With `usart_v4` hardware FIFO is enabled and Transmission complete (TC)
+        // indicates that all bytes are pushed out from the FIFO.
+        // For other usart variants it shows that last byte from the buffer was just sent.
         if sr_val.tc() {
             r.cr1().modify(|w| {
                 w.set_tcie(false);
@@ -83,17 +82,15 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
                     w.set_txeie(true);
                 });
 
-                #[cfg(usart_v4)]
-                r.cr1().modify(|w| {
-                    w.set_tcie(true);
-                });
+                // Enable transmission complete interrupt when last byte is going to be sent out.
+                if buf.len() == 1 {
+                    r.cr1().modify(|w| {
+                        w.set_tcie(true);
+                    });
+                }
 
                 tdr(r).write_volatile(buf[0].into());
                 tx_reader.pop_done(1);
-
-                // Notice that in case of `usart_v4` waker is called when TC interrupt happens.
-                #[cfg(not(usart_v4))]
-                state.tx_waker.wake();
             } else {
                 // Disable interrupt until we have something to transmit again.
                 r.cr1().modify(|w| {
@@ -418,13 +415,7 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
 
-            #[cfg(usart_v4)]
             if !state.tx_done.load(Ordering::Acquire) {
-                state.tx_waker.register(cx.waker());
-                return Poll::Pending;
-            }
-            #[cfg(not(usart_v4))]
-            if !state.tx_buf.is_empty() {
                 state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
