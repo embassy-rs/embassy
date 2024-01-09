@@ -11,7 +11,7 @@ export CARGO_TARGET_DIR=/ci/cache/target
 cargo test --manifest-path ./embassy-sync/Cargo.toml 
 cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml 
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml 
-cargo test --manifest-path ./embassy-time/Cargo.toml --features generic-queue
+cargo test --manifest-path ./embassy-time/Cargo.toml --features generic-queue,mock-driver
 
 cargo test --manifest-path ./embassy-boot/boot/Cargo.toml
 cargo test --manifest-path ./embassy-boot/boot/Cargo.toml --features ed25519-dalek
