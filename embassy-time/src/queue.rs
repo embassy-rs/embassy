@@ -23,13 +23,15 @@
 //! use embassy_time::queue::{TimerQueue};
 //!
 //! struct MyTimerQueue{}; // not public!
-//! embassy_time::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
 //!
 //! impl TimerQueue for MyTimerQueue {
 //!     fn schedule_wake(&'static self, at: Instant, waker: &Waker) {
 //!         todo!()
 //!     }
 //! }
+//! ```
+//! ```ignore
+//! embassy_time::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
 //! ```
 use core::task::Waker;
 
