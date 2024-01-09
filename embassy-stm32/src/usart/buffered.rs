@@ -62,8 +62,8 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
             state.rx_waker.wake();
         }
 
-        // With `usart_v4` hardware FIFO is enabled, making `state.tx_buf`
-        // insufficient to determine if all bytes are sent out.
+        // With `usart_v4` hardware FIFO is enabled, making `state.tx_buf` insufficient
+        // to determine if all bytes are sent out.
         // Transmission complete (TC) interrupt here indicates that all bytes are pushed out from the FIFO.
         #[cfg(usart_v4)]
         if sr_val.tc() {
@@ -90,9 +90,12 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
 
                 tdr(r).write_volatile(buf[0].into());
                 tx_reader.pop_done(1);
+
+                // Notice that in case of `usart_v4` waker is called when TC interrupt happens.
+                #[cfg(not(usart_v4))]
                 state.tx_waker.wake();
             } else {
-                // Disable interrupt until we have something to transmit again
+                // Disable interrupt until we have something to transmit again.
                 r.cr1().modify(|w| {
                     w.set_txeie(false);
                 });
