@@ -58,13 +58,17 @@ impl MockDriver {
 
                 inner.now = inner.now + duration;
 
-                if inner.alarm.timestamp <= inner.now.as_ticks() {
-                    inner.alarm.timestamp = u64::MAX;
+                let now = inner.now.as_ticks();
 
-                    Some((inner.alarm.callback, inner.alarm.ctx))
-                } else {
-                    None
-                }
+                inner
+                    .alarm
+                    .as_mut()
+                    .filter(|alarm| alarm.timestamp <= now)
+                    .map(|alarm| {
+                        alarm.timestamp = u64::MAX;
+
+                        (alarm.callback, alarm.ctx)
+                    })
             })
         };
 
@@ -80,15 +84,29 @@ impl Driver for MockDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        Some(AlarmHandle::new(0))
+        critical_section::with(|cs| {
+            let mut inner = self.0.borrow_ref_mut(cs);
+
+            if inner.alarm.is_some() {
+                None
+            } else {
+                inner.alarm.replace(AlarmState::new());
+
+                Some(AlarmHandle::new(0))
+            }
+        })
     }
 
     fn set_alarm_callback(&self, _alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
         critical_section::with(|cs| {
             let mut inner = self.0.borrow_ref_mut(cs);
 
-            inner.alarm.callback = callback;
-            inner.alarm.ctx = ctx;
+            let Some(alarm) = inner.alarm.as_mut() else {
+                panic!("Alarm not allocated");
+            };
+
+            alarm.callback = callback;
+            alarm.ctx = ctx;
         });
     }
 
@@ -99,7 +117,11 @@ impl Driver for MockDriver {
             if timestamp <= inner.now.as_ticks() {
                 false
             } else {
-                inner.alarm.timestamp = timestamp;
+                let Some(alarm) = inner.alarm.as_mut() else {
+                    panic!("Alarm not allocated");
+                };
+
+                alarm.timestamp = timestamp;
                 true
             }
         })
@@ -108,14 +130,14 @@ impl Driver for MockDriver {
 
 struct InnerMockDriver {
     now: Instant,
-    alarm: AlarmState,
+    alarm: Option<AlarmState>,
 }
 
 impl InnerMockDriver {
     const fn new() -> Self {
         Self {
             now: Instant::from_ticks(0),
-            alarm: AlarmState::new(),
+            alarm: None,
         }
     }
 }
