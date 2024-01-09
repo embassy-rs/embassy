@@ -106,17 +106,17 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     }
 
     /// Get whether the pin is high.
-    pub fn is_high(&mut self) -> bool {
+    pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
     /// Get whether the pin is low.
-    pub fn is_low(&mut self) -> bool {
+    pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
 
     /// Get the pin level.
-    pub fn get_level(&mut self) -> Level {
+    pub fn get_level(&self) -> Level {
         self.pin.get_level()
     }
 
@@ -166,11 +166,11 @@ impl<'d, T: GpioPin> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, T>
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
-        Ok(!self.pin.pin.ref_is_low())
+        Ok(self.is_high())
     }
 
     fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.pin.pin.ref_is_low())
+        Ok(self.is_low())
     }
 }
 
@@ -180,11 +180,11 @@ impl<'d, T: GpioPin> embedded_hal_1::digital::ErrorType for ExtiInput<'d, T> {
 
 impl<'d, T: GpioPin> embedded_hal_1::digital::InputPin for ExtiInput<'d, T> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
-        Ok(self.is_high())
+        Ok((*self).is_high())
     }
 
     fn is_low(&mut self) -> Result<bool, Self::Error> {
-        Ok(self.is_low())
+        Ok((*self).is_low())
     }
 }
 

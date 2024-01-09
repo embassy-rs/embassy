@@ -16,10 +16,10 @@ async fn main(_spawner: Spawner) {
 
     // Test initial output
     {
-        let mut b = Input::new(&mut b, Pull::None);
+        let b = Input::new(&mut b, Pull::None);
 
         {
-            let mut a = Output::new(&mut a, Level::Low);
+            let a = Output::new(&mut a, Level::Low);
             delay();
             assert!(b.is_low());
             assert!(!b.is_high());
@@ -64,7 +64,7 @@ async fn main(_spawner: Spawner) {
 
     // Test input no pull
     {
-        let mut b = Input::new(&mut b, Pull::None);
+        let b = Input::new(&mut b, Pull::None);
         // no pull, the status is undefined
 
         let mut a = Output::new(&mut a, Level::Low);
@@ -77,7 +77,7 @@ async fn main(_spawner: Spawner) {
 
     // Test input pulldown
     {
-        let mut b = Input::new(&mut b, Pull::Down);
+        let b = Input::new(&mut b, Pull::Down);
         delay();
         assert!(b.is_low());
 
@@ -91,7 +91,7 @@ async fn main(_spawner: Spawner) {
 
     // Test input pullup
     {
-        let mut b = Input::new(&mut b, Pull::Up);
+        let b = Input::new(&mut b, Pull::Up);
         delay();
         assert!(b.is_high());
 
