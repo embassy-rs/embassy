@@ -7,14 +7,14 @@
 /// [Link explaining it](https://www.physicsclassroom.com/class/sound/Lesson-3/Interference-and-Beats)
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::{gpio, PeripheralRef};
+use embassy_rp::gpio;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use gpio::{AnyPin, Level, Output};
 use {defmt_rtt as _, panic_probe as _};
 
-type LedType = Mutex<ThreadModeRawMutex, Option<PeripheralRef<'static, Output<'static, AnyPin>>>>;
+type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static, AnyPin>>>;
 static LED: LedType = Mutex::new(None);
 
 #[embassy_executor::main]
@@ -25,7 +25,7 @@ async fn main(spawner: Spawner) {
     // inner scope is so that once the mutex is written to, the MutexGuard is dropped, thus the
     // Mutex is released
     {
-        *(LED.lock().await) = Some(PeripheralRef::new(led));
+        *(LED.lock().await) = Some(led);
     }
     let dt = 100 * 1_000_000;
     let k = 1.003;
