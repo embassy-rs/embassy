@@ -164,10 +164,19 @@ unsafe impl Send for AlarmState {}
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
+
     use super::*;
 
+    fn setup() {
+        DRIVER.reset();
+    }
+
     #[test]
+    #[serial]
     fn test_advance() {
+        setup();
+
         let driver = MockDriver::get();
         let reference = driver.now();
         driver.advance(Duration::from_secs(1));
@@ -175,14 +184,20 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_set_alarm_not_in_future() {
+        setup();
+
         let driver = MockDriver::get();
         let alarm = unsafe { AlarmHandle::new(0) };
         assert_eq!(false, driver.set_alarm(alarm, driver.now()));
     }
 
     #[test]
+    #[serial]
     fn test_alarm() {
+        setup();
+
         let driver = MockDriver::get();
         let alarm = unsafe { driver.allocate_alarm() }.expect("No alarms available");
         static mut CALLBACK_CALLED: bool = false;
@@ -195,7 +210,10 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_allocate_alarm() {
+        setup();
+
         let driver = MockDriver::get();
         assert!(unsafe { driver.allocate_alarm() }.is_some());
         assert!(unsafe { driver.allocate_alarm() }.is_none());

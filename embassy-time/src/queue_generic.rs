@@ -175,6 +175,7 @@ impl TimerQueue for Queue {
 crate::timer_queue_impl!(static QUEUE: Queue = Queue::new());
 
 #[cfg(test)]
+#[cfg(feature = "mock-driver")]
 mod tests {
     use core::cell::Cell;
     use core::task::{RawWaker, RawWakerVTable, Waker};
@@ -184,94 +185,9 @@ mod tests {
     use serial_test::serial;
 
     use crate::driver::{AlarmHandle, Driver};
+    use crate::driver_mock::MockDriver;
     use crate::queue_generic::QUEUE;
-    use crate::Instant;
-
-    struct InnerTestDriver {
-        now: u64,
-        alarm: u64,
-        callback: fn(*mut ()),
-        ctx: *mut (),
-    }
-
-    impl InnerTestDriver {
-        const fn new() -> Self {
-            Self {
-                now: 0,
-                alarm: u64::MAX,
-                callback: Self::noop,
-                ctx: core::ptr::null_mut(),
-            }
-        }
-
-        fn noop(_ctx: *mut ()) {}
-    }
-
-    unsafe impl Send for InnerTestDriver {}
-
-    struct TestDriver(Mutex<InnerTestDriver>);
-
-    impl TestDriver {
-        const fn new() -> Self {
-            Self(Mutex::new(InnerTestDriver::new()))
-        }
-
-        fn reset(&self) {
-            *self.0.lock().unwrap() = InnerTestDriver::new();
-        }
-
-        fn set_now(&self, now: u64) {
-            let notify = {
-                let mut inner = self.0.lock().unwrap();
-
-                if inner.now < now {
-                    inner.now = now;
-
-                    if inner.alarm <= now {
-                        inner.alarm = u64::MAX;
-
-                        Some((inner.callback, inner.ctx))
-                    } else {
-                        None
-                    }
-                } else {
-                    panic!("Going back in time?");
-                }
-            };
-
-            if let Some((callback, ctx)) = notify {
-                (callback)(ctx);
-            }
-        }
-    }
-
-    impl Driver for TestDriver {
-        fn now(&self) -> u64 {
-            self.0.lock().unwrap().now
-        }
-
-        unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-            Some(AlarmHandle::new(0))
-        }
-
-        fn set_alarm_callback(&self, _alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-            let mut inner = self.0.lock().unwrap();
-
-            inner.callback = callback;
-            inner.ctx = ctx;
-        }
-
-        fn set_alarm(&self, _alarm: AlarmHandle, timestamp: u64) -> bool {
-            let mut inner = self.0.lock().unwrap();
-
-            if timestamp <= inner.now {
-                false
-            } else {
-                inner.alarm = timestamp;
-                true
-            }
-        }
-    }
+    use crate::{Instant, Duration};
 
     struct TestWaker {
         pub awoken: Rc<Cell<bool>>,
@@ -312,10 +228,8 @@ mod tests {
         }
     }
 
-    crate::time_driver_impl!(static DRIVER: TestDriver = TestDriver::new());
-
     fn setup() {
-        DRIVER.reset();
+        MockDriver::get().reset();
         critical_section::with(|cs| *QUEUE.inner.borrow_ref_mut(cs) = None);
     }
 
@@ -382,13 +296,13 @@ mod tests {
 
         assert!(!waker.awoken.get());
 
-        DRIVER.set_now(Instant::from_secs(99).as_ticks());
+        MockDriver::get().advance(Duration::from_secs(99));
 
         assert!(!waker.awoken.get());
 
         assert_eq!(queue_len(), 1);
 
-        DRIVER.set_now(Instant::from_secs(100).as_ticks());
+        MockDriver::get().advance(Duration::from_secs(1));
 
         assert!(waker.awoken.get());
 
@@ -404,7 +318,7 @@ mod tests {
 
         QUEUE.schedule_wake(Instant::from_secs(100), &waker.waker);
 
-        DRIVER.set_now(Instant::from_secs(50).as_ticks());
+        MockDriver::get().advance(Duration::from_secs(50));
 
         let waker2 = TestWaker::new();
 
