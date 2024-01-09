@@ -56,7 +56,7 @@ impl MockDriver {
             critical_section::with(|cs| {
                 let mut inner = self.0.borrow_ref_mut(cs);
 
-                inner.now = inner.now + duration;
+                inner.now += duration;
 
                 let now = inner.now.as_ticks();
 

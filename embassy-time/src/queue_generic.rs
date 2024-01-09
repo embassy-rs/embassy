@@ -180,14 +180,12 @@ mod tests {
     use core::cell::Cell;
     use core::task::{RawWaker, RawWakerVTable, Waker};
     use std::rc::Rc;
-    use std::sync::Mutex;
 
     use serial_test::serial;
 
-    use crate::driver::{AlarmHandle, Driver};
     use crate::driver_mock::MockDriver;
     use crate::queue_generic::QUEUE;
-    use crate::{Instant, Duration};
+    use crate::{Duration, Instant};
 
     struct TestWaker {
         pub awoken: Rc<Cell<bool>>,
