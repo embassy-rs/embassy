@@ -24,9 +24,9 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
-embedded-hal-async = { version = "=1.0.0-rc.3" }
-embedded-hal-bus = { version = "=0.1.0-rc.3", features = ["async"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-bus = { version = "0.1", features = ["async"] }
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 embedded-io-async = { version = "0.6.1" }

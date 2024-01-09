@@ -42,9 +42,9 @@ embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
 embassy-executor = { version = "0.4.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.3" }
-embedded-hal-async = { version = "=1.0.0-rc.3" }
-embedded-hal-nb = { version = "=1.0.0-rc.3" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-nb = { version = "1.0" }
 
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }

@@ -30,9 +30,9 @@ rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.1"
 usbd-hid = "0.6.0"
 serde = { version = "1.0.136", default-features = false }
-embedded-hal = { version = "1.0.0-rc.3" }
-embedded-hal-async = { version = "1.0.0-rc.3" }
-embedded-hal-bus = { version = "0.1.0-rc.3", features = ["async"] }
+embedded-hal = { version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-bus = { version = "0.1", features = ["async"] }
 num-integer = { version = "0.1.45", default-features = false }
 microfft = "0.5.0"
 
