@@ -43,7 +43,7 @@ impl MockDriver {
 
     /// Resets the internal state of the mock driver
     /// This will clear and deallocate all alarms, and reset the current time to 0.
-    fn reset(&self) {
+    pub fn reset(&self) {
         critical_section::with(|cs| {
             self.0.borrow(cs).replace(InnerMockDriver::new());
         });
@@ -56,19 +56,15 @@ impl MockDriver {
             critical_section::with(|cs| {
                 let mut inner = self.0.borrow_ref_mut(cs);
 
-                // TODO: store as Instant?
-                let now = (Instant::from_ticks(inner.now) + duration).as_ticks();
+                inner.now = inner.now + duration;
 
+                if inner.alarm.timestamp <= inner.now.as_ticks() {
+                    inner.alarm.timestamp = u64::MAX;
 
-                    inner.now = now;
-
-                    if inner.alarm <= now {
-                        inner.alarm = u64::MAX;
-
-                        Some((inner.callback, inner.ctx))
-                    } else {
-                        None
-                    }
+                    Some((inner.alarm.callback, inner.alarm.ctx))
+                } else {
+                    None
+                }
             })
         };
 
@@ -80,7 +76,7 @@ impl MockDriver {
 
 impl Driver for MockDriver {
     fn now(&self) -> u64 {
-        critical_section::with(|cs| self.0.borrow_ref(cs).now)
+        critical_section::with(|cs| self.0.borrow_ref(cs).now).as_ticks()
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
@@ -91,8 +87,8 @@ impl Driver for MockDriver {
         critical_section::with(|cs| {
             let mut inner = self.0.borrow_ref_mut(cs);
 
-            inner.callback = callback;
-            inner.ctx = ctx;
+            inner.alarm.callback = callback;
+            inner.alarm.ctx = ctx;
         });
     }
 
@@ -100,10 +96,10 @@ impl Driver for MockDriver {
         critical_section::with(|cs| {
             let mut inner = self.0.borrow_ref_mut(cs);
 
-            if timestamp <= inner.now {
+            if timestamp <= inner.now.as_ticks() {
                 false
             } else {
-                inner.alarm = timestamp;
+                inner.alarm.timestamp = timestamp;
                 true
             }
         })
@@ -111,17 +107,29 @@ impl Driver for MockDriver {
 }
 
 struct InnerMockDriver {
-    now: u64,
-    alarm: u64,
-    callback: fn(*mut ()),
-    ctx: *mut (),
+    now: Instant,
+    alarm: AlarmState,
 }
 
 impl InnerMockDriver {
     const fn new() -> Self {
         Self {
-            now: 0,
-            alarm: u64::MAX,
+            now: Instant::from_ticks(0),
+            alarm: AlarmState::new(),
+        }
+    }
+}
+
+struct AlarmState {
+    timestamp: u64,
+    callback: fn(*mut ()),
+    ctx: *mut (),
+}
+
+impl AlarmState {
+    const fn new() -> Self {
+        Self {
+            timestamp: u64::MAX,
             callback: Self::noop,
             ctx: core::ptr::null_mut(),
         }
@@ -130,7 +138,7 @@ impl InnerMockDriver {
     fn noop(_ctx: *mut ()) {}
 }
 
-unsafe impl Send for InnerMockDriver {}
+unsafe impl Send for AlarmState {}
 
 #[cfg(test)]
 mod tests {
@@ -162,5 +170,12 @@ mod tests {
         assert_eq!(false, unsafe { CALLBACK_CALLED });
         driver.advance(Duration::from_secs(1));
         assert_eq!(true, unsafe { CALLBACK_CALLED });
+    }
+
+    #[test]
+    fn test_allocate_alarm() {
+        let driver = MockDriver::get();
+        assert!(unsafe { driver.allocate_alarm() }.is_some());
+        assert!(unsafe { driver.allocate_alarm() }.is_none());
     }
 }
