@@ -3,6 +3,7 @@
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
+use crate::pac::opamp::vals::*;
 use crate::Peripheral;
 
 /// Gain
@@ -25,11 +26,11 @@ pub enum OpAmpSpeed {
 }
 
 #[cfg(opamp_g4)]
-impl From<OpAmpSpeed> for crate::pac::opamp::vals::OpampCsrOpahsm {
+impl From<OpAmpSpeed> for crate::pac::opamp::vals::Opahsm {
     fn from(v: OpAmpSpeed) -> Self {
         match v {
-            OpAmpSpeed::Normal => crate::pac::opamp::vals::OpampCsrOpahsm::NORMAL,
-            OpAmpSpeed::HighSpeed => crate::pac::opamp::vals::OpampCsrOpahsm::HIGHSPEED,
+            OpAmpSpeed::Normal => crate::pac::opamp::vals::Opahsm::NORMAL,
+            OpAmpSpeed::HighSpeed => crate::pac::opamp::vals::Opahsm::HIGHSPEED,
         }
     }
 }
@@ -61,7 +62,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         into_ref!(opamp);
 
         #[cfg(opamp_g4)]
-        T::regs().opamp_csr().modify(|w| {
+        T::regs().csr().modify(|w| {
             w.set_opahsm(speed.into());
         });
 
@@ -97,23 +98,13 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             OpAmpGain::Mul16 => (0b10, 0b11),
         };
 
-        #[cfg(opamp_f3)]
-        T::regs().opampcsr().modify(|w| {
-            w.set_vp_sel(in_pin.channel());
-            w.set_vm_sel(vm_sel);
-            w.set_pga_gain(pga_gain);
+        T::regs().csr().modify(|w| {
+            w.set_vp_sel(VpSel::from_bits(in_pin.channel()));
+            w.set_vm_sel(VmSel::from_bits(vm_sel));
+            w.set_pga_gain(PgaGain::from_bits(pga_gain));
+            #[cfg(opamp_g4)]
+            w.set_opaintoen(Opaintoen::OUTPUTPIN);
             w.set_opampen(true);
-        });
-
-        #[cfg(opamp_g4)]
-        T::regs().opamp_csr().modify(|w| {
-            use crate::pac::opamp::vals::*;
-
-            w.set_vp_sel(OpampCsrVpSel::from_bits(in_pin.channel()));
-            w.set_vm_sel(OpampCsrVmSel::from_bits(vm_sel));
-            w.set_pga_gain(OpampCsrPgaGain::from_bits(pga_gain));
-            w.set_opaintoen(OpampCsrOpaintoen::OUTPUTPIN);
-            w.set_opaen(true);
         });
 
         OpAmpOutput { _inner: self }
@@ -144,13 +135,13 @@ impl<'d, T: Instance> OpAmp<'d, T> {
             OpAmpGain::Mul16 => (0b10, 0b11),
         };
 
-        T::regs().opamp_csr().modify(|w| {
+        T::regs().csr().modify(|w| {
             use crate::pac::opamp::vals::*;
-            w.set_vp_sel(OpampCsrVpSel::from_bits(pin.channel()));
-            w.set_vm_sel(OpampCsrVmSel::from_bits(vm_sel));
-            w.set_pga_gain(OpampCsrPgaGain::from_bits(pga_gain));
-            w.set_opaintoen(OpampCsrOpaintoen::ADCCHANNEL);
-            w.set_opaen(true);
+            w.set_vp_sel(VpSel::from_bits(pin.channel()));
+            w.set_vm_sel(VmSel::from_bits(vm_sel));
+            w.set_pga_gain(PgaGain::from_bits(pga_gain));
+            w.set_opaintoen(Opaintoen::ADCCHANNEL);
+            w.set_opampen(true);
         });
 
         OpAmpInternalOutput { _inner: self }
@@ -159,28 +150,16 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
 impl<'d, T: Instance> Drop for OpAmpOutput<'d, T> {
     fn drop(&mut self) {
-        #[cfg(opamp_f3)]
-        T::regs().opampcsr().modify(|w| {
+        T::regs().csr().modify(|w| {
             w.set_opampen(false);
-        });
-
-        #[cfg(opamp_g4)]
-        T::regs().opamp_csr().modify(|w| {
-            w.set_opaen(false);
         });
     }
 }
 
 impl<'d, T: Instance> Drop for OpAmpInternalOutput<'d, T> {
     fn drop(&mut self) {
-        #[cfg(opamp_f3)]
-        T::regs().opampcsr().modify(|w| {
+        T::regs().csr().modify(|w| {
             w.set_opampen(false);
-        });
-
-        #[cfg(opamp_g4)]
-        T::regs().opamp_csr().modify(|w| {
-            w.set_opaen(false);
         });
     }
 }
