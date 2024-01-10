@@ -846,14 +846,7 @@ impl<'d, T: Instance, C: Channel, W: word::Word> Sai<'d, T, C, W> {
     pub fn flush(&mut self) {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
-        #[cfg(any(sai_v1, sai_v2))]
-        {
-            ch.cr2().modify(|w| w.set_fflush(vals::Fflush::FLUSH));
-        }
-        #[cfg(any(sai_v3, sai_v4))]
-        {
-            ch.cr2().modify(|w| w.set_fflush(true));
-        }
+        ch.cr2().modify(|w| w.set_fflush(true));
         ch.cr1().modify(|w| w.set_saien(true));
     }
 
