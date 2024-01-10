@@ -429,6 +429,7 @@ impl<'a, C: Channel> DmaCtrl for DmaCtrlImpl<'a, C> {
     }
 }
 
+// Internal helper to encapsulate functions common to read and write ring buffers.
 struct RingBuffer {}
 
 impl RingBuffer {
