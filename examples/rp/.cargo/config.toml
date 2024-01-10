@@ -1,5 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-rs run --chip RP2040"
+runner = "probe-rs run --chip RP2040 --probe 1209:4853:0e0039001450563641333620"
 
 [build]
 target = "thumbv6m-none-eabi"        # Cortex-M0 and Cortex-M0+
