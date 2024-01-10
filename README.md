@@ -136,14 +136,8 @@ please refer to the `.vscode/settings.json` file's `rust-analyzer.linkedProjects
 
 ## Minimum supported Rust version (MSRV)
 
-Embassy is guaranteed to compile on the latest stable Rust version at the time of release. It might compile with older versions but that may change in any new patch release.
-
-Several features require nightly:
-
-- The `#[embassy_executor::main]` and `#[embassy_executor::task]` attribute macros.
-- Async traits
-
-These are enabled by activating the `nightly` Cargo feature. If you do so, Embassy is guaranteed to compile on the exact nightly version specified in `rust-toolchain.toml`. It might compile with older or newer nightly versions, but that may change in any new patch release.
+Embassy is guaranteed to compile on stable Rust 1.75 and up. It *might*
+compile with older versions but that may change in any new patch release.
 
 ## Why the name?
 
