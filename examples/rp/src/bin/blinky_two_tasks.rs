@@ -30,13 +30,11 @@ async fn main(spawner: Spawner) {
     let dt = 100 * 1_000_000;
     let k = 1.003;
 
-    unwrap!(spawner.spawn(toggle(&LED, Duration::from_nanos(dt))));
-    unwrap!(spawner.spawn(toggle_slightly_slower(
-        &LED,
-        Duration::from_nanos((dt as f64 * k) as u64)
-    )));
+    unwrap!(spawner.spawn(toggle_led(&LED, Duration::from_nanos(dt))));
+    unwrap!(spawner.spawn(toggle_led(&LED, Duration::from_nanos((dt as f64 * k) as u64))));
 }
 
+#[embassy_executor::task(pool_size = 2)]
 async fn toggle_led(led: &'static LedType, delay: Duration) {
     let mut ticker = Ticker::every(delay);
     loop {
@@ -48,13 +46,4 @@ async fn toggle_led(led: &'static LedType, delay: Duration) {
         }
         ticker.next().await;
     }
-}
-#[embassy_executor::task]
-async fn toggle(led: &'static LedType, delay: Duration) {
-    toggle_led(led, delay).await
-}
-
-#[embassy_executor::task]
-async fn toggle_slightly_slower(led: &'static LedType, delay: Duration) {
-    toggle_led(led, delay).await
 }
