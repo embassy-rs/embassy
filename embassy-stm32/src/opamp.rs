@@ -99,9 +99,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         #[cfg(opamp_f3)]
         T::regs().opampcsr().modify(|w| {
-            w.set_vp_sel(in_pin.channel());
-            w.set_vm_sel(vm_sel);
-            w.set_pga_gain(pga_gain);
+            w.set_vp_sel(in_pin.channel().into());
+            w.set_vm_sel(vm_sel.into());
+            w.set_pga_gain(pga_gain.into());
             w.set_opampen(true);
         });
 
@@ -109,9 +109,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         T::regs().opamp_csr().modify(|w| {
             use crate::pac::opamp::vals::*;
 
-            w.set_vp_sel(OpampCsrVpSel::from_bits(in_pin.channel()));
-            w.set_vm_sel(OpampCsrVmSel::from_bits(vm_sel));
-            w.set_pga_gain(OpampCsrPgaGain::from_bits(pga_gain));
+            w.set_vp_sel(in_pin.channel().into());
+            w.set_vm_sel(vm_sel.into());
+            w.set_pga_gain(pga_gain.into());
             w.set_opaintoen(OpampCsrOpaintoen::OUTPUTPIN);
             w.set_opaen(true);
         });
@@ -146,9 +146,9 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
         T::regs().opamp_csr().modify(|w| {
             use crate::pac::opamp::vals::*;
-            w.set_vp_sel(OpampCsrVpSel::from_bits(pin.channel()));
-            w.set_vm_sel(OpampCsrVmSel::from_bits(vm_sel));
-            w.set_pga_gain(OpampCsrPgaGain::from_bits(pga_gain));
+            w.set_vp_sel(pin.channel().into());
+            w.set_vm_sel(vm_sel.into());
+            w.set_pga_gain(pga_gain.into());
             w.set_opaintoen(OpampCsrOpaintoen::ADCCHANNEL);
             w.set_opaen(true);
         });
