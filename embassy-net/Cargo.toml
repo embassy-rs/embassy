@@ -28,6 +28,9 @@ std = []
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "heapless/defmt-03"]
 
+## Trace all raw received and transmitted packets using defmt or log.
+packet-trace = []
+
 #! Many of the following feature flags are re-exports of smoltcp feature flags. See 
 #! the [smoltcp feature flag documentation](https://github.com/smoltcp-rs/smoltcp#feature-flags)
 #! for more details
