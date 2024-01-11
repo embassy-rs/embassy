@@ -5,7 +5,7 @@ use atomic_polyfill::{AtomicU8, Ordering};
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time::driver::{AlarmHandle, Driver};
+use embassy_time_driver::{AlarmHandle, Driver};
 
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
@@ -27,7 +27,7 @@ struct TimerDriver {
     next_alarm: AtomicU8,
 }
 
-embassy_time::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
+embassy_time_driver::time_driver_impl!(static DRIVER: TimerDriver = TimerDriver{
     alarms:  Mutex::const_new(CriticalSectionRawMutex::new(), [DUMMY_ALARM; ALARM_COUNT]),
     next_alarm: AtomicU8::new(0),
 });

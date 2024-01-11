@@ -42,7 +42,7 @@ struct TimeDriver {
 }
 
 const ALARM_NEW: AlarmState = AlarmState::new();
-crate::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
+crate::driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
     alarm_count: AtomicU8::new(0),
     once: Once::new(),
     alarms: UninitCell::uninit(),
