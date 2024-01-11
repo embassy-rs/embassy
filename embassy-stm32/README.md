@@ -20,6 +20,6 @@ In practice, this works as follows:
 Be aware that, while embassy-stm32 strives to consistently support all peripherals across all chips, this approach can lead to slightly different APIs and capabilities being available on different families. Check the [documentation](https://docs.embassy.dev/embassy-stm32/) for the specific chip you’re using to confirm exactly what’s available.
 
 ## embassy-time Time Driver
-If the `time` feature is enabled, embassy-stm32 provides a timer driver for use with [embassy-time](https://docs.embassy.dev/embassy-time/). You can pick which hardware timer is used for this internally via the `time-driver-*` features, or let embassy pick with `time-driver-any`.
+If the `time` feature is enabled, embassy-stm32 provides a time driver for use with [embassy-time](https://docs.embassy.dev/embassy-time/). You can pick which hardware timer is used for this internally via the `time-driver-*` features, or let embassy pick with `time-driver-any`.
 
 embassy-time has a default tick rate of 1MHz, which is fast enough to cause problems with the 16-bit timers currently supported by the embassy-stm32 time driver (specifically, if a critical section delays an IRQ by more than 32ms). To avoid this, it’s recommended to pick a lower tick rate. 32.768kHz is a reasonable default for many purposes.
