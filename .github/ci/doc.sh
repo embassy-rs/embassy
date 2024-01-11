@@ -16,10 +16,10 @@ mv rust-toolchain-nightly.toml rust-toolchain.toml
 # which makes rustup very sad
 rustc --version > /dev/null
 
-docserver-builder -i ./embassy-boot/boot -o webroot/crates/embassy-boot/git.zup
-docserver-builder -i ./embassy-boot/nrf -o webroot/crates/embassy-boot-nrf/git.zup
-docserver-builder -i ./embassy-boot/rp -o webroot/crates/embassy-boot-rp/git.zup
-docserver-builder -i ./embassy-boot/stm32 -o webroot/crates/embassy-boot-stm32/git.zup
+docserver-builder -i ./embassy-boot -o webroot/crates/embassy-boot/git.zup
+docserver-builder -i ./embassy-boot-nrf -o webroot/crates/embassy-boot-nrf/git.zup
+docserver-builder -i ./embassy-boot-rp -o webroot/crates/embassy-boot-rp/git.zup
+docserver-builder -i ./embassy-boot-stm32 -o webroot/crates/embassy-boot-stm32/git.zup
 docserver-builder -i ./embassy-embedded-hal -o webroot/crates/embassy-embedded-hal/git.zup
 docserver-builder -i ./embassy-executor -o webroot/crates/embassy-executor/git.zup
 docserver-builder -i ./embassy-futures -o webroot/crates/embassy-futures/git.zup
