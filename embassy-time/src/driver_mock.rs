@@ -1,8 +1,8 @@
 use core::cell::RefCell;
 
 use critical_section::Mutex as CsMutex;
+use embassy_time_driver::{AlarmHandle, Driver};
 
-use crate::driver::{AlarmHandle, Driver};
 use crate::{Duration, Instant};
 
 /// A mock driver that can be manually advanced.
@@ -28,7 +28,7 @@ use crate::{Duration, Instant};
 /// ```
 pub struct MockDriver(CsMutex<RefCell<InnerMockDriver>>);
 
-crate::driver::time_driver_impl!(static DRIVER: MockDriver = MockDriver::new());
+embassy_time_driver::time_driver_impl!(static DRIVER: MockDriver = MockDriver::new());
 
 impl MockDriver {
     /// Creates a new mock driver.

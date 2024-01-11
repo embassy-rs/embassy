@@ -1,20 +1,14 @@
-//! Timer queue implementation
-//!
-//! This module defines the interface a timer queue needs to implement to power the `embassy_time` module.
-//!
-//! # Implementing a timer queue
+#![no_std]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
+//! ## Implementing a timer queue
 //!
 //! - Define a struct `MyTimerQueue`
 //! - Implement [`TimerQueue`] for it
 //! - Register it as the global timer queue with [`timer_queue_impl`](crate::timer_queue_impl).
 //!
-//! # Linkage details
-//!
-//! Check the documentation of the [`driver`](crate::driver) module for more information.
-//!
-//! Similarly to driver, if there is none or multiple timer queues in the crate tree, linking will fail.
-//!
-//! # Example
+//! ## Example
 //!
 //! ```
 //! use core::task::Waker;
@@ -25,23 +19,29 @@
 //! struct MyTimerQueue{}; // not public!
 //!
 //! impl TimerQueue for MyTimerQueue {
-//!     fn schedule_wake(&'static self, at: Instant, waker: &Waker) {
+//!     fn schedule_wake(&'static self, at: u64, waker: &Waker) {
 //!         todo!()
 //!     }
 //! }
-//! ```
-//! ```ignore
-//! embassy_time::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
+//!
+//! embassy_time_queue_driver::timer_queue_impl!(static QUEUE: MyTimerQueue = MyTimerQueue{});
 //! ```
 use core::task::Waker;
-
-use crate::Instant;
 
 /// Timer queue
 pub trait TimerQueue {
     /// Schedules a waker in the queue to be awoken at moment `at`.
     /// If this moment is in the past, the waker might be awoken immediately.
-    fn schedule_wake(&'static self, at: Instant, waker: &Waker);
+    fn schedule_wake(&'static self, at: u64, waker: &Waker);
+}
+
+extern "Rust" {
+    fn _embassy_time_schedule_wake(at: u64, waker: &Waker);
+}
+
+/// Schedule the given waker to be woken at `at`.
+pub fn schedule_wake(at: u64, waker: &Waker) {
+    unsafe { _embassy_time_schedule_wake(at, waker) }
 }
 
 /// Set the TimerQueue implementation.
@@ -53,8 +53,8 @@ macro_rules! timer_queue_impl {
         static $name: $t = $val;
 
         #[no_mangle]
-        fn _embassy_time_schedule_wake(at: $crate::Instant, waker: &core::task::Waker) {
-            <$t as $crate::queue::TimerQueue>::schedule_wake(&$name, at, waker);
+        fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
+            <$t as $crate::TimerQueue>::schedule_wake(&$name, at, waker);
         }
     };
 }

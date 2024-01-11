@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-time = { version = "0.2", path = "../embassy-time" }
+embassy-time = { version = "0.3.0", path = "../embassy-time" }
 embassy-sync = { version = "0.5.0", path = "../embassy-sync"}
 embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
 embassy-net-driver-channel = { version = "0.2.0", path = "../embassy-net-driver-channel"}
@@ -26,4 +26,7 @@ heapless = "0.8"
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$VERSION/embassy-net-esp-hosted/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-esp-hosted/src/"
 target = "thumbv7em-none-eabi"
+features = ["defmt"]
+
+[package.metadata.docs.rs]
 features = ["defmt"]

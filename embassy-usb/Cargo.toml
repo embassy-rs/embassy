@@ -10,6 +10,9 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb/s
 features = ["defmt", "usbd-hid"]
 target = "thumbv7em-none-eabi"
 
+[package.metadata.docs.rs]
+features = ["defmt", "usbd-hid"]
+
 [features]
 defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
 usbd-hid = ["dep:usbd-hid", "dep:ssmarshal"]

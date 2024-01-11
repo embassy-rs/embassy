@@ -4,7 +4,7 @@ HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so ra
 
 The Embassy nRF HAL targets the Nordic Semiconductor nRF family of hardware. The HAL implements both blocking and async APIs
 for many peripherals. The benefit of using the async APIs is that the HAL takes care of waiting for peripherals to
-complete operations in low power mod and handling interrupts, so that applications can focus on more important matters.
+complete operations in low power mode and handling interrupts, so that applications can focus on more important matters.
 
 NOTE: The Embassy HALs can be used both for non-async and async operations. For async, you can choose which runtime you want to use.
 
@@ -18,15 +18,25 @@ The `embassy-nrf` HAL supports most variants of the nRF family:
 * nRF53 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf5340))
 * nRF91 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf9160))
 
-Most peripherals are supported. 
+Most peripherals are supported. To check what's available, make sure to pick the MCU you're targeting in the top menu in the [documentation](https://docs.embassy.dev/embassy-nrf).
+
+For MCUs with TrustZone support, both Secure (S) and Non-Secure (NS) modes are supported. Running in Secure mode
+allows running Rust code without a SPM or TF-M binary, saving flash space and simplifying development.
 
 ## Time driver
 
-If the `time` feature is enabled, the HAL uses the RTC peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 32768 Hz.
+If the `time-driver-rtc1` feature is enabled, the HAL uses the RTC peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 32768 Hz.
 
 ## Embedded-hal
 
 The `embassy-nrf` HAL implements the traits from [embedded-hal](https://crates.io/crates/embedded-hal) (v0.2 and 1.0) and [embedded-hal-async](https://crates.io/crates/embedded-hal-async), as well as [embedded-io](https://crates.io/crates/embedded-io) and [embedded-io-async](https://crates.io/crates/embedded-io-async).
+
+## Interoperability
+
+This crate can run on any executor.
+
+Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time` feature. If you enable it,
+you must link an `embassy-time` driver in your project.
 
 ## EasyDMA considerations
 

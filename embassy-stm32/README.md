@@ -19,7 +19,20 @@ In practice, this works as follows:
 
 Be aware that, while embassy-stm32 strives to consistently support all peripherals across all chips, this approach can lead to slightly different APIs and capabilities being available on different families. Check the [documentation](https://docs.embassy.dev/embassy-stm32/) for the specific chip you’re using to confirm exactly what’s available.
 
-## embassy-time Time Driver
-If the `time` feature is enabled, embassy-stm32 provides a time driver for use with [embassy-time](https://docs.embassy.dev/embassy-time/). You can pick which hardware timer is used for this internally via the `time-driver-*` features, or let embassy pick with `time-driver-any`.
+## Embedded-hal
+
+The `embassy-stm32` HAL implements the traits from [embedded-hal](https://crates.io/crates/embedded-hal) (v0.2 and 1.0) and [embedded-hal-async](https://crates.io/crates/embedded-hal-async), as well as [embedded-io](https://crates.io/crates/embedded-io) and [embedded-io-async](https://crates.io/crates/embedded-io-async).
+
+## `embassy-time` time driver
+If a `time-driver-*` feature is enabled, embassy-stm32 provides a time driver for use with [embassy-time](https://docs.embassy.dev/embassy-time/). You can pick which hardware timer is used for this internally via the `time-driver-tim*` features, or let embassy pick with `time-driver-any`.
 
 embassy-time has a default tick rate of 1MHz, which is fast enough to cause problems with the 16-bit timers currently supported by the embassy-stm32 time driver (specifically, if a critical section delays an IRQ by more than 32ms). To avoid this, it’s recommended to pick a lower tick rate. 32.768kHz is a reasonable default for many purposes.
+
+## Interoperability
+
+This crate can run on any executor.
+
+Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time` feature. If you enable it,
+you must link an `embassy-time` driver in your project.
+
+The `low-power` feature integrates specifically with `embassy-executor`, it can't be ued on other executors for now.
