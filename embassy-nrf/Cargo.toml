@@ -17,6 +17,7 @@ flavors = [
 
 [package.metadata.docs.rs]
 features = ["nrf52840", "time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["rt"]

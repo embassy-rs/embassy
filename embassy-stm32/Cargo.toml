@@ -33,6 +33,7 @@ flavors = [
 
 [package.metadata.docs.rs]
 features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
