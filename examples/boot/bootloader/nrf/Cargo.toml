@@ -10,7 +10,7 @@ defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.4", optional = true }
 
 embassy-nrf = { path = "../../../../embassy-nrf", features = [] }
-embassy-boot-nrf = { path = "../../../../embassy-boot/nrf" }
+embassy-boot-nrf = { path = "../../../../embassy-boot-nrf" }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 embassy-sync = { version = "0.5.0", path = "../../../../embassy-sync" }
 cortex-m-rt = { version = "0.7" }

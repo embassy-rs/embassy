@@ -12,8 +12,8 @@ categories = [
 ]
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-v$VERSION/embassy-boot/boot/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/boot/src/"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-v$VERSION/embassy-boot/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/src/"
 target = "thumbv7em-none-eabi"
 features = ["defmt"]
 
@@ -27,8 +27,8 @@ defmt = { version = "0.3", optional = true }
 digest = "0.10"
 log = { version = "0.4", optional = true }
 ed25519-dalek = { version = "2", default_features = false, features = ["digest"], optional = true }
-embassy-embedded-hal = { version = "0.1.0", path = "../../embassy-embedded-hal" }
-embassy-sync = { version = "0.5.0", path = "../../embassy-sync" }
+embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 salty = { version = "0.3", optional = true }

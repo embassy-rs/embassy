@@ -12,8 +12,8 @@ categories = [
 ]
 
 [package.metadata.embassy_docs]
-src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot/nrf/src/"
-src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot/nrf/src/"
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot-nrf/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-nrf/src/"
 features = ["embassy-nrf/nrf52840"]
 target = "thumbv7em-none-eabi"
 
@@ -22,9 +22,9 @@ target = "thumbv7em-none-eabi"
 [dependencies]
 defmt = { version = "0.3", optional = true }
 
-embassy-sync = { version = "0.5.0", path = "../../embassy-sync" }
-embassy-nrf = { path = "../../embassy-nrf" }
-embassy-boot = { path = "../boot", default-features = false }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", default-features = false }
+embassy-boot = { version = "0.1.0", path = "../embassy-boot" }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
