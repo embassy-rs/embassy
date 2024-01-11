@@ -21,7 +21,7 @@ All methods and structs transparently call into the active driver. This makes it
 possible for libraries to use `embassy_time` in a driver-agnostic way without
 requiring generic parameters.
 
-For more details, check the [`embassy_time_driver`] crate.
+For more details, check the [`embassy_time_driver`](https://crates.io/crates/embassy-time-driver) crate.
 
 ## Instants and Durations
 

@@ -2,22 +2,17 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-//! Time driver interface
-//!
-//! This module defines the interface a driver needs to implement to power the `embassy_time` module.
-//!
-//! # Implementing a driver
+//! ## Implementing a driver
 //!
 //! - Define a struct `MyDriver`
 //! - Implement [`Driver`] for it
 //! - Register it as the global driver with [`time_driver_impl`](crate::time_driver_impl).
-//! - Enable the Cargo feature `embassy-executor/time`
 //!
 //! If your driver has a single set tick rate, enable the corresponding [`tick-hz-*`](crate#tick-rate) feature,
 //! which will prevent users from needing to configure it themselves (or selecting an incorrect configuration).
 //!
 //! If your driver supports a small number of set tick rates, expose your own cargo features and have each one
-//! enable the corresponding `embassy-time/tick-*`.
+//! enable the corresponding `embassy-time-driver/tick-*`.
 //!
 //! Otherwise, don’t enable any `tick-hz-*` feature to let the user configure the tick rate themselves by
 //! enabling a feature on `embassy-time`.
@@ -43,7 +38,7 @@
 //! # Example
 //!
 //! ```
-//! use embassy_time::driver::{Driver, AlarmHandle};
+//! use embassy_time_driver::{Driver, AlarmHandle};
 //!
 //! struct MyDriver{} // not public!
 //!
@@ -61,9 +56,8 @@
 //!         todo!()
 //!     }
 //! }
-//! ```
-//! ```ignore
-//! embassy_time::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
+//!
+//! embassy_time_driver::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
 //! ```
 
 //! ## Feature flags

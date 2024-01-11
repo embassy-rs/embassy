@@ -30,6 +30,7 @@ docserver-builder -i ./embassy-nrf -o webroot/crates/embassy-nrf/git.zup
 docserver-builder -i ./embassy-rp -o webroot/crates/embassy-rp/git.zup
 docserver-builder -i ./embassy-sync -o webroot/crates/embassy-sync/git.zup
 docserver-builder -i ./embassy-time -o webroot/crates/embassy-time/git.zup
+docserver-builder -i ./embassy-time-driver -o webroot/crates/embassy-time-driver/git.zup
 docserver-builder -i ./embassy-usb -o webroot/crates/embassy-usb/git.zup
 docserver-builder -i ./embassy-usb-driver -o webroot/crates/embassy-usb-driver/git.zup
 docserver-builder -i ./embassy-usb-logger -o webroot/crates/embassy-usb-logger/git.zup

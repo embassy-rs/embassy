@@ -1,6 +1,5 @@
 # embassy-time-driver
 
-
 This crate contains the driver trait necessary for adding [`embassy-time`](https://crates.io/crates/embassy-time) support
 for a new hardware platform.
 
@@ -12,7 +11,7 @@ if the driver trait has not had breaking changes.
 
 ## How it works
 
-`embassy-time` module is backed by a global "time driver" specified at build time.
+`embassy-time` is backed by a global "time driver" specified at build time.
 Only one driver can be active in a program.
 
 All methods and structs transparently call into the active driver. This makes it
