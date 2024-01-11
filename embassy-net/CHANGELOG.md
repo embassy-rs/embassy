@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4 - 2024-01-11
+
+- Update to `embassy-time` v0.3.
+
 ## 0.3 - 2024-01-04
 
 - Added `ReadReady` and `WriteReady` impls on `TcpSocket`.

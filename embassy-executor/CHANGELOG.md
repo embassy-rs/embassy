@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.5.0 - 2024-01-11
+
+- Updated to `embassy-time-driver 0.1`, `embassy-time-queue-driver 0.1`, compatible with `embassy-time v0.3` and higher.
+
 ## 0.4.0 - 2023-12-05
 
 - Removed `arch-xtensa`. Use the executor provided by the HAL crate (`esp-hal`, `esp32s3-hal`, etc...) instead.
