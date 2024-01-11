@@ -366,26 +366,4 @@ tick-hz-5_242_880_000 = []
 #! </details>
 
 [dependencies]
-defmt = { version = "0.3", optional = true }
-log = { version = "0.4.14", optional = true }
-
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
-embedded-hal-async = { version = "1.0" }
-
-futures-util = { version = "0.3.17", default-features = false }
-critical-section = "1.1"
-cfg-if = "1.0.0"
-heapless = "0.8"
-
 document-features = "0.2.7"
-
-# WASM dependencies
-wasm-bindgen = { version = "0.2.81", optional = true }
-js-sys = { version = "0.3", optional = true }
-wasm-timer = { version = "0.2.5", optional = true }
-
-[dev-dependencies]
-serial_test = "0.9"
-critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.5.0", path = "../embassy-executor" }
