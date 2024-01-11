@@ -27,3 +27,6 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-esp-hosted/src/"
 target = "thumbv7em-none-eabi"
 features = ["defmt"]
+
+[package.metadata.docs.rs]
+features = ["defmt"]

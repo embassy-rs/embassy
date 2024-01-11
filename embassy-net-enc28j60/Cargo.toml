@@ -21,3 +21,7 @@ log = { version = "0.4.14", optional = true }
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-enc28j60-v$VERSION/embassy-net-enc28j60/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-enc28j60/src/"
 target = "thumbv7em-none-eabi"
+features = ["defmt"]
+
+[package.metadata.docs.rs]
+features = ["defmt"]

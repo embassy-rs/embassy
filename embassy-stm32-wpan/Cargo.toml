@@ -10,6 +10,9 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32
 target = "thumbv7em-none-eabihf"
 features = ["stm32wb55rg"]
 
+[package.metadata.docs.rs]
+features = ["stm32wb55rg"]
+
 [dependencies]
 embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32" }
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }

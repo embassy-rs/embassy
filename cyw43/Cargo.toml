@@ -31,3 +31,6 @@ src_base = "https://github.com/embassy-rs/embassy/blob/cyw43-v$VERSION/cyw43/src
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/cyw43/src/"
 target = "thumbv6m-none-eabi"
 features = ["defmt", "firmware-logs"]
+
+[package.metadata.docs.rs]
+features = ["defmt", "firmware-logs"]

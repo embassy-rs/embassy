@@ -37,3 +37,6 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-adin1110-v$VE
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-adin1110/src/"
 target = "thumbv7em-none-eabi"
 features = ["defmt"]
+
+[package.metadata.docs.rs]
+features = ["defmt"]

@@ -31,6 +31,9 @@ flavors = [
     { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
 ]
 
+[package.metadata.docs.rs]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7"]
+
 [dependencies]
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }

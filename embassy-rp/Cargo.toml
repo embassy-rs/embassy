@@ -12,6 +12,9 @@ flavors = [
     { name = "rp2040", target = "thumbv6m-none-eabi" },
 ]
 
+[package.metadata.docs.rs]
+features = ["defmt", "unstable-pac", "time-driver"]
+
 [features]
 default = [ "rt" ]
 ## Enable the RP runtime.

@@ -15,6 +15,9 @@ flavors = [
     { regex_feature = "nrf91.*", target = "thumbv8m.main-none-eabihf" },
 ]
 
+[package.metadata.docs.rs]
+features = ["nrf52840", "time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
+
 [features]
 default = ["rt"]
 ## Cortex-M runtime (enabled by default)
