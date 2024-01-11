@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
 //! ## Feature flags
