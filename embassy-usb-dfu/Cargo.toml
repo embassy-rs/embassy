@@ -5,6 +5,7 @@ version = "0.1.0"
 description = "An implementation of the USB DFU 1.1 protocol, using embassy-boot"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-usb-dfu"
 categories = [
     "embedded",
     "no-std",

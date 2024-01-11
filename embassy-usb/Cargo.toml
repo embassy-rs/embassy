@@ -3,6 +3,11 @@ name = "embassy-usb"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Async USB device stack for embedded devices in Rust."
+keywords = ["embedded", "async", "usb", "hal", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "async"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-usb"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb/src/"

@@ -3,7 +3,14 @@ name = "embassy-embedded-hal"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-
+description = "Collection of utilities to use `embedded-hal` and `embedded-storage` traits with Embassy."
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-embedded-hal"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-embedded-hal-v$VERSION/embassy-embedded-hal/src/"

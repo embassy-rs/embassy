@@ -5,6 +5,7 @@ version = "0.1.1"
 description = "A lightweight bootloader supporting firmware updates in a power-fail-safe way, with trial boots and rollbacks."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-boot"
 categories = [
     "embedded",
     "no-std",

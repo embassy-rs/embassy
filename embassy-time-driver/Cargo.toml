@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Driver trait for embassy-time"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-time-driver"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 categories = [

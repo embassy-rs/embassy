@@ -7,6 +7,7 @@ categories = ["embedded", "hardware-support", "network-programming", "async"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net-tuntap"
 
 [dependencies]
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }

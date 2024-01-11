@@ -5,6 +5,7 @@ version = "0.1.0"
 description = "Bootloader lib for STM32 chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-boot-stm32"
 categories = [
     "embedded",
     "no-std",

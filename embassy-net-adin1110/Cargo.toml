@@ -2,11 +2,12 @@
 name = "embassy-net-adin1110"
 version = "0.2.0"
 description = "embassy-net driver for the ADIN1110 ethernet chip"
-keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethernet"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net-adin1110"
 
 [dependencies]
 heapless = "0.8"

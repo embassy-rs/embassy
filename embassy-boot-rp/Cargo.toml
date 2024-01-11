@@ -5,6 +5,7 @@ version = "0.1.0"
 description = "Bootloader lib for RP2040 chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-boot-rp"
 categories = [
     "embedded",
     "no-std",

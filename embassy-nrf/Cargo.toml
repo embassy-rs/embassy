@@ -3,6 +3,11 @@ name = "embassy-nrf"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
+keywords = ["embedded", "async", "nordic", "nrf", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "async"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-nrf"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nrf-v$VERSION/embassy-nrf/src/"

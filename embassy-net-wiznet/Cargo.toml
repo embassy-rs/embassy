@@ -7,6 +7,7 @@ categories = ["embedded", "hardware-support", "no-std", "network-programming", "
 license = "MIT OR Apache-2.0"
 edition = "2021"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-net-wiznet"
 
 [dependencies]
 embedded-hal = { version = "1.0" }

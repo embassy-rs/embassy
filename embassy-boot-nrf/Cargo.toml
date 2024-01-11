@@ -5,6 +5,7 @@ version = "0.1.0"
 description = "Bootloader lib for nRF chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-boot-nrf"
 categories = [
     "embedded",
     "no-std",
