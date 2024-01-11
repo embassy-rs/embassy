@@ -3,10 +3,10 @@ use core::cmp::{min, Ordering};
 use core::task::Waker;
 
 use critical_section::Mutex;
+use embassy_time_driver::{allocate_alarm, set_alarm, set_alarm_callback, AlarmHandle};
+use embassy_time_queue_driver::TimerQueue;
 use heapless::Vec;
 
-use crate::driver::{allocate_alarm, set_alarm, set_alarm_callback, AlarmHandle};
-use crate::queue::TimerQueue;
 use crate::Instant;
 
 #[cfg(feature = "generic-queue-8")]
@@ -167,12 +167,12 @@ impl Queue {
 }
 
 impl TimerQueue for Queue {
-    fn schedule_wake(&'static self, at: Instant, waker: &Waker) {
-        Queue::schedule_wake(self, at, waker);
+    fn schedule_wake(&'static self, at: u64, waker: &Waker) {
+        Queue::schedule_wake(self, Instant::from_ticks(at), waker);
     }
 }
 
-crate::timer_queue_impl!(static QUEUE: Queue = Queue::new());
+embassy_time_queue_driver::timer_queue_impl!(static QUEUE: Queue = Queue::new());
 
 #[cfg(test)]
 #[cfg(feature = "mock-driver")]

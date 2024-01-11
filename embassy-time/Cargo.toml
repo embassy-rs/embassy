@@ -398,6 +398,7 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 
 [dependencies]
 embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver" }
+embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver" }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }

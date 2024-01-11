@@ -10,12 +10,9 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-pub use embassy_time_driver as driver;
-
 mod delay;
 mod duration;
 mod instant;
-pub mod queue;
 mod timer;
 
 #[cfg(feature = "mock-driver")]
@@ -32,8 +29,8 @@ mod driver_wasm;
 mod queue_generic;
 
 pub use delay::{block_for, Delay};
-pub use driver::TICK_HZ;
 pub use duration::Duration;
+pub use embassy_time_driver::TICK_HZ;
 pub use instant::Instant;
 pub use timer::{with_timeout, Ticker, TimeoutError, Timer};
 
