@@ -30,7 +30,7 @@ pub mod rom_data;
 pub mod rtc;
 pub mod spi;
 #[cfg(feature = "time-driver")]
-pub mod timer;
+pub mod time_driver;
 pub mod uart;
 pub mod usb;
 pub mod watchdog;
@@ -344,7 +344,7 @@ pub fn init(config: config::Config) -> Peripherals {
     unsafe {
         clocks::init(config.clocks);
         #[cfg(feature = "time-driver")]
-        timer::init();
+        time_driver::init();
         dma::init();
         gpio::init();
     }

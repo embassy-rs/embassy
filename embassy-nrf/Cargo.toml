@@ -96,7 +96,7 @@ _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf9160 = ["nrf9160-pac", "_dppi"]
 _nrf52 = ["_ppi"]
 
-_time-driver = ["dep:embassy-time", "embassy-time?/tick-hz-32_768"]
+_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"]
 
 # trustzone state.
 _s = []
@@ -110,6 +110,7 @@ _gpio-p1 = []
 _nrf52832_anomaly_109 = []
 
 [dependencies]
+embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-time = { version = "0.2", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }

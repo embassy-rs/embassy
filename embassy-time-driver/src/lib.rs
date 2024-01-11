@@ -1,3 +1,7 @@
+#![no_std]
+#![doc = include_str!("../README.md")]
+#![warn(missing_docs)]
+
 //! Time driver interface
 //!
 //! This module defines the interface a driver needs to implement to power the `embassy_time` module.
@@ -61,6 +65,16 @@
 //! ```ignore
 //! embassy_time::time_driver_impl!(static DRIVER: MyDriver = MyDriver{});
 //! ```
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
+mod tick;
+
+/// Ticks per second of the global timebase.
+///
+/// This value is specified by the [`tick-*` Cargo features](crate#tick-rate)
+pub const TICK_HZ: u64 = tick::TICK_HZ;
 
 /// Alarm handle, assigned by the driver.
 #[derive(Clone, Copy)]
@@ -165,22 +179,22 @@ macro_rules! time_driver_impl {
 
         #[no_mangle]
         fn _embassy_time_now() -> u64 {
-            <$t as $crate::driver::Driver>::now(&$name)
+            <$t as $crate::Driver>::now(&$name)
         }
 
         #[no_mangle]
-        unsafe fn _embassy_time_allocate_alarm() -> Option<$crate::driver::AlarmHandle> {
-            <$t as $crate::driver::Driver>::allocate_alarm(&$name)
+        unsafe fn _embassy_time_allocate_alarm() -> Option<$crate::AlarmHandle> {
+            <$t as $crate::Driver>::allocate_alarm(&$name)
         }
 
         #[no_mangle]
-        fn _embassy_time_set_alarm_callback(alarm: $crate::driver::AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
-            <$t as $crate::driver::Driver>::set_alarm_callback(&$name, alarm, callback, ctx)
+        fn _embassy_time_set_alarm_callback(alarm: $crate::AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {
+            <$t as $crate::Driver>::set_alarm_callback(&$name, alarm, callback, ctx)
         }
 
         #[no_mangle]
-        fn _embassy_time_set_alarm(alarm: $crate::driver::AlarmHandle, timestamp: u64) -> bool {
-            <$t as $crate::driver::Driver>::set_alarm(&$name, alarm, timestamp)
+        fn _embassy_time_set_alarm(alarm: $crate::AlarmHandle, timestamp: u64) -> bool {
+            <$t as $crate::Driver>::set_alarm(&$name, alarm, timestamp)
         }
     };
 }

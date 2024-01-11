@@ -28,7 +28,7 @@ use crate::{Duration, Instant};
 /// ```
 pub struct MockDriver(CsMutex<RefCell<InnerMockDriver>>);
 
-crate::time_driver_impl!(static DRIVER: MockDriver = MockDriver::new());
+crate::driver::time_driver_impl!(static DRIVER: MockDriver = MockDriver::new());
 
 impl MockDriver {
     /// Creates a new mock driver.

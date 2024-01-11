@@ -6,8 +6,7 @@ use core::{mem, ptr};
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time::driver::{AlarmHandle, Driver};
-use embassy_time::TICK_HZ;
+use embassy_time_driver::{AlarmHandle, Driver, TICK_HZ};
 use stm32_metapac::timer::regs;
 
 use crate::interrupt::typelevel::Interrupt;
@@ -173,7 +172,7 @@ pub(crate) struct RtcDriver {
 
 const ALARM_STATE_NEW: AlarmState = AlarmState::new();
 
-embassy_time::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
+embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm_count: AtomicU8::new(0),
     alarms: Mutex::const_new(CriticalSectionRawMutex::new(), [ALARM_STATE_NEW; ALARM_COUNT]),

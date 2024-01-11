@@ -34,6 +34,7 @@ flavors = [
 [dependencies]
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embassy-time = { version = "0.2", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
@@ -88,7 +89,7 @@ rt = ["stm32-metapac/rt"]
 defmt = ["dep:defmt", "bxcan/unstable-defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "embedded-io-async/defmt-03", "embassy-usb-driver/defmt", "embassy-net-driver/defmt", "embassy-time?/defmt"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m" ]
+low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
 low-power-debug-with-sleep = []
 
 ## Automatically generate `memory.x` file using [`stm32-metapac`](https://docs.rs/stm32-metapac/)
@@ -107,7 +108,7 @@ time = ["dep:embassy-time"]
 
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
-_time-driver = ["time"]
+_time-driver = ["dep:embassy-time-driver", "time"]
 
 ## Use any time driver
 time-driver-any = ["_time-driver"]

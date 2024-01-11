@@ -30,7 +30,7 @@ critical-section-impl = ["critical-section/restore-state-u8"]
 unstable-pac = []
 
 ## Enable the timer for use with `embassy-time` with a 1MHz tick rate
-time-driver = []
+time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
 
 ## Enable ROM function cache
 rom-func-cache = []
@@ -67,7 +67,8 @@ boot2-w25x10cl = []
 
 [dependencies]
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
-embassy-time = { version = "0.2", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
+embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
+embassy-time = { version = "0.2", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
