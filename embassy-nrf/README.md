@@ -8,6 +8,20 @@ complete operations in low power mod and handling interrupts, so that applicatio
 
 NOTE: The Embassy HALs can be used both for non-async and async operations. For async, you can choose which runtime you want to use.
 
+## Hardware support
+
+The `embassy-nrf` HAL supports most variants of the nRF family:
+
+* nRF52 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf52840))
+* nRF53 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf5340))
+* nRF91 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf9160))
+
+Most peripherals are supported. For a complete list of available peripherals and features, see the [documentation](https://docs.embassy.dev/embassy-nrf/git/nrf52805/index.html).
+
+## API
+
+The `embassy-nrf` HAL implements the traits from [embedded-hal](https://crates.io/crates/embedded-hal) (v0.2 and 1.0) and [embedded-hal-async](https://crates.io/crates/embedded-hal-async), as well as [embedded-io](https://crates.io/crates/embedded-io) and [embedded-io-async](https://crates.io/crates/embedded-io-async).
+
 ## EasyDMA considerations
 
 On nRF chips, peripherals can use the so called EasyDMA feature to offload the task of interacting
