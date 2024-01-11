@@ -8,6 +8,8 @@ complete operations in low power mod and handling interrupts, so that applicatio
 
 NOTE: The Embassy HALs can be used both for non-async and async operations. For async, you can choose which runtime you want to use.
 
+For a complete list of available peripherals and features, see the [embassy-nrf documentation](https://docs.embassy.dev/embassy-nrf).
+
 ## Hardware support
 
 The `embassy-nrf` HAL supports most variants of the nRF family:
@@ -16,9 +18,11 @@ The `embassy-nrf` HAL supports most variants of the nRF family:
 * nRF53 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf5340))
 * nRF91 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf9160))
 
-Most peripherals are supported. If the `time` feature is enabled, the HAL uses the RTC peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 32768 Hz.
+Most peripherals are supported. 
 
-For a complete list of available peripherals and features, see the [documentation](https://docs.embassy.dev/embassy-nrf/git/nrf52805/index.html).
+## Time driver
+
+If the `time` feature is enabled, the HAL uses the RTC peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 32768 Hz.
 
 ## API
 
