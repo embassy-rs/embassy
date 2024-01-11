@@ -24,7 +24,7 @@ Most peripherals are supported.
 
 If the `time` feature is enabled, the HAL uses the RTC peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 32768 Hz.
 
-## API
+## Embedded-hal
 
 The `embassy-nrf` HAL implements the traits from [embedded-hal](https://crates.io/crates/embedded-hal) (v0.2 and 1.0) and [embedded-hal-async](https://crates.io/crates/embedded-hal-async), as well as [embedded-io](https://crates.io/crates/embedded-io) and [embedded-io-async](https://crates.io/crates/embedded-io-async).
 
