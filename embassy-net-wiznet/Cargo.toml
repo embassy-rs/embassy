@@ -2,7 +2,7 @@
 name = "embassy-net-wiznet"
 version = "0.1.0"
 description = "embassy-net driver for WIZnet SPI Ethernet chips"
-keywords = ["embedded", "wiznet", "embassy-net", "embedded-hal-async", "ethernet", "async"]
+keywords = ["embedded", "embassy-net", "embedded-hal-async", "ethernet", "async"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "async"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
