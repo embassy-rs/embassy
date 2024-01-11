@@ -1,8 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
-
-//! Utilities to use `embedded-hal` traits with Embassy.
+#![doc = include_str!("../README.md")]
 
 pub mod adapter;
 pub mod flash;
