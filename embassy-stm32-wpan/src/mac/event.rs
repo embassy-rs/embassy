@@ -1,3 +1,4 @@
+//! MAC layer event types.
 use core::{mem, ptr};
 
 use super::indications::{
@@ -24,6 +25,8 @@ pub(crate) trait ParseableMacEvent: Sized {
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug)]
+#[allow(missing_docs)]
+/// MAC event variants.
 pub enum MacEvent<'a> {
     MlmeAssociateCnf(&'a AssociateConfirm),
     MlmeDisassociateCnf(&'a DisassociateConfirm),

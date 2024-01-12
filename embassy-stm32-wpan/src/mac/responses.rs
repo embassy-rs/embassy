@@ -1,3 +1,4 @@
+//! MAC layer command responses.
 use super::consts::{MAX_ED_SCAN_RESULTS_SUPPORTED, MAX_PAN_DESC_SUPPORTED, MAX_SOUNDING_LIST_SUPPORTED};
 use super::event::ParseableMacEvent;
 use super::typedefs::{

@@ -1,7 +1,7 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
-// #![warn(missing_docs)]
+#![warn(missing_docs)]
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;
@@ -18,15 +18,15 @@ use sub::sys::Sys;
 use tables::*;
 use unsafe_linked_list::LinkedListNode;
 
-pub mod channels;
-pub mod cmd;
-pub mod consts;
-pub mod evt;
+mod channels;
+mod cmd;
+mod consts;
+mod evt;
 pub mod lhci;
 pub mod shci;
 pub mod sub;
-pub mod tables;
-pub mod unsafe_linked_list;
+mod tables;
+mod unsafe_linked_list;
 
 #[cfg(feature = "mac")]
 pub mod mac;

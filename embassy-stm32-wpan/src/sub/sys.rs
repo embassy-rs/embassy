@@ -10,6 +10,7 @@ use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
+/// IPCC System Subsystem.
 pub struct Sys {
     _private: (),
 }

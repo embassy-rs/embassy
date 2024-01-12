@@ -1,3 +1,4 @@
+//! MAC layer runner.
 use core::cell::RefCell;
 
 use embassy_futures::join;
@@ -15,6 +16,7 @@ use crate::sub::mac::Mac;
 
 type ZeroCopyPubSub<M, T> = blocking_mutex::Mutex<M, RefCell<Option<Signal<NoopRawMutex, T>>>>;
 
+/// Runner for the MAC layer event loop.
 pub struct Runner<'a> {
     pub(crate) mac_subsystem: Mac,
     // rx event backpressure is already provided through the MacEvent drop mechanism
@@ -28,6 +30,7 @@ pub struct Runner<'a> {
 }
 
 impl<'a> Runner<'a> {
+    /// Create a new runner instance with the given MAC layer and transmit buffer queue.
     pub fn new(mac: Mac, tx_buf_queue: [&'a mut [u8; MTU]; 5]) -> Self {
         let this = Self {
             mac_subsystem: mac,
@@ -46,6 +49,7 @@ impl<'a> Runner<'a> {
         this
     }
 
+    /// Runs the MAC layer forever.
     pub async fn run(&'a self) -> ! {
         join::join(
             async {

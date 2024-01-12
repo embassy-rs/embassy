@@ -5,7 +5,7 @@ use crate::PacketHeader;
 
 #[derive(Debug)]
 #[repr(C)]
-pub enum TlPacketType {
+pub(crate) enum TlPacketType {
     MacCmd = 0x00,
 
     BleCmd = 0x01,
@@ -59,9 +59,9 @@ impl TryFrom<u8> for TlPacketType {
     }
 }
 
-pub const TL_PACKET_HEADER_SIZE: usize = core::mem::size_of::<PacketHeader>();
-pub const TL_EVT_HEADER_SIZE: usize = 3;
-pub const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CsEvt>();
+pub(crate) const TL_PACKET_HEADER_SIZE: usize = core::mem::size_of::<PacketHeader>();
+pub(crate) const TL_EVT_HEADER_SIZE: usize = 3;
+pub(crate) const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CsEvt>();
 
 /**
  * Queue length of BLE Event
@@ -76,21 +76,22 @@ pub const TL_CS_EVT_SIZE: usize = core::mem::size_of::<CsEvt>();
  * for a CC/CS event, In that case, the notification TL_BLE_HCI_ToNot() is called to indicate
  * to the application a HCI command did not receive its command event within 30s (Default HCI Timeout).
  */
-pub const CFG_TL_BLE_EVT_QUEUE_LENGTH: usize = 5;
-pub const CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE: usize = 255;
-pub const TL_BLE_EVENT_FRAME_SIZE: usize = TL_EVT_HEADER_SIZE + CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE;
+pub(crate) const CFG_TL_BLE_EVT_QUEUE_LENGTH: usize = 5;
+pub(crate) const CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE: usize = 255;
+pub(crate) const TL_BLE_EVENT_FRAME_SIZE: usize = TL_EVT_HEADER_SIZE + CFG_TL_BLE_MOST_EVENT_PAYLOAD_SIZE;
 
-pub const POOL_SIZE: usize = CFG_TL_BLE_EVT_QUEUE_LENGTH * 4 * divc(TL_PACKET_HEADER_SIZE + TL_BLE_EVENT_FRAME_SIZE, 4);
-pub const C_SIZE_CMD_STRING: usize = 256;
+pub(crate) const POOL_SIZE: usize =
+    CFG_TL_BLE_EVT_QUEUE_LENGTH * 4 * divc(TL_PACKET_HEADER_SIZE + TL_BLE_EVENT_FRAME_SIZE, 4);
+pub(crate) const C_SIZE_CMD_STRING: usize = 256;
 
-pub const fn divc(x: usize, y: usize) -> usize {
+pub(crate) const fn divc(x: usize, y: usize) -> usize {
     (x + y - 1) / y
 }
 
-pub const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
+pub(crate) const TL_BLE_EVT_CS_PACKET_SIZE: usize = TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE;
 #[allow(dead_code)]
-pub const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;
+pub(crate) const TL_BLE_EVT_CS_BUFFER_SIZE: usize = TL_PACKET_HEADER_SIZE + TL_BLE_EVT_CS_PACKET_SIZE;
 
-pub const TL_BLEEVT_CC_OPCODE: u8 = 0x0E;
-pub const TL_BLEEVT_CS_OPCODE: u8 = 0x0F;
-pub const TL_BLEEVT_VS_OPCODE: u8 = 0xFF;
+pub(crate) const TL_BLEEVT_CC_OPCODE: u8 = 0x0E;
+pub(crate) const TL_BLEEVT_CS_OPCODE: u8 = 0x0F;
+pub(crate) const TL_BLEEVT_VS_OPCODE: u8 = 0xFF;

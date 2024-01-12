@@ -1,3 +1,4 @@
+/// Convenience macro for defining a numeric enum.
 #[macro_export]
 macro_rules! numeric_enum {
     (#[repr($repr:ident)]
@@ -5,6 +6,7 @@ macro_rules! numeric_enum {
         $($(#$enum_attrs:tt)* $enum:ident = $constant:expr),* $(,)?
     } ) => {
         #[repr($repr)]
+        #[allow(missing_docs)]
         $(#$attrs)*
         $vis enum $name {
             $($(#$enum_attrs)* $enum = $constant),*

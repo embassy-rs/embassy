@@ -1,9 +1,12 @@
+//! MAC layer common types.
 use core::fmt::Debug;
 
 use crate::numeric_enum;
 
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Errors returned by MAC layer.
+#[allow(missing_docs)]
 pub enum MacError {
     Error = 0x01,
     NotImplemented = 0x02,
@@ -29,6 +32,8 @@ numeric_enum! {
     #[repr(u8)]
     #[derive(Debug, Default)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[allow(missing_docs)]
+    /// MAC status.
     pub enum MacStatus {
         #[default]
         Success = 0x00,
@@ -41,6 +46,7 @@ numeric_enum! {
     /// this enum contains all the MAC PIB Ids
     #[derive(Default, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    #[allow(missing_docs)]
     pub enum PibId {
         // PHY
         #[default]
@@ -100,6 +106,8 @@ numeric_enum! {
     #[repr(u8)]
     #[derive(Default, Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    /// Available address modes.
+    #[allow(missing_docs)]
     pub enum AddressMode {
         #[default]
         NoAddress = 0x00,
@@ -110,8 +118,11 @@ numeric_enum! {
 }
 
 #[derive(Clone, Copy)]
+/// MAC address.
 pub union MacAddress {
+    /// Shorthand address.
     pub short: [u8; 2],
+    /// Extended address.
     pub extended: [u8; 8],
 }
 
@@ -148,6 +159,7 @@ impl Default for MacAddress {
 }
 
 impl MacAddress {
+    /// Broadcast address.
     pub const BROADCAST: Self = Self { short: [0xFF, 0xFF] };
 }
 
@@ -167,6 +179,7 @@ impl TryFrom<&[u8]> for MacAddress {
 }
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(missing_docs)]
 pub struct GtsCharacteristics {
     pub fields: u8,
 }
@@ -283,6 +296,7 @@ bitflags::bitflags! {
 
 #[cfg(feature = "defmt")]
 defmt::bitflags! {
+    /// MAC layer capabilities.
     pub struct Capabilities: u8 {
         /// 1 if the device is capabaleof becoming a PAN coordinator
         const IS_COORDINATOR_CAPABLE = 0b00000001;
@@ -377,5 +391,6 @@ numeric_enum! {
 pub struct PanId(pub [u8; 2]);
 
 impl PanId {
+    /// Broadcast ID.
     pub const BROADCAST: Self = Self([0xFF, 0xFF]);
 }

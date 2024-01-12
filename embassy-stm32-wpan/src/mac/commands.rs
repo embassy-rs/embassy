@@ -1,3 +1,4 @@
+//! MAC layer commands.
 use core::{mem, slice};
 
 use super::opcodes::OpcodeM4ToM0;
@@ -6,9 +7,12 @@ use super::typedefs::{
     PanId, PibId, ScanType, SecurityLevel,
 };
 
+/// Trait for all MAC commands.
 pub trait MacCommand: Sized {
+    /// The opcode of the command.
     const OPCODE: OpcodeM4ToM0;
 
+    /// Returns the payload of the command.
     fn payload<'a>(&'a self) -> &'a [u8] {
         unsafe { slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>()) }
     }
@@ -111,6 +115,7 @@ impl MacCommand for GtsRequest {
 #[repr(C)]
 #[derive(Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Reset request.
 pub struct ResetRequest {
     /// MAC PIB attributes are set to their default values or not during reset
     pub set_default_pib: bool,
@@ -369,6 +374,7 @@ pub struct DataRequest {
 }
 
 impl DataRequest {
+    /// Sets the buffer to be transmitted.
     pub fn set_buffer<'a>(&'a mut self, buf: &'a [u8]) -> &mut Self {
         self.msdu_ptr = buf as *const _ as *const u8;
         self.msdu_length = buf.len() as u8;

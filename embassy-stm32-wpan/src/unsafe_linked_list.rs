@@ -17,9 +17,9 @@ use cortex_m::interrupt;
 
 #[derive(Copy, Clone)]
 #[repr(C, packed(4))]
-pub struct LinkedListNode {
-    pub next: *mut LinkedListNode,
-    pub prev: *mut LinkedListNode,
+pub(crate) struct LinkedListNode {
+    pub(crate) next: *mut LinkedListNode,
+    pub(crate) prev: *mut LinkedListNode,
 }
 
 impl Default for LinkedListNode {
@@ -32,7 +32,7 @@ impl Default for LinkedListNode {
 }
 
 impl LinkedListNode {
-    pub unsafe fn init_head(mut p_list_head: *mut LinkedListNode) {
+    pub(crate) unsafe fn init_head(mut p_list_head: *mut LinkedListNode) {
         ptr::write_volatile(
             p_list_head,
             LinkedListNode {
@@ -42,12 +42,12 @@ impl LinkedListNode {
         );
     }
 
-    pub unsafe fn is_empty(mut p_list_head: *mut LinkedListNode) -> bool {
+    pub(crate) unsafe fn is_empty(mut p_list_head: *mut LinkedListNode) -> bool {
         interrupt::free(|_| ptr::read_volatile(p_list_head).next == p_list_head)
     }
 
     /// Insert `node` after `list_head` and before the next node
-    pub unsafe fn insert_head(mut p_list_head: *mut LinkedListNode, mut p_node: *mut LinkedListNode) {
+    pub(crate) unsafe fn insert_head(mut p_list_head: *mut LinkedListNode, mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
             let mut list_head = ptr::read_volatile(p_list_head);
             if p_list_head != list_head.next {
@@ -81,7 +81,7 @@ impl LinkedListNode {
     }
 
     /// Insert `node` before `list_tail` and after the second-to-last node
-    pub unsafe fn insert_tail(mut p_list_tail: *mut LinkedListNode, mut p_node: *mut LinkedListNode) {
+    pub(crate) unsafe fn insert_tail(mut p_list_tail: *mut LinkedListNode, mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
             let mut list_tail = ptr::read_volatile(p_list_tail);
             if p_list_tail != list_tail.prev {
@@ -115,7 +115,7 @@ impl LinkedListNode {
     }
 
     /// Remove `node` from the linked list
-    pub unsafe fn remove_node(mut p_node: *mut LinkedListNode) {
+    pub(crate) unsafe fn remove_node(mut p_node: *mut LinkedListNode) {
         interrupt::free(|_| {
             // trace!("remove node: {:x}", p_node);
             // apparently linked list nodes are not always aligned.
@@ -144,7 +144,7 @@ impl LinkedListNode {
     }
 
     /// Remove `list_head` and return a pointer to the `node`.
-    pub unsafe fn remove_head(mut p_list_head: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
+    pub(crate) unsafe fn remove_head(mut p_list_head: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
         interrupt::free(|_| {
             let list_head = ptr::read_volatile(p_list_head);
 
@@ -161,7 +161,7 @@ impl LinkedListNode {
     }
 
     /// Remove `list_tail` and return a pointer to the `node`.
-    pub unsafe fn remove_tail(mut p_list_tail: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
+    pub(crate) unsafe fn remove_tail(mut p_list_tail: *mut LinkedListNode) -> Option<*mut LinkedListNode> {
         interrupt::free(|_| {
             let list_tail = ptr::read_volatile(p_list_tail);
 
@@ -177,7 +177,7 @@ impl LinkedListNode {
         })
     }
 
-    pub unsafe fn insert_node_after(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
+    pub(crate) unsafe fn insert_node_after(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
         interrupt::free(|_| {
             (*node).next = (*ref_node).next;
             (*node).prev = ref_node;
@@ -188,7 +188,7 @@ impl LinkedListNode {
         todo!("this function has not been converted to volatile semantics");
     }
 
-    pub unsafe fn insert_node_before(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
+    pub(crate) unsafe fn insert_node_before(mut node: *mut LinkedListNode, mut ref_node: *mut LinkedListNode) {
         interrupt::free(|_| {
             (*node).next = ref_node;
             (*node).prev = (*ref_node).prev;
@@ -199,7 +199,7 @@ impl LinkedListNode {
         todo!("this function has not been converted to volatile semantics");
     }
 
-    pub unsafe fn get_size(mut list_head: *mut LinkedListNode) -> usize {
+    pub(crate) unsafe fn get_size(mut list_head: *mut LinkedListNode) -> usize {
         interrupt::free(|_| {
             let mut size = 0;
             let mut temp: *mut LinkedListNode = core::ptr::null_mut::<LinkedListNode>();
@@ -216,7 +216,7 @@ impl LinkedListNode {
         todo!("this function has not been converted to volatile semantics");
     }
 
-    pub unsafe fn get_next_node(mut p_ref_node: *mut LinkedListNode) -> *mut LinkedListNode {
+    pub(crate) unsafe fn get_next_node(mut p_ref_node: *mut LinkedListNode) -> *mut LinkedListNode {
         interrupt::free(|_| {
             let ref_node = ptr::read_volatile(p_ref_node);
 
@@ -225,7 +225,7 @@ impl LinkedListNode {
         })
     }
 
-    pub unsafe fn get_prev_node(mut p_ref_node: *mut LinkedListNode) -> *mut LinkedListNode {
+    pub(crate) unsafe fn get_prev_node(mut p_ref_node: *mut LinkedListNode) -> *mut LinkedListNode {
         interrupt::free(|_| {
             let ref_node = ptr::read_volatile(p_ref_node);
 

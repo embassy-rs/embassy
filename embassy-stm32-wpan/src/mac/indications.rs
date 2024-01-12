@@ -1,3 +1,4 @@
+//! MAC layer indication types.
 use core::slice;
 
 use super::consts::MAX_PENDING_ADDRESS;
@@ -191,6 +192,7 @@ impl ParseableMacEvent for DpsIndication {}
 #[repr(C)]
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Data indication MAC event.
 pub struct DataIndication {
     /// Pointer to the set of octets forming the MSDU being indicated  
     pub msdu_ptr: *const u8,
@@ -230,7 +232,9 @@ pub struct DataIndication {
     pub datrate: u8,
     /// time units corresponding to an RMARKER at the antenna at the end of a ranging exchange,  
     pub ranging_received: u8,
+    /// counter start.
     pub ranging_counter_start: u32,
+    /// counter stop.
     pub ranging_counter_stop: u32,
     /// ime units in a message exchange over which the tracking offset was measured
     pub ranging_tracking_interval: u32,
@@ -245,6 +249,7 @@ pub struct DataIndication {
 impl ParseableMacEvent for DataIndication {}
 
 impl DataIndication {
+    /// Returns the payload of the data indication.
     pub fn payload<'a>(&'a self) -> &'a mut [u8] {
         unsafe { slice::from_raw_parts_mut(self.msdu_ptr as *mut _, self.msdu_length as usize) }
     }

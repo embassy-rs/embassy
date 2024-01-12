@@ -1,3 +1,4 @@
+//! MAC layer control interface.
 use core::future::Future;
 use core::task;
 use core::task::Poll;
@@ -12,6 +13,7 @@ use super::event::MacEvent;
 use super::typedefs::MacError;
 use crate::mac::runner::Runner;
 
+/// Token for sending control commands.
 pub struct Control<'a> {
     runner: &'a Runner<'a>,
 }
@@ -21,6 +23,7 @@ impl<'a> Control<'a> {
         Self { runner: runner }
     }
 
+    /// Send a command.
     pub async fn send_command<T>(&self, cmd: &T) -> Result<(), MacError>
     where
         T: MacCommand,
@@ -30,6 +33,9 @@ impl<'a> Control<'a> {
         self.runner.mac_subsystem.send_command(cmd).await
     }
 
+    /// Send a command and wait for the response.
+    ///
+    /// The returned token allows polling for the event response.
     pub async fn send_command_and_get_response<T>(&self, cmd: &T) -> Result<EventToken<'a>, MacError>
     where
         T: MacCommand,
@@ -44,6 +50,7 @@ impl<'a> Control<'a> {
     }
 }
 
+/// Token for receiving events.
 pub struct EventToken<'a> {
     runner: &'a Runner<'a>,
     _mutex_guard: MutexGuard<'a, CriticalSectionRawMutex, ()>,
