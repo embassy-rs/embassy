@@ -12,17 +12,17 @@ use embassy_stm32_wpan::hci::event::command::{CommandComplete, ReturnParameters}
 use embassy_stm32_wpan::hci::host::uart::{Packet, UartHci};
 use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
 use embassy_stm32_wpan::hci::types::AdvertisingType;
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::gap::{
+use embassy_stm32_wpan::hci::vendor::command::gap::{
     AddressType, AuthenticationRequirements, DiscoverableParameters, GapCommands, IoCapability, LocalName, Pin, Role,
     SecureConnectionSupport,
 };
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::gatt::{
+use embassy_stm32_wpan::hci::vendor::command::gatt::{
     AddCharacteristicParameters, AddServiceParameters, CharacteristicEvent, CharacteristicPermission,
     CharacteristicProperty, EncryptionKeySize, GattCommands, ServiceType, UpdateCharacteristicValueParameters, Uuid,
     WriteResponseParameters,
 };
-use embassy_stm32_wpan::hci::vendor::stm32wb::command::hal::{ConfigData, HalCommands, PowerLevel};
-use embassy_stm32_wpan::hci::vendor::stm32wb::event::{self, AttributeHandle, Stm32Wb5xEvent};
+use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
+use embassy_stm32_wpan::hci::vendor::event::{self, command::VendorReturnParameters, AttributeHandle, VendorEvent};
 use embassy_stm32_wpan::hci::{BdAddr, Event};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::Ble;
@@ -190,11 +190,11 @@ async fn main(_spawner: Spawner) {
                     mbox.ble_subsystem.set_discoverable(&discovery_params).await.unwrap();
                 }
                 Event::Vendor(vendor_event) => match vendor_event {
-                    Stm32Wb5xEvent::AttReadPermitRequest(read_req) => {
+                    VendorEvent::AttReadPermitRequest(read_req) => {
                         defmt::info!("read request received {}, allowing", read_req);
                         mbox.ble_subsystem.allow_read(read_req.conn_handle).await
                     }
-                    Stm32Wb5xEvent::AttWritePermitRequest(write_req) => {
+                    VendorEvent::AttWritePermitRequest(write_req) => {
                         defmt::info!("write request received {}, allowing", write_req);
                         mbox.ble_subsystem
                             .write_response(&WriteResponseParameters {
@@ -206,7 +206,7 @@ async fn main(_spawner: Spawner) {
                             .await
                             .unwrap()
                     }
-                    Stm32Wb5xEvent::GattAttributeModified(attribute) => {
+                    VendorEvent::GattAttributeModified(attribute) => {
                         defmt::info!("{}", ble_context);
                         if attribute.attr_handle.0 == ble_context.chars.notify.0 + 2 {
                             if attribute.data()[0] == 0x01 {
@@ -333,7 +333,7 @@ async fn gatt_add_service(ble_subsystem: &mut Ble, uuid: Uuid) -> Result<Attribu
 
     if let Ok(Packet::Event(Event::CommandComplete(CommandComplete {
         return_params:
-            ReturnParameters::Vendor(event::command::ReturnParameters::GattAddService(event::command::GattService {
+            ReturnParameters::Vendor(VendorReturnParameters::GattAddService(event::command::GattService {
                 service_handle,
                 ..
             })),
@@ -370,11 +370,10 @@ async fn gatt_add_char(
 
     if let Ok(Packet::Event(Event::CommandComplete(CommandComplete {
         return_params:
-            ReturnParameters::Vendor(event::command::ReturnParameters::GattAddCharacteristic(
-                event::command::GattCharacteristic {
-                    characteristic_handle, ..
-                },
-            )),
+            ReturnParameters::Vendor(VendorReturnParameters::GattAddCharacteristic(event::command::GattCharacteristic {
+                characteristic_handle,
+                ..
+            })),
         ..
     }))) = response
     {
