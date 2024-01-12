@@ -3,6 +3,11 @@ name = "embassy-stm32-wpan"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Async STM32 WPAN stack for embedded devices in Rust."
+keywords = ["embedded", "async", "stm32", "ble", "wpan"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-stm32-wpan"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src/"
@@ -29,7 +34,7 @@ aligned = "0.4.1"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { git = "https://github.com/Dirbaio/stm32wb-hci", rev = "0aff47e009c30c5fc5d520672625173d75f7505c", optional = true }
+stm32wb-hci = { version = "0.17.0", optional = true }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 bitflags = { version = "2.3.3", optional = true }
 
