@@ -22,7 +22,8 @@ use embassy_stm32_wpan::hci::vendor::command::gatt::{
     WriteResponseParameters,
 };
 use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
-use embassy_stm32_wpan::hci::vendor::event::{self, command::VendorReturnParameters, AttributeHandle, VendorEvent};
+use embassy_stm32_wpan::hci::vendor::event::command::VendorReturnParameters;
+use embassy_stm32_wpan::hci::vendor::event::{self, AttributeHandle, VendorEvent};
 use embassy_stm32_wpan::hci::{BdAddr, Event};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::Ble;
