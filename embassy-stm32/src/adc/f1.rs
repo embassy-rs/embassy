@@ -136,7 +136,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub async fn read(&mut self, pin: &mut (impl AdcPin<T> + ?Sized)) -> u16 {
         Self::set_channel_sample_time(pin.channel(), self.sample_time);
         T::regs().cr1().modify(|reg| {
             reg.set_scan(false);

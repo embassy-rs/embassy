@@ -174,7 +174,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub fn read(&mut self, pin: &mut (impl AdcPin<T> + ?Sized)) -> u16 {
         pin.set_as_analog();
 
         // Configure ADC

@@ -276,7 +276,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub async fn read(&mut self, pin: &mut (impl AdcPin<T> + ?Sized)) -> u16 {
         self.set_sample_sequence(&[pin.channel()]).await;
         self.convert().await
     }

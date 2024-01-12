@@ -276,6 +276,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn read<P>(&mut self, pin: &mut P) -> u16
     where
         P: AdcPin<T>,
+        P: ?Sized,
         P: crate::gpio::sealed::Pin,
     {
         pin.set_as_analog();

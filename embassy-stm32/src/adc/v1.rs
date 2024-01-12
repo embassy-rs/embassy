@@ -133,7 +133,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub async fn read(&mut self, pin: &mut (impl AdcPin<T> + ?Sized)) -> u16 {
         let channel = pin.channel();
         pin.set_as_analog();
 

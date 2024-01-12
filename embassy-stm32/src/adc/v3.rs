@@ -162,7 +162,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().0 as u16
     }
 
-    pub fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub fn read(&mut self, pin: &mut (impl AdcPin<T> + ?Sized)) -> u16 {
         // Make sure bits are off
         while T::regs().cr().read().addis() {
             // spin

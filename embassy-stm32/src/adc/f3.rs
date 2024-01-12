@@ -155,7 +155,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().rdata()
     }
 
-    pub async fn read(&mut self, pin: &mut impl AdcPin<T>) -> u16 {
+    pub async fn read(&mut self, pin: &mut (impl AdcPin<T> + ?Sized)) -> u16 {
         Self::set_channel_sample_time(pin.channel(), self.sample_time);
 
         // Configure the channel to sample
