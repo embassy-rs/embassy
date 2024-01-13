@@ -199,3 +199,46 @@ where
         })
     }
 }
+
+impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Transfer<u8> for SpiDeviceWithConfig<'_, M, BUS, CS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::spi::Transfer<u8, Error = BusErr> + SetConfig,
+    CS: OutputPin<Error = CsErr>,
+{
+    type Error = SpiDeviceError<BusErr, CsErr>;
+    fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
+        self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+            let op_res = bus.transfer(words);
+            let cs_res = self.cs.set_high();
+            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
+            Ok(op_res)
+        })
+    }
+}
+
+impl<'d, M, BUS, CS, BusErr, CsErr> embedded_hal_02::blocking::spi::Write<u8> for SpiDeviceWithConfig<'_, M, BUS, CS>
+where
+    M: RawMutex,
+    BUS: embedded_hal_02::blocking::spi::Write<u8, Error = BusErr> + SetConfig,
+    CS: OutputPin<Error = CsErr>,
+{
+    type Error = SpiDeviceError<BusErr, CsErr>;
+
+    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
+            self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+            let op_res = bus.write(words);
+            let cs_res = self.cs.set_high();
+            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+            cs_res.map_err(SpiDeviceError::Cs)?;
+            Ok(op_res)
+        })
+    }
+}
