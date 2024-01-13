@@ -159,3 +159,7 @@ Note that the git revision should match any other embassy patches or git depende
 When you aren't using the `nightly` feature of `embassy-executor`, the executor uses a bump allocator, which may require configuration.
 
 Check out link:https://docs.embassy.dev/embassy-executor/git/cortex-m/index.html#task-arena[Task Arena Documentation] for more details.
+
+== Can I use manual ISRs alongside Embassy?
+
+Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. Simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
