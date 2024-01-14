@@ -6,6 +6,7 @@ use crate::pac::pwr::vals::Vos;
 pub use crate::pac::rcc::vals::Adcdacsel as AdcClockSource;
 #[cfg(stm32h7)]
 pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
+pub use crate::pac::rcc::vals::Fdcansel as FdCanClockSource;
 pub use crate::pac::rcc::vals::{
     Ckpersel as PerClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
     Pllsrc as PllSource, Sw as Sysclk,
@@ -212,6 +213,8 @@ pub struct Config {
 
     pub per_clock_source: PerClockSource,
     pub adc_clock_source: AdcClockSource,
+    pub fdcan_clock_source: FdCanClockSource,
+
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
@@ -247,6 +250,8 @@ impl Default for Config {
             adc_clock_source: AdcClockSource::HCLK1,
             #[cfg(stm32h7)]
             adc_clock_source: AdcClockSource::PER,
+
+            fdcan_clock_source: FdCanClockSource::from_bits(0), // HSE
 
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
@@ -585,7 +590,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         RCC.ccipr5().modify(|w| {
             w.set_ckpersel(config.per_clock_source);
-            w.set_adcdacsel(config.adc_clock_source)
+            w.set_adcdacsel(config.adc_clock_source);
+            w.set_fdcan1sel(config.fdcan_clock_source)
         });
     }
 
