@@ -191,6 +191,8 @@ fn main() {
         Some("tim11") => "TIM11",
         Some("tim12") => "TIM12",
         Some("tim15") => "TIM15",
+        Some("tim21") => "TIM21",
+        Some("tim22") => "TIM22",
         Some("any") => {
             if singletons.contains(&"TIM2".to_string()) {
                 "TIM2"
@@ -208,6 +210,10 @@ fn main() {
                 "TIM12"
             } else if singletons.contains(&"TIM15".to_string()) {
                 "TIM15"
+            } else if singletons.contains(&"TIM21".to_string()) {
+                "TIM21"
+            } else if singletons.contains(&"TIM22".to_string()) {
+                "TIM22"
             } else {
                 panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM9, TIM11, TIM12 or TIM15.")
             }

@@ -139,6 +139,10 @@ time-driver-tim11 = ["_time-driver"]
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
+## Use TIM21 as time driver
+time-driver-tim22 = ["_time-driver"]
+## Use TIM22 as time driver
+time-driver-tim22 = ["_time-driver"]
 
 
 #! ## Analog Switch Pins (Pxy_C) on STM32H7 series

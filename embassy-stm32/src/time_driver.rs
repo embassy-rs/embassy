@@ -28,10 +28,10 @@ use crate::{interrupt, peripherals};
 // available after reserving CC1 for regular time keeping. For example, TIM2 has four CC registers:
 // CC1, CC2, CC3, and CC4, so it can provide ALARM_COUNT = 3.
 
-#[cfg(not(any(time_driver_tim12, time_driver_tim15)))]
+#[cfg(not(any(time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22)))]
 const ALARM_COUNT: usize = 3;
 
-#[cfg(any(time_driver_tim12, time_driver_tim15))]
+#[cfg(any(time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))]
 const ALARM_COUNT: usize = 1;
 
 #[cfg(time_driver_tim2)]
@@ -50,6 +50,10 @@ type T = peripherals::TIM11;
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
 type T = peripherals::TIM15;
+#[cfg(time_driver_tim21)]
+type T = peripherals::TIM21;
+#[cfg(time_driver_tim22)]
+type T = peripherals::TIM22;
 
 foreach_interrupt! {
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
@@ -116,6 +120,22 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
+    (TIM21, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim21)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };  
+    (TIM22, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim22)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };    
 }
 
 // Clock timekeeping works with something we call "periods", which are time intervals
