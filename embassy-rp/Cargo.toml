@@ -25,10 +25,10 @@ default = [ "rt" ]
 ## Enable the RP runtime.
 rt = [ "rp-pac/rt" ]
 
-## Enable defmt
+## Enable defmt.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
 
-## critical section that is safe for multicore use
+## critical section that is safe for multicore use.
 critical-section-impl = ["critical-section/restore-state-u8"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
@@ -37,14 +37,14 @@ critical-section-impl = ["critical-section/restore-state-u8"]
 ## There are no plans to make this stable.
 unstable-pac = []
 
-## Enable the timer for use with `embassy-time` with a 1MHz tick rate
+## Enable the timer for use with `embassy-time` with a 1MHz tick rate.
 time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
 
-## Enable ROM function cache
+## Enable ROM function cache.
 rom-func-cache = []
-## Enable intrinsics
+## Enable intrinsics.
 intrinsics = []
-## Enable ROM v2 intrinsics
+## Enable ROM v2 intrinsics.
 rom-v2-intrinsics = []
 
 ## Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash lives there)
@@ -58,19 +58,19 @@ run-from-ram = []
 
 #! ### boot2 flash chip support
 #! If none of these are enabled, w25q080 is used by default (used on the pico)
-## AT25SF128a
+## AT25SF128a.
 boot2-at25sf128a = []
-## GD25Q64cs
+## GD25Q64cs.
 boot2-gd25q64cs = []
-## generic-03h
+## generic-03h.
 boot2-generic-03h = []
-## IS25LP080
+## IS25LP080.
 boot2-is25lp080 = []
-## ram-memcpy
+## ram-memcpy.
 boot2-ram-memcpy = []
-## W25Q080
+## W25Q080.
 boot2-w25q080 = []
-## W25X10cl
+## W25X10cl.
 boot2-w25x10cl = []
 
 [dependencies]
