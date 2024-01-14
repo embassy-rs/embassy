@@ -286,7 +286,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
 
+        #[cfg(not(stm32l1))]
         dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
+
+        #[cfg(not(stm32l1))]
         dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
 
         // Initialize the bus so that it signals that power is available
@@ -443,6 +446,9 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
         #[cfg(any(usb_v3, usb_v4))]
         regs.bcdr().write(|w| w.set_dppu(true));
+
+        #[cfg(stm32l1)]
+        crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
 
         trace!("enabled");
 
