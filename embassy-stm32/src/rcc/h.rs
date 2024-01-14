@@ -6,10 +6,9 @@ use crate::pac::pwr::vals::Vos;
 pub use crate::pac::rcc::vals::Adcdacsel as AdcClockSource;
 #[cfg(stm32h7)]
 pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
-pub use crate::pac::rcc::vals::Fdcansel as FdCanClockSource;
 pub use crate::pac::rcc::vals::{
-    Ckpersel as PerClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
-    Pllsrc as PllSource, Sw as Sysclk,
+    Ckpersel as PerClockSource, Fdcansel as FdCanClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv,
+    Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Ckpersel, Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
@@ -591,7 +590,7 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.ccipr5().modify(|w| {
             w.set_ckpersel(config.per_clock_source);
             w.set_adcdacsel(config.adc_clock_source);
-            w.set_fdcan1sel(config.fdcan_clock_source)
+            w.set_fdcan12sel(config.fdcan_clock_source)
         });
     }
 
