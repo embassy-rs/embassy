@@ -13,7 +13,6 @@ use embassy_usb_driver::{
 };
 
 use super::{DmPin, DpPin, Instance};
-use crate::gpio::sealed::AFType;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
@@ -286,8 +285,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
 
-        dp.set_as_af(dp.af_num(), AFType::OutputPushPull);
-        dm.set_as_af(dm.af_num(), AFType::OutputPushPull);
+        #[cfg(not(stm32l1))]
+        {
+            dp.set_as_af(dp.af_num(), crate::gpio::sealed::AFType::OutputPushPull);
+            dm.set_as_af(dm.af_num(), crate::gpio::sealed::AFType::OutputPushPull);
+        }
+        #[cfg(stm32l1)]
+        let _ = (dp, dm); // suppress "unused" warnings.
 
         // Initialize the bus so that it signals that power is available
         BUS_WAKER.wake();
@@ -443,6 +447,9 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
         #[cfg(any(usb_v3, usb_v4))]
         regs.bcdr().write(|w| w.set_dppu(true));
+
+        #[cfg(stm32l1)]
+        crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
 
         trace!("enabled");
 
