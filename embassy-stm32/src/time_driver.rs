@@ -127,7 +127,7 @@ foreach_interrupt! {
         fn $irq() {
             DRIVER.on_interrupt()
         }
-    };  
+    };
     (TIM22, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim22)]
         #[cfg(feature = "rt")]
@@ -135,7 +135,7 @@ foreach_interrupt! {
         fn $irq() {
             DRIVER.on_interrupt()
         }
-    };    
+    };
 }
 
 // Clock timekeeping works with something we call "periods", which are time intervals
