@@ -25,9 +25,9 @@ defmt = { version = "0.3", optional = true }
 defmt-rtt = { version = "0.4", optional = true }
 log = { version = "0.4", optional = true }
 
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
-embassy-stm32 = { version = "0.1.0", path = "../embassy-stm32", default-features = false }
-embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
+embassy-sync = { version = "0.5.0", registry = "artifactory" }
+embassy-stm32 = { version = "0.1.0", registry="artifactory", default-features = false, features=["rt"]}
+embassy-boot = { version = "0.2.0", registry = "artifactory" }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
@@ -35,9 +35,27 @@ embedded-storage-async = { version = "0.4.1" }
 cfg-if = "1.0.0"
 
 [features]
+default = ["stm32wb55vg"]
 defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-stm32/defmt"]
 log = ["dep:log", "embassy-boot/log", "embassy-stm32/log"]
 debug = ["defmt-rtt"]
+
+stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]
+stm32wb15cc = [ "embassy-stm32/stm32wb15cc" ]
+stm32wb30ce = [ "embassy-stm32/stm32wb30ce" ]
+stm32wb35cc = [ "embassy-stm32/stm32wb35cc" ]
+stm32wb35ce = [ "embassy-stm32/stm32wb35ce" ]
+stm32wb50cg = [ "embassy-stm32/stm32wb50cg" ]
+stm32wb55cc = [ "embassy-stm32/stm32wb55cc" ]
+stm32wb55ce = [ "embassy-stm32/stm32wb55ce" ]
+stm32wb55cg = [ "embassy-stm32/stm32wb55cg" ]
+stm32wb55rc = [ "embassy-stm32/stm32wb55rc" ]
+stm32wb55re = [ "embassy-stm32/stm32wb55re" ]
+stm32wb55rg = [ "embassy-stm32/stm32wb55rg" ]
+stm32wb55vc = [ "embassy-stm32/stm32wb55vc" ]
+stm32wb55ve = [ "embassy-stm32/stm32wb55ve" ]
+stm32wb55vg = [ "embassy-stm32/stm32wb55vg" ]
+stm32wb55vy = [ "embassy-stm32/stm32wb55vy" ]
 
 [profile.dev]
 debug = 2

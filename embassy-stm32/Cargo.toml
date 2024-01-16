@@ -41,15 +41,15 @@ features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h7
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
-embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
-embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
-embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
-embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = {version = "0.1.0", path = "../embassy-usb-driver" }
-embassy-executor = { version = "0.5.0", path = "../embassy-executor", optional = true }
+embassy-sync = { version = "0.5.0", registry="artifactory" }
+embassy-time = { version = "0.3.0", optional = true, registry="artifactory" }
+embassy-time-driver = { version = "0.1", optional = true, registry="artifactory" }
+embassy-futures = { version = "0.1.0", registry="artifactory" }
+embassy-hal-internal = {version = "0.1.0", features = ["cortex-m", "prio-bits-4"], registry="artifactory" }
+embassy-embedded-hal = {version = "0.1.0", registry="artifactory" }
+embassy-net-driver = { version = "0.2.0", registry="artifactory" }
+embassy-usb-driver = {version = "0.1.0", registry="artifactory" }
+embassy-executor = { version = "0.5.0", optional = true, registry="artifactory" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -69,7 +69,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 rand_core = "0.6.3"
 sdio-host = "0.5.0"
 critical-section = "1.1"
-#stm32-metapac = { version = "15" }
+# stm32-metapac = { version = "15"}
 stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-f84633553331c2d154ee72de779a40cbb10fd1bd" }
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -98,7 +98,7 @@ stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", ta
 
 
 [features]
-default = ["rt"]
+default = ["rt", "stm32wb55vg"]
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]

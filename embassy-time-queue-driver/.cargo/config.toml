@@ -1,0 +1,37 @@
+# Replacing crates.io is called "source replacement". See:
+# https://doc.rust-lang.org/cargo/reference/source-replacement.html
+#
+# And registries are documented here:
+# https://doc.rust-lang.org/nightly/cargo/reference/registries.html
+
+# Makes artifactory the default registry and saves passing --registry
+# parameter for some things (does not seem to work for commands that
+# don't take a --registry argument)
+#
+# The default is our local registry because we should never be
+# publishing to anything else unless we're working on public crates on
+# crates.io, in which case we want a safe default - better to publish
+# open source code to our private repo than private code to crates.io.
+[registry]
+default = "artifactory"
+global-credential-providers = ["cargo:token"]
+
+# Establish our artifactory remote as a registry
+[registries.artifactory-remote]
+index = "sparse+https://tokenizeinc.jfrog.io/artifactory/api/cargo/cargo-remote/index/"
+
+# Our local artifactory registry.
+[registries.artifactory]
+index = "sparse+https://tokenizeinc.jfrog.io/artifactory/api/cargo/cargo-local/index/"
+
+# Optional, use with --registry to publish to crates.io
+[registries.crates-io]
+index = "https://github.com/rust-lang/crates.io-index"
+
+# Use our artifactory remote as a candidate for source replacement.
+[source.artifactory-remote]
+registry = "sparse+https://tokenizeinc.jfrog.io/artifactory/api/cargo/cargo-remote/index/"
+
+# Replace crates.io with our artifactory remote.
+[source.crates-io]
+replace-with = "artifactory-remote"
