@@ -14,11 +14,11 @@ stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "eth", "stop", "can", "not
 stm32f446re = ["embassy-stm32/stm32f446re", "chrono", "stop", "can", "not-gpdma", "dac", "sdmmc"]
 stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "not-gpdma", "eth", "rng"]
 stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac"]
-stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng"]
-stm32h563zi = ["embassy-stm32/stm32h563zi", "chrono", "eth", "rng"]
-stm32h753zi = ["embassy-stm32/stm32h753zi", "chrono", "not-gpdma", "eth", "rng"]
-stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "chrono", "not-gpdma", "eth", "dac", "rng"]
-stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-gpdma", "rng"]
+stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng", "fdcan"]
+stm32h563zi = ["embassy-stm32/stm32h563zi", "chrono", "eth", "rng", "fdcan"]
+stm32h753zi = ["embassy-stm32/stm32h753zi", "chrono", "not-gpdma", "eth", "rng", "fdcan"]
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "chrono", "not-gpdma", "eth", "dac", "rng", "fdcan"]
+stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-gpdma", "rng", "fdcan"]
 stm32l073rz = ["embassy-stm32/stm32l073rz", "cm0", "not-gpdma", "rng"]
 stm32l152re = ["embassy-stm32/stm32l152re", "chrono", "not-gpdma"]
 stm32l496zg = ["embassy-stm32/stm32l496zg", "not-gpdma", "rng"]
@@ -37,6 +37,7 @@ sdmmc = []
 stop = ["embassy-stm32/low-power", "embassy-stm32/low-power-debug-with-sleep"]
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
 can = []
+fdcan = []
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/mac"]
 embassy-stm32-wpan = []
@@ -95,6 +96,11 @@ required-features = [ "stm32l152re",]
 name = "eth"
 path = "src/bin/eth.rs"
 required-features = [ "eth",]
+
+[[bin]]
+name = "fdcan"
+path = "src/bin/fdcan.rs"
+required-features = [ "fdcan",]
 
 [[bin]]
 name = "gpio"
