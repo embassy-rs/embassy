@@ -158,6 +158,23 @@ Note that the git revision should match any other embassy patches or git depende
 
 When you aren't using the `nightly` feature of `embassy-executor`, the executor uses a bump allocator, which may require configuration.
 
+Something like this error will occur at **compile time** if the task arena is *too large* for the target's RAM:
+
+[source,plain]
+----
+rust-lld: error: section '.bss' will not fit in region 'RAM': overflowed by _ bytes
+rust-lld: error: section '.uninit' will not fit in region 'RAM': overflowed by _ bytes
+----
+
+And this message will appear at **runtime** if the task arena is *too small* for the tasks running:
+
+[source,plain]
+----
+ERROR panicked at 'embassy-executor: task arena is full. You must increase the arena size, see the documentation for details: https://docs.embassy.dev/embassy-executor/'
+----
+
+NOTE: If all tasks are spawned at startup, this panic will occur immediately.
+
 Check out link:https://docs.embassy.dev/embassy-executor/git/cortex-m/index.html#task-arena[Task Arena Documentation] for more details.
 
 == Can I use manual ISRs alongside Embassy?
