@@ -1,6 +1,6 @@
 use core::cell::Cell;
-use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
+use portable_atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

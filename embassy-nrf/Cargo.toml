@@ -15,6 +15,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nrf/s
 
 features = ["time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"]
 flavors = [
+    { regex_feature = "nrf51", target = "thumbv6m-none-eabi" },
     { regex_feature = "nrf52.*", target = "thumbv7em-none-eabihf" },
     { regex_feature = "nrf53.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "nrf91.*", target = "thumbv8m.main-none-eabihf" },
@@ -28,6 +29,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 default = ["rt"]
 ## Cortex-M runtime (enabled by default)
 rt = [
+    "nrf51-pac?/rt",
     "nrf52805-pac?/rt",
     "nrf52810-pac?/rt",
     "nrf52811-pac?/rt",
@@ -71,6 +73,8 @@ reset-pin-as-gpio = []
 qspi-multiwrite-flash = []
 
 #! ### Chip selection features
+## nRF51
+nrf51 = ["nrf51-pac", "_nrf51", "portable-atomic/unsafe-assume-single-core"]
 ## nRF52805
 nrf52805 = ["nrf52805-pac", "_nrf52"]
 ## nRF52810
@@ -104,6 +108,7 @@ _nrf5340-net = ["_nrf5340", "nrf5340-net-pac"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf9160 = ["nrf9160-pac", "_dppi"]
 _nrf52 = ["_ppi"]
+_nrf51 = ["_ppi"]
 
 _time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768"]
 
@@ -132,6 +137,8 @@ embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
+portable-atomic = { version = "1", default-features = false, features = ["require-cas"] }
+
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
@@ -144,6 +151,7 @@ embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
 document-features = "0.2.7"
 
+nrf51-pac = { version = "0.12.0", optional = true }
 nrf52805-pac = { version = "0.12.0", optional = true }
 nrf52810-pac = { version = "0.12.0", optional = true }
 nrf52811-pac = { version = "0.12.0", optional = true }
