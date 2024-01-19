@@ -222,9 +222,6 @@ rm out/tests/rpi-pico/i2c
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
 
-# not in CI yet.
-rm -rf out/tests/stm32f446re
-
 # unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
 
