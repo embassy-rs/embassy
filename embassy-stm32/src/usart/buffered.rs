@@ -68,11 +68,16 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
         // indicates that all bytes are pushed out from the FIFO.
         // For other usart variants it shows that last byte from the buffer was just sent.
         if sr_val.tc() {
+            // For others it is cleared above with `clear_interrupt_flags`.
+            #[cfg(any(usart_v1, usart_v2))]
+            sr(r).modify(|w| w.set_tc(false));
+
             r.cr1().modify(|w| {
                 w.set_tcie(false);
             });
+
             state.tx_done.store(true, Ordering::Release);
-            state.rx_waker.wake();
+            state.tx_waker.wake();
         }
 
         // TX
