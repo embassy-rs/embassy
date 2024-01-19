@@ -491,6 +491,44 @@ pub struct BssInfo {
     pub ssid_len: u8,
     /// SSID.
     pub ssid: [u8; 32],
+    reserved1: [u8; 1],
+    /// Number of rates in the rates field.
+    pub rateset_count: u32,
+    /// Rates in 500kpbs units.
+    pub rates: [u8; 16],
+    /// Channel specification.
+    pub chanspec: u16,
+    /// Announcement traffic indication message.
+    pub atim_window: u16,
+    /// Delivery traffic indication message.
+    pub dtim_period: u8,
+    reserved2: [u8; 1],
+    /// Receive signal strength (in dbM).
+    pub rssi: i16,
+    /// Received noise (in dbM).
+    pub phy_noise: i8,
+    /// 802.11n capability.
+    pub n_cap: u8,
+    reserved3: [u8; 2],
+    /// 802.11n BSS capabilities.
+    pub nbss_cap: u32,
+    /// 802.11n control channel number.
+    pub ctl_ch: u8,
+    reserved4: [u8; 3],
+    reserved32: [u32; 1],
+    /// Flags.
+    pub flags: u8,
+    /// VHT capability.
+    pub vht_cap: u8,
+    reserved5: [u8; 2],
+    /// 802.11n BSS required MCS.
+    pub basic_mcs: [u8; 16],
+    /// Information Elements (IE) offset.
+    pub ie_offset: u16,
+    /// Length of Information Elements (IE) in bytes.
+    pub ie_length: u32,
+    /// Average signal-to-noise (SNR) ratio during frame reception.
+    pub snr: i16,
     // there will be more stuff here
 }
 impl_bytes!(BssInfo);
