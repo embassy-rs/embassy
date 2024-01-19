@@ -125,6 +125,7 @@ pub enum Error {
 pub enum ReadToBreakError {
     /// Read this many bytes, but never received a line break.
     MissingBreak(usize),
+    /// Other, standard issue with the serial request
     Other(Error),
 }
 
@@ -936,6 +937,9 @@ impl<'d, T: Instance> Uart<'d, T, Async> {
         self.rx.read(buffer).await
     }
 
+    /// Read until the buffer is full or a line break occurs.
+    ///
+    /// See [`UartRx::read_to_break()`] for more details
     pub async fn read_to_break<'a>(&mut self, buf: &'a mut [u8]) -> Result<usize, ReadToBreakError> {
         self.rx.read_to_break(buf).await
     }
