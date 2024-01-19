@@ -47,8 +47,10 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
             let mut rx_writer = state.rx_buf.writer();
             let buf = rx_writer.push_slice();
             if !buf.is_empty() {
-                buf[0] = dr.unwrap();
-                rx_writer.push_done(1);
+                if let Some(byte) = dr {
+                    buf[0] = byte;
+                    rx_writer.push_done(1);
+                }
             } else {
                 // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
             }
