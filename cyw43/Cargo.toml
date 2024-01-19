@@ -10,7 +10,7 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/cyw43"
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt-03"]
+defmt = ["dep:defmt", "heapless/defmt-03", "embassy-time/defmt"]
 log = ["dep:log"]
 
 # Fetch console logs from the WiFi firmware and forward them to `log` or `defmt`.

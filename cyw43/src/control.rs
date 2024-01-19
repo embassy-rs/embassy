@@ -38,14 +38,8 @@ pub struct Control<'a> {
 #[derive(Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ScanType {
-    Active {
-        /// Period of time to wait on each channel when active scanning.
-        dwell_time: Option<Duration>,
-    },
-    Passive {
-        /// Period of time to wait on each channel when passive scanning.
-        dwell_time: Option<Duration>,
-    },
+    Active,
+    Passive,
 }
 
 #[derive(Clone)]
@@ -59,7 +53,10 @@ pub struct ScanOptions {
     pub nprobes: Option<u16>,
     /// Time to spend waiting on the home channel.
     pub home_time: Option<Duration>,
+    /// Scan type: active or passive.
     pub scan_type: ScanType,
+    /// Period of time to wait on each channel when passive scanning.
+    pub dwell_time: Option<Duration>,
 }
 
 impl Default for ScanOptions {
@@ -69,7 +66,8 @@ impl Default for ScanOptions {
             bssid: None,
             nprobes: None,
             home_time: None,
-            scan_type: ScanType::Passive { dwell_time: None },
+            scan_type: ScanType::Passive,
+            dwell_time: None,
         }
     }
 }
@@ -514,28 +512,26 @@ impl<'a> Control<'a> {
         const SCANTYPE_ACTIVE: u8 = 0;
         const SCANTYPE_PASSIVE: u8 = 1;
 
+        let dwell_time = match scan_opts.dwell_time {
+            None => !0,
+            Some(t) => {
+                let mut t = t.as_millis() as u32;
+                if t == !0 {
+                    t = !0 - 1;
+                }
+                t
+            }
+        };
+
         let mut active_time = !0;
         let mut passive_time = !0;
-
         let scan_type = match scan_opts.scan_type {
-            ScanType::Active { dwell_time: None } => SCANTYPE_ACTIVE,
-            ScanType::Active {
-                dwell_time: Some(dwell_time),
-            } => {
-                active_time = dwell_time.as_millis() as u32;
-                if active_time == !0 {
-                    active_time = !0 - 1;
-                }
+            ScanType::Active => {
+                active_time = dwell_time;
                 SCANTYPE_ACTIVE
             }
-            ScanType::Passive { dwell_time: None } => SCANTYPE_PASSIVE,
-            ScanType::Passive {
-                dwell_time: Some(dwell_time),
-            } => {
-                passive_time = dwell_time.as_millis() as u32;
-                if passive_time == !0 {
-                    passive_time = !0 - 1;
-                }
+            ScanType::Passive => {
+                passive_time = dwell_time;
                 SCANTYPE_PASSIVE
             }
         };
