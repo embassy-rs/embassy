@@ -82,23 +82,25 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
     }
 }
 
-/// Buffered UART State
-pub struct State {
-    rx_waker: AtomicWaker,
-    rx_buf: RingBuffer,
+pub(crate) use sealed::State;
+pub(crate) mod sealed {
+    use super::*;
+    pub struct State {
+        pub(crate) rx_waker: AtomicWaker,
+        pub(crate) rx_buf: RingBuffer,
+        pub(crate) tx_waker: AtomicWaker,
+        pub(crate) tx_buf: RingBuffer,
+    }
 
-    tx_waker: AtomicWaker,
-    tx_buf: RingBuffer,
-}
-
-impl State {
-    /// Create new state
-    pub const fn new() -> Self {
-        Self {
-            rx_buf: RingBuffer::new(),
-            tx_buf: RingBuffer::new(),
-            rx_waker: AtomicWaker::new(),
-            tx_waker: AtomicWaker::new(),
+    impl State {
+        /// Create new state
+        pub const fn new() -> Self {
+            Self {
+                rx_buf: RingBuffer::new(),
+                tx_buf: RingBuffer::new(),
+                rx_waker: AtomicWaker::new(),
+                tx_waker: AtomicWaker::new(),
+            }
         }
     }
 }
