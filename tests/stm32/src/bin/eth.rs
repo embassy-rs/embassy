@@ -71,7 +71,28 @@ async fn main(spawner: Spawner) {
     const PACKET_QUEUE_SIZE: usize = 4;
 
     static PACKETS: StaticCell<PacketQueue<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>> = StaticCell::new();
+    #[cfg(not(eth_v2))]
     let device = Ethernet::new(
+        PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
+        p.ETH,
+        Irqs,
+        p.PA1,
+        p.PA2,
+        p.PC1,
+        p.PA7,
+        p.PC4,
+        p.PC5,
+        p.PG13,
+        #[cfg(not(feature = "stm32h563zi"))]
+        p.PB13,
+        #[cfg(feature = "stm32h563zi")]
+        p.PB15,
+        p.PG11,
+        GenericSMI::new(0),
+        mac_addr,
+    );
+    #[cfg(eth_v2)]
+    let device = Ethernet::new_rmii(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
         Irqs,
