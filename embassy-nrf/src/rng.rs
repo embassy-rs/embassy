@@ -5,8 +5,8 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
-use portable_atomic::{AtomicPtr, Ordering};
 use core::task::Poll;
+use portable_atomic::{AtomicPtr, Ordering};
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
