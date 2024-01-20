@@ -8,17 +8,14 @@ use cfg_if::cfg_if;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use self::sealed::Pin as _;
-
-#[cfg(not(feature = "nrf51"))]
-use crate::pac::p0 as gpio;
-#[cfg(not(feature = "nrf51"))]
-use crate::pac::p0::pin_cnf::{DRIVE_A, PULL_A};
-
 #[cfg(feature = "nrf51")]
 use crate::pac::gpio;
 #[cfg(feature = "nrf51")]
 use crate::pac::gpio::pin_cnf::{DRIVE_A, PULL_A};
-
+#[cfg(not(feature = "nrf51"))]
+use crate::pac::p0 as gpio;
+#[cfg(not(feature = "nrf51"))]
+use crate::pac::p0::pin_cnf::{DRIVE_A, PULL_A};
 use crate::{pac, Peripheral};
 
 /// A GPIO port with up to 32 pins.
