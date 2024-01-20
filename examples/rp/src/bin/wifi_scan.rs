@@ -65,7 +65,7 @@ async fn main(spawner: Spawner) {
         .set_power_management(cyw43::PowerManagementMode::PowerSave)
         .await;
 
-    let mut scanner = control.scan().await;
+    let mut scanner = control.scan(Default::default()).await;
     while let Some(bss) = scanner.next().await {
         if let Ok(ssid_str) = str::from_utf8(&bss.ssid) {
             info!("scanned {} == {:x}", ssid_str, bss.bssid);
