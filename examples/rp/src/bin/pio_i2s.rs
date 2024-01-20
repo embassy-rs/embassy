@@ -12,17 +12,13 @@
 
 use core::mem;
 
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::{
-    bind_interrupts,
-    peripherals::PIO0,
-    pio::{Config, FifoJoin, InterruptHandler, Pio, ShiftConfig, ShiftDirection},
-    Peripheral,
-};
+use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::{Config, FifoJoin, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
+use embassy_rp::{bind_interrupts, Peripheral};
 use fixed::traits::ToFixed;
-use panic_probe as _;
 use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -115,7 +111,7 @@ async fn main(_spawner: Spawner) {
             fade_value += (fade_target - fade_value) >> 14;
             // generate triangle wave with amplitude and frequency based on fade value
             phase = (phase + (fade_value >> 22)) & 0xffff;
-            let triangle_sample = (phase as i16 as i32).abs() - 16384; 
+            let triangle_sample = (phase as i16 as i32).abs() - 16384;
             let sample = (triangle_sample * (fade_value >> 15)) >> 16;
             // duplicate mono sample into lower and upper half of dma word
             *s = (sample as u16 as u32) * 0x10001;
@@ -127,4 +123,3 @@ async fn main(_spawner: Spawner) {
         mem::swap(&mut back_buffer, &mut front_buffer);
     }
 }
-
