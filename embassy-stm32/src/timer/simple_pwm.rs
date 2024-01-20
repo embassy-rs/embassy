@@ -151,6 +151,11 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         self.inner.set_output_polarity(channel, polarity);
     }
 
+    /// Set the output compare mode for a given channel.
+    pub fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
+        self.inner.set_output_compare_mode(channel, mode);
+    }
+
     /// Generate a sequence of PWM waveform
     ///
     /// Note:  
