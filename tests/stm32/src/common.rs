@@ -394,6 +394,10 @@ pub fn config() -> Config {
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
         config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        #[cfg(any(feature = "stm32h755zi"))]
+        {
+            config.rcc.supply_config = SupplyConfig::DirectSMPS;
+        }
     }
 
     #[cfg(any(feature = "stm32h7a3zi"))]
