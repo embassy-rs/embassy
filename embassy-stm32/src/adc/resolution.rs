@@ -56,7 +56,7 @@ impl Resolution {
     /// Get the maximum reading value for this resolution.
     ///
     /// This is `2**n - 1`.
-    pub fn to_max_count(&self) -> u32 {
+    pub const fn to_max_count(&self) -> u32 {
         match self {
             #[cfg(adc_v4)]
             Resolution::SixteenBit => (1 << 16) - 1,
