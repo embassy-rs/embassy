@@ -9,7 +9,7 @@ use embassy_boot_stm32::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdater
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::NorFlash;
 use panic_reset as _;
@@ -25,8 +25,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
-    let button = Input::new(p.PC13, Pull::Down);
-    let mut button = ExtiInput::new(button, p.EXTI13);
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down);
 
     let mut led = Output::new(p.PB14, Level::Low, Speed::Low);
     led.set_high();

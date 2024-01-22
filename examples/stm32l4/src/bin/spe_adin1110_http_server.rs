@@ -58,9 +58,9 @@ const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address([192, 168, 1, 5]), 24);
 const HTTP_LISTEN_PORT: u16 = 80;
 
 pub type SpeSpi = Spi<'static, peripherals::SPI2, peripherals::DMA1_CH1, peripherals::DMA1_CH2>;
-pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static, peripherals::PB12>, Delay>;
-pub type SpeInt = exti::ExtiInput<'static, peripherals::PB11>;
-pub type SpeRst = Output<'static, peripherals::PC7>;
+pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
+pub type SpeInt = exti::ExtiInput<'static>;
+pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<SpeSpiCs>;
 pub type TempSensI2c = I2c<'static, peripherals::I2C3, peripherals::DMA1_CH6, peripherals::DMA1_CH7>;
 
@@ -134,8 +134,7 @@ async fn main(spawner: Spawner) {
     let spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
-    let spe_int = Input::new(dp.PB11, Pull::None);
-    let spe_int = exti::ExtiInput::new(spe_int, dp.EXTI11);
+    let spe_int = exti::ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None);
 
     let spe_spi_cs_n = Output::new(dp.PB12, Level::High, Speed::High);
     let spe_spi_sclk = dp.PB13;
@@ -298,7 +297,7 @@ async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net:
 }
 
 #[embassy_executor::task]
-async fn heartbeat_led(mut led: Output<'static, peripherals::PE6>) {
+async fn heartbeat_led(mut led: Output<'static>) {
     let mut tmr = Ticker::every(Duration::from_hz(3));
     loop {
         led.toggle();
@@ -308,7 +307,7 @@ async fn heartbeat_led(mut led: Output<'static, peripherals::PE6>) {
 
 // ADT7422
 #[embassy_executor::task]
-async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static, peripherals::PG15>) -> ! {
+async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static>) -> ! {
     let mut tmr = Ticker::every(Duration::from_hz(1));
     let mut temp_sens = ADT7422::new(temp_dev_i2c, 0x48).unwrap();
 
