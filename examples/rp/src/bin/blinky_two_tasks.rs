@@ -14,7 +14,7 @@ use embassy_time::{Duration, Ticker};
 use gpio::{AnyPin, Level, Output};
 use {defmt_rtt as _, panic_probe as _};
 
-type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static, AnyPin>>>;
+type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static>>>;
 static LED: LedType = Mutex::new(None);
 
 #[embassy_executor::main]
