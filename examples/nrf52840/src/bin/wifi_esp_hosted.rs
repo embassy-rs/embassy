@@ -5,7 +5,7 @@ use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
-use embassy_nrf::gpio::{AnyPin, Input, Level, Output, OutputDrive, Pin, Pull};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
@@ -27,9 +27,9 @@ bind_interrupts!(struct Irqs {
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static, peripherals::P0_31>, Delay>,
-        Input<'static, AnyPin>,
-        Output<'static, peripherals::P1_05>,
+        ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>,
+        Input<'static>,
+        Output<'static>,
     >,
 ) -> ! {
     runner.run().await
@@ -50,8 +50,8 @@ async fn main(spawner: Spawner) {
     let sck = p.P0_29;
     let mosi = p.P0_30;
     let cs = Output::new(p.P0_31, Level::High, OutputDrive::HighDrive);
-    let handshake = Input::new(p.P1_01.degrade(), Pull::Up);
-    let ready = Input::new(p.P1_04.degrade(), Pull::None);
+    let handshake = Input::new(p.P1_01, Pull::Up);
+    let ready = Input::new(p.P1_04, Pull::None);
     let reset = Output::new(p.P1_05, Level::Low, OutputDrive::Standard);
 
     let mut config = spim::Config::default();
