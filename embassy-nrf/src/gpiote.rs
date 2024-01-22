@@ -156,12 +156,12 @@ impl Iterator for BitIter {
 }
 
 /// GPIOTE channel driver in input mode
-pub struct InputChannel<'d, C: Channel, T: GpioPin> {
-    ch: PeripheralRef<'d, C>,
-    pin: Input<'d, T>,
+pub struct InputChannel<'d> {
+    ch: PeripheralRef<'d, AnyChannel>,
+    pin: Input<'d>,
 }
 
-impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
+impl<'d> Drop for InputChannel<'d> {
     fn drop(&mut self) {
         let g = regs();
         let num = self.ch.number();
@@ -170,9 +170,9 @@ impl<'d, C: Channel, T: GpioPin> Drop for InputChannel<'d, C, T> {
     }
 }
 
-impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
+impl<'d> InputChannel<'d> {
     /// Create a new GPIOTE input channel driver.
-    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Input<'d, T>, polarity: InputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = impl Channel> + 'd, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
         into_ref!(ch);
 
         let g = regs();
@@ -195,7 +195,7 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 
         g.events_in[num].reset();
 
-        InputChannel { ch, pin }
+        InputChannel { ch: ch.map_into(), pin }
     }
 
     /// Asynchronously wait for an event in this channel.
@@ -227,12 +227,12 @@ impl<'d, C: Channel, T: GpioPin> InputChannel<'d, C, T> {
 }
 
 /// GPIOTE channel driver in output mode
-pub struct OutputChannel<'d, C: Channel, T: GpioPin> {
-    ch: PeripheralRef<'d, C>,
-    _pin: Output<'d, T>,
+pub struct OutputChannel<'d> {
+    ch: PeripheralRef<'d, AnyChannel>,
+    _pin: Output<'d>,
 }
 
-impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
+impl<'d> Drop for OutputChannel<'d> {
     fn drop(&mut self) {
         let g = regs();
         let num = self.ch.number();
@@ -241,9 +241,9 @@ impl<'d, C: Channel, T: GpioPin> Drop for OutputChannel<'d, C, T> {
     }
 }
 
-impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
+impl<'d> OutputChannel<'d> {
     /// Create a new GPIOTE output channel driver.
-    pub fn new(ch: impl Peripheral<P = C> + 'd, pin: Output<'d, T>, polarity: OutputChannelPolarity) -> Self {
+    pub fn new(ch: impl Peripheral<P = impl Channel> + 'd, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
         into_ref!(ch);
         let g = regs();
         let num = ch.number();
@@ -267,7 +267,10 @@ impl<'d, C: Channel, T: GpioPin> OutputChannel<'d, C, T> {
             unsafe { w.psel().bits(pin.pin.pin.pin()) }
         });
 
-        OutputChannel { ch, _pin: pin }
+        OutputChannel {
+            ch: ch.map_into(),
+            _pin: pin,
+        }
     }
 
     /// Triggers the OUT task (does the action as configured with task_out_polarity, defaults to Toggle).
@@ -348,7 +351,7 @@ impl<'a> Future for PortInputFuture<'a> {
     }
 }
 
-impl<'d, T: GpioPin> Input<'d, T> {
+impl<'d> Input<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.wait_for_high().await
@@ -375,7 +378,7 @@ impl<'d, T: GpioPin> Input<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> Flex<'d, T> {
+impl<'d> Flex<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|_, w| w.sense().high());
@@ -420,7 +423,7 @@ mod sealed {
 /// GPIOTE channel trait.
 ///
 /// Implemented by all GPIOTE channels.
-pub trait Channel: sealed::Channel + Sized {
+pub trait Channel: sealed::Channel + Into<AnyChannel> + Sized + 'static {
     /// Get the channel number.
     fn number(&self) -> usize;
 
@@ -460,6 +463,12 @@ macro_rules! impl_channel {
                 $number as usize
             }
         }
+
+        impl From<peripherals::$type> for AnyChannel {
+            fn from(val: peripherals::$type) -> Self {
+                Channel::degrade(val)
+            }
+        }
     };
 }
 
@@ -477,7 +486,7 @@ impl_channel!(GPIOTE_CH7, 7);
 mod eh02 {
     use super::*;
 
-    impl<'d, C: Channel, T: GpioPin> embedded_hal_02::digital::v2::InputPin for InputChannel<'d, C, T> {
+    impl<'d> embedded_hal_02::digital::v2::InputPin for InputChannel<'d> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -490,11 +499,11 @@ mod eh02 {
     }
 }
 
-impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::ErrorType for InputChannel<'d, C, T> {
+impl<'d> embedded_hal_1::digital::ErrorType for InputChannel<'d> {
     type Error = Infallible;
 }
 
-impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChannel<'d, C, T> {
+impl<'d> embedded_hal_1::digital::InputPin for InputChannel<'d> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok(self.pin.is_high())
     }
@@ -504,7 +513,7 @@ impl<'d, C: Channel, T: GpioPin> embedded_hal_1::digital::InputPin for InputChan
     }
 }
 
-impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
+impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         Ok(self.wait_for_high().await)
     }
@@ -526,7 +535,7 @@ impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Input<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for Flex<'d, T> {
+impl<'d> embedded_hal_async::digital::Wait for Flex<'d> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         Ok(self.wait_for_high().await)
     }

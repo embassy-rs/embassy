@@ -27,7 +27,7 @@ async fn read1<const N: usize>(uart: &mut UartRx<'_, impl Instance, Async>) -> R
     Ok(buf)
 }
 
-async fn send(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: Option<bool>) {
+async fn send(pin: &mut Output<'_>, v: u8, parity: Option<bool>) {
     pin.set_low();
     Timer::after_millis(1).await;
     for i in 0..8 {
@@ -160,7 +160,7 @@ async fn main(_spawner: Spawner) {
         config.parity = Parity::ParityEven;
         let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
 
-        async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, parity: u32) {
+        async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
         }
 
@@ -205,7 +205,7 @@ async fn main(_spawner: Spawner) {
         config.baudrate = 1000;
         let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
 
-        async fn chr(pin: &mut Output<'_, impl embassy_rp::gpio::Pin>, v: u8, good: bool) {
+        async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {
                 send(pin, v, None).await;
             } else {

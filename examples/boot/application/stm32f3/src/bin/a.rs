@@ -8,7 +8,7 @@ use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
@@ -23,8 +23,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let button = Input::new(p.PC13, Pull::Up);
-    let mut button = ExtiInput::new(button, p.EXTI13);
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up);
 
     let mut led = Output::new(p.PA5, Level::Low, Speed::Low);
     led.set_high();
