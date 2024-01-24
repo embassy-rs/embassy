@@ -127,7 +127,7 @@ impl<'d, T: Channel> Pwm<'d, T> {
     /// Create PWM driver without any configured pins.
     #[inline]
     pub fn new_free(inner: impl Peripheral<P = T> + 'd, config: Config) -> Self {
-        Self::new_inner(inner, None, None, Pull::None ,config, Divmode::DIV)
+        Self::new_inner(inner, None, None, Pull::None, config, Divmode::DIV)
     }
 
     /// Create PWM driver with a single 'a' as output.
@@ -161,7 +161,14 @@ impl<'d, T: Channel> Pwm<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(a, b);
-        Self::new_inner(inner, Some(a.map_into()), Some(b.map_into()), Pull::None, config, Divmode::DIV)
+        Self::new_inner(
+            inner,
+            Some(a.map_into()),
+            Some(b.map_into()),
+            Pull::None,
+            config,
+            Divmode::DIV,
+        )
     }
 
     /// Create PWM driver with a single 'b' as input pin.
@@ -188,7 +195,14 @@ impl<'d, T: Channel> Pwm<'d, T> {
         config: Config,
     ) -> Self {
         into_ref!(a, b);
-        Self::new_inner(inner, Some(a.map_into()), Some(b.map_into()), b_pull, config, mode.into())
+        Self::new_inner(
+            inner,
+            Some(a.map_into()),
+            Some(b.map_into()),
+            b_pull,
+            config,
+            mode.into(),
+        )
     }
 
     /// Set the PWM config.
