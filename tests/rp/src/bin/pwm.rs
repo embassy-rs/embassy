@@ -140,7 +140,7 @@ async fn main(_spawner: Spawner) {
     // pull-down
     {
         let pin2 = Input::new(&mut p11, Pull::None);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, Pull::Down, InputMode::FallingEdge, cfg.clone());
+        Pwm::new_input(&mut p.PWM_CH3, &mut p7, Pull::Down, InputMode::FallingEdge, cfg.clone());
         Timer::after_millis(1).await;
         assert!(pin2.is_low());
     }
@@ -148,7 +148,7 @@ async fn main(_spawner: Spawner) {
     // pull-up
     {
         let pin2 = Input::new(&mut p11, Pull::None);
-        let pwm = Pwm::new_input(&mut p.PWM_CH3, &mut p7, Pull::Up, InputMode::FallingEdge, cfg.clone());
+        Pwm::new_input(&mut p.PWM_CH3, &mut p7, Pull::Up, InputMode::FallingEdge, cfg.clone());
         Timer::after_millis(1).await;
         assert!(pin2.is_high());
     }
