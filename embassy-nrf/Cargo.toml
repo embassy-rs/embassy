@@ -74,7 +74,7 @@ qspi-multiwrite-flash = []
 
 #! ### Chip selection features
 ## nRF51
-nrf51 = ["nrf51-pac", "_nrf51", "portable-atomic/unsafe-assume-single-core"]
+nrf51 = ["nrf51-pac", "_nrf51"]
 ## nRF52805
 nrf52805 = ["nrf52805-pac", "_nrf52"]
 ## nRF52810
@@ -136,8 +136,6 @@ embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
-
-portable-atomic = { version = "1", default-features = false, features = ["require-cas"] }
 
 defmt = { version = "0.3", optional = true }
 log = { version = "0.4.14", optional = true }
