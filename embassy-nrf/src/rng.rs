@@ -44,7 +44,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 if state.ptr == state.end {
                     state.waker.wake();
                 }
-
             }
         });
     }
@@ -112,7 +111,6 @@ impl<'d, T: Instance> Rng<'d, T> {
         if dest.len() == 0 {
             return; // Nothing to fill
         }
-
 
         let range = dest.as_mut_ptr_range();
         // Even if we've preempted the interrupt, it can't preempt us again,
@@ -208,10 +206,10 @@ impl<'d, T: Instance> rand_core::RngCore for Rng<'d, T> {
 impl<'d, T: Instance> rand_core::CryptoRng for Rng<'d, T> {}
 
 pub(crate) mod sealed {
-    use core::cell::{Ref, RefMut, RefCell};
+    use core::cell::{Ref, RefCell, RefMut};
 
-    use critical_section::Mutex;
     use critical_section::CriticalSection;
+    use critical_section::Mutex;
     use embassy_sync::waitqueue::WakerRegistration;
 
     use super::*;
