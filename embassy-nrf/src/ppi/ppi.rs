@@ -1,6 +1,6 @@
 use embassy_hal_internal::into_ref;
 
-use super::{Channel, ConfigurableChannel, Event, Ppi, StaticChannel, Task};
+use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
 use crate::{pac, Peripheral};
 
 impl<'d> Task<'d> {
@@ -19,7 +19,7 @@ pub(crate) fn regs() -> &'static pac::ppi::RegisterBlock {
 }
 
 #[cfg(not(feature = "nrf51"))] // Not for nrf51 because of the fork task
-impl<'d, C: StaticChannel> Ppi<'d, C, 0, 1> {
+impl<'d, C: super::StaticChannel> Ppi<'d, C, 0, 1> {
     /// Configure PPI channel to trigger `task`.
     pub fn new_zero_to_one(ch: impl Peripheral<P = C> + 'd, task: Task) -> Self {
         into_ref!(ch);
