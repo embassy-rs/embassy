@@ -1146,8 +1146,10 @@ fn main() {
                     let grp: u8 = grp_name.strip_prefix("G").unwrap().parse().unwrap();
                     let ch: u8 = ch_name.strip_prefix("IO").unwrap().parse().unwrap();
 
+                    let af: u8 = pin.af.unwrap();
+
                     g.extend(quote! {
-                        impl_tsc_pin!( #peri, #pin_name, #grp, #ch);
+                        impl_tsc_pin!( #peri, #pin_name, #grp, #ch, #af);
                     })
                 }
             }

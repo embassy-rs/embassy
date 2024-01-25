@@ -7,6 +7,8 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 
+use crate::gpio::sealed::AFType;
+use crate::gpio::Speed;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::tsc::regs::{Ier, Ioccr, Iogcsr, Iohcr, Ioscr};
 use crate::peripherals;
@@ -279,6 +281,12 @@ impl<'d, T: Instance> Tsc<'d, T> {
         T::regs()
             .iogcsr()
             .write_value(Iogcsr(val | (0x1 << (sampling_pin.group() - 1))));
+
+        // This should be condition on the default I/O state configuration, but :shrug:
+        sampling_pin.set_as_af(sampling_pin.af(), AFType::OutputOpenDrain);
+        sampling_pin.set_speed(Speed::Low);
+        channel_pin.set_as_af(channel_pin.af(), AFType::OutputPushPull);
+        channel_pin.set_speed(Speed::Low);
     }
 
     pub async fn read(&mut self) -> [u16; 7] {
@@ -335,11 +343,12 @@ pub(crate) mod sealed {
     pub trait TscPin<T: Instance> {
         fn group(&self) -> u8;
         fn channel(&self) -> u8;
+        fn af(&self) -> u8;
     }
 }
 
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static {}
-pub trait TscPin<T: Instance>: sealed::TscPin<T> {}
+pub trait TscPin<T: Instance>: sealed::TscPin<T> + crate::gpio::sealed::Pin {}
 
 pin_trait!(G1IO1Pin, Instance);
 pin_trait!(G1IO2Pin, Instance);
@@ -371,7 +380,7 @@ pin_trait!(G7IO3Pin, Instance);
 pin_trait!(G7IO4Pin, Instance);
 
 macro_rules! impl_tsc_pin {
-    ($inst:ident, $pin:ident, $grp:expr, $ch:expr) => {
+    ($inst:ident, $pin:ident, $grp:expr, $ch:expr, $af:expr) => {
         impl crate::tsc::TscPin<peripherals::$inst> for crate::peripherals::$pin {}
         impl crate::tsc::sealed::TscPin<peripherals::$inst> for crate::peripherals::$pin {
             fn group(&self) -> u8 {
@@ -380,6 +389,10 @@ macro_rules! impl_tsc_pin {
 
             fn channel(&self) -> u8 {
                 $ch
+            }
+
+            fn af(&self) -> u8 {
+                $af
             }
         }
     };
