@@ -1,5 +1,5 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-#runner = "teleprobe local run --chip nRF51822_xxAA --elf"
+#runner = "teleprobe local run --chip nRF51422_xxAA --elf"
 runner = "teleprobe client run"
 
 [build]

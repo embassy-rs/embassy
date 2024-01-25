@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "embassy-nrf51822-tests"
+name = "embassy-nrf51-tests"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
