@@ -208,8 +208,7 @@ impl<'d, T: Instance> rand_core::CryptoRng for Rng<'d, T> {}
 pub(crate) mod sealed {
     use core::cell::{Ref, RefCell, RefMut};
 
-    use critical_section::CriticalSection;
-    use critical_section::Mutex;
+    use critical_section::{CriticalSection, Mutex};
     use embassy_sync::waitqueue::WakerRegistration;
 
     use super::*;
