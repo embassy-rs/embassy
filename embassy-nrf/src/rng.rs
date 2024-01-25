@@ -225,6 +225,8 @@ pub(crate) mod sealed {
         pub waker: WakerRegistration,
     }
 
+    unsafe impl Send for InnerState {}
+
     impl State {
         pub const fn new() -> Self {
             Self {
