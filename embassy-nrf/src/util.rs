@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use core::mem;
 
 const SRAM_LOWER: usize = 0x2000_0000;

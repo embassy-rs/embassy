@@ -111,7 +111,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: impl Peripheral<P = T> + 'd, is_counter: bool) -> Self {
+    fn new_inner(timer: impl Peripheral<P = T> + 'd, _is_counter: bool) -> Self {
         into_ref!(timer);
 
         let regs = T::regs();
@@ -123,7 +123,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         this.stop();
 
         #[cfg(not(feature = "nrf51"))]
-        if is_counter {
+        if _is_counter {
             regs.mode.write(|w| w.mode().low_power_counter());
         } else {
             regs.mode.write(|w| w.mode().timer());

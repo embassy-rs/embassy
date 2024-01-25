@@ -487,6 +487,7 @@ impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn deconfigure_pin(psel_bits: u32) {
     if psel_bits & 0x8000_0000 != 0 {
         return;

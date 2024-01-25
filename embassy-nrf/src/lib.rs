@@ -336,6 +336,7 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
+#[cfg(not(feature = "nrf51"))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum WriteResult {
@@ -347,10 +348,12 @@ enum WriteResult {
     Failed,
 }
 
+#[cfg(not(feature = "nrf51"))]
 unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
+#[cfg(not(feature = "nrf51"))]
 unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
@@ -383,6 +386,7 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
+    #[allow(unused_mut)]
     let mut needs_reset = false;
 
     // Setup debug protection.
