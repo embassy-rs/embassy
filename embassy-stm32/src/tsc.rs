@@ -262,7 +262,7 @@ impl<'d, T: Instance> Tsc<'d, T> {
         Self { _tsc: tsc }
     }
 
-    pub fn include(&self, sampling_pin: impl TscPin<T>, channel_pin: impl TscPin<T>) {
+    pub fn include(&self, sampling_pin: &impl TscPin<T>, channel_pin: &impl TscPin<T>) {
         let sampling_mask = 0x1 << (sampling_pin.group() - 1) * 4 << (sampling_pin.channel() - 1);
         let channel_mask = 0x1 << (channel_pin.group() - 1) * 4 << (channel_pin.channel() - 1);
 
@@ -289,7 +289,7 @@ impl<'d, T: Instance> Tsc<'d, T> {
         channel_pin.set_speed(Speed::Low);
     }
 
-    pub async fn read(&mut self) -> [u16; 7] {
+    pub async fn read(&self) -> [u16; 7] {
         // Request a new acquisition
         T::regs().cr().modify(|w| w.set_start(true));
 
