@@ -2,9 +2,8 @@
 #![no_main]
 teleprobe_meta::target!(b"nrf51-dk");
 
-use defmt::{assert, info};
+use defmt::info;
 use embassy_executor::Spawner;
-use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
