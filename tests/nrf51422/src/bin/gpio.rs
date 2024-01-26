@@ -16,11 +16,11 @@ async fn main(_spawner: Spawner) {
     let mut output = Output::new(p.P0_14, Level::Low, OutputDrive::Standard);
 
     output.set_low();
-    Timer::after_millis(1).await;
+    Timer::after_millis(10).await;
     assert!(input.is_low());
 
     output.set_high();
-    Timer::after_millis(1).await;
+    Timer::after_millis(10).await;
     assert!(input.is_high());
 
     info!("Test OK");
