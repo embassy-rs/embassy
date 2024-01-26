@@ -12,7 +12,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
-    let input = Input::new(p.P0_13, Pull::None);
+    let input = Input::new(p.P0_13, Pull::Up);
     let mut output = Output::new(p.P0_14, Level::Low, OutputDrive::Standard);
 
     output.set_low();
