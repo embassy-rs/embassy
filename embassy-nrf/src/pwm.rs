@@ -47,6 +47,7 @@ pub enum Error {
 }
 
 const MAX_SEQUENCE_LEN: usize = 32767;
+/// The used pwm clock frequency
 pub const PWM_CLK_HZ: u32 = 16_000_000;
 
 impl<'d, T: Instance> SequencePwm<'d, T> {
