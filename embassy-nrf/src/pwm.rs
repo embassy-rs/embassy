@@ -715,6 +715,13 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         pwm
     }
 
+    /// Returns the enable state of the pwm counter
+    #[inline(always)]
+    pub fn is_enabled(&self) -> bool {
+        let r = T::regs();
+        r.enable.read().enable().bit_is_set()
+    }
+
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
