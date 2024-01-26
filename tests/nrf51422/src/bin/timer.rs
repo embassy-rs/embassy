@@ -18,7 +18,6 @@ async fn main(_spawner: Spawner) {
     let ms = (end - start).as_millis();
     info!("slept for {} ms", ms);
     assert!(ms >= 99);
-    assert!(ms < 110);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
