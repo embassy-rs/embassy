@@ -1,7 +1,7 @@
 #!/bin/bash
 ## on push branch=main
 
-set -euo pipefail
+set -euxo pipefail
 
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
