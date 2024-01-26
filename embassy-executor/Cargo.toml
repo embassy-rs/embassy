@@ -41,7 +41,7 @@ critical-section = "1.1"
 document-features = "0.2.7"
 
 # needed for riscv and avr
-# remove when https://github.com/rust-lang/rust/pull/114499 is merged
+# remove when https://github.com/rust-lang/rust/pull/114499 lands on stable (on 1.76)
 portable-atomic = { version = "1.5", optional = true }
 
 # arch-cortex-m dependencies
