@@ -88,7 +88,7 @@ NOTE: How does the `cargo run` command know how to connect to our board and prog
 
 If you hare having issues when running `cargo run --release`, please check the following:
 
-* You are specifying the correct `--chip on the command line``, OR
+* You are specifying the correct `--chip` on the command line, OR
 * You have set `.cargo/config.toml`'s run line to the correct chip, AND
 * You have changed `examples/Cargo.toml`'s HAL (e.g. embassy-stm32) dependency's feature to use the correct chip (replace the existing stm32xxxx feature)
 
