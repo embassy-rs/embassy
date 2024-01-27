@@ -30,7 +30,7 @@ async fn main(_p: Spawner) {
     config.operation_mode = OperationMode::Mono;
     // GPDM,default=3.2 dB
     config.gain_left = I7F1::from_bits(5); // 2.5 + 3.2 = 5.7 dB
-    // Pins are correct for the onboard microphone on the Feather nRF52840 Sense.
+                                           // Pins are correct for the onboard microphone on the Feather nRF52840 Sense.
     let mut pdm = Pdm::new(p.PDM, Irqs, &mut p.P0_00, &mut p.P0_01, config);
 
     let mut bufs = [[0; 1024]; 2];

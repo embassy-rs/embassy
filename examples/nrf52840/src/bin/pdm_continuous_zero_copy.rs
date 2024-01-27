@@ -14,7 +14,7 @@ use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
 use embassy_executor::Spawner;
-use embassy_nrf::pdm::{self, Config, Frequency, OperationMode, Pdm, Ratio, DoubleBufferSampleState};
+use embassy_nrf::pdm::{self, Config, DoubleBufferSampleState, Frequency, OperationMode, Pdm, Ratio};
 use embassy_nrf::{bind_interrupts, peripherals};
 use fixed::types::I7F1;
 use {defmt_rtt as _, panic_probe as _};
@@ -39,7 +39,6 @@ const PDM_WORDS: usize = 1024;
 //     buf.leak();
 //     (ptr, PDM_WORDS, PDM_WORDS)
 // };
-
 
 // ///
 // /// Example dynamic deallocation function for the zero-copy API.
@@ -71,7 +70,7 @@ fn alloc_pdm_static() -> (*mut i16, usize, usize) {
 ///
 fn dealloc_pdm_static(_ptr: *mut i16, _capacity: usize, _length: usize) {
     // Nothing to do here, we are passing static buffers
- }
+}
 
 #[embassy_executor::main]
 async fn main(_p: Spawner) {

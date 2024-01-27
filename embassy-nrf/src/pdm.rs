@@ -379,7 +379,6 @@ impl<'d, T: Instance> Pdm<'d, T> {
         Ok(())
     }
 
-
     /// Continuous sampling with dynamic double buffers.
     ///
     /// A sampler closure is provided that receives the buffer of samples.
@@ -418,7 +417,9 @@ impl<'d, T: Instance> Pdm<'d, T> {
         r.sample
             .ptr
             .write(|w| unsafe { w.sampleptr().bits(vec_raw_parts[0].0 as u32) });
-        r.sample.maxcnt.write(|w| unsafe { w.buffsize().bits(vec_raw_parts[0].1 as _) });
+        r.sample
+            .maxcnt
+            .write(|w| unsafe { w.buffsize().bits(vec_raw_parts[0].1 as _) });
 
         // Reset and enable the events
         r.events_end.reset();
