@@ -9,6 +9,7 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use pac::spis0::config::ORDER_A as BitOrder;
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::sealed::Pin as _;
@@ -36,6 +37,9 @@ pub struct Config {
     /// SPI mode
     pub mode: Mode,
 
+    /// Bit order
+    pub bit_order: BitOrder,
+
     /// Overread character.
     ///
     /// If the master keeps clocking the bus after all the bytes in the TX buffer have
@@ -56,6 +60,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mode: MODE_0,
+            bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
@@ -503,22 +508,22 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
         r.config.write(|w| {
             match mode {
                 MODE_0 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().leading();
                 }
                 MODE_1 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().trailing();
                 }
                 MODE_2 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().leading();
                 }
                 MODE_3 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().trailing();
                 }

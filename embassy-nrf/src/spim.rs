@@ -10,6 +10,7 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use pac::spim0::config::ORDER_A as BitOrder;
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 use crate::chip::FORCE_COPY_BUFFER_SIZE;
@@ -41,6 +42,9 @@ pub struct Config {
     /// SPI mode
     pub mode: Mode,
 
+    /// Bit order
+    pub bit_order: BitOrder,
+
     /// Overread character.
     ///
     /// When doing bidirectional transfers, if the TX buffer is shorter than the RX buffer,
@@ -53,6 +57,7 @@ impl Default for Config {
         Self {
             frequency: Frequency::M1,
             mode: MODE_0,
+            bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
         }
     }
@@ -580,22 +585,22 @@ impl<'d, T: Instance> SetConfig for Spim<'d, T> {
         r.config.write(|w| {
             match mode {
                 MODE_0 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().leading();
                 }
                 MODE_1 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().trailing();
                 }
                 MODE_2 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().leading();
                 }
                 MODE_3 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().trailing();
                 }
