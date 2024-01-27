@@ -760,7 +760,9 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
 
         // defensive wait until waveform is loaded after seqstart so set_duty
         // can't be called again while dma is still reading
-        while r.events_seqend[0].read().bits() == 0 {}
+        if self.is_enabled() {
+            while r.events_seqend[0].read().bits() == 0 {}
+        }
     }
 
     /// Sets the PWM clock prescaler.
