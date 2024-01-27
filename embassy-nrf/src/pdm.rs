@@ -85,6 +85,22 @@ pub enum SamplerState {
     Stopped,
 }
 
+/// The state of a continuously running sampler.
+/// On each callback to process new samples, this enum
+/// provides the next buffer to use for double buffering
+/// in the format for Vec raw parts.
+///
+/// The buffers could be alternating between the same two
+/// or could be dynamically allocated and swapped out.
+#[derive(PartialEq)]
+pub enum DoubleBufferSampleState {
+    /// The sampler processed a buffer and will use this one for the next buffer.
+    /// (ptr, length, capacity)
+    Swap((*mut i16, usize, usize)),
+    /// The sampler is done processing samples.
+    Stop,
+}
+
 impl<'d, T: Instance> Pdm<'d, T> {
     /// Create PDM driver
     pub fn new(
@@ -350,6 +366,124 @@ impl<'d, T: Instance> Pdm<'d, T> {
                 r.sample
                     .ptr
                     .write(|w| unsafe { w.sampleptr().bits(bufs[next_buffer].as_mut_ptr() as u32) });
+            }
+
+            if r.events_stopped.read().bits() != 0 {
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await;
+        drop.defuse();
+        Ok(())
+    }
+
+
+    /// Continuous sampling with dynamic double buffers.
+    ///
+    /// A sampler closure is provided that receives the buffer of samples.
+    /// The closure returns a command indicating if the sampling
+    /// should continue or stop.
+    ///
+    /// This version of the function is for allowing zero-copy, dynamic double buffering.
+    /// The bufers are accepted as a tuple of raw pointers, lengths and capacities matching
+    /// the Vec::from_raw_parts() function.
+    ///
+    /// SAFTEY:
+    /// It is expected that the caller will set the length to non-zero and re-use the same
+    /// length and capacity for each buffer. Changing buffer sizes is not supported.
+    ///
+    /// At least one buffer will still be allocated when the function returns. The caller
+    /// should call free it to prevent leaks.
+    ///
+    /// NOTE: The time spent within the callback supplied should not exceed the time
+    /// taken to acquire the samples into a single buffer. You should measure the
+    /// time taken by the callback and set the sample buffer size accordingly.
+    /// Exceeding this time can lead to samples becoming dropped.
+    pub async fn run_double_buffered<S>(
+        &mut self,
+        vec_raw_parts: &mut [(*mut i16, usize, usize); 2],
+        mut sampler: S,
+    ) -> Result<(), Error>
+    where
+        S: FnMut((*mut i16, usize, usize)) -> DoubleBufferSampleState,
+    {
+        let r = T::regs();
+
+        if r.events_started.read().bits() != 0 {
+            return Err(Error::AlreadyRunning);
+        }
+
+        r.sample
+            .ptr
+            .write(|w| unsafe { w.sampleptr().bits(vec_raw_parts[0].0 as u32) });
+        r.sample.maxcnt.write(|w| unsafe { w.buffsize().bits(vec_raw_parts[0].1 as _) });
+
+        // Reset and enable the events
+        r.events_end.reset();
+        r.events_started.reset();
+        r.events_stopped.reset();
+        r.intenset.write(|w| {
+            w.end().set();
+            w.started().set();
+            w.stopped().set();
+            w
+        });
+
+        // Don't reorder the start event before the previous writes. Hopefully self
+        // wouldn't happen anyway.
+        compiler_fence(Ordering::SeqCst);
+
+        r.tasks_start.write(|w| unsafe { w.bits(1) });
+
+        let mut current_buffer = 0;
+
+        let mut done = false;
+
+        let drop = OnDrop::new(|| {
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            // N.B. It would be better if this were async, but Drop only support sync code.
+            while r.events_stopped.read().bits() != 0 {}
+        });
+
+        // Wait for events and complete when the sampler indicates it has had enough.
+        poll_fn(|cx| {
+            let r = T::regs();
+
+            T::state().waker.register(cx.waker());
+
+            if r.events_end.read().bits() != 0 {
+                compiler_fence(Ordering::SeqCst);
+
+                r.events_end.reset();
+                r.intenset.write(|w| w.end().set());
+
+                if !done {
+                    // Discard the last buffer after the user requested a stop.
+                    match sampler(vec_raw_parts[current_buffer]) {
+                        DoubleBufferSampleState::Swap(buf) => {
+                            vec_raw_parts[current_buffer] = buf;
+                            let next_buffer = 1 - current_buffer;
+                            current_buffer = next_buffer;
+                        }
+                        DoubleBufferSampleState::Stop => {
+                            vec_raw_parts[current_buffer] = (0 as _, 0, 0);
+                            r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                            done = true;
+                        }
+                    }
+                };
+            }
+
+            if r.events_started.read().bits() != 0 {
+                r.events_started.reset();
+                r.intenset.write(|w| w.started().set());
+
+                let next_buffer = 1 - current_buffer;
+                r.sample
+                    .ptr
+                    .write(|w| unsafe { w.sampleptr().bits(vec_raw_parts[next_buffer].0 as u32) });
             }
 
             if r.events_stopped.read().bits() != 0 {

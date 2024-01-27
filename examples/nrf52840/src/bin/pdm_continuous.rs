@@ -22,11 +22,15 @@ bind_interrupts!(struct Irqs {
 async fn main(_p: Spawner) {
     let mut p = embassy_nrf::init(Default::default());
     let mut config = Config::default();
-    // Pins are correct for the onboard microphone on the Feather nRF52840 Sense.
-    config.frequency = Frequency::_1280K; // 16 kHz sample rate
-    config.ratio = Ratio::RATIO80;
+    // The output data rate is the frequency / ratio, so 1.28MHz / 64 = 16kHz
+    // Minimum data rate is 1MHz / 80 = 12.5kHz
+    // Maximum data rate is 1.33MHz / 64 = 20.8kHz
+    config.frequency = Frequency::_1280K;
+    config.ratio = Ratio::RATIO64;
     config.operation_mode = OperationMode::Mono;
-    config.gain_left = I7F1::from_bits(5); // 2.5 dB
+    // GPDM,default=3.2 dB
+    config.gain_left = I7F1::from_bits(5); // 2.5 + 3.2 = 5.7 dB
+    // Pins are correct for the onboard microphone on the Feather nRF52840 Sense.
     let mut pdm = Pdm::new(p.PDM, Irqs, &mut p.P0_00, &mut p.P0_01, config);
 
     let mut bufs = [[0; 1024]; 2];
