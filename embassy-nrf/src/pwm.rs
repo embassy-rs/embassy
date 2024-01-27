@@ -736,6 +736,11 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         r.enable.write(|w| w.enable().disabled());
     }
 
+    /// Returns the current duty of the channel
+    pub fn duty(&self, channel: usize) -> u16 {
+        self.duty[channel]
+    }
+
     /// Sets duty cycle (15 bit) for a PWM channel.
     pub fn set_duty(&mut self, channel: usize, duty: u16) {
         let r = T::regs();
