@@ -59,7 +59,7 @@ pub struct SimplePwm<'d, T> {
     inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
+impl<'d, T: GeneralPurpose16bitInstance + CaptureCompare16bitInstance> SimplePwm<'d, T> {
     /// Create a new simple PWM driver.
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
@@ -83,8 +83,6 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
         this.inner.start();
-
-        this.inner.enable_outputs();
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
@@ -202,7 +200,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
                 &mut dma,
                 req,
                 duty,
-                T::regs_gp16().ccr(channel.index()).as_ptr() as *mut _,
+                T::regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
                 dma_transfer_option,
             )
             .await

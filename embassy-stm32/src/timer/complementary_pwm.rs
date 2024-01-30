@@ -52,7 +52,7 @@ pub struct ComplementaryPwm<'d, T> {
     inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
+impl<'d, T: GeneralPurpose16bitInstance + ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
     #[allow(clippy::too_many_arguments)]
     pub fn new(

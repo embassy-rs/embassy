@@ -57,7 +57,7 @@ pub struct Qei<'d, T> {
     _inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: CaptureCompare16bitInstance> Qei<'d, T> {
+impl<'d, T: GeneralPurpose16bitInstance + CaptureCompare16bitInstance> Qei<'d, T> {
     /// Create a new quadrature decoder driver.
     pub fn new(tim: impl Peripheral<P = T> + 'd, _ch1: QeiPin<'d, T, Ch1>, _ch2: QeiPin<'d, T, Ch2>) -> Self {
         Self::new_inner(tim)
