@@ -37,6 +37,7 @@ pub struct ReadableDmaRingBuffer<'a, W: Word> {
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
 pub trait DmaCtrl {
