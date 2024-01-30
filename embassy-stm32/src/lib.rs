@@ -24,6 +24,7 @@ pub mod gpio;
 pub mod rcc;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
+mod timeout;
 pub mod timer;
 
 // Sometimes-present hardware

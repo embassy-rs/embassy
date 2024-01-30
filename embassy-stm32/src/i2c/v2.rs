@@ -485,7 +485,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         } else {
             timeout
                 .with(self.write_dma_internal(address, write, true, true, timeout))
-                .await
+                .await?
         }
     }
 
@@ -510,7 +510,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             let is_last = next.is_none();
 
             let fut = self.write_dma_internal(address, c, first, is_last, timeout);
-            timeout.with(fut).await?;
+            timeout.with(fut).await??;
             first = false;
             current = next;
         }
@@ -528,7 +528,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             self.read_internal(address, buffer, false, timeout)
         } else {
             let fut = self.read_dma_internal(address, buffer, false, timeout);
-            timeout.with(fut).await
+            timeout.with(fut).await?
         }
     }
 
@@ -544,14 +544,14 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             self.write_internal(address, write, false, timeout)?;
         } else {
             let fut = self.write_dma_internal(address, write, true, true, timeout);
-            timeout.with(fut).await?;
+            timeout.with(fut).await??;
         }
 
         if read.is_empty() {
             self.read_internal(address, read, true, timeout)?;
         } else {
             let fut = self.read_dma_internal(address, read, true, timeout);
-            timeout.with(fut).await?;
+            timeout.with(fut).await??;
         }
 
         Ok(())

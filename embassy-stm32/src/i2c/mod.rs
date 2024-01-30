@@ -5,19 +5,17 @@
 #[cfg_attr(i2c_v2, path = "v2.rs")]
 mod _version;
 
-use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-#[cfg(feature = "time")]
-use embassy_time::{Duration, Instant};
 
 use crate::dma::NoDma;
 use crate::gpio::sealed::AFType;
 use crate::gpio::Pull;
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
+use crate::timeout::{Timeout, TimeoutError};
 use crate::{interrupt, peripherals};
 
 /// I2C error.
@@ -38,6 +36,12 @@ pub enum Error {
     Overrun,
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
+}
+
+impl From<TimeoutError> for Error {
+    fn from(_: TimeoutError) -> Self {
+        Error::Timeout
+    }
 }
 
 /// I2C config
@@ -78,7 +82,7 @@ pub struct I2c<'d, T: Instance, TXDMA = NoDma, RXDMA = NoDma> {
     #[allow(dead_code)]
     rx_dma: PeripheralRef<'d, RXDMA>,
     #[cfg(feature = "time")]
-    timeout: Duration,
+    timeout: embassy_time::Duration,
 }
 
 impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
@@ -135,43 +139,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     fn timeout(&self) -> Timeout {
         Timeout {
             #[cfg(feature = "time")]
-            deadline: Instant::now() + self.timeout,
+            deadline: embassy_time::Instant::now() + self.timeout,
         }
-    }
-}
-
-#[derive(Copy, Clone)]
-struct Timeout {
-    #[cfg(feature = "time")]
-    deadline: Instant,
-}
-
-#[allow(dead_code)]
-impl Timeout {
-    #[inline]
-    fn check(self) -> Result<(), Error> {
-        #[cfg(feature = "time")]
-        if Instant::now() > self.deadline {
-            return Err(Error::Timeout);
-        }
-
-        Ok(())
-    }
-
-    #[inline]
-    fn with<R>(self, fut: impl Future<Output = Result<R, Error>>) -> impl Future<Output = Result<R, Error>> {
-        #[cfg(feature = "time")]
-        {
-            use futures::FutureExt;
-
-            embassy_futures::select::select(embassy_time::Timer::at(self.deadline), fut).map(|r| match r {
-                embassy_futures::select::Either::First(_) => Err(Error::Timeout),
-                embassy_futures::select::Either::Second(r) => r,
-            })
-        }
-
-        #[cfg(not(feature = "time"))]
-        fut
     }
 }
 
