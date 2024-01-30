@@ -42,7 +42,8 @@
 #![no_std]
 #![no_main]
 
-use core::{cell::Cell, ops::Sub};
+use core::cell::Cell;
+use core::ops::Sub;
 
 use defmt::*;
 use embassy_time::{Duration, Instant, Ticker, Timer};
@@ -56,9 +57,9 @@ mod thread_idle_logging {
     use core::arch::asm;
     use core::cell::Cell;
     use core::marker::PhantomData;
-    use embassy_time::{Duration, Instant};
 
     use embassy_executor::{raw, Spawner};
+    use embassy_time::{Duration, Instant};
 
     /// Thread mode executor, using WFE/SEV.
     ///
@@ -99,12 +100,12 @@ mod thread_idle_logging {
 
 use thread_idle_logging::Executor;
 
-static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-static TOTAL_IDLE_DURATION: StaticCell<Cell<Duration>> = StaticCell::new();
-
 #[cortex_m_rt::entry]
 fn main() -> ! {
     embassy_rp::init(Default::default());
+
+    static EXECUTOR: StaticCell<Executor> = StaticCell::new();
+    static TOTAL_IDLE_DURATION: StaticCell<Cell<Duration>> = StaticCell::new();
 
     let total_idle_duration = TOTAL_IDLE_DURATION.init(Cell::new(Duration::from_ticks(0)));
 
