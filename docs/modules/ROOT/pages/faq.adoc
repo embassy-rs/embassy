@@ -198,4 +198,4 @@ Tools like `cargo size` and `cargo nm` can tell you the size of any globals or o
 
 === For Max Stack Usage
 
-Check out link:https://github.com/Dirbaio/cargo-call-stack/[`cargo-call-stack`] for statically calculating worst-case stack usage. There are some caveats and inaccuracies possible with this, but this is a good way to get the general idea.
+Check out link:https://github.com/Dirbaio/cargo-call-stack/[`cargo-call-stack`] for statically calculating worst-case stack usage. There are some caveats and inaccuracies possible with this, but this is a good way to get the general idea. See link:https://github.com/dirbaio/cargo-call-stack#known-limitations[the README] for more details.
