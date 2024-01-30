@@ -3,8 +3,8 @@ use stm32_metapac::rcc::vals::{Adcsel, Pllsrc, Sw};
 use stm32_metapac::FLASH;
 
 pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN, Pllp as PllP, Pllq as PllQ,
-    Pllr as PllR, Ppre as APBPrescaler,
+    Adcsel as AdcClockSource, Fdcansel as FdCanClockSource, Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN,
+    Pllp as PllP, Pllq as PllQ, Pllr as PllR, Ppre as APBPrescaler,
 };
 use crate::pac::{PWR, RCC};
 use crate::rcc::{set_freqs, Clocks};
@@ -87,6 +87,7 @@ pub struct Config {
     pub clock_48mhz_src: Option<Clock48MhzSrc>,
     pub adc12_clock_source: AdcClockSource,
     pub adc345_clock_source: AdcClockSource,
+    pub fdcan_clock_source: FdCanClockSource,
 
     pub ls: super::LsConfig,
 }
@@ -104,6 +105,7 @@ impl Default for Config {
             clock_48mhz_src: Some(Clock48MhzSrc::Hsi48(Default::default())),
             adc12_clock_source: Adcsel::DISABLE,
             adc345_clock_source: Adcsel::DISABLE,
+            fdcan_clock_source: FdCanClockSource::PCLK1,
             ls: Default::default(),
         }
     }
@@ -282,6 +284,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.ccipr().modify(|w| w.set_adc12sel(config.adc12_clock_source));
     RCC.ccipr().modify(|w| w.set_adc345sel(config.adc345_clock_source));
+    RCC.ccipr().modify(|w| w.set_fdcansel(config.fdcan_clock_source));
 
     let adc12_ck = match config.adc12_clock_source {
         AdcClockSource::DISABLE => None,

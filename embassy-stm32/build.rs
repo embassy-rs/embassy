@@ -449,7 +449,7 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
-    let refcounted_peripherals = HashSet::from(["usart", "adc"]);
+    let refcounted_peripherals = HashSet::from(["usart", "adc", "can"]);
     let mut refcount_statics = BTreeSet::new();
 
     for p in METADATA.peripherals {
