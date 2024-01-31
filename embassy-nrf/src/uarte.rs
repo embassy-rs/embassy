@@ -534,7 +534,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         Self::new_inner(uarte, rxd.map_into(), Some(rts.map_into()), config)
     }
 
-    fn read_and_clear_errors(&mut self) -> Result<(), Error> {
+    /// Check for errors and clear the error register if an error occured.
+    fn check_and_clear_errors(&mut self) -> Result<(), Error> {
         let r = T::regs();
         let err_bits = r.errorsrc.read().bits();
         r.errorsrc.write(|w| unsafe { w.bits(err_bits) });
@@ -675,8 +676,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let result = poll_fn(|cx| {
             s.endrx_waker.register(cx.waker());
 
-            let maybe_err = self.read_and_clear_errors();
-            if let Err(e) = maybe_err {
+            if let Err(e) =  self.check_and_clear_errors() {
                 return Poll::Ready(Err(e));
             }
             if r.events_endrx.read().bits() != 0 {
@@ -727,7 +727,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         compiler_fence(Ordering::SeqCst);
         r.events_rxstarted.reset();
 
-        self.read_and_clear_errors()
+        self.check_and_clear_errors()
     }
 }
 
@@ -794,8 +794,12 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         let drop = OnDrop::new(|| {
             self.timer.stop();
 
-            r.intenclr.write(|w| w.endrx().clear());
+            r.intenclr.write(|w| {
+                w.endrx().clear();
+                w.error().clear()
+            });
             r.events_rxto.reset();
+            r.events_error.reset();
             r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
             while r.events_endrx.read().bits() == 0 {}
@@ -805,17 +809,23 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         r.events_endrx.reset();
-        r.intenset.write(|w| w.endrx().set());
+        r.events_error.reset();
+        r.intenset.write(|w| {w.endrx().set(); w.error().set()});
 
         compiler_fence(Ordering::SeqCst);
 
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-        poll_fn(|cx| {
+        let result = poll_fn(|cx| {
             s.endrx_waker.register(cx.waker());
-            if r.events_endrx.read().bits() != 0 {
-                return Poll::Ready(());
+
+            if let Err(e) = self.rx.check_and_clear_errors() {
+                return Poll::Ready(Err(e));
             }
+            if r.events_endrx.read().bits() != 0 {
+                return Poll::Ready(Ok(()));
+            }
+
             Poll::Pending
         })
         .await;
@@ -828,7 +838,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
 
         drop.defuse();
 
-        Ok(n)
+        result.map(|_| n)
     }
 
     /// Read bytes until the buffer is filled, or the line becomes idle.
@@ -853,13 +863,14 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         r.events_endrx.reset();
-        r.intenclr.write(|w| w.endrx().clear());
+        r.events_error.reset();
+        r.intenclr.write(|w| {w.endrx().clear(); w.error().clear()});
 
         compiler_fence(Ordering::SeqCst);
 
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-        while r.events_endrx.read().bits() == 0 {}
+        while r.events_endrx.read().bits() == 0 && r.events_error.read().bits() == 0 {}
 
         compiler_fence(Ordering::SeqCst);
         let n = r.rxd.amount.read().amount().bits() as usize;
@@ -867,7 +878,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         self.timer.stop();
         r.events_rxstarted.reset();
 
-        Ok(n)
+        self.rx.check_and_clear_errors().map(|_| n)
     }
 }
 
