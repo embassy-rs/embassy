@@ -8,7 +8,7 @@ use futures_util::{pin_mut, Stream};
 
 use crate::{Duration, Instant};
 
-/// Error returned by [`with_timeout`] and [`timeout_at`] on timeout.
+/// Error returned by [`with_timeout`] and [`with_deadline`] on timeout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeoutError;
