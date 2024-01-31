@@ -676,7 +676,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let result = poll_fn(|cx| {
             s.endrx_waker.register(cx.waker());
 
-            if let Err(e) =  self.check_and_clear_errors() {
+            if let Err(e) = self.check_and_clear_errors() {
                 return Poll::Ready(Err(e));
             }
             if r.events_endrx.read().bits() != 0 {
@@ -810,7 +810,10 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
 
         r.events_endrx.reset();
         r.events_error.reset();
-        r.intenset.write(|w| {w.endrx().set(); w.error().set()});
+        r.intenset.write(|w| {
+            w.endrx().set();
+            w.error().set()
+        });
 
         compiler_fence(Ordering::SeqCst);
 
@@ -864,7 +867,10 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
 
         r.events_endrx.reset();
         r.events_error.reset();
-        r.intenclr.write(|w| {w.endrx().clear(); w.error().clear()});
+        r.intenclr.write(|w| {
+            w.endrx().clear();
+            w.error().clear()
+        });
 
         compiler_fence(Ordering::SeqCst);
 
