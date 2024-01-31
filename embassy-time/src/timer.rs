@@ -8,7 +8,7 @@ use futures_util::{pin_mut, Stream};
 
 use crate::{Duration, Instant};
 
-/// Error returned by [`with_timeout`] on timeout.
+/// Error returned by [`with_timeout`] and [`timeout_at`] on timeout.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeoutError;
@@ -19,6 +19,19 @@ pub struct TimeoutError;
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
 pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::after(timeout);
+    pin_mut!(fut);
+    match select(fut, timeout_fut).await {
+        Either::Left((r, _)) => Ok(r),
+        Either::Right(_) => Err(TimeoutError),
+    }
+}
+
+/// Runs a given future with a deadline time.
+///
+/// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
+/// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+pub async fn timeout_at<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
+    let timeout_fut = Timer::at(at);
     pin_mut!(fut);
     match select(fut, timeout_fut).await {
         Either::Left((r, _)) => Ok(r),
