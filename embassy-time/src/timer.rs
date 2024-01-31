@@ -30,7 +30,7 @@ pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Out
 ///
 /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-pub async fn timeout_at<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
+pub async fn with_deadline<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
     let timeout_fut = Timer::at(at);
     pin_mut!(fut);
     match select(fut, timeout_fut).await {

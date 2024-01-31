@@ -7,7 +7,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Pull};
-use embassy_time::{timeout_at, Duration, Instant, Timer};
+use embassy_time::{with_deadline, Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 pub struct Debouncer<'a> {
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
         let start = Instant::now();
         info!("Button Press");
 
-        match timeout_at(start + Duration::from_secs(1), btn.debounce()).await {
+        match with_deadline(start + Duration::from_secs(1), btn.debounce()).await {
             // Button Released < 1s
             Ok(_) => {
                 info!("Button pressed for: {}ms", start.elapsed().as_millis());
@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
             }
         }
 
-        match timeout_at(start + Duration::from_secs(5), btn.debounce()).await {
+        match with_deadline(start + Duration::from_secs(5), btn.debounce()).await {
             // Button released <5s
             Ok(_) => {
                 info!("Button pressed for: {}ms", start.elapsed().as_millis());
