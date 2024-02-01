@@ -504,29 +504,6 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
-        // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe { crate::rcc::get_freqs().pclk1 })
-            }
-
-            fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
-                // TODO: Increment refcount?
-                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
-                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
-                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-            }
-
-            fn disable_with_cs(_cs: critical_section::CriticalSection) {
-                // TODO: Decrement refcount?
-                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
-            }
-        }
-
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::RccPeripheral for peripherals::$inst {}
-
         impl crate::dac::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::dac::Dac {
                 &crate::pac::$inst
