@@ -6,26 +6,28 @@ use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+// HSE speed
+pub const HSE_FREQ: Hertz = Hertz(32_000_000);
 
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler};
 
 #[derive(Copy, Clone)]
 pub enum ClockSrc {
-    HSE(Hertz),
+    HSE,
     HSI,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum PllSource {
-    HSE(Hertz),
+    HSE,
     HSI,
 }
 
 impl Into<Pllsrc> for PllSource {
     fn into(self) -> Pllsrc {
         match self {
-            PllSource::HSE(..) => Pllsrc::HSE,
+            PllSource::HSE => Pllsrc::HSE,
             PllSource::HSI => Pllsrc::HSI,
         }
     }
@@ -34,7 +36,7 @@ impl Into<Pllsrc> for PllSource {
 impl Into<Sw> for ClockSrc {
     fn into(self) -> Sw {
         match self {
-            ClockSrc::HSE(..) => Sw::HSE,
+            ClockSrc::HSE => Sw::HSE,
             ClockSrc::HSI => Sw::HSI,
         }
     }
@@ -64,11 +66,11 @@ impl Default for Config {
 
 pub(crate) unsafe fn init(config: Config) {
     let sys_clk = match config.mux {
-        ClockSrc::HSE(freq) => {
+        ClockSrc::HSE => {
             RCC.cr().write(|w| w.set_hseon(true));
             while !RCC.cr().read().hserdy() {}
 
-            freq
+            HSE_FREQ
         }
         ClockSrc::HSI => {
             RCC.cr().write(|w| w.set_hsion(true));
