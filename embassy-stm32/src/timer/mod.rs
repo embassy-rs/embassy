@@ -2,8 +2,6 @@
 
 // Timer inheritance
 //
-//                       CaptureCompare16bitInstance       ComplementaryCaptureCompare16bitInstance
-//                                  v                                v
 // Core -------------------------> 1CH -------------------------> 1CH_CMP
 //   |                              |                              ^   |
 //   +--> Basic_NoCr2 --> Basic     +--> 2CH --> GP16 --> GP32     |   +--> 2CH_CMP --> ADV
@@ -32,6 +30,156 @@ pub mod low_level {
 
 pub(crate) mod sealed {
     use super::*;
+
+    macro_rules! add_capture_compare_common_methods {
+        ($regs:ident) => {
+            /// Set input capture filter.
+            fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::FilterValue) {
+                let raw_channel = channel.index();
+                Self::$regs()
+                    .ccmr_input(raw_channel / 2)
+                    .modify(|r| r.set_icf(raw_channel % 2, icf));
+            }
+
+            /// Clear input interrupt.
+            fn clear_input_interrupt(&mut self, channel: Channel) {
+                Self::$regs().sr().modify(|r| r.set_ccif(channel.index(), false));
+            }
+
+            /// Enable input interrupt.
+            fn enable_input_interrupt(&mut self, channel: Channel, enable: bool) {
+                Self::$regs()
+                    .dier()
+                    .modify(|r| r.set_ccie(channel.index(), enable));
+            }
+
+            /// Set input capture prescaler.
+            fn set_input_capture_prescaler(&mut self, channel: Channel, factor: u8) {
+                let raw_channel = channel.index();
+                Self::$regs()
+                    .ccmr_input(raw_channel / 2)
+                    .modify(|r| r.set_icpsc(raw_channel % 2, factor));
+            }
+
+            /// Set input TI selection.
+            fn set_input_ti_selection(&mut self, channel: Channel, tisel: InputTISelection) {
+                let raw_channel = channel.index();
+                Self::$regs()
+                    .ccmr_input(raw_channel / 2)
+                    .modify(|r| r.set_ccs(raw_channel % 2, tisel.into()));
+            }
+
+            /// Set input capture mode.
+            fn set_input_capture_mode(&mut self, channel: Channel, mode: InputCaptureMode) {
+                Self::$regs().ccer().modify(|r| match mode {
+                    InputCaptureMode::Rising => {
+                        r.set_ccnp(channel.index(), false);
+                        r.set_ccp(channel.index(), false);
+                    }
+                    InputCaptureMode::Falling => {
+                        r.set_ccnp(channel.index(), false);
+                        r.set_ccp(channel.index(), true);
+                    }
+                    InputCaptureMode::BothEdges => {
+                        r.set_ccnp(channel.index(), true);
+                        r.set_ccp(channel.index(), true);
+                    }
+                });
+            }
+
+            /// Set output compare mode.
+            fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
+                let r = Self::$regs();
+                let raw_channel: usize = channel.index();
+                r.ccmr_output(raw_channel / 2)
+                    .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
+            }
+
+            /// Set output polarity.
+            fn set_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+                Self::$regs()
+                    .ccer()
+                    .modify(|w| w.set_ccp(channel.index(), polarity.into()));
+            }
+
+            /// Enable/disable a channel.
+            fn enable_channel(&mut self, channel: Channel, enable: bool) {
+                Self::$regs()
+                    .ccer()
+                    .modify(|w| w.set_cce(channel.index(), enable));
+            }
+
+            /// Get enable/disable state of a channel
+            fn get_channel_enable_state(&self, channel: Channel) -> bool {
+                Self::$regs().ccer().read().cce(channel.index())
+            }
+
+            /// Set compare value for a channel.
+            fn set_compare_value(&mut self, channel: Channel, value: u16) {
+                Self::$regs().ccr(channel.index()).modify(|w| w.set_ccr(value));
+            }
+
+            /// Get capture value for a channel.
+            fn get_capture_value(&mut self, channel: Channel) -> u16 {
+                Self::$regs().ccr(channel.index()).read().ccr()
+            }
+
+            /// Get compare value for a channel.
+            fn get_compare_value(&self, channel: Channel) -> u16 {
+                Self::$regs().ccr(channel.index()).read().ccr()
+            }
+
+            /// Set output compare preload.
+            fn set_output_compare_preload(&mut self, channel: Channel, preload: bool) {
+                let channel_index = channel.index();
+                Self::regs_1ch()
+                    .ccmr_output(channel_index / 2)
+                    .modify(|w| w.set_ocpe(channel_index % 2, preload));
+            }
+        };
+    }
+
+    macro_rules! add_capture_compare_dma_methods {
+        ($regs:ident) => {
+            /// Get capture compare DMA selection
+            fn get_cc_dma_selection(&self) -> super::vals::Ccds {
+                Self::$regs().cr2().read().ccds()
+            }
+
+            /// Set capture compare DMA selection
+            fn set_cc_dma_selection(&mut self, ccds: super::vals::Ccds) {
+                Self::$regs().cr2().modify(|w| w.set_ccds(ccds))
+            }
+
+            /// Get capture compare DMA enable state
+            fn get_cc_dma_enable_state(&self, channel: Channel) -> bool {
+                Self::$regs().dier().read().ccde(channel.index())
+            }
+
+            /// Set capture compare DMA enable state
+            fn set_cc_dma_enable_state(&mut self, channel: Channel, ccde: bool) {
+                Self::$regs().dier().modify(|w| w.set_ccde(channel.index(), ccde))
+            }
+        };
+    }
+
+    macro_rules! add_complementary_capture_compare_methods {
+        ($regs:ident) => {
+            /// Set complementary output polarity.
+            fn set_complementary_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+                Self::$regs()
+                    .ccer()
+                    .modify(|w| w.set_ccnp(channel.index(), polarity.into()));
+            }
+
+            /// Enable/disable a complementary channel.
+            fn enable_complementary_channel(&mut self, channel: Channel, enable: bool) {
+                Self::$regs()
+                    .ccer()
+                    .modify(|w| w.set_ccne(channel.index(), enable));
+            }
+        };
+    }
 
     /// Virtual Core 16-bit timer instance.  
     pub trait CoreInstance: RccPeripheral {
@@ -171,6 +319,13 @@ pub(crate) mod sealed {
         fn set_clock_division(&mut self, ckd: vals::Ckd) {
             Self::regs_1ch().cr1().modify(|r| r.set_ckd(ckd));
         }
+
+        /// Get max compare value. This depends on the timer frequency and the clock frequency from RCC.
+        fn get_max_compare_value(&self) -> u16 {
+            Self::regs_1ch().arr().read().arr()
+        }
+
+        add_capture_compare_common_methods!(regs_1ch);
     }
 
     /// Gneral-purpose 1 channel 16-bit  timer instance.
@@ -182,6 +337,8 @@ pub(crate) mod sealed {
         /// for a given set of capabilities, and having it transparently work with
         /// more capable timers.
         fn regs_2ch() -> crate::pac::timer::Tim2ch;
+
+        add_capture_compare_common_methods!(regs_2ch);
     }
 
     /// Gneral-purpose 16-bit timer instance.
@@ -212,6 +369,9 @@ pub(crate) mod sealed {
             let cr1 = Self::regs_gp16().cr1().read();
             (cr1.cms(), cr1.dir()).into()
         }
+
+        add_capture_compare_common_methods!(regs_gp16);
+        add_capture_compare_dma_methods!(regs_gp16);
     }
 
     /// Gneral-purpose 32-bit timer instance.
@@ -252,204 +412,7 @@ pub(crate) mod sealed {
 
             timer_f / arr / (psc + 1)
         }
-    }
 
-    /// Gneral-purpose 1 channel with one complementary 16-bit timer instance.
-    pub trait GeneralPurpose1ChannelComplementaryInstance: BasicNoCr2Instance + GeneralPurpose1ChannelInstance {
-        /// Get access to the general purpose 1 channel with one complementary 16bit timer registers.
-        ///
-        /// Note: This works even if the timer is more capable, because registers
-        /// for the less capable timers are a subset. This allows writing a driver
-        /// for a given set of capabilities, and having it transparently work with
-        /// more capable timers.
-        fn regs_1ch_cmp() -> crate::pac::timer::Tim1chCmp;
-
-        /// Enable timer outputs.
-        fn enable_outputs(&mut self) {
-            Self::regs_1ch_cmp().bdtr().modify(|w| w.set_moe(true));
-        }
-    }
-
-    /// Gneral-purpose 2 channel with one complementary 16-bit timer instance.
-    pub trait GeneralPurpose2ChannelComplementaryInstance:
-        BasicInstance + GeneralPurpose1ChannelComplementaryInstance
-    {
-        /// Get access to the general purpose 2 channel with one complementary 16bit timer registers.
-        ///
-        /// Note: This works even if the timer is more capable, because registers
-        /// for the less capable timers are a subset. This allows writing a driver
-        /// for a given set of capabilities, and having it transparently work with
-        /// more capable timers.
-        fn regs_2ch_cmp() -> crate::pac::timer::Tim2chCmp;
-    }
-
-    /// Advanced control timer instance.
-    pub trait AdvancedControlInstance:
-        GeneralPurpose2ChannelComplementaryInstance + GeneralPurpose16bitInstance
-    {
-        /// Get access to the advanced timer registers.
-        fn regs_advanced() -> crate::pac::timer::TimAdv;
-    }
-
-    /// Capture/Compare 16-bit timer instance.
-    pub trait CaptureCompare16bitInstance: GeneralPurpose1ChannelInstance {
-        /// Set input capture filter.
-        fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::FilterValue) {
-            let raw_channel = channel.index();
-            Self::regs_1ch()
-                .ccmr_input(raw_channel / 2)
-                .modify(|r| r.set_icf(raw_channel % 2, icf));
-        }
-
-        /// Clear input interrupt.
-        fn clear_input_interrupt(&mut self, channel: Channel) {
-            Self::regs_1ch().sr().modify(|r| r.set_ccif(channel.index(), false));
-        }
-
-        /// Enable input interrupt.
-        fn enable_input_interrupt(&mut self, channel: Channel, enable: bool) {
-            Self::regs_1ch().dier().modify(|r| r.set_ccie(channel.index(), enable));
-        }
-
-        /// Set input capture prescaler.
-        fn set_input_capture_prescaler(&mut self, channel: Channel, factor: u8) {
-            let raw_channel = channel.index();
-            Self::regs_1ch()
-                .ccmr_input(raw_channel / 2)
-                .modify(|r| r.set_icpsc(raw_channel % 2, factor));
-        }
-
-        /// Set input TI selection.
-        fn set_input_ti_selection(&mut self, channel: Channel, tisel: InputTISelection) {
-            let raw_channel = channel.index();
-            Self::regs_1ch()
-                .ccmr_input(raw_channel / 2)
-                .modify(|r| r.set_ccs(raw_channel % 2, tisel.into()));
-        }
-
-        /// Set input capture mode.
-        fn set_input_capture_mode(&mut self, channel: Channel, mode: InputCaptureMode) {
-            Self::regs_1ch().ccer().modify(|r| match mode {
-                InputCaptureMode::Rising => {
-                    r.set_ccnp(channel.index(), false);
-                    r.set_ccp(channel.index(), false);
-                }
-                InputCaptureMode::Falling => {
-                    r.set_ccnp(channel.index(), false);
-                    r.set_ccp(channel.index(), true);
-                }
-                InputCaptureMode::BothEdges => {
-                    r.set_ccnp(channel.index(), true);
-                    r.set_ccp(channel.index(), true);
-                }
-            });
-        }
-
-        /// Set output compare mode.
-        fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
-            let r = Self::regs_1ch();
-            let raw_channel: usize = channel.index();
-            r.ccmr_output(raw_channel / 2)
-                .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
-        }
-
-        /// Set output polarity.
-        fn set_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
-            Self::regs_1ch()
-                .ccer()
-                .modify(|w| w.set_ccp(channel.index(), polarity.into()));
-        }
-
-        /// Enable/disable a channel.
-        fn enable_channel(&mut self, channel: Channel, enable: bool) {
-            Self::regs_1ch().ccer().modify(|w| w.set_cce(channel.index(), enable));
-        }
-
-        /// Get enable/disable state of a channel
-        fn get_channel_enable_state(&self, channel: Channel) -> bool {
-            Self::regs_1ch().ccer().read().cce(channel.index())
-        }
-
-        /// Set compare value for a channel.
-        fn set_compare_value(&mut self, channel: Channel, value: u16) {
-            Self::regs_1ch().ccr(channel.index()).modify(|w| w.set_ccr(value));
-        }
-
-        /// Get capture value for a channel.
-        fn get_capture_value(&mut self, channel: Channel) -> u16 {
-            Self::regs_1ch().ccr(channel.index()).read().ccr()
-        }
-
-        /// Get max compare value. This depends on the timer frequency and the clock frequency from RCC.
-        fn get_max_compare_value(&self) -> u16 {
-            Self::regs_1ch().arr().read().arr()
-        }
-
-        /// Get compare value for a channel.
-        fn get_compare_value(&self, channel: Channel) -> u16 {
-            Self::regs_1ch().ccr(channel.index()).read().ccr()
-        }
-
-        /// Set output compare preload.
-        fn set_output_compare_preload(&mut self, channel: Channel, preload: bool) {
-            let channel_index = channel.index();
-            Self::regs_1ch()
-                .ccmr_output(channel_index / 2)
-                .modify(|w| w.set_ocpe(channel_index % 2, preload));
-        }
-
-        /// Get capture compare DMA selection
-        fn get_cc_dma_selection(&self) -> super::vals::Ccds {
-            Self::regs_gp16().cr2().read().ccds()
-        }
-
-        /// Set capture compare DMA selection
-        fn set_cc_dma_selection(&mut self, ccds: super::vals::Ccds) {
-            Self::regs_gp16().cr2().modify(|w| w.set_ccds(ccds))
-        }
-
-        /// Get capture compare DMA enable state
-        fn get_cc_dma_enable_state(&self, channel: Channel) -> bool {
-            Self::regs_gp16().dier().read().ccde(channel.index())
-        }
-
-        /// Set capture compare DMA enable state
-        fn set_cc_dma_enable_state(&mut self, channel: Channel, ccde: bool) {
-            Self::regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
-        }
-    }
-
-    /// Capture/Compare 16-bit timer instance with complementary pin support.
-    pub trait ComplementaryCaptureCompare16bitInstance:
-        CaptureCompare16bitInstance + GeneralPurpose1ChannelComplementaryInstance
-    {
-        /// Set complementary output polarity.
-        fn set_complementary_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
-            Self::regs_1ch_cmp()
-                .ccer()
-                .modify(|w| w.set_ccnp(channel.index(), polarity.into()));
-        }
-
-        /// Set clock divider for the dead time.
-        fn set_dead_time_clock_division(&mut self, value: vals::Ckd) {
-            Self::regs_1ch_cmp().cr1().modify(|w| w.set_ckd(value));
-        }
-
-        /// Set dead time, as a fraction of the max duty value.
-        fn set_dead_time_value(&mut self, value: u8) {
-            Self::regs_1ch_cmp().bdtr().modify(|w| w.set_dtg(value));
-        }
-
-        /// Enable/disable a complementary channel.
-        fn enable_complementary_channel(&mut self, channel: Channel, enable: bool) {
-            Self::regs_1ch_cmp()
-                .ccer()
-                .modify(|w| w.set_ccne(channel.index(), enable));
-        }
-    }
-
-    /// Capture/Compare 32-bit timer instance.
-    pub trait CaptureCompare32bitInstance: GeneralPurpose32bitInstance + CaptureCompare16bitInstance {
         /// Set comapre value for a channel.
         fn set_compare_value(&mut self, channel: Channel, value: u32) {
             Self::regs_gp32().ccr(channel.index()).modify(|w| w.set_ccr(value));
@@ -469,6 +432,59 @@ pub(crate) mod sealed {
         fn get_compare_value(&self, channel: Channel) -> u32 {
             Self::regs_gp32().ccr(channel.index()).read().ccr()
         }
+    }
+
+    /// Gneral-purpose 1 channel with one complementary 16-bit timer instance.
+    pub trait GeneralPurpose1ChannelComplementaryInstance: BasicNoCr2Instance + GeneralPurpose1ChannelInstance {
+        /// Get access to the general purpose 1 channel with one complementary 16bit timer registers.
+        ///
+        /// Note: This works even if the timer is more capable, because registers
+        /// for the less capable timers are a subset. This allows writing a driver
+        /// for a given set of capabilities, and having it transparently work with
+        /// more capable timers.
+        fn regs_1ch_cmp() -> crate::pac::timer::Tim1chCmp;
+
+        /// Set clock divider for the dead time.
+        fn set_dead_time_clock_division(&mut self, value: vals::Ckd) {
+            Self::regs_1ch_cmp().cr1().modify(|w| w.set_ckd(value));
+        }
+
+        /// Set dead time, as a fraction of the max duty value.
+        fn set_dead_time_value(&mut self, value: u8) {
+            Self::regs_1ch_cmp().bdtr().modify(|w| w.set_dtg(value));
+        }
+
+        /// Enable timer outputs.
+        fn enable_outputs(&mut self) {
+            Self::regs_1ch_cmp().bdtr().modify(|w| w.set_moe(true));
+        }
+
+        add_complementary_capture_compare_methods!(regs_1ch_cmp);
+    }
+
+    /// Gneral-purpose 2 channel with one complementary 16-bit timer instance.
+    pub trait GeneralPurpose2ChannelComplementaryInstance:
+        BasicInstance + GeneralPurpose2ChannelInstance + GeneralPurpose1ChannelComplementaryInstance
+    {
+        /// Get access to the general purpose 2 channel with one complementary 16bit timer registers.
+        ///
+        /// Note: This works even if the timer is more capable, because registers
+        /// for the less capable timers are a subset. This allows writing a driver
+        /// for a given set of capabilities, and having it transparently work with
+        /// more capable timers.
+        fn regs_2ch_cmp() -> crate::pac::timer::Tim2chCmp;
+
+        add_complementary_capture_compare_methods!(regs_2ch_cmp);
+    }
+
+    /// Advanced control timer instance.
+    pub trait AdvancedControlInstance:
+        GeneralPurpose2ChannelComplementaryInstance + GeneralPurpose16bitInstance
+    {
+        /// Get access to the advanced timer registers.
+        fn regs_advanced() -> crate::pac::timer::TimAdv;
+
+        add_complementary_capture_compare_methods!(regs_advanced);
     }
 }
 
@@ -699,6 +715,7 @@ pub trait GeneralPurpose1ChannelComplementaryInstance:
 pub trait GeneralPurpose2ChannelComplementaryInstance:
     sealed::GeneralPurpose2ChannelComplementaryInstance
     + BasicInstance
+    + GeneralPurpose2ChannelInstance
     + GeneralPurpose1ChannelComplementaryInstance
     + 'static
 {
@@ -710,42 +727,30 @@ pub trait AdvancedControlInstance:
 {
 }
 
-/// Capture/Compare 16-bit timer instance.
-pub trait CaptureCompare16bitInstance:
-    sealed::CaptureCompare16bitInstance + GeneralPurpose1ChannelInstance + 'static
-{
-}
+pin_trait!(Channel1Pin, GeneralPurpose1ChannelInstance);
+pin_trait!(Channel2Pin, GeneralPurpose2ChannelInstance);
+pin_trait!(Channel3Pin, GeneralPurpose16bitInstance);
+pin_trait!(Channel4Pin, GeneralPurpose16bitInstance);
 
-/// Capture/Compare 16-bit timer instance with complementary pin support.
-pub trait ComplementaryCaptureCompare16bitInstance:
-    sealed::ComplementaryCaptureCompare16bitInstance
-    + CaptureCompare16bitInstance
-    + GeneralPurpose1ChannelComplementaryInstance
-    + 'static
-{
-}
+#[cfg(not(stm32l0))]
+pin_trait!(ExternalTriggerPin, GeneralPurpose16bitInstance);
 
-/// Capture/Compare 32-bit timer instance.
-pub trait CaptureCompare32bitInstance:
-    sealed::CaptureCompare32bitInstance + CaptureCompare16bitInstance + GeneralPurpose32bitInstance + 'static
-{
-}
+#[cfg(stm32l0)]
+pin_trait!(ExternalTriggerPin, GeneralPurpose2ChannelInstance);
 
-pin_trait!(Channel1Pin, CaptureCompare16bitInstance);
-pin_trait!(Channel1ComplementaryPin, CaptureCompare16bitInstance);
-pin_trait!(Channel2Pin, CaptureCompare16bitInstance);
-pin_trait!(Channel2ComplementaryPin, CaptureCompare16bitInstance);
-pin_trait!(Channel3Pin, CaptureCompare16bitInstance);
-pin_trait!(Channel3ComplementaryPin, CaptureCompare16bitInstance);
-pin_trait!(Channel4Pin, CaptureCompare16bitInstance);
-pin_trait!(Channel4ComplementaryPin, CaptureCompare16bitInstance);
-pin_trait!(ExternalTriggerPin, CaptureCompare16bitInstance);
-pin_trait!(BreakInputPin, CaptureCompare16bitInstance);
-pin_trait!(BreakInputComparator1Pin, CaptureCompare16bitInstance);
-pin_trait!(BreakInputComparator2Pin, CaptureCompare16bitInstance);
-pin_trait!(BreakInput2Pin, CaptureCompare16bitInstance);
-pin_trait!(BreakInput2Comparator1Pin, CaptureCompare16bitInstance);
-pin_trait!(BreakInput2Comparator2Pin, CaptureCompare16bitInstance);
+pin_trait!(Channel1ComplementaryPin, GeneralPurpose1ChannelComplementaryInstance);
+pin_trait!(Channel2ComplementaryPin, GeneralPurpose2ChannelComplementaryInstance);
+pin_trait!(Channel3ComplementaryPin, AdvancedControlInstance);
+pin_trait!(Channel4ComplementaryPin, AdvancedControlInstance);
+
+pin_trait!(BreakInputPin, GeneralPurpose1ChannelComplementaryInstance);
+pin_trait!(BreakInput2Pin, GeneralPurpose2ChannelComplementaryInstance);
+
+pin_trait!(BreakInputComparator1Pin, GeneralPurpose1ChannelComplementaryInstance);
+pin_trait!(BreakInputComparator2Pin, AdvancedControlInstance);
+
+pin_trait!(BreakInput2Comparator1Pin, AdvancedControlInstance);
+pin_trait!(BreakInput2Comparator2Pin, AdvancedControlInstance);
 
 #[allow(unused)]
 macro_rules! impl_core_timer {
@@ -859,27 +864,6 @@ macro_rules! impl_adv_timer {
     };
 }
 
-#[allow(unused)]
-macro_rules! impl_compare_capable_16bit {
-    ($inst:ident) => {
-        impl sealed::CaptureCompare16bitInstance for crate::peripherals::$inst {}
-    };
-}
-
-#[allow(unused)]
-macro_rules! impl_compare_capable_32bit {
-    ($inst:ident) => {
-        impl sealed::CaptureCompare32bitInstance for crate::peripherals::$inst {}
-    };
-}
-
-#[allow(unused)]
-macro_rules! impl_compare_capable_complementary_16bit {
-    ($inst:ident) => {
-        impl sealed::ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
-    };
-}
-
 foreach_interrupt! {
 
     ($inst:ident, timer, TIM_BASIC, UP, $irq:ident) => {
@@ -894,21 +878,17 @@ foreach_interrupt! {
     ($inst:ident, timer, TIM_1CH, UP, $irq:ident) => {
         impl_core_timer!($inst, $irq);
         impl_1ch_timer!($inst);
-        impl_compare_capable_16bit!($inst);
         impl CoreInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
     };
 
 
     ($inst:ident, timer, TIM_2CH, UP, $irq:ident) => {
         impl_core_timer!($inst, $irq);
         impl_1ch_timer!($inst);
-        impl_compare_capable_16bit!($inst);
         impl_2ch_timer!($inst);
         impl CoreInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose2ChannelInstance for crate::peripherals::$inst {}
     };
 
@@ -917,14 +897,12 @@ foreach_interrupt! {
         impl_basic_no_cr2_timer!($inst);
         impl_basic_timer!($inst);
         impl_1ch_timer!($inst);
-        impl_compare_capable_16bit!($inst);
         impl_2ch_timer!($inst);
         impl_gp_16bit_timer!($inst);
         impl CoreInstance for crate::peripherals::$inst {}
         impl BasicNoCr2Instance for crate::peripherals::$inst{}
         impl BasicInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose2ChannelInstance for crate::peripherals::$inst {}
         impl GeneralPurpose16bitInstance for crate::peripherals::$inst {}
     };
@@ -934,8 +912,6 @@ foreach_interrupt! {
         impl_basic_no_cr2_timer!($inst);
         impl_basic_timer!($inst);
         impl_1ch_timer!($inst);
-        impl_compare_capable_16bit!($inst);
-        impl_compare_capable_32bit!($inst);
         impl_2ch_timer!($inst);
         impl_gp_16bit_timer!($inst);
         impl_gp_32bit_timer!($inst);
@@ -943,8 +919,6 @@ foreach_interrupt! {
         impl BasicNoCr2Instance for crate::peripherals::$inst{}
         impl BasicInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
-        impl CaptureCompare32bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose2ChannelInstance for crate::peripherals::$inst {}
         impl GeneralPurpose16bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose32bitInstance for crate::peripherals::$inst {}
@@ -954,15 +928,11 @@ foreach_interrupt! {
         impl_core_timer!($inst, $irq);
         impl_basic_no_cr2_timer!($inst);
         impl_1ch_timer!($inst);
-        impl_compare_capable_16bit!($inst);
         impl_1ch_cmp_timer!($inst);
-        impl_compare_capable_complementary_16bit!($inst);
         impl CoreInstance for crate::peripherals::$inst {}
         impl BasicNoCr2Instance for crate::peripherals::$inst{}
         impl GeneralPurpose1ChannelInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelComplementaryInstance for crate::peripherals::$inst {}
-        impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
     };
 
 
@@ -971,17 +941,15 @@ foreach_interrupt! {
         impl_basic_no_cr2_timer!($inst);
         impl_basic_timer!($inst);
         impl_1ch_timer!($inst);
-        impl_compare_capable_16bit!($inst);
+        impl_2ch_timer!($inst);
         impl_1ch_cmp_timer!($inst);
-        impl_compare_capable_complementary_16bit!($inst);
         impl_2ch_cmp_timer!($inst);
         impl CoreInstance for crate::peripherals::$inst {}
         impl BasicNoCr2Instance for crate::peripherals::$inst{}
         impl BasicInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl GeneralPurpose2ChannelInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelComplementaryInstance for crate::peripherals::$inst {}
-        impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose2ChannelComplementaryInstance for crate::peripherals::$inst {}
     };
 
@@ -992,10 +960,8 @@ foreach_interrupt! {
         impl_basic_timer!($inst);
         impl_1ch_timer!($inst);
         impl_2ch_timer!($inst);
-        impl_compare_capable_16bit!($inst);
         impl_1ch_cmp_timer!($inst);
         impl_gp_16bit_timer!($inst);
-        impl_compare_capable_complementary_16bit!($inst);
         impl_2ch_cmp_timer!($inst);
         impl_adv_timer!($inst);
         impl CoreInstance for crate::peripherals::$inst {}
@@ -1004,9 +970,7 @@ foreach_interrupt! {
         impl GeneralPurpose1ChannelInstance for crate::peripherals::$inst {}
         impl GeneralPurpose2ChannelInstance for crate::peripherals::$inst {}
         impl GeneralPurpose16bitInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose1ChannelComplementaryInstance for crate::peripherals::$inst {}
-        impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl GeneralPurpose2ChannelComplementaryInstance for crate::peripherals::$inst {}
         impl AdvancedControlInstance for crate::peripherals::$inst {}
     };
@@ -1015,7 +979,7 @@ foreach_interrupt! {
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, BasicNoCr2Instance);
 
-dma_trait!(Ch1Dma, CaptureCompare16bitInstance);
-dma_trait!(Ch2Dma, CaptureCompare16bitInstance);
-dma_trait!(Ch3Dma, CaptureCompare16bitInstance);
-dma_trait!(Ch4Dma, CaptureCompare16bitInstance);
+dma_trait!(Ch1Dma, GeneralPurpose1ChannelInstance);
+dma_trait!(Ch2Dma, GeneralPurpose2ChannelInstance);
+dma_trait!(Ch3Dma, GeneralPurpose16bitInstance);
+dma_trait!(Ch4Dma, GeneralPurpose16bitInstance);

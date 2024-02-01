@@ -56,11 +56,11 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(300).await;
     }
 }
-pub struct SimplePwm32<'d, T: CaptureCompare32bitInstance> {
+pub struct SimplePwm32<'d, T: GeneralPurpose32bitInstance> {
     inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
+impl<'d, T: GeneralPurpose32bitInstance> SimplePwm32<'d, T> {
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         ch1: impl Peripheral<P = impl Channel1Pin<T>> + 'd,

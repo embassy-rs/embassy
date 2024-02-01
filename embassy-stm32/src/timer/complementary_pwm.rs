@@ -1,6 +1,7 @@
 //! PWM driver with complementary output support.
 
 use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use stm32_metapac::timer::vals::Ckd;
@@ -23,7 +24,7 @@ pub struct ComplementaryPwmPin<'d, T, C> {
 
 macro_rules! complementary_channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: CaptureCompare16bitInstance> ComplementaryPwmPin<'d, T, $channel> {
+        impl<'d, T: AdvancedControlInstance> ComplementaryPwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, output_type: OutputType) -> Self {
                 into_ref!(pin);
@@ -52,7 +53,7 @@ pub struct ComplementaryPwm<'d, T> {
     inner: PeripheralRef<'d, T>,
 }
 
-impl<'d, T: GeneralPurpose16bitInstance + ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
+impl<'d, T: AdvancedControlInstance> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -84,27 +85,30 @@ impl<'d, T: GeneralPurpose16bitInstance + ComplementaryCaptureCompare16bitInstan
 
         this.inner.enable_outputs();
 
-        this.inner
-            .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch2, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                sealed::GeneralPurpose16bitInstance::set_output_compare_mode(
+                    this.inner.deref_mut(),
+                    channel,
+                    OutputCompareMode::PwmMode1,
+                );
+                sealed::GeneralPurpose16bitInstance::set_output_compare_preload(this.inner.deref_mut(), channel, true);
+            });
+
         this
     }
 
     /// Enable the given channel.
     pub fn enable(&mut self, channel: Channel) {
-        self.inner.enable_channel(channel, true);
-        self.inner.enable_complementary_channel(channel, true);
+        sealed::GeneralPurpose16bitInstance::enable_channel(self.inner.deref_mut(), channel, true);
+        sealed::AdvancedControlInstance::enable_complementary_channel(self.inner.deref_mut(), channel, true);
     }
 
     /// Disable the given channel.
     pub fn disable(&mut self, channel: Channel) {
-        self.inner.enable_complementary_channel(channel, false);
-        self.inner.enable_channel(channel, false);
+        sealed::AdvancedControlInstance::enable_complementary_channel(self.inner.deref_mut(), channel, false);
+        sealed::GeneralPurpose16bitInstance::enable_channel(self.inner.deref_mut(), channel, false);
     }
 
     /// Set PWM frequency.
@@ -132,13 +136,13 @@ impl<'d, T: GeneralPurpose16bitInstance + ComplementaryCaptureCompare16bitInstan
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
     pub fn set_duty(&mut self, channel: Channel, duty: u16) {
         assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty)
+        sealed::GeneralPurpose16bitInstance::set_compare_value(self.inner.deref_mut(), channel, duty)
     }
 
     /// Set the output polarity for a given channel.
     pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
-        self.inner.set_output_polarity(channel, polarity);
-        self.inner.set_complementary_output_polarity(channel, polarity);
+        sealed::GeneralPurpose16bitInstance::set_output_polarity(self.inner.deref_mut(), channel, polarity);
+        sealed::AdvancedControlInstance::set_complementary_output_polarity(self.inner.deref_mut(), channel, polarity);
     }
 
     /// Set the dead time as a proportion of max_duty
@@ -150,19 +154,19 @@ impl<'d, T: GeneralPurpose16bitInstance + ComplementaryCaptureCompare16bitInstan
     }
 }
 
-impl<'d, T: ComplementaryCaptureCompare16bitInstance> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
+impl<'d, T: AdvancedControlInstance> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
     type Channel = Channel;
     type Time = Hertz;
     type Duty = u16;
 
     fn disable(&mut self, channel: Self::Channel) {
-        self.inner.enable_complementary_channel(channel, false);
-        self.inner.enable_channel(channel, false);
+        sealed::AdvancedControlInstance::enable_complementary_channel(self.inner.deref_mut(), channel, false);
+        sealed::GeneralPurpose16bitInstance::enable_channel(self.inner.deref_mut(), channel, false);
     }
 
     fn enable(&mut self, channel: Self::Channel) {
-        self.inner.enable_channel(channel, true);
-        self.inner.enable_complementary_channel(channel, true);
+        sealed::GeneralPurpose16bitInstance::enable_channel(self.inner.deref_mut(), channel, true);
+        sealed::AdvancedControlInstance::enable_complementary_channel(self.inner.deref_mut(), channel, true);
     }
 
     fn get_period(&self) -> Self::Time {
@@ -170,7 +174,7 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> embedded_hal_02::Pwm for C
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        self.inner.get_compare_value(channel)
+        sealed::GeneralPurpose16bitInstance::get_compare_value(self.inner.deref(), channel)
     }
 
     fn get_max_duty(&self) -> Self::Duty {
@@ -179,7 +183,7 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> embedded_hal_02::Pwm for C
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
         assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty)
+        sealed::GeneralPurpose16bitInstance::set_compare_value(self.inner.deref_mut(), channel, duty)
     }
 
     fn set_period<P>(&mut self, period: P)
