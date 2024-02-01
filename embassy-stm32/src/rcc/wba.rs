@@ -1,5 +1,6 @@
 use stm32_metapac::rcc::vals::{Pllsrc, Sw};
 
+pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 use crate::pac::{FLASH, RCC};
 use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
@@ -42,18 +43,33 @@ impl Into<Sw> for ClockSrc {
     }
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hse {
+    /// HSE prescaler
+    pub prescaler: HsePrescaler,
+}
+
 pub struct Config {
+    // base clock sources
+    pub hse: Hse,
+
+    // sysclk, buses
     pub mux: ClockSrc,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb7_pre: APBPrescaler,
+
+    // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            hse: Hse {
+                prescaler: HsePrescaler::DIV1,
+            },
             mux: ClockSrc::HSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
@@ -67,7 +83,10 @@ impl Default for Config {
 pub(crate) unsafe fn init(config: Config) {
     let sys_clk = match config.mux {
         ClockSrc::HSE => {
-            RCC.cr().write(|w| w.set_hseon(true));
+            RCC.cr().write(|w| {
+                w.set_hseon(true);
+                w.set_hsepre(config.hse.prescaler);
+            });
             while !RCC.cr().read().hserdy() {}
 
             HSE_FREQ
