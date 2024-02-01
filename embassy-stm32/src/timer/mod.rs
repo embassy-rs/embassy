@@ -12,6 +12,7 @@
 //            |             +--------------------------------------|-----------+
 //            +----------------------------------------------------+
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 pub mod complementary_pwm;
 pub mod qei;
 pub mod simple_pwm;
@@ -163,6 +164,7 @@ pub(crate) mod sealed {
         };
     }
 
+    #[cfg(not(any(stm32l0, stm32l1)))]
     macro_rules! add_complementary_capture_compare_methods {
         ($regs:ident) => {
             /// Set complementary output polarity.
@@ -374,6 +376,7 @@ pub(crate) mod sealed {
         add_capture_compare_dma_methods!(regs_gp16);
     }
 
+    #[cfg(not(any(stm32l0)))]
     /// Gneral-purpose 32-bit timer instance.
     pub trait GeneralPurpose32bitInstance: GeneralPurpose16bitInstance {
         /// Get access to the general purpose 32bit timer registers.
@@ -434,6 +437,7 @@ pub(crate) mod sealed {
         }
     }
 
+    #[cfg(not(any(stm32l0, stm32l1)))]
     /// Gneral-purpose 1 channel with one complementary 16-bit timer instance.
     pub trait GeneralPurpose1ChannelComplementaryInstance: BasicNoCr2Instance + GeneralPurpose1ChannelInstance {
         /// Get access to the general purpose 1 channel with one complementary 16bit timer registers.
@@ -462,6 +466,7 @@ pub(crate) mod sealed {
         add_complementary_capture_compare_methods!(regs_1ch_cmp);
     }
 
+    #[cfg(not(any(stm32l0, stm32l1)))]
     /// Gneral-purpose 2 channel with one complementary 16-bit timer instance.
     pub trait GeneralPurpose2ChannelComplementaryInstance:
         BasicInstance + GeneralPurpose2ChannelInstance + GeneralPurpose1ChannelComplementaryInstance
@@ -477,6 +482,7 @@ pub(crate) mod sealed {
         add_complementary_capture_compare_methods!(regs_2ch_cmp);
     }
 
+    #[cfg(not(any(stm32l0, stm32l1)))]
     /// Advanced control timer instance.
     pub trait AdvancedControlInstance:
         GeneralPurpose2ChannelComplementaryInstance + GeneralPurpose16bitInstance
@@ -699,18 +705,21 @@ pub trait GeneralPurpose16bitInstance:
 {
 }
 
+#[cfg(not(stm32l0))]
 /// Gneral-purpose 32-bit timer instance.
 pub trait GeneralPurpose32bitInstance:
     sealed::GeneralPurpose32bitInstance + GeneralPurpose16bitInstance + 'static
 {
 }
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 /// General-purpose 1 channel with one complementary 16-bit timer instance.
 pub trait GeneralPurpose1ChannelComplementaryInstance:
     sealed::GeneralPurpose1ChannelComplementaryInstance + GeneralPurpose1ChannelInstance + 'static
 {
 }
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 /// General-purpose 2 channel with one complementary 16-bit timer instance.
 pub trait GeneralPurpose2ChannelComplementaryInstance:
     sealed::GeneralPurpose2ChannelComplementaryInstance
@@ -721,6 +730,7 @@ pub trait GeneralPurpose2ChannelComplementaryInstance:
 {
 }
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 /// Advanced control timer instance.
 pub trait AdvancedControlInstance:
     sealed::AdvancedControlInstance + GeneralPurpose2ChannelComplementaryInstance + GeneralPurpose16bitInstance + 'static
@@ -738,18 +748,28 @@ pin_trait!(ExternalTriggerPin, GeneralPurpose16bitInstance);
 #[cfg(stm32l0)]
 pin_trait!(ExternalTriggerPin, GeneralPurpose2ChannelInstance);
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(Channel1ComplementaryPin, GeneralPurpose1ChannelComplementaryInstance);
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(Channel2ComplementaryPin, GeneralPurpose2ChannelComplementaryInstance);
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(Channel3ComplementaryPin, AdvancedControlInstance);
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(Channel4ComplementaryPin, AdvancedControlInstance);
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(BreakInputPin, GeneralPurpose1ChannelComplementaryInstance);
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(BreakInput2Pin, GeneralPurpose2ChannelComplementaryInstance);
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(BreakInputComparator1Pin, GeneralPurpose1ChannelComplementaryInstance);
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(BreakInputComparator2Pin, AdvancedControlInstance);
 
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(BreakInput2Comparator1Pin, AdvancedControlInstance);
+#[cfg(not(any(stm32l0, stm32l1)))]
 pin_trait!(BreakInput2Comparator2Pin, AdvancedControlInstance);
 
 #[allow(unused)]
