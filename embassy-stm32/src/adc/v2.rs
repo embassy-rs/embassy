@@ -67,7 +67,11 @@ enum Prescaler {
 
 impl Prescaler {
     fn from_pclk2(freq: Hertz) -> Self {
+        // Datasheet for F2 specifies min frequency 0.6 MHz, and max 30 MHz (with VDDA 2.4-3.6V).
+        #[cfg(stm32f2)]
+        const MAX_FREQUENCY: Hertz = Hertz(30_000_000);
         // Datasheet for both F4 and F7 specifies min frequency 0.6 MHz, typ freq. 30 MHz and max 36 MHz.
+        #[cfg(not(stm32f2))]
         const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
         let raw_div = freq.0 / MAX_FREQUENCY.0;
         match raw_div {
