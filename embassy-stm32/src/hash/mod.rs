@@ -1,21 +1,46 @@
 //! Hash generator (HASH)
 use core::cmp::min;
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::waitqueue::AtomicWaker;
+
+use crate::peripherals::HASH;
 use stm32_metapac::hash::regs::*;
 
-use crate::pac::HASH as PAC_HASH;
-use crate::peripherals::HASH;
+use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::sealed::RccPeripheral;
-use crate::Peripheral;
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 #[cfg(hash_v1)]
 const NUM_CONTEXT_REGS: usize = 51;
 #[cfg(hash_v2)]
 const NUM_CONTEXT_REGS: usize = 54;
-
 const HASH_BUFFER_LEN: usize = 68;
 const DIGEST_BLOCK_SIZE: usize = 64;
+
+static HASH_WAKER: AtomicWaker = AtomicWaker::new();
+
+/// HASH interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let bits = T::regs().sr().read();
+        if bits.dinis() {
+            T::regs().imr().modify(|reg| reg.set_dinie(false));
+            HASH_WAKER.wake();
+        }
+        if bits.dcis() {
+            T::regs().imr().modify(|reg| reg.set_dcie(false));
+            HASH_WAKER.wake();
+        }
+    }
+}
 
 ///Hash algorithm selection
 #[derive(PartialEq)]
@@ -61,23 +86,27 @@ pub struct Context {
 }
 
 /// HASH driver.
-pub struct Hash<'d> {
-    _peripheral: PeripheralRef<'d, HASH>,
+pub struct Hash<'d, T: Instance> {
+    _peripheral: PeripheralRef<'d, T>,
 }
 
-impl<'d> Hash<'d> {
+impl<'d, T: Instance> Hash<'d, T> {
     /// Instantiates, resets, and enables the HASH peripheral.
-    pub fn new(peripheral: impl Peripheral<P = HASH> + 'd) -> Self {
+    pub fn new(peripheral: impl Peripheral<P = T> + 'd) -> Self {
         HASH::enable_and_reset();
         into_ref!(peripheral);
         let instance = Self {
             _peripheral: peripheral,
         };
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
         instance
     }
 
     /// Starts computation of a new hash and returns the saved peripheral state.
-    pub fn start(&mut self, algorithm: Algorithm, format: DataType) -> Context {
+    pub async fn start(&mut self, algorithm: Algorithm, format: DataType) -> Context {
         // Define a context for this new computation.
         let mut ctx = Context {
             first_word_sent: false,
@@ -92,7 +121,7 @@ impl<'d> Hash<'d> {
         };
 
         // Set the data type in the peripheral.
-        PAC_HASH.cr().modify(|w| w.set_datatype(ctx.format as u8));
+        T::regs().cr().modify(|w| w.set_datatype(ctx.format as u8));
 
         // Select the algorithm.
         let mut algo0 = false;
@@ -103,18 +132,19 @@ impl<'d> Hash<'d> {
         if ctx.algo == Algorithm::SHA224 || ctx.algo == Algorithm::SHA256 {
             algo1 = true;
         }
-        PAC_HASH.cr().modify(|w| w.set_algo0(algo0));
-        PAC_HASH.cr().modify(|w| w.set_algo1(algo1));
-        PAC_HASH.cr().modify(|w| w.set_init(true));
+        T::regs().cr().modify(|w| w.set_algo0(algo0));
+        T::regs().cr().modify(|w| w.set_algo1(algo1));
+        T::regs().cr().modify(|w| w.set_init(true));
 
         // Store and return the state of the peripheral.
-        self.store_context(&mut ctx);
+        self.store_context(&mut ctx).await;
         ctx
     }
 
     /// Restores the peripheral state using the given context,
     /// then updates the state with the provided data.
-    pub fn update(&mut self, ctx: &mut Context, input: &[u8]) {
+    /// Peripheral state is saved upon return.
+    pub async fn update(&mut self, ctx: &mut Context, input: &[u8]) {
         let mut data_waiting = input.len() + ctx.buflen;
         if data_waiting < DIGEST_BLOCK_SIZE || (data_waiting < ctx.buffer.len() && !ctx.first_word_sent) {
             // There isn't enough data to digest a block, so append it to the buffer.
@@ -123,7 +153,7 @@ impl<'d> Hash<'d> {
             return;
         }
 
-        //Restore the peripheral state.
+        // Restore the peripheral state.
         self.load_context(&ctx);
 
         let mut ilen_remaining = input.len();
@@ -154,6 +184,7 @@ impl<'d> Hash<'d> {
             ctx.buflen += ilen_remaining;
         } else {
             let mut total_data_sent = 0;
+
             // First ingest the data in the buffer.
             let empty_len = DIGEST_BLOCK_SIZE - ctx.buflen;
             if empty_len > 0 {
@@ -188,25 +219,43 @@ impl<'d> Hash<'d> {
         }
 
         // Save the peripheral context.
-        self.store_context(ctx);
+        self.store_context(ctx).await;
     }
 
     /// Computes a digest for the given context. A slice of the provided digest buffer is returned.
     /// The length of the returned slice is dependent on the digest length of the selected algorithm.
-    pub fn finish<'a>(&mut self, mut ctx: Context, digest: &'a mut [u8; 32]) -> &'a [u8] {
+    pub async fn finish<'a>(&mut self, mut ctx: Context, digest: &'a mut [u8; 32]) -> &'a [u8] {
         // Restore the peripheral state.
         self.load_context(&ctx);
+
         // Hash the leftover bytes, if any.
         self.accumulate(&ctx.buffer[0..ctx.buflen]);
         ctx.buflen = 0;
 
         //Start the digest calculation.
-        PAC_HASH.str().write(|w| w.set_dcal(true));
+        T::regs().str().write(|w| w.set_dcal(true));
 
-        //Wait for completion.
-        while !PAC_HASH.sr().read().dcis() {}
+        // Wait for completion.
+        poll_fn(|cx| {
+            // Check if already done.
+            let bits = T::regs().sr().read();
+            if bits.dcis() {
+                return Poll::Ready(());
+            }
+            // Register waker, then enable interrupts.
+            HASH_WAKER.register(cx.waker());
+            T::regs().imr().modify(|reg| reg.set_dinie(true));
+            // Check for completion.
+            let bits = T::regs().sr().read();
+            if bits.dcis() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
-        //Return the digest.
+        // Return the digest.
         let digest_words = match ctx.algo {
             Algorithm::SHA1 => 5,
             Algorithm::MD5 => 4,
@@ -215,37 +264,57 @@ impl<'d> Hash<'d> {
         };
         let mut i = 0;
         while i < digest_words {
-            let word = PAC_HASH.hr(i).read();
+            let word = T::regs().hr(i).read();
             digest[(i * 4)..((i * 4) + 4)].copy_from_slice(word.to_be_bytes().as_slice());
             i += 1;
         }
         &digest[0..digest_words * 4]
     }
 
+    /// Push data into the hash core.
     fn accumulate(&mut self, input: &[u8]) {
-        //Set the number of valid bits.
+        // Set the number of valid bits.
         let num_valid_bits: u8 = (8 * (input.len() % 4)) as u8;
-        PAC_HASH.str().modify(|w| w.set_nblw(num_valid_bits));
+        T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
 
         let mut i = 0;
         while i < input.len() {
             let mut word: [u8; 4] = [0; 4];
             let copy_idx = min(i + 4, input.len());
             word[0..copy_idx - i].copy_from_slice(&input[i..copy_idx]);
-            PAC_HASH.din().write_value(u32::from_ne_bytes(word));
+            T::regs().din().write_value(u32::from_ne_bytes(word));
             i += 4;
         }
     }
 
     /// Save the peripheral state to a context.
-    fn store_context(&mut self, ctx: &mut Context) {
-        while !PAC_HASH.sr().read().dinis() {}
-        ctx.imr = PAC_HASH.imr().read().0;
-        ctx.str = PAC_HASH.str().read().0;
-        ctx.cr = PAC_HASH.cr().read().0;
+    async fn store_context(&mut self, ctx: &mut Context) {
+        // Wait for interrupt.
+        poll_fn(|cx| {
+            // Check if already done.
+            let bits = T::regs().sr().read();
+            if bits.dinis() {
+                return Poll::Ready(());
+            }
+            // Register waker, then enable interrupts.
+            HASH_WAKER.register(cx.waker());
+            T::regs().imr().modify(|reg| reg.set_dinie(true));
+            // Check for completion.
+            let bits = T::regs().sr().read();
+            if bits.dinis() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+
+        ctx.imr = T::regs().imr().read().0;
+        ctx.str = T::regs().str().read().0;
+        ctx.cr = T::regs().cr().read().0;
         let mut i = 0;
         while i < NUM_CONTEXT_REGS {
-            ctx.csr[i] = PAC_HASH.csr(i).read();
+            ctx.csr[i] = T::regs().csr(i).read();
             i += 1;
         }
     }
@@ -253,14 +322,42 @@ impl<'d> Hash<'d> {
     /// Restore the peripheral state from a context.
     fn load_context(&mut self, ctx: &Context) {
         // Restore the peripheral state from the context.
-        PAC_HASH.imr().write_value(Imr { 0: ctx.imr });
-        PAC_HASH.str().write_value(Str { 0: ctx.str });
-        PAC_HASH.cr().write_value(Cr { 0: ctx.cr });
-        PAC_HASH.cr().modify(|w| w.set_init(true));
+        T::regs().imr().write_value(Imr { 0: ctx.imr });
+        T::regs().str().write_value(Str { 0: ctx.str });
+        T::regs().cr().write_value(Cr { 0: ctx.cr });
+        T::regs().cr().modify(|w| w.set_init(true));
         let mut i = 0;
         while i < NUM_CONTEXT_REGS {
-            PAC_HASH.csr(i).write_value(ctx.csr[i]);
+            T::regs().csr(i).write_value(ctx.csr[i]);
             i += 1;
         }
     }
 }
+
+pub(crate) mod sealed {
+    use super::*;
+
+    pub trait Instance {
+        fn regs() -> pac::hash::Hash;
+    }
+}
+
+/// HASH instance trait.
+pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+    /// Interrupt for this HASH instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+foreach_interrupt!(
+    ($inst:ident, hash, HASH, GLOBAL, $irq:ident) => {
+        impl Instance for peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+
+        impl sealed::Instance for peripherals::$inst {
+            fn regs() -> crate::pac::hash::Hash {
+                crate::pac::$inst
+            }
+        }
+    };
+);
