@@ -64,7 +64,7 @@ macro_rules! config_pins {
 
 impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
     /// Create a new RMII ethernet driver using 9 pins.
-    pub fn new_rmii<const TX: usize, const RX: usize>(
+    pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: impl Peripheral<P = T> + 'd,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,

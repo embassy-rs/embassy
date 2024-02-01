@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) -> ! {
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
 
     static PACKETS: StaticCell<PacketQueue<16, 16>> = StaticCell::new();
-    let device = Ethernet::new_rmii(
+    let device = Ethernet::new(
         PACKETS.init(PacketQueue::<16, 16>::new()),
         p.ETH,
         Irqs,
