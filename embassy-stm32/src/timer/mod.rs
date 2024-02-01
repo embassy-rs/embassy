@@ -376,7 +376,7 @@ pub(crate) mod sealed {
         add_capture_compare_dma_methods!(regs_gp16);
     }
 
-    #[cfg(not(any(stm32l0)))]
+    #[cfg(not(any(stm32f1, stm32l0, stm32c0)))]
     /// Gneral-purpose 32-bit timer instance.
     pub trait GeneralPurpose32bitInstance: GeneralPurpose16bitInstance {
         /// Get access to the general purpose 32bit timer registers.
@@ -705,7 +705,7 @@ pub trait GeneralPurpose16bitInstance:
 {
 }
 
-#[cfg(not(stm32l0))]
+#[cfg(not(any(stm32f1, stm32l0, stm32c0)))]
 /// Gneral-purpose 32-bit timer instance.
 pub trait GeneralPurpose32bitInstance:
     sealed::GeneralPurpose32bitInstance + GeneralPurpose16bitInstance + 'static
@@ -730,7 +730,7 @@ pub trait GeneralPurpose2ChannelComplementaryInstance:
 {
 }
 
-#[cfg(not(any(stm32l0, stm32l1)))]
+#[cfg(not(any(stm32f37, stm32l0, stm32l1)))]
 /// Advanced control timer instance.
 pub trait AdvancedControlInstance:
     sealed::AdvancedControlInstance + GeneralPurpose2ChannelComplementaryInstance + GeneralPurpose16bitInstance + 'static
