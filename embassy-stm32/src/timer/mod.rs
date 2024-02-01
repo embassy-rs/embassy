@@ -311,6 +311,26 @@ pub(crate) mod sealed {
                 .ccmr_output(channel_index / 2)
                 .modify(|w| w.set_ocpe(channel_index % 2, preload));
         }
+
+        /// Get capture compare DMA selection
+        fn get_cc_dma_selection(&self) -> super::vals::Ccds {
+            Self::regs_gp16().cr2().read().ccds()
+        }
+
+        /// Set capture compare DMA selection
+        fn set_cc_dma_selection(&mut self, ccds: super::vals::Ccds) {
+            Self::regs_gp16().cr2().modify(|w| w.set_ccds(ccds))
+        }
+
+        /// Get capture compare DMA enable state
+        fn get_cc_dma_enable_state(&self, channel: Channel) -> bool {
+            Self::regs_gp16().dier().read().ccde(channel.index())
+        }
+
+        /// Set capture compare DMA enable state
+        fn set_cc_dma_enable_state(&mut self, channel: Channel, ccde: bool) {
+            Self::regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
+        }
     }
 
     /// Capture/Compare 16-bit timer instance with complementary pin support.
@@ -450,20 +470,17 @@ pub enum CountingMode {
 impl CountingMode {
     /// Return whether this mode is edge-aligned (up or down).
     pub fn is_edge_aligned(&self) -> bool {
-        match self {
-            CountingMode::EdgeAlignedUp | CountingMode::EdgeAlignedDown => true,
-            _ => false,
-        }
+        matches!(self, CountingMode::EdgeAlignedUp | CountingMode::EdgeAlignedDown)
     }
 
     /// Return whether this mode is center-aligned.
     pub fn is_center_aligned(&self) -> bool {
-        match self {
+        matches!(
+            self,
             CountingMode::CenterAlignedDownInterrupts
-            | CountingMode::CenterAlignedUpInterrupts
-            | CountingMode::CenterAlignedBothInterrupts => true,
-            _ => false,
-        }
+                | CountingMode::CenterAlignedUpInterrupts
+                | CountingMode::CenterAlignedBothInterrupts
+        )
     }
 }
 
@@ -705,3 +722,8 @@ foreach_interrupt! {
 
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, Basic16bitInstance);
+
+dma_trait!(Ch1Dma, CaptureCompare16bitInstance);
+dma_trait!(Ch2Dma, CaptureCompare16bitInstance);
+dma_trait!(Ch3Dma, CaptureCompare16bitInstance);
+dma_trait!(Ch4Dma, CaptureCompare16bitInstance);
