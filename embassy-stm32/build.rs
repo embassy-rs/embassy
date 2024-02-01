@@ -449,7 +449,16 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
-    let refcounted_peripherals = HashSet::from(["usart", "adc", "can"]);
+    // count how many times each xxENR field is used, to enable refcounting if used more than once.
+    let mut rcc_field_count: HashMap<_, usize> = HashMap::new();
+    for p in METADATA.peripherals {
+        if let Some(rcc) = &p.rcc {
+            let en = rcc.enable.as_ref().unwrap();
+            *rcc_field_count.entry((en.register, en.field)).or_insert(0) += 1;
+        }
+    }
+
+    let force_refcount = HashSet::from(["usart"]);
     let mut refcount_statics = BTreeSet::new();
 
     for p in METADATA.peripherals {
@@ -487,7 +496,9 @@ fn main() {
             let en_reg = format_ident!("{}", en.register);
             let set_en_field = format_ident!("set_{}", en.field);
 
-            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
+            let refcount =
+                force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
+            let (before_enable, before_disable) = if refcount {
                 let refcount_static =
                     format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
 
