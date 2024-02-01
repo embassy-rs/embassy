@@ -9,7 +9,11 @@ use crate::peripherals::HASH;
 use crate::rcc::sealed::RccPeripheral;
 use crate::Peripheral;
 
+#[cfg(hash_v1)]
+const NUM_CONTEXT_REGS: usize = 51;
+#[cfg(hash_v2)]
 const NUM_CONTEXT_REGS: usize = 54;
+
 const HASH_BUFFER_LEN: usize = 68;
 const DIGEST_BLOCK_SIZE: usize = 64;
 
@@ -20,8 +24,10 @@ pub enum Algorithm {
     SHA1 = 0,
     /// MD5 Algorithm
     MD5 = 1,
+    #[cfg(hash_v2)]
     /// SHA-224 Algorithm
     SHA224 = 2,
+    #[cfg(hash_v2)]
     /// SHA-256 Algorithm
     SHA256 = 3,
 }
