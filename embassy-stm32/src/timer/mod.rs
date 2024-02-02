@@ -90,9 +90,9 @@ pub(crate) mod sealed {
 
             /// Set output compare mode.
             fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
-                let r = Self::$regs();
                 let raw_channel: usize = channel.index();
-                r.ccmr_output(raw_channel / 2)
+                Self::$regs()
+                    .ccmr_output(raw_channel / 2)
                     .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
             }
 
@@ -133,7 +133,7 @@ pub(crate) mod sealed {
             /// Set output compare preload.
             fn set_output_compare_preload(&mut self, channel: Channel, preload: bool) {
                 let channel_index = channel.index();
-                Self::regs_1ch()
+                Self::$regs()
                     .ccmr_output(channel_index / 2)
                     .modify(|w| w.set_ocpe(channel_index % 2, preload));
             }
