@@ -38,36 +38,96 @@ pub struct UnconnectedUdp<'a> {
     socket: udp::UdpSocket<'a>,
 }
 
-fn sockaddr_nal2smol(sockaddr: nal::SocketAddr) -> IpEndpoint {
-    todo!()
+fn sockaddr_nal2smol(sockaddr: nal::SocketAddr) -> Result<IpEndpoint, Error> {
+    match sockaddr {
+        nal::SocketAddr::V4(sockaddr) => {
+            #[cfg(feature = "proto-ipv4")]
+            return Ok(IpEndpoint {
+                addr: smoltcp::wire::Ipv4Address(sockaddr.ip().octets()).into(),
+                port: sockaddr.port(),
+            });
+            #[cfg(not(feature = "proto-ipv4"))]
+            return Err(Error::AddressFamilyUnavailable);
+        }
+        nal::SocketAddr::V6(sockaddr) => {
+            #[cfg(feature = "proto-ipv6")]
+            return Ok(IpEndpoint {
+                addr: smoltcp::wire::Ipv6Address(sockaddr.ip().octets()).into(),
+                port: sockaddr.port(),
+            });
+            #[cfg(not(feature = "proto-ipv6"))]
+            return Err(Error::AddressFamilyUnavailable);
+        }
+    }
 }
 
-fn sockaddr_smol2nal(sockaddr: IpEndpoint) -> nal::SocketAddr {
-    todo!()
+fn sockaddr_smol2nal(endpoint: IpEndpoint) -> nal::SocketAddr {
+    match endpoint.addr {
+        // Let's hope those are in sync; what we'll really need to know is whether smoltcp has the
+        // relevant flags set (but we can't query that).
+        #[cfg(feature = "proto-ipv4")]
+        IpAddress::Ipv4(addr) => {
+            embedded_nal_async::SocketAddrV4::new(addr.0.into(), endpoint.port).into()
+        }
+        #[cfg(feature = "proto-ipv6")]
+        IpAddress::Ipv6(addr) => {
+            embedded_nal_async::SocketAddrV6::new(addr.0.into(), endpoint.port).into()
+        }
+    }
 }
 
-fn is_unspec(addr: nal::SocketAddr) -> bool {
-    // FIXME
-    false
+/// Is the IP address in this type the unspecified address?
+///
+/// FIXME: What of ::ffff:0.0.0.0? Is that expected to bind to all v4 addresses?
+fn is_unspec_ip(addr: nal::SocketAddr) -> bool {
+    match addr {
+        nal::SocketAddr::V4(sockaddr) => {
+            sockaddr.ip().octets() == [0; 4]
+        }
+        nal::SocketAddr::V6(sockaddr) => {
+            sockaddr.ip().octets() == [0; 16]
+        }
+    }
 }
 
-// FIXME: Expose details
 #[derive(Debug)]
-pub struct Error;
+#[non_exhaustive]
+pub enum Error {
+    RecvError(udp::RecvError),
+    SendError(udp::SendError),
+    BindError(udp::BindError),
+    AddressFamilyUnavailable,
+}
 
 impl embedded_io_async::Error for Error {
     fn kind(&self) -> embedded_io_async::ErrorKind {
-        todo!()
+        match self {
+            Self::SendError(udp::SendError::NoRoute) => embedded_io_async::ErrorKind::AddrNotAvailable,
+            Self::BindError(udp::BindError::NoRoute) => embedded_io_async::ErrorKind::AddrNotAvailable,
+            Self::AddressFamilyUnavailable => embedded_io_async::ErrorKind::AddrNotAvailable,
+            // These should not happen b/c our sockets are typestated.
+            Self::SendError(udp::SendError::SocketNotBound) => embedded_io_async::ErrorKind::Other,
+            Self::BindError(udp::BindError::InvalidState) => embedded_io_async::ErrorKind::Other,
+            // This should not happen b/c in embedded_nal_async this is not expressed through an
+            // error.
+            // FIXME we're not there in this impl yet.
+            Self::RecvError(udp::RecvError::Truncated) => embedded_io_async::ErrorKind::Other,
+        }
+    }
+}
+impl From<udp::BindError> for Error {
+    fn from(err: udp::BindError) -> Self {
+        Self::BindError(err)
     }
 }
 impl From<udp::RecvError> for Error {
-    fn from(_: udp::RecvError) -> Self {
-        Self
+    fn from(err: udp::RecvError) -> Self {
+        Self::RecvError(err)
     }
 }
 impl From<udp::SendError> for Error {
-    fn from(_: udp::SendError) -> Self {
-        Self
+    fn from(err: udp::SendError) -> Self {
+        Self::SendError(err)
     }
 }
 
@@ -82,11 +142,11 @@ impl<'a> ConnectedUdp<'a> {
         mut socket: udp::UdpSocket<'a>,
         local: nal::SocketAddr,
         remote: nal::SocketAddr,
-    ) -> Result<Self, udp::BindError> {
-        socket.bind(sockaddr_nal2smol(local))?;
+    ) -> Result<Self, Error> {
+        socket.bind(sockaddr_nal2smol(local)?)?;
 
         Ok(ConnectedUdp {
-            remote: sockaddr_nal2smol(remote),
+            remote: sockaddr_nal2smol(remote)?,
             // FIXME: We could check if local was fully (or sufficiently, picking the port from the
             // socket) specified and store if yes -- for a first iteration, leaving that to the
             // fallback path we need anyway in case local is [::].
@@ -111,8 +171,8 @@ impl<'a> UnconnectedUdp<'a> {
     ///
     /// The `socket` must be open (in the sense of smoltcp's `.is_open()`) -- unbound and
     /// unconnected.
-    pub async fn bind_multiple(mut socket: udp::UdpSocket<'a>, local: nal::SocketAddr) -> Result<Self, udp::BindError> {
-        socket.bind(sockaddr_nal2smol(local))?;
+    pub async fn bind_multiple(mut socket: udp::UdpSocket<'a>, local: nal::SocketAddr) -> Result<Self, Error> {
+        socket.bind(sockaddr_nal2smol(local)?)?;
 
         Ok(UnconnectedUdp { socket })
     }
@@ -131,12 +191,12 @@ impl<'a> nal::UnconnectedUdp for UnconnectedUdp<'a> {
 
         let remote_endpoint = smoltcp::socket::udp::UdpMetadata {
             // A conversion of the addr part only might be cheaper
-            local_address: if is_unspec(local) {
+            local_address: if is_unspec_ip(local) {
                 None
             } else {
-                Some(sockaddr_nal2smol(local).addr)
+                Some(sockaddr_nal2smol(local)?.addr)
             },
-            ..sockaddr_nal2smol(remote).into()
+            ..sockaddr_nal2smol(remote)?.into()
         };
         poll_fn(move |cx| self.socket.poll_send_to(buf, remote_endpoint, cx)).await?;
         Ok(())
