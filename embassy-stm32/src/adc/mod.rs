@@ -61,8 +61,6 @@ pub(crate) mod sealed {
         fn regs() -> crate::pac::adc::Adc;
         #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
         fn common_regs() -> crate::pac::adccommon::AdcCommon;
-        #[cfg(adc_f3)]
-        fn frequency() -> crate::time::Hertz;
         #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]
         fn state() -> &'static State;
     }
@@ -101,11 +99,6 @@ foreach_adc!(
             #[cfg(not(any(adc_f1, adc_v1, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
-            }
-
-            #[cfg(adc_f3)]
-            fn frequency() -> crate::time::Hertz {
-                unsafe { crate::rcc::get_freqs() }.$clock.unwrap()
             }
 
             #[cfg(any(adc_f1, adc_f3, adc_v1, adc_f3_v1_1))]

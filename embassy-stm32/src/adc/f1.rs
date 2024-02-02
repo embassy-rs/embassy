@@ -6,7 +6,6 @@ use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
 use crate::adc::{Adc, AdcPin, Instance, SampleTime};
-use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::{interrupt, Peripheral};
 
@@ -80,7 +79,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     fn freq() -> Hertz {
-        unsafe { get_freqs() }.adc.unwrap()
+        T::frequency()
     }
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {

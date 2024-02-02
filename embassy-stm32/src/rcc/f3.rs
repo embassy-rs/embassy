@@ -4,7 +4,6 @@ use crate::pac::flash::vals::Latency;
 pub use crate::pac::rcc::vals::Adcpres;
 use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Prediv, Sw, Usbpre};
 use crate::pac::{FLASH, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -279,13 +278,16 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    set_freqs(Clocks {
-        sys: sysclk,
-        pclk1: pclk1,
-        pclk2: pclk2,
-        pclk1_tim: pclk1 * timer_mul1,
-        pclk2_tim: pclk2 * timer_mul2,
-        hclk1: hclk,
+    set_clocks!(
+        hsi: None,
+        lse: None,
+        pll1_p: None,
+        sys: Some(sysclk),
+        pclk1: Some(pclk1),
+        pclk2: Some(pclk2),
+        pclk1_tim: Some(pclk1 * timer_mul1),
+        pclk2_tim: Some(pclk2 * timer_mul2),
+        hclk1: Some(hclk),
         #[cfg(rcc_f3)]
         adc: adc,
         #[cfg(all(rcc_f3, adc3_common))]
@@ -294,8 +296,8 @@ pub(crate) unsafe fn init(config: Config) {
         adc34: None,
         #[cfg(stm32f334)]
         hrtim: hrtim,
-        rtc,
-    });
+        rtc: rtc,
+    );
 }
 
 #[inline]

@@ -7,7 +7,6 @@ pub use crate::pac::rcc::vals::{
     Pllp as PllP, Pllq as PllQ, Pllr as PllR, Ppre as APBPrescaler,
 };
 use crate::pac::{PWR, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -307,20 +306,20 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    set_freqs(Clocks {
-        sys: sys_clk,
-        hclk1: ahb_freq,
-        hclk2: ahb_freq,
-        hclk3: ahb_freq,
-        pclk1: apb1_freq,
-        pclk1_tim: apb1_tim_freq,
-        pclk2: apb2_freq,
-        pclk2_tim: apb2_tim_freq,
+    set_clocks!(
+        sys: Some(sys_clk),
+        hclk1: Some(ahb_freq),
+        hclk2: Some(ahb_freq),
+        hclk3: Some(ahb_freq),
+        pclk1: Some(apb1_freq),
+        pclk1_tim: Some(apb1_tim_freq),
+        pclk2: Some(apb2_freq),
+        pclk2_tim: Some(apb2_tim_freq),
         adc: adc12_ck,
         adc34: adc345_ck,
         pll1_p: None,
         pll1_q: None, // TODO
         hse: None,    // TODO
-        rtc,
-    });
+        rtc: rtc,
+    );
 }

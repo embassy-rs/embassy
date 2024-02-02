@@ -4,7 +4,6 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Hsidiv as HSIPrescaler, Pllm, Plln, Pllp, Pllq, Pllr, Ppre as APBPrescaler,
 };
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -352,11 +351,11 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(not(any(stm32g0b1, stm32g0c1, stm32g0b0)))]
     let hsi48_freq: Option<Hertz> = None;
 
-    set_freqs(Clocks {
-        sys: sys_clk,
-        hclk1: ahb_freq,
-        pclk1: apb_freq,
-        pclk1_tim: apb_tim_freq,
+    set_clocks!(
+        sys: Some(sys_clk),
+        hclk1: Some(ahb_freq),
+        pclk1: Some(apb_freq),
+        pclk1_tim: Some(apb_tim_freq),
         hsi: hsi_freq,
         hsi48: hsi48_freq,
         hsi_div_8: hsi_div_8_freq,
@@ -365,6 +364,6 @@ pub(crate) unsafe fn init(config: Config) {
         lsi: lsi_freq,
         pll1_q: pll1_q_freq,
         pll1_p: pll1_p_freq,
-        rtc,
-    });
+        rtc: rtc,
+    );
 }

@@ -13,6 +13,7 @@ use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
+use crate::rcc::RccPeripheral;
 
 #[allow(unused)]
 const MTU: usize = 1514;
@@ -183,7 +184,7 @@ pub(crate) mod sealed {
 }
 
 /// Ethernet instance.
-pub trait Instance: sealed::Instance + Send + 'static {}
+pub trait Instance: sealed::Instance + RccPeripheral + Send + 'static {}
 
 impl sealed::Instance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
