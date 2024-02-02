@@ -8,7 +8,7 @@ use core::task::{Context, Poll};
 use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::udp;
-pub use smoltcp::socket::udp::PacketMetadata;
+pub use smoltcp::socket::udp::{PacketMetadata, UdpMetadata};
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
 use crate::{SocketStack, Stack};
@@ -112,7 +112,9 @@ impl<'a> UdpSocket<'a> {
     ///
     /// Returns the number of bytes received and the remote endpoint.
     pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, IpEndpoint), RecvError> {
-        poll_fn(move |cx| self.poll_recv_from(buf, cx)).await
+        poll_fn(move |cx| self.poll_recv_from(buf, cx))
+            .await
+            .map(|(size, metadata)| (size, metadata.endpoint))
     }
 
     /// Receive a datagram.
@@ -122,9 +124,13 @@ impl<'a> UdpSocket<'a> {
     ///
     /// When a datagram is received, this method will return `Poll::Ready` with the
     /// number of bytes received and the remote endpoint.
-    pub fn poll_recv_from(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<(usize, IpEndpoint), RecvError>> {
+    pub fn poll_recv_from(
+        &self,
+        buf: &mut [u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(usize, UdpMetadata), RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok((n, meta)) => Poll::Ready(Ok((n, meta.endpoint))),
+            Ok((n, meta)) => Poll::Ready(Ok((n, meta))),
             // No data ready
             Err(udp::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
             Err(udp::RecvError::Exhausted) => {
@@ -157,7 +163,7 @@ impl<'a> UdpSocket<'a> {
     /// When the remote endpoint is not reachable, this method will return `Poll::Ready(Err(Error::NoRoute))`.
     pub fn poll_send_to<T>(&self, buf: &[u8], remote_endpoint: T, cx: &mut Context<'_>) -> Poll<Result<(), SendError>>
     where
-        T: Into<IpEndpoint>,
+        T: Into<UdpMetadata>,
     {
         self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint) {
             // Entire datagram has been sent
