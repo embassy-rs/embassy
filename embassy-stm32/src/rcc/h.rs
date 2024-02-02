@@ -12,7 +12,6 @@ pub use crate::pac::rcc::vals::{
 };
 use crate::pac::rcc::vals::{Ckpersel, Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -430,7 +429,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Configure HSI48.
-    let _hsi48 = config.hsi48.map(super::init_hsi48);
+    let hsi48 = config.hsi48.map(super::init_hsi48);
 
     // Configure CSI.
     RCC.cr().modify(|w| w.set_csion(config.csi));
@@ -614,45 +613,33 @@ pub(crate) unsafe fn init(config: Config) {
         while !pac::SYSCFG.cccsr().read().ready() {}
     }
 
-    set_freqs(Clocks {
-        sys,
-        hclk1: hclk,
-        hclk2: hclk,
-        hclk3: hclk,
-        hclk4: hclk,
-        pclk1: apb1,
-        pclk2: apb2,
-        pclk3: apb3,
+    set_clocks!(
+        sys: Some(sys),
+        hclk1: Some(hclk),
+        hclk2: Some(hclk),
+        hclk3: Some(hclk),
+        hclk4: Some(hclk),
+        pclk1: Some(apb1),
+        pclk2: Some(apb2),
+        pclk3: Some(apb3),
         #[cfg(stm32h7)]
-        pclk4: apb4,
-        #[cfg(stm32h5)]
-        pclk4: Hertz(1),
-        pclk1_tim: apb1_tim,
-        pclk2_tim: apb2_tim,
-        adc,
-        rtc,
+        pclk4: Some(apb4),
+        pclk1_tim: Some(apb1_tim),
+        pclk2_tim: Some(apb2_tim),
+        adc: adc,
+        rtc: rtc,
 
-        #[cfg(any(stm32h5, stm32h7))]
-        hsi: None,
-        #[cfg(stm32h5)]
-        hsi48: None,
-        #[cfg(stm32h5)]
-        lsi: None,
-        #[cfg(any(stm32h5, stm32h7))]
-        csi: None,
+        hsi: hsi,
+        hsi48: hsi48,
+        csi: csi,
+        hse: hse,
 
-        #[cfg(any(stm32h5, stm32h7))]
         lse: None,
-        #[cfg(any(stm32h5, stm32h7))]
-        hse: None,
+        lsi: None,
 
-        #[cfg(any(stm32h5, stm32h7))]
         pll1_q: pll1.q,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_p: pll2.p,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_q: pll2.q,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_r: pll2.r,
         #[cfg(any(rcc_h5, stm32h7))]
         pll3_p: pll3.p,
@@ -670,12 +657,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         #[cfg(stm32h5)]
         audioclk: None,
-        #[cfg(any(stm32h5, stm32h7))]
         per: None,
-
-        #[cfg(stm32h7)]
-        rcc_pclk_d3: None,
-    });
+    );
 }
 
 struct PllInput {

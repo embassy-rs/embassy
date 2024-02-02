@@ -11,6 +11,7 @@ use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Speed};
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
+use crate::rcc::sealed::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -264,8 +265,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
-        // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = unsafe { crate::rcc::get_freqs() }.hclk1;
+        let hclk = <T as RccPeripheral>::frequency();
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz

@@ -461,6 +461,8 @@ fn main() {
     let force_refcount = HashSet::from(["usart"]);
     let mut refcount_statics = BTreeSet::new();
 
+    let mut clock_names = BTreeSet::new();
+
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
             continue;
@@ -492,7 +494,6 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let clk = format_ident!("{}", rcc.clock);
             let en_reg = format_ident!("{}", en.register);
             let set_en_field = format_ident!("set_{}", en.field);
 
@@ -522,14 +523,7 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
-            let mux_supported = HashSet::from(["c0", "h5", "h50", "h7", "h7ab", "h7rm0433", "g0", "g4", "l4"])
-                .contains(rcc_registers.version);
             let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
-                // restrict mux implementation to supported versions
-                if !mux_supported {
-                    return None;
-                }
-
                 let mux = mux?;
                 let fieldset = rcc_enum_map.get(mux.register)?;
                 let enumm = fieldset.get(mux.field)?;
@@ -550,15 +544,9 @@ fn main() {
                         .map(|v| {
                             let variant_name = format_ident!("{}", v.name);
                             let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
-
-                            if v.name.starts_with("HCLK") || v.name.starts_with("PCLK") || v.name == "SYS" {
-                                quote! {
-                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
-                                }
-                            } else {
-                                quote! {
-                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
-                                }
+                            clock_names.insert(v.name.to_ascii_lowercase());
+                            quote! {
+                                #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
                             }
                         })
                         .collect();
@@ -569,19 +557,21 @@ fn main() {
                         #[allow(unreachable_patterns)]
                         match crate::pac::RCC.#fieldset_name().read().#field_name() {
                             #match_arms
-
                             _ => unreachable!(),
                         }
                     }
                 }
-                None => quote! {
-                    unsafe { crate::rcc::get_freqs().#clk }
-                },
+                None => {
+                    let clock_name = format_ident!("{}", rcc.clock);
+                    clock_names.insert(rcc.clock.to_string());
+                    quote! {
+                        unsafe { crate::rcc::get_freqs().#clock_name.unwrap() }
+                    }
+                }
             };
 
             /*
                 A refcount leak can result if the same field is shared by peripherals with different stop modes
-
                 This condition should be checked in stm32-data
             */
             let stop_refcount = match rcc.stop_mode {
@@ -627,6 +617,39 @@ fn main() {
             });
         }
     }
+
+    // Generate RCC
+    clock_names.insert("sys".to_string());
+    clock_names.insert("rtc".to_string());
+    let clock_idents: Vec<_> = clock_names.iter().map(|n| format_ident!("{}", n)).collect();
+    g.extend(quote! {
+        #[derive(Clone, Copy, Debug)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        pub struct Clocks {
+            #(
+                pub #clock_idents: Option<crate::time::Hertz>,
+            )*
+        }
+    });
+
+    let clocks_macro = quote!(
+        macro_rules! set_clocks {
+            ($($(#[$m:meta])* $k:ident: $v:expr,)*) => {
+                {
+                    #[allow(unused)]
+                    struct Temp {
+                        $($(#[$m])* $k: Option<crate::time::Hertz>,)*
+                    }
+                    let all = Temp {
+                        $($(#[$m])* $k: $v,)*
+                    };
+                    crate::rcc::set_freqs(crate::rcc::Clocks {
+                        #( #clock_idents: all.#clock_idents, )*
+                    });
+                }
+            };
+        }
+    );
 
     let refcount_mod: TokenStream = refcount_statics
         .iter()
@@ -1349,7 +1372,7 @@ fn main() {
         }
     }
 
-    let mut m = String::new();
+    let mut m = clocks_macro.to_string();
 
     // DO NOT ADD more macros like these.
     // These turned to be a bad idea!

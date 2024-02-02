@@ -4,7 +4,6 @@ pub use crate::pac::rcc::vals::{
     Adcsel as AdcClockSource, Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as ClockSrc,
 };
 use crate::pac::{FLASH, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -155,16 +154,23 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.ccipr3().modify(|w| w.set_adcsel(config.adc_clock_source));
 
-    set_freqs(Clocks {
-        sys: sys_clk,
-        hclk1,
-        hclk2,
-        hclk4,
-        pclk1,
-        pclk2,
-        pclk7,
-        pclk1_tim,
-        pclk2_tim,
-        rtc,
-    });
+    set_clocks!(
+        sys: Some(sys_clk),
+        hclk1: Some(hclk1),
+        hclk2: Some(hclk2),
+        hclk4: Some(hclk4),
+        pclk1: Some(pclk1),
+        pclk2: Some(pclk2),
+        pclk7: Some(pclk7),
+        pclk1_tim: Some(pclk1_tim),
+        pclk2_tim: Some(pclk2_tim),
+        rtc: rtc,
+        hse: hse,
+        hsi: hsi,
+
+        // TODO
+        lse: None,
+        lsi: None,
+        pll1_q: None,
+    );
 }
