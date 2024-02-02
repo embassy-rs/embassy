@@ -181,3 +181,21 @@ Check out link:https://docs.embassy.dev/embassy-executor/git/cortex-m/index.html
 == Can I use manual ISRs alongside Embassy?
 
 Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. Simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
+
+== How can I measure resource usage (CPU, RAM, etc.)?
+
+=== For CPU Usage:
+
+There are a couple techniques that have been documented, generally you want to measure how long you are spending in the idle or low priority loop.
+
+We need to document specifically how to do this in embassy, but link:https://blog.japaric.io/cpu-monitor/[this older post] describes the general process.
+
+If you end up doing this, please update this section with more specific examples!
+
+=== For Static Memory Usage
+
+Tools like `cargo size` and `cargo nm` can tell you the size of any globals or other static usage. Specifically you will want to see the size of the `.data` and `.bss` sections, which together make up the total global/static memory usage.
+
+=== For Max Stack Usage
+
+Check out link:https://github.com/Dirbaio/cargo-call-stack/[`cargo-call-stack`] for statically calculating worst-case stack usage. There are some caveats and inaccuracies possible with this, but this is a good way to get the general idea. See link:https://github.com/dirbaio/cargo-call-stack#known-limitations[the README] for more details.

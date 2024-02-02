@@ -449,7 +449,16 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
-    let refcounted_peripherals = HashSet::from(["usart", "adc"]);
+    // count how many times each xxENR field is used, to enable refcounting if used more than once.
+    let mut rcc_field_count: HashMap<_, usize> = HashMap::new();
+    for p in METADATA.peripherals {
+        if let Some(rcc) = &p.rcc {
+            let en = rcc.enable.as_ref().unwrap();
+            *rcc_field_count.entry((en.register, en.field)).or_insert(0) += 1;
+        }
+    }
+
+    let force_refcount = HashSet::from(["usart"]);
     let mut refcount_statics = BTreeSet::new();
 
     for p in METADATA.peripherals {
@@ -487,7 +496,9 @@ fn main() {
             let en_reg = format_ident!("{}", en.register);
             let set_en_field = format_ident!("set_{}", en.field);
 
-            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
+            let refcount =
+                force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
+            let (before_enable, before_disable) = if refcount {
                 let refcount_static =
                     format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
 
@@ -735,13 +746,20 @@ fn main() {
         (("can", "TX"), quote!(crate::can::TxPin)),
         (("can", "RX"), quote!(crate::can::RxPin)),
         (("eth", "REF_CLK"), quote!(crate::eth::RefClkPin)),
+        (("eth", "RX_CLK"), quote!(crate::eth::RXClkPin)),
+        (("eth", "TX_CLK"), quote!(crate::eth::TXClkPin)),
         (("eth", "MDIO"), quote!(crate::eth::MDIOPin)),
         (("eth", "MDC"), quote!(crate::eth::MDCPin)),
         (("eth", "CRS_DV"), quote!(crate::eth::CRSPin)),
+        (("eth", "RX_DV"), quote!(crate::eth::RXDVPin)),
         (("eth", "RXD0"), quote!(crate::eth::RXD0Pin)),
         (("eth", "RXD1"), quote!(crate::eth::RXD1Pin)),
+        (("eth", "RXD2"), quote!(crate::eth::RXD2Pin)),
+        (("eth", "RXD3"), quote!(crate::eth::RXD3Pin)),
         (("eth", "TXD0"), quote!(crate::eth::TXD0Pin)),
         (("eth", "TXD1"), quote!(crate::eth::TXD1Pin)),
+        (("eth", "TXD2"), quote!(crate::eth::TXD2Pin)),
+        (("eth", "TXD3"), quote!(crate::eth::TXD3Pin)),
         (("eth", "TX_EN"), quote!(crate::eth::TXEnPin)),
         (("fmc", "A0"), quote!(crate::fmc::A0Pin)),
         (("fmc", "A1"), quote!(crate::fmc::A1Pin)),
@@ -942,9 +960,9 @@ fn main() {
                     } else if pin.signal.starts_with("INN") {
                         // TODO handle in the future when embassy supports differential measurements
                         None
-                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with("b") {
+                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
                         // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
-                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix("b").unwrap();
+                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
                         Some(32u8 + signal.parse::<u8>().unwrap())
                     } else if pin.signal.starts_with("IN") {
                         Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
@@ -1015,6 +1033,10 @@ fn main() {
         (("dac", "CH1"), quote!(crate::dac::DacDma1)),
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
+        (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
+        (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
+        (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
+        (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
     ]
     .into();
 
@@ -1030,16 +1052,6 @@ fn main() {
                 }
 
                 if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
-                    // TIM6 of stm32f334 is special, DMA channel for TIM6 depending on SYSCFG state
-                    if chip_name.starts_with("stm32f334") && p.name == "TIM6" {
-                        continue;
-                    }
-
-                    // TIM6 of stm32f378 is special, DMA channel for TIM6 depending on SYSCFG state
-                    if chip_name.starts_with("stm32f378") && p.name == "TIM6" {
-                        continue;
-                    }
-
                     let peri = format_ident!("{}", p.name);
 
                     let channel = if let Some(channel) = &ch.channel {
@@ -1198,7 +1210,7 @@ fn main() {
         ADC3 and higher are assigned to the adc34 clock in the table
         The adc3_common cfg directive is added if ADC3_COMMON exists
     */
-    let has_adc3 = METADATA.peripherals.iter().find(|p| p.name == "ADC3_COMMON").is_some();
+    let has_adc3 = METADATA.peripherals.iter().any(|p| p.name == "ADC3_COMMON");
     let set_adc345 = HashSet::from(["ADC3", "ADC4", "ADC5"]);
 
     for m in METADATA
@@ -1382,6 +1394,7 @@ fn main() {
 
     // =======
     // ADC3_COMMON is present
+    #[allow(clippy::print_literal)]
     if has_adc3 {
         println!("cargo:rustc-cfg={}", "adc3_common");
     }

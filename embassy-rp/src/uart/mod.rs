@@ -604,8 +604,8 @@ impl<'d, T: Instance> UartRx<'d, T, Async> {
             return match (all_full, last_was_break) {
                 (true, true) | (false, _) => {
                     // We got less than the full amount + a break, or the full amount
-                    // and the last byte was a break. Subtract the break off.
-                    Ok((next_addr - 1) - sval)
+                    // and the last byte was a break. Subtract the break off by adding one to sval.
+                    Ok(next_addr.saturating_sub(1 + sval))
                 }
                 (true, false) => {
                     // We finished the whole DMA, and the last DMA'd byte was NOT a break
