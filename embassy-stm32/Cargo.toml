@@ -114,7 +114,7 @@ memory-x = ["stm32-metapac/memory-x"]
 ## There are no plans to make this stable.
 unstable-pac = []
 
-fdcan = []
+# fdcan = []
 
 #! ## Time
 
