@@ -114,6 +114,8 @@ memory-x = ["stm32-metapac/memory-x"]
 ## There are no plans to make this stable.
 unstable-pac = []
 
+fdcan = []
+
 #! ## Time
 
 ## Enables additional driver features that depend on embassy-time
