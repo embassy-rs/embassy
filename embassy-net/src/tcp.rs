@@ -342,7 +342,7 @@ impl<'a> TcpSocket<'a> {
         self.io.with(|s, _| s.may_send())
     }
 
-    /// return whether the recieve half of the full-duplex connection is open.
+    /// return whether the receive half of the full-duplex connection is open.
     /// This function returns true if it’s possible to receive data from the remote endpoint.
     /// It will return true while there is data in the receive buffer, and if there isn’t,
     /// as long as the remote endpoint has not closed the connection.
@@ -471,7 +471,7 @@ impl<'d> TcpIo<'d> {
                         s.register_recv_waker(cx.waker());
                         Poll::Pending
                     } else {
-                        // if we can't receive because the recieve half of the duplex connection is closed then return an error
+                        // if we can't receive because the receive half of the duplex connection is closed then return an error
                         Poll::Ready(Err(Error::ConnectionReset))
                     }
                 } else {
