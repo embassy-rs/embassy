@@ -2,11 +2,13 @@
 use core::cmp::min;
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::ptr;
 use core::task::Poll;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::dma::Transfer;
 use crate::peripherals::HASH;
 use stm32_metapac::hash::regs::*;
 
@@ -18,7 +20,6 @@ use crate::{interrupt, pac, peripherals, Peripheral};
 const NUM_CONTEXT_REGS: usize = 51;
 #[cfg(hash_v2)]
 const NUM_CONTEXT_REGS: usize = 54;
-const HASH_BUFFER_LEN: usize = 68;
 const DIGEST_BLOCK_SIZE: usize = 64;
 
 static HASH_WAKER: AtomicWaker = AtomicWaker::new();
@@ -74,8 +75,7 @@ pub enum DataType {
 /// Stores the state of the HASH peripheral for suspending/resuming
 /// digest calculation.
 pub struct Context {
-    first_word_sent: bool,
-    buffer: [u8; HASH_BUFFER_LEN],
+    buffer: [u8; DIGEST_BLOCK_SIZE],
     buflen: usize,
     algo: Algorithm,
     format: DataType,
@@ -86,17 +86,19 @@ pub struct Context {
 }
 
 /// HASH driver.
-pub struct Hash<'d, T: Instance> {
+pub struct Hash<'d, T: Instance, D: Dma<T>> {
     _peripheral: PeripheralRef<'d, T>,
+    dma: PeripheralRef<'d, D>,
 }
 
-impl<'d, T: Instance> Hash<'d, T> {
+impl<'d, T: Instance, D: Dma<T>> Hash<'d, T, D> {
     /// Instantiates, resets, and enables the HASH peripheral.
-    pub fn new(peripheral: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new(peripheral: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = D> + 'd) -> Self {
         HASH::enable_and_reset();
-        into_ref!(peripheral);
+        into_ref!(peripheral, dma);
         let instance = Self {
             _peripheral: peripheral,
+            dma: dma,
         };
 
         T::Interrupt::unpend();
@@ -109,8 +111,7 @@ impl<'d, T: Instance> Hash<'d, T> {
     pub async fn start(&mut self, algorithm: Algorithm, format: DataType) -> Context {
         // Define a context for this new computation.
         let mut ctx = Context {
-            first_word_sent: false,
-            buffer: [0; 68],
+            buffer: [0; DIGEST_BLOCK_SIZE],
             buflen: 0,
             algo: algorithm,
             format: format,
@@ -134,6 +135,11 @@ impl<'d, T: Instance> Hash<'d, T> {
         }
         T::regs().cr().modify(|w| w.set_algo0(algo0));
         T::regs().cr().modify(|w| w.set_algo1(algo1));
+
+        // Enable multiple DMA transfers.
+        T::regs().cr().modify(|w| w.set_mdmat(true));
+
+        // Set init to load the context registers. Necessary before storing context.
         T::regs().cr().modify(|w| w.set_init(true));
 
         // Store and return the state of the peripheral.
@@ -145,8 +151,8 @@ impl<'d, T: Instance> Hash<'d, T> {
     /// then updates the state with the provided data.
     /// Peripheral state is saved upon return.
     pub async fn update(&mut self, ctx: &mut Context, input: &[u8]) {
-        let mut data_waiting = input.len() + ctx.buflen;
-        if data_waiting < DIGEST_BLOCK_SIZE || (data_waiting < ctx.buffer.len() && !ctx.first_word_sent) {
+        let data_waiting = input.len() + ctx.buflen;
+        if data_waiting < DIGEST_BLOCK_SIZE {
             // There isn't enough data to digest a block, so append it to the buffer.
             ctx.buffer[ctx.buflen..ctx.buflen + input.len()].copy_from_slice(input);
             ctx.buflen += input.len();
@@ -159,64 +165,34 @@ impl<'d, T: Instance> Hash<'d, T> {
         let mut ilen_remaining = input.len();
         let mut input_start = 0;
 
-        // Handle first block.
-        if !ctx.first_word_sent {
-            let empty_len = ctx.buffer.len() - ctx.buflen;
+        // First ingest the data in the buffer.
+        let empty_len = DIGEST_BLOCK_SIZE - ctx.buflen;
+        if empty_len > 0 {
             let copy_len = min(empty_len, ilen_remaining);
-            // Fill the buffer.
-            if copy_len > 0 {
-                ctx.buffer[ctx.buflen..ctx.buflen + copy_len].copy_from_slice(&input[0..copy_len]);
-                ctx.buflen += copy_len;
-                ilen_remaining -= copy_len;
-                input_start += copy_len;
-            }
-            assert_eq!(ctx.buflen, HASH_BUFFER_LEN);
-            self.accumulate(ctx.buffer.as_slice());
-            data_waiting -= ctx.buflen;
-            ctx.buflen = 0;
-            ctx.first_word_sent = true;
+            ctx.buffer[ctx.buflen..ctx.buflen + copy_len].copy_from_slice(&input[input_start..input_start + copy_len]);
+            ctx.buflen += copy_len;
+            ilen_remaining -= copy_len;
+            input_start += copy_len;
         }
+        self.accumulate(&ctx.buffer).await;
+        ctx.buflen = 0;
 
-        if data_waiting < 64 {
-            // There isn't enough data remaining to process another block, so store it.
-            assert_eq!(ctx.buflen, 0);
-            ctx.buffer[0..ilen_remaining].copy_from_slice(&input[input_start..input_start + ilen_remaining]);
-            ctx.buflen += ilen_remaining;
+        // Move any extra data to the now-empty buffer.
+        let leftovers = ilen_remaining % DIGEST_BLOCK_SIZE;
+        if leftovers > 0 {
+            assert!(ilen_remaining >= leftovers);
+            ctx.buffer[0..leftovers].copy_from_slice(&input[input.len() - leftovers..input.len()]);
+            ctx.buflen += leftovers;
+            ilen_remaining -= leftovers;
         } else {
-            let mut total_data_sent = 0;
-
-            // First ingest the data in the buffer.
-            let empty_len = DIGEST_BLOCK_SIZE - ctx.buflen;
-            if empty_len > 0 {
-                let copy_len = min(empty_len, ilen_remaining);
-                ctx.buffer[ctx.buflen..ctx.buflen + copy_len]
-                    .copy_from_slice(&input[input_start..input_start + copy_len]);
-                ctx.buflen += copy_len;
-                ilen_remaining -= copy_len;
-                input_start += copy_len;
-            }
-            assert_eq!(ctx.buflen % 64, 0);
-            self.accumulate(&ctx.buffer[0..64]);
-            total_data_sent += ctx.buflen;
-            ctx.buflen = 0;
-
-            // Move any extra data to the now-empty buffer.
-            let leftovers = ilen_remaining % 64;
-            if leftovers > 0 {
-                assert!(ilen_remaining >= leftovers);
-                ctx.buffer[0..leftovers].copy_from_slice(&input[input.len() - leftovers..input.len()]);
-                ctx.buflen += leftovers;
-                ilen_remaining -= leftovers;
-            }
-            assert_eq!(ilen_remaining % 64, 0);
-
-            // Hash the remaining data.
-            self.accumulate(&input[input_start..input_start + ilen_remaining]);
-
-            total_data_sent += ilen_remaining;
-            assert_eq!(total_data_sent % 64, 0);
-            assert!(total_data_sent >= 64);
+            ctx.buffer
+                .copy_from_slice(&input[input.len() - DIGEST_BLOCK_SIZE..input.len()]);
+            ctx.buflen += DIGEST_BLOCK_SIZE;
+            ilen_remaining -= DIGEST_BLOCK_SIZE;
         }
+
+        // Hash the remaining data.
+        self.accumulate(&input[input_start..input_start + ilen_remaining]).await;
 
         // Save the peripheral context.
         self.store_context(ctx).await;
@@ -228,12 +204,12 @@ impl<'d, T: Instance> Hash<'d, T> {
         // Restore the peripheral state.
         self.load_context(&ctx);
 
-        // Hash the leftover bytes, if any.
-        self.accumulate(&ctx.buffer[0..ctx.buflen]);
-        ctx.buflen = 0;
+        // Must be cleared prior to the last DMA transfer.
+        T::regs().cr().modify(|w| w.set_mdmat(false));
 
-        //Start the digest calculation.
-        T::regs().str().write(|w| w.set_dcal(true));
+        // Hash the leftover bytes, if any.
+        self.accumulate(&ctx.buffer[0..ctx.buflen]).await;
+        ctx.buflen = 0;
 
         // Wait for completion.
         poll_fn(|cx| {
@@ -272,19 +248,30 @@ impl<'d, T: Instance> Hash<'d, T> {
     }
 
     /// Push data into the hash core.
-    fn accumulate(&mut self, input: &[u8]) {
+    async fn accumulate(&mut self, input: &[u8]) {
+        // Ignore an input length of 0.
+        if input.len() == 0 {
+            return;
+        }
+
         // Set the number of valid bits.
         let num_valid_bits: u8 = (8 * (input.len() % 4)) as u8;
         T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
 
-        let mut i = 0;
-        while i < input.len() {
-            let mut word: [u8; 4] = [0; 4];
-            let copy_idx = min(i + 4, input.len());
-            word[0..copy_idx - i].copy_from_slice(&input[i..copy_idx]);
-            T::regs().din().write_value(u32::from_ne_bytes(word));
-            i += 4;
+        // Configure DMA to transfer input to hash core.
+        let dma_request = self.dma.request();
+        let dst_ptr = T::regs().din().as_ptr();
+        let mut num_words = input.len() / 4;
+        if input.len() % 4 > 0 {
+            num_words += 1;
         }
+        let src_ptr = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words);
+        let dma_transfer =
+            unsafe { Transfer::new_write_raw(&mut self.dma, dma_request, src_ptr, dst_ptr, Default::default()) };
+        T::regs().cr().modify(|w| w.set_dmae(true));
+
+        // Wait for the transfer to complete.
+        dma_transfer.await;
     }
 
     /// Save the peripheral state to a context.
@@ -361,3 +348,5 @@ foreach_interrupt!(
         }
     };
 );
+
+dma_trait!(Dma, Instance);
