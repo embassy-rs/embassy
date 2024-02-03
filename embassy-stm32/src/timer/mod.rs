@@ -20,10 +20,10 @@
 //!
 //! mapping:
 //!
-//! Basic Timer --> BasicInstance  
-//! 1-channel Timer, 2-channel Timer, General Purpose 16-bit Timer --> CaptureCompare16bitInstance  
-//! General Purpose 32-bit Timer --> CaptureCompare32bitInstance  
-//! 1-channel with one complentary Timer, 2-channel with one complentary Timer, Advance Control Timer --> ComplementaryCaptureCompare16bitInstance  
+//! BasicInstance --> Basic Timer  
+//! CaptureCompare16bitInstance --> 1-channel Timer, 2-channel Timer, General Purpose 16-bit Timer  
+//! CaptureCompare32bitInstance --> General Purpose 32-bit Timer  
+//! ComplementaryCaptureCompare16bitInstance --> 1-channel with one complentary Timer, 2-channel with one complentary Timer, Advance Control Timer  
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
@@ -667,7 +667,8 @@ impl From<OutputPolarity> for bool {
 /// Basic 16-bit timer instance.
 pub trait BasicInstance: sealed::BasicInstance + sealed::BasicNoCr2Instance + sealed::CoreInstance + 'static {}
 
-/// General-purpose 16-bit timer instance.
+// It's just a General-purpose 16-bit timer instance.
+/// Capture Compare timer instance.
 pub trait CaptureCompare16bitInstance:
     BasicInstance
     + sealed::GeneralPurpose2ChannelInstance
@@ -678,14 +679,16 @@ pub trait CaptureCompare16bitInstance:
 }
 
 #[cfg(not(stm32l0))]
-/// Gneral-purpose 32-bit timer instance.
+// It's just a General-purpose 32-bit timer instance.
+/// Capture Compare 32-bit timer instance.
 pub trait CaptureCompare32bitInstance:
-    sealed::GeneralPurpose32bitInstance + CaptureCompare16bitInstance + 'static
+    CaptureCompare16bitInstance + sealed::GeneralPurpose32bitInstance + 'static
 {
 }
 
 #[cfg(not(stm32l0))]
-/// Advanced control timer instance.
+// It's just a Advanced Control timer instance.
+/// Complementary Capture Compare 32-bit timer instance.
 pub trait ComplementaryCaptureCompare16bitInstance:
     CaptureCompare16bitInstance
     + sealed::GeneralPurpose1ChannelComplementaryInstance
