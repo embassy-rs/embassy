@@ -102,7 +102,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     fn freq() -> Hertz {
-        <T as crate::adc::sealed::Instance>::frequency()
+        <T as crate::rcc::sealed::RccPeripheral>::frequency()
     }
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {

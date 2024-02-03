@@ -80,7 +80,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
                 _ => panic!("Invalid write length {}", len),
             },
             Ok(i2c_slave::Command::WriteRead(len)) => {
-                info!("device recieved write read: {:x}", buf[..len]);
+                info!("device received write read: {:x}", buf[..len]);
                 match buf[0] {
                     0xC2 => {
                         let resp_buff = [0xD1, 0xD2, 0xD3, 0xD4];

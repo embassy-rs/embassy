@@ -1,6 +1,5 @@
 use stm32_metapac::flash::vals::Latency;
 
-use super::{set_freqs, Clocks};
 use crate::pac::rcc::vals::{Hpre, Pllmul, Pllsrc, Ppre, Sw, Usbsw};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
@@ -160,13 +159,15 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    set_freqs(Clocks {
-        sys: Hertz(real_sysclk),
-        pclk1: Hertz(pclk),
-        pclk2: Hertz(pclk),
-        pclk1_tim: Hertz(pclk * timer_mul),
-        pclk2_tim: Hertz(pclk * timer_mul),
-        hclk1: Hertz(hclk),
-        rtc,
-    });
+    set_clocks!(
+        hsi: None,
+        lse: None,
+        sys: Some(Hertz(real_sysclk)),
+        pclk1: Some(Hertz(pclk)),
+        pclk2: Some(Hertz(pclk)),
+        pclk1_tim: Some(Hertz(pclk * timer_mul)),
+        pclk2_tim: Some(Hertz(pclk * timer_mul)),
+        hclk1: Some(Hertz(hclk)),
+        rtc: rtc,
+    );
 }

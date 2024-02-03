@@ -2,7 +2,6 @@ use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::Sw;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsidiv as HSIPrescaler, Ppre as APBPrescaler};
 use crate::pac::{FLASH, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -133,13 +132,13 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    set_freqs(Clocks {
+    set_clocks!(
         hsi: None,
         lse: None,
-        sys: sys_clk,
-        hclk1: ahb_freq,
-        pclk1: apb_freq,
-        pclk1_tim: apb_tim_freq,
-        rtc,
-    });
+        sys: Some(sys_clk),
+        hclk1: Some(ahb_freq),
+        pclk1: Some(apb_freq),
+        pclk1_tim: Some(apb_tim_freq),
+        rtc: rtc,
+    );
 }
