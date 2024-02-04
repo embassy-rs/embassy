@@ -6,8 +6,11 @@
 use core::mem::MaybeUninit;
 
 mod bd;
-mod mco;
 pub use bd::*;
+
+#[cfg(any(mco, mco1, mco2))]
+mod mco;
+#[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
 #[cfg(crs)]

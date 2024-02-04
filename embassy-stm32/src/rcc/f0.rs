@@ -32,6 +32,7 @@ impl Default for Config {
             hse: Default::default(),
             bypass_hse: Default::default(),
             usb_pll: Default::default(),
+            #[cfg(crs)]
             hsi48: Some(Default::default()),
             sys_ck: Default::default(),
             hclk: Default::default(),
