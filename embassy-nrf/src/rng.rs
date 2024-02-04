@@ -5,12 +5,10 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr;
-use core::sync::atomic::{AtomicPtr, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, Peripheral};
@@ -22,7 +20,6 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let s = T::state();
         let r = T::regs();
 
         // Clear the event.
@@ -30,46 +27,25 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         // Mutate the slice within a critical section,
         // so that the future isn't dropped in between us loading the pointer and actually dereferencing it.
-        let (ptr, end) = critical_section::with(|_| {
-            let ptr = s.ptr.load(Ordering::Relaxed);
+        critical_section::with(|cs| {
+            let mut state = T::state().borrow_mut(cs);
             // We need to make sure we haven't already filled the whole slice,
             // in case the interrupt fired again before the executor got back to the future.
-            let end = s.end.load(Ordering::Relaxed);
-            if !ptr.is_null() && ptr != end {
+            if !state.ptr.is_null() && state.ptr != state.end {
                 // If the future was dropped, the pointer would have been set to null,
                 // so we're still good to mutate the slice.
                 // The safety contract of `Rng::new` means that the future can't have been dropped
                 // without calling its destructor.
                 unsafe {
-                    *ptr = r.value.read().value().bits();
+                    *state.ptr = r.value.read().value().bits();
+                    state.ptr = state.ptr.add(1);
+                }
+
+                if state.ptr == state.end {
+                    state.waker.wake();
                 }
             }
-            (ptr, end)
         });
-
-        if ptr.is_null() || ptr == end {
-            // If the future was dropped, there's nothing to do.
-            // If `ptr == end`, we were called by mistake, so return.
-            return;
-        }
-
-        let new_ptr = unsafe { ptr.add(1) };
-        match s
-            .ptr
-            .compare_exchange(ptr, new_ptr, Ordering::Relaxed, Ordering::Relaxed)
-        {
-            Ok(_) => {
-                let end = s.end.load(Ordering::Relaxed);
-                // It doesn't matter if `end` was changed under our feet, because then this will just be false.
-                if new_ptr == end {
-                    s.waker.wake();
-                }
-            }
-            Err(_) => {
-                // If the future was dropped or finished, there's no point trying to wake it.
-                // It will have already stopped the RNG, so there's no need to do that either.
-            }
-        }
     }
 }
 
@@ -136,13 +112,14 @@ impl<'d, T: Instance> Rng<'d, T> {
             return; // Nothing to fill
         }
 
-        let s = T::state();
-
         let range = dest.as_mut_ptr_range();
         // Even if we've preempted the interrupt, it can't preempt us again,
         // so we don't need to worry about the order we write these in.
-        s.ptr.store(range.start, Ordering::Relaxed);
-        s.end.store(range.end, Ordering::Relaxed);
+        critical_section::with(|cs| {
+            let mut state = T::state().borrow_mut(cs);
+            state.ptr = range.start;
+            state.end = range.end;
+        });
 
         self.enable_irq();
         self.start();
@@ -151,24 +128,24 @@ impl<'d, T: Instance> Rng<'d, T> {
             self.stop();
             self.disable_irq();
 
-            // The interrupt is now disabled and can't preempt us anymore, so the order doesn't matter here.
-            s.ptr.store(ptr::null_mut(), Ordering::Relaxed);
-            s.end.store(ptr::null_mut(), Ordering::Relaxed);
+            critical_section::with(|cs| {
+                let mut state = T::state().borrow_mut(cs);
+                state.ptr = ptr::null_mut();
+                state.end = ptr::null_mut();
+            });
         });
 
         poll_fn(|cx| {
-            s.waker.register(cx.waker());
-
-            // The interrupt will never modify `end`, so load it first and then get the most up-to-date `ptr`.
-            let end = s.end.load(Ordering::Relaxed);
-            let ptr = s.ptr.load(Ordering::Relaxed);
-
-            if ptr == end {
-                // We're done.
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            critical_section::with(|cs| {
+                let mut s = T::state().borrow_mut(cs);
+                s.waker.register(cx.waker());
+                if s.ptr == s.end {
+                    // We're done.
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
         })
         .await;
 
@@ -194,9 +171,11 @@ impl<'d, T: Instance> Rng<'d, T> {
 impl<'d, T: Instance> Drop for Rng<'d, T> {
     fn drop(&mut self) {
         self.stop();
-        let s = T::state();
-        s.ptr.store(ptr::null_mut(), Ordering::Relaxed);
-        s.end.store(ptr::null_mut(), Ordering::Relaxed);
+        critical_section::with(|cs| {
+            let mut state = T::state().borrow_mut(cs);
+            state.ptr = ptr::null_mut();
+            state.end = ptr::null_mut();
+        });
     }
 }
 
@@ -227,21 +206,48 @@ impl<'d, T: Instance> rand_core::RngCore for Rng<'d, T> {
 impl<'d, T: Instance> rand_core::CryptoRng for Rng<'d, T> {}
 
 pub(crate) mod sealed {
+    use core::cell::{Ref, RefCell, RefMut};
+
+    use critical_section::{CriticalSection, Mutex};
+    use embassy_sync::waitqueue::WakerRegistration;
+
     use super::*;
 
     /// Peripheral static state
     pub struct State {
-        pub ptr: AtomicPtr<u8>,
-        pub end: AtomicPtr<u8>,
-        pub waker: AtomicWaker,
+        inner: Mutex<RefCell<InnerState>>,
     }
+
+    pub struct InnerState {
+        pub ptr: *mut u8,
+        pub end: *mut u8,
+        pub waker: WakerRegistration,
+    }
+
+    unsafe impl Send for InnerState {}
 
     impl State {
         pub const fn new() -> Self {
             Self {
-                ptr: AtomicPtr::new(ptr::null_mut()),
-                end: AtomicPtr::new(ptr::null_mut()),
-                waker: AtomicWaker::new(),
+                inner: Mutex::new(RefCell::new(InnerState::new())),
+            }
+        }
+
+        pub fn borrow<'cs>(&'cs self, cs: CriticalSection<'cs>) -> Ref<'cs, InnerState> {
+            self.inner.borrow(cs).borrow()
+        }
+
+        pub fn borrow_mut<'cs>(&'cs self, cs: CriticalSection<'cs>) -> RefMut<'cs, InnerState> {
+            self.inner.borrow(cs).borrow_mut()
+        }
+    }
+
+    impl InnerState {
+        pub const fn new() -> Self {
+            Self {
+                ptr: ptr::null_mut(),
+                end: ptr::null_mut(),
+                waker: WakerRegistration::new(),
             }
         }
     }

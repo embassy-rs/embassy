@@ -7,7 +7,6 @@ pub use crate::pac::rcc::vals::{
 #[cfg(any(stm32f4, stm32f7))]
 use crate::pac::PWR;
 use crate::pac::{FLASH, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 // TODO: on some F4s, PLLM is shared between all PLLs. Enforce that.
@@ -183,9 +182,9 @@ pub(crate) unsafe fn init(config: Config) {
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
     #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
-    let _plli2s = init_pll(PllInstance::Plli2s, config.plli2s, &pll_input);
+    let plli2s = init_pll(PllInstance::Plli2s, config.plli2s, &pll_input);
     #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
-    let _pllsai = init_pll(PllInstance::Pllsai, config.pllsai, &pll_input);
+    let pllsai = init_pll(PllInstance::Pllsai, config.pllsai, &pll_input);
 
     // Configure sysclk
     let sys = match config.sys {
@@ -257,27 +256,41 @@ pub(crate) unsafe fn init(config: Config) {
     });
     while RCC.cfgr().read().sws() != config.sys {}
 
-    set_freqs(Clocks {
-        sys,
-        hclk1: hclk,
-        hclk2: hclk,
-        hclk3: hclk,
-        pclk1,
-        pclk2,
-        pclk1_tim,
-        pclk2_tim,
-        rtc,
+    set_clocks!(
+        hsi: hsi,
+        hse: hse,
+        lse: None, // TODO
+        lsi: None, // TODO
+        sys: Some(sys),
+        hclk1: Some(hclk),
+        hclk2: Some(hclk),
+        hclk3: Some(hclk),
+        pclk1: Some(pclk1),
+        pclk2: Some(pclk2),
+        pclk1_tim: Some(pclk1_tim),
+        pclk2_tim: Some(pclk2_tim),
+        rtc: rtc,
         pll1_q: pll.q,
-        #[cfg(all(rcc_f4, not(stm32f410)))]
-        plli2s1_q: _plli2s.q,
-        #[cfg(all(rcc_f4, not(stm32f410)))]
-        plli2s1_r: _plli2s.r,
 
-        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-        pllsai1_q: _pllsai.q,
-        #[cfg(any(stm32f427, stm32f429, stm32f437, stm32f439, stm32f446, stm32f469, stm32f479))]
-        pllsai1_r: _pllsai.r,
-    });
+        #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
+        plli2s1_p: plli2s.p,
+        #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
+        plli2s1_q: plli2s.q,
+        #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
+        plli2s1_r: plli2s.r,
+
+        #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+        pllsai1_p: pllsai.p,
+        #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+        pllsai1_q: pllsai.q,
+        #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
+        pllsai1_r: pllsai.r,
+
+        clk48: pll.q,
+
+        hsi_hse: None,
+        afif: None,
+    );
 }
 
 struct PllInput {

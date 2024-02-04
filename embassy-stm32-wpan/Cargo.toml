@@ -44,6 +44,8 @@ defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embas
 ble = ["dep:stm32wb-hci"]
 mac = ["dep:bitflags", "dep:embassy-net-driver" ]
 
+extended = []
+
 stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]
 stm32wb15cc = [ "embassy-stm32/stm32wb15cc" ]
 stm32wb30ce = [ "embassy-stm32/stm32wb30ce" ]

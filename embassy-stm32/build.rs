@@ -449,8 +449,19 @@ fn main() {
     // ========
     // Generate RccPeripheral impls
 
-    let refcounted_peripherals = HashSet::from(["usart", "adc"]);
+    // count how many times each xxENR field is used, to enable refcounting if used more than once.
+    let mut rcc_field_count: HashMap<_, usize> = HashMap::new();
+    for p in METADATA.peripherals {
+        if let Some(rcc) = &p.rcc {
+            let en = rcc.enable.as_ref().unwrap();
+            *rcc_field_count.entry((en.register, en.field)).or_insert(0) += 1;
+        }
+    }
+
+    let force_refcount = HashSet::from(["usart"]);
     let mut refcount_statics = BTreeSet::new();
+
+    let mut clock_names = BTreeSet::new();
 
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
@@ -483,11 +494,12 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let clk = format_ident!("{}", rcc.clock);
             let en_reg = format_ident!("{}", en.register);
             let set_en_field = format_ident!("set_{}", en.field);
 
-            let (before_enable, before_disable) = if refcounted_peripherals.contains(ptype) {
+            let refcount =
+                force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
+            let (before_enable, before_disable) = if refcount {
                 let refcount_static =
                     format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
 
@@ -511,14 +523,7 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
-            let mux_supported = HashSet::from(["c0", "h5", "h50", "h7", "h7ab", "h7rm0433", "g0", "g4", "l4"])
-                .contains(rcc_registers.version);
             let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
-                // restrict mux implementation to supported versions
-                if !mux_supported {
-                    return None;
-                }
-
                 let mux = mux?;
                 let fieldset = rcc_enum_map.get(mux.register)?;
                 let enumm = fieldset.get(mux.field)?;
@@ -539,15 +544,9 @@ fn main() {
                         .map(|v| {
                             let variant_name = format_ident!("{}", v.name);
                             let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
-
-                            if v.name.starts_with("HCLK") || v.name.starts_with("PCLK") || v.name == "SYS" {
-                                quote! {
-                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name },
-                                }
-                            } else {
-                                quote! {
-                                    #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
-                                }
+                            clock_names.insert(v.name.to_ascii_lowercase());
+                            quote! {
+                                #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
                             }
                         })
                         .collect();
@@ -558,19 +557,21 @@ fn main() {
                         #[allow(unreachable_patterns)]
                         match crate::pac::RCC.#fieldset_name().read().#field_name() {
                             #match_arms
-
                             _ => unreachable!(),
                         }
                     }
                 }
-                None => quote! {
-                    unsafe { crate::rcc::get_freqs().#clk }
-                },
+                None => {
+                    let clock_name = format_ident!("{}", rcc.clock);
+                    clock_names.insert(rcc.clock.to_string());
+                    quote! {
+                        unsafe { crate::rcc::get_freqs().#clock_name.unwrap() }
+                    }
+                }
             };
 
             /*
                 A refcount leak can result if the same field is shared by peripherals with different stop modes
-
                 This condition should be checked in stm32-data
             */
             let stop_refcount = match rcc.stop_mode {
@@ -616,6 +617,39 @@ fn main() {
             });
         }
     }
+
+    // Generate RCC
+    clock_names.insert("sys".to_string());
+    clock_names.insert("rtc".to_string());
+    let clock_idents: Vec<_> = clock_names.iter().map(|n| format_ident!("{}", n)).collect();
+    g.extend(quote! {
+        #[derive(Clone, Copy, Debug)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        pub struct Clocks {
+            #(
+                pub #clock_idents: Option<crate::time::Hertz>,
+            )*
+        }
+    });
+
+    let clocks_macro = quote!(
+        macro_rules! set_clocks {
+            ($($(#[$m:meta])* $k:ident: $v:expr,)*) => {
+                {
+                    #[allow(unused)]
+                    struct Temp {
+                        $($(#[$m])* $k: Option<crate::time::Hertz>,)*
+                    }
+                    let all = Temp {
+                        $($(#[$m])* $k: $v,)*
+                    };
+                    crate::rcc::set_freqs(crate::rcc::Clocks {
+                        #( #clock_idents: all.#clock_idents, )*
+                    });
+                }
+            };
+        }
+    );
 
     let refcount_mod: TokenStream = refcount_statics
         .iter()
@@ -735,13 +769,20 @@ fn main() {
         (("can", "TX"), quote!(crate::can::TxPin)),
         (("can", "RX"), quote!(crate::can::RxPin)),
         (("eth", "REF_CLK"), quote!(crate::eth::RefClkPin)),
+        (("eth", "RX_CLK"), quote!(crate::eth::RXClkPin)),
+        (("eth", "TX_CLK"), quote!(crate::eth::TXClkPin)),
         (("eth", "MDIO"), quote!(crate::eth::MDIOPin)),
         (("eth", "MDC"), quote!(crate::eth::MDCPin)),
         (("eth", "CRS_DV"), quote!(crate::eth::CRSPin)),
+        (("eth", "RX_DV"), quote!(crate::eth::RXDVPin)),
         (("eth", "RXD0"), quote!(crate::eth::RXD0Pin)),
         (("eth", "RXD1"), quote!(crate::eth::RXD1Pin)),
+        (("eth", "RXD2"), quote!(crate::eth::RXD2Pin)),
+        (("eth", "RXD3"), quote!(crate::eth::RXD3Pin)),
         (("eth", "TXD0"), quote!(crate::eth::TXD0Pin)),
         (("eth", "TXD1"), quote!(crate::eth::TXD1Pin)),
+        (("eth", "TXD2"), quote!(crate::eth::TXD2Pin)),
+        (("eth", "TXD3"), quote!(crate::eth::TXD3Pin)),
         (("eth", "TX_EN"), quote!(crate::eth::TXEnPin)),
         (("fmc", "A0"), quote!(crate::fmc::A0Pin)),
         (("fmc", "A1"), quote!(crate::fmc::A1Pin)),
@@ -942,9 +983,9 @@ fn main() {
                     } else if pin.signal.starts_with("INN") {
                         // TODO handle in the future when embassy supports differential measurements
                         None
-                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with("b") {
+                    } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
                         // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
-                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix("b").unwrap();
+                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
                         Some(32u8 + signal.parse::<u8>().unwrap())
                     } else if pin.signal.starts_with("IN") {
                         Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
@@ -1016,6 +1057,10 @@ fn main() {
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
         (("hash", "IN"), quote!(crate::hash::Dma)),
+        (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
+        (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
+        (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
+        (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
     ]
     .into();
 
@@ -1031,16 +1076,6 @@ fn main() {
                 }
 
                 if let Some(tr) = signals.get(&(regs.kind, ch.signal)) {
-                    // TIM6 of stm32f334 is special, DMA channel for TIM6 depending on SYSCFG state
-                    if chip_name.starts_with("stm32f334") && p.name == "TIM6" {
-                        continue;
-                    }
-
-                    // TIM6 of stm32f378 is special, DMA channel for TIM6 depending on SYSCFG state
-                    if chip_name.starts_with("stm32f378") && p.name == "TIM6" {
-                        continue;
-                    }
-
                     let peri = format_ident!("{}", p.name);
 
                     let channel = if let Some(channel) = &ch.channel {
@@ -1199,7 +1234,7 @@ fn main() {
         ADC3 and higher are assigned to the adc34 clock in the table
         The adc3_common cfg directive is added if ADC3_COMMON exists
     */
-    let has_adc3 = METADATA.peripherals.iter().find(|p| p.name == "ADC3_COMMON").is_some();
+    let has_adc3 = METADATA.peripherals.iter().any(|p| p.name == "ADC3_COMMON");
     let set_adc345 = HashSet::from(["ADC3", "ADC4", "ADC5"]);
 
     for m in METADATA
@@ -1338,7 +1373,7 @@ fn main() {
         }
     }
 
-    let mut m = String::new();
+    let mut m = clocks_macro.to_string();
 
     // DO NOT ADD more macros like these.
     // These turned to be a bad idea!
@@ -1383,6 +1418,7 @@ fn main() {
 
     // =======
     // ADC3_COMMON is present
+    #[allow(clippy::print_literal)]
     if has_adc3 {
         println!("cargo:rustc-cfg={}", "adc3_common");
     }

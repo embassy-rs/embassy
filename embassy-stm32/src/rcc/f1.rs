@@ -1,6 +1,5 @@
 use core::convert::TryFrom;
 
-use super::{set_freqs, Clocks};
 use crate::pac::flash::vals::Latency;
 use crate::pac::rcc::vals::*;
 use crate::pac::{FLASH, RCC};
@@ -179,14 +178,14 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    set_freqs(Clocks {
-        sys: Hertz(real_sysclk),
-        pclk1: Hertz(pclk1),
-        pclk2: Hertz(pclk2),
-        pclk1_tim: Hertz(pclk1 * timer_mul1),
-        pclk2_tim: Hertz(pclk2 * timer_mul2),
-        hclk1: Hertz(hclk),
+    set_clocks!(
+        sys: Some(Hertz(real_sysclk)),
+        pclk1: Some(Hertz(pclk1)),
+        pclk2: Some(Hertz(pclk2)),
+        pclk1_tim: Some(Hertz(pclk1 * timer_mul1)),
+        pclk2_tim: Some(Hertz(pclk2 * timer_mul2)),
+        hclk1: Some(Hertz(hclk)),
         adc: Some(Hertz(adcclk)),
-        rtc,
-    });
+        rtc: rtc,
+    );
 }
