@@ -6,7 +6,6 @@ use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
 use embassy_stm32::Config;
 use embassy_time::Instant;
-
 use sha2::{Digest, Sha256};
 use {defmt_rtt as _, panic_probe as _};
 
