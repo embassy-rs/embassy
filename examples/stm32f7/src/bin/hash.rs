@@ -3,12 +3,12 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::hash::*;
 use embassy_stm32::Config;
 use embassy_time::Instant;
-use {defmt_rtt as _, panic_probe as _};
 
-use embassy_stm32::hash::*;
 use sha2::{Digest, Sha256};
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) -> ! {
     let mut context = hw_hasher.start(Algorithm::SHA256, DataType::Width8).await;
     hw_hasher.update(&mut context, test_1).await;
     hw_hasher.update(&mut context, test_2).await;
-    let mut buffer: [u8; 32] = [0; 32];
+    let mut buffer: [u8; 64] = [0; 64];
     let hw_digest = hw_hasher.finish(context, &mut buffer).await;
 
     let hw_end_time = Instant::now();
