@@ -215,12 +215,9 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     #[cfg(crs)]
-    let _hsi48 = config.hsi48.map(|config| {
-        //
-        super::init_hsi48(config)
-    });
+    let hsi48 = config.hsi48.map(|config| super::init_hsi48(config));
     #[cfg(not(crs))]
-    let _hsi48: Option<Hertz> = None;
+    let hsi48: Option<Hertz> = None;
 
     let _plls = [
         &config.pll,
@@ -274,12 +271,12 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.ccipr().modify(|w| w.set_clk48sel(config.clk48_src));
     #[cfg(any(rcc_l0_v2))]
     let clk48 = match config.clk48_src {
-        Clk48Src::HSI48 => _hsi48,
+        Clk48Src::HSI48 => hsi48,
         Clk48Src::PLL1_VCO_DIV_2 => pll.clk48,
     };
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
     let clk48 = match config.clk48_src {
-        Clk48Src::HSI48 => _hsi48,
+        Clk48Src::HSI48 => hsi48,
         Clk48Src::MSI => msi,
         Clk48Src::PLLSAI1_Q => pllsai1.q,
         Clk48Src::PLL1_Q => pll.q,
@@ -393,6 +390,7 @@ pub(crate) unsafe fn init(config: Config) {
         msi: msi,
         #[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
         clk48: clk48,
+        hsi48: hsi48,
 
         #[cfg(not(any(stm32l0, stm32l1)))]
         pll1_p: pll.p,
@@ -406,6 +404,13 @@ pub(crate) unsafe fn init(config: Config) {
         pllsai1_q: pllsai1.q,
         #[cfg(any(stm32l4, stm32l5, stm32wb))]
         pllsai1_r: pllsai1.r,
+
+        #[cfg(not(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5)))]
+        pllsai2_p: None,
+        #[cfg(not(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5)))]
+        pllsai2_q: None,
+        #[cfg(not(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5)))]
+        pllsai2_r: None,
 
         #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
         pllsai2_p: pllsai2.p,
