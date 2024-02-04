@@ -12,6 +12,8 @@ use crate::dma::ReadableRingBuffer;
 use crate::usart::{Regs, Sr};
 
 /// Rx-only Ring-buffered UART Driver
+///
+/// Created with [UartRx::into_ring_buffered]
 pub struct RingBufferedUartRx<'d, T: BasicInstance, RxDma: super::RxDma<T>> {
     _peri: PeripheralRef<'d, T>,
     ring_buf: ReadableRingBuffer<'d, RxDma, u8>,
