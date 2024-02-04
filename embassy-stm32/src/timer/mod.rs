@@ -704,29 +704,23 @@ pin_trait!(Channel3Pin, CaptureCompare16bitInstance);
 pin_trait!(Channel4Pin, CaptureCompare16bitInstance);
 pin_trait!(ExternalTriggerPin, CaptureCompare16bitInstance);
 
-#[cfg(not(stm32l0))]
-pin_trait!(Channel1ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
-#[cfg(not(stm32l0))]
-pin_trait!(Channel2ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
-#[cfg(not(stm32l0))]
-pin_trait!(Channel3ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
-#[cfg(not(stm32l0))]
-pin_trait!(Channel4ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
+cfg_if::cfg_if! {
+    if #[cfg(not(stm32l0))] {
+        pin_trait!(Channel1ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(Channel2ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(Channel3ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(Channel4ComplementaryPin, ComplementaryCaptureCompare16bitInstance);
 
-#[cfg(not(stm32l0))]
-pin_trait!(BreakInputPin, ComplementaryCaptureCompare16bitInstance);
-#[cfg(not(stm32l0))]
-pin_trait!(BreakInput2Pin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(BreakInputPin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(BreakInput2Pin, ComplementaryCaptureCompare16bitInstance);
 
-#[cfg(not(stm32l0))]
-pin_trait!(BreakInputComparator1Pin, ComplementaryCaptureCompare16bitInstance);
-#[cfg(not(stm32l0))]
-pin_trait!(BreakInputComparator2Pin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(BreakInputComparator1Pin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(BreakInputComparator2Pin, ComplementaryCaptureCompare16bitInstance);
 
-#[cfg(not(stm32l0))]
-pin_trait!(BreakInput2Comparator1Pin, ComplementaryCaptureCompare16bitInstance);
-#[cfg(not(stm32l0))]
-pin_trait!(BreakInput2Comparator2Pin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(BreakInput2Comparator1Pin, ComplementaryCaptureCompare16bitInstance);
+        pin_trait!(BreakInput2Comparator2Pin, ComplementaryCaptureCompare16bitInstance);
+    }
+}
 
 #[allow(unused)]
 macro_rules! impl_core_timer {
