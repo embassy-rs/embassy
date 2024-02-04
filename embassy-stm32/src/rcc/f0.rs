@@ -11,14 +11,13 @@ pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 ///
 /// hse takes precedence over hsi48 if both are enabled
 #[non_exhaustive]
-#[derive(Default)]
 pub struct Config {
     pub hse: Option<Hertz>,
     pub bypass_hse: bool,
     pub usb_pll: bool,
 
-    #[cfg(not(stm32f0x0))]
-    pub hsi48: bool,
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
 
     pub sys_ck: Option<Hertz>,
     pub hclk: Option<Hertz>,
@@ -27,12 +26,32 @@ pub struct Config {
     pub ls: super::LsConfig,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            hse: Default::default(),
+            bypass_hse: Default::default(),
+            usb_pll: Default::default(),
+            #[cfg(crs)]
+            hsi48: Some(Default::default()),
+            sys_ck: Default::default(),
+            hclk: Default::default(),
+            pclk: Default::default(),
+            ls: Default::default(),
+        }
+    }
+}
+
 pub(crate) unsafe fn init(config: Config) {
     let sysclk = config.sys_ck.map(|v| v.0).unwrap_or(HSI_FREQ.0);
 
+    #[cfg(crs)]
+    let hsi48 = config.hsi48.map(|config| super::init_hsi48(config));
+    #[cfg(not(crs))]
+    let hsi48: Option<Hertz> = None;
+
     let (src_clk, use_hsi48) = config.hse.map(|v| (v.0, false)).unwrap_or_else(|| {
-        #[cfg(not(stm32f0x0))]
-        if config.hsi48 {
+        if hsi48.is_some() {
             return (48_000_000, true);
         }
         (HSI_FREQ.0, false)
@@ -169,5 +188,9 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(Hertz(pclk * timer_mul)),
         hclk1: Some(Hertz(hclk)),
         rtc: rtc,
+        hsi48: hsi48,
+
+        // TODO:
+        pll1_p: None,
     );
 }
