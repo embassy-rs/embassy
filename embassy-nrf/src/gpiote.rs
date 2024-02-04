@@ -13,6 +13,10 @@ use crate::interrupt::InterruptExt;
 use crate::ppi::{Event, Task};
 use crate::{interrupt, pac, peripherals};
 
+#[cfg(feature = "nrf51")]
+/// Amount of GPIOTE channels in the chip.
+const CHANNEL_COUNT: usize = 4;
+#[cfg(not(feature = "_nrf51"))]
 /// Amount of GPIOTE channels in the chip.
 const CHANNEL_COUNT: usize = 8;
 
@@ -61,16 +65,20 @@ fn regs() -> &'static pac::gpiote::RegisterBlock {
 }
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
-    #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
-    let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
-    #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
-    let ports = unsafe { &[&*pac::P0::ptr()] };
+    // no latched GPIO detect in nrf51.
+    #[cfg(not(feature = "_nrf51"))]
+    {
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
+        let ports = unsafe { &[&*pac::P0::ptr(), &*pac::P1::ptr()] };
+        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840")))]
+        let ports = unsafe { &[&*pac::P0::ptr()] };
 
-    for &p in ports {
-        // Enable latched detection
-        p.detectmode.write(|w| w.detectmode().ldetect());
-        // Clear latch
-        p.latch.write(|w| unsafe { w.bits(0xFFFFFFFF) })
+        for &p in ports {
+            // Enable latched detection
+            p.detectmode.write(|w| w.detectmode().ldetect());
+            // Clear latch
+            p.latch.write(|w| unsafe { w.bits(0xFFFFFFFF) })
+        }
     }
 
     // Enable interrupts
@@ -78,7 +86,7 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     let irq = interrupt::GPIOTE0;
     #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns"))]
     let irq = interrupt::GPIOTE1;
-    #[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+    #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
     let irq = interrupt::GPIOTE;
 
     irq.unpend();
@@ -103,7 +111,7 @@ fn GPIOTE1() {
     unsafe { handle_gpiote_interrupt() };
 }
 
-#[cfg(any(feature = "_nrf52", feature = "nrf5340-net"))]
+#[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE() {
@@ -125,9 +133,29 @@ unsafe fn handle_gpiote_interrupt() {
 
         #[cfg(any(feature = "nrf52833", feature = "nrf52840"))]
         let ports = &[&*pac::P0::ptr(), &*pac::P1::ptr()];
-        #[cfg(not(any(feature = "nrf52833", feature = "nrf52840")))]
+        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840")))]
         let ports = &[&*pac::P0::ptr()];
+        #[cfg(feature = "_nrf51")]
+        let ports = unsafe { &[&*pac::GPIO::ptr()] };
 
+        #[cfg(feature = "_nrf51")]
+        for (port, &p) in ports.iter().enumerate() {
+            let inp = p.in_.read().bits();
+            for pin in 0..32 {
+                let fired = match p.pin_cnf[pin as usize].read().sense().variant() {
+                    Some(pac::gpio::pin_cnf::SENSE_A::HIGH) => inp & (1 << pin) != 0,
+                    Some(pac::gpio::pin_cnf::SENSE_A::LOW) => inp & (1 << pin) == 0,
+                    _ => false,
+                };
+
+                if fired {
+                    PORT_WAKERS[port * 32 + pin as usize].wake();
+                    p.pin_cnf[pin as usize].modify(|_, w| w.sense().disabled());
+                }
+            }
+        }
+
+        #[cfg(not(feature = "_nrf51"))]
         for (port, &p) in ports.iter().enumerate() {
             let bits = p.latch.read().bits();
             for pin in BitIter(bits) {
@@ -476,9 +504,13 @@ impl_channel!(GPIOTE_CH0, 0);
 impl_channel!(GPIOTE_CH1, 1);
 impl_channel!(GPIOTE_CH2, 2);
 impl_channel!(GPIOTE_CH3, 3);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH4, 4);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH5, 5);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH6, 6);
+#[cfg(not(feature = "nrf51"))]
 impl_channel!(GPIOTE_CH7, 7);
 
 // ====================
