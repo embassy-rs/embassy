@@ -14,6 +14,9 @@ categories = [
     "asynchronous",
 ]
 
+[lib]
+doctest = false
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-futures-v$VERSION/embassy-futures/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-futures/src/"

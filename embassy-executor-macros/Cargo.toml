@@ -20,6 +20,7 @@ proc-macro2 = "1.0.29"
 
 [lib]
 proc-macro = true
+doctest = false
 
 [features]
 nightly = []
