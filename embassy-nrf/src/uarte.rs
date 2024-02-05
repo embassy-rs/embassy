@@ -66,18 +66,16 @@ bitflags::bitflags! {
     }
 }
 
-impl TryFrom<ErrorSource> for () {
-    type Error = Error;
-
+impl ErrorSource {
     #[inline]
-    fn try_from(errors: ErrorSource) -> Result<Self, Self::Error> {
-        if errors.contains(ErrorSource::OVERRUN) {
+    fn check(self) -> Result<(), Error> {
+        if self.contains(ErrorSource::OVERRUN) {
             Err(Error::Overrun)
-        } else if errors.contains(ErrorSource::PARITY) {
+        } else if self.contains(ErrorSource::PARITY) {
             Err(Error::Parity)
-        } else if errors.contains(ErrorSource::FRAMING) {
+        } else if self.contains(ErrorSource::FRAMING) {
             Err(Error::Framing)
-        } else if errors.contains(ErrorSource::BREAK) {
+        } else if self.contains(ErrorSource::BREAK) {
             Err(Error::Break)
         } else {
             Ok(())
@@ -539,7 +537,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let r = T::regs();
         let err_bits = r.errorsrc.read().bits();
         r.errorsrc.write(|w| unsafe { w.bits(err_bits) });
-        ErrorSource::from_bits_truncate(err_bits).try_into()
+        ErrorSource::from_bits_truncate(err_bits).check()
     }
 
     fn new_inner(
@@ -677,6 +675,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
             s.endrx_waker.register(cx.waker());
 
             if let Err(e) = self.check_and_clear_errors() {
+                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
                 return Poll::Ready(Err(e));
             }
             if r.events_endrx.read().bits() != 0 {
@@ -823,6 +822,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
             s.endrx_waker.register(cx.waker());
 
             if let Err(e) = self.rx.check_and_clear_errors() {
+                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
                 return Poll::Ready(Err(e));
             }
             if r.events_endrx.read().bits() != 0 {
