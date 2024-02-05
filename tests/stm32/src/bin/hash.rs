@@ -7,7 +7,7 @@ mod common;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
-use embassy_stm32::{bind_interrupts, peripherals, hash};
+use embassy_stm32::{bind_interrupts, hash, peripherals};
 use sha2::{Digest, Sha224, Sha256};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
     hw_hasher.update(&mut sha256context, test_2).await;
     let mut sha_256_digest_buffer: [u8; 64] = [0; 64];
     let sha256_digest = hw_hasher.finish(sha256context, &mut sha_256_digest_buffer).await;
-    
+
     // Compute the SHA-256 digest in software.
     let mut sw_sha256_hasher = Sha256::new();
     sw_sha256_hasher.update(test_1);

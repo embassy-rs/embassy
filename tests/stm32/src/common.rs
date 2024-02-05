@@ -201,7 +201,7 @@ define_peris!(
 );
 #[cfg(feature = "stm32l552ze")]
 define_peris!(
-    HASH_DMA = DMA1_CH0,
+    HASH_DMA = DMA1_CH1,
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART3 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART3>;},
