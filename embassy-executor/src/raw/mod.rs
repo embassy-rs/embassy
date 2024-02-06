@@ -581,6 +581,15 @@ impl embassy_time_queue_driver::TimerQueue for TimerQueue {
 #[cfg(feature = "integrated-timers")]
 embassy_time_queue_driver::timer_queue_impl!(static TIMER_QUEUE: TimerQueue = TimerQueue);
 
+#[cfg(all(feature = "rtos-trace", feature = "integrated-timers"))]
+const fn gcd(a: u64, b: u64) -> u64 {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
 #[cfg(feature = "rtos-trace")]
 impl rtos_trace::RtosTraceOSCallbacks for Executor {
     fn task_list() {
@@ -588,7 +597,8 @@ impl rtos_trace::RtosTraceOSCallbacks for Executor {
     }
     #[cfg(feature = "integrated-timers")]
     fn time() -> u64 {
-        embassy_time::Instant::now().as_millis()
+        const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
+        embassy_time_driver::now() * (1_000_00 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M);
     }
     #[cfg(not(feature = "integrated-timers"))]
     fn time() -> u64 {
