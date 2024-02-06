@@ -215,7 +215,7 @@ impl<'d, T: Instance> Hash<'d, T> {
             }
             // Register waker, then enable interrupts.
             HASH_WAKER.register(cx.waker());
-            T::regs().imr().modify(|reg| reg.set_dinie(true));
+            T::regs().imr().modify(|reg| reg.set_dcie(true));
             // Check for completion.
             let bits = T::regs().sr().read();
             if bits.dcis() {
