@@ -34,6 +34,7 @@ log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.2", optional = true }
 
 embassy-executor-macros = { version = "0.4.0", path = "../embassy-executor-macros" }
+embassy-time = { version = "0.3.0", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.1.0", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-driver = { version = "0.1.0", path = "../embassy-time-queue-driver", optional = true }
 critical-section = "1.1"
@@ -70,6 +71,9 @@ turbowakers = []
 
 ## Use the executor-integrated `embassy-time` timer queue.
 integrated-timers = ["dep:embassy-time-driver", "dep:embassy-time-queue-driver"]
+
+# Support for rtos trace require time
+rtos-trace = ["dep:rtos-trace", "dep:embassy-time"]
 
 #! ### Architecture
 _arch = [] # some arch was picked

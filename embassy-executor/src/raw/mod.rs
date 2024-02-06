@@ -588,7 +588,7 @@ impl rtos_trace::RtosTraceOSCallbacks for Executor {
     }
     #[cfg(feature = "integrated-timers")]
     fn time() -> u64 {
-        Instant::now().as_micros()
+        embassy_time::Instant::now().as_millis()
     }
     #[cfg(not(feature = "integrated-timers"))]
     fn time() -> u64 {
