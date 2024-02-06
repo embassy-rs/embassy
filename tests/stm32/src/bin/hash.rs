@@ -11,11 +11,7 @@ use embassy_stm32::{bind_interrupts, hash, peripherals};
 use sha2::{Digest, Sha224, Sha256};
 use {defmt_rtt as _, panic_probe as _};
 
-#[cfg(any(
-    feature = "stm32l4a6zg",
-    feature = "stm32h755zi",
-    feature = "stm32h753zi"
-))]
+#[cfg(any(feature = "stm32l4a6zg", feature = "stm32h755zi", feature = "stm32h753zi"))]
 bind_interrupts!(struct Irqs {
    HASH_RNG => hash::InterruptHandler<peripherals::HASH>;
 });
@@ -29,7 +25,7 @@ bind_interrupts!(struct Irqs {
 ))]
 bind_interrupts!(struct Irqs {
     HASH => hash::InterruptHandler<peripherals::HASH>;
- });
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
