@@ -49,16 +49,20 @@ pub struct BootLoaderConfig<ACTIVE, DFU, STATE> {
     pub state: STATE,
 }
 
-impl<'a, FLASH: NorFlash>
+impl<'a, ActiveFlash: NorFlash, DFUFlash: NorFlash, StateFlash: NorFlash>
     BootLoaderConfig<
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
+        BlockingPartition<'a, NoopRawMutex, ActiveFlash>,
+        BlockingPartition<'a, NoopRawMutex, DFUFlash>,
+        BlockingPartition<'a, NoopRawMutex, StateFlash>,
     >
 {
     /// Create a bootloader config from the flash and address symbols defined in the linkerfile
     // #[cfg(target_os = "none")]
-    pub fn from_linkerfile_blocking(flash: &'a Mutex<NoopRawMutex, RefCell<FLASH>>) -> Self {
+    pub fn from_linkerfile_blocking(
+        active_flash: &'a Mutex<NoopRawMutex, RefCell<ActiveFlash>>,
+        dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFUFlash>>,
+        state_flash: &'a Mutex<NoopRawMutex, RefCell<StateFlash>>,
+    ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -73,21 +77,21 @@ impl<'a, FLASH: NorFlash>
             let end = &__bootloader_active_end as *const u32 as u32;
             trace!("ACTIVE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(active_flash, start, end - start)
         };
         let dfu = unsafe {
             let start = &__bootloader_dfu_start as *const u32 as u32;
             let end = &__bootloader_dfu_end as *const u32 as u32;
             trace!("DFU: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(dfu_flash, start, end - start)
         };
         let state = unsafe {
             let start = &__bootloader_state_start as *const u32 as u32;
             let end = &__bootloader_state_end as *const u32 as u32;
             trace!("STATE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(state_flash, start, end - start)
         };
 
         Self { active, dfu, state }

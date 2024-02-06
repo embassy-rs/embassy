@@ -23,9 +23,10 @@ fn main() -> ! {
     */
 
     let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
-    let flash = Mutex::new(RefCell::new(layout.bank1_region));
+    let flash_bank1 = Mutex::new(RefCell::new(layout.bank1_region));
+    let flash_bank2 = Mutex::new(RefCell::new(layout.bank2_region));
 
-    let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
+    let config = BootLoaderConfig::from_linkerfile_blocking(&flash_bank1, &flash_bank2, &flash_bank1);
     let active_offset = config.active.offset();
     let bl = BootLoader::prepare::<_, _, _, 2048>(config);
 

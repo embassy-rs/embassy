@@ -16,12 +16,16 @@ pub struct BlockingFirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
 }
 
 #[cfg(target_os = "none")]
-impl<'a, FLASH: NorFlash>
-    FirmwareUpdaterConfig<BlockingPartition<'a, NoopRawMutex, FLASH>, BlockingPartition<'a, NoopRawMutex, FLASH>>
+impl<'a, DFUFlash: NorFlash, StateFlash: NorFlash>
+    FirmwareUpdaterConfig<
+        BlockingPartition<'a, NoopRawMutex, DFUFlash>,
+        BlockingPartition<'a, NoopRawMutex, StateFlash>,
+    >
 {
     /// Create a firmware updater config from the flash and address symbols defined in the linkerfile
     pub fn from_linkerfile_blocking(
-        flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<FLASH>>,
+        dfu_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<DFUFlash>>,
+        state_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<StateFlash>>,
     ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
@@ -35,14 +39,14 @@ impl<'a, FLASH: NorFlash>
             let end = &__bootloader_dfu_end as *const u32 as u32;
             trace!("DFU: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(dfu_flash, start, end - start)
         };
         let state = unsafe {
             let start = &__bootloader_state_start as *const u32 as u32;
             let end = &__bootloader_state_end as *const u32 as u32;
             trace!("STATE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(state_flash, start, end - start)
         };
 
         Self { dfu, state }
