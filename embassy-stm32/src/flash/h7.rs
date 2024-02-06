@@ -77,11 +77,11 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
         }
     }
 
-    bank.cr().write(|w| w.set_pg(false));
-
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
     fence(Ordering::SeqCst);
+
+    bank.cr().write(|w| w.set_pg(false));
 
     res.unwrap()
 }
@@ -99,6 +99,10 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     bank.cr().modify(|w| {
         w.set_start(true);
     });
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
 
     let ret: Result<(), Error> = blocking_wait_ready(bank);
     bank.cr().modify(|w| w.set_ser(false));
