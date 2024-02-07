@@ -49,19 +49,19 @@ pub struct BootLoaderConfig<ACTIVE, DFU, STATE> {
     pub state: STATE,
 }
 
-impl<'a, ActiveFlash: NorFlash, DFUFlash: NorFlash, StateFlash: NorFlash>
+impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
     BootLoaderConfig<
-        BlockingPartition<'a, NoopRawMutex, ActiveFlash>,
-        BlockingPartition<'a, NoopRawMutex, DFUFlash>,
-        BlockingPartition<'a, NoopRawMutex, StateFlash>,
+        BlockingPartition<'a, NoopRawMutex, ACTIVE>,
+        BlockingPartition<'a, NoopRawMutex, DFU>,
+        BlockingPartition<'a, NoopRawMutex, STATE>,
     >
 {
     /// Create a bootloader config from the flash and address symbols defined in the linkerfile
     // #[cfg(target_os = "none")]
     pub fn from_linkerfile_blocking(
-        active_flash: &'a Mutex<NoopRawMutex, RefCell<ActiveFlash>>,
-        dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFUFlash>>,
-        state_flash: &'a Mutex<NoopRawMutex, RefCell<StateFlash>>,
+        active_flash: &'a Mutex<NoopRawMutex, RefCell<ACTIVE>>,
+        dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFU>>,
+        state_flash: &'a Mutex<NoopRawMutex, RefCell<STATE>>,
     ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;

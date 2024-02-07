@@ -16,13 +16,13 @@ pub struct FirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
 }
 
 #[cfg(target_os = "none")]
-impl<'a, DFUFlash: NorFlash, StateFlash: NorFlash>
-    FirmwareUpdaterConfig<Partition<'a, NoopRawMutex, DFUFlash>, Partition<'a, NoopRawMutex, StateFlash>>
+impl<'a, DFU: NorFlash, STATE: NorFlash>
+    FirmwareUpdaterConfig<Partition<'a, NoopRawMutex, DFU>, Partition<'a, NoopRawMutex, STATE>>
 {
     /// Create a firmware updater config from the flash and address symbols defined in the linkerfile
     pub fn from_linkerfile(
-        dfu_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, DFUFlash>,
-        state_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, StateFlash>,
+        dfu_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, DFU>,
+        state_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, STATE>,
     ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;

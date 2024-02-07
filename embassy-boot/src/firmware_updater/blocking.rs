@@ -16,16 +16,13 @@ pub struct BlockingFirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
 }
 
 #[cfg(target_os = "none")]
-impl<'a, DFUFlash: NorFlash, StateFlash: NorFlash>
-    FirmwareUpdaterConfig<
-        BlockingPartition<'a, NoopRawMutex, DFUFlash>,
-        BlockingPartition<'a, NoopRawMutex, StateFlash>,
-    >
+impl<'a, DFU: NorFlash, STATE: NorFlash>
+    FirmwareUpdaterConfig<BlockingPartition<'a, NoopRawMutex, DFU>, BlockingPartition<'a, NoopRawMutex, STATE>>
 {
     /// Create a firmware updater config from the flash and address symbols defined in the linkerfile
     pub fn from_linkerfile_blocking(
-        dfu_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<DFUFlash>>,
-        state_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<StateFlash>>,
+        dfu_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<DFU>>,
+        state_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<STATE>>,
     ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
