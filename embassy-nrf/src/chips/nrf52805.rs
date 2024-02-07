@@ -212,7 +212,6 @@ impl_ppi_channel!(PPI_CH31, 31 => static);
 impl_saadc_input!(P0_04, ANALOG_INPUT2);
 impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
-#[cfg(feature = "radio")]
 impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(

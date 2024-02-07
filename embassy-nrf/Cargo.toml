@@ -57,9 +57,6 @@ unstable-pac = []
 ## Enable GPIO tasks and events
 gpiote = []
 
-## Enable radio driver
-radio = []
-
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
 time-driver-rtc1 = ["_time-driver"]
 

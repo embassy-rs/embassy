@@ -348,7 +348,6 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-#[cfg(feature = "radio")]
 impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(

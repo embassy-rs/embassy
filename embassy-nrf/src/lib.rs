@@ -46,10 +46,17 @@ pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 
-#[cfg(feature = "radio")]
+#[cfg(any(
+    feature = "nrf52805",
+    feature = "nrf52810",
+    feature = "nrf52811",
+    feature = "nrf52820",
+    feature = "nrf52832",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-net"
+))]
 pub mod radio;
-#[cfg(all(feature = "radio", feature = "_nrf9160"))]
-compile_error!("feature `radio` is not valid for nRF91 series chips.");
 
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;

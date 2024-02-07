@@ -267,7 +267,6 @@ impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
 impl_i2s!(I2S, I2S, I2S);
 
-#[cfg(feature = "radio")]
 impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
