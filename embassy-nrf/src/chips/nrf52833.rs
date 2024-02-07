@@ -170,9 +170,6 @@ embassy_hal_internal::peripherals! {
 
     // I2S
     I2S,
-
-    // Radio
-    RADIO,
 }
 
 impl_usb!(USBD, USBD, USBD);
@@ -308,8 +305,6 @@ impl_saadc_input!(P0_30, ANALOG_INPUT6);
 impl_saadc_input!(P0_31, ANALOG_INPUT7);
 
 impl_i2s!(I2S, I2S, I2S);
-
-impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,
