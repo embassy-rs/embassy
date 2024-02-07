@@ -17,11 +17,10 @@ use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use jewel::phy::{Channel, ChannelTrait, HeaderSize, Mode, Radio as BleRadio, CRC_POLY, MAX_PDU_LENGTH};
-use pac::radio::mode::MODE_A as PacMode;
+pub use pac::radio::mode::MODE_A as Mode;
 use pac::radio::pcnf0::PLEN_A as PreambleLength;
-// Re-export SVD variants to allow user to directly set values.
-pub use pac::radio::{state::STATE_A as RadioState, txpower::TXPOWER_A as TxPower};
+use pac::radio::state::STATE_A as RadioState;
+pub use pac::radio::txpower::TXPOWER_A as TxPower;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::radio::*;
@@ -51,11 +50,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         radio: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        // From 5.4.1 of the nRF52840 Product Specification:
-        // > The HFXO must be running to use the RADIO or  the calibration mechanism associated with the 32.768 kHz RC oscillator.
-        // Currently the jewel crate don't implement the calibration mechanism, so we need to ensure that the HFXO is running
-        utils::check_xtal();
-
         into_ref!(radio);
 
         let r = T::regs();
@@ -113,18 +107,6 @@ impl<'d, T: Instance> Radio<'d, T> {
                 .three()
         });
 
-        r.crcpoly.write(|w| unsafe {
-            // Configure the CRC polynomial
-            // Each term in the CRC polynomial is mapped to a bit in this
-            // register which index corresponds to the term's exponent.
-            // The least significant term/bit is hard-wired internally to
-            // 1, and bit number 0 of the register content is ignored by
-            // the hardware. The following example is for an 8 bit CRC
-            // polynomial: x8 + x7 + x3 + x2 + 1 = 1 1000 1101 .
-            w.crcpoly().bits(CRC_POLY & 0xFFFFFF)
-        });
-        // The CRC initial value varies depending of the PDU type
-
         // Ch map between 2400 MHZ .. 2500 MHz
         // All modes use this range
         r.frequency.write(|w| w.map().default());
@@ -140,9 +122,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        let mut radio = Self { _p: radio };
-
-        radio
+        Self { _p: radio }
     }
 
     #[allow(dead_code)]
@@ -186,7 +166,6 @@ impl<'d, T: Instance> Radio<'d, T> {
             trace!("radio drop: stopped");
         });
 
-        /* Config interrupt */
         // trace!("radio:enable interrupt");
         // Clear some remnant side-effects (I'm unsure if this is needed)
         r.events_end.reset();
@@ -238,34 +217,34 @@ impl<'d, T: Instance> Radio<'d, T> {
             r.events_disabled.reset();
         }
     }
-}
 
-impl<'d, T: Instance> BleRadio for Radio<'d, T> {
-    type Error = Error;
-
-    fn set_mode(&mut self, mode: Mode) {
+    /// Set the radio mode
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_mode(&mut self, mode: Mode) {
         let r = T::regs();
-        r.mode.write(|w| {
-            w.mode().variant(match mode {
-                Mode::Ble1mbit => PacMode::BLE_1MBIT,
-                //Mode::Ble2mbit => PacMode::BLE_2MBIT,
-            })
-        });
+        r.mode.write(|w| w.mode().variant(mode));
 
         r.pcnf0.write(|w| {
             w.plen().variant(match mode {
-                Mode::Ble1mbit => PreambleLength::_8BIT,
-                //Mode::Ble2mbit => PreambleLength::_16BIT,
+                Mode::BLE_1MBIT => PreambleLength::_8BIT,
+                Mode::BLE_2MBIT => PreambleLength::_16BIT,
+                Mode::BLE_LR125KBIT | Mode::BLE_LR500KBIT => PreambleLength::LONG_RANGE,
+                _ => unimplemented!(),
             })
         });
     }
 
-    fn set_header_size(&mut self, header_size: HeaderSize) {
+    /// Set the header size changing the S1 field
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_header_expansion(&mut self, use_s1_field: bool) {
         let r = T::regs();
 
-        let s1len: u8 = match header_size {
-            HeaderSize::TwoBytes => 0,
-            HeaderSize::ThreeBytes => 8, // bits
+        // s1 len in bits
+        let s1len: u8 = match use_s1_field {
+            false => 0,
+            true => 8,
         };
 
         r.pcnf0.write(|w| unsafe {
@@ -283,16 +262,36 @@ impl<'d, T: Instance> BleRadio for Radio<'d, T> {
         });
     }
 
-    fn set_channel(&mut self, channel: Channel) {
+    /// Set initial data whitening value
+    /// Data whitening is used to avoid long sequences of zeros or ones, e.g., 0b0000000 or 0b1111111, in the data bit stream
+    /// On BLE the initial value is the channel index | 0x40
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_whitening_init(&mut self, whitening_init: u8) {
+        let r = T::regs();
+
+        r.datawhiteiv.write(|w| unsafe { w.datawhiteiv().bits(whitening_init) });
+    }
+
+    /// Set the central frequency to be used
+    /// It should be in the range 2400..2500
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_frequency(&mut self, frequency: u32) {
+        assert!(2400 <= frequency && frequency <= 2500);
         let r = T::regs();
 
         r.frequency
-            .write(|w| unsafe { w.frequency().bits((channel.central_frequency() - 2400) as u8) });
-        r.datawhiteiv
-            .write(|w| unsafe { w.datawhiteiv().bits(channel.whitening_init()) });
+            .write(|w| unsafe { w.frequency().bits((frequency - 2400) as u8) });
     }
 
-    fn set_access_address(&mut self, access_address: u32) {
+    /// Set the acess address
+    /// This address is always constants for advertising
+    /// And a random value generate on each connection
+    /// It is used to filter the packages
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_access_address(&mut self, access_address: u32) {
         let r = T::regs();
 
         // Configure logical address
@@ -327,43 +326,54 @@ impl<'d, T: Instance> BleRadio for Radio<'d, T> {
         });
     }
 
-    fn set_crc_init(&mut self, crc_init: u32) {
+    /// Set the CRC polynomial
+    /// It only uses the 24 least significant bits
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_crc_poly(&mut self, crc_poly: u32) {
+        let r = T::regs();
+
+        r.crcpoly.write(|w| unsafe {
+            // Configure the CRC polynomial
+            // Each term in the CRC polynomial is mapped to a bit in this
+            // register which index corresponds to the term's exponent.
+            // The least significant term/bit is hard-wired internally to
+            // 1, and bit number 0 of the register content is ignored by
+            // the hardware. The following example is for an 8 bit CRC
+            // polynomial: x8 + x7 + x3 + x2 + 1 = 1 1000 1101 .
+            w.crcpoly().bits(crc_poly & 0xFFFFFF)
+        });
+    }
+
+    /// Set the CRC init value
+    /// It only uses the 24 least significant bits
+    /// The CRC initial value varies depending of the PDU type
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_crc_init(&mut self, crc_init: u32) {
         let r = T::regs();
 
         r.crcinit.write(|w| unsafe { w.crcinit().bits(crc_init & 0xFFFFFF) });
     }
 
-    fn set_tx_power(&mut self, power_db: i8) {
+    /// Set the radio tx power
+    ///
+    /// The radio must be disabled before calling this function
+    pub fn set_tx_power(&mut self, tx_power: TxPower) {
         let r = T::regs();
-
-        let tx_power: TxPower = match power_db {
-            8..=i8::MAX => TxPower::POS8D_BM,
-            7 => TxPower::POS7D_BM,
-            6 => TxPower::POS6D_BM,
-            5 => TxPower::POS5D_BM,
-            4 => TxPower::POS4D_BM,
-            3 => TxPower::POS3D_BM,
-            1..=2 => TxPower::POS2D_BM,
-            -3..=0 => TxPower::_0D_BM,
-            -7..=-4 => TxPower::NEG4D_BM,
-            -11..=-8 => TxPower::NEG8D_BM,
-            -15..=-12 => TxPower::NEG12D_BM,
-            -19..=-16 => TxPower::NEG16D_BM,
-            -29..=-20 => TxPower::NEG20D_BM,
-            -39..=-30 => TxPower::NEG30D_BM,
-            i8::MIN..=-40 => TxPower::NEG40D_BM,
-        };
 
         r.txpower.write(|w| w.txpower().variant(tx_power));
     }
 
-    fn set_buffer(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
+    /// Set buffer to read/write
+    ///
+    /// This method is unsound. You should guarantee that the buffer will live
+    /// for the life time of the transmission or if the buffer will be modified.
+    /// Also if the buffer is smaller than the packet length, the radio will
+    /// read/write memory out of the buffer bounds.
+    pub fn set_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
         // Because we are serializing the buffer, we should always have the buffer in RAM
         slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
-
-        if buffer.len() > MAX_PDU_LENGTH {
-            return Err(Error::BufferTooLong);
-        }
 
         let r = T::regs();
 
@@ -379,7 +389,7 @@ impl<'d, T: Instance> BleRadio for Radio<'d, T> {
     }
 
     /// Send packet
-    async fn transmit(&mut self) {
+    pub async fn transmit(&mut self) {
         let r = T::regs();
 
         self.trigger_and_wait_end(move || {
@@ -390,8 +400,8 @@ impl<'d, T: Instance> BleRadio for Radio<'d, T> {
         .await;
     }
 
-    /// Send packet
-    async fn receive(&mut self) {
+    /// Receive packet
+    pub async fn receive(&mut self) {
         let r = T::regs();
 
         self.trigger_and_wait_end(move || {

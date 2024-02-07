@@ -35,10 +35,6 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 num-integer = { version = "0.1.45", default-features = false }
 microfft = "0.5.0"
-jewel = { version = "0.1.0", git = "https://github.com/jewel-rs/jewel"}
-
-[patch.crates-io]
-embassy-time = { version = "0.3.0", path = "../../embassy-time"}
 
 [profile.release]
 debug = 2

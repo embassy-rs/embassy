@@ -29,20 +29,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub(crate) mod utils {
-    use super::*;
-
-    // Check if the HFCLK is XTAL is enabled
-    pub fn check_xtal() {
-        // safe: only reading the value
-        let is_xtal = unsafe {
-            let r = &*pac::CLOCK::ptr();
-            r.hfclkstat.read().src().is_xtal()
-        };
-        assert!(is_xtal, "HFCLK must be XTAL");
-    }
-}
-
 pub(crate) mod sealed {
     use embassy_sync::waitqueue::AtomicWaker;
 
