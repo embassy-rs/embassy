@@ -79,7 +79,7 @@ impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
     /// A `BootLoaderConfig` instance with `BlockingPartition` instances for the active, DFU, and state partitions.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// // Assume `active_flash`, `dfu_flash`, and `state_flash` all share the same flash memory interface.
     /// let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
     /// let flash = Mutex::new(RefCell::new(layout.bank1_region));

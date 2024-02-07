@@ -41,7 +41,7 @@ impl<'a, DFU: NorFlash, STATE: NorFlash>
     /// A `FirmwareUpdaterConfig` instance with `BlockingPartition` instances for the DFU, and state partitions.
     ///
     /// # Example
-    /// ```no_run
+    /// ```ignore
     /// // Assume `dfu_flash`, and `state_flash` share the same flash memory interface.
     /// let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
     /// let flash = Mutex::new(RefCell::new(layout.bank1_region));
