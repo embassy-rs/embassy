@@ -35,7 +35,7 @@ pub enum Error {
     BufferTooLong,
     /// Buffer was to short.
     BufferTooShort,
-    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    /// The buffer is not in data RAM. It is most likely in flash, and nRF's DMA cannot access flash.
     BufferNotInRAM,
 }
 
