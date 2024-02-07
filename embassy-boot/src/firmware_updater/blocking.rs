@@ -194,6 +194,41 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         Ok(())
     }
 
+    /// Write data directly to a flash page without erasing it first.
+    ///
+    /// This function writes the provided data to the specified offset in the flash memory,
+    /// without performing an erase operation beforehand. It is crucial that the area being
+    /// written to is either already erased.
+    /// This method is intended to be used in conjunction with the `prepare_update` method.
+    ///
+    /// The buffer must follow the alignment requirements of the target flash and be a multiple of
+    /// the page size. This is essential to ensure data integrity and prevent corruption.
+    ///
+    /// # Safety
+    ///
+    /// This function requires careful management of the memory being written to. Writing to a
+    /// non-erased page or not adhering to alignment and size requirements may result in a panic.
+    ///
+    /// Ensure that the data being written is compatible with the current contents of the flash
+    /// memory, as no erase operation will be performed to reset the page content to a default state.
+    ///
+    /// # Parameters
+    ///
+    /// - `offset`: The offset within the DFU partition where the data will be written. Must be
+    /// aligned according to the flash's requirements and within the writable memory range.
+    /// - `data`: A reference to the slice of bytes to be written. The length of the data must not
+    /// exceed the partition size and must follow the flash's alignment requirements.
+    ///
+    /// # Returns
+    ///
+    /// A result indicating the success or failure of the write operation. On success, returns `Ok(())`.
+    /// On failure, returns an `Err` with a `FirmwareUpdaterError` detailing the cause of the failure.
+    pub fn write_firmware_without_erase(&mut self, offset: usize, data: &[u8]) -> Result<(), FirmwareUpdaterError> {
+        self.dfu.write(offset as u32, data)?;
+
+        Ok(())
+    }
+
     /// Prepare for an incoming DFU update by erasing the entire DFU area and
     /// returning its `Partition`.
     ///
