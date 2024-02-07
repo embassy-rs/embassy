@@ -57,6 +57,9 @@ unstable-pac = []
 ## Enable GPIO tasks and events
 gpiote = []
 
+## Enable radio driver
+radio = ["dep:jewel"]
+
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
 time-driver-rtc1 = ["_time-driver"]
 
@@ -149,6 +152,8 @@ embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
 document-features = "0.2.7"
+
+jewel = { version = "0.1.0", git = "https://github.com/jewel-rs/jewel", optional = true }
 
 nrf51-pac = { version = "0.12.0", optional = true }
 nrf52805-pac = { version = "0.12.0", optional = true }

@@ -45,6 +45,12 @@ pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
+
+#[cfg(feature = "radio")]
+pub mod radio;
+#[cfg(all(feature = "radio", feature = "_nrf9160"))]
+compile_error!("feature `radio` is not valid for nRF91 series chips.");
+
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
 pub mod nvmc;
