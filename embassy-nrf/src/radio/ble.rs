@@ -17,10 +17,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use jewel::phy::{
-    AdvertisingChannel, Channel, ChannelTrait, HeaderSize, Mode, Radio as BleRadio, ADV_ADDRESS, ADV_CRC_INIT,
-    CRC_POLY, MAX_PDU_LENGTH,
-};
+use jewel::phy::{Channel, ChannelTrait, HeaderSize, Mode, Radio as BleRadio, CRC_POLY, MAX_PDU_LENGTH};
 use pac::radio::mode::MODE_A as PacMode;
 use pac::radio::pcnf0::PLEN_A as PreambleLength;
 // Re-export SVD variants to allow user to directly set values.
@@ -144,14 +141,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         unsafe { T::Interrupt::enable() };
 
         let mut radio = Self { _p: radio };
-
-        // set defaults
-        radio.set_mode(Mode::Ble1mbit);
-        radio.set_tx_power(0);
-        radio.set_header_size(HeaderSize::TwoBytes);
-        radio.set_access_address(ADV_ADDRESS);
-        radio.set_crc_init(ADV_CRC_INIT);
-        radio.set_channel(AdvertisingChannel::Ch39.into());
 
         radio
     }
