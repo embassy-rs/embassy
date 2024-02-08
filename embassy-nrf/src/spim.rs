@@ -13,7 +13,7 @@ pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MO
 pub use pac::spim0::config::ORDER_A as BitOrder;
 pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
-use crate::chip::FORCE_COPY_BUFFER_SIZE;
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
@@ -25,9 +25,9 @@ use crate::{interrupt, pac, Peripheral};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    /// TX buffer was too long.
+    /// Supplied TX buffer overflows EasyDMA transmit buffer
     TxBufferTooLong,
-    /// RX buffer was too long.
+    /// Supplied RX buffer overflows EasyDMA receive buffer
     RxBufferTooLong,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     BufferNotInRAM,
@@ -220,11 +220,19 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Set up the DMA write.
         let (ptr, tx_len) = slice_ptr_parts(tx);
+        if tx_len > EASY_DMA_SIZE {
+            return Err(Error::TxBufferTooLong);
+        }
+
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx_len as _) });
 
         // Set up the DMA read.
         let (ptr, rx_len) = slice_ptr_parts_mut(rx);
+        if rx_len > EASY_DMA_SIZE {
+            return Err(Error::RxBufferTooLong);
+        }
+
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx_len as _) });
 
