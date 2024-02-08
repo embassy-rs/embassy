@@ -4,7 +4,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
-
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
