@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::peripherals::ADC;
-use embassy_stm32::{adc, bind_interrupts, Config};
+use embassy_stm32::{adc, bind_interrupts};
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -15,12 +15,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    // enable HSI because default is MSI but ADC doesn't support
-    // this as clock source on L0s and uses HSI by default
-    let mut config = Config::default();
-    config.rcc.hsi = true;
-    let p = embassy_stm32::init(config);
-
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC, Irqs, &mut Delay);

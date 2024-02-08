@@ -76,6 +76,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         // tstab = 14 * 1/fadc
         delay.delay_us(1);
 
+        // set default PCKL/2 on L0s because HSI is disabled in the default clock config
+        #[cfg(adc_l0)]
+        T::regs().cfgr2().modify(|reg| reg.set_ckmode(Ckmode::PCLK_DIV2));
+
         // A.7.1 ADC calibration code example
         T::regs().cfgr1().modify(|reg| reg.set_dmaen(false));
         T::regs().cr().modify(|reg| reg.set_adcal(true));
