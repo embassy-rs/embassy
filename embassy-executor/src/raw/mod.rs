@@ -598,7 +598,7 @@ impl rtos_trace::RtosTraceOSCallbacks for Executor {
     #[cfg(feature = "integrated-timers")]
     fn time() -> u64 {
         const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
-        embassy_time_driver::now() * (1_000_00 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M);
+        embassy_time_driver::now() * (1_000_000 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M);
     }
     #[cfg(not(feature = "integrated-timers"))]
     fn time() -> u64 {
