@@ -2,10 +2,10 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::Config;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::peripherals::ADC;
+use embassy_stm32::Config;
 use embassy_stm32::{adc, bind_interrupts};
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
