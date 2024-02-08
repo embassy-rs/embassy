@@ -5,11 +5,10 @@ use core::task::Poll;
 use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
-use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
-
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
+use crate::adc::{Adc, AdcPin, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC;
 use crate::{interrupt, Peripheral};
