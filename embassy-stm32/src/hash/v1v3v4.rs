@@ -13,10 +13,16 @@ use crate::peripherals::HASH;
 use crate::rcc::sealed::RccPeripheral;
 use crate::{interrupt, pac, peripherals, Peripheral};
 
+#[cfg(hash_v1)]
 const NUM_CONTEXT_REGS: usize = 51;
-const HASH_BUFFER_LEN: usize = 68;
-const DIGEST_BLOCK_SIZE: usize = 64;
-const MAX_DIGEST_SIZE: usize = 20;
+#[cfg(hash_v3)]
+const NUM_CONTEXT_REGS: usize = 103;
+#[cfg(hash_v4)]
+const NUM_CONTEXT_REGS: usize = 54;
+
+const HASH_BUFFER_LEN: usize = 132;
+const DIGEST_BLOCK_SIZE: usize = 128;
+const MAX_DIGEST_SIZE: usize = 128;
 
 static HASH_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -40,12 +46,36 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 ///Hash algorithm selection
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum Algorithm {
     /// SHA-1 Algorithm
     SHA1 = 0,
+
+    #[cfg(any(hash_v1, hash_v4))]
     /// MD5 Algorithm
     MD5 = 1,
+
+    /// SHA-224 Algorithm
+    SHA224 = 2,
+
+    /// SHA-256 Algorithm
+    SHA256 = 3,
+
+    #[cfg(hash_v3)]
+    /// SHA-384 Algorithm
+    SHA384 = 12,
+
+    #[cfg(hash_v3)]
+    /// SHA-512/224 Algorithm
+    SHA512_224 = 13,
+
+    #[cfg(hash_v3)]
+    /// SHA-512/256 Algorithm
+    SHA512_256 = 14,
+
+    #[cfg(hash_v3)]
+    /// SHA-256 Algorithm
+    SHA512 = 15,
 }
 
 /// Input data width selection
@@ -83,7 +113,10 @@ pub struct Hash<'d, T: Instance> {
 
 impl<'d, T: Instance> Hash<'d, T> {
     /// Instantiates, resets, and enables the HASH peripheral.
-    pub fn new(peripheral: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new(
+        peripheral: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
         HASH::enable_and_reset();
         into_ref!(peripheral);
         let instance = Self {
@@ -115,9 +148,30 @@ impl<'d, T: Instance> Hash<'d, T> {
         T::regs().cr().modify(|w| w.set_datatype(ctx.format as u8));
 
         // Select the algorithm.
+        #[cfg(hash_v1)]
         if ctx.algo == Algorithm::MD5 {
             T::regs().cr().modify(|w| w.set_algo(true));
         }
+
+        #[cfg(hash_v2)]
+        {
+            // Select the algorithm.
+            let mut algo0 = false;
+            let mut algo1 = false;
+            if ctx.algo == Algorithm::MD5 || ctx.algo == Algorithm::SHA256 {
+                algo0 = true;
+            }
+            if ctx.algo == Algorithm::SHA224 || ctx.algo == Algorithm::SHA256 {
+                algo1 = true;
+            }
+            T::regs().cr().modify(|w| w.set_algo0(algo0));
+            T::regs().cr().modify(|w| w.set_algo1(algo1));
+        }
+
+        #[cfg(any(hash_v3, hash_v4))]
+        T::regs().cr().modify(|w| w.set_algo(ctx.algo as u8));
+
+        T::regs().cr().modify(|w| w.set_init(true));
 
         // Store and return the state of the peripheral.
         self.store_context(&mut ctx).await;
@@ -174,7 +228,7 @@ impl<'d, T: Instance> Hash<'d, T> {
                 ilen_remaining -= copy_len;
                 input_start += copy_len;
             }
-            self.accumulate(&ctx.buffer[0..64]);
+            self.accumulate(&ctx.buffer[0..DIGEST_BLOCK_SIZE]);
             ctx.buflen = 0;
 
             // Move any extra data to the now-empty buffer.
@@ -229,7 +283,18 @@ impl<'d, T: Instance> Hash<'d, T> {
         // Return the digest.
         let digest_words = match ctx.algo {
             Algorithm::SHA1 => 5,
+            #[cfg(any(hash_v1, hash_v4))]
             Algorithm::MD5 => 4,
+            Algorithm::SHA224 => 7,
+            Algorithm::SHA256 => 8,
+            #[cfg(hash_v3)]
+            Algorithm::SHA384 => 12,
+            #[cfg(hash_v3)]
+            Algorithm::SHA512_224 => 7,
+            #[cfg(hash_v3)]
+            Algorithm::SHA512_256 => 8,
+            #[cfg(hash_v3)]
+            Algorithm::SHA512 => 16,
         };
         let mut i = 0;
         while i < digest_words {

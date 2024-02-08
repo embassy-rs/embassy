@@ -3,11 +3,14 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::hash::*;
-use embassy_stm32::Config;
+use embassy_stm32::{bind_interrupts, Config, hash, hash::*, peripherals};
 use embassy_time::Instant;
 use sha2::{Digest, Sha256};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    HASH_RNG => hash::InterruptHandler<peripherals::HASH>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -17,7 +20,7 @@ async fn main(_spawner: Spawner) -> ! {
     let test_1: &[u8] = b"as;dfhaslfhas;oifvnasd;nifvnhasd;nifvhndlkfghsd;nvfnahssdfgsdafgsasdfasdfasdfasdfasdfghjklmnbvcalskdjghalskdjgfbaslkdjfgbalskdjgbalskdjbdfhsdfhsfghsfghfgh";
     let test_2: &[u8] = b"fdhalksdjfhlasdjkfhalskdjfhgal;skdjfgalskdhfjgalskdjfglafgadfgdfgdafgaadsfgfgdfgadrgsyfthxfgjfhklhjkfgukhulkvhlvhukgfhfsrghzdhxyfufynufyuszeradrtydyytserr";
 
-    let mut hw_hasher = Hash::new(p.HASH, p.DMA2_CH7);
+    let mut hw_hasher = Hash::new(p.HASH, p.DMA2_CH7, Irqs);
 
     let hw_start_time = Instant::now();
 

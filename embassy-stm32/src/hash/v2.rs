@@ -111,7 +111,11 @@ pub struct Hash<'d, T: Instance, D: Dma<T>> {
 
 impl<'d, T: Instance, D: Dma<T>> Hash<'d, T, D> {
     /// Instantiates, resets, and enables the HASH peripheral.
-    pub fn new(peripheral: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = D> + 'd) -> Self {
+    pub fn new(
+        peripheral: impl Peripheral<P = T> + 'd,
+        dma: impl Peripheral<P = D> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
         HASH::enable_and_reset();
         into_ref!(peripheral, dma);
         let instance = Self {
