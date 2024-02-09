@@ -263,6 +263,17 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
         self.cap() - dma.get_remaining_transfers()
     }
 
+    /// Write elements directly to the buffer. This must be done before the DMA is started
+    /// or after the buffer has been cleared using `clear()`.
+    pub fn write_immediate(&mut self, buffer: &[W]) -> Result<(usize, usize), OverrunError> {
+        if self.end != 0 {
+            return Err(OverrunError);
+        }
+        let written = self.copy_from(buffer, 0..self.cap());
+        self.end = written % self.cap();
+        Ok((written, self.cap() - written))
+    }
+
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, OverrunError> {
         let mut written_data = 0;
