@@ -29,11 +29,10 @@ If you see an error like this:
 
 You are likely missing some features of the `embassy-executor` crate.
 
-For Cortex-M targets, consider making sure that ALL of the following features are active in your `Cargo.toml` for the `embassy-executor` crate:
+For Cortex-M targets, check whether ALL of the following features are enabled in your `Cargo.toml` for the `embassy-executor` crate:
 
 * `arch-cortex-m`
 * `executor-thread`
-* `nightly`
 
 For ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
 
@@ -125,15 +124,18 @@ You have multiple versions of the same crate in your dependency tree. This means
 embassy crates are coming from crates.io, and some from git, each of them pulling in a different set
 of dependencies.
 
-To resolve this issue, make sure to only use a single source for all your embassy crates! To do this,
-you should patch your dependencies to use git sources using `[patch.crates.io]` and maybe `[patch.'https://github.com/embassy-rs/embassy.git']`.
+To resolve this issue, make sure to only use a single source for all your embassy crates!
+To do this, you should patch your dependencies to use git sources using `[patch.crates.io]`
+and maybe `[patch.'https://github.com/embassy-rs/embassy.git']`.
 
 Example:
 
 [source,toml]
 ----
 [patch.crates-io]
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+embassy-time-queue-driver = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+# embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
 ----
 
 Note that the git revision should match any other embassy patches or git dependencies that you are using!

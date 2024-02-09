@@ -3,8 +3,10 @@
 Over time, a couple of best practices have emerged. The following list should serve as a guideline for developers writing embedded software in _Rust_, especially in the context of the _Embassy_ framework.
 
 == Passing Buffers by Reference
-It may be tempting to pass arrays or wrappers, like link:https://docs.rs/heapless/latest/heapless/[`heapless::Vec`], to a function or return one just like you would with a `std::Vec`. However, in most embedded applications you don't want to spend ressources on an allocator and end up placing buffers on the stack.
-This, however, can easily blow up your stack if you are not careful.
+It may be tempting to pass arrays or wrappers, like link:https://docs.rs/heapless/latest/heapless/[`heapless::Vec`],
+to a function or return one just like you would with a `std::Vec`. However, in most embedded applications you don't
+want to spend resources on an allocator and end up placing buffers on the stack. This, however, can easily blow up
+your stack if you are not careful.
 
 Consider the following example:
 [,rust]
