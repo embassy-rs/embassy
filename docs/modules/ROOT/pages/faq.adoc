@@ -29,11 +29,10 @@ If you see an error like this:
 
 You are likely missing some features of the `embassy-executor` crate.
 
-For Cortex-M targets, consider making sure that ALL of the following features are active in your `Cargo.toml` for the `embassy-executor` crate:
+For Cortex-M targets, check whether ALL of the following features are enabled in your `Cargo.toml` for the `embassy-executor` crate:
 
 * `arch-cortex-m`
 * `executor-thread`
-* `nightly`
 
 For ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
 
