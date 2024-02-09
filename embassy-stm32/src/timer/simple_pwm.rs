@@ -84,13 +84,12 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         this.set_frequency(freq);
         this.inner.start();
 
-        this.inner.enable_outputs();
-
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .for_each(|&channel| {
                 this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
-                this.inner.set_output_compare_preload(channel, true)
+
+                this.inner.set_output_compare_preload(channel, true);
             });
 
         this
@@ -202,7 +201,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
                 &mut dma,
                 req,
                 duty,
-                T::regs_gp16().ccr(channel.index()).as_ptr() as *mut _,
+                T::regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
                 dma_transfer_option,
             )
             .await

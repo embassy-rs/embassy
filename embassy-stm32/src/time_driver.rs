@@ -14,7 +14,7 @@ use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
-use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
+use crate::timer::sealed::{CoreInstance, GeneralPurpose16bitInstance as Instance};
 use crate::{interrupt, peripherals};
 
 // NOTE regarding ALARM_COUNT:
@@ -234,8 +234,8 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
-        <T as BasicInstance>::Interrupt::unpend();
-        unsafe { <T as BasicInstance>::Interrupt::enable() };
+        <T as CoreInstance>::Interrupt::unpend();
+        unsafe { <T as CoreInstance>::Interrupt::enable() };
 
         r.cr1().modify(|w| w.set_cen(true));
     }
@@ -251,7 +251,7 @@ impl RtcDriver {
             // Clear all interrupt flags. Bits in SR are "write 0 to clear", so write the bitwise NOT.
             // Other approaches such as writing all zeros, or RMWing won't work, they can
             // miss interrupts.
-            r.sr().write_value(regs::SrGp(!sr.0));
+            r.sr().write_value(regs::SrGp16(!sr.0));
 
             // Overflow
             if sr.uif() {

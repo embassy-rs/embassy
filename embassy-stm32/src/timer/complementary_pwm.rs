@@ -23,7 +23,7 @@ pub struct ComplementaryPwmPin<'d, T, C> {
 
 macro_rules! complementary_channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: CaptureCompare16bitInstance> ComplementaryPwmPin<'d, T, $channel> {
+        impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwmPin<'d, T, $channel> {
             #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
             pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, output_type: OutputType) -> Self {
                 into_ref!(pin);
@@ -84,14 +84,13 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
 
         this.inner.enable_outputs();
 
-        this.inner
-            .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch2, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+                this.inner.set_output_compare_preload(channel, true);
+            });
+
         this
     }
 
