@@ -83,7 +83,7 @@ impl_sample_time!(
     )
 );
 
-#[cfg(adc_g0)]
+#[cfg(any(adc_l0, adc_g0))]
 impl_sample_time!(
     "1.5",
     Cycles1_5,
