@@ -20,6 +20,11 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{interrupt, pac, Peripheral};
 
+/// Maximum receive buffer size for single transfer
+pub const MAX_RX_LEN: usize = EASY_DMA_SIZE;
+/// Maximum transfer buffer size for single transfer
+pub const MAX_TX_LEN: usize = EASY_DMA_SIZE;
+
 /// SPIM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
