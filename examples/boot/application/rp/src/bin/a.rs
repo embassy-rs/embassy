@@ -36,7 +36,7 @@ async fn main(_s: Spawner) {
     let flash = Flash::<_, _, FLASH_SIZE>::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
-    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
     let mut aligned = AlignedBuffer([0; 1]);
     let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
 

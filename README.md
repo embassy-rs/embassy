@@ -2,7 +2,7 @@
 
 Embassy is the next-generation framework for embedded applications. Write safe, correct and energy-efficient embedded code faster, using the Rust programming language, its async facilities, and the Embassy libraries.
 
-## <a href="https://embassy.dev/dev/index.html">Documentation</a> - <a href="https://docs.embassy.dev/">API reference</a> - <a href="https://embassy.dev/">Website</a> - <a href="https://matrix.to/#/#embassy-rs:matrix.org">Chat</a>
+## <a href="https://embassy.dev/book/dev/index.html">Documentation</a> - <a href="https://docs.embassy.dev/">API reference</a> - <a href="https://embassy.dev/">Website</a> - <a href="https://matrix.to/#/#embassy-rs:matrix.org">Chat</a>
 ## Rust + async ❤️ embedded
 
 The Rust programming language is blazingly fast and memory-efficient, with no runtime, garbage collector or OS. It catches a wide variety of bugs at compile time, thanks to its full memory- and thread-safety, and expressive type system. 

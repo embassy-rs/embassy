@@ -934,6 +934,13 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         self.ringbuf.clear(&mut DmaCtrlImpl(self.channel.reborrow()));
     }
 
+    /// Write elements directly to the raw buffer.
+    /// This can be used to fill the buffer before starting the DMA transfer.
+    #[allow(dead_code)]
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {
+        self.ringbuf.write_immediate(buf)
+    }
+
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
     pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), OverrunError> {

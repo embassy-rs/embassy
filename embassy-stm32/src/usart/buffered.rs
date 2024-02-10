@@ -140,11 +140,15 @@ pub struct BufferedUart<'d, T: BasicInstance> {
 }
 
 /// Tx-only buffered UART
+///
+/// Created with [BufferedUart::split]
 pub struct BufferedUartTx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }
 
 /// Rx-only buffered UART
+///
+/// Created with [BufferedUart::split]
 pub struct BufferedUartRx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }

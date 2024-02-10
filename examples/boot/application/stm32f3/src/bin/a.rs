@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PA5, Level::Low, Speed::Low);
     led.set_high();
 
-    let config = FirmwareUpdaterConfig::from_linkerfile(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile(&flash, &flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut updater = FirmwareUpdater::new(config, &mut magic.0);
     button.wait_for_falling_edge().await;

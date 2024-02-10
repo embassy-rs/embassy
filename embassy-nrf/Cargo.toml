@@ -138,6 +138,7 @@ embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
 defmt = { version = "0.3", optional = true }
+bitflags = "2.4.2"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"

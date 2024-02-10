@@ -721,7 +721,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
         Pllvcosel::WIDEVCO
     } else {
-        panic!("pll vco_clk out of range: {} mhz", vco_clk.0)
+        panic!("pll vco_clk out of range: {} hz", vco_clk.0)
     };
 
     let p = config.divp.map(|div| {
