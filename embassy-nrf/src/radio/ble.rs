@@ -127,15 +127,13 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     fn state(&self) -> RadioState {
         match T::regs().state.read().state().variant() {
-            Ok(s) => s,
+            Some(s) => s,
             None => unreachable!(),
         }
     }
 
     #[allow(dead_code)]
     fn trace_state(&self) {
-        let r = T::regs();
-
         match self.state() {
             RadioState::DISABLED => trace!("radio:state:DISABLED"),
             RadioState::RX_RU => trace!("radio:state:RX_RU"),
@@ -216,7 +214,7 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// [The radio must be disabled before calling this function](https://devzone.nordicsemi.com/f/nordic-q-a/15829/radio-frequency-change)
     pub fn set_frequency(&mut self, frequency: u32) {
         assert!(self.state() == RadioState::DISABLED);
-        assert!(2400 <= frequency && frequency <= 2500);
+        assert!((2400..=2500).contains(&frequency));
 
         let r = T::regs();
 
