@@ -64,13 +64,13 @@ impl<'d, T: Instance> Radio<'d, T> {
                 // that if the packet payload length defined by PCNF1.STATLEN and the LENGTH field in the packet specifies a
                 // packet larger than MAXLEN, the payload will be truncated at MAXLEN
                 //
-                // To simplify the implementation, I'm setting the max length to the maximum value
-                // and I'm using only the length field to truncate the payload
+                // To simplify the implementation, It is setted as the maximum value
+                // and the length of the packet is controlled only by the LENGTH field in the packet
                 .maxlen()
                 .bits(255)
                 // Configure the length of the address field in the packet
                 // The prefix after the address fields is always appended, so is always 1 byte less than the size of the address
-                //  The base address is truncated from the least significant byte if the BALEN is less than 4
+                // The base address is truncated from the least significant byte if the BALEN is less than 4
                 //
                 // BLE address is always 4 bytes long
                 .balen()
@@ -92,14 +92,14 @@ impl<'d, T: Instance> Radio<'d, T> {
                 // Before whitening or de-whitening, the shift register should be
                 // initialized based on the channel index.
                 .whiteen()
-                .set_bit() // Enable whitening
+                .set_bit()
         });
 
         // Configure CRC
         r.crccnf.write(|w| {
             // In BLE the CRC shall be calculated on the PDU of all Link Layer
             // packets (even if the packet is encrypted).
-            // So here we skip the address field
+            // It skips the address field
             w.skipaddr()
                 .skip()
                 // In BLE  24-bit CRC = 3 bytes
@@ -125,11 +125,18 @@ impl<'d, T: Instance> Radio<'d, T> {
         Self { _p: radio }
     }
 
+    fn state(&self) -> RadioState {
+        match T::regs().state.read().state().variant() {
+            Ok(s) => s,
+            None => unreachable!(),
+        }
+    }
+
     #[allow(dead_code)]
     fn trace_state(&self) {
         let r = T::regs();
 
-        match r.state.read().state().variant().unwrap() {
+        match self.state() {
             RadioState::DISABLED => trace!("radio:state:DISABLED"),
             RadioState::RX_RU => trace!("radio:state:RX_RU"),
             RadioState::RX_IDLE => trace!("radio:state:RX_IDLE"),
@@ -142,86 +149,12 @@ impl<'d, T: Instance> Radio<'d, T> {
         }
     }
 
-    async fn trigger_and_wait_end(&mut self, trigger: impl FnOnce() -> ()) {
-        //self.trace_state();
-
-        let r = T::regs();
-        let s = T::state();
-
-        // If the Future is dropped before the end of the transmission
-        // we need to disable the interrupt and stop the transmission
-        // to keep the state consistent
-        let drop = OnDrop::new(|| {
-            trace!("radio drop: stopping");
-
-            r.intenclr.write(|w| w.end().clear());
-            r.events_end.reset();
-
-            r.tasks_stop.write(|w| w.tasks_stop().set_bit());
-
-            // The docs don't explicitly mention any event to acknowledge the stop task
-            // So I guess it's the same as end
-            while r.events_end.read().events_end().bit_is_clear() {}
-
-            trace!("radio drop: stopped");
-        });
-
-        // trace!("radio:enable interrupt");
-        // Clear some remnant side-effects (I'm unsure if this is needed)
-        r.events_end.reset();
-
-        // Enable interrupt
-        r.intenset.write(|w| w.end().set());
-
-        compiler_fence(Ordering::SeqCst);
-
-        // Trigger the transmission
-        trigger();
-        // self.trace_state();
-
-        // On poll check if interrupt happen
-        poll_fn(|cx| {
-            s.end_waker.register(cx.waker());
-            if r.events_end.read().events_end().bit_is_set() {
-                // trace!("radio:end");
-                return core::task::Poll::Ready(());
-            }
-            Poll::Pending
-        })
-        .await;
-
-        compiler_fence(Ordering::SeqCst);
-        r.events_disabled.reset(); // ACK
-
-        // Everthing ends fine, so we can disable the drop
-        drop.defuse();
-    }
-
-    /// Disable the radio.
-    fn disable(&mut self) {
-        let r = T::regs();
-
-        compiler_fence(Ordering::SeqCst);
-        // If is already disabled, do nothing
-        if !r.state.read().state().is_disabled() {
-            trace!("radio:disable");
-            // Trigger the disable task
-            r.tasks_disable.write(|w| w.tasks_disable().set_bit());
-
-            // Wait until the radio is disabled
-            while r.events_disabled.read().events_disabled().bit_is_clear() {}
-
-            compiler_fence(Ordering::SeqCst);
-
-            // Acknowledge it
-            r.events_disabled.reset();
-        }
-    }
-
     /// Set the radio mode
     ///
     /// The radio must be disabled before calling this function
     pub fn set_mode(&mut self, mode: Mode) {
+        assert!(self.state() == RadioState::DISABLED);
+
         let r = T::regs();
         r.mode.write(|w| w.mode().variant(mode));
 
@@ -235,10 +168,12 @@ impl<'d, T: Instance> Radio<'d, T> {
         });
     }
 
-    /// Set the header size changing the S1 field
+    /// Set the header size changing the S1's len field
     ///
     /// The radio must be disabled before calling this function
     pub fn set_header_expansion(&mut self, use_s1_field: bool) {
+        assert!(self.state() == RadioState::DISABLED);
+
         let r = T::regs();
 
         // s1 len in bits
@@ -268,6 +203,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     ///
     /// The radio must be disabled before calling this function
     pub fn set_whitening_init(&mut self, whitening_init: u8) {
+        assert!(self.state() == RadioState::DISABLED);
+
         let r = T::regs();
 
         r.datawhiteiv.write(|w| unsafe { w.datawhiteiv().bits(whitening_init) });
@@ -276,9 +213,11 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// Set the central frequency to be used
     /// It should be in the range 2400..2500
     ///
-    /// The radio must be disabled before calling this function
+    /// [The radio must be disabled before calling this function](https://devzone.nordicsemi.com/f/nordic-q-a/15829/radio-frequency-change)
     pub fn set_frequency(&mut self, frequency: u32) {
+        assert!(self.state() == RadioState::DISABLED);
         assert!(2400 <= frequency && frequency <= 2500);
+
         let r = T::regs();
 
         r.frequency
@@ -292,6 +231,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     ///
     /// The radio must be disabled before calling this function
     pub fn set_access_address(&mut self, access_address: u32) {
+        assert!(self.state() == RadioState::DISABLED);
+
         let r = T::regs();
 
         // Configure logical address
@@ -309,9 +250,9 @@ impl<'d, T: Instance> Radio<'d, T> {
         r.txaddress.write(|w| unsafe { w.txaddress().bits(0) });
 
         // Match on logical address
-        // For what I understand, this config only filter the packets
-        // by the address, so only packages send to the previous address
-        // will finish the reception
+        // This config only filter the packets by the address,
+        // so only packages send to the previous address
+        // will finish the reception (TODO: check the explanation)
         r.rxaddresses.write(|w| {
             w.addr0()
                 .enabled()
@@ -331,6 +272,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     ///
     /// The radio must be disabled before calling this function
     pub fn set_crc_poly(&mut self, crc_poly: u32) {
+        assert!(self.state() == RadioState::DISABLED);
+
         let r = T::regs();
 
         r.crcpoly.write(|w| unsafe {
@@ -351,6 +294,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     ///
     /// The radio must be disabled before calling this function
     pub fn set_crc_init(&mut self, crc_init: u32) {
+        assert!(self.state() == RadioState::DISABLED);
+
         let r = T::regs();
 
         r.crcinit.write(|w| unsafe { w.crcinit().bits(crc_init & 0xFFFFFF) });
@@ -360,6 +305,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     ///
     /// The radio must be disabled before calling this function
     pub fn set_tx_power(&mut self, tx_power: TxPower) {
+        assert!(self.state() == RadioState::DISABLED);
+
         let r = T::regs();
 
         r.txpower.write(|w| w.txpower().variant(tx_power));
@@ -408,19 +355,83 @@ impl<'d, T: Instance> Radio<'d, T> {
             // Initialize the transmission
             // trace!("rxen");
             r.tasks_rxen.write(|w| w.tasks_rxen().set_bit());
+        })
+        .await;
+    }
 
-            // Await until ready
-            while r.events_ready.read().events_ready().bit_is_clear() {}
+    async fn trigger_and_wait_end(&mut self, trigger: impl FnOnce()) {
+        //self.trace_state();
+
+        let r = T::regs();
+        let s = T::state();
+
+        // If the Future is dropped before the end of the transmission
+        // we need to disable the interrupt and stop the transmission
+        // to keep the state consistent
+        let drop = OnDrop::new(|| {
+            trace!("radio drop: stopping");
+
+            r.intenclr.write(|w| w.end().clear());
+            r.events_end.reset();
+
+            r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+
+            // The docs don't explicitly mention any event to acknowledge the stop task
+            while r.events_end.read().events_end().bit_is_clear() {}
+
+            trace!("radio drop: stopped");
+        });
+
+        // trace!("radio:enable interrupt");
+        // Clear some remnant side-effects (TODO: check if this is necessary)
+        r.events_end.reset();
+
+        // Enable interrupt
+        r.intenset.write(|w| w.end().set());
+
+        compiler_fence(Ordering::SeqCst);
+
+        // Trigger the transmission
+        trigger();
+        // self.trace_state();
+
+        // On poll check if interrupt happen
+        poll_fn(|cx| {
+            s.end_waker.register(cx.waker());
+            if r.events_end.read().events_end().bit_is_set() {
+                // trace!("radio:end");
+                return core::task::Poll::Ready(());
+            }
+            Poll::Pending
+        })
+        .await;
+
+        compiler_fence(Ordering::SeqCst);
+        r.events_disabled.reset(); // ACK
+
+        // Everthing ends fine, so we can disable the drop
+        drop.defuse();
+    }
+
+    /// Disable the radio
+    fn disable(&mut self) {
+        let r = T::regs();
+
+        compiler_fence(Ordering::SeqCst);
+        // If it is already disabled, do nothing
+        if self.state() != RadioState::DISABLED {
+            trace!("radio:disable");
+            // Trigger the disable task
+            r.tasks_disable.write(|w| w.tasks_disable().set_bit());
+
+            // Wait until the radio is disabled
+            while r.events_disabled.read().events_disabled().bit_is_clear() {}
 
             compiler_fence(Ordering::SeqCst);
 
             // Acknowledge it
-            r.events_ready.reset();
-
-            // trace!("radio:start");
-            r.tasks_start.write(|w| w.tasks_start().set_bit());
-        })
-        .await;
+            r.events_disabled.reset();
+        }
     }
 }
 
