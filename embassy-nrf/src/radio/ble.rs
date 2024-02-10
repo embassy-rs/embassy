@@ -316,7 +316,7 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// for the life time of the transmission or if the buffer will be modified.
     /// Also if the buffer is smaller than the packet length, the radio will
     /// read/write memory out of the buffer bounds.
-    pub fn set_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    fn set_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
         // Because we are serializing the buffer, we should always have the buffer in RAM
         slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
 
@@ -334,27 +334,33 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     /// Send packet
-    pub async fn transmit(&mut self) {
-        let r = T::regs();
+    pub async fn transmit(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.set_buffer(buffer)?;
 
+        let r = T::regs();
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("txen");
             r.tasks_txen.write(|w| w.tasks_txen().set_bit());
         })
         .await;
+
+        Ok(())
     }
 
     /// Receive packet
-    pub async fn receive(&mut self) {
-        let r = T::regs();
+    pub async fn receive(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.set_buffer(buffer)?;
 
+        let r = T::regs();
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("rxen");
             r.tasks_rxen.write(|w| w.tasks_rxen().set_bit());
         })
         .await;
+
+        Ok(())
     }
 
     async fn trigger_and_wait_end(&mut self, trigger: impl FnOnce()) {
