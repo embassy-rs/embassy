@@ -334,6 +334,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     /// Send packet
+    /// If the length byte in the package is greater than the buffer length
+    /// the radio will read memory out of the buffer bounds
     pub async fn transmit(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.set_buffer(buffer)?;
 
@@ -349,6 +351,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     /// Receive packet
+    /// If the length byte in the received package is greater than the buffer length
+    /// the radio will write memory out of the buffer bounds
     pub async fn receive(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.set_buffer(buffer)?;
 
