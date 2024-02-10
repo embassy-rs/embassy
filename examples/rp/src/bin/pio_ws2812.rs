@@ -107,6 +107,8 @@ impl<'d, P: Instance, const S: usize, const N: usize> Ws2812<'d, P, S, N> {
 
         // DMA transfer
         self.sm.tx().dma_push(self.dma.reborrow(), &words).await;
+
+        Timer::after_micros(55).await;
     }
 }
 
