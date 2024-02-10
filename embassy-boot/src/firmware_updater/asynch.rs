@@ -276,16 +276,25 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     async fn set_magic(&mut self, magic: u8) -> Result<(), FirmwareUpdaterError> {
         self.state.read(0, &mut self.aligned).await?;
 
-        if self.aligned.iter().any(|&b| b != magic) {
+        if self.aligned[..STATE::WRITE_SIZE].iter().any(|&b| b != magic) {
             // Read progress validity
-            self.state.read(STATE::WRITE_SIZE as u32, &mut self.aligned).await?;
+            if STATE::READ_SIZE <= 2 * STATE::WRITE_SIZE {
+                self.state.read(STATE::WRITE_SIZE as u32, &mut self.aligned).await?;
+            } else {
+                self.aligned.rotate_left(STATE::WRITE_SIZE);
+            }
 
-            if self.aligned.iter().any(|&b| b != STATE_ERASE_VALUE) {
+            if self.aligned[..STATE::WRITE_SIZE]
+                .iter()
+                .any(|&b| b != STATE_ERASE_VALUE)
+            {
                 // The current progress validity marker is invalid
             } else {
                 // Invalidate progress
                 self.aligned.fill(!STATE_ERASE_VALUE);
-                self.state.write(STATE::WRITE_SIZE as u32, &self.aligned).await?;
+                self.state
+                    .write(STATE::WRITE_SIZE as u32, &self.aligned[..STATE::WRITE_SIZE])
+                    .await?;
             }
 
             // Clear magic and progress
@@ -293,7 +302,7 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
 
             // Set magic
             self.aligned.fill(magic);
-            self.state.write(0, &self.aligned).await?;
+            self.state.write(0, &self.aligned[..STATE::WRITE_SIZE]).await?;
         }
         Ok(())
     }
