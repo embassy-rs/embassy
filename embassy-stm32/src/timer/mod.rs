@@ -1,6 +1,8 @@
 //! Timers, PWM, quadrature decoder.
+//!
 
 //! Timer inheritance
+//!
 
 // sealed:
 //
@@ -14,16 +16,20 @@
 //            |             +--------------------------------------|-----------+
 //            +----------------------------------------------------+
 
-//! BasicInstance --> CaptureCompare16bitInstance --+--> ComplementaryCaptureCompare16bitInstance  
-//!                                                 |  
-//!                                                 +--> CaptureCompare32bitInstance  
+//! ```text
+//! BasicInstance --> CaptureCompare16bitInstance --+--> ComplementaryCaptureCompare16bitInstance
+//!                                                 |
+//!                                                 +--> CaptureCompare32bitInstance
+//! ```
 //!
-//! mapping:
+//! Mapping:
 //!
-//! BasicInstance --> Basic Timer  
-//! CaptureCompare16bitInstance --> 1-channel Timer, 2-channel Timer, General Purpose 16-bit Timer  
-//! CaptureCompare32bitInstance --> General Purpose 32-bit Timer  
-//! ComplementaryCaptureCompare16bitInstance --> 1-channel with one complentary Timer, 2-channel with one complentary Timer, Advance Control Timer  
+//! |                   trait                    | timer                                                                                             |
+//! | :----------------------------------------: | ------------------------------------------------------------------------------------------------- |
+//! |              [BasicInstance]               | Basic Timer                                                                                       |
+//! |       [CaptureCompare16bitInstance]        | 1-channel Timer, 2-channel Timer, General Purpose 16-bit Timer                                    |
+//! |       [CaptureCompare32bitInstance]        | General Purpose 32-bit Timer                                                                      |
+//! | [ComplementaryCaptureCompare16bitInstance] | 1-channel with one complentary Timer, 2-channel with one complentary Timer, Advance Control Timer |
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
