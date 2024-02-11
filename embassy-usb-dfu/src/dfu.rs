@@ -60,21 +60,6 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
             }
             Ok(Request::Dnload) if self.attrs.contains(DfuAttributes::CAN_DOWNLOAD) => {
                 if req.value == 0 {
-                    match self.updater.prepare_update() {
-                        Ok(_) => {
-                            self.status = Status::Ok;
-                        }
-                        Err(e) => {
-                            self.state = State::Error;
-                            match e {
-                                embassy_boot::FirmwareUpdaterError::Flash(e) => match e {
-                                    NorFlashErrorKind::NotAligned => self.status = Status::ErrErase,
-                                    _ => self.status = Status::ErrUnknown,
-                                },
-                                _ => self.status = Status::ErrUnknown,
-                            }
-                        }
-                    }
                     self.state = State::Download;
                     self.offset = 0;
                 }
@@ -108,7 +93,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
                         self.state = State::Error;
                         return Some(OutResponse::Rejected);
                     }
-                    match self.updater.write_firmware_without_erase(self.offset, buf.as_ref()) {
+                    match self.updater.write_firmware(self.offset, buf.as_ref()) {
                         Ok(_) => {
                             self.status = Status::Ok;
                             self.state = State::DlSync;
