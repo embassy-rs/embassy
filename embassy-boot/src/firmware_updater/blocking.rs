@@ -207,20 +207,69 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         self.state.mark_booted()
     }
 
-    /// Write data to a flash page.
+    /// Writes firmware data to the device.
     ///
-    /// The buffer must follow alignment requirements of the target flash and a multiple of page size big.
+    /// This function writes the given data to the firmware area starting at the specified offset.
+    /// It handles sector erasures and data writes while verifying the device is in a proper state
+    /// for firmware updates. The function ensures that only unerased sectors are erased before
+    /// writing and efficiently handles the writing process across sector boundaries and in
+    /// various configurations (data size, page size, etc.).
     ///
-    /// # Safety
+    /// # Arguments
     ///
-    /// Failing to meet alignment and size requirements may result in a panic.
+    /// * `offset` - The starting offset within the firmware area where data writing should begin.
+    /// * `data` - A slice of bytes representing the firmware data to be written. It must be a
+    /// multiple of NorFlash WRITE_SIZE.
+    ///
+    /// # Returns
+    ///
+    /// A `Result<(), FirmwareUpdaterError>` indicating the success or failure of the write operation.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if:
+    ///
+    /// - The device is not in a proper state to receive firmware updates (e.g., not booted).
+    /// - There is a failure erasing a sector before writing.
+    /// - There is a failure writing data to the device.
     pub fn write_firmware(&mut self, offset: usize, data: &[u8]) -> Result<(), FirmwareUpdaterError> {
-        assert!(data.len() >= DFU::ERASE_SIZE);
+        // Make sure we are running a booted firmware to avoid reverting to a bad state.
         self.state.verify_booted()?;
 
-        self.dfu.erase(offset as u32, (offset + data.len()) as u32)?;
+        // Initialize variables to keep track of the remaining data and the current offset.
+        let mut remaining_data = data;
+        let mut offset = offset;
 
-        self.dfu.write(offset as u32, data)?;
+        // Continue writing as long as there is data left to write.
+        while !remaining_data.is_empty() {
+            // Compute the current sector and its boundaries.
+            let current_sector = offset / DFU::ERASE_SIZE;
+            let sector_start = current_sector * DFU::ERASE_SIZE;
+            let sector_end = sector_start + DFU::ERASE_SIZE;
+            // Determine if the current sector needs to be erased before writing.
+            let need_erase = self
+                .state
+                .last_erased_dfu_page_index
+                .map_or(true, |last_erased_sector| current_sector != last_erased_sector);
+
+            // If the sector needs to be erased, erase it and update the last erased sector index.
+            if need_erase {
+                self.dfu.erase(sector_start as u32, sector_end as u32)?;
+                self.state.last_erased_dfu_page_index = Some(current_sector);
+            }
+
+            // Calculate the size of the data chunk that can be written in the current iteration.
+            let write_size = core::cmp::min(remaining_data.len(), sector_end - offset);
+            // Split the data to get the current chunk to be written and the remaining data.
+            let (data_chunk, rest) = remaining_data.split_at(write_size);
+
+            // Write the current data chunk.
+            self.dfu.write(offset as u32, data_chunk)?;
+
+            // Update the offset and remaining data for the next iteration.
+            remaining_data = rest;
+            offset += write_size;
+        }
 
         Ok(())
     }
@@ -244,6 +293,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
 pub struct BlockingFirmwareState<'d, STATE> {
     state: STATE,
     aligned: &'d mut [u8],
+    last_erased_dfu_page_index: Option<usize>,
 }
 
 impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
@@ -265,7 +315,11 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     /// and written to.
     pub fn new(state: STATE, aligned: &'d mut [u8]) -> Self {
         assert_eq!(aligned.len(), STATE::WRITE_SIZE);
-        Self { state, aligned }
+        Self {
+            state,
+            aligned,
+            last_erased_dfu_page_index: None,
+        }
     }
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
