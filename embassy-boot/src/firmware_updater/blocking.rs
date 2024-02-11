@@ -422,4 +422,82 @@ mod tests {
 
         assert_eq!(Sha1::digest(update).as_slice(), hash);
     }
+
+    #[test]
+    fn can_verify_sha1_page_bigger_than_chunk() {
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(MemFlash::<131072, 4096, 8>::default()));
+        let state = BlockingPartition::new(&flash, 0, 4096);
+        let dfu = BlockingPartition::new(&flash, 65536, 65536);
+        let mut aligned = [0; 8];
+
+        let update = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+        let mut to_write = [0; 4096];
+        to_write[..7].copy_from_slice(update.as_slice());
+
+        let mut updater = BlockingFirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
+        let mut offset = 0;
+        for chunk in to_write.chunks(1024) {
+            updater.write_firmware(offset, chunk).unwrap();
+            offset += chunk.len();
+        }
+        let mut chunk_buf = [0; 2];
+        let mut hash = [0; 20];
+        updater
+            .hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)
+            .unwrap();
+
+        assert_eq!(Sha1::digest(update).as_slice(), hash);
+    }
+
+    #[test]
+    fn can_verify_sha1_page_smaller_than_chunk() {
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(MemFlash::<131072, 1024, 8>::default()));
+        let state = BlockingPartition::new(&flash, 0, 4096);
+        let dfu = BlockingPartition::new(&flash, 65536, 65536);
+        let mut aligned = [0; 8];
+
+        let update = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+        let mut to_write = [0; 4096];
+        to_write[..7].copy_from_slice(update.as_slice());
+
+        let mut updater = BlockingFirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
+        let mut offset = 0;
+        for chunk in to_write.chunks(2048) {
+            updater.write_firmware(offset, chunk).unwrap();
+            offset += chunk.len();
+        }
+        let mut chunk_buf = [0; 2];
+        let mut hash = [0; 20];
+        updater
+            .hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)
+            .unwrap();
+
+        assert_eq!(Sha1::digest(update).as_slice(), hash);
+    }
+
+    #[test]
+    fn can_verify_sha1_cross_page_boundary() {
+        let flash = Mutex::<NoopRawMutex, _>::new(RefCell::new(MemFlash::<131072, 1024, 8>::default()));
+        let state = BlockingPartition::new(&flash, 0, 4096);
+        let dfu = BlockingPartition::new(&flash, 65536, 65536);
+        let mut aligned = [0; 8];
+
+        let update = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66];
+        let mut to_write = [0; 4096];
+        to_write[..7].copy_from_slice(update.as_slice());
+
+        let mut updater = BlockingFirmwareUpdater::new(FirmwareUpdaterConfig { dfu, state }, &mut aligned);
+        let mut offset = 0;
+        for chunk in to_write.chunks(896) {
+            updater.write_firmware(offset, chunk).unwrap();
+            offset += chunk.len();
+        }
+        let mut chunk_buf = [0; 2];
+        let mut hash = [0; 20];
+        updater
+            .hash::<Sha1>(update.len() as u32, &mut chunk_buf, &mut hash)
+            .unwrap();
+
+        assert_eq!(Sha1::digest(update).as_slice(), hash);
+    }
 }
