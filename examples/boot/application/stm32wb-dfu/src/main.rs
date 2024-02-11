@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
-    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
+    let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
     let mut magic = AlignedBuffer([0; WRITE_SIZE]);
     let mut firmware_state = BlockingFirmwareState::from_config(config, &mut magic.0);
     firmware_state.mark_booted().expect("Failed to mark booted");

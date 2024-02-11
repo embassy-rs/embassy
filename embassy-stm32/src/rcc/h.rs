@@ -658,6 +658,7 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(stm32h5)]
         audioclk: None,
         per: None,
+        i2s_ckin: None,
     );
 }
 

@@ -477,6 +477,7 @@ pub(crate) unsafe fn init(config: Config) {
         pll3_p: None,
         pll3_q: None,
         pll3_r: None,
+        iclk: None,
     );
 }
 

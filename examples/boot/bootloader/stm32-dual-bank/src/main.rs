@@ -6,32 +6,31 @@ use core::cell::RefCell;
 use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
-use embassy_boot_rp::*;
+use embassy_boot_stm32::*;
+use embassy_stm32::flash::{Flash, BANK1_REGION};
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_time::Duration;
-
-const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
 #[entry]
 fn main() -> ! {
-    let p = embassy_rp::init(Default::default());
+    let p = embassy_stm32::init(Default::default());
 
     // Uncomment this if you are debugging the bootloader with debugger/RTT attached,
     // as it prevents a hard fault when accessing flash 'too early' after boot.
     /*
-    for i in 0..10000000 {
-        cortex_m::asm::nop();
-    }
+        for i in 0..10000000 {
+            cortex_m::asm::nop();
+        }
     */
 
-    let flash = WatchdogFlash::<FLASH_SIZE>::start(p.FLASH, p.WATCHDOG, Duration::from_secs(8));
-    let flash = Mutex::new(RefCell::new(flash));
+    let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    let flash_bank1 = Mutex::new(RefCell::new(layout.bank1_region));
+    let flash_bank2 = Mutex::new(RefCell::new(layout.bank2_region));
 
-    let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
+    let config = BootLoaderConfig::from_linkerfile_blocking(&flash_bank1, &flash_bank2, &flash_bank1);
     let active_offset = config.active.offset();
-    let bl: BootLoader = BootLoader::prepare(config);
+    let bl = BootLoader::prepare::<_, _, _, 2048>(config);
 
-    unsafe { bl.load(embassy_rp::flash::FLASH_BASE as u32 + active_offset) }
+    unsafe { bl.load(BANK1_REGION.base + active_offset) }
 }
 
 #[no_mangle]

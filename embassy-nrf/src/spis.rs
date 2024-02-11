@@ -11,7 +11,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spis0::config::ORDER_A as BitOrder;
 
-use crate::chip::FORCE_COPY_BUFFER_SIZE;
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
@@ -227,11 +227,17 @@ impl<'d, T: Instance> Spis<'d, T> {
 
         // Set up the DMA write.
         let (ptr, len) = slice_ptr_parts(tx);
+        if len > EASY_DMA_SIZE {
+            return Err(Error::TxBufferTooLong);
+        }
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         // Set up the DMA read.
         let (ptr, len) = slice_ptr_parts_mut(rx);
+        if len > EASY_DMA_SIZE {
+            return Err(Error::RxBufferTooLong);
+        }
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 

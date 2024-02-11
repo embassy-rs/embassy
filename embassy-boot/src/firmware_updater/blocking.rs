@@ -16,12 +16,43 @@ pub struct BlockingFirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
 }
 
 #[cfg(target_os = "none")]
-impl<'a, FLASH: NorFlash>
-    FirmwareUpdaterConfig<BlockingPartition<'a, NoopRawMutex, FLASH>, BlockingPartition<'a, NoopRawMutex, FLASH>>
+impl<'a, DFU: NorFlash, STATE: NorFlash>
+    FirmwareUpdaterConfig<BlockingPartition<'a, NoopRawMutex, DFU>, BlockingPartition<'a, NoopRawMutex, STATE>>
 {
-    /// Create a firmware updater config from the flash and address symbols defined in the linkerfile
+    /// Constructs a `FirmwareUpdaterConfig` instance from flash memory and address symbols defined in the linker file.
+    ///
+    /// This method initializes `BlockingPartition` instances for the DFU (Device Firmware Update), and state
+    /// partitions, leveraging start and end addresses specified by the linker. These partitions are critical
+    /// for managing firmware updates, application state, and boot operations within the bootloader.
+    ///
+    /// # Parameters
+    /// - `dfu_flash`: A reference to a mutex-protected `RefCell` for the DFU partition's flash interface.
+    /// - `state_flash`: A reference to a mutex-protected `RefCell` for the state partition's flash interface.
+    ///
+    /// # Safety
+    /// The method contains `unsafe` blocks for dereferencing raw pointers that represent the start and end addresses
+    /// of the bootloader's partitions in flash memory. It is crucial that these addresses are accurately defined
+    /// in the memory.x file to prevent undefined behavior.
+    ///
+    /// The caller must ensure that the memory regions defined by these symbols are valid and that the flash memory
+    /// interfaces provided are compatible with these regions.
+    ///
+    /// # Returns
+    /// A `FirmwareUpdaterConfig` instance with `BlockingPartition` instances for the DFU, and state partitions.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Assume `dfu_flash`, and `state_flash` share the same flash memory interface.
+    /// let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    /// let flash = Mutex::new(RefCell::new(layout.bank1_region));
+    ///
+    /// let config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
+    /// // `config` can now be used to create a `FirmwareUpdater` instance for managing boot operations.
+    /// ```
+    /// Working examples can be found in the bootloader examples folder.
     pub fn from_linkerfile_blocking(
-        flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<FLASH>>,
+        dfu_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<DFU>>,
+        state_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<STATE>>,
     ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
@@ -35,14 +66,14 @@ impl<'a, FLASH: NorFlash>
             let end = &__bootloader_dfu_end as *const u32 as u32;
             trace!("DFU: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(dfu_flash, start, end - start)
         };
         let state = unsafe {
             let start = &__bootloader_state_start as *const u32 as u32;
             let end = &__bootloader_state_end as *const u32 as u32;
             trace!("STATE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(state_flash, start, end - start)
         };
 
         Self { dfu, state }

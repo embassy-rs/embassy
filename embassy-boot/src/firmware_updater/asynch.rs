@@ -16,11 +16,14 @@ pub struct FirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
 }
 
 #[cfg(target_os = "none")]
-impl<'a, FLASH: NorFlash>
-    FirmwareUpdaterConfig<Partition<'a, NoopRawMutex, FLASH>, Partition<'a, NoopRawMutex, FLASH>>
+impl<'a, DFU: NorFlash, STATE: NorFlash>
+    FirmwareUpdaterConfig<Partition<'a, NoopRawMutex, DFU>, Partition<'a, NoopRawMutex, STATE>>
 {
     /// Create a firmware updater config from the flash and address symbols defined in the linkerfile
-    pub fn from_linkerfile(flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, FLASH>) -> Self {
+    pub fn from_linkerfile(
+        dfu_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, DFU>,
+        state_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, STATE>,
+    ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -33,14 +36,14 @@ impl<'a, FLASH: NorFlash>
             let end = &__bootloader_dfu_end as *const u32 as u32;
             trace!("DFU: 0x{:x} - 0x{:x}", start, end);
 
-            Partition::new(flash, start, end - start)
+            Partition::new(dfu_flash, start, end - start)
         };
         let state = unsafe {
             let start = &__bootloader_state_start as *const u32 as u32;
             let end = &__bootloader_state_end as *const u32 as u32;
             trace!("STATE: 0x{:x} - 0x{:x}", start, end);
 
-            Partition::new(flash, start, end - start)
+            Partition::new(state_flash, start, end - start)
         };
 
         Self { dfu, state }

@@ -35,7 +35,7 @@ fn main() -> ! {
     let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
     let flash = Mutex::new(RefCell::new(layout.bank1_region));
 
-    let config = BootLoaderConfig::from_linkerfile_blocking(&flash);
+    let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
     let active_offset = config.active.offset();
     let bl = BootLoader::prepare::<_, _, _, 2048>(config);
     if bl.state == State::DfuDetach {
@@ -45,7 +45,7 @@ fn main() -> ! {
         config.product = Some("USB-DFU Bootloader example");
         config.serial_number = Some("1235678");
 
-        let fw_config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash);
+        let fw_config = FirmwareUpdaterConfig::from_linkerfile_blocking(&flash, &flash);
         let mut buffer = AlignedBuffer([0; WRITE_SIZE]);
         let updater = BlockingFirmwareUpdater::new(fw_config, &mut buffer.0[..]);
 
