@@ -3,7 +3,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::{bind_interrupts, Config, hash, hash::*, peripherals};
+use embassy_stm32::{bind_interrupts, hash, hash::*, peripherals, Config};
 use embassy_time::Instant;
 use sha2::{Digest, Sha256};
 use {defmt_rtt as _, panic_probe as _};
@@ -25,11 +25,11 @@ async fn main(_spawner: Spawner) -> ! {
     let hw_start_time = Instant::now();
 
     // Compute a digest in hardware.
-    let mut context = hw_hasher.start(Algorithm::SHA256, DataType::Width8).await;
+    let mut context = hw_hasher.start(Algorithm::SHA256, DataType::Width8);
     hw_hasher.update(&mut context, test_1).await;
     hw_hasher.update(&mut context, test_2).await;
-    let mut buffer: [u8; 64] = [0; 64];
-    let hw_digest = hw_hasher.finish(context, &mut buffer).await;
+    let mut hw_digest: [u8; 32] = [0; 32];
+    hw_hasher.finish(context, &mut hw_digest).await;
 
     let hw_end_time = Instant::now();
     let hw_execution_time = hw_end_time - hw_start_time;
@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Software Digest: {:?}", sw_digest[..]);
     info!("Hardware Execution Time: {:?}", hw_execution_time);
     info!("Software Execution Time: {:?}", sw_execution_time);
-    assert_eq!(*hw_digest, sw_digest[..]);
+    assert_eq!(hw_digest, sw_digest[..]);
 
     loop {}
 }
