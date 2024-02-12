@@ -1,191 +1,257 @@
-use core::convert::TryFrom;
-
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::*;
+use crate::pac::rcc::vals::Pllsrc;
+#[cfg(any(rcc_f1, rcc_f1cl))]
+use crate::pac::rcc::vals::Usbpre;
+pub use crate::pac::rcc::vals::{
+    Adcpre as ADCPrescaler, Hpre as AHBPrescaler, Pllmul as PllMul, Pllxtpre as PllPreDiv, Ppre as APBPrescaler,
+    Sw as Sysclk,
+};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(8_000_000);
 
-/// Configuration of the clocks
-///
-#[non_exhaustive]
-#[derive(Default)]
-pub struct Config {
-    pub hse: Option<Hertz>,
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum HseMode {
+    /// crystal/ceramic oscillator (HSEBYP=0)
+    Oscillator,
+    /// external analog clock (low swing) (HSEBYP=1)
+    Bypass,
+}
 
-    pub sys_ck: Option<Hertz>,
-    pub hclk: Option<Hertz>,
-    pub pclk1: Option<Hertz>,
-    pub pclk2: Option<Hertz>,
-    pub adcclk: Option<Hertz>,
-    pub pllxtpre: bool,
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hse {
+    /// HSE frequency.
+    pub freq: Hertz,
+    /// HSE mode.
+    pub mode: HseMode,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum PllSource {
+    HSE,
+    HSI,
+}
+
+#[derive(Clone, Copy)]
+pub struct Pll {
+    pub src: PllSource,
+
+    /// PLL pre-divider.
+    ///
+    /// On some F3 chips, this must be 2 if `src == HSI`. Init will panic if this is not the case.
+    pub prediv: PllPreDiv,
+
+    /// PLL multiplication factor.
+    pub mul: PllMul,
+}
+
+/// Clocks configutation
+#[non_exhaustive]
+pub struct Config {
+    pub hsi: bool,
+    pub hse: Option<Hse>,
+    pub sys: Sysclk,
+
+    pub pll: Option<Pll>,
+
+    pub ahb_pre: AHBPrescaler,
+    pub apb1_pre: APBPrescaler,
+    pub apb2_pre: APBPrescaler,
+
+    pub adc_pre: ADCPrescaler,
 
     pub ls: super::LsConfig,
 }
 
-pub(crate) unsafe fn init(config: Config) {
-    let pllxtpre_div = if config.pllxtpre { 2 } else { 1 };
-    let pllsrcclk = config.hse.map(|hse| hse.0 / pllxtpre_div).unwrap_or(HSI_FREQ.0 / 2);
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            hsi: true,
+            hse: None,
+            sys: Sysclk::HSI,
+            pll: None,
+            ahb_pre: AHBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::DIV1,
+            ls: Default::default(),
 
-    let sysclk = config.sys_ck.map(|sys| sys.0).unwrap_or(pllsrcclk);
-    let pllmul = sysclk / pllsrcclk;
-
-    let (pllmul_bits, real_sysclk) = if pllmul == 1 {
-        (None, config.hse.map(|hse| hse.0).unwrap_or(HSI_FREQ.0))
-    } else {
-        let pllmul = core::cmp::min(core::cmp::max(pllmul, 1), 16);
-        (Some(pllmul as u8 - 2), pllsrcclk * pllmul)
-    };
-
-    assert!(real_sysclk <= 72_000_000);
-
-    let hpre_bits = config
-        .hclk
-        .map(|hclk| match real_sysclk / hclk.0 {
-            0 => unreachable!(),
-            1 => 0b0111,
-            2 => 0b1000,
-            3..=5 => 0b1001,
-            6..=11 => 0b1010,
-            12..=39 => 0b1011,
-            40..=95 => 0b1100,
-            96..=191 => 0b1101,
-            192..=383 => 0b1110,
-            _ => 0b1111,
-        })
-        .unwrap_or(0b0111);
-
-    let hclk = if hpre_bits >= 0b1100 {
-        real_sysclk / (1 << (hpre_bits - 0b0110))
-    } else {
-        real_sysclk / (1 << (hpre_bits - 0b0111))
-    };
-
-    assert!(hclk <= 72_000_000);
-
-    let ppre1_bits = config
-        .pclk1
-        .map(|pclk1| match hclk / pclk1.0 {
-            0 => unreachable!(),
-            1 => 0b011,
-            2 => 0b100,
-            3..=5 => 0b101,
-            6..=11 => 0b110,
-            _ => 0b111,
-        })
-        .unwrap_or(0b011);
-
-    let ppre1 = 1 << (ppre1_bits - 0b011);
-    let pclk1 = hclk / u32::try_from(ppre1).unwrap();
-    let timer_mul1 = if ppre1 == 1 { 1 } else { 2 };
-
-    assert!(pclk1 <= 36_000_000);
-
-    let ppre2_bits = config
-        .pclk2
-        .map(|pclk2| match hclk / pclk2.0 {
-            0 => unreachable!(),
-            1 => 0b011,
-            2 => 0b100,
-            3..=5 => 0b101,
-            6..=11 => 0b110,
-            _ => 0b111,
-        })
-        .unwrap_or(0b011);
-
-    let ppre2 = 1 << (ppre2_bits - 0b011);
-    let pclk2 = hclk / u32::try_from(ppre2).unwrap();
-    let timer_mul2 = if ppre2 == 1 { 1 } else { 2 };
-
-    assert!(pclk2 <= 72_000_000);
-
-    FLASH.acr().write(|w| {
-        w.set_latency(if real_sysclk <= 24_000_000 {
-            Latency::WS0
-        } else if real_sysclk <= 48_000_000 {
-            Latency::WS1
-        } else {
-            Latency::WS2
-        });
-        // the prefetch buffer is enabled by default, let's keep it enabled
-        w.set_prftbe(true);
-    });
-
-    // the USB clock is only valid if an external crystal is used, the PLL is enabled, and the
-    // PLL output frequency is a supported one.
-    // usbpre == false: divide clock by 1.5, otherwise no division
-    #[cfg(not(rcc_f100))]
-    let (usbpre, _usbclk_valid) = match (config.hse, pllmul_bits, real_sysclk) {
-        (Some(_), Some(_), 72_000_000) => (false, true),
-        (Some(_), Some(_), 48_000_000) => (true, true),
-        _ => (true, false),
-    };
-
-    let apre_bits: u8 = config
-        .adcclk
-        .map(|adcclk| match pclk2 / adcclk.0 {
-            0..=2 => 0b00,
-            3..=4 => 0b01,
-            5..=7 => 0b10,
-            _ => 0b11,
-        })
-        .unwrap_or(0b11);
-
-    let apre = (apre_bits + 1) << 1;
-    let adcclk = pclk2 / unwrap!(u32::try_from(apre));
-
-    assert!(adcclk <= 14_000_000);
-
-    if config.hse.is_some() {
-        // enable HSE and wait for it to be ready
-        RCC.cr().modify(|w| w.set_hseon(true));
-        while !RCC.cr().read().hserdy() {}
+            // ensure ADC is not out of range by default even if APB2 is maxxed out (36mhz)
+            adc_pre: ADCPrescaler::DIV6,
+        }
     }
+}
 
-    if let Some(pllmul_bits) = pllmul_bits {
-        let pllctpre_flag: u8 = if config.pllxtpre { 1 } else { 0 };
-        RCC.cfgr()
-            .modify(|w| w.set_pllxtpre(Pllxtpre::from_bits(pllctpre_flag)));
+/// Initialize and Set the clock frequencies
+pub(crate) unsafe fn init(config: Config) {
+    // Configure HSI
+    let hsi = match config.hsi {
+        false => {
+            RCC.cr().modify(|w| w.set_hsion(false));
+            None
+        }
+        true => {
+            RCC.cr().modify(|w| w.set_hsion(true));
+            while !RCC.cr().read().hsirdy() {}
+            Some(HSI_FREQ)
+        }
+    };
 
-        // enable PLL and wait for it to be ready
+    // Configure HSE
+    let hse = match config.hse {
+        None => {
+            RCC.cr().modify(|w| w.set_hseon(false));
+            None
+        }
+        Some(hse) => {
+            match hse.mode {
+                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+            }
+
+            RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
+            RCC.cr().modify(|w| w.set_hseon(true));
+            while !RCC.cr().read().hserdy() {}
+            Some(hse.freq)
+        }
+    };
+
+    // Enable PLL
+    let pll = config.pll.map(|pll| {
+        let (src_val, src_freq) = match pll.src {
+            PllSource::HSI => {
+                if pll.prediv != PllPreDiv::DIV2 {
+                    panic!("if PLL source is HSI, PLL prediv must be 2.");
+                }
+                (Pllsrc::HSI_DIV2, unwrap!(hsi))
+            }
+            PllSource::HSE => (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse)),
+        };
+        let in_freq = src_freq / pll.prediv;
+        assert!(max::PLL_IN.contains(&in_freq));
+        let out_freq = in_freq * pll.mul;
+        assert!(max::PLL_OUT.contains(&out_freq));
+
         RCC.cfgr().modify(|w| {
-            w.set_pllmul(Pllmul::from_bits(pllmul_bits));
-            w.set_pllsrc(Pllsrc::from_bits(config.hse.is_some() as u8));
+            w.set_pllmul(pll.mul);
+            w.set_pllsrc(src_val);
+            w.set_pllxtpre(pll.prediv);
         });
-
         RCC.cr().modify(|w| w.set_pllon(true));
         while !RCC.cr().read().pllrdy() {}
-    }
 
-    // Only needed for stm32f103?
-    RCC.cfgr().modify(|w| {
-        w.set_adcpre(Adcpre::from_bits(apre_bits));
-        w.set_ppre2(Ppre::from_bits(ppre2_bits));
-        w.set_ppre1(Ppre::from_bits(ppre1_bits));
-        w.set_hpre(Hpre::from_bits(hpre_bits));
-        #[cfg(not(rcc_f100))]
-        w.set_usbpre(Usbpre::from_bits(usbpre as u8));
-        w.set_sw(if pllmul_bits.is_some() {
-            Sw::PLL1_P
-        } else if config.hse.is_some() {
-            Sw::HSE
-        } else {
-            Sw::HSI
-        });
+        out_freq
     });
+
+    #[cfg(any(rcc_f1, rcc_f1cl))]
+    let usb = match pll {
+        Some(Hertz(72_000_000)) => {
+            RCC.cfgr().modify(|w| w.set_usbpre(Usbpre::DIV1_5));
+            Some(Hertz(48_000_000))
+        }
+        Some(Hertz(48_000_000)) => {
+            RCC.cfgr().modify(|w| w.set_usbpre(Usbpre::DIV1));
+            Some(Hertz(48_000_000))
+        }
+        _ => None,
+    };
+
+    // Configure sysclk
+    let sys = match config.sys {
+        Sysclk::HSI => unwrap!(hsi),
+        Sysclk::HSE => unwrap!(hse),
+        Sysclk::PLL1_P => unwrap!(pll),
+        _ => unreachable!(),
+    };
+
+    let hclk = sys / config.ahb_pre;
+    let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
+    let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
+
+    assert!(max::HCLK.contains(&hclk));
+    assert!(max::PCLK1.contains(&pclk1));
+    assert!(max::PCLK2.contains(&pclk2));
+
+    let adc = pclk2 / config.adc_pre;
+    assert!(max::ADC.contains(&adc));
+
+    // Set latency based on HCLK frquency
+    let latency = match hclk.0 {
+        ..=24_000_000 => Latency::WS0,
+        ..=48_000_000 => Latency::WS1,
+        _ => Latency::WS2,
+    };
+    FLASH.acr().modify(|w| {
+        w.set_latency(latency);
+        // RM0316: "The prefetch buffer must be kept on when using a prescaler
+        // different from 1 on the AHB clock.", "Half-cycle access cannot be
+        // used when there is a prescaler different from 1 on the AHB clock"
+        if config.ahb_pre != AHBPrescaler::DIV1 {
+            w.set_hlfcya(false);
+            w.set_prftbe(true);
+        }
+    });
+
+    // Set prescalers
+    // CFGR has been written before (PLL, PLL48) don't overwrite these settings
+    RCC.cfgr().modify(|w| {
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
+        w.set_hpre(config.ahb_pre);
+        w.set_adcpre(config.adc_pre);
+    });
+
+    // Wait for the new prescalers to kick in
+    // "The clocks are divided with the new prescaler factor from
+    //  1 to 16 AHB cycles after write"
+    cortex_m::asm::delay(16);
+
+    // CFGR has been written before (PLL, PLL48, clock divider) don't overwrite these settings
+    RCC.cfgr().modify(|w| w.set_sw(config.sys));
+    while RCC.cfgr().read().sws() != config.sys {}
 
     let rtc = config.ls.init();
 
     set_clocks!(
-        sys: Some(Hertz(real_sysclk)),
-        pclk1: Some(Hertz(pclk1)),
-        pclk2: Some(Hertz(pclk2)),
-        pclk1_tim: Some(Hertz(pclk1 * timer_mul1)),
-        pclk2_tim: Some(Hertz(pclk2 * timer_mul2)),
-        hclk1: Some(Hertz(hclk)),
-        adc: Some(Hertz(adcclk)),
+        hsi: hsi,
+        hse: hse,
+        pll1_p: pll,
+        sys: Some(sys),
+        pclk1: Some(pclk1),
+        pclk2: Some(pclk2),
+        pclk1_tim: Some(pclk1_tim),
+        pclk2_tim: Some(pclk2_tim),
+        hclk1: Some(hclk),
+        adc: Some(adc),
         rtc: rtc,
+        #[cfg(any(rcc_f1, rcc_f1cl))]
+        usb: usb,
+        lse: None,
     );
+}
+
+mod max {
+    use core::ops::RangeInclusive;
+
+    use crate::time::Hertz;
+
+    #[cfg(not(rcc_f1cl))]
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(16_000_000);
+    #[cfg(not(rcc_f1cl))]
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(25_000_000);
+
+    #[cfg(rcc_f1cl)]
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(3_000_000)..=Hertz(25_000_000);
+    #[cfg(rcc_f1cl)]
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(50_000_000);
+
+    pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(72_000_000);
+    pub(crate) const PCLK1: RangeInclusive<Hertz> = Hertz(0)..=Hertz(36_000_000);
+    pub(crate) const PCLK2: RangeInclusive<Hertz> = Hertz(0)..=Hertz(72_000_000);
+
+    pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(25_000_000);
+    pub(crate) const PLL_OUT: RangeInclusive<Hertz> = Hertz(16_000_000)..=Hertz(72_000_000);
+
+    pub(crate) const ADC: RangeInclusive<Hertz> = Hertz(0)..=Hertz(14_000_000);
 }
