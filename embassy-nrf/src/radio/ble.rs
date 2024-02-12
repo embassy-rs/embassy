@@ -1,15 +1,4 @@
 //! Radio driver implementation focused on Bluetooth Low-Energy transmission.
-//!
-//! The radio can calculate the CRC, perform data whitening,
-//! automatically send the right preamble.
-//! Most of the configuration is done automatically when you choose the mode and this driver.
-//!
-//! Some configuration can just be done when de device is disabled,
-//! and the configuration varies depending if is a transmitter or a receiver.
-//! Because of that we have a state machine to keep track of the state of the radio.
-//! The Radio is the disable radio which configure the common parameters between
-//! the bluetooth protocols, like the package format, the CRC and the whitening.
-//! The TxRadio radio enable and configured as a transmitter with the specific parameters.
 
 use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -241,7 +230,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             .write(|w| unsafe { w.ap0().bits((access_address >> 24) as u8) });
 
         // The base address is truncated from the least significant byte (because the BALEN is less than 4)
-        // So we need to shift the address to the right
+        // So it shifts the address to the right
         r.base0.write(|w| unsafe { w.bits(access_address << 8) });
 
         // Don't match tx address
@@ -317,13 +306,12 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// Also if the buffer is smaller than the packet length, the radio will
     /// read/write memory out of the buffer bounds.
     fn set_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        // Because we are serializing the buffer, we should always have the buffer in RAM
         slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
 
         let r = T::regs();
 
-        // Here we are considering that the length of the packet is
-        // correctly set in the buffer, otherwise we will sending
+        // Here it consider that the length of the packet is
+        // correctly set in the buffer, otherwise it will send
         // unowned regions of memory
         let ptr = buffer.as_ptr();
 
@@ -374,7 +362,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         let s = T::state();
 
         // If the Future is dropped before the end of the transmission
-        // we need to disable the interrupt and stop the transmission
+        // it disable the interrupt and stop the transmission
         // to keep the state consistent
         let drop = OnDrop::new(|| {
             trace!("radio drop: stopping");
@@ -417,7 +405,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         compiler_fence(Ordering::SeqCst);
         r.events_disabled.reset(); // ACK
 
-        // Everthing ends fine, so we can disable the drop
+        // Everthing ends fine, so it disable the drop
         drop.defuse();
     }
 

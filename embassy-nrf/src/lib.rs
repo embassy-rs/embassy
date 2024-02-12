@@ -46,7 +46,8 @@ pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 
-#[cfg(any(feature = "nrf52840"))] // needs to be tested on other chips
+// TODO: tested on other chips
+#[cfg(any(feature = "nrf52840"))]
 pub mod radio;
 
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
