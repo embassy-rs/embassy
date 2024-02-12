@@ -222,8 +222,8 @@ pub(crate) unsafe fn init(config: Config) {
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
     RCC.cfgr().modify(|w| {
-        w.set_ppre2(config.apb1_pre);
-        w.set_ppre1(config.apb2_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
         w.set_hpre(config.ahb_pre);
     });
 
@@ -234,6 +234,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     // CFGR has been written before (PLL, PLL48, clock divider) don't overwrite these settings
     RCC.cfgr().modify(|w| w.set_sw(config.sys));
+    while RCC.cfgr().read().sws() != config.sys {}
 
     let rtc = config.ls.init();
 
