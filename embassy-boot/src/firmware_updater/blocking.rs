@@ -13,6 +13,7 @@ use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERA
 pub struct BlockingFirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
     dfu: DFU,
     state: BlockingFirmwareState<'d, STATE>,
+    last_erased_dfu_page_index: Option<usize>,
 }
 
 #[cfg(target_os = "none")]
@@ -91,6 +92,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         Self {
             dfu: config.dfu,
             state: BlockingFirmwareState::new(config.state, aligned),
+            last_erased_dfu_page_index: None,
         }
     }
 
@@ -107,7 +109,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
     /// proceed with updating the firmware as it must be signed with a
     /// corresponding private key (otherwise it could be malicious firmware).
     ///
-    /// Mark to trigger firmware swap on next boot if verify suceeds.
+    /// Mark to trigger firmware swap on next boot if verify succeeds.
     ///
     /// If the "ed25519-salty" feature is set (or another similar feature) then the signature is expected to have
     /// been generated from a SHA-512 digest of the firmware bytes.
@@ -248,14 +250,13 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             let sector_end = sector_start + DFU::ERASE_SIZE;
             // Determine if the current sector needs to be erased before writing.
             let need_erase = self
-                .state
                 .last_erased_dfu_page_index
                 .map_or(true, |last_erased_sector| current_sector != last_erased_sector);
 
             // If the sector needs to be erased, erase it and update the last erased sector index.
             if need_erase {
                 self.dfu.erase(sector_start as u32, sector_end as u32)?;
-                self.state.last_erased_dfu_page_index = Some(current_sector);
+                self.last_erased_dfu_page_index = Some(current_sector);
             }
 
             // Calculate the size of the data chunk that can be written in the current iteration.
@@ -293,7 +294,6 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
 pub struct BlockingFirmwareState<'d, STATE> {
     state: STATE,
     aligned: &'d mut [u8],
-    last_erased_dfu_page_index: Option<usize>,
 }
 
 impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
@@ -315,11 +315,7 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     /// and written to.
     pub fn new(state: STATE, aligned: &'d mut [u8]) -> Self {
         assert_eq!(aligned.len(), STATE::WRITE_SIZE);
-        Self {
-            state,
-            aligned,
-            last_erased_dfu_page_index: None,
-        }
+        Self { state, aligned }
     }
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
