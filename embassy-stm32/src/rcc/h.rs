@@ -170,22 +170,7 @@ pub enum SupplyConfig {
 /// This is only used in certain power supply configurations:
 /// SMPSLDO, SMPSExternalLDO, SMPSExternalLDOBypass.
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
-#[derive(PartialEq)]
-pub enum SMPSSupplyVoltage {
-    V1_8,
-    V2_5,
-}
-
-#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
-impl SMPSSupplyVoltage {
-    /// Convert SMPSSupplyVoltage to u8 representation.
-    fn to_u8(&self) -> u8 {
-        match self {
-            SMPSSupplyVoltage::V1_8 => 0b01,
-            SMPSSupplyVoltage::V2_5 => 0b10,
-        }
-    }
-}
+pub use pac::pwr::vals::Sdlevel as SMPSSupplyVoltage;
 
 /// Configuration of the core clocks
 #[non_exhaustive]
@@ -279,7 +264,7 @@ pub(crate) unsafe fn init(config: Config) {
         match config.supply_config {
             SupplyConfig::Default => {
                 PWR.cr3().modify(|w| {
-                    w.set_sdlevel(0b00);
+                    w.set_sdlevel(SMPSSupplyVoltage::RESET);
                     w.set_sdexthp(false);
                     w.set_sden(true);
                     w.set_ldoen(true);
@@ -301,11 +286,11 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_bypass(false);
                 });
             }
-            SupplyConfig::SMPSLDO(ref smps_supply_voltage)
-            | SupplyConfig::SMPSExternalLDO(ref smps_supply_voltage)
-            | SupplyConfig::SMPSExternalLDOBypass(ref smps_supply_voltage) => {
+            SupplyConfig::SMPSLDO(smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDO(smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDOBypass(smps_supply_voltage) => {
                 PWR.cr3().modify(|w| {
-                    w.set_sdlevel(smps_supply_voltage.to_u8());
+                    w.set_sdlevel(smps_supply_voltage);
                     w.set_sdexthp(matches!(
                         config.supply_config,
                         SupplyConfig::SMPSExternalLDO(_) | SupplyConfig::SMPSExternalLDOBypass(_)
