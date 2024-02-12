@@ -118,6 +118,13 @@ features = [
 ]
 ----
 
+If you are in the early project setup phase and not using anything from the HAL, make sure the HAL is passed to the linker by adding this line to your source:
+
+[source,rust]
+----
+use embassy_stm32 as _;
+----
+
 == Error: `Only one package in the dependency graph may specify the same links value.`
 
 You have multiple versions of the same crate in your dependency tree. This means that some of your
