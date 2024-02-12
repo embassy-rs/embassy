@@ -13,7 +13,7 @@ use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERA
 pub struct FirmwareUpdater<'d, DFU: NorFlash, STATE: NorFlash> {
     dfu: DFU,
     state: FirmwareState<'d, STATE>,
-    last_erased_dfu_page_index: Option<usize>,
+    last_erased_dfu_sector_index: Option<usize>,
 }
 
 #[cfg(target_os = "none")]
@@ -57,7 +57,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         Self {
             dfu: config.dfu,
             state: FirmwareState::new(config.state, aligned),
-            last_erased_dfu_page_index: None,
+            last_erased_dfu_sector_index: None,
         }
     }
 
@@ -180,7 +180,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     /// It handles sector erasures and data writes while verifying the device is in a proper state
     /// for firmware updates. The function ensures that only unerased sectors are erased before
     /// writing and efficiently handles the writing process across sector boundaries and in
-    /// various configurations (data size, page size, etc.).
+    /// various configurations (data size, sector size, etc.).
     ///
     /// # Arguments
     ///
@@ -215,13 +215,13 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let sector_end = sector_start + DFU::ERASE_SIZE;
             // Determine if the current sector needs to be erased before writing.
             let need_erase = self
-                .last_erased_dfu_page_index
+                .last_erased_dfu_sector_index
                 .map_or(true, |last_erased_sector| current_sector != last_erased_sector);
 
             // If the sector needs to be erased, erase it and update the last erased sector index.
             if need_erase {
                 self.dfu.erase(sector_start as u32, sector_end as u32).await?;
-                self.last_erased_dfu_page_index = Some(current_sector);
+                self.last_erased_dfu_sector_index = Some(current_sector);
             }
 
             // Calculate the size of the data chunk that can be written in the current iteration.
@@ -380,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn can_verify_sha1_page_bigger_than_chunk() {
+    fn can_verify_sha1_sector_bigger_than_chunk() {
         let flash = Mutex::<NoopRawMutex, _>::new(MemFlash::<131072, 4096, 8>::default());
         let state = Partition::new(&flash, 0, 4096);
         let dfu = Partition::new(&flash, 65536, 65536);
@@ -404,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn can_verify_sha1_page_smaller_than_chunk() {
+    fn can_verify_sha1_sector_smaller_than_chunk() {
         let flash = Mutex::<NoopRawMutex, _>::new(MemFlash::<131072, 1024, 8>::default());
         let state = Partition::new(&flash, 0, 4096);
         let dfu = Partition::new(&flash, 65536, 65536);
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn can_verify_sha1_cross_page_boundary() {
+    fn can_verify_sha1_cross_sector_boundary() {
         let flash = Mutex::<NoopRawMutex, _>::new(MemFlash::<131072, 1024, 8>::default());
         let state = Partition::new(&flash, 0, 4096);
         let dfu = Partition::new(&flash, 65536, 65536);
