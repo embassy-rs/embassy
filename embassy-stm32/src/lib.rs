@@ -34,6 +34,8 @@ pub mod adc;
 pub mod can;
 #[cfg(crc)]
 pub mod crc;
+#[cfg(cryp)]
+pub mod cryp;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
