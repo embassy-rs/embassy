@@ -100,8 +100,9 @@ pub enum DataType {
 
 /// Stores the state of the HASH peripheral for suspending/resuming
 /// digest calculation.
-pub struct Context {
+pub struct Context<'c> {
     first_word_sent: bool,
+    key_sent: bool,
     buffer: [u8; HASH_BUFFER_LEN],
     buflen: usize,
     algo: Algorithm,
@@ -110,7 +111,10 @@ pub struct Context {
     str: u32,
     cr: u32,
     csr: [u32; NUM_CONTEXT_REGS],
+    key: HmacKey<'c>,
 }
+
+type HmacKey<'k> = Option<&'k [u8]>;
 
 /// HASH driver.
 pub struct Hash<'d, T: Instance, D = NoDma> {
@@ -140,10 +144,11 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     }
 
     /// Starts computation of a new hash and returns the saved peripheral state.
-    pub fn start(&mut self, algorithm: Algorithm, format: DataType) -> Context {
+    pub fn start<'c>(&mut self, algorithm: Algorithm, format: DataType, key: HmacKey<'c>) -> Context<'c> {
         // Define a context for this new computation.
         let mut ctx = Context {
             first_word_sent: false,
+            key_sent: false,
             buffer: [0; HASH_BUFFER_LEN],
             buflen: 0,
             algo: algorithm,
@@ -152,6 +157,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
             str: 0,
             cr: 0,
             csr: [0; NUM_CONTEXT_REGS],
+            key,
         };
 
         // Set the data type in the peripheral.
@@ -181,6 +187,14 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
         #[cfg(any(hash_v3, hash_v4))]
         T::regs().cr().modify(|w| w.set_algo(ctx.algo as u8));
 
+        // Configure HMAC mode if a key is provided.
+        if let Some(key) = ctx.key {
+            T::regs().cr().modify(|w| w.set_mode(true));
+            if key.len() > 64 {
+                T::regs().cr().modify(|w| w.set_lkey(true));
+            }
+        }
+
         T::regs().cr().modify(|w| w.set_init(true));
 
         // Store and return the state of the peripheral.
@@ -191,17 +205,29 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     /// Restores the peripheral state using the given context,
     /// then updates the state with the provided data.
     /// Peripheral state is saved upon return.
-    pub fn update_blocking(&mut self, ctx: &mut Context, input: &[u8]) {
+    pub fn update_blocking<'c>(&mut self, ctx: &mut Context<'c>, input: &[u8]) {
+        // Restore the peripheral state.
+        self.load_context(&ctx);
+
+        // Load the HMAC key if provided.
+        if !ctx.key_sent {
+            if let Some(key) = ctx.key {
+                self.accumulate_blocking(key);
+                T::regs().str().write(|w| w.set_dcal(true));
+                // Block waiting for digest.
+                while !T::regs().sr().read().dcis() {}
+            }
+            ctx.key_sent = true;
+        }
+
         let mut data_waiting = input.len() + ctx.buflen;
         if data_waiting < DIGEST_BLOCK_SIZE || (data_waiting < ctx.buffer.len() && !ctx.first_word_sent) {
             // There isn't enough data to digest a block, so append it to the buffer.
             ctx.buffer[ctx.buflen..ctx.buflen + input.len()].copy_from_slice(input);
             ctx.buflen += input.len();
+            self.store_context(ctx);
             return;
         }
-
-        // Restore the peripheral state.
-        self.load_context(&ctx);
 
         let mut ilen_remaining = input.len();
         let mut input_start = 0;
@@ -261,20 +287,29 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     /// then updates the state with the provided data.
     /// Peripheral state is saved upon return.
     #[cfg(hash_v2)]
-    pub async fn update(&mut self, ctx: &mut Context, input: &[u8])
+    pub async fn update<'c>(&mut self, ctx: &mut Context<'c>, input: &[u8])
     where
         D: crate::hash::Dma<T>,
     {
+        // Restore the peripheral state.
+        self.load_context(&ctx);
+
+        // Load the HMAC key if provided.
+        if !ctx.key_sent {
+            if let Some(key) = ctx.key {
+                self.accumulate(key).await;
+            }
+            ctx.key_sent = true;
+        }
+
         let data_waiting = input.len() + ctx.buflen;
         if data_waiting < DIGEST_BLOCK_SIZE {
             // There isn't enough data to digest a block, so append it to the buffer.
             ctx.buffer[ctx.buflen..ctx.buflen + input.len()].copy_from_slice(input);
             ctx.buflen += input.len();
+            self.store_context(ctx);
             return;
         }
-
-        // Restore the peripheral state.
-        self.load_context(&ctx);
 
         // Enable multiple DMA transfers.
         T::regs().cr().modify(|w| w.set_mdmat(true));
@@ -319,7 +354,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     /// The digest buffer must be large enough to accomodate a digest for the selected algorithm.
     /// The largest returned digest size is 128 bytes for SHA-512.
     /// Panics if the supplied digest buffer is too short.
-    pub fn finish_blocking(&mut self, mut ctx: Context, digest: &mut [u8]) -> usize {
+    pub fn finish_blocking<'c>(&mut self, mut ctx: Context<'c>, digest: &mut [u8]) -> usize {
         // Restore the peripheral state.
         self.load_context(&ctx);
 
@@ -332,6 +367,13 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
 
         // Block waiting for digest.
         while !T::regs().sr().read().dcis() {}
+
+        // Load the HMAC key if provided.
+        if let Some(key) = ctx.key {
+            self.accumulate_blocking(key);
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dcis() {}
+        }
 
         // Return the digest.
         let digest_words = match ctx.algo {
@@ -370,7 +412,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     /// The largest returned digest size is 128 bytes for SHA-512.
     /// Panics if the supplied digest buffer is too short.
     #[cfg(hash_v2)]
-    pub async fn finish(&mut self, mut ctx: Context, digest: &mut [u8]) -> usize
+    pub async fn finish<'c>(&mut self, mut ctx: Context<'c>, digest: &mut [u8]) -> usize
     where
         D: crate::hash::Dma<T>,
     {
@@ -383,6 +425,11 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
         // Hash the leftover bytes, if any.
         self.accumulate(&ctx.buffer[0..ctx.buflen]).await;
         ctx.buflen = 0;
+
+        // Load the HMAC key if provided.
+        if let Some(key) = ctx.key {
+            self.accumulate(key).await;
+        }
 
         // Wait for completion.
         poll_fn(|cx| {
@@ -484,7 +531,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     }
 
     /// Save the peripheral state to a context.
-    fn store_context(&mut self, ctx: &mut Context) {
+    fn store_context<'c>(&mut self, ctx: &mut Context<'c>) {
         // Block waiting for data in ready.
         while !T::regs().sr().read().dinis() {}
 

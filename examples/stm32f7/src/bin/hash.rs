@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) -> ! {
     let hw_start_time = Instant::now();
 
     // Compute a digest in hardware.
-    let mut context = hw_hasher.start(Algorithm::SHA256, DataType::Width8);
+    let mut context = hw_hasher.start(Algorithm::SHA256, DataType::Width8, None);
     hw_hasher.update(&mut context, test_1).await;
     hw_hasher.update(&mut context, test_2).await;
     let mut hw_digest: [u8; 32] = [0; 32];
