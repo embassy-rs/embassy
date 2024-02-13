@@ -118,7 +118,7 @@ features = [
 ]
 ----
 
-If you are in the early project setup phase and not using anything from the HAL, make sure the HAL is passed to the linker by adding this line to your source:
+If you are in the early project setup phase and not using anything from the HAL, make sure the HAL is explicitly used to prevent the linker removing it as dead code by adding this line to your source:
 
 [source,rust]
 ----
