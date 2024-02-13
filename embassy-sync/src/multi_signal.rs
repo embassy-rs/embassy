@@ -1,18 +1,15 @@
 //! A synchronization primitive for passing the latest value to **multiple** tasks.
-use core::{
-    cell::RefCell,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    pin::Pin,
-    task::{Context, Poll},
-};
+use core::cell::RefCell;
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use futures_util::Future;
 
-use crate::{
-    blocking_mutex::{raw::RawMutex, Mutex},
-    waitqueue::MultiWakerRegistration,
-};
+use crate::blocking_mutex::raw::RawMutex;
+use crate::blocking_mutex::Mutex;
+use crate::waitqueue::MultiWakerRegistration;
 
 /// A `MultiSignal` is a single-slot signaling primitive, which can awake `N` separate [`Receiver`]s.
 ///
