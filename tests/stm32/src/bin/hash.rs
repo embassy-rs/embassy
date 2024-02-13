@@ -9,8 +9,11 @@ use embassy_executor::Spawner;
 use embassy_stm32::dma::NoDma;
 use embassy_stm32::hash::*;
 use embassy_stm32::{bind_interrupts, hash, peripherals};
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha224, Sha256};
 use {defmt_rtt as _, panic_probe as _};
+
+type HmacSha256 = Hmac<Sha256>;
 
 #[cfg(any(feature = "stm32l4a6zg", feature = "stm32h755zi", feature = "stm32h753zi"))]
 bind_interrupts!(struct Irqs {
@@ -72,6 +75,25 @@ async fn main(_spawner: Spawner) {
     info!("Hardware SHA-256 Digest: {:?}", sha224_digest_buffer);
     info!("Software SHA-256 Digest: {:?}", sw_sha224_digest[..]);
     defmt::assert!(sha224_digest_buffer == sw_sha224_digest[..]);
+
+    let hmac_key: [u8; 64] = [0x55; 64];
+
+    // Compute HMAC in hardware.
+    let mut sha256hmac_context = hw_hasher.start(Algorithm::SHA256, DataType::Width8, Some(&hmac_key));
+    hw_hasher.update_blocking(&mut sha256hmac_context, test_1);
+    hw_hasher.update_blocking(&mut sha256hmac_context, test_2);
+    let mut hw_hmac: [u8; 32] = [0; 32];
+    hw_hasher.finish_blocking(sha256hmac_context, &mut hw_hmac);
+
+    // Compute HMAC in software.
+    let mut sw_mac = HmacSha256::new_from_slice(&hmac_key).unwrap();
+    sw_mac.update(test_1);
+    sw_mac.update(test_2);
+    let sw_hmac = sw_mac.finalize().into_bytes();
+
+    info!("Hardware HMAC: {:?}", hw_hmac);
+    info!("Software HMAC: {:?}", sw_hmac[..]);
+    defmt::assert!(hw_hmac == sw_hmac[..]);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
