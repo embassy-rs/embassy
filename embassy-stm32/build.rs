@@ -1056,6 +1056,7 @@ fn main() {
         (("dac", "CH1"), quote!(crate::dac::DacDma1)),
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
+        (("hash", "IN"), quote!(crate::hash::Dma)),
         (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
         (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
         (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
