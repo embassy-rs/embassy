@@ -215,7 +215,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
                 self.accumulate_blocking(key);
                 T::regs().str().write(|w| w.set_dcal(true));
                 // Block waiting for digest.
-                while !T::regs().sr().read().dcis() {}
+                while !T::regs().sr().read().dinis() {}
             }
             ctx.key_sent = true;
         }
@@ -365,15 +365,15 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
         //Start the digest calculation.
         T::regs().str().write(|w| w.set_dcal(true));
 
-        // Block waiting for digest.
-        while !T::regs().sr().read().dcis() {}
-
         // Load the HMAC key if provided.
         if let Some(key) = ctx.key {
+            while !T::regs().sr().read().dinis() {}
             self.accumulate_blocking(key);
             T::regs().str().write(|w| w.set_dcal(true));
-            while !T::regs().sr().read().dcis() {}
         }
+
+        // Block until digest computation is complete.
+        while !T::regs().sr().read().dcis() {}
 
         // Return the digest.
         let digest_words = match ctx.algo {
