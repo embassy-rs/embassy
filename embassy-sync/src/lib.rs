@@ -12,6 +12,7 @@ mod ring_buffer;
 
 pub mod blocking_mutex;
 pub mod channel;
+pub mod multi_signal;
 pub mod mutex;
 pub mod pipe;
 pub mod priority_channel;
