@@ -1,6 +1,5 @@
 //! A synchronization primitive for passing the latest value to **multiple** tasks.
 use core::cell::RefCell;
-use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -66,9 +65,8 @@ use crate::waitqueue::MultiWakerRegistration;
 /// };
 /// block_on(f);
 /// ```
-pub struct MultiSignal<'a, M: RawMutex, T: Clone, const N: usize> {
+pub struct MultiSignal<M: RawMutex, T: Clone, const N: usize> {
     mutex: Mutex<M, RefCell<MultiSignalState<N, T>>>,
-    _phantom: PhantomData<&'a ()>,
 }
 
 struct MultiSignalState<const N: usize, T: Clone> {
@@ -85,7 +83,7 @@ pub enum Error {
     MaximumReceiversReached,
 }
 
-impl<'a, M: RawMutex, T: Clone, const N: usize> MultiSignal<'a, M, T, N> {
+impl<'a, M: RawMutex, T: Clone, const N: usize> MultiSignal<M, T, N> {
     /// Create a new `MultiSignal` initialized with the given value.
     pub const fn new(init: T) -> Self {
         Self {
@@ -95,7 +93,6 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> MultiSignal<'a, M, T, N> {
                 wakers: MultiWakerRegistration::new(),
                 receiver_count: 0,
             })),
-            _phantom: PhantomData,
         }
     }
 
@@ -128,7 +125,7 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> MultiSignal<'a, M, T, N> {
     }
 
     /// Peek the current value of the `MultiSignal` and check if it satisfies the predicate `f`.
-    pub fn peek_and(&self, f: fn(&T) -> bool) -> Option<T> {
+    pub fn peek_and(&self, mut f: impl FnMut(&T) -> bool) -> Option<T> {
         self.mutex.lock(|state| {
             let s = state.borrow();
             if f(&s.data) {
@@ -147,16 +144,16 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> MultiSignal<'a, M, T, N> {
     }
 
     /// Poll the `MultiSignal` with an optional context.
-    fn get_with_context(&'a self, waker: &mut Rcv<'a, M, T, N>, cx: Option<&mut Context>) -> Poll<T> {
+    fn get_with_context(&self, rcv: &mut Rcv<'a, M, T, N>, cx: Option<&mut Context>) -> Poll<T> {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
-            match (s.current_id > waker.at_id, waker.predicate) {
+            match (s.current_id > rcv.at_id, rcv.predicate) {
                 (true, None) => {
-                    waker.at_id = s.current_id;
+                    rcv.at_id = s.current_id;
                     Poll::Ready(s.data.clone())
                 }
                 (true, Some(f)) if f(&s.data) => {
-                    waker.at_id = s.current_id;
+                    rcv.at_id = s.current_id;
                     Poll::Ready(s.data.clone())
                 }
                 _ => {
@@ -172,7 +169,7 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> MultiSignal<'a, M, T, N> {
 
 /// A receiver is able to `.await` a changed `MultiSignal` value.
 pub struct Rcv<'a, M: RawMutex, T: Clone, const N: usize> {
-    multi_sig: &'a MultiSignal<'a, M, T, N>,
+    multi_sig: &'a MultiSignal<M, T, N>,
     predicate: Option<fn(&T) -> bool>,
     at_id: u64,
 }
@@ -180,7 +177,7 @@ pub struct Rcv<'a, M: RawMutex, T: Clone, const N: usize> {
 // f: Option<impl FnMut(&T) -> bool>
 impl<'a, M: RawMutex, T: Clone, const N: usize> Rcv<'a, M, T, N> {
     /// Create a new `Receiver` with a reference the given `MultiSignal`.
-    fn new(multi_sig: &'a MultiSignal<'a, M, T, N>) -> Self {
+    fn new(multi_sig: &'a MultiSignal<M, T, N>) -> Self {
         Self {
             multi_sig,
             predicate: None,
@@ -195,6 +192,7 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> Rcv<'a, M, T, N> {
     }
 
     /// Wait for a change to the value of the corresponding `MultiSignal` which matches the predicate `f`.
+    //  TODO: How do we make this work with a FnMut closure?
     pub fn changed_and<'s>(&'s mut self, f: fn(&T) -> bool) -> ReceiverFuture<'s, 'a, M, T, N> {
         self.predicate = Some(f);
         ReceiverFuture { subscriber: self }
@@ -215,7 +213,7 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> Rcv<'a, M, T, N> {
     }
 
     /// Try to get a changed value of the corresponding `MultiSignal` which matches the predicate `f`.
-    pub fn try_changed_and(&mut self, f: fn(&T) -> bool) -> Option<T> {
+    pub fn try_changed_and(&mut self, mut f: impl FnMut(&T) -> bool) -> Option<T> {
         self.multi_sig.mutex.lock(|state| {
             let s = state.borrow();
             match s.current_id > self.at_id && f(&s.data) {
@@ -234,7 +232,7 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> Rcv<'a, M, T, N> {
     }
 
     /// Peek the current value of the corresponding `MultiSignal` and check if it satisfies the predicate `f`.
-    pub fn peek_and(&self, f: fn(&T) -> bool) -> Option<T> {
+    pub fn peek_and(&self, f: impl FnMut(&T) -> bool) -> Option<T> {
         self.multi_sig.peek_and(f)
     }
 
