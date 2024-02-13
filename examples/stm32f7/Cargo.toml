@@ -29,6 +29,7 @@ critical-section = "1.1"
 embedded-storage = "0.3.1"
 static_cell = "2"
 sha2 = { version = "0.10.8", default-features = false }
+hmac = "0.12.1"
 
 [profile.release]
 debug = 2
