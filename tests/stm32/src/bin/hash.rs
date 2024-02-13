@@ -38,11 +38,11 @@ async fn main(_spawner: Spawner) {
     let test_3: &[u8] = b"a.ewtkluGWEBR.KAJRBTA,RMNRBG,FDMGB.kger.tkasjrbt.akrjtba.krjtba.ktmyna,nmbvtyliasd;gdrtba,sfvs.kgjzshd.gkbsr.tksejb.SDkfBSE.gkfgb>ESkfbSE>gkJSBESE>kbSE>fk";
 
     // Start an SHA-256 digest.
-    let mut sha256context = hw_hasher.start(Algorithm::SHA256, DataType::Width8);
+    let mut sha256context = hw_hasher.start(Algorithm::SHA256, DataType::Width8, None);
     hw_hasher.update_blocking(&mut sha256context, test_1);
 
     // Interrupt the SHA-256 digest to compute an SHA-224 digest.
-    let mut sha224context = hw_hasher.start(Algorithm::SHA224, DataType::Width8);
+    let mut sha224context = hw_hasher.start(Algorithm::SHA224, DataType::Width8, None);
     hw_hasher.update_blocking(&mut sha224context, test_3);
     let mut sha224_digest_buffer: [u8; 28] = [0; 28];
     let _ = hw_hasher.finish_blocking(sha224context, &mut sha224_digest_buffer);
