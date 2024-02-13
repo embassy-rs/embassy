@@ -18,10 +18,8 @@ mod hsi48;
 #[cfg(crs)]
 pub use hsi48::*;
 
-#[cfg_attr(stm32f0, path = "f0.rs")]
-#[cfg_attr(stm32f1, path = "f1.rs")]
-#[cfg_attr(stm32f3, path = "f3.rs")]
-#[cfg_attr(any(stm32f2, stm32f4, stm32f7), path = "f.rs")]
+#[cfg_attr(any(stm32f0, stm32f1, stm32f3), path = "f013.rs")]
+#[cfg_attr(any(stm32f2, stm32f4, stm32f7), path = "f247.rs")]
 #[cfg_attr(stm32c0, path = "c0.rs")]
 #[cfg_attr(stm32g0, path = "g0.rs")]
 #[cfg_attr(stm32g4, path = "g4.rs")]

@@ -1,9 +1,14 @@
 use crate::pac::flash::vals::Latency;
-pub use crate::pac::rcc::vals::{
-    Adcpres as AdcPllPrescaler, Hpre as AHBPrescaler, Pllmul as PllMul, Ppre as APBPrescaler, Prediv as PllPreDiv,
-    Sw as Sysclk,
-};
-use crate::pac::rcc::vals::{Pllsrc, Usbpre};
+#[cfg(stm32f1)]
+pub use crate::pac::rcc::vals::Adcpre as ADCPrescaler;
+#[cfg(stm32f3)]
+pub use crate::pac::rcc::vals::Adcpres as AdcPllPrescaler;
+use crate::pac::rcc::vals::Pllsrc;
+#[cfg(stm32f1)]
+pub use crate::pac::rcc::vals::Pllxtpre as PllPreDiv;
+#[cfg(any(stm32f0, stm32f3))]
+pub use crate::pac::rcc::vals::Prediv as PllPreDiv;
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Pllmul as PllMul, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -30,6 +35,8 @@ pub struct Hse {
 pub enum PllSource {
     HSE,
     HSI,
+    #[cfg(rcc_f0v4)]
+    HSI48,
 }
 
 #[derive(Clone, Copy)]
@@ -38,19 +45,21 @@ pub struct Pll {
 
     /// PLL pre-divider.
     ///
-    /// On some F3 chips, this must be 2 if `src == HSI`. Init will panic if this is not the case.
+    /// On some chips, this must be 2 if `src == HSI`. Init will panic if this is not the case.
     pub prediv: PllPreDiv,
 
     /// PLL multiplication factor.
     pub mul: PllMul,
 }
 
+#[cfg(all(stm32f3, not(rcc_f37)))]
 #[derive(Clone, Copy)]
 pub enum AdcClockSource {
     Pll(AdcPllPrescaler),
     Hclk(AdcHclkPrescaler),
 }
 
+#[cfg(all(stm32f3, not(rcc_f37)))]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum AdcHclkPrescaler {
     Div1,
@@ -58,6 +67,7 @@ pub enum AdcHclkPrescaler {
     Div4,
 }
 
+#[cfg(stm32f334)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HrtimClockSource {
     BusClk,
@@ -69,17 +79,23 @@ pub enum HrtimClockSource {
 pub struct Config {
     pub hsi: bool,
     pub hse: Option<Hse>,
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
     pub sys: Sysclk,
 
     pub pll: Option<Pll>,
 
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
+    #[cfg(not(stm32f0))]
     pub apb2_pre: APBPrescaler,
 
-    #[cfg(not(rcc_f37))]
+    #[cfg(stm32f1)]
+    pub adc_pre: ADCPrescaler,
+
+    #[cfg(all(stm32f3, not(rcc_f37)))]
     pub adc: AdcClockSource,
-    #[cfg(all(not(rcc_f37), adc3_common))]
+    #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
     pub adc34: AdcClockSource,
     #[cfg(stm32f334)]
     pub hrtim: HrtimClockSource,
@@ -92,16 +108,24 @@ impl Default for Config {
         Self {
             hsi: true,
             hse: None,
+            #[cfg(crs)]
+            hsi48: Some(Default::default()),
             sys: Sysclk::HSI,
             pll: None,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
+            #[cfg(not(stm32f0))]
             apb2_pre: APBPrescaler::DIV1,
             ls: Default::default(),
 
-            #[cfg(not(rcc_f37))]
+            #[cfg(stm32f1)]
+            // ensure ADC is not out of range by default even if APB2 is maxxed out (36mhz)
+            adc_pre: ADCPrescaler::DIV6,
+
+
+            #[cfg(all(stm32f3, not(rcc_f37)))]
             adc: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
-            #[cfg(all(not(rcc_f37), adc3_common))]
+            #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
             #[cfg(stm32f334)]
             hrtim: HrtimClockSource::BusClk,
@@ -143,13 +167,18 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    // configure HSI48
+    #[cfg(crs)]
+    let hsi48 = config.hsi48.map(|config| super::init_hsi48(config));
+    #[cfg(not(crs))]
+    let hsi48: Option<Hertz> = None;
+
     // Enable PLL
-    // RM0316: "Reserved, must be kept at reset value."
     let pll = config.pll.map(|pll| {
         let (src_val, src_freq) = match pll.src {
-            #[cfg(rcc_f3v3)]
+            #[cfg(any(rcc_f0v3, rcc_f0v4, rcc_f3v3))]
             PllSource::HSI => (Pllsrc::HSI_DIV_PREDIV, unwrap!(hsi)),
-            #[cfg(not(rcc_f3v3))]
+            #[cfg(not(any(rcc_f0v3, rcc_f0v4, rcc_f3v3)))]
             PllSource::HSI => {
                 if pll.prediv != PllPreDiv::DIV2 {
                     panic!("if PLL source is HSI, PLL prediv must be 2.");
@@ -157,16 +186,21 @@ pub(crate) unsafe fn init(config: Config) {
                 (Pllsrc::HSI_DIV2, unwrap!(hsi))
             }
             PllSource::HSE => (Pllsrc::HSE_DIV_PREDIV, unwrap!(hse)),
+            #[cfg(rcc_f0v4)]
+            PllSource::HSI48 => (Pllsrc::HSI48_DIV_PREDIV, unwrap!(hsi48)),
         };
         let in_freq = src_freq / pll.prediv;
         assert!(max::PLL_IN.contains(&in_freq));
         let out_freq = in_freq * pll.mul;
         assert!(max::PLL_OUT.contains(&out_freq));
 
+        #[cfg(not(stm32f1))]
         RCC.cfgr2().modify(|w| w.set_prediv(pll.prediv));
         RCC.cfgr().modify(|w| {
             w.set_pllmul(pll.mul);
             w.set_pllsrc(src_val);
+            #[cfg(stm32f1)]
+            w.set_pllxtpre(pll.prediv);
         });
         RCC.cr().modify(|w| w.set_pllon(true));
         while !RCC.cr().read().pllrdy() {}
@@ -174,17 +208,16 @@ pub(crate) unsafe fn init(config: Config) {
         out_freq
     });
 
+    #[cfg(any(rcc_f1, rcc_f1cl, stm32f3))]
     let usb = match pll {
-        Some(Hertz(72_000_000)) => {
-            RCC.cfgr().modify(|w| w.set_usbpre(Usbpre::DIV1_5));
-            Some(Hertz(48_000_000))
-        }
-        Some(Hertz(48_000_000)) => {
-            RCC.cfgr().modify(|w| w.set_usbpre(Usbpre::DIV1));
-            Some(Hertz(48_000_000))
-        }
+        Some(Hertz(72_000_000)) => Some(crate::pac::rcc::vals::Usbpre::DIV1_5),
+        Some(Hertz(48_000_000)) => Some(crate::pac::rcc::vals::Usbpre::DIV1),
         _ => None,
-    };
+    }
+    .map(|usbpre| {
+        RCC.cfgr().modify(|w| w.set_usbpre(usbpre));
+        Hertz(48_000_000)
+    });
 
     // Configure sysclk
     let sys = match config.sys {
@@ -196,13 +229,28 @@ pub(crate) unsafe fn init(config: Config) {
 
     let hclk = sys / config.ahb_pre;
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
+    #[cfg(not(stm32f0))]
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk, config.apb2_pre);
+    #[cfg(stm32f0)]
+    let (pclk2, pclk2_tim) = (pclk1, pclk1_tim);
 
     assert!(max::HCLK.contains(&hclk));
     assert!(max::PCLK1.contains(&pclk1));
+    #[cfg(not(stm32f0))]
     assert!(max::PCLK2.contains(&pclk2));
 
+    #[cfg(stm32f1)]
+    let adc = pclk2 / config.adc_pre;
+    #[cfg(stm32f1)]
+    assert!(max::ADC.contains(&adc));
+
     // Set latency based on HCLK frquency
+    #[cfg(stm32f0)]
+    let latency = match hclk.0 {
+        ..=24_000_000 => Latency::WS0,
+        _ => Latency::WS1,
+    };
+    #[cfg(any(stm32f1, stm32f3))]
     let latency = match hclk.0 {
         ..=24_000_000 => Latency::WS0,
         ..=48_000_000 => Latency::WS1,
@@ -213,18 +261,28 @@ pub(crate) unsafe fn init(config: Config) {
         // RM0316: "The prefetch buffer must be kept on when using a prescaler
         // different from 1 on the AHB clock.", "Half-cycle access cannot be
         // used when there is a prescaler different from 1 on the AHB clock"
+        #[cfg(stm32f3)]
         if config.ahb_pre != AHBPrescaler::DIV1 {
             w.set_hlfcya(false);
             w.set_prftbe(true);
         }
+        #[cfg(not(stm32f3))]
+        w.set_prftbe(true);
     });
 
     // Set prescalers
     // CFGR has been written before (PLL, PLL48) don't overwrite these settings
-    RCC.cfgr().modify(|w| {
-        w.set_ppre1(config.apb1_pre);
-        w.set_ppre2(config.apb2_pre);
+    RCC.cfgr().modify(|w: &mut stm32_metapac::rcc::regs::Cfgr| {
+        #[cfg(not(stm32f0))]
+        {
+            w.set_ppre1(config.apb1_pre);
+            w.set_ppre2(config.apb2_pre);
+        }
+        #[cfg(stm32f0)]
+        w.set_ppre(config.apb1_pre);
         w.set_hpre(config.ahb_pre);
+        #[cfg(stm32f1)]
+        w.set_adcpre(config.adc_pre);
     });
 
     // Wait for the new prescalers to kick in
@@ -238,10 +296,10 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    #[cfg(not(rcc_f37))]
+    #[cfg(all(stm32f3, not(rcc_f37)))]
     use crate::pac::adccommon::vals::Ckmode;
 
-    #[cfg(not(rcc_f37))]
+    #[cfg(all(stm32f3, not(rcc_f37)))]
     let adc = match config.adc {
         AdcClockSource::Pll(adcpres) => {
             RCC.cfgr2().modify(|w| w.set_adc12pres(adcpres));
@@ -265,7 +323,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(all(not(rcc_f37), adc3_common))]
+    #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
     let adc34 = match config.adc34 {
         AdcClockSource::Pll(adcpres) => {
             RCC.cfgr2().modify(|w| w.set_adc34pres(adcpres));
@@ -316,18 +374,63 @@ pub(crate) unsafe fn init(config: Config) {
         pclk1_tim: Some(pclk1_tim),
         pclk2_tim: Some(pclk2_tim),
         hclk1: Some(hclk),
-        #[cfg(not(rcc_f37))]
+        #[cfg(all(stm32f3, not(rcc_f37)))]
         adc: Some(adc),
-        #[cfg(all(not(rcc_f37), adc3_common))]
+        #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
         adc34: Some(adc34),
         #[cfg(stm32f334)]
         hrtim: hrtim,
         rtc: rtc,
+        hsi48: hsi48,
+        #[cfg(any(rcc_f1, rcc_f1cl, stm32f3))]
         usb: usb,
         lse: None,
     );
 }
 
+#[cfg(stm32f0)]
+mod max {
+    use core::ops::RangeInclusive;
+
+    use crate::time::Hertz;
+
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(32_000_000);
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(32_000_000);
+
+    pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
+    pub(crate) const PCLK1: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
+
+    pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(24_000_000);
+    pub(crate) const PLL_OUT: RangeInclusive<Hertz> = Hertz(16_000_000)..=Hertz(48_000_000);
+}
+
+#[cfg(stm32f1)]
+mod max {
+    use core::ops::RangeInclusive;
+
+    use crate::time::Hertz;
+
+    #[cfg(not(rcc_f1cl))]
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(16_000_000);
+    #[cfg(not(rcc_f1cl))]
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(25_000_000);
+
+    #[cfg(rcc_f1cl)]
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(3_000_000)..=Hertz(25_000_000);
+    #[cfg(rcc_f1cl)]
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(50_000_000);
+
+    pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(72_000_000);
+    pub(crate) const PCLK1: RangeInclusive<Hertz> = Hertz(0)..=Hertz(36_000_000);
+    pub(crate) const PCLK2: RangeInclusive<Hertz> = Hertz(0)..=Hertz(72_000_000);
+
+    pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(25_000_000);
+    pub(crate) const PLL_OUT: RangeInclusive<Hertz> = Hertz(16_000_000)..=Hertz(72_000_000);
+
+    pub(crate) const ADC: RangeInclusive<Hertz> = Hertz(0)..=Hertz(14_000_000);
+}
+
+#[cfg(stm32f3)]
 mod max {
     use core::ops::RangeInclusive;
 
