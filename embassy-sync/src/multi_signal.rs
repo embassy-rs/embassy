@@ -162,7 +162,6 @@ impl<'s, 'a, M: RawMutex, T: Clone, const N: usize> Rcv<'a, M, T, N> {
     }
 
     /// Wait for a change to the value of the corresponding `MultiSignal` which matches the predicate `f`.
-    //  TODO: How do we make this work with a FnMut closure?
     pub async fn changed_and<F>(&mut self, f: F) -> T
     where
         F: FnMut(&T) -> bool,
@@ -286,8 +285,13 @@ pub struct ReceiverPredFuture<'s, 'a, M: RawMutex, T: Clone, F: FnMut(&'a T) -> 
     predicate: F,
 }
 
-impl<'s, 'a, M: RawMutex, T: Clone, F: FnMut(&T) -> bool, const N: usize> Unpin for ReceiverPredFuture<'s, 'a, M, T, F, N> {}
-impl<'s, 'a, M: RawMutex, T: Clone, F: FnMut(&T) -> bool, const N: usize> Future for ReceiverPredFuture<'s, 'a, M, T, F, N>{
+impl<'s, 'a, M: RawMutex, T: Clone, F: FnMut(&T) -> bool, const N: usize> Unpin
+    for ReceiverPredFuture<'s, 'a, M, T, F, N>
+{
+}
+impl<'s, 'a, M: RawMutex, T: Clone, F: FnMut(&T) -> bool, const N: usize> Future
+    for ReceiverPredFuture<'s, 'a, M, T, F, N>
+{
     type Output = T;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -318,9 +322,10 @@ impl<'s, 'a, M: RawMutex, T: Clone, F: FnMut(&T) -> bool, const N: usize> Receiv
 
 #[cfg(test)]
 mod tests {
+    use futures_executor::block_on;
+
     use super::*;
     use crate::blocking_mutex::raw::CriticalSectionRawMutex;
-    use futures_executor::block_on;
 
     #[test]
     fn multiple_writes() {
