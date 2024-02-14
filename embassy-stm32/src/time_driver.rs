@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use core::cell::Cell;
 use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
@@ -22,18 +24,22 @@ use crate::{interrupt, peripherals};
 // As of 2023-12-04, this driver is implemented using CC1 as the halfway rollover interrupt, and any
 // additional CC capabilities to provide timer alarms to embassy-time. embassy-time requires AT LEAST
 // one alarm to be allocatable, which means timers that only have CC1, such as TIM16/TIM17, are not
-// candidates for use as an embassy-time driver provider.
+// candidates for use as an embassy-time driver provider. (a.k.a 1CH and 1CH_CMP are not, others are good.)
 //
 // The values of ALARM_COUNT below are not the TOTAL CC registers available, but rather the number
 // available after reserving CC1 for regular time keeping. For example, TIM2 has four CC registers:
 // CC1, CC2, CC3, and CC4, so it can provide ALARM_COUNT = 3.
 
-#[cfg(not(any(time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22)))]
-const ALARM_COUNT: usize = 3;
+cfg_if::cfg_if! {
+    if #[cfg(any(time_driver_tim9, time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))] {
+        const ALARM_COUNT: usize = 1;
+    } else {
+        const ALARM_COUNT: usize = 3;
+    }
+}
 
-#[cfg(any(time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))]
-const ALARM_COUNT: usize = 1;
-
+#[cfg(time_drvier_tim1)]
+type T = peripherals::TIM1;
 #[cfg(time_driver_tim2)]
 type T = peripherals::TIM2;
 #[cfg(time_driver_tim3)]
@@ -42,6 +48,8 @@ type T = peripherals::TIM3;
 type T = peripherals::TIM4;
 #[cfg(time_driver_tim5)]
 type T = peripherals::TIM5;
+#[cfg(time_driver_tim8)]
+type T = peripherals::TIM8;
 #[cfg(time_driver_tim9)]
 type T = peripherals::TIM9;
 #[cfg(time_driver_tim11)]
@@ -50,12 +58,26 @@ type T = peripherals::TIM11;
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
 type T = peripherals::TIM15;
+#[cfg(time_driver_tim20)]
+type T = peripherals::TIM20;
 #[cfg(time_driver_tim21)]
 type T = peripherals::TIM21;
 #[cfg(time_driver_tim22)]
 type T = peripherals::TIM22;
+#[cfg(time_driver_tim23)]
+type T = peripherals::TIM23;
+#[cfg(time_driver_tim24)]
+type T = peripherals::TIM24;
 
 foreach_interrupt! {
+    (TIM1, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim1)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim2)]
         #[cfg(feature = "rt")]
@@ -88,16 +110,16 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM9, timer, $block:ident, UP, $irq:ident) => {
-        #[cfg(time_driver_tim9)]
+    (TIM8, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim8)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
         }
     };
-    (TIM11, timer, $block:ident, UP, $irq:ident) => {
-        #[cfg(time_driver_tim11)]
+    (TIM9, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim9)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
@@ -120,6 +142,14 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
+    (TIM20, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim20)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM21, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim21)]
         #[cfg(feature = "rt")]
@@ -130,6 +160,22 @@ foreach_interrupt! {
     };
     (TIM22, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim22)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM23, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim23)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM24, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim24)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {

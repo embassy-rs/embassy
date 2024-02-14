@@ -183,40 +183,33 @@ fn main() {
 
     let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
         None => "",
+        Some("tim1") => "TIM1",
         Some("tim2") => "TIM2",
         Some("tim3") => "TIM3",
         Some("tim4") => "TIM4",
         Some("tim5") => "TIM5",
+        Some("tim8") => "TIM8",
         Some("tim9") => "TIM9",
-        Some("tim11") => "TIM11",
         Some("tim12") => "TIM12",
         Some("tim15") => "TIM15",
+        Some("tim20") => "TIM20",
         Some("tim21") => "TIM21",
         Some("tim22") => "TIM22",
+        Some("tim23") => "TIM23",
+        Some("tim24") => "TIM24",
         Some("any") => {
-            if singletons.contains(&"TIM2".to_string()) {
-                "TIM2"
-            } else if singletons.contains(&"TIM3".to_string()) {
-                "TIM3"
-            } else if singletons.contains(&"TIM4".to_string()) {
-                "TIM4"
-            } else if singletons.contains(&"TIM5".to_string()) {
-                "TIM5"
-            } else if singletons.contains(&"TIM9".to_string()) {
-                "TIM9"
-            } else if singletons.contains(&"TIM11".to_string()) {
-                "TIM11"
-            } else if singletons.contains(&"TIM12".to_string()) {
-                "TIM12"
-            } else if singletons.contains(&"TIM15".to_string()) {
-                "TIM15"
-            } else if singletons.contains(&"TIM21".to_string()) {
-                "TIM21"
-            } else if singletons.contains(&"TIM22".to_string()) {
-                "TIM22"
-            } else {
-                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM9, TIM11, TIM12 or TIM15.")
-            }
+            // Order of TIM candidators:
+            // 1. 2CH -> 2CH_CMP -> GP16 -> GP32 -> ADV
+            // 2. In same catagory: larger TIM number first
+            [
+                "TIM22", "TIM21", "TIM12", "TIM9",  // 2CH
+                "TIM15", // 2CH_CMP
+                "TIM19", "TIM4", "TIM3", // GP16
+                "TIM24", "TIM23", "TIM5", "TIM2", // GP32
+                "TIM20", "TIM8", "TIM1", //ADV
+            ]
+            .iter()
+            .find(|tim| singletons.contains(&tim.to_string())).expect("time-driver-any requested, but the chip doesn't have TIM1, TIM2, TIM3, TIM4, TIM5, TIM8, TIM9, TIM12, TIM15, TIM20, TIM21, TIM22, TIM23 or TIM24.")
         }
         _ => panic!("unknown time_driver {:?}", time_driver),
     };
