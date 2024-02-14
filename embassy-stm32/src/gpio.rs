@@ -249,7 +249,7 @@ impl From<Pull> for vals::Pupdr {
 
 /// Speed settings
 ///
-/// These vary dpeending on the chip, ceck the reference manual or datasheet for details.
+/// These vary depending on the chip, check the reference manual or datasheet for details.
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
