@@ -4,7 +4,7 @@ use embassy_hal_internal::into_ref;
 
 use crate::gpio::sealed::AFType;
 use crate::gpio::Speed;
-#[cfg(not(any(stm32f1, rcc_f3v1, rcc_f37)))]
+#[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
 pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
 #[cfg(not(any(rcc_f2, rcc_f410, rcc_f4, rcc_f7, rcc_h50, rcc_h5, rcc_h7ab, rcc_h7rm0433, rcc_h7)))]
 pub use crate::pac::rcc::vals::Mcosel as McoSource;
@@ -13,7 +13,7 @@ pub use crate::pac::rcc::vals::{Mco1sel as Mco1Source, Mco2sel as Mco2Source};
 use crate::pac::RCC;
 use crate::{peripherals, Peripheral};
 
-#[cfg(any(stm32f1, rcc_f3v1, rcc_f37))]
+#[cfg(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum McoPrescaler {
     DIV1,
@@ -43,7 +43,7 @@ macro_rules! impl_peri {
 
                 r.modify(|w| {
                     w.$set_source(source);
-                    #[cfg(not(any(stm32f1, rcc_f3v1, rcc_f37)))]
+                    #[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
                     w.$set_prescaler(_prescaler);
                 });
             }
