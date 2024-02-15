@@ -100,8 +100,8 @@ impl<'d, T: Instance> Cryp<'d, T> {
                 panic!("IV length must be 128 bits for CBC.");
             } else if (mode == Mode::CCM) && (ivlen != 128) {
                 panic!("IV length must be 128 bits for CCM.");
-            } else if (mode == Mode::CTR) && (ivlen != 64) {
-                panic!("IV length must be 64 bits for CTR.");
+            } else if (mode == Mode::CTR) && (ivlen != 128) {
+                panic!("IV length must be 128 bits for CTR.");
             } else if (mode == Mode::GCM) && (ivlen != 96) {
                 panic!("IV length must be 96 bits for GCM.");
             } else if (mode == Mode::GMAC) && (ivlen != 96) {
