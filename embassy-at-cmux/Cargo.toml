@@ -1,0 +1,34 @@
+[package]
+name = "embassy-at-cmux"
+version = "0.1.0"
+description = "embassy-net driver for PPP over Serial"
+keywords = ["embedded", "ppp", "embassy-net", "embedded-hal-async", "async"]
+categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-at-cmux"
+
+[features]
+defmt = ["dep:defmt"]
+log = ["dep:log"]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4.14", optional = true }
+
+heapless = { version = "0.8", default-features = false }
+futures = { version = "0.3.17", default-features = false, features = [ "async-await" ] }
+
+embedded-io-async = { version = "0.6.1" }
+embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-at-cmux-v$VERSION/embassy-at-cmux/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-at-cmux/src/"
+target = "thumbv7em-none-eabi"
+features = ["defmt"]
+
+[package.metadata.docs.rs]
+features = ["defmt"]
