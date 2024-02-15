@@ -1,10 +1,10 @@
 use stm32_metapac::flash::vals::Latency;
-use stm32_metapac::rcc::vals::{Adcsel, Pllsrc, Sw};
+use stm32_metapac::rcc::vals::{Adcsel, Sw};
 use stm32_metapac::FLASH;
 
 pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Fdcansel as FdCanClockSource, Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN,
-    Pllp as PllP, Pllq as PllQ, Pllr as PllR, Ppre as APBPrescaler,
+    Adcsel as AdcClockSource, Clk48sel, Fdcansel as FdCanClockSource, Hpre as AHBPrescaler, Pllm as PllPreDiv,
+    Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{PWR, RCC};
 use crate::time::Hertz;
@@ -12,28 +12,20 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
-/// System clock mux source
-#[derive(Clone, Copy)]
-pub enum ClockSrc {
-    HSE(Hertz),
-    HSI,
-    PLL,
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum HseMode {
+    /// crystal/ceramic oscillator (HSEBYP=0)
+    Oscillator,
+    /// external analog clock (low swing) (HSEBYP=1)
+    Bypass,
 }
 
-/// PLL clock input source
-#[derive(Clone, Copy, Debug)]
-pub enum PllSource {
-    HSI,
-    HSE(Hertz),
-}
-
-impl Into<Pllsrc> for PllSource {
-    fn into(self) -> Pllsrc {
-        match self {
-            PllSource::HSE(..) => Pllsrc::HSE,
-            PllSource::HSI => Pllsrc::HSI,
-        }
-    }
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hse {
+    /// HSE frequency.
+    pub freq: Hertz,
+    /// HSE mode.
+    pub mode: HseMode,
 }
 
 /// PLL Configuration
@@ -43,22 +35,22 @@ impl Into<Pllsrc> for PllSource {
 /// frequency ranges for each of these settings.
 pub struct Pll {
     /// PLL Source clock selection.
-    pub source: PllSource,
+    pub source: Pllsrc,
 
     /// PLL pre-divider
-    pub prediv_m: PllM,
+    pub prediv: PllPreDiv,
 
     /// PLL multiplication factor for VCO
-    pub mul_n: PllN,
+    pub mul: PllMul,
 
     /// PLL division factor for P clock (ADC Clock)
-    pub div_p: Option<PllP>,
+    pub divp: Option<PllPDiv>,
 
     /// PLL division factor for Q clock (USB, I2S23, SAI1, FDCAN, QSPI)
-    pub div_q: Option<PllQ>,
+    pub divq: Option<PllQDiv>,
 
     /// PLL division factor for R clock (SYSCLK)
-    pub div_r: Option<PllR>,
+    pub divr: Option<PllRDiv>,
 }
 
 /// Sets the source for the 48MHz clock to the USB and RNG peripherals.
@@ -73,39 +65,53 @@ pub enum Clock48MhzSrc {
 }
 
 /// Clocks configutation
+#[non_exhaustive]
 pub struct Config {
-    pub mux: ClockSrc,
+    pub hsi: bool,
+    pub hse: Option<Hse>,
+    pub sys: Sysclk,
+    pub hsi48: Option<super::Hsi48Config>,
+
+    pub pll: Option<Pll>,
+
+    /// Iff PLL is requested as the main clock source in the `mux` field then the PLL configuration
+    /// MUST turn on the PLLR output.
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub low_power_run: bool,
-    /// Iff PLL is requested as the main clock source in the `mux` field then the PLL configuration
-    /// MUST turn on the PLLR output.
-    pub pll: Option<Pll>,
+
     /// Sets the clock source for the 48MHz clock used by the USB and RNG peripherals.
-    pub clock_48mhz_src: Option<Clock48MhzSrc>,
+    pub clk48_src: Option<Clock48MhzSrc>,
+
+    pub ls: super::LsConfig,
+
     pub adc12_clock_source: AdcClockSource,
     pub adc345_clock_source: AdcClockSource,
     pub fdcan_clock_source: FdCanClockSource,
 
-    pub ls: super::LsConfig,
+    pub boost: bool,
 }
 
 impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI,
+            hsi: true,
+            hse: None,
+            sys: Sysclk::HSI,
+            hsi48: Some(Default::default()),
+            pll: None,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
-            pll: None,
-            clock_48mhz_src: Some(Clock48MhzSrc::Hsi48(Default::default())),
+            clk48_src: Some(Clock48MhzSrc::Hsi48(Default::default())),
+            ls: Default::default(),
             adc12_clock_source: Adcsel::DISABLE,
             adc345_clock_source: Adcsel::DISABLE,
             fdcan_clock_source: FdCanClockSource::PCLK1,
-            ls: Default::default(),
+            boost: false,
         }
     }
 }
@@ -117,34 +123,60 @@ pub struct PllFreq {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // Configure HSI
+    let hsi = match config.hsi {
+        false => {
+            RCC.cr().modify(|w| w.set_hsion(false));
+            None
+        }
+        true => {
+            RCC.cr().modify(|w| w.set_hsion(true));
+            while !RCC.cr().read().hsirdy() {}
+            Some(HSI_FREQ)
+        }
+    };
+
+    // Configure HSE
+    let hse = match config.hse {
+        None => {
+            RCC.cr().modify(|w| w.set_hseon(false));
+            None
+        }
+        Some(hse) => {
+            match hse.mode {
+                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+            }
+
+            RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
+            RCC.cr().modify(|w| w.set_hseon(true));
+            while !RCC.cr().read().hserdy() {}
+            Some(hse.freq)
+        }
+    };
+
     let pll_freq = config.pll.map(|pll_config| {
         let src_freq = match pll_config.source {
-            PllSource::HSI => {
-                RCC.cr().write(|w| w.set_hsion(true));
-                while !RCC.cr().read().hsirdy() {}
-
-                HSI_FREQ
-            }
-            PllSource::HSE(freq) => {
-                RCC.cr().write(|w| w.set_hseon(true));
-                while !RCC.cr().read().hserdy() {}
-                freq
-            }
+            Pllsrc::HSI => unwrap!(hsi),
+            Pllsrc::HSE => unwrap!(hse),
+            _ => unreachable!(),
         };
+
+        // TODO: check PLL input, internal and output frequencies for validity
 
         // Disable PLL before configuration
         RCC.cr().modify(|w| w.set_pllon(false));
         while RCC.cr().read().pllrdy() {}
 
-        let internal_freq = src_freq / pll_config.prediv_m * pll_config.mul_n;
+        let internal_freq = src_freq / pll_config.prediv * pll_config.mul;
 
         RCC.pllcfgr().write(|w| {
-            w.set_plln(pll_config.mul_n);
-            w.set_pllm(pll_config.prediv_m);
+            w.set_plln(pll_config.mul);
+            w.set_pllm(pll_config.prediv);
             w.set_pllsrc(pll_config.source.into());
         });
 
-        let pll_p_freq = pll_config.div_p.map(|div_p| {
+        let pll_p_freq = pll_config.divp.map(|div_p| {
             RCC.pllcfgr().modify(|w| {
                 w.set_pllp(div_p);
                 w.set_pllpen(true);
@@ -152,7 +184,7 @@ pub(crate) unsafe fn init(config: Config) {
             internal_freq / div_p
         });
 
-        let pll_q_freq = pll_config.div_q.map(|div_q| {
+        let pll_q_freq = pll_config.divq.map(|div_q| {
             RCC.pllcfgr().modify(|w| {
                 w.set_pllq(div_q);
                 w.set_pllqen(true);
@@ -160,7 +192,7 @@ pub(crate) unsafe fn init(config: Config) {
             internal_freq / div_q
         });
 
-        let pll_r_freq = pll_config.div_r.map(|div_r| {
+        let pll_r_freq = pll_config.divr.map(|div_r| {
             RCC.pllcfgr().modify(|w| {
                 w.set_pllr(div_r);
                 w.set_pllren(true);
@@ -179,22 +211,10 @@ pub(crate) unsafe fn init(config: Config) {
         }
     });
 
-    let (sys_clk, sw) = match config.mux {
-        ClockSrc::HSI => {
-            // Enable HSI
-            RCC.cr().write(|w| w.set_hsion(true));
-            while !RCC.cr().read().hsirdy() {}
-
-            (HSI_FREQ, Sw::HSI)
-        }
-        ClockSrc::HSE(freq) => {
-            // Enable HSE
-            RCC.cr().write(|w| w.set_hseon(true));
-            while !RCC.cr().read().hserdy() {}
-
-            (freq, Sw::HSE)
-        }
-        ClockSrc::PLL => {
+    let (sys_clk, sw) = match config.sys {
+        Sysclk::HSI => (HSI_FREQ, Sw::HSI),
+        Sysclk::HSE => (unwrap!(hse), Sw::HSE),
+        Sysclk::PLL1_R => {
             assert!(pll_freq.is_some());
             assert!(pll_freq.as_ref().unwrap().pll_r.is_some());
 
@@ -202,10 +222,9 @@ pub(crate) unsafe fn init(config: Config) {
 
             assert!(freq <= 170_000_000);
 
-            if freq >= 150_000_000 {
-                // Enable Core Boost mode on freq >= 150Mhz ([RM0440] p234)
+            if config.boost {
+                // Enable Core Boost mode ([RM0440] p234)
                 PWR.cr5().modify(|w| w.set_r1mode(false));
-                // Set flash wait state in boost mode based on frequency ([RM0440] p191)
                 if freq <= 36_000_000 {
                     FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
                 } else if freq <= 68_000_000 {
@@ -218,8 +237,8 @@ pub(crate) unsafe fn init(config: Config) {
                     FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
                 }
             } else {
+                // Enable Core Boost mode ([RM0440] p234)
                 PWR.cr5().modify(|w| w.set_r1mode(true));
-                // Set flash wait state in normal mode based on frequency ([RM0440] p191)
                 if freq <= 30_000_000 {
                     FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
                 } else if freq <= 60_000_000 {
@@ -235,6 +254,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             (Hertz(freq), Sw::PLL1_R)
         }
+        _ => unreachable!(),
     };
 
     RCC.cfgr().modify(|w| {
@@ -263,7 +283,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Setup the 48 MHz clock if needed
-    if let Some(clock_48mhz_src) = config.clock_48mhz_src {
+    if let Some(clock_48mhz_src) = config.clk48_src {
         let source = match clock_48mhz_src {
             Clock48MhzSrc::PllQ => {
                 // Make sure the PLLQ is enabled and running at 48Mhz
@@ -317,9 +337,33 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(apb2_tim_freq),
         adc: adc12_ck,
         adc34: adc345_ck,
-        pll1_p: None,
-        pll1_q: None, // TODO
-        hse: None,    // TODO
+        pll1_p: pll_freq.as_ref().and_then(|pll| pll.pll_p),
+        pll1_q: pll_freq.as_ref().and_then(|pll| pll.pll_p),
+        hse: hse,
         rtc: rtc,
     );
+}
+
+// TODO: if necessary, make more of these gated behind cfg attrs
+mod max {
+    use core::ops::RangeInclusive;
+
+    use crate::time::Hertz;
+
+    /// HSE 4-48MHz (RM0440 p280)
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(48_000_000);
+
+    /// External Clock ?-48MHz (RM0440 p280)
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
+
+    /// SYSCLK ?-170MHz (RM0440 p282)
+    pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
+
+    /// PLL Output frequency ?-170MHz (RM0440 p281)
+    pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
+
+    // Left over from f.rs, remove if not necessary
+    pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(12_500_000)..=Hertz(216_000_000);
+    pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(2_100_000);
+    pub(crate) const PLL_VCO: RangeInclusive<Hertz> = Hertz(100_000_000)..=Hertz(432_000_000);
 }
