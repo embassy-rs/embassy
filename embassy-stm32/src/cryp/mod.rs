@@ -3,7 +3,7 @@ use embassy_hal_internal::{into_ref, PeripheralRef};
 use crate::pac;
 use crate::peripherals::CRYP;
 use crate::rcc::sealed::RccPeripheral;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, peripherals, Peripheral};
 
 const DES_BLOCK_SIZE: usize = 8; // 64 bits
 const AES_BLOCK_SIZE: usize = 16; // 128 bits
@@ -49,7 +49,7 @@ pub struct Cryp<'d, T: Instance> {
     _peripheral: PeripheralRef<'d, T>,
 }
 
-type InitVector<'v> = Option<&'v [u8]>;
+pub type InitVector<'v> = Option<&'v [u8]>;
 
 impl<'d, T: Instance> Cryp<'d, T> {
     /// Create a new CRYP driver.
@@ -88,9 +88,9 @@ impl<'d, T: Instance> Cryp<'d, T> {
                 ivlen = 0;
             }
             match keylen {
-                128 => T::regs().cr().write(|w| w.set_keysize(0)),
-                192 => T::regs().cr().write(|w| w.set_keysize(1)),
-                256 => T::regs().cr().write(|w| w.set_keysize(2)),
+                128 => T::regs().cr().modify(|w| w.set_keysize(0)),
+                192 => T::regs().cr().modify(|w| w.set_keysize(1)),
+                256 => T::regs().cr().modify(|w| w.set_keysize(2)),
                 _ => panic!("Key length must be 128, 192, or 256 bits."),
             }
 
@@ -155,13 +155,13 @@ impl<'d, T: Instance> Cryp<'d, T> {
             T::regs().init(0).ivlr().write_value(u32::from_be_bytes(iv_word));
             iv_word.copy_from_slice(&iv[iv_idx..iv_idx + 4]);
             iv_idx += 4;
+            T::regs().init(0).ivrr().write_value(u32::from_be_bytes(iv_word));
             if iv.len() >= 12 {
-                T::regs().init(0).ivrr().write_value(u32::from_be_bytes(iv_word));
                 iv_word.copy_from_slice(&iv[iv_idx..iv_idx + 4]);
                 iv_idx += 4;
+                T::regs().init(1).ivlr().write_value(u32::from_be_bytes(iv_word));
             }
             if iv.len() >= 16 {
-                T::regs().init(1).ivlr().write_value(u32::from_be_bytes(iv_word));
                 iv_word.copy_from_slice(&iv[iv_idx..iv_idx + 4]);
                 T::regs().init(1).ivrr().write_value(u32::from_be_bytes(iv_word));
             }
@@ -206,9 +206,6 @@ impl<'d, T: Instance> Cryp<'d, T> {
         self.load_context(ctx);
 
         ctx.aad_complete = true;
-        if last_block {
-            ctx.last_block_processed = true;
-        }
 
         let block_size;
         if ctx.algo == Algorithm::DES {
@@ -231,13 +228,17 @@ impl<'d, T: Instance> Cryp<'d, T> {
         }
         if !last_block {
             if last_block_remainder != 0 {
-                panic!("Input length must be a multiple of {block_size} bytes.");
+                panic!("Input length must be a multiple of {} bytes.", block_size);
             }
         }
         if (ctx.mode == Mode::ECB) || (ctx.mode == Mode::CBC) {
             if last_block_remainder != 0 {
-                panic!("Input must be a multiple of {block_size} bytes in ECB and CBC modes. Consider padding or ciphertext stealing.");
+                panic!("Input must be a multiple of {} bytes in ECB and CBC modes. Consider padding or ciphertext stealing.", block_size);
             }
+        }
+
+        if last_block {
+            ctx.last_block_processed = true;
         }
 
         // Load data into core, block by block.
@@ -277,7 +278,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
 
             let mut intermediate_data: [u8; 16] = [0; 16];
             let mut last_block: [u8; 16] = [0; 16];
-            last_block.copy_from_slice(&input[input.len() - last_block_remainder..input.len()]);
+            last_block[..last_block_remainder].copy_from_slice(&input[input.len() - last_block_remainder..input.len()]);
             let mut index = 0;
             let end_index = block_size;
             // Write block in
@@ -299,7 +300,8 @@ impl<'d, T: Instance> Cryp<'d, T> {
             }
 
             // Handle the last block depending on mode.
-            output[output.len() - last_block_remainder..output.len()]
+            let output_len = output.len();
+            output[output_len - last_block_remainder..output_len]
                 .copy_from_slice(&intermediate_data[0..last_block_remainder]);
 
             if ctx.mode == Mode::GCM && ctx.dir == Direction::Encrypt {
@@ -325,7 +327,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
     }
 
     fn prepare_key(&self, ctx: &Context) {
-        if ctx.algo == Algorithm::AES {
+        if ctx.algo == Algorithm::AES && ctx.dir == Direction::Decrypt {
             if (ctx.mode == Mode::ECB) || (ctx.mode == Mode::CBC) {
                 T::regs().cr().modify(|w| w.set_algomode0(7));
                 T::regs().cr().modify(|w| w.set_crypen(true));
@@ -406,6 +408,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
 
         // Prepare key if applicable.
         self.prepare_key(ctx);
+        T::regs().cr().write(|w| w.0 = ctx.cr);
 
         // Enable crypto processor.
         T::regs().cr().modify(|w| w.set_crypen(true));
@@ -420,14 +423,14 @@ pub(crate) mod sealed {
     }
 }
 
-/// RNG instance trait.
+/// CRYP instance trait.
 pub trait Instance: sealed::Instance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
-    /// Interrupt for this RNG instance.
+    /// Interrupt for this CRYP instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
 foreach_interrupt!(
-    ($inst:ident, rng, CRYP, GLOBAL, $irq:ident) => {
+    ($inst:ident, cryp, CRYP, GLOBAL, $irq:ident) => {
         impl Instance for peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
