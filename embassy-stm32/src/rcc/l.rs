@@ -9,7 +9,6 @@ pub use crate::pac::rcc::vals::Clk48sel as Clk48Src;
 pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange as MSIRange, Ppre as APBPrescaler, Sw as ClockSrc};
 use crate::pac::{FLASH, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -216,12 +215,9 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     #[cfg(crs)]
-    let _hsi48 = config.hsi48.map(|config| {
-        //
-        super::init_hsi48(config)
-    });
+    let hsi48 = config.hsi48.map(|config| super::init_hsi48(config));
     #[cfg(not(crs))]
-    let _hsi48: Option<Hertz> = None;
+    let hsi48: Option<Hertz> = None;
 
     let _plls = [
         &config.pll,
@@ -262,7 +258,7 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
     let pllsai1 = init_pll(PllInstance::Pllsai1, config.pllsai1, &pll_input);
     #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
-    let _pllsai2 = init_pll(PllInstance::Pllsai2, config.pllsai2, &pll_input);
+    let pllsai2 = init_pll(PllInstance::Pllsai2, config.pllsai2, &pll_input);
 
     let sys_clk = match config.mux {
         ClockSrc::HSE => hse.unwrap(),
@@ -274,13 +270,13 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
     RCC.ccipr().modify(|w| w.set_clk48sel(config.clk48_src));
     #[cfg(any(rcc_l0_v2))]
-    let _clk48 = match config.clk48_src {
-        Clk48Src::HSI48 => _hsi48,
+    let clk48 = match config.clk48_src {
+        Clk48Src::HSI48 => hsi48,
         Clk48Src::PLL1_VCO_DIV_2 => pll.clk48,
     };
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
-    let _clk48 = match config.clk48_src {
-        Clk48Src::HSI48 => _hsi48,
+    let clk48 = match config.clk48_src {
+        Clk48Src::HSI48 => hsi48,
         Clk48Src::MSI => msi,
         Clk48Src::PLLSAI1_Q => pllsai1.q,
         Clk48Src::PLL1_Q => pll.q,
@@ -376,37 +372,61 @@ pub(crate) unsafe fn init(config: Config) {
         while !RCC.extcfgr().read().c2hpref() {}
     }
 
-    set_freqs(Clocks {
-        sys: sys_clk,
-        hclk1,
+    set_clocks!(
+        sys: Some(sys_clk),
+        hclk1: Some(hclk1),
         #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
-        hclk2,
+        hclk2: Some(hclk2),
         #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
-        hclk3,
-        pclk1,
-        pclk2,
-        pclk1_tim,
-        pclk2_tim,
+        hclk3: Some(hclk3),
+        pclk1: Some(pclk1),
+        pclk2: Some(pclk2),
+        pclk1_tim: Some(pclk1_tim),
+        pclk2_tim: Some(pclk2_tim),
         #[cfg(stm32wl)]
-        pclk3: hclk3,
-        #[cfg(rcc_l4)]
-        hsi: None,
-        #[cfg(rcc_l4)]
-        lse: None,
-        #[cfg(rcc_l4)]
-        pllsai1_p: None,
-        #[cfg(rcc_l4)]
+        pclk3: Some(hclk3),
+        hsi: hsi,
+        hse: hse,
+        msi: msi,
+        #[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
+        clk48: clk48,
+        hsi48: hsi48,
+
+        #[cfg(not(any(stm32l0, stm32l1)))]
+        pll1_p: pll.p,
+        #[cfg(not(any(stm32l0, stm32l1)))]
+        pll1_q: pll.q,
+        pll1_r: pll.r,
+
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
+        pllsai1_p: pllsai1.p,
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
+        pllsai1_q: pllsai1.q,
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
+        pllsai1_r: pllsai1.r,
+
+        #[cfg(not(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5)))]
         pllsai2_p: None,
-        #[cfg(rcc_l4)]
-        pll1_p: None,
-        #[cfg(rcc_l4)]
-        pll1_q: None,
-        #[cfg(rcc_l4)]
+        #[cfg(not(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5)))]
+        pllsai2_q: None,
+        #[cfg(not(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5)))]
+        pllsai2_r: None,
+
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+        pllsai2_p: pllsai2.p,
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+        pllsai2_q: pllsai2.q,
+        #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
+        pllsai2_r: pllsai2.r,
+
+        rtc: rtc,
+
+        // TODO
         sai1_extclk: None,
-        #[cfg(rcc_l4)]
         sai2_extclk: None,
-        rtc,
-    });
+        lsi: None,
+        lse: None,
+    );
 }
 
 #[cfg(any(stm32l0, stm32l1))]

@@ -7,12 +7,11 @@ pub use crate::pac::rcc::vals::Adcdacsel as AdcClockSource;
 #[cfg(stm32h7)]
 pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
 pub use crate::pac::rcc::vals::{
-    Ckpersel as PerClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
-    Pllsrc as PllSource, Sw as Sysclk,
+    Ckpersel as PerClockSource, Fdcansel as FdCanClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv,
+    Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Ckpersel, Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -171,22 +170,7 @@ pub enum SupplyConfig {
 /// This is only used in certain power supply configurations:
 /// SMPSLDO, SMPSExternalLDO, SMPSExternalLDOBypass.
 #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
-#[derive(PartialEq)]
-pub enum SMPSSupplyVoltage {
-    V1_8,
-    V2_5,
-}
-
-#[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
-impl SMPSSupplyVoltage {
-    /// Convert SMPSSupplyVoltage to u8 representation.
-    fn to_u8(&self) -> u8 {
-        match self {
-            SMPSSupplyVoltage::V1_8 => 0b01,
-            SMPSSupplyVoltage::V2_5 => 0b10,
-        }
-    }
-}
+pub use pac::pwr::vals::Sdlevel as SMPSSupplyVoltage;
 
 /// Configuration of the core clocks
 #[non_exhaustive]
@@ -212,6 +196,8 @@ pub struct Config {
 
     pub per_clock_source: PerClockSource,
     pub adc_clock_source: AdcClockSource,
+    pub fdcan_clock_source: FdCanClockSource,
+
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
@@ -248,6 +234,8 @@ impl Default for Config {
             #[cfg(stm32h7)]
             adc_clock_source: AdcClockSource::PER,
 
+            fdcan_clock_source: FdCanClockSource::from_bits(0), // HSE
+
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
             ls: Default::default(),
@@ -276,7 +264,7 @@ pub(crate) unsafe fn init(config: Config) {
         match config.supply_config {
             SupplyConfig::Default => {
                 PWR.cr3().modify(|w| {
-                    w.set_sdlevel(0b00);
+                    w.set_sdlevel(SMPSSupplyVoltage::RESET);
                     w.set_sdexthp(false);
                     w.set_sden(true);
                     w.set_ldoen(true);
@@ -298,11 +286,11 @@ pub(crate) unsafe fn init(config: Config) {
                     w.set_bypass(false);
                 });
             }
-            SupplyConfig::SMPSLDO(ref smps_supply_voltage)
-            | SupplyConfig::SMPSExternalLDO(ref smps_supply_voltage)
-            | SupplyConfig::SMPSExternalLDOBypass(ref smps_supply_voltage) => {
+            SupplyConfig::SMPSLDO(smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDO(smps_supply_voltage)
+            | SupplyConfig::SMPSExternalLDOBypass(smps_supply_voltage) => {
                 PWR.cr3().modify(|w| {
-                    w.set_sdlevel(smps_supply_voltage.to_u8());
+                    w.set_sdlevel(smps_supply_voltage);
                     w.set_sdexthp(matches!(
                         config.supply_config,
                         SupplyConfig::SMPSExternalLDO(_) | SupplyConfig::SMPSExternalLDOBypass(_)
@@ -426,7 +414,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Configure HSI48.
-    let _hsi48 = config.hsi48.map(super::init_hsi48);
+    let hsi48 = config.hsi48.map(super::init_hsi48);
 
     // Configure CSI.
     RCC.cr().modify(|w| w.set_csion(config.csi));
@@ -585,7 +573,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         RCC.ccipr5().modify(|w| {
             w.set_ckpersel(config.per_clock_source);
-            w.set_adcdacsel(config.adc_clock_source)
+            w.set_adcdacsel(config.adc_clock_source);
+            w.set_fdcan12sel(config.fdcan_clock_source)
         });
     }
 
@@ -609,45 +598,33 @@ pub(crate) unsafe fn init(config: Config) {
         while !pac::SYSCFG.cccsr().read().ready() {}
     }
 
-    set_freqs(Clocks {
-        sys,
-        hclk1: hclk,
-        hclk2: hclk,
-        hclk3: hclk,
-        hclk4: hclk,
-        pclk1: apb1,
-        pclk2: apb2,
-        pclk3: apb3,
+    set_clocks!(
+        sys: Some(sys),
+        hclk1: Some(hclk),
+        hclk2: Some(hclk),
+        hclk3: Some(hclk),
+        hclk4: Some(hclk),
+        pclk1: Some(apb1),
+        pclk2: Some(apb2),
+        pclk3: Some(apb3),
         #[cfg(stm32h7)]
-        pclk4: apb4,
-        #[cfg(stm32h5)]
-        pclk4: Hertz(1),
-        pclk1_tim: apb1_tim,
-        pclk2_tim: apb2_tim,
-        adc,
-        rtc,
+        pclk4: Some(apb4),
+        pclk1_tim: Some(apb1_tim),
+        pclk2_tim: Some(apb2_tim),
+        adc: adc,
+        rtc: rtc,
 
-        #[cfg(any(stm32h5, stm32h7))]
-        hsi: None,
-        #[cfg(stm32h5)]
-        hsi48: None,
-        #[cfg(stm32h5)]
-        lsi: None,
-        #[cfg(any(stm32h5, stm32h7))]
-        csi: None,
+        hsi: hsi,
+        hsi48: hsi48,
+        csi: csi,
+        hse: hse,
 
-        #[cfg(any(stm32h5, stm32h7))]
         lse: None,
-        #[cfg(any(stm32h5, stm32h7))]
-        hse: None,
+        lsi: None,
 
-        #[cfg(any(stm32h5, stm32h7))]
         pll1_q: pll1.q,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_p: pll2.p,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_q: pll2.q,
-        #[cfg(any(stm32h5, stm32h7))]
         pll2_r: pll2.r,
         #[cfg(any(rcc_h5, stm32h7))]
         pll3_p: pll3.p,
@@ -665,12 +642,9 @@ pub(crate) unsafe fn init(config: Config) {
 
         #[cfg(stm32h5)]
         audioclk: None,
-        #[cfg(any(stm32h5, stm32h7))]
         per: None,
-
-        #[cfg(stm32h7)]
-        rcc_pclk_d3: None,
-    });
+        i2s_ckin: None,
+    );
 }
 
 struct PllInput {
@@ -733,7 +707,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
         Pllvcosel::WIDEVCO
     } else {
-        panic!("pll vco_clk out of range: {} mhz", vco_clk.0)
+        panic!("pll vco_clk out of range: {} hz", vco_clk.0)
     };
 
     let p = config.divp.map(|div| {

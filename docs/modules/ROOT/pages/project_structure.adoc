@@ -38,13 +38,18 @@ DEFMT_LOG = "trace" # <- can change to info, warn, or error
 
 == build.rs
 
-This is the build script for your project. It links defmt (what is defmt?) and the `memory.x` file if needed. This file is pretty specific for each chipset, just copy and paste from the corresponding link:https://github.com/embassy-rs/embassy/tree/main/examples[example].
+This is the build script for your project. It links defmt (what is link:https://defmt.ferrous-systems.com[defmt]?) and the `memory.x` file if needed. This file is pretty specific for each chipset, just copy and paste from the corresponding link:https://github.com/embassy-rs/embassy/tree/main/examples[example].
 
 == Cargo.toml
 
 This is your manifest file, where you can configure all of the embassy components to use the features you need.
 
-TODO: someone should exhaustively describe every feature for every component!
+==== Features
+===== Time
+- tick-hz-x: Configures the tick rate of `embassy-time`. Higher tick rate means higher precision, and higher CPU wakes.
+- defmt-timestamp-uptime: defmt log entries will display the uptime in seconds.
+
+...more to come
 
 == memory.x
 

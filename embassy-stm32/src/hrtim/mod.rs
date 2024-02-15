@@ -10,8 +10,6 @@ pub use traits::Instance;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::AnyPin;
-#[cfg(stm32f334)]
-use crate::rcc::get_freqs;
 use crate::time::Hertz;
 use crate::Peripheral;
 
@@ -182,7 +180,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
         T::enable_and_reset();
 
         #[cfg(stm32f334)]
-        if unsafe { get_freqs() }.hrtim.is_some() {
+        if crate::pac::RCC.cfgr3().read().hrtim1sw() == crate::pac::rcc::vals::Timsw::PLL1_P {
             // Enable and and stabilize the DLL
             T::regs().dllcr().modify(|w| {
                 w.set_cal(true);

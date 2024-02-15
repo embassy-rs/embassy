@@ -29,11 +29,10 @@ If you see an error like this:
 
 You are likely missing some features of the `embassy-executor` crate.
 
-For Cortex-M targets, consider making sure that ALL of the following features are active in your `Cargo.toml` for the `embassy-executor` crate:
+For Cortex-M targets, check whether ALL of the following features are enabled in your `Cargo.toml` for the `embassy-executor` crate:
 
 * `arch-cortex-m`
 * `executor-thread`
-* `nightly`
 
 For ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
 
@@ -119,21 +118,31 @@ features = [
 ]
 ----
 
+If you are in the early project setup phase and not using anything from the HAL, make sure the HAL is explicitly used to prevent the linker removing it as dead code by adding this line to your source:
+
+[source,rust]
+----
+use embassy_stm32 as _;
+----
+
 == Error: `Only one package in the dependency graph may specify the same links value.`
 
 You have multiple versions of the same crate in your dependency tree. This means that some of your
 embassy crates are coming from crates.io, and some from git, each of them pulling in a different set
 of dependencies.
 
-To resolve this issue, make sure to only use a single source for all your embassy crates! To do this,
-you should patch your dependencies to use git sources using `[patch.crates.io]` and maybe `[patch.'https://github.com/embassy-rs/embassy.git']`.
+To resolve this issue, make sure to only use a single source for all your embassy crates!
+To do this, you should patch your dependencies to use git sources using `[patch.crates.io]`
+and maybe `[patch.'https://github.com/embassy-rs/embassy.git']`.
 
 Example:
 
 [source,toml]
 ----
 [patch.crates-io]
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+embassy-time-queue-driver = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
+# embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "e5fdd35" }
 ----
 
 Note that the git revision should match any other embassy patches or git dependencies that you are using!
@@ -181,3 +190,21 @@ Check out link:https://docs.embassy.dev/embassy-executor/git/cortex-m/index.html
 == Can I use manual ISRs alongside Embassy?
 
 Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. Simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
+
+== How can I measure resource usage (CPU, RAM, etc.)?
+
+=== For CPU Usage:
+
+There are a couple techniques that have been documented, generally you want to measure how long you are spending in the idle or low priority loop.
+
+We need to document specifically how to do this in embassy, but link:https://blog.japaric.io/cpu-monitor/[this older post] describes the general process.
+
+If you end up doing this, please update this section with more specific examples!
+
+=== For Static Memory Usage
+
+Tools like `cargo size` and `cargo nm` can tell you the size of any globals or other static usage. Specifically you will want to see the size of the `.data` and `.bss` sections, which together make up the total global/static memory usage.
+
+=== For Max Stack Usage
+
+Check out link:https://github.com/Dirbaio/cargo-call-stack/[`cargo-call-stack`] for statically calculating worst-case stack usage. There are some caveats and inaccuracies possible with this, but this is a good way to get the general idea. See link:https://github.com/dirbaio/cargo-call-stack#known-limitations[the README] for more details.

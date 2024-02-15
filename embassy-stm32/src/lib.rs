@@ -46,6 +46,8 @@ pub mod exti;
 pub mod flash;
 #[cfg(fmc)]
 pub mod fmc;
+#[cfg(hash)]
+pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;
 #[cfg(i2c)]

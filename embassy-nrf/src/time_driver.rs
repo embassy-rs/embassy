@@ -171,7 +171,8 @@ impl RtcDriver {
     fn next_period(&self) {
         critical_section::with(|cs| {
             let r = rtc();
-            let period = self.period.fetch_add(1, Ordering::Relaxed) + 1;
+            let period = self.period.load(Ordering::Relaxed) + 1;
+            self.period.store(period, Ordering::Relaxed);
             let t = (period as u64) << 23;
 
             for n in 0..ALARM_COUNT {
@@ -219,18 +220,15 @@ impl Driver for RtcDriver {
     }
 
     unsafe fn allocate_alarm(&self) -> Option<AlarmHandle> {
-        let id = self.alarm_count.fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
-            if x < ALARM_COUNT as u8 {
-                Some(x + 1)
+        critical_section::with(|_| {
+            let id = self.alarm_count.load(Ordering::Relaxed);
+            if id < ALARM_COUNT as u8 {
+                self.alarm_count.store(id + 1, Ordering::Relaxed);
+                Some(AlarmHandle::new(id))
             } else {
                 None
             }
-        });
-
-        match id {
-            Ok(id) => Some(AlarmHandle::new(id)),
-            Err(_) => None,
-        }
+        })
     }
 
     fn set_alarm_callback(&self, alarm: AlarmHandle, callback: fn(*mut ()), ctx: *mut ()) {

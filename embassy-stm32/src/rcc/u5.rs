@@ -1,7 +1,6 @@
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange, Plldiv, Pllm, Plln, Ppre as APBPrescaler};
 use crate::pac::rcc::vals::{Msirgsel, Pllmboost, Pllrge, Pllsrc, Sw};
 use crate::pac::{FLASH, PWR, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -338,7 +337,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    let _hsi48 = config.hsi48.map(super::init_hsi48);
+    let hsi48 = config.hsi48.map(super::init_hsi48);
 
     // The clock source is ready
     // Calculate and set the flash wait states
@@ -448,18 +447,38 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    set_freqs(Clocks {
-        sys: sys_clk,
-        hclk1: ahb_freq,
-        hclk2: ahb_freq,
-        hclk3: ahb_freq,
-        pclk1: apb1_freq,
-        pclk2: apb2_freq,
-        pclk3: apb3_freq,
-        pclk1_tim: apb1_tim_freq,
-        pclk2_tim: apb2_tim_freq,
-        rtc,
-    });
+    set_clocks!(
+        sys: Some(sys_clk),
+        hclk1: Some(ahb_freq),
+        hclk2: Some(ahb_freq),
+        hclk3: Some(ahb_freq),
+        pclk1: Some(apb1_freq),
+        pclk2: Some(apb2_freq),
+        pclk3: Some(apb3_freq),
+        pclk1_tim: Some(apb1_tim_freq),
+        pclk2_tim: Some(apb2_tim_freq),
+        hsi48: hsi48,
+        rtc: rtc,
+
+        // TODO
+        hse: None,
+        hsi: None,
+        audioclk: None,
+        hsi48_div_2: None,
+        lse: None,
+        lsi: None,
+        msik: None,
+        pll1_p: None,
+        pll1_q: None,
+        pll1_r: None,
+        pll2_p: None,
+        pll2_q: None,
+        pll2_r: None,
+        pll3_p: None,
+        pll3_q: None,
+        pll3_r: None,
+        iclk: None,
+    );
 }
 
 fn msirange_to_hertz(range: Msirange) -> Hertz {

@@ -52,6 +52,37 @@ impl Default for Config {
     }
 }
 
+bitflags::bitflags! {
+    /// Error source flags
+    pub struct ErrorSource: u32 {
+        /// Buffer overrun
+        const OVERRUN = 0x01;
+        /// Parity error
+        const PARITY = 0x02;
+        /// Framing error
+        const FRAMING = 0x04;
+        /// Break condition
+        const BREAK = 0x08;
+    }
+}
+
+impl ErrorSource {
+    #[inline]
+    fn check(self) -> Result<(), Error> {
+        if self.contains(ErrorSource::OVERRUN) {
+            Err(Error::Overrun)
+        } else if self.contains(ErrorSource::PARITY) {
+            Err(Error::Parity)
+        } else if self.contains(ErrorSource::FRAMING) {
+            Err(Error::Framing)
+        } else if self.contains(ErrorSource::BREAK) {
+            Err(Error::Break)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// UART error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -61,6 +92,14 @@ pub enum Error {
     BufferTooLong,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
     BufferNotInRAM,
+    /// Framing Error
+    Framing,
+    /// Parity Error
+    Parity,
+    /// Buffer Overrun
+    Overrun,
+    /// Break condition
+    Break,
 }
 
 /// Interrupt handler.
@@ -73,9 +112,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        if r.events_endrx.read().bits() != 0 {
+        let endrx = r.events_endrx.read().bits();
+        let error = r.events_error.read().bits();
+        if endrx != 0 || error != 0 {
             s.endrx_waker.wake();
-            r.intenclr.write(|w| w.endrx().clear());
+            if endrx != 0 {
+                r.intenclr.write(|w| w.endrx().clear());
+            }
+            if error != 0 {
+                r.intenclr.write(|w| w.error().clear());
+            }
         }
         if r.events_endtx.read().bits() != 0 {
             s.endtx_waker.wake();
@@ -486,6 +532,14 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         Self::new_inner(uarte, rxd.map_into(), Some(rts.map_into()), config)
     }
 
+    /// Check for errors and clear the error register if an error occured.
+    fn check_and_clear_errors(&mut self) -> Result<(), Error> {
+        let r = T::regs();
+        let err_bits = r.errorsrc.read().bits();
+        r.errorsrc.write(|w| unsafe { w.bits(err_bits) });
+        ErrorSource::from_bits_truncate(err_bits).check()
+    }
+
     fn new_inner(
         uarte: impl Peripheral<P = T> + 'd,
         rxd: PeripheralRef<'d, AnyPin>,
@@ -572,7 +626,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
     /// Read bytes until the buffer is filled.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -588,8 +642,13 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let drop = OnDrop::new(move || {
             trace!("read drop: stopping");
 
-            r.intenclr.write(|w| w.endrx().clear());
+            r.intenclr.write(|w| {
+                w.endrx().clear();
+                w.error().clear()
+            });
             r.events_rxto.reset();
+            r.events_error.reset();
+            r.errorsrc.reset();
             r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
             while r.events_endrx.read().bits() == 0 {}
@@ -601,17 +660,26 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         r.events_endrx.reset();
-        r.intenset.write(|w| w.endrx().set());
+        r.events_error.reset();
+        r.intenset.write(|w| {
+            w.endrx().set();
+            w.error().set()
+        });
 
         compiler_fence(Ordering::SeqCst);
 
         trace!("startrx");
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-        poll_fn(|cx| {
+        let result = poll_fn(|cx| {
             s.endrx_waker.register(cx.waker());
+
+            if let Err(e) = self.check_and_clear_errors() {
+                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+                return Poll::Ready(Err(e));
+            }
             if r.events_endrx.read().bits() != 0 {
-                return Poll::Ready(());
+                return Poll::Ready(Ok(()));
             }
             Poll::Pending
         })
@@ -621,7 +689,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         r.events_rxstarted.reset();
         drop.defuse();
 
-        Ok(())
+        result
     }
 
     /// Read bytes until the buffer is filled.
@@ -642,19 +710,23 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         r.events_endrx.reset();
-        r.intenclr.write(|w| w.endrx().clear());
+        r.events_error.reset();
+        r.intenclr.write(|w| {
+            w.endrx().clear();
+            w.error().clear()
+        });
 
         compiler_fence(Ordering::SeqCst);
 
         trace!("startrx");
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-        while r.events_endrx.read().bits() == 0 {}
+        while r.events_endrx.read().bits() == 0 && r.events_error.read().bits() == 0 {}
 
         compiler_fence(Ordering::SeqCst);
         r.events_rxstarted.reset();
 
-        Ok(())
+        self.check_and_clear_errors()
     }
 }
 
@@ -721,8 +793,12 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         let drop = OnDrop::new(|| {
             self.timer.stop();
 
-            r.intenclr.write(|w| w.endrx().clear());
+            r.intenclr.write(|w| {
+                w.endrx().clear();
+                w.error().clear()
+            });
             r.events_rxto.reset();
+            r.events_error.reset();
             r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
 
             while r.events_endrx.read().bits() == 0 {}
@@ -732,17 +808,27 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         r.events_endrx.reset();
-        r.intenset.write(|w| w.endrx().set());
+        r.events_error.reset();
+        r.intenset.write(|w| {
+            w.endrx().set();
+            w.error().set()
+        });
 
         compiler_fence(Ordering::SeqCst);
 
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-        poll_fn(|cx| {
+        let result = poll_fn(|cx| {
             s.endrx_waker.register(cx.waker());
-            if r.events_endrx.read().bits() != 0 {
-                return Poll::Ready(());
+
+            if let Err(e) = self.rx.check_and_clear_errors() {
+                r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
+                return Poll::Ready(Err(e));
             }
+            if r.events_endrx.read().bits() != 0 {
+                return Poll::Ready(Ok(()));
+            }
+
             Poll::Pending
         })
         .await;
@@ -755,7 +841,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
 
         drop.defuse();
 
-        Ok(n)
+        result.map(|_| n)
     }
 
     /// Read bytes until the buffer is filled, or the line becomes idle.
@@ -780,13 +866,17 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         r.events_endrx.reset();
-        r.intenclr.write(|w| w.endrx().clear());
+        r.events_error.reset();
+        r.intenclr.write(|w| {
+            w.endrx().clear();
+            w.error().clear()
+        });
 
         compiler_fence(Ordering::SeqCst);
 
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
-        while r.events_endrx.read().bits() == 0 {}
+        while r.events_endrx.read().bits() == 0 && r.events_error.read().bits() == 0 {}
 
         compiler_fence(Ordering::SeqCst);
         let n = r.rxd.amount.read().amount().bits() as usize;
@@ -794,7 +884,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         self.timer.stop();
         r.events_rxstarted.reset();
 
-        Ok(n)
+        self.rx.check_and_clear_errors().map(|_| n)
     }
 }
 

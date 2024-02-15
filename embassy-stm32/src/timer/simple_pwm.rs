@@ -84,13 +84,12 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
         this.set_frequency(freq);
         this.inner.start();
 
-        this.inner.enable_outputs();
-
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .for_each(|&channel| {
                 this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
-                this.inner.set_output_compare_preload(channel, true)
+
+                this.inner.set_output_compare_preload(channel, true);
             });
 
         this
@@ -160,7 +159,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     ///
     /// Note:  
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn gen_waveform(
+    pub async fn waveform_up(
         &mut self,
         dma: impl Peripheral<P = impl super::UpDma<T>>,
         channel: Channel,
@@ -202,7 +201,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
                 &mut dma,
                 req,
                 duty,
-                T::regs_gp16().ccr(channel.index()).as_ptr() as *mut _,
+                T::regs_1ch().ccr(channel.index()).as_ptr() as *mut _,
                 dma_transfer_option,
             )
             .await
@@ -226,6 +225,95 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
     }
 }
 
+macro_rules! impl_waveform_chx {
+    ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
+        impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
+            /// Generate a sequence of PWM waveform
+            ///
+            /// Note:
+            /// you will need to provide corresponding TIMx_CHy DMA channel to use this method.
+            pub async fn $fn_name(&mut self, dma: impl Peripheral<P = impl super::$dma_ch<T>>, duty: &[u16]) {
+                use super::vals::Ccds;
+
+                assert!(duty.iter().all(|v| *v <= self.get_max_duty()));
+
+                into_ref!(dma);
+
+                #[allow(clippy::let_unit_value)] // eg. stm32f334
+                let req = dma.request();
+
+                let cc_channel = super::Channel::$cc_ch;
+
+                let original_duty_state = self.get_duty(cc_channel);
+                let original_enable_state = self.is_enabled(cc_channel);
+                let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ONUPDATE;
+                let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
+
+                // redirect CC DMA request onto Update Event
+                if !original_cc_dma_on_update {
+                    self.inner.set_cc_dma_selection(Ccds::ONUPDATE)
+                }
+
+                if !original_cc_dma_enabled {
+                    self.inner.set_cc_dma_enable_state(cc_channel, true);
+                }
+
+                if !original_enable_state {
+                    self.enable(cc_channel);
+                }
+
+                unsafe {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    use crate::dma::{Burst, FifoThreshold};
+                    use crate::dma::{Transfer, TransferOptions};
+
+                    let dma_transfer_option = TransferOptions {
+                        #[cfg(not(any(bdma, gpdma)))]
+                        fifo_threshold: Some(FifoThreshold::Full),
+                        #[cfg(not(any(bdma, gpdma)))]
+                        mburst: Burst::Incr8,
+                        ..Default::default()
+                    };
+
+                    Transfer::new_write(
+                        &mut dma,
+                        req,
+                        duty,
+                        T::regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut _,
+                        dma_transfer_option,
+                    )
+                    .await
+                };
+
+                // restore output compare state
+                if !original_enable_state {
+                    self.disable(cc_channel);
+                }
+
+                self.set_duty(cc_channel, original_duty_state);
+
+                // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
+                // this can almost always trigger a DMA FIFO error.
+                //
+                // optional TODO:
+                // clean FEIF after disable UDE
+                if !original_cc_dma_enabled {
+                    self.inner.set_cc_dma_enable_state(cc_channel, false);
+                }
+
+                if !original_cc_dma_on_update {
+                    self.inner.set_cc_dma_selection(Ccds::ONCOMPARE)
+                }
+            }
+        }
+    };
+}
+
+impl_waveform_chx!(waveform_ch1, Ch1Dma, Ch1);
+impl_waveform_chx!(waveform_ch2, Ch2Dma, Ch2);
+impl_waveform_chx!(waveform_ch3, Ch3Dma, Ch3);
+impl_waveform_chx!(waveform_ch4, Ch4Dma, Ch4);
+
 impl<'d, T: CaptureCompare16bitInstance> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     type Channel = Channel;
     type Time = Hertz;
@@ -240,7 +328,7 @@ impl<'d, T: CaptureCompare16bitInstance> embedded_hal_02::Pwm for SimplePwm<'d, 
     }
 
     fn get_period(&self) -> Self::Time {
-        self.inner.get_frequency().into()
+        self.inner.get_frequency()
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {

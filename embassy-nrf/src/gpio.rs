@@ -8,7 +8,13 @@ use cfg_if::cfg_if;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use self::sealed::Pin as _;
+#[cfg(feature = "nrf51")]
+use crate::pac::gpio;
+#[cfg(feature = "nrf51")]
+use crate::pac::gpio::pin_cnf::{DRIVE_A, PULL_A};
+#[cfg(not(feature = "nrf51"))]
 use crate::pac::p0 as gpio;
+#[cfg(not(feature = "nrf51"))]
 use crate::pac::p0::pin_cnf::{DRIVE_A, PULL_A};
 use crate::{pac, Peripheral};
 
@@ -376,6 +382,9 @@ pub(crate) mod sealed {
         fn block(&self) -> &gpio::RegisterBlock {
             unsafe {
                 match self.pin_port() / 32 {
+                    #[cfg(feature = "nrf51")]
+                    0 => &*pac::GPIO::ptr(),
+                    #[cfg(not(feature = "nrf51"))]
                     0 => &*pac::P0::ptr(),
                     #[cfg(feature = "_gpio-p1")]
                     1 => &*pac::P1::ptr(),
@@ -478,6 +487,7 @@ impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn deconfigure_pin(psel_bits: u32) {
     if psel_bits & 0x8000_0000 != 0 {
         return;

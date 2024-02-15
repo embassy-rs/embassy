@@ -3,11 +3,10 @@ use stm32_metapac::rcc::vals::{Adcsel, Pllsrc, Sw};
 use stm32_metapac::FLASH;
 
 pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN, Pllp as PllP, Pllq as PllQ,
-    Pllr as PllR, Ppre as APBPrescaler,
+    Adcsel as AdcClockSource, Fdcansel as FdCanClockSource, Hpre as AHBPrescaler, Pllm as PllM, Plln as PllN,
+    Pllp as PllP, Pllq as PllQ, Pllr as PllR, Ppre as APBPrescaler,
 };
 use crate::pac::{PWR, RCC};
-use crate::rcc::{set_freqs, Clocks};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -87,6 +86,7 @@ pub struct Config {
     pub clock_48mhz_src: Option<Clock48MhzSrc>,
     pub adc12_clock_source: AdcClockSource,
     pub adc345_clock_source: AdcClockSource,
+    pub fdcan_clock_source: FdCanClockSource,
 
     pub ls: super::LsConfig,
 }
@@ -104,6 +104,7 @@ impl Default for Config {
             clock_48mhz_src: Some(Clock48MhzSrc::Hsi48(Default::default())),
             adc12_clock_source: Adcsel::DISABLE,
             adc345_clock_source: Adcsel::DISABLE,
+            fdcan_clock_source: FdCanClockSource::PCLK1,
             ls: Default::default(),
         }
     }
@@ -282,6 +283,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     RCC.ccipr().modify(|w| w.set_adc12sel(config.adc12_clock_source));
     RCC.ccipr().modify(|w| w.set_adc345sel(config.adc345_clock_source));
+    RCC.ccipr().modify(|w| w.set_fdcansel(config.fdcan_clock_source));
 
     let adc12_ck = match config.adc12_clock_source {
         AdcClockSource::DISABLE => None,
@@ -304,20 +306,20 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
-    set_freqs(Clocks {
-        sys: sys_clk,
-        hclk1: ahb_freq,
-        hclk2: ahb_freq,
-        hclk3: ahb_freq,
-        pclk1: apb1_freq,
-        pclk1_tim: apb1_tim_freq,
-        pclk2: apb2_freq,
-        pclk2_tim: apb2_tim_freq,
+    set_clocks!(
+        sys: Some(sys_clk),
+        hclk1: Some(ahb_freq),
+        hclk2: Some(ahb_freq),
+        hclk3: Some(ahb_freq),
+        pclk1: Some(apb1_freq),
+        pclk1_tim: Some(apb1_tim_freq),
+        pclk2: Some(apb2_freq),
+        pclk2_tim: Some(apb2_tim_freq),
         adc: adc12_ck,
         adc34: adc345_ck,
         pll1_p: None,
         pll1_q: None, // TODO
         hse: None,    // TODO
-        rtc,
-    });
+        rtc: rtc,
+    );
 }
