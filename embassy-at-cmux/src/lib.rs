@@ -1,5 +1,4 @@
 #![no_std]
-#![feature(inline_const)]
 
 mod fmt;
 
@@ -42,6 +41,16 @@ struct Lines {
 }
 
 impl Lines {
+    const fn new() -> Self {
+        Self {
+            rx: Cell::new(0),
+            tx: Cell::new(0),
+            hangup: Cell::new(false),
+            hangup_mask: Cell::new(None),
+            hangup_waker: AtomicWaker::new(),
+        }
+    }
+
     fn check_hangup(&self) {
         if let Some((mask, val)) = self.hangup_mask.get() {
             if self.rx.get() & mask == val & mask {
@@ -97,20 +106,15 @@ pub struct Runner<'a, const N: usize, const BUF: usize> {
 }
 
 impl<const N: usize, const BUF: usize> Mux<N, BUF> {
+    const ONE_PIPE: Pipe<NoopRawMutex, BUF> = Pipe::new();
+
     pub fn new() -> Self {
+        const LINE: Lines = Lines::new();
 
         Self {
-            rx: [const { Pipe::new() }; N],
-            tx: [const { Pipe::new() }; N],
-            lines: [const {
-                Lines {
-                    rx: Cell::new(0),
-                    tx: Cell::new(0),
-                    hangup: Cell::new(false),
-                    hangup_mask: Cell::new(None),
-                    hangup_waker: AtomicWaker::new(),
-                }
-            }; N],
+            rx: [Self::ONE_PIPE; N],
+            tx: [Self::ONE_PIPE; N],
+            lines: [LINE; N],
             line_status_updated: Signal::new(),
         }
     }
