@@ -356,10 +356,10 @@ mod max {
     /// External Clock ?-48MHz (RM0440 p280)
     pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
 
-    /// SYSCLK ?-170MHz (RM0440 p282)
+    // SYSCLK ?-170MHz (RM0440 p282)
     //pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
 
-    /// PLL Output frequency ?-170MHz (RM0440 p281)
+    // PLL Output frequency ?-170MHz (RM0440 p281)
     //pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
 
     // Left over from f.rs, remove if not necessary
