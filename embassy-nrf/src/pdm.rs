@@ -1,4 +1,4 @@
-//! Pulse Density Modulation (PDM) mirophone driver.
+//! Pulse Density Modulation (PDM) mirophone driver
 
 #![macro_use]
 
@@ -26,7 +26,7 @@ pub use crate::pac::pdm::pdmclkctrl::FREQ_A as Frequency;
 pub use crate::pac::pdm::ratio::RATIO_A as Ratio;
 use crate::{interrupt, Peripheral};
 
-/// Interrupt handler.
+/// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -56,12 +56,12 @@ pub struct Pdm<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
 }
 
-/// PDM error.
+/// PDM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    /// Buffer is too long.
+    /// Buffer is too long
     BufferTooLong,
     /// Buffer is empty
     BufferZeroLength,
@@ -75,13 +75,13 @@ static DUMMY_BUFFER: [i16; 1] = [0; 1];
 
 /// The state of a continuously running sampler. While it reflects
 /// the progress of a sampler, it also signals what should be done
-/// next. For example, if the sampler has stopped then the Pdm implementation
-/// can then tear down its infrastructure.
+/// next. For example, if the sampler has stopped then the PDM implementation
+/// can then tear down its infrastructure
 #[derive(PartialEq)]
 pub enum SamplerState {
-    /// The sampler processed the samples and is ready for more.
+    /// The sampler processed the samples and is ready for more
     Sampled,
-    /// The sampler is done processing samples.
+    /// The sampler is done processing samples
     Stopped,
 }
 
@@ -162,12 +162,12 @@ impl<'d, T: Instance> Pdm<'d, T> {
         Self::_set_gain(T::regs(), gain_left, gain_right)
     }
 
-    /// Start sampling microphon data into a dummy buffer
-    /// Usefull to start the microphon and keep it active between recording samples
+    /// Start sampling microphone data into a dummy buffer.
+    /// Useful to start the microphone and keep it active between recording samples.
     pub async fn start(&mut self) {
         let r = T::regs();
 
-        // start dummy sampling because microphon needs some setup time
+        // start dummy sampling because microphone needs some setup time
         r.sample
             .ptr
             .write(|w| unsafe { w.sampleptr().bits(DUMMY_BUFFER.as_ptr() as u32) });
@@ -178,14 +178,14 @@ impl<'d, T: Instance> Pdm<'d, T> {
         r.tasks_start.write(|w| unsafe { w.bits(1) });
     }
 
-    /// Stop sampling microphon data inta a dummy buffer
+    /// Stop sampling microphone data inta a dummy buffer
     pub async fn stop(&mut self) {
         let r = T::regs();
         r.tasks_stop.write(|w| unsafe { w.bits(1) });
         r.events_started.reset();
     }
 
-    /// Sample data into the given buffer.
+    /// Sample data into the given buffer
     pub async fn sample(&mut self, buffer: &mut [i16]) -> Result<(), Error> {
         if buffer.len() == 0 {
             return Err(Error::BufferZeroLength);
@@ -302,7 +302,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
         });
 
         // Don't reorder the start event before the previous writes. Hopefully self
-        // wouldn't happen anyway.
+        // wouldn't happen anyway
         compiler_fence(Ordering::SeqCst);
 
         r.tasks_start.write(|w| unsafe { w.bits(1) });
@@ -313,11 +313,11 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
         let drop = OnDrop::new(|| {
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
-            // N.B. It would be better if this were async, but Drop only support sync code.
+            // N.B. It would be better if this were async, but Drop only support sync code
             while r.events_stopped.read().bits() != 0 {}
         });
 
-        // Wait for events and complete when the sampler indicates it has had enough.
+        // Wait for events and complete when the sampler indicates it has had enough
         poll_fn(|cx| {
             let r = T::regs();
 
@@ -330,7 +330,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
                 r.intenset.write(|w| w.end().set());
 
                 if !done {
-                    // Discard the last buffer after the user requested a stop.
+                    // Discard the last buffer after the user requested a stop
                     if sampler(&bufs[current_buffer]) == SamplerState::Sampled {
                         let next_buffer = 1 - current_buffer;
                         current_buffer = next_buffer;
@@ -404,7 +404,7 @@ impl Default for Config {
     }
 }
 
-/// PDM operation mode.
+/// PDM operation mode
 #[derive(PartialEq)]
 pub enum OperationMode {
     /// Mono (1 channel)
@@ -475,9 +475,9 @@ pub(crate) mod sealed {
     }
 }
 
-/// PDM peripheral instance.
+/// PDM peripheral instance
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
-    /// Interrupt for this peripheral.
+    /// Interrupt for this peripheral
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
