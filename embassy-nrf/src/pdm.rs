@@ -4,6 +4,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -145,15 +146,14 @@ impl<'d, T: Instance> Pdm<'d, T> {
     }
 
     fn _set_gain(r: &crate::pac::pdm::RegisterBlock, gain_left: I7F1, gain_right: I7F1) {
-        let gain_left = gain_left
-            .saturating_add(I7F1::from_bits(40))
-            .saturating_to_num::<u8>()
-            .clamp(0, 0x50);
-        let gain_right = gain_right
-            .saturating_add(I7F1::from_bits(40))
-            .saturating_to_num::<u8>()
-            .clamp(0, 0x50);
-
+        let gain_to_bits = |gain: I7F1| -> u8 {
+            let gain = gain.saturating_add(I7F1::from_bits(0x28))
+                .to_bits()
+                .clamp(0, 0x50);
+            unsafe { mem::transmute(gain) }
+        };
+        let gain_left = gain_to_bits(gain_left);
+        let gain_right = gain_to_bits(gain_right);
         r.gainl.write(|w| unsafe { w.gainl().bits(gain_left) });
         r.gainr.write(|w| unsafe { w.gainr().bits(gain_right) });
     }
