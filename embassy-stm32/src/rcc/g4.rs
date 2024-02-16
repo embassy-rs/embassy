@@ -3,8 +3,9 @@ use stm32_metapac::rcc::vals::{Adcsel, Sw};
 use stm32_metapac::FLASH;
 
 pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Clk48sel, Fdcansel as FdCanClockSource, Hpre as AHBPrescaler, Pllm as PllPreDiv,
-    Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc, Ppre as APBPrescaler, Sw as Sysclk,
+    Adcsel as AdcClockSource, Clk48sel as Clk48Src, Fdcansel as FdCanClockSource, Hpre as AHBPrescaler,
+    Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc, Ppre as APBPrescaler,
+    Sw as Sysclk,
 };
 use crate::pac::{PWR, RCC};
 use crate::time::Hertz;
@@ -53,17 +54,6 @@ pub struct Pll {
     pub divr: Option<PllRDiv>,
 }
 
-/// Sets the source for the 48MHz clock to the USB and RNG peripherals.
-pub enum Clock48MhzSrc {
-    /// Use the High Speed Internal Oscillator. For USB usage, the CRS must be used to calibrate the
-    /// oscillator to comply with the USB specification for oscillator tolerance.
-    Hsi48(super::Hsi48Config),
-    /// Use the PLLQ output. The PLL must be configured to output a 48MHz clock. For USB usage the
-    /// PLL needs to be using the HSE source to comply with the USB specification for oscillator
-    /// tolerance.
-    PllQ,
-}
-
 /// Clocks configutation
 #[non_exhaustive]
 pub struct Config {
@@ -82,7 +72,7 @@ pub struct Config {
     pub low_power_run: bool,
 
     /// Sets the clock source for the 48MHz clock used by the USB and RNG peripherals.
-    pub clk48_src: Option<Clock48MhzSrc>,
+    pub clk48_src: Clk48Src,
 
     pub ls: super::LsConfig,
 
@@ -106,7 +96,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
-            clk48_src: Some(Clock48MhzSrc::Hsi48(Default::default())),
+            clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
             adc12_clock_source: Adcsel::DISABLE,
             adc345_clock_source: Adcsel::DISABLE,
@@ -283,19 +273,17 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Setup the 48 MHz clock if needed
-    if let Some(clock_48mhz_src) = config.clk48_src {
-        let source = match clock_48mhz_src {
-            Clock48MhzSrc::PllQ => {
+    {
+        let source = match config.clk48_src {
+            Clk48Src::PLL1_Q => {
                 // Make sure the PLLQ is enabled and running at 48Mhz
                 let pllq_freq = pll_freq.as_ref().and_then(|f| f.pll_q);
                 assert!(pllq_freq.is_some() && pllq_freq.unwrap().0 == 48_000_000);
 
                 crate::pac::rcc::vals::Clk48sel::PLL1_Q
             }
-            Clock48MhzSrc::Hsi48(config) => {
-                super::init_hsi48(config);
-                crate::pac::rcc::vals::Clk48sel::HSI48
-            }
+            Clk48Src::HSI48 => crate::pac::rcc::vals::Clk48sel::HSI48,
+            _ => unreachable!(),
         };
 
         RCC.ccipr().modify(|w| w.set_clk48sel(source));

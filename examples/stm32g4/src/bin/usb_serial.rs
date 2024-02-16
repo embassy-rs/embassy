@@ -4,7 +4,7 @@
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{
-    Clock48MhzSrc, Hse, HseMode, Hsi48Config, Pll, PllMul, PllPreDiv, PllQDiv, PllRDiv, Pllsrc, Sysclk,
+    Clk48Src, Hse, HseMode, Hsi48Config, Pll, PllMul, PllPreDiv, PllQDiv, PllRDiv, Pllsrc, Sysclk,
 };
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{self, Driver, Instance};
@@ -47,9 +47,10 @@ async fn main(_spawner: Spawner) {
 
     if USE_HSI48 {
         // Sets up the Clock Recovery System (CRS) to use the USB SOF to trim the HSI48 oscillator.
-        config.rcc.clk48_src = Some(Clock48MhzSrc::Hsi48(Hsi48Config { sync_from_usb: true }));
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
+        config.rcc.clk48_src = Clk48Src::HSI48;
     } else {
-        config.rcc.clk48_src = Some(Clock48MhzSrc::PllQ);
+        config.rcc.clk48_src = Clk48Src::PLL1_Q;
     }
 
     let p = embassy_stm32::init(config);
