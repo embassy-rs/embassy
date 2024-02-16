@@ -116,6 +116,7 @@ pub struct TimClockSources {
     pub tim20: TimClockSource,
 }
 
+#[cfg(all(stm32f3, not(rcc_f37)))]
 impl Default for TimClockSources {
     fn default() -> Self {
         Self {
@@ -178,7 +179,7 @@ pub struct Config {
     pub adc34: AdcClockSource,
     #[cfg(stm32f334)]
     pub hrtim: HrtimClockSource,
-    #[cfg(not(stm32f37))]
+    #[cfg(all(stm32f3, not(stm32f37)))]
     pub tim: TimClockSources,
 
     pub ls: super::LsConfig,
@@ -210,7 +211,7 @@ impl Default for Config {
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
             #[cfg(stm32f334)]
             hrtim: HrtimClockSource::BusClk,
-            #[cfg(not(stm32f37))]
+            #[cfg(all(stm32f3, not(stm32f37)))]
             tim: Default::default(),
         }
     }
