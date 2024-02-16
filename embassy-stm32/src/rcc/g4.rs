@@ -145,6 +145,11 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    // Configure HSI48 if required
+    if let Some(hsi48_config) = config.hsi48 {
+        super::init_hsi48(hsi48_config);
+    }
+
     let pll_freq = config.pll.map(|pll_config| {
         let src_freq = match pll_config.source {
             Pllsrc::HSI => unwrap!(hsi),
@@ -272,7 +277,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    // Setup the 48 MHz clock if needed
+    // Configure the 48MHz clock source for USB and RNG peripherals.
     {
         let source = match config.clk48_src {
             Clk48Src::PLL1_Q => {
@@ -282,7 +287,11 @@ pub(crate) unsafe fn init(config: Config) {
 
                 crate::pac::rcc::vals::Clk48sel::PLL1_Q
             }
-            Clk48Src::HSI48 => crate::pac::rcc::vals::Clk48sel::HSI48,
+            Clk48Src::HSI48 => {
+                // Make sure HSI48 is enabled
+                assert!(config.hsi48.is_some());
+                crate::pac::rcc::vals::Clk48sel::HSI48
+            }
             _ => unreachable!(),
         };
 
