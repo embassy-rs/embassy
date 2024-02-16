@@ -4,7 +4,6 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::mem;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
@@ -150,7 +149,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
             let gain = gain.saturating_add(I7F1::from_bits(0x28))
                 .to_bits()
                 .clamp(0, 0x50);
-            unsafe { mem::transmute(gain) }
+            unsafe { core::mem::transmute(gain) }
         };
         let gain_left = gain_to_bits(gain_left);
         let gain_right = gain_to_bits(gain_right);
