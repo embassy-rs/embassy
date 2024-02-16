@@ -146,9 +146,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
     fn _set_gain(r: &crate::pac::pdm::RegisterBlock, gain_left: I7F1, gain_right: I7F1) {
         let gain_to_bits = |gain: I7F1| -> u8 {
-            let gain = gain.saturating_add(I7F1::from_bits(0x28))
-                .to_bits()
-                .clamp(0, 0x50);
+            let gain = gain.saturating_add(I7F1::from_bits(0x28)).to_bits().clamp(0, 0x50);
             unsafe { core::mem::transmute(gain) }
         };
         let gain_left = gain_to_bits(gain_left);
