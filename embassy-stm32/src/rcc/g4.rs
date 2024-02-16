@@ -241,16 +241,13 @@ pub(crate) unsafe fn init(config: Config) {
         _ => unreachable!(),
     };
 
-    RCC.cfgr().modify(|w| {
-        w.set_sw(sw);
-        w.set_hpre(config.ahb_pre);
-        w.set_ppre1(config.apb1_pre);
-        w.set_ppre2(config.apb2_pre);
-    });
-
+    // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
     let ahb_freq = sys_clk / config.ahb_pre;
 
     // Configure Core Boost mode ([RM0440] p234 – inverted because setting r1mode to 0 enables boost mode!)
+    // TODO: according to RM0440 p235, when switching from range1-normal to range1-boost, it’s necessary to divide
+    // SYSCLK by 2 using the AHB prescaler, set boost and flash read latency, switch system frequency, wait 1us and
+    // reconfigure the AHB prescaler as desired. Unclear whether this is always necessary.
     PWR.cr5().modify(|w| w.set_r1mode(!config.boost));
 
     // Configure flash read access latency based on boost mode and frequency (RM0440 p98)
@@ -268,6 +265,14 @@ pub(crate) unsafe fn init(config: Config) {
             (false, ..=120_000_000) => Latency::WS3,
             (false, _) => Latency::WS4,
         })
+    });
+
+    // Now that boost mode and flash read access latency are configured, set up SYSCLK
+    RCC.cfgr().modify(|w| {
+        w.set_sw(sw);
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre1(config.apb1_pre);
+        w.set_ppre2(config.apb2_pre);
     });
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
