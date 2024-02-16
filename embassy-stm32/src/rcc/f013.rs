@@ -85,20 +85,11 @@ pub enum TimClockSource {
 #[derive(Clone, Copy)]
 pub struct TimClockSources {
     pub tim1: TimClockSource,
-    #[cfg(any(
-        all(stm32f303, any(package_D, package_E)),
-        all(stm32f302, any(package_D, package_E)),
-    ))]
+    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)),))]
     pub tim2: TimClockSource,
-    #[cfg(any(
-        all(stm32f303, any(package_D, package_E)),
-        all(stm32f302, any(package_D, package_E)),
-    ))]
+    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)),))]
     pub tim34: TimClockSource,
-    #[cfg(any(
-        all(stm32f303, any(package_B, package_C, package_D, package_E)),
-        stm32f358,
-    ))]
+    #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358,))]
     pub tim8: TimClockSource,
     #[cfg(any(
         all(stm32f303, any(package_D, package_E)),
@@ -121,30 +112,19 @@ pub struct TimClockSources {
         all(stm32f302, any(package_6, package_8))
     ))]
     pub tim17: TimClockSource,
-    #[cfg(any(
-        all(stm32f303, any(package_D, package_E)),
-    ))]
-    pub tim20: TimClockSource
+    #[cfg(any(all(stm32f303, any(package_D, package_E)),))]
+    pub tim20: TimClockSource,
 }
 
 impl Default for TimClockSources {
     fn default() -> Self {
         Self {
             tim1: TimClockSource::PClk2,
-            #[cfg(any(
-                all(stm32f303, any(package_D, package_E)),
-                all(stm32f302, any(package_D, package_E)),
-            ))]
+            #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)),))]
             tim2: TimClockSource::PClk2,
-            #[cfg(any(
-                all(stm32f303, any(package_D, package_E)),
-                all(stm32f302, any(package_D, package_E)),
-            ))]
+            #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)),))]
             tim34: TimClockSource::PClk2,
-            #[cfg(any(
-                all(stm32f303, any(package_B, package_C, package_D, package_E)),
-                stm32f358,
-            ))]
+            #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358,))]
             tim8: TimClockSource::PClk2,
             #[cfg(any(
                 all(stm32f303, any(package_D, package_E)),
@@ -167,10 +147,8 @@ impl Default for TimClockSources {
                 all(stm32f302, any(package_6, package_8))
             ))]
             tim17: TimClockSource::PClk2,
-            #[cfg(any(
-                all(stm32f303, any(package_D, package_E)),
-            ))]
-            tim20: TimClockSource::PClk2
+            #[cfg(any(all(stm32f303, any(package_D, package_E)),))]
+            tim20: TimClockSource::PClk2,
         }
     }
 }
@@ -233,7 +211,7 @@ impl Default for Config {
             #[cfg(stm32f334)]
             hrtim: HrtimClockSource::BusClk,
             #[cfg(not(stm32f37))]
-            tim: Default::default()
+            tim: Default::default(),
         }
     }
 }
@@ -476,9 +454,9 @@ pub(crate) unsafe fn init(config: Config) {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim1(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim1sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
@@ -491,9 +469,9 @@ pub(crate) unsafe fn init(config: Config) {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim2(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim2sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
@@ -506,9 +484,9 @@ pub(crate) unsafe fn init(config: Config) {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim34(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim34sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
@@ -521,54 +499,69 @@ pub(crate) unsafe fn init(config: Config) {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim8(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim8sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
     };
 
-    #[cfg(any(all(stm32f303, any(package_D, package_E)), stm32f301, stm32f318, all(stm32f302, any(package_6, package_8))))]
+    #[cfg(any(
+        all(stm32f303, any(package_D, package_E)),
+        stm32f301,
+        stm32f318,
+        all(stm32f302, any(package_6, package_8))
+    ))]
     let tim15 = match config.tim.tim15 {
         TimClockSource::PClk2 => None,
         TimClockSource::PllClk => {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim15(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim15sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
     };
 
-    #[cfg(any(all(stm32f303, any(package_D, package_E)), stm32f301, stm32f318, all(stm32f302, any(package_6, package_8))))]
+    #[cfg(any(
+        all(stm32f303, any(package_D, package_E)),
+        stm32f301,
+        stm32f318,
+        all(stm32f302, any(package_6, package_8))
+    ))]
     let tim16 = match config.tim.tim16 {
         TimClockSource::PClk2 => None,
         TimClockSource::PllClk => {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim16(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim16sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
     };
 
-    #[cfg(any(all(stm32f303, any(package_D, package_E)), stm32f301, stm32f318, all(stm32f302, any(package_6, package_8))))]
+    #[cfg(any(
+        all(stm32f303, any(package_D, package_E)),
+        stm32f301,
+        stm32f318,
+        all(stm32f302, any(package_6, package_8))
+    ))]
     let tim17 = match config.tim.tim17 {
         TimClockSource::PClk2 => None,
         TimClockSource::PllClk => {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim17(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim17sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
@@ -581,9 +574,9 @@ pub(crate) unsafe fn init(config: Config) {
             use crate::pac::rcc::vals::Timsw;
 
             let pll = unwrap!(pll);
-            assert((pclk2 == pll) || (pclk2 * 2u32 == pll));
+            assert!((pclk2 == pll) || (pclk2 * 2u32 == pll));
 
-            RCC.cfgr3().modify(|w| w.set_tim20(Timsw::PLL1_P));
+            RCC.cfgr3().modify(|w| w.set_tim20sw(Timsw::PLL1_P));
 
             Some(pll * 2u32)
         }
