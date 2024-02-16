@@ -50,6 +50,15 @@ pub struct Config {
     /// When doing bidirectional transfers, if the TX buffer is shorter than the RX buffer,
     /// this byte will be transmitted in the MOSI line for the left-over bytes.
     pub orc: u8,
+
+    /// Enable high drive for the SCK line.
+    pub sck_high_drive: bool,
+
+    /// Enable high drive for the MOSI line.
+    pub mosi_high_drive: bool,
+
+    /// Enable high drive for the MISO line.
+    pub miso_high_drive: bool,
 }
 
 impl Default for Config {
@@ -59,6 +68,9 @@ impl Default for Config {
             mode: MODE_0,
             bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
+            sck_high_drive: false,
+            mosi_high_drive: false,
+            miso_high_drive: false,
         }
     }
 }
@@ -159,13 +171,37 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Configure pins
         if let Some(sck) = &sck {
-            sck.conf().write(|w| w.dir().output().drive().h0h1());
+            sck.conf().write(|w| {
+                w.dir().output();
+                if config.sck_high_drive {
+                    w.drive().h0h1();
+                } else {
+                    w.drive().s0s1();
+                }
+                w
+            });
         }
         if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.dir().output().drive().h0h1());
+            mosi.conf().write(|w| {
+                w.dir().output();
+                if config.mosi_high_drive {
+                    w.drive().h0h1();
+                } else {
+                    w.drive().s0s1();
+                }
+                w
+            });
         }
         if let Some(miso) = &miso {
-            miso.conf().write(|w| w.input().connect().drive().h0h1());
+            miso.conf().write(|w| {
+                w.input().connect();
+                if config.miso_high_drive {
+                    w.drive().h0h1();
+                } else {
+                    w.drive().s0s1();
+                }
+                w
+            });
         }
 
         match config.mode.polarity {
