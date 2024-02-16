@@ -5,8 +5,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::ir::{BlockItemInner, Enum, FieldSet};
-use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, StopMode, METADATA};
+use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccKernelClock, StopMode, METADATA};
 
 fn main() {
     let target = env::var("TARGET").unwrap();
@@ -415,38 +414,6 @@ fn main() {
         .unwrap();
 
     // ========
-    // Generate rcc fieldset and enum maps
-    let rcc_enum_map: HashMap<&str, HashMap<&str, &Enum>> = {
-        let rcc_blocks = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
-        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.ir.fieldsets.iter().map(|f| (f.name, f)).collect();
-        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.ir.enums.iter().map(|e| (e.name, e)).collect();
-
-        rcc_blocks
-            .iter()
-            .filter_map(|b| match &b.inner {
-                BlockItemInner::Register(register) => register.fieldset.map(|f| (b.name, f)),
-                _ => None,
-            })
-            .filter_map(|(b, f)| {
-                rcc_fieldsets.get(f).map(|f| {
-                    (
-                        b,
-                        f.fields
-                            .iter()
-                            .filter_map(|f| {
-                                let enumm = f.enumm?;
-                                let enumm = rcc_enums.get(enumm)?;
-
-                                Some((f.name, *enumm))
-                            })
-                            .collect(),
-                    )
-                })
-            })
-            .collect()
-    };
-
-    // ========
     // Generate RccPeripheral impls
 
     // count how many times each xxENR field is used, to enable refcounting if used more than once.
@@ -494,8 +461,8 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let en_reg = format_ident!("{}", en.register);
-            let set_en_field = format_ident!("set_{}", en.field);
+            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
+            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
 
             let refcount =
                 force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
@@ -523,21 +490,25 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
-            let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
-                let mux = mux?;
-                let fieldset = rcc_enum_map.get(mux.register)?;
-                let enumm = fieldset.get(mux.field)?;
+            let clock_frequency = match &rcc.kernel_clock {
+                PeripheralRccKernelClock::Mux(mux) => {
+                    let ir = &rcc_registers.ir;
+                    let fieldset_name = mux.register.to_ascii_lowercase();
+                    let fieldset = ir
+                        .fieldsets
+                        .iter()
+                        .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+                        .unwrap();
+                    let field_name = mux.field.to_ascii_lowercase();
+                    let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+                    let enum_name = field.enumm.unwrap();
+                    let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
 
-                Some((mux, *enumm))
-            };
+                    let fieldset_name = format_ident!("{}", fieldset_name);
+                    let field_name = format_ident!("{}", field_name);
+                    let enum_name = format_ident!("{}", enum_name);
 
-            let clock_frequency = match mux_for(rcc.mux.as_ref()) {
-                Some((mux, rcc_enumm)) => {
-                    let fieldset_name = format_ident!("{}", mux.register);
-                    let field_name = format_ident!("{}", mux.field);
-                    let enum_name = format_ident!("{}", rcc_enumm.name);
-
-                    let match_arms: TokenStream = rcc_enumm
+                    let match_arms: TokenStream = enumm
                         .variants
                         .iter()
                         .filter(|v| v.name != "DISABLE")
@@ -561,9 +532,10 @@ fn main() {
                         }
                     }
                 }
-                None => {
-                    let clock_name = format_ident!("{}", rcc.clock);
-                    clock_names.insert(rcc.clock.to_string());
+                PeripheralRccKernelClock::Clock(clock) => {
+                    let clock = clock.to_ascii_lowercase();
+                    let clock_name = format_ident!("{}", clock);
+                    clock_names.insert(clock.to_string());
                     quote! {
                         unsafe { crate::rcc::get_freqs().#clock_name.unwrap() }
                     }
