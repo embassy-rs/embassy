@@ -13,6 +13,7 @@ use crate::time::Hertz;
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
+/// HSE Mode
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum HseMode {
     /// crystal/ceramic oscillator (HSEBYP=0)
@@ -21,6 +22,7 @@ pub enum HseMode {
     Bypass,
 }
 
+/// HSE Configuration
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Hse {
     /// HSE frequency.
@@ -57,11 +59,19 @@ pub struct Pll {
 /// Clocks configutation
 #[non_exhaustive]
 pub struct Config {
+    /// HSI Enable
     pub hsi: bool,
+
+    /// HSE Configuration
     pub hse: Option<Hse>,
+
+    /// System Clock Configuration
     pub sys: Sysclk,
+
+    /// HSI48 Configuration
     pub hsi48: Option<super::Hsi48Config>,
 
+    /// PLL Configuration
     pub pll: Option<Pll>,
 
     /// Iff PLL is requested as the main clock source in the `mux` field then the PLL configuration
@@ -69,17 +79,26 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+
     pub low_power_run: bool,
 
     /// Sets the clock source for the 48MHz clock used by the USB and RNG peripherals.
     pub clk48_src: Clk48Src,
 
+    /// Low-Speed Clock Configuration
     pub ls: super::LsConfig,
 
+    /// Clock Source for ADCs 1 and 2
     pub adc12_clock_source: AdcClockSource,
+
+    /// Clock Source for ADCs 3, 4 and 5
     pub adc345_clock_source: AdcClockSource,
+
+    /// Clock Source for FDCAN
     pub fdcan_clock_source: FdCanClockSource,
 
+    /// Enable range1 boost mode
+    /// Recommended when the SYSCLK frequency is greater than 150MHz.
     pub boost: bool,
 }
 
@@ -217,36 +236,6 @@ pub(crate) unsafe fn init(config: Config) {
 
             assert!(freq <= 170_000_000);
 
-            if config.boost {
-                // Enable Core Boost mode ([RM0440] p234)
-                PWR.cr5().modify(|w| w.set_r1mode(false));
-                if freq <= 36_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
-                } else if freq <= 68_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS1));
-                } else if freq <= 102_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS2));
-                } else if freq <= 136_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS3));
-                } else {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
-                }
-            } else {
-                // Enable Core Boost mode ([RM0440] p234)
-                PWR.cr5().modify(|w| w.set_r1mode(true));
-                if freq <= 30_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS0));
-                } else if freq <= 60_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS1));
-                } else if freq <= 80_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS2));
-                } else if freq <= 120_000_000 {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS3));
-                } else {
-                    FLASH.acr().modify(|w| w.set_latency(Latency::WS4));
-                }
-            }
-
             (Hertz(freq), Sw::PLL1_R)
         }
         _ => unreachable!(),
@@ -260,6 +249,26 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     let ahb_freq = sys_clk / config.ahb_pre;
+
+    // Configure Core Boost mode ([RM0440] p234 – inverted because setting r1mode to 0 enables boost mode!)
+    PWR.cr5().modify(|w| w.set_r1mode(!config.boost));
+
+    // Configure flash read access latency based on boost mode and frequency (RM0440 p98)
+    FLASH.acr().modify(|w| {
+        w.set_latency(match (config.boost, ahb_freq.0) {
+            (true, ..=34_000_000) => Latency::WS0,
+            (true, ..=68_000_000) => Latency::WS1,
+            (true, ..=102_000_000) => Latency::WS2,
+            (true, ..=136_000_000) => Latency::WS3,
+            (true, _) => Latency::WS4,
+
+            (false, ..=36_000_000) => Latency::WS0,
+            (false, ..=60_000_000) => Latency::WS1,
+            (false, ..=90_000_000) => Latency::WS2,
+            (false, ..=120_000_000) => Latency::WS3,
+            (false, _) => Latency::WS4,
+        })
+    });
 
     let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
         APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
