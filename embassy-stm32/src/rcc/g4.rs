@@ -242,17 +242,25 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
-    let ahb_freq = sys_clk / config.ahb_pre;
+    let hclk = sys_clk / config.ahb_pre;
 
     // Configure Core Boost mode ([RM0440] p234 – inverted because setting r1mode to 0 enables boost mode!)
-    // TODO: according to RM0440 p235, when switching from range1-normal to range1-boost, it’s necessary to divide
-    // SYSCLK by 2 using the AHB prescaler, set boost and flash read latency, switch system frequency, wait 1us and
-    // reconfigure the AHB prescaler as desired. Unclear whether this is always necessary.
-    PWR.cr5().modify(|w| w.set_r1mode(!config.boost));
+    if config.boost {
+        // RM0440 p235
+        // “The sequence to switch from Range1 normal mode to Range1 boost mode is:
+        // 1. The system clock must be divided by 2 using the AHB prescaler before switching to a higher system frequency.
+        RCC.cfgr().modify(|w| w.set_hpre(AHBPrescaler::DIV2));
+        // 2. Clear the R1MODE bit in the PWR_CR5 register. (enables boost mode)
+        PWR.cr5().modify(|w| w.set_r1mode(false));
+
+        // Below:
+        // 3. Adjust wait states according to new freq target
+        // 4. Configure and switch to new frequency
+    }
 
     // Configure flash read access latency based on boost mode and frequency (RM0440 p98)
     FLASH.acr().modify(|w| {
-        w.set_latency(match (config.boost, ahb_freq.0) {
+        w.set_latency(match (config.boost, hclk.0) {
             (true, ..=34_000_000) => Latency::WS0,
             (true, ..=68_000_000) => Latency::WS1,
             (true, ..=102_000_000) => Latency::WS2,
@@ -267,6 +275,11 @@ pub(crate) unsafe fn init(config: Config) {
         })
     });
 
+    if config.boost {
+        // 5. Wait for at least 1us and then reconfigure the AHB prescaler to get the needed HCLK clock frequency.
+        cortex_m::asm::delay(16);
+    }
+
     // Now that boost mode and flash read access latency are configured, set up SYSCLK
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
@@ -275,30 +288,16 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
 
-    let (apb1_freq, apb1_tim_freq) = match config.apb1_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
-
-    let (apb2_freq, apb2_tim_freq) = match config.apb2_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
+    let (apb1_freq, apb1_tim_freq) = super::util::calc_pclk(hclk, config.apb1_pre);
+    let (apb2_freq, apb2_tim_freq) = super::util::calc_pclk(hclk, config.apb2_pre);
 
     // Configure the 48MHz clock source for USB and RNG peripherals.
-    {
-        let source = match config.clk48_src {
+    RCC.ccipr().modify(|w| {
+        w.set_clk48sel(match config.clk48_src {
             Clk48Src::PLL1_Q => {
-                // Make sure the PLLQ is enabled and running at 48Mhz
-                let pllq_freq = pll_freq.as_ref().and_then(|f| f.pll_q);
-                assert!(pllq_freq.is_some() && pllq_freq.unwrap().0 == 48_000_000);
-
+                // Not checking that PLL1_Q is 48MHz here so as not to require the user to have a 48MHz clock.
+                // Peripherals which require one (USB, RNG) should check that they‘re driven by a valid 48MHz
+                // clock at init.
                 crate::pac::rcc::vals::Clk48sel::PLL1_Q
             }
             Clk48Src::HSI48 => {
@@ -307,10 +306,8 @@ pub(crate) unsafe fn init(config: Config) {
                 crate::pac::rcc::vals::Clk48sel::HSI48
             }
             _ => unreachable!(),
-        };
-
-        RCC.ccipr().modify(|w| w.set_clk48sel(source));
-    }
+        })
+    });
 
     RCC.ccipr().modify(|w| w.set_adc12sel(config.adc12_clock_source));
     RCC.ccipr().modify(|w| w.set_adc345sel(config.adc345_clock_source));
@@ -339,9 +336,9 @@ pub(crate) unsafe fn init(config: Config) {
 
     set_clocks!(
         sys: Some(sys_clk),
-        hclk1: Some(ahb_freq),
-        hclk2: Some(ahb_freq),
-        hclk3: Some(ahb_freq),
+        hclk1: Some(hclk),
+        hclk2: Some(hclk),
+        hclk3: Some(hclk),
         pclk1: Some(apb1_freq),
         pclk1_tim: Some(apb1_tim_freq),
         pclk2: Some(apb2_freq),
@@ -355,7 +352,7 @@ pub(crate) unsafe fn init(config: Config) {
     );
 }
 
-// TODO: if necessary, make more of these gated behind cfg attrs
+// TODO: if necessary, make more of these, gated behind cfg attrs
 mod max {
     use core::ops::RangeInclusive;
 

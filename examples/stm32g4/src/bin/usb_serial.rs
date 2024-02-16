@@ -44,6 +44,7 @@ async fn main(_spawner: Spawner) {
     });
 
     config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.boost = true; // BOOST!
 
     if USE_HSI48 {
         // Sets up the Clock Recovery System (CRS) to use the USB SOF to trim the HSI48 oscillator.
