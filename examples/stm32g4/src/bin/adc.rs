@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::rcc::{AdcClockSource, ClockSrc, Pll, PllM, PllN, PllR, PllSource};
+use embassy_stm32::rcc::{AdcClockSource, Pll, PllMul, PllPreDiv, PllRDiv, Pllsrc, Sysclk};
 use embassy_stm32::Config;
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -14,17 +14,17 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
     config.rcc.pll = Some(Pll {
-        source: PllSource::HSI,
-        prediv_m: PllM::DIV4,
-        mul_n: PllN::MUL85,
-        div_p: None,
-        div_q: None,
+        source: Pllsrc::HSI,
+        prediv: PllPreDiv::DIV4,
+        mul: PllMul::MUL85,
+        divp: None,
+        divq: None,
         // Main system clock at 170 MHz
-        div_r: Some(PllR::DIV2),
+        divr: Some(PllRDiv::DIV2),
     });
 
     config.rcc.adc12_clock_source = AdcClockSource::SYS;
-    config.rcc.mux = ClockSrc::PLL;
+    config.rcc.sys = Sysclk::PLL1_R;
 
     let mut p = embassy_stm32::init(config);
     info!("Hello World!");
