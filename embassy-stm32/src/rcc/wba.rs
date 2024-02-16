@@ -49,7 +49,7 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
             ls: Default::default(),
-            adc_clock_source: AdcClockSource::HCLK1,
+            adc_clock_source: AdcClockSource::HCLK4,
             voltage_scale: VoltageScale::RANGE2,
         }
     }
