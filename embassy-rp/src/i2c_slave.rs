@@ -4,7 +4,6 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_hal_internal::into_ref;
-use embassy_time::{block_for, Duration};
 use pac::i2c;
 
 use crate::i2c::{
