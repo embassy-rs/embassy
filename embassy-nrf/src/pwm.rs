@@ -444,7 +444,7 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
             return Err(Error::SequenceTimesAtLeastOne);
         }
 
-        let _ = self.stop();
+        self.stop();
 
         let r = T::regs();
 
@@ -507,7 +507,7 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
 
 impl<'d, 's, T: Instance> Drop for Sequencer<'d, 's, T> {
     fn drop(&mut self) {
-        let _ = self.stop();
+        self.stop();
     }
 }
 
