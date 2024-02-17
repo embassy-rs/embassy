@@ -5,6 +5,8 @@ use core::task::Poll;
 
 pub mod fd;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use fd::config::*;
 use fd::filter::*;
 
@@ -49,6 +51,26 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
 
             match &T::state().tx_mode {
                 sealed::TxMode::NonBuffered(waker) => waker.wake(),
+                sealed::TxMode::ClassicBuffered(buf) => {
+                    if !T::registers().tx_queue_is_full() {
+                        match buf.tx_receiver.try_receive() {
+                            Ok(frame) => {
+                                _ = T::registers().write_classic(&frame);
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+                sealed::TxMode::FdBuffered(buf) => {
+                    if !T::registers().tx_queue_is_full() {
+                        match buf.tx_receiver.try_receive() {
+                            Ok(frame) => {
+                                _ = T::registers().write_fd(&frame);
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
             }
         }
 
@@ -405,6 +427,179 @@ where
         )
     }
 
+    /// Return a buffered instance of driver without CAN FD support. User must supply Buffers
+    pub fn buffered<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
+        &self,
+        tx_buf: &'static mut TxBuf<TX_BUF_SIZE>,
+        rxb: &'static mut RxBuf<RX_BUF_SIZE>,
+    ) -> BufferedCan<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE> {
+        BufferedCan::new(PhantomData::<T>, T::regs(), self._mode, tx_buf, rxb)
+    }
+
+    /// Return a buffered instance of driver with CAN FD support. User must supply Buffers
+    pub fn buffered_fd<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
+        &self,
+        tx_buf: &'static mut TxFdBuf<TX_BUF_SIZE>,
+        rxb: &'static mut RxFdBuf<RX_BUF_SIZE>,
+    ) -> BufferedCanFd<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE> {
+        BufferedCanFd::new(PhantomData::<T>, T::regs(), self._mode, tx_buf, rxb)
+    }
+}
+
+/// User supplied buffer for RX Buffering
+pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (ClassicFrame, Timestamp), BUF_SIZE>;
+
+/// User supplied buffer for TX buffering
+pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, ClassicFrame, BUF_SIZE>;
+
+/// Buffered FDCAN Instance
+#[allow(dead_code)]
+pub struct BufferedCan<'d, T: Instance, M: FdcanOperatingMode, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    _instance1: PhantomData<T>,
+    _instance2: &'d crate::pac::can::Fdcan,
+    _mode: PhantomData<M>,
+    tx_buf: &'static TxBuf<TX_BUF_SIZE>,
+    rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+}
+
+impl<'c, 'd, T: Instance, M: Transmit, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
+    BufferedCan<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
+where
+    M: FdcanOperatingMode,
+{
+    fn new(
+        _instance1: PhantomData<T>,
+        _instance2: &'d crate::pac::can::Fdcan,
+        _mode: PhantomData<M>,
+        tx_buf: &'static TxBuf<TX_BUF_SIZE>,
+        rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+    ) -> Self {
+        BufferedCan {
+            _instance1,
+            _instance2,
+            _mode,
+            tx_buf,
+            rx_buf,
+        }
+        .setup()
+    }
+
+    fn setup(self) -> Self {
+        // We don't want interrupts being processed while we change modes.
+        critical_section::with(|_| unsafe {
+            let rx_inner = sealed::ClassicBufferedRxInner {
+                rx_sender: self.rx_buf.sender().into(),
+            };
+            let tx_inner = sealed::ClassicBufferedTxInner {
+                tx_receiver: self.tx_buf.receiver().into(),
+            };
+            T::mut_state().rx_mode = sealed::RxMode::ClassicBuffered(rx_inner);
+            T::mut_state().tx_mode = sealed::TxMode::ClassicBuffered(tx_inner);
+        });
+        self
+    }
+
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: ClassicFrame) {
+        self.tx_buf.send(frame).await;
+        T::IT0Interrupt::pend(); // Wake for Tx
+    }
+
+    /// Async read frame from RX buffer.
+    pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
+        Ok(self.rx_buf.receive().await)
+    }
+}
+
+impl<'c, 'd, T: Instance, M, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
+    for BufferedCan<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
+where
+    M: FdcanOperatingMode,
+{
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            T::mut_state().rx_mode = sealed::RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().tx_mode = sealed::TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+        });
+    }
+}
+
+/// User supplied buffer for RX Buffering
+pub type RxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (FdFrame, Timestamp), BUF_SIZE>;
+
+/// User supplied buffer for TX buffering
+pub type TxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, FdFrame, BUF_SIZE>;
+
+/// Buffered FDCAN Instance
+#[allow(dead_code)]
+pub struct BufferedCanFd<'d, T: Instance, M: FdcanOperatingMode, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    _instance1: PhantomData<T>,
+    _instance2: &'d crate::pac::can::Fdcan,
+    _mode: PhantomData<M>,
+    tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
+    rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
+}
+
+impl<'c, 'd, T: Instance, M: Transmit, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
+    BufferedCanFd<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
+where
+    M: FdcanOperatingMode,
+{
+    fn new(
+        _instance1: PhantomData<T>,
+        _instance2: &'d crate::pac::can::Fdcan,
+        _mode: PhantomData<M>,
+        tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
+        rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
+    ) -> Self {
+        BufferedCanFd {
+            _instance1,
+            _instance2,
+            _mode,
+            tx_buf,
+            rx_buf,
+        }
+        .setup()
+    }
+
+    fn setup(self) -> Self {
+        // We don't want interrupts being processed while we change modes.
+        critical_section::with(|_| unsafe {
+            let rx_inner = sealed::FdBufferedRxInner {
+                rx_sender: self.rx_buf.sender().into(),
+            };
+            let tx_inner = sealed::FdBufferedTxInner {
+                tx_receiver: self.tx_buf.receiver().into(),
+            };
+            T::mut_state().rx_mode = sealed::RxMode::FdBuffered(rx_inner);
+            T::mut_state().tx_mode = sealed::TxMode::FdBuffered(tx_inner);
+        });
+        self
+    }
+
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: FdFrame) {
+        self.tx_buf.send(frame).await;
+        T::IT0Interrupt::pend(); // Wake for Tx
+    }
+
+    /// Async read frame from RX buffer.
+    pub async fn read(&mut self) -> Result<(FdFrame, Timestamp), BusError> {
+        Ok(self.rx_buf.receive().await)
+    }
+}
+
+impl<'c, 'd, T: Instance, M, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
+    for BufferedCanFd<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
+where
+    M: FdcanOperatingMode,
+{
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            T::mut_state().rx_mode = sealed::RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().tx_mode = sealed::TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+        });
+    }
 }
 
 /// FDCAN Rx only Instance
@@ -456,18 +651,39 @@ pub(crate) mod sealed {
     use core::future::poll_fn;
     use core::task::Poll;
 
+    use embassy_sync::channel::{DynamicReceiver, DynamicSender};
     use embassy_sync::waitqueue::AtomicWaker;
 
     use crate::can::_version::{BusError, Timestamp};
     use crate::can::frame::{ClassicFrame, FdFrame};
+
+    pub struct ClassicBufferedRxInner {
+        pub rx_sender: DynamicSender<'static, (ClassicFrame, Timestamp)>,
+    }
+    pub struct ClassicBufferedTxInner {
+        pub tx_receiver: DynamicReceiver<'static, ClassicFrame>,
+    }
+
+    pub struct FdBufferedRxInner {
+        pub rx_sender: DynamicSender<'static, (FdFrame, Timestamp)>,
+    }
+    pub struct FdBufferedTxInner {
+        pub tx_receiver: DynamicReceiver<'static, FdFrame>,
+    }
+
     pub enum RxMode {
         NonBuffered(AtomicWaker),
+        ClassicBuffered(ClassicBufferedRxInner),
+        FdBuffered(FdBufferedRxInner),
     }
 
     impl RxMode {
         pub fn register(&self, arg: &core::task::Waker) {
             match self {
                 RxMode::NonBuffered(waker) => waker.register(arg),
+                _ => {
+                    panic!("Bad Mode")
+                }
             }
         }
 
@@ -476,6 +692,18 @@ pub(crate) mod sealed {
             match self {
                 RxMode::NonBuffered(waker) => {
                     waker.wake();
+                }
+                RxMode::ClassicBuffered(buf) => {
+                    if let Some(r) = T::registers().read_classic(fifonr) {
+                        let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
+                        let _ = buf.rx_sender.try_send((r.0, ts));
+                    }
+                }
+                RxMode::FdBuffered(buf) => {
+                    if let Some(r) = T::registers().read_fd(fifonr) {
+                        let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
+                        let _ = buf.rx_sender.try_send((r.0, ts));
+                    }
                 }
             }
         }
@@ -523,6 +751,8 @@ pub(crate) mod sealed {
 
     pub enum TxMode {
         NonBuffered(AtomicWaker),
+        ClassicBuffered(ClassicBufferedTxInner),
+        FdBuffered(FdBufferedTxInner),
     }
 
     impl TxMode {
@@ -530,6 +760,9 @@ pub(crate) mod sealed {
             match self {
                 TxMode::NonBuffered(waker) => {
                     waker.register(arg);
+                }
+                _ => {
+                    panic!("Bad mode");
                 }
             }
         }
