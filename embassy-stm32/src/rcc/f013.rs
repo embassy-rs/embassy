@@ -85,31 +85,34 @@ pub enum TimClockSource {
 #[derive(Clone, Copy)]
 pub struct TimClockSources {
     pub tim1: TimClockSource,
-    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E))))]
+    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)), stm32f398))]
     pub tim2: TimClockSource,
-    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E))))]
+    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)), stm32f398))]
     pub tim34: TimClockSource,
-    #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358))]
+    #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358, stm32f398))]
     pub tim8: TimClockSource,
     #[cfg(any(
         all(stm32f303, any(package_D, package_E)),
         stm32f301,
         stm32f318,
-        all(stm32f302, any(package_6, package_8))
+        all(stm32f302, any(package_6, package_8)),
+        stm32f398
     ))]
     pub tim15: TimClockSource,
     #[cfg(any(
         all(stm32f303, any(package_D, package_E)),
         stm32f301,
         stm32f318,
-        all(stm32f302, any(package_6, package_8))
+        all(stm32f302, any(package_6, package_8)),
+        stm32f398
     ))]
     pub tim16: TimClockSource,
     #[cfg(any(
         all(stm32f303, any(package_D, package_E)),
         stm32f301,
         stm32f318,
-        all(stm32f302, any(package_6, package_8))
+        all(stm32f302, any(package_6, package_8)),
+        stm32f398
     ))]
     pub tim17: TimClockSource,
     #[cfg(any(all(stm32f303, any(package_D, package_E))))]
@@ -121,31 +124,34 @@ impl Default for TimClockSources {
     fn default() -> Self {
         Self {
             tim1: TimClockSource::PClk2,
-            #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E))))]
+            #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)), stm32f398))]
             tim2: TimClockSource::PClk2,
-            #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E))))]
+            #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)), stm32f398))]
             tim34: TimClockSource::PClk2,
-            #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358))]
+            #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358, stm32f398))]
             tim8: TimClockSource::PClk2,
             #[cfg(any(
                 all(stm32f303, any(package_D, package_E)),
                 stm32f301,
                 stm32f318,
-                all(stm32f302, any(package_6, package_8))
+                all(stm32f302, any(package_6, package_8)),
+                stm32f398
             ))]
             tim15: TimClockSource::PClk2,
             #[cfg(any(
                 all(stm32f303, any(package_D, package_E)),
                 stm32f301,
                 stm32f318,
-                all(stm32f302, any(package_6, package_8))
+                all(stm32f302, any(package_6, package_8)),
+                stm32f398
             ))]
             tim16: TimClockSource::PClk2,
             #[cfg(any(
                 all(stm32f303, any(package_D, package_E)),
                 stm32f301,
                 stm32f318,
-                all(stm32f302, any(package_6, package_8))
+                all(stm32f302, any(package_6, package_8)),
+                stm32f398
             ))]
             tim17: TimClockSource::PClk2,
             #[cfg(any(all(stm32f303, any(package_D, package_E))))]
@@ -456,7 +462,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E))))]
+    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)), stm32f398))]
     match config.tim.tim2 {
         TimClockSource::PClk2 => {}
         TimClockSource::PllClk => {
@@ -465,7 +471,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E))))]
+    #[cfg(any(all(stm32f303, any(package_D, package_E)), all(stm32f302, any(package_D, package_E)), stm32f398))]
     match config.tim.tim34 {
         TimClockSource::PClk2 => {}
         TimClockSource::PllClk => {
@@ -474,7 +480,7 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358))]
+    #[cfg(any(all(stm32f303, any(package_B, package_C, package_D, package_E)), stm32f358, stm32f398))]
     match config.tim.tim8 {
         TimClockSource::PClk2 => {}
         TimClockSource::PllClk => {
@@ -487,7 +493,8 @@ pub(crate) unsafe fn init(config: Config) {
         all(stm32f303, any(package_D, package_E)),
         stm32f301,
         stm32f318,
-        all(stm32f302, any(package_6, package_8))
+        all(stm32f302, any(package_6, package_8)),
+        stm32f398
     ))]
     match config.tim.tim15 {
         TimClockSource::PClk2 => None,
@@ -501,7 +508,8 @@ pub(crate) unsafe fn init(config: Config) {
         all(stm32f303, any(package_D, package_E)),
         stm32f301,
         stm32f318,
-        all(stm32f302, any(package_6, package_8))
+        all(stm32f302, any(package_6, package_8)),
+        stm32f398
     ))]
     match config.tim.tim16 {
         TimClockSource::PClk2 => None,
@@ -515,7 +523,8 @@ pub(crate) unsafe fn init(config: Config) {
         all(stm32f303, any(package_D, package_E)),
         stm32f301,
         stm32f318,
-        all(stm32f302, any(package_6, package_8))
+        all(stm32f302, any(package_6, package_8)),
+        stm32f398
     ))]
     match config.tim.tim17 {
         TimClockSource::PClk2 => None,
