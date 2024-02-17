@@ -5,8 +5,7 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::ir::{BlockItemInner, Enum, FieldSet};
-use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccRegister, StopMode, METADATA};
+use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccKernelClock, StopMode, METADATA};
 
 fn main() {
     let target = env::var("TARGET").unwrap();
@@ -183,40 +182,33 @@ fn main() {
 
     let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
         None => "",
+        Some("tim1") => "TIM1",
         Some("tim2") => "TIM2",
         Some("tim3") => "TIM3",
         Some("tim4") => "TIM4",
         Some("tim5") => "TIM5",
+        Some("tim8") => "TIM8",
         Some("tim9") => "TIM9",
-        Some("tim11") => "TIM11",
         Some("tim12") => "TIM12",
         Some("tim15") => "TIM15",
+        Some("tim20") => "TIM20",
         Some("tim21") => "TIM21",
         Some("tim22") => "TIM22",
+        Some("tim23") => "TIM23",
+        Some("tim24") => "TIM24",
         Some("any") => {
-            if singletons.contains(&"TIM2".to_string()) {
-                "TIM2"
-            } else if singletons.contains(&"TIM3".to_string()) {
-                "TIM3"
-            } else if singletons.contains(&"TIM4".to_string()) {
-                "TIM4"
-            } else if singletons.contains(&"TIM5".to_string()) {
-                "TIM5"
-            } else if singletons.contains(&"TIM9".to_string()) {
-                "TIM9"
-            } else if singletons.contains(&"TIM11".to_string()) {
-                "TIM11"
-            } else if singletons.contains(&"TIM12".to_string()) {
-                "TIM12"
-            } else if singletons.contains(&"TIM15".to_string()) {
-                "TIM15"
-            } else if singletons.contains(&"TIM21".to_string()) {
-                "TIM21"
-            } else if singletons.contains(&"TIM22".to_string()) {
-                "TIM22"
-            } else {
-                panic!("time-driver-any requested, but the chip doesn't have TIM2, TIM3, TIM4, TIM5, TIM9, TIM11, TIM12 or TIM15.")
-            }
+            // Order of TIM candidators:
+            // 1. 2CH -> 2CH_CMP -> GP16 -> GP32 -> ADV
+            // 2. In same catagory: larger TIM number first
+            [
+                "TIM22", "TIM21", "TIM12", "TIM9",  // 2CH
+                "TIM15", // 2CH_CMP
+                "TIM19", "TIM4", "TIM3", // GP16
+                "TIM24", "TIM23", "TIM5", "TIM2", // GP32
+                "TIM20", "TIM8", "TIM1", //ADV
+            ]
+            .iter()
+            .find(|tim| singletons.contains(&tim.to_string())).expect("time-driver-any requested, but the chip doesn't have TIM1, TIM2, TIM3, TIM4, TIM5, TIM8, TIM9, TIM12, TIM15, TIM20, TIM21, TIM22, TIM23 or TIM24.")
         }
         _ => panic!("unknown time_driver {:?}", time_driver),
     };
@@ -415,38 +407,6 @@ fn main() {
         .unwrap();
 
     // ========
-    // Generate rcc fieldset and enum maps
-    let rcc_enum_map: HashMap<&str, HashMap<&str, &Enum>> = {
-        let rcc_blocks = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap().items;
-        let rcc_fieldsets: HashMap<&str, &FieldSet> = rcc_registers.ir.fieldsets.iter().map(|f| (f.name, f)).collect();
-        let rcc_enums: HashMap<&str, &Enum> = rcc_registers.ir.enums.iter().map(|e| (e.name, e)).collect();
-
-        rcc_blocks
-            .iter()
-            .filter_map(|b| match &b.inner {
-                BlockItemInner::Register(register) => register.fieldset.map(|f| (b.name, f)),
-                _ => None,
-            })
-            .filter_map(|(b, f)| {
-                rcc_fieldsets.get(f).map(|f| {
-                    (
-                        b,
-                        f.fields
-                            .iter()
-                            .filter_map(|f| {
-                                let enumm = f.enumm?;
-                                let enumm = rcc_enums.get(enumm)?;
-
-                                Some((f.name, *enumm))
-                            })
-                            .collect(),
-                    )
-                })
-            })
-            .collect()
-    };
-
-    // ========
     // Generate RccPeripheral impls
 
     // count how many times each xxENR field is used, to enable refcounting if used more than once.
@@ -494,8 +454,8 @@ fn main() {
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
             let pname = format_ident!("{}", p.name);
-            let en_reg = format_ident!("{}", en.register);
-            let set_en_field = format_ident!("set_{}", en.field);
+            let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
+            let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
 
             let refcount =
                 force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
@@ -523,21 +483,25 @@ fn main() {
                 (TokenStream::new(), TokenStream::new())
             };
 
-            let mux_for = |mux: Option<&'static PeripheralRccRegister>| {
-                let mux = mux?;
-                let fieldset = rcc_enum_map.get(mux.register)?;
-                let enumm = fieldset.get(mux.field)?;
+            let clock_frequency = match &rcc.kernel_clock {
+                PeripheralRccKernelClock::Mux(mux) => {
+                    let ir = &rcc_registers.ir;
+                    let fieldset_name = mux.register.to_ascii_lowercase();
+                    let fieldset = ir
+                        .fieldsets
+                        .iter()
+                        .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+                        .unwrap();
+                    let field_name = mux.field.to_ascii_lowercase();
+                    let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+                    let enum_name = field.enumm.unwrap();
+                    let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
 
-                Some((mux, *enumm))
-            };
+                    let fieldset_name = format_ident!("{}", fieldset_name);
+                    let field_name = format_ident!("{}", field_name);
+                    let enum_name = format_ident!("{}", enum_name);
 
-            let clock_frequency = match mux_for(rcc.mux.as_ref()) {
-                Some((mux, rcc_enumm)) => {
-                    let fieldset_name = format_ident!("{}", mux.register);
-                    let field_name = format_ident!("{}", mux.field);
-                    let enum_name = format_ident!("{}", rcc_enumm.name);
-
-                    let match_arms: TokenStream = rcc_enumm
+                    let match_arms: TokenStream = enumm
                         .variants
                         .iter()
                         .filter(|v| v.name != "DISABLE")
@@ -561,9 +525,10 @@ fn main() {
                         }
                     }
                 }
-                None => {
-                    let clock_name = format_ident!("{}", rcc.clock);
-                    clock_names.insert(rcc.clock.to_string());
+                PeripheralRccKernelClock::Clock(clock) => {
+                    let clock = clock.to_ascii_lowercase();
+                    let clock_name = format_ident!("{}", clock);
+                    clock_names.insert(clock.to_string());
                     quote! {
                         unsafe { crate::rcc::get_freqs().#clock_name.unwrap() }
                     }
@@ -1056,6 +1021,7 @@ fn main() {
         (("dac", "CH1"), quote!(crate::dac::DacDma1)),
         (("dac", "CH2"), quote!(crate::dac::DacDma2)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
+        (("hash", "IN"), quote!(crate::hash::Dma)),
         (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
         (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
         (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),

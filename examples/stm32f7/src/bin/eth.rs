@@ -19,7 +19,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
-    RNG => rng::InterruptHandler<peripherals::RNG>;
+    HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
 type Device = Ethernet<'static, ETH, GenericSMI>;

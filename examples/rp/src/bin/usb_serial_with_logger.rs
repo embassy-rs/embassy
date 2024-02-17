@@ -1,71 +1,58 @@
+//! This example shows how to use USB (Universal Serial Bus) in the RP2040 chip as well as how to create multiple usb classes for one device
+//!
+//! This creates a USB serial port that echos. It will also print out logging information on a separate serial device
+
 #![no_std]
 #![no_main]
 
-use defmt::{panic, *};
+use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::time::Hertz;
-use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
-use embassy_time::Timer;
+use embassy_rp::bind_interrupts;
+use embassy_rp::peripherals::USB;
+use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
+use embassy_usb::{Builder, Config};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    USB_LP_CAN1_RX0 => usb::InterruptHandler<peripherals::USB>;
+    USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut config = Config::default();
-    {
-        use embassy_stm32::rcc::*;
-        config.rcc.hse = Some(Hse {
-            freq: Hertz(8_000_000),
-            // Oscillator for bluepill, Bypass for nucleos.
-            mode: HseMode::Oscillator,
-        });
-        config.rcc.pll = Some(Pll {
-            src: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL9,
-        });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
-    }
-    let mut p = embassy_stm32::init(config);
+    info!("Hello there!");
 
-    info!("Hello World!");
-
-    {
-        // BluePill board has a pull-up resistor on the D+ line.
-        // Pull the D+ pin down to send a RESET condition to the USB bus.
-        // This forced reset is needed only for development, without it host
-        // will not reset your device when you upload new firmware.
-        let _dp = Output::new(&mut p.PA12, Level::Low, Speed::Low);
-        Timer::after_millis(10).await;
-    }
+    let p = embassy_rp::init(Default::default());
 
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, Irqs);
 
     // Create embassy-usb Config
-    let config = embassy_usb::Config::new(0xc0de, 0xcafe);
-    //config.max_packet_size_0 = 64;
+    let mut config = Config::new(0xc0de, 0xcafe);
+    config.manufacturer = Some("Embassy");
+    config.product = Some("USB-serial example");
+    config.serial_number = Some("12345678");
+    config.max_power = 100;
+    config.max_packet_size_0 = 64;
+
+    // Required for windows compatibility.
+    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
+    config.device_class = 0xEF;
+    config.device_sub_class = 0x02;
+    config.device_protocol = 0x01;
+    config.composite_with_iads = true;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
     let mut device_descriptor = [0; 256];
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
-    let mut control_buf = [0; 7];
+    let mut control_buf = [0; 64];
 
     let mut state = State::new();
+    let mut logger_state = State::new();
 
     let mut builder = Builder::new(
         driver,
@@ -80,6 +67,13 @@ async fn main(_spawner: Spawner) {
     // Create classes on the builder.
     let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
+    // Create a class for the logger
+    let logger_class = CdcAcmClass::new(&mut builder, &mut logger_state, 64);
+
+    // Creates the logger and returns the logger future
+    // Note: You'll need to use log::info! afterwards instead of info! for this to work (this also applies to all the other log::* macros)
+    let log_fut = embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, logger_class);
+
     // Build the builder.
     let mut usb = builder.build();
 
@@ -90,15 +84,15 @@ async fn main(_spawner: Spawner) {
     let echo_fut = async {
         loop {
             class.wait_connection().await;
-            info!("Connected");
+            log::info!("Connected");
             let _ = echo(&mut class).await;
-            info!("Disconnected");
+            log::info!("Disconnected");
         }
     };
 
     // Run everything concurrently.
     // If we had made everything `'static` above instead, we could do this using separate tasks instead.
-    join(usb_fut, echo_fut).await;
+    join(usb_fut, join(echo_fut, log_fut)).await;
 }
 
 struct Disconnected {}

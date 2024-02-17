@@ -17,7 +17,7 @@ use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
-use crate::util::{slice_in_ram_or, slice_ptr_parts, slice_ptr_parts_mut};
+use crate::util::{slice_in_ram_or, slice_ptr_len, slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{interrupt, pac, Peripheral};
 
 /// SPIM error
@@ -25,10 +25,6 @@ use crate::{interrupt, pac, Peripheral};
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    /// Supplied TX buffer overflows EasyDMA transmit buffer
-    TxBufferTooLong,
-    /// Supplied RX buffer overflows EasyDMA receive buffer
-    RxBufferTooLong,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
     BufferNotInRAM,
 }
@@ -74,9 +70,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let s = T::state();
 
         #[cfg(feature = "_nrf52832_anomaly_109")]
-        if r.events_started.read().bits() != 0 {
-            s.waker.wake();
-            r.intenclr.write(|w| w.started().clear());
+        {
+            // Ideally we should call this only during the first chunk transfer,
+            // but so far calling this every time doesn't seem to be causing any issues.
+            if r.events_started.read().bits() != 0 {
+                s.waker.wake();
+                r.intenclr.write(|w| w.started().clear());
+            }
         }
 
         if r.events_end.read().bits() != 0 {
@@ -209,35 +209,39 @@ impl<'d, T: Instance> Spim<'d, T> {
         spim
     }
 
-    fn prepare(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
-        // NOTE: RAM slice check for rx is not necessary, as a mutable
-        // slice can only be built from data located in RAM.
-
+    fn prepare_dma_transfer(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
         compiler_fence(Ordering::SeqCst);
 
         let r = T::regs();
 
-        // Set up the DMA write.
-        let (ptr, tx_len) = slice_ptr_parts(tx);
-        if tx_len > EASY_DMA_SIZE {
-            return Err(Error::TxBufferTooLong);
+        fn xfer_params(ptr: u32, total: usize, offset: usize, length: usize) -> (u32, usize) {
+            if total > offset {
+                (ptr.wrapping_add(offset as _), core::cmp::min(total - offset, length))
+            } else {
+                (ptr, 0)
+            }
         }
-
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
-        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx_len as _) });
 
         // Set up the DMA read.
-        let (ptr, rx_len) = slice_ptr_parts_mut(rx);
-        if rx_len > EASY_DMA_SIZE {
-            return Err(Error::RxBufferTooLong);
-        }
-
-        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
+        let (ptr, len) = slice_ptr_parts_mut(rx);
+        let (rx_ptr, rx_len) = xfer_params(ptr as _, len as _, offset, length);
+        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(rx_ptr) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx_len as _) });
 
+        // Set up the DMA write.
+        let (ptr, len) = slice_ptr_parts(tx);
+        let (tx_ptr, tx_len) = xfer_params(ptr as _, len as _, offset, length);
+        r.txd.ptr.write(|w| unsafe { w.ptr().bits(tx_ptr) });
+        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx_len as _) });
+
+        /*
+        trace!("XFER: offset: {}, length: {}", offset, length);
+        trace!("RX(len: {}, ptr: {=u32:02x})", rx_len, rx_ptr as u32);
+        trace!("TX(len: {}, ptr: {=u32:02x})", tx_len, tx_ptr as u32);
+        */
+
         #[cfg(feature = "_nrf52832_anomaly_109")]
-        {
+        if offset == 0 {
             let s = T::state();
 
             r.events_started.reset();
@@ -260,21 +264,32 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Start SPI transaction.
         r.tasks_start.write(|w| unsafe { w.bits(1) });
-
-        Ok(())
     }
 
-    fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        self.prepare(rx, tx)?;
+    fn blocking_inner_from_ram_chunk(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
+        self.prepare_dma_transfer(rx, tx, offset, length);
 
         #[cfg(feature = "_nrf52832_anomaly_109")]
-        while let Poll::Pending = self.nrf52832_dma_workaround_status() {}
+        if offset == 0 {
+            while self.nrf52832_dma_workaround_status().is_pending() {}
+        }
 
         // Wait for 'end' event.
         while T::regs().events_end.read().bits() == 0 {}
 
         compiler_fence(Ordering::SeqCst);
+    }
 
+    fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
+
+        let xfer_len = core::cmp::max(slice_ptr_len(rx), slice_ptr_len(tx));
+        for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
+            let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
+            self.blocking_inner_from_ram_chunk(rx, tx, offset, length);
+        }
         Ok(())
     }
 
@@ -287,22 +302,23 @@ impl<'d, T: Instance> Spim<'d, T> {
                 tx_ram_buf.copy_from_slice(tx);
                 self.blocking_inner_from_ram(rx, tx_ram_buf)
             }
-            Err(error) => Err(error),
         }
     }
 
-    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
-        self.prepare(rx, tx)?;
+    async fn async_inner_from_ram_chunk(&mut self, rx: *mut [u8], tx: *const [u8], offset: usize, length: usize) {
+        self.prepare_dma_transfer(rx, tx, offset, length);
 
         #[cfg(feature = "_nrf52832_anomaly_109")]
-        poll_fn(|cx| {
-            let s = T::state();
+        if offset == 0 {
+            poll_fn(|cx| {
+                let s = T::state();
 
-            s.waker.register(cx.waker());
+                s.waker.register(cx.waker());
 
-            self.nrf52832_dma_workaround_status()
-        })
-        .await;
+                self.nrf52832_dma_workaround_status()
+            })
+            .await;
+        }
 
         // Wait for 'end' event.
         poll_fn(|cx| {
@@ -316,7 +332,18 @@ impl<'d, T: Instance> Spim<'d, T> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
+    }
 
+    async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        slice_in_ram_or(tx, Error::BufferNotInRAM)?;
+        // NOTE: RAM slice check for rx is not necessary, as a mutable
+        // slice can only be built from data located in RAM.
+
+        let xfer_len = core::cmp::max(slice_ptr_len(rx), slice_ptr_len(tx));
+        for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
+            let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
+            self.async_inner_from_ram_chunk(rx, tx, offset, length).await;
+        }
         Ok(())
     }
 
@@ -329,7 +356,6 @@ impl<'d, T: Instance> Spim<'d, T> {
                 tx_ram_buf.copy_from_slice(tx);
                 self.async_inner_from_ram(rx, tx_ram_buf).await
             }
-            Err(error) => Err(error),
         }
     }
 
@@ -528,8 +554,6 @@ mod eh02 {
 impl embedded_hal_1::spi::Error for Error {
     fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
         match *self {
-            Self::TxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
-            Self::RxBufferTooLong => embedded_hal_1::spi::ErrorKind::Other,
             Self::BufferNotInRAM => embedded_hal_1::spi::ErrorKind::Other,
         }
     }

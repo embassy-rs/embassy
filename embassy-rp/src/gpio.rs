@@ -889,6 +889,17 @@ pub struct AnyPin {
     pin_bank: u8,
 }
 
+impl AnyPin {
+    /// Unsafely create a new type-erased pin.
+    ///
+    /// # Safety
+    ///
+    /// You must ensure that you’re only using one instance of this type at a time.
+    pub unsafe fn steal(pin_bank: u8) -> Self {
+        Self { pin_bank }
+    }
+}
+
 impl_peripheral!(AnyPin);
 
 impl Pin for AnyPin {}
