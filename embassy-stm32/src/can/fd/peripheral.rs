@@ -167,7 +167,7 @@ impl Registers {
 
             let len = match header_reg.to_data_length() {
                 DataLength::Fdcan(len) => len,
-                DataLength::Standard(len) => len,
+                DataLength::Classic(len) => len,
             };
             if len as usize > ClassicFrame::MAX_DATA_LEN {
                 return None;
@@ -202,7 +202,7 @@ impl Registers {
 
             let len = match header_reg.to_data_length() {
                 DataLength::Fdcan(len) => len,
-                DataLength::Standard(len) => len,
+                DataLength::Classic(len) => len,
             };
             if len as usize > FdFrame::MAX_DATA_LEN {
                 return None;
@@ -683,7 +683,7 @@ fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
     let frame_format = if header.len() > 8 || header.fdcan() {
         FrameFormat::Fdcan
     } else {
-        FrameFormat::Standard
+        FrameFormat::Classic
     };
     let brs = header.len() > 8 || header.bit_rate_switching();
 

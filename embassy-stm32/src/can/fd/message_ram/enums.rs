@@ -5,7 +5,7 @@
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DataLength {
-    Standard(u8),
+    Classic(u8),
     Fdcan(u8),
 }
 impl DataLength {
@@ -14,8 +14,8 @@ impl DataLength {
     /// Uses the byte length and Type of frame as input
     pub fn new(len: u8, ff: FrameFormat) -> DataLength {
         match ff {
-            FrameFormat::Standard => match len {
-                0..=8 => DataLength::Standard(len),
+            FrameFormat::Classic => match len {
+                0..=8 => DataLength::Classic(len),
                 _ => panic!("DataLength > 8"),
             },
             FrameFormat::Fdcan => match len {
@@ -24,9 +24,9 @@ impl DataLength {
             },
         }
     }
-    /// Specialised function to create standard frames
-    pub fn new_standard(len: u8) -> DataLength {
-        Self::new(len, FrameFormat::Standard)
+    /// Specialised function to create classic frames
+    pub fn new_classic(len: u8) -> DataLength {
+        Self::new(len, FrameFormat::Classic)
     }
     /// Specialised function to create FDCAN frames
     pub fn new_fdcan(len: u8) -> DataLength {
@@ -36,13 +36,13 @@ impl DataLength {
     /// returns the length in bytes
     pub fn len(&self) -> u8 {
         match self {
-            DataLength::Standard(l) | DataLength::Fdcan(l) => *l,
+            DataLength::Classic(l) | DataLength::Fdcan(l) => *l,
         }
     }
 
     pub(crate) fn dlc(&self) -> u8 {
         match self {
-            DataLength::Standard(l) => *l,
+            DataLength::Classic(l) => *l,
             // See RM0433 Rev 7 Table 475. DLC coding
             DataLength::Fdcan(l) => match l {
                 0..=8 => *l,
@@ -61,7 +61,7 @@ impl DataLength {
 impl From<DataLength> for FrameFormat {
     fn from(dl: DataLength) -> FrameFormat {
         match dl {
-            DataLength::Standard(_) => FrameFormat::Standard,
+            DataLength::Classic(_) => FrameFormat::Classic,
             DataLength::Fdcan(_) => FrameFormat::Fdcan,
         }
     }
@@ -121,7 +121,7 @@ impl From<ErrorStateIndicator> for bool {
 /// Type of frame, standard (classic) or FdCAN
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum FrameFormat {
-    Standard = 0,
+    Classic = 0,
     Fdcan = 1,
 }
 impl From<FrameFormat> for bool {

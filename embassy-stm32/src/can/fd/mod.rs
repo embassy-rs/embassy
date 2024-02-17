@@ -1,4 +1,4 @@
-//! Module containing that which is speciffic to fdcan hardware variant
+//! Module containing that which is specific to fdcan hardware variant
 
 pub mod config;
 pub mod filter;

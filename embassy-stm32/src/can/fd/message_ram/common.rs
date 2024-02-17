@@ -88,12 +88,12 @@ pub type FDF_R = generic::R<bool, FrameFormat>;
 impl FDF_R {
     pub fn frame_format(&self) -> FrameFormat {
         match self.bits() {
-            false => FrameFormat::Standard,
+            false => FrameFormat::Classic,
             true => FrameFormat::Fdcan,
         }
     }
-    pub fn is_standard_format(&self) -> bool {
-        *self == FrameFormat::Standard
+    pub fn is_classic_format(&self) -> bool {
+        *self == FrameFormat::Classic
     }
     pub fn is_fdcan_format(&self) -> bool {
         *self == FrameFormat::Fdcan
