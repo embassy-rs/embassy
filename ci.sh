@@ -230,6 +230,8 @@ cargo batch  \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f303ze --out-dir out/tests/stm32f303ze \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l496zg --out-dir out/tests/stm32l496zg \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wl55jc --out-dir out/tests/stm32wl55jc \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f091rc --out-dir out/tests/stm32f091rc \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h503rb --out-dir out/tests/stm32h503rb \
     --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
     --- build --release --manifest-path tests/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/tests/nrf52840-dk \
     --- build --release --manifest-path tests/nrf51422/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/nrf51-dk \
