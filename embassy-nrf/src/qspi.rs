@@ -402,7 +402,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub async fn read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -423,7 +423,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub async fn write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -444,7 +444,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub fn blocking_read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 
@@ -460,7 +460,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
     /// a raw bus, not with flash memory.
     pub fn blocking_write_raw(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
         // Avoid blocking_wait_ready() blocking forever on zero-length buffers.
-        if data.len() == 0 {
+        if data.is_empty() {
             return Ok(());
         }
 

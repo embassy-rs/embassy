@@ -386,7 +386,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 
     /// Same as [`write`](Self::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
 
@@ -456,7 +456,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 
     /// Same as [`write_from_ram`](Self::write_from_ram) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
 
@@ -694,7 +694,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
     /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -775,7 +775,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
     ///
     /// Returns the amount of bytes read.
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -848,7 +848,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
     ///
     /// Returns the amount of bytes read.
     pub fn blocking_read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {

@@ -372,7 +372,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Start write operation.
         r.shorts.write(|w| w.lasttx_stop().enabled());
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             // With a zero-length buffer, LASTTX doesn't fire (because there's no last byte!), so do the STOP ourselves.
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
         }
@@ -403,7 +403,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Start read operation.
         r.shorts.write(|w| w.lastrx_stop().enabled());
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP ourselves.
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
         }
@@ -447,7 +447,7 @@ impl<'d, T: Instance> Twim<'d, T> {
             w
         });
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-        if wr_buffer.len() == 0 && rd_buffer.len() == 0 {
+        if wr_buffer.is_empty() && rd_buffer.is_empty() {
             // With a zero-length buffer, LASTRX/LASTTX doesn't fire (because there's no last byte!), so do the STOP ourselves.
             // TODO handle when only one of the buffers is zero length
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
