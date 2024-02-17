@@ -815,7 +815,7 @@ pub(crate) mod sealed {
 
         #[inline]
         fn _bank(&self) -> Bank {
-            match self.pin_bank() & 0x20 {
+            match self.pin_bank() >> 5 {
                 #[cfg(feature = "qspi-as-gpio")]
                 1 => Bank::Qspi,
                 _ => Bank::Bank0,
