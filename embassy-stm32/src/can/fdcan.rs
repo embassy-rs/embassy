@@ -4,7 +4,6 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 pub mod fd;
-use cfg_if::cfg_if;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use fd::config::*;
 use fd::filter::*;
@@ -182,29 +181,6 @@ fn calc_timestamp<T: Instance>(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp
 #[cfg(not(feature = "time"))]
 fn calc_timestamp<T: Instance>(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
     ts_val
-}
-
-fn curr_error<T: Instance>() -> Option<BusError> {
-    let err = { T::regs().psr().read() };
-    if err.bo() {
-        return Some(BusError::BusOff);
-    } else if err.ep() {
-        return Some(BusError::BusPassive);
-    } else if err.ew() {
-        return Some(BusError::BusWarning);
-    } else {
-        cfg_if! {
-            if #[cfg(stm32h7)] {
-                let lec = err.lec();
-            } else {
-                let lec = err.lec().to_bits();
-            }
-        }
-        if let Ok(err) = BusError::try_from(lec) {
-            return Some(err);
-        }
-    }
-    None
 }
 
 impl<'d, T: Instance> Fdcan<'d, T, ConfigMode> {
@@ -426,7 +402,7 @@ where
             } else if let Some((msg, ts)) = T::registers().read_classic(1) {
                 let ts = calc_timestamp::<T>(self.ns_per_timer_tick, ts);
                 return Poll::Ready(Ok((msg, ts)));
-            } else if let Some(err) = curr_error::<T>() {
+            } else if let Some(err) = T::registers().curr_error() {
                 // TODO: this is probably wrong
                 return Poll::Ready(Err(err));
             }
@@ -466,7 +442,7 @@ where
             } else if let Some((msg, ts)) = T::registers().read_fd(1) {
                 let ts = calc_timestamp::<T>(self.ns_per_timer_tick, ts);
                 return Poll::Ready(Ok((msg, ts)));
-            } else if let Some(err) = curr_error::<T>() {
+            } else if let Some(err) = T::registers().curr_error() {
                 // TODO: this is probably wrong
                 return Poll::Ready(Err(err));
             }
@@ -560,7 +536,7 @@ impl<'c, 'd, T: Instance, M: Receive> FdcanRx<'d, T, M> {
             } else if let Some((msg, ts)) = T::registers().read_classic(1) {
                 let ts = calc_timestamp::<T>(self.ns_per_timer_tick, ts);
                 return Poll::Ready(Ok((msg, ts)));
-            } else if let Some(err) = curr_error::<T>() {
+            } else if let Some(err) = T::registers().curr_error() {
                 // TODO: this is probably wrong
                 return Poll::Ready(Err(err));
             }
@@ -581,7 +557,7 @@ impl<'c, 'd, T: Instance, M: Receive> FdcanRx<'d, T, M> {
             } else if let Some((msg, ts)) = T::registers().read_fd(1) {
                 let ts = calc_timestamp::<T>(self.ns_per_timer_tick, ts);
                 return Poll::Ready(Ok((msg, ts)));
-            } else if let Some(err) = curr_error::<T>() {
+            } else if let Some(err) = T::registers().curr_error() {
                 // TODO: this is probably wrong
                 return Poll::Ready(Err(err));
             }

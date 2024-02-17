@@ -1,5 +1,4 @@
 //! Enums shared between CAN controller types.
-use core::convert::TryFrom;
 
 /// Bus error
 #[derive(Debug)]
@@ -28,20 +27,4 @@ pub enum BusError {
     BusPassive,
     ///  At least one of error counter has reached the Error_Warning limit of 96.
     BusWarning,
-}
-impl TryFrom<u8> for BusError {
-    type Error = ();
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            //0b000 => None,
-            0b001 => Ok(Self::Stuff),
-            0b010 => Ok(Self::Form),
-            0b011 => Ok(Self::Acknowledge),
-            0b100 => Ok(Self::BitRecessive),
-            0b101 => Ok(Self::BitDominant),
-            0b110 => Ok(Self::Crc),
-            //0b111 => Ok(Self::NoError),
-            _ => Err(()),
-        }
-    }
 }

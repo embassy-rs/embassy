@@ -3,6 +3,9 @@
 use core::convert::Infallible;
 use core::slice;
 
+use cfg_if::cfg_if;
+
+use crate::can::enums::*;
 use crate::can::fd::config::*;
 use crate::can::fd::message_ram::enums::*;
 use crate::can::fd::message_ram::{RegisterBlock, RxFifoElement, TxBufferElement};
@@ -98,6 +101,42 @@ impl Registers {
         self.regs.txbar().modify(|w| w.set_ar(bufidx, true));
     }
 
+    fn reg_to_error(value: u8) -> Option<BusError> {
+        match value {
+            //0b000 => None,
+            0b001 => Some(BusError::Stuff),
+            0b010 => Some(BusError::Form),
+            0b011 => Some(BusError::Acknowledge),
+            0b100 => Some(BusError::BitRecessive),
+            0b101 => Some(BusError::BitDominant),
+            0b110 => Some(BusError::Crc),
+            //0b111 => Some(BusError::NoError),
+            _ => None,
+        }
+    }
+
+    pub fn curr_error(&self) -> Option<BusError> {
+        let err = { self.regs.psr().read() };
+        if err.bo() {
+            return Some(BusError::BusOff);
+        } else if err.ep() {
+            return Some(BusError::BusPassive);
+        } else if err.ew() {
+            return Some(BusError::BusWarning);
+        } else {
+            cfg_if! {
+                if #[cfg(stm32h7)] {
+                    let lec = err.lec();
+                } else {
+                    let lec = err.lec().to_bits();
+                }
+            }
+            if let Some(err) = Self::reg_to_error(lec) {
+                return Some(err);
+            }
+        }
+        None
+    }
     /// Returns if the tx queue is able to accept new messages without having to cancel an existing one
     #[inline]
     pub fn tx_queue_is_full(&self) -> bool {
