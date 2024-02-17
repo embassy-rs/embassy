@@ -175,7 +175,7 @@ impl<'d, T: Instance> Qdec<'d, T> {
         poll_fn(|cx| {
             T::state().waker.register(cx.waker());
             if t.events_reportrdy.read().bits() == 0 {
-                return Poll::Pending;
+                Poll::Pending
             } else {
                 t.events_reportrdy.reset();
                 let acc = t.accread.read().bits();
