@@ -15,7 +15,7 @@ use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
-use rand::{Rng, RngCore};
+use rand::Rng;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
