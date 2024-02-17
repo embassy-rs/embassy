@@ -779,7 +779,7 @@ mod eh02 {
     impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Write for Twim<'a, T> {
         type Error = Error;
 
-        fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Error> {
+        fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
             if slice_in_ram(bytes) {
                 self.blocking_write(addr, bytes)
             } else {
@@ -796,7 +796,7 @@ mod eh02 {
     impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Read for Twim<'a, T> {
         type Error = Error;
 
-        fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Error> {
+        fn read(&mut self, addr: u8, bytes: &mut [u8]) -> Result<(), Error> {
             self.blocking_read(addr, bytes)
         }
     }
@@ -847,10 +847,10 @@ impl<'d, T: Instance> embedded_hal_1::i2c::I2c for Twim<'d, T> {
         self.blocking_write_read(address, wr_buffer, rd_buffer)
     }
 
-    fn transaction<'a>(
+    fn transaction(
         &mut self,
         _address: u8,
-        _operations: &mut [embedded_hal_1::i2c::Operation<'a>],
+        _operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         todo!();
     }
