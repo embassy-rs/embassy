@@ -24,6 +24,7 @@ bind_interrupts!(struct Irqs {
     feature = "stm32wba52cg",
     feature = "stm32l552ze",
     feature = "stm32h563zi",
+    feature = "stm32h503rb",
     feature = "stm32u5a5zj",
     feature = "stm32u585ai"
 ))]

@@ -30,6 +30,8 @@ stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "chrono", "rng"]
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng"]
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "chrono", "rng", "hash"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
+stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
+stm32h503rb = ["embassy-stm32/stm32h503rb", "rng"]
 
 hash = []
 eth = ["embassy-executor/task-arena-size-16384"]
