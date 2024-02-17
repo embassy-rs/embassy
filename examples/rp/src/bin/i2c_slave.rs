@@ -110,7 +110,7 @@ async fn main(spawner: Spawner) {
     let c_sda = p.PIN_1;
     let c_scl = p.PIN_0;
     let mut config = i2c::Config::default();
-    config.frequency = 5_000;
+    config.frequency = 1_000_000;
     let controller = i2c::I2c::new_async(p.I2C0, c_sda, c_scl, Irqs, config);
 
     unwrap!(spawner.spawn(controller_task(controller)));
