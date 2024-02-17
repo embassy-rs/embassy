@@ -577,7 +577,7 @@ impl<'d, T: Instance> Twis<'d, T> {
                 trace!("Copying TWIS tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
-                self.setup_respond_from_ram(&tx_ram_buf, inten)
+                self.setup_respond_from_ram(tx_ram_buf, inten)
             }
             Err(error) => Err(error),
         }

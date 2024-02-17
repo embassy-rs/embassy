@@ -469,7 +469,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
-                self.setup_write_read_from_ram(address, &tx_ram_buf, rd_buffer, inten)
+                self.setup_write_read_from_ram(address, tx_ram_buf, rd_buffer, inten)
             }
             Err(error) => Err(error),
         }
@@ -482,7 +482,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
-                self.setup_write_from_ram(address, &tx_ram_buf, inten)
+                self.setup_write_from_ram(address, tx_ram_buf, inten)
             }
             Err(error) => Err(error),
         }

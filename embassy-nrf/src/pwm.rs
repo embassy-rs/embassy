@@ -697,7 +697,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // Enable
         r.enable.write(|w| w.enable().enabled());
 
-        r.seq0.ptr.write(|w| unsafe { w.bits((&pwm.duty).as_ptr() as u32) });
+        r.seq0.ptr.write(|w| unsafe { w.bits((pwm.duty).as_ptr() as u32) });
 
         r.seq0.cnt.write(|w| unsafe { w.bits(4) });
         r.seq0.refresh.write(|w| unsafe { w.bits(0) });
@@ -748,7 +748,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         self.duty[channel] = duty & 0x7FFF;
 
         // reload ptr in case self was moved
-        r.seq0.ptr.write(|w| unsafe { w.bits((&self.duty).as_ptr() as u32) });
+        r.seq0.ptr.write(|w| unsafe { w.bits((self.duty).as_ptr() as u32) });
 
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
