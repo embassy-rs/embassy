@@ -16,6 +16,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         feature = "stm32l073rz",
         // wrong ram size in stm32-data
         feature = "stm32wl55jc",
+        // no VTOR, so interrupts can't work when running from RAM
+        feature = "stm32f091rc",
     )) {
         println!("cargo:rustc-link-arg-bins=-Tlink.x");
         println!("cargo:rerun-if-changed=link.x");
