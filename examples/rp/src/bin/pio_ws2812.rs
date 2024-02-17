@@ -12,7 +12,7 @@ use embassy_rp::pio::{
     Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
 use embassy_rp::{bind_interrupts, clocks, into_ref, Peripheral, PeripheralRef};
-use embassy_time::Timer;
+use embassy_time::{Duration, Ticker, Timer};
 use fixed::types::U24F8;
 use fixed_macro::fixed;
 use smart_leds::RGB8;
@@ -107,6 +107,8 @@ impl<'d, P: Instance, const S: usize, const N: usize> Ws2812<'d, P, S, N> {
 
         // DMA transfer
         self.sm.tx().dma_push(self.dma.reborrow(), &words).await;
+
+        Timer::after_micros(55).await;
     }
 }
 
@@ -143,6 +145,7 @@ async fn main(_spawner: Spawner) {
     let mut ws2812 = Ws2812::new(&mut common, sm0, p.DMA_CH0, p.PIN_16);
 
     // Loop forever making RGB values and pushing them out to the WS2812.
+    let mut ticker = Ticker::every(Duration::from_millis(10));
     loop {
         for j in 0..(256 * 5) {
             debug!("New Colors:");
@@ -152,7 +155,7 @@ async fn main(_spawner: Spawner) {
             }
             ws2812.write(&data).await;
 
-            Timer::after_millis(10).await;
+            ticker.next().await;
         }
     }
 }
