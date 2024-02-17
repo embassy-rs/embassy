@@ -430,6 +430,8 @@ fn main() {
 
     let mut clock_names = BTreeSet::new();
 
+    let mut rcc_cfgr_regs = BTreeMap::new();
+
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
             continue;
@@ -507,6 +509,16 @@ fn main() {
                     let fieldset_name = format_ident!("{}", fieldset_name);
                     let field_name = format_ident!("{}", field_name);
                     let enum_name = format_ident!("{}", enum_name);
+
+                    if !rcc_cfgr_regs.contains_key(mux.register) {
+                        rcc_cfgr_regs.insert(mux.register, Vec::new());
+                    }
+
+                    rcc_cfgr_regs.get_mut(mux.register).unwrap().push((
+                        fieldset_name.clone(),
+                        field_name.clone(),
+                        enum_name.clone(),
+                    ));
 
                     let match_arms: TokenStream = enumm
                         .variants
@@ -588,6 +600,63 @@ fn main() {
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
             });
         }
+    }
+
+    for (rcc_cfgr_reg, fields) in rcc_cfgr_regs {
+        println!("cargo:rustc-cfg={}", rcc_cfgr_reg.to_ascii_lowercase());
+
+        let struct_fields: Vec<_> = fields
+            .iter()
+            .map(|(_fieldset, fieldname, enum_name)| {
+                quote! {
+                    pub #fieldname: Option<crate::pac::rcc::vals::#enum_name>
+                }
+            })
+            .collect();
+
+        let field_names: Vec<_> = fields
+            .iter()
+            .map(|(_fieldset, fieldname, _enum_name)| fieldname)
+            .collect();
+
+        let inits: Vec<_> = fields
+            .iter()
+            .map(|(fieldset, fieldname, _enum_name)| {
+                let setter = format_ident!("set_{}", fieldname);
+                quote! {
+                    match self.#fieldname {
+                        None => {}
+                        Some(val) => {
+                            crate::pac::RCC.#fieldset()
+                                .modify(|w| w.#setter(val));
+                        }
+                    };
+                }
+            })
+            .collect();
+
+        let cfgr_reg = format_ident!("{}", rcc_cfgr_reg);
+
+        g.extend(quote! {
+            #[derive(Clone, Copy)]
+            pub struct #cfgr_reg {
+                #( #struct_fields, )*
+            }
+
+            impl Default for #cfgr_reg {
+                fn default() -> Self {
+                    Self {
+                        #( #field_names: None, )*
+                    }
+                }
+            }
+
+            impl #cfgr_reg {
+                pub fn init(self) {
+                    #( #inits )*
+                }
+            }
+        });
     }
 
     // Generate RCC
