@@ -619,7 +619,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         UarteRxWithIdle {
             rx: self,
             timer,
-            ppi_ch1: ppi_ch1,
+            ppi_ch1,
             _ppi_ch2: ppi_ch2,
         }
     }
