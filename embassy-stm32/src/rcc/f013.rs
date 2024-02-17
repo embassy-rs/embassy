@@ -495,7 +495,7 @@ pub(crate) unsafe fn init(config: Config) {
         TimClockSource::PClk2 => {}
         TimClockSource::PllClk => {
             RCC.cfgr3()
-                .modify(|w| w.set_tim2sw(crate::pac::rcc::vals::Timsw::PLL1_P));
+                .modify(|w| w.set_tim2sw(crate::pac::rcc::vals::Tim2sw::PLL1_P));
         }
     };
 
@@ -533,7 +533,7 @@ pub(crate) unsafe fn init(config: Config) {
         stm32f398
     ))]
     match config.tim.tim15 {
-        TimClockSource::PClk2 => None,
+        TimClockSource::PClk2 => {},
         TimClockSource::PllClk => {
             RCC.cfgr3()
                 .modify(|w| w.set_tim15sw(crate::pac::rcc::vals::Timsw::PLL1_P));
@@ -548,7 +548,7 @@ pub(crate) unsafe fn init(config: Config) {
         stm32f398
     ))]
     match config.tim.tim16 {
-        TimClockSource::PClk2 => None,
+        TimClockSource::PClk2 => {},
         TimClockSource::PllClk => {
             RCC.cfgr3()
                 .modify(|w| w.set_tim16sw(crate::pac::rcc::vals::Timsw::PLL1_P));
@@ -563,7 +563,7 @@ pub(crate) unsafe fn init(config: Config) {
         stm32f398
     ))]
     match config.tim.tim17 {
-        TimClockSource::PClk2 => None,
+        TimClockSource::PClk2 => {},
         TimClockSource::PllClk => {
             RCC.cfgr3()
                 .modify(|w| w.set_tim17sw(crate::pac::rcc::vals::Timsw::PLL1_P));
@@ -572,7 +572,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(any(all(stm32f303, any(package_D, package_E))))]
     match config.tim.tim20 {
-        TimClockSource::PClk2 => None,
+        TimClockSource::PClk2 => {},
         TimClockSource::PllClk => {
             RCC.cfgr3()
                 .modify(|w| w.set_tim20sw(crate::pac::rcc::vals::Timsw::PLL1_P));
