@@ -108,7 +108,7 @@ impl<'d, T: Instance> Rng<'d, T> {
 
     /// Fill the buffer with random bytes.
     pub async fn fill_bytes(&mut self, dest: &mut [u8]) {
-        if dest.len() == 0 {
+        if dest.is_empty() {
             return; // Nothing to fill
         }
 

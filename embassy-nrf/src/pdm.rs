@@ -185,7 +185,7 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
     /// Sample data into the given buffer
     pub async fn sample(&mut self, buffer: &mut [i16]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Err(Error::BufferZeroLength);
         }
         if buffer.len() > EASY_DMA_SIZE {

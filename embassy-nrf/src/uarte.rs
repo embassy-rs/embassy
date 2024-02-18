@@ -308,7 +308,7 @@ fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
     r.events_txstarted.reset();
 
     // Enable
-    apply_workaround_for_enable_anomaly(&r);
+    apply_workaround_for_enable_anomaly(r);
     r.enable.write(|w| w.enable().enabled());
 }
 
@@ -378,7 +378,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
                 let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
                 ram_buf.copy_from_slice(buffer);
-                self.write_from_ram(&ram_buf).await
+                self.write_from_ram(ram_buf).await
             }
             Err(error) => Err(error),
         }
@@ -386,7 +386,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 
     /// Same as [`write`](Self::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub async fn write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
 
@@ -448,7 +448,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
                 trace!("Copying UARTE tx buffer into RAM for DMA");
                 let ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..buffer.len()];
                 ram_buf.copy_from_slice(buffer);
-                self.blocking_write_from_ram(&ram_buf)
+                self.blocking_write_from_ram(ram_buf)
             }
             Err(error) => Err(error),
         }
@@ -456,7 +456,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
 
     /// Same as [`write_from_ram`](Self::write_from_ram) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
     pub fn blocking_write_from_ram(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
 
@@ -504,7 +504,7 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
 
         let s = T::state();
 
-        drop_tx_rx(&r, &s);
+        drop_tx_rx(r, s);
     }
 }
 
@@ -619,7 +619,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         UarteRxWithIdle {
             rx: self,
             timer,
-            ppi_ch1: ppi_ch1,
+            ppi_ch1,
             _ppi_ch2: ppi_ch2,
         }
     }
@@ -694,7 +694,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
     /// Read bytes until the buffer is filled.
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(());
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -744,7 +744,7 @@ impl<'a, T: Instance> Drop for UarteRx<'a, T> {
 
         let s = T::state();
 
-        drop_tx_rx(&r, &s);
+        drop_tx_rx(r, s);
     }
 }
 
@@ -775,7 +775,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
     ///
     /// Returns the amount of bytes read.
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {
@@ -848,7 +848,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
     ///
     /// Returns the amount of bytes read.
     pub fn blocking_read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Ok(0);
         }
         if buffer.len() > EASY_DMA_SIZE {

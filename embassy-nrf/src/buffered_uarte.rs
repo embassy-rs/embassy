@@ -377,7 +377,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         });
 
         // Enable UARTE instance
-        apply_workaround_for_enable_anomaly(&r);
+        apply_workaround_for_enable_anomaly(r);
         r.enable.write(|w| w.enable().enabled());
 
         // Configure byte counter.
