@@ -481,6 +481,19 @@ impl Registers {
         while self.regs.cccr().read().init() == true {}
     }
 
+    /// Moves out of ConfigMode and into specified mode
+    #[inline]
+    pub fn into_mode(mut self, config: FdCanConfig, mode: crate::can::_version::FdcanOperatingMode) {
+        match mode {
+            crate::can::FdcanOperatingMode::InternalLoopbackMode => self.set_loopback_mode(LoopbackMode::Internal),
+            crate::can::FdcanOperatingMode::ExternalLoopbackMode => self.set_loopback_mode(LoopbackMode::External),
+            crate::can::FdcanOperatingMode::NormalOperationMode => self.set_normal_operations(true),
+            crate::can::FdcanOperatingMode::RestrictedOperationMode => self.set_restricted_operations(true),
+            crate::can::FdcanOperatingMode::BusMonitoringMode => self.set_bus_monitoring_mode(true),
+        }
+        self.leave_init_mode(config);
+    }
+
     /// Moves out of ConfigMode and into InternalLoopbackMode
     #[inline]
     pub fn into_internal_loopback(mut self, config: FdCanConfig) {

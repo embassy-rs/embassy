@@ -75,7 +75,7 @@ async fn main(_spawner: Spawner) {
     let options = options();
     let peripherals = embassy_stm32::init(options.config);
 
-    let mut can = can::Fdcan::new(peripherals.FDCAN1, peripherals.PB8, peripherals.PB9, Irqs);
+    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PB8, peripherals.PB9, Irqs);
 
     // 250k bps
     can.set_bitrate(250_000);

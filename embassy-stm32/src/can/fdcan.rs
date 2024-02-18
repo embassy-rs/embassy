@@ -100,75 +100,50 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT1Interrupt> for IT1Interrup
     unsafe fn on_interrupt() {}
 }
 
-/// Allows for Transmit Operations
-pub trait Transmit {}
-/// Allows for Receive Operations
-pub trait Receive {}
-
-/// Allows for the FdCan Instance to be released or to enter ConfigMode
-pub struct PoweredDownMode;
-/// Allows for the configuration for the Instance
-pub struct ConfigMode;
-/// This mode can be used for a “Hot Selftest”, meaning the FDCAN can be tested without
-/// affecting a running CAN system connected to the FDCAN_TX and FDCAN_RX pins. In this
-/// mode, FDCAN_RX pin is disconnected from the FDCAN and FDCAN_TX pin is held
-/// recessive.
-pub struct InternalLoopbackMode;
-impl Transmit for InternalLoopbackMode {}
-impl Receive for InternalLoopbackMode {}
-/// This mode is provided for hardware self-test. To be independent from external stimulation,
-/// the FDCAN ignores acknowledge errors (recessive bit sampled in the acknowledge slot of a
-/// data / remote frame) in Loop Back mode. In this mode the FDCAN performs an internal
-/// feedback from its transmit output to its receive input. The actual value of the FDCAN_RX
-/// input pin is disregarded by the FDCAN. The transmitted messages can be monitored at the
-/// FDCAN_TX transmit pin.
-pub struct ExternalLoopbackMode;
-impl Transmit for ExternalLoopbackMode {}
-impl Receive for ExternalLoopbackMode {}
-/// The normal use of the FdCan instance after configurations
-pub struct NormalOperationMode;
-impl Transmit for NormalOperationMode {}
-impl Receive for NormalOperationMode {}
-/// In Restricted operation mode the node is able to receive data and remote frames and to give
-/// acknowledge to valid frames, but it does not send data frames, remote frames, active error
-/// frames, or overload frames. In case of an error condition or overload condition, it does not
-/// send dominant bits, instead it waits for the occurrence of bus idle condition to resynchronize
-/// itself to the CAN communication. The error counters for transmit and receive are frozen while
-/// error logging (can_errors) is active. TODO: automatically enter in this mode?
-pub struct RestrictedOperationMode;
-impl Receive for RestrictedOperationMode {}
-///  In Bus monitoring mode (for more details refer to ISO11898-1, 10.12 Bus monitoring),
-/// the FDCAN is able to receive valid data frames and valid remote frames, but cannot start a
-/// transmission. In this mode, it sends only recessive bits on the CAN bus. If the FDCAN is
-/// required to send a dominant bit (ACK bit, overload flag, active error flag), the bit is
-/// rerouted internally so that the FDCAN can monitor it, even if the CAN bus remains in recessive
-/// state. In Bus monitoring mode the TXBRP register is held in reset state. The Bus monitoring
-/// mode can be used to analyze the traffic on a CAN bus without affecting it by the transmission
-/// of dominant bits.
-pub struct BusMonitoringMode;
-impl Receive for BusMonitoringMode {}
-/// Test mode must be used for production tests or self test only. The software control for
-/// FDCAN_TX pin interferes with all CAN protocol functions. It is not recommended to use test
-/// modes for application.
-pub struct TestMode;
-
-/// Operating modes trait
-pub trait FdcanOperatingMode {}
-impl FdcanOperatingMode for PoweredDownMode {}
-impl FdcanOperatingMode for ConfigMode {}
-impl FdcanOperatingMode for InternalLoopbackMode {}
-impl FdcanOperatingMode for ExternalLoopbackMode {}
-impl FdcanOperatingMode for NormalOperationMode {}
-impl FdcanOperatingMode for RestrictedOperationMode {}
-impl FdcanOperatingMode for BusMonitoringMode {}
-impl FdcanOperatingMode for TestMode {}
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Different operating modes
+pub enum FdcanOperatingMode {
+    //PoweredDownMode,
+    //ConfigMode,
+    /// This mode can be used for a “Hot Selftest”, meaning the FDCAN can be tested without
+    /// affecting a running CAN system connected to the FDCAN_TX and FDCAN_RX pins. In this
+    /// mode, FDCAN_RX pin is disconnected from the FDCAN and FDCAN_TX pin is held
+    /// recessive.
+    InternalLoopbackMode,
+    /// This mode is provided for hardware self-test. To be independent from external stimulation,
+    /// the FDCAN ignores acknowledge errors (recessive bit sampled in the acknowledge slot of a
+    /// data / remote frame) in Loop Back mode. In this mode the FDCAN performs an internal
+    /// feedback from its transmit output to its receive input. The actual value of the FDCAN_RX
+    /// input pin is disregarded by the FDCAN. The transmitted messages can be monitored at the
+    /// FDCAN_TX transmit pin.
+    ExternalLoopbackMode,
+    /// The normal use of the Fdcan instance after configurations
+    NormalOperationMode,
+    /// In Restricted operation mode the node is able to receive data and remote frames and to give
+    /// acknowledge to valid frames, but it does not send data frames, remote frames, active error
+    /// frames, or overload frames. In case of an error condition or overload condition, it does not
+    /// send dominant bits, instead it waits for the occurrence of bus idle condition to resynchronize
+    /// itself to the CAN communication. The error counters for transmit and receive are frozen while
+    /// error logging (can_errors) is active. TODO: automatically enter in this mode?
+    RestrictedOperationMode,
+    ///  In Bus monitoring mode (for more details refer to ISO11898-1, 10.12 Bus monitoring),
+    /// the FDCAN is able to receive valid data frames and valid remote frames, but cannot start a
+    /// transmission. In this mode, it sends only recessive bits on the CAN bus. If the FDCAN is
+    /// required to send a dominant bit (ACK bit, overload flag, active error flag), the bit is
+    /// rerouted internally so that the FDCAN can monitor it, even if the CAN bus remains in recessive
+    /// state. In Bus monitoring mode the TXBRP register is held in reset state. The Bus monitoring
+    /// mode can be used to analyze the traffic on a CAN bus without affecting it by the transmission
+    /// of dominant bits.
+    BusMonitoringMode,
+    //TestMode,
+}
 
 /// FDCAN Instance
-pub struct Fdcan<'d, T: Instance, M: FdcanOperatingMode> {
+pub struct FdcanConfigurator<'d, T: Instance> {
     config: crate::can::fd::config::FdCanConfig,
     /// Reference to internals.
     instance: FdcanInstance<'d, T>,
-    _mode: PhantomData<M>,
 }
 
 fn calc_ns_per_timer_tick<T: Instance>(mode: crate::can::fd::config::FrameTransmissionConfig) -> u64 {
@@ -186,7 +161,7 @@ fn calc_ns_per_timer_tick<T: Instance>(mode: crate::can::fd::config::FrameTransm
     }
 }
 
-impl<'d, T: Instance> Fdcan<'d, T, ConfigMode> {
+impl<'d, T: Instance> FdcanConfigurator<'d, T> {
     /// Creates a new Fdcan instance, keeping the peripheral in sleep mode.
     /// You must call [Fdcan::enable_non_blocking] to use the peripheral.
     pub fn new(
@@ -196,7 +171,7 @@ impl<'d, T: Instance> Fdcan<'d, T, ConfigMode> {
         _irqs: impl interrupt::typelevel::Binding<T::IT0Interrupt, IT0InterruptHandler<T>>
             + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
             + 'd,
-    ) -> Fdcan<'d, T, ConfigMode> {
+    ) -> FdcanConfigurator<'d, T> {
         into_ref!(peri, rx, tx);
 
         rx.set_as_af(rx.af_num(), AFType::Input);
@@ -245,7 +220,6 @@ impl<'d, T: Instance> Fdcan<'d, T, ConfigMode> {
         Self {
             config,
             instance: FdcanInstance(peri),
-            _mode: PhantomData::<ConfigMode>,
         }
     }
 
@@ -272,7 +246,7 @@ impl<'d, T: Instance> Fdcan<'d, T, ConfigMode> {
         self.config = self.config.set_nominal_bit_timing(nbtr);
     }
 
-    /// Configures the bit timings for VBR data calculated from supplied bitrate.
+    /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets confit to allow can FD and VBR
     pub fn set_fd_data_bitrate(&mut self, bitrate: u32, transceiver_delay_compensation: bool) {
         let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
         // Note, used existing calcluation for normal(non-VBR) bitrate, appears to work for 250k/1M
@@ -312,51 +286,47 @@ impl<'d, T: Instance> Fdcan<'d, T, ConfigMode> {
             T::registers().msg_ram_mut().filters.flesa[i].activate(*f);
         }
     }
+
+    /// Start in mode.
+    pub fn start(self, mode: FdcanOperatingMode) -> Fdcan<'d, T> {
+        let ns_per_timer_tick = calc_ns_per_timer_tick::<T>(self.config.frame_transmit);
+        critical_section::with(|_| unsafe {
+            T::mut_state().ns_per_timer_tick = ns_per_timer_tick;
+        });
+        T::registers().into_mode(self.config, mode);
+        let ret = Fdcan {
+            config: self.config,
+            instance: self.instance,
+            _mode: mode,
+        };
+        ret
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_normal_mode(self) -> Fdcan<'d, T> {
+        self.start(FdcanOperatingMode::NormalOperationMode)
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_internal_loopback_mode(self) -> Fdcan<'d, T> {
+        self.start(FdcanOperatingMode::InternalLoopbackMode)
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_external_loopback_mode(self) -> Fdcan<'d, T> {
+        self.start(FdcanOperatingMode::ExternalLoopbackMode)
+    }
 }
 
-macro_rules! impl_transition {
-    ($from_mode:ident, $to_mode:ident, $name:ident, $func: ident) => {
-        impl<'d, T: Instance> Fdcan<'d, T, $from_mode> {
-            /// Transition from $from_mode:ident mode to $to_mode:ident mode
-            pub fn $name(self) -> Fdcan<'d, T, $to_mode> {
-                let ns_per_timer_tick = calc_ns_per_timer_tick::<T>(self.config.frame_transmit);
-                critical_section::with(|_| unsafe {
-                    T::mut_state().ns_per_timer_tick = ns_per_timer_tick;
-                });
-                T::registers().$func(self.config);
-                let ret = Fdcan {
-                    config: self.config,
-                    instance: self.instance,
-                    _mode: PhantomData::<$to_mode>,
-                };
-                ret
-            }
-        }
-    };
+/// FDCAN Instance
+pub struct Fdcan<'d, T: Instance> {
+    config: crate::can::fd::config::FdCanConfig,
+    /// Reference to internals.
+    instance: FdcanInstance<'d, T>,
+    _mode: FdcanOperatingMode,
 }
 
-impl_transition!(PoweredDownMode, ConfigMode, into_config_mode, into_config_mode);
-impl_transition!(InternalLoopbackMode, ConfigMode, into_config_mode, into_config_mode);
-
-impl_transition!(ConfigMode, NormalOperationMode, into_normal_mode, into_normal);
-impl_transition!(
-    ConfigMode,
-    ExternalLoopbackMode,
-    into_external_loopback_mode,
-    into_external_loopback
-);
-impl_transition!(
-    ConfigMode,
-    InternalLoopbackMode,
-    into_internal_loopback_mode,
-    into_internal_loopback
-);
-
-impl<'d, T: Instance, M: FdcanOperatingMode> Fdcan<'d, T, M>
-where
-    M: Transmit,
-    M: Receive,
-{
+impl<'d, T: Instance> Fdcan<'d, T> {
     /// Flush one of the TX mailboxes.
     pub async fn flush(&self, idx: usize) {
         poll_fn(|cx| {
@@ -401,18 +371,8 @@ where
         T::state().rx_mode.read_fd::<T>().await
     }
 
-    /// Join split rx and tx portions back together
-    pub fn join(tx: FdcanTx<'d, T, M>, rx: FdcanRx<'d, T, M>) -> Self {
-        Fdcan {
-            config: tx.config,
-            //_instance2: T::regs(),
-            instance: tx._instance,
-            _mode: rx._mode,
-        }
-    }
-
     /// Split instance into separate Tx(write) and Rx(read) portions
-    pub fn split(self) -> (FdcanTx<'d, T, M>, FdcanRx<'d, T, M>) {
+    pub fn split(self) -> (FdcanTx<'d, T>, FdcanRx<'d, T>) {
         (
             FdcanTx {
                 config: self.config,
@@ -427,12 +387,22 @@ where
         )
     }
 
+    /// Join split rx and tx portions back together
+    pub fn join(tx: FdcanTx<'d, T>, rx: FdcanRx<'d, T>) -> Self {
+        Fdcan {
+            config: tx.config,
+            //_instance2: T::regs(),
+            instance: tx._instance,
+            _mode: rx._mode,
+        }
+    }
+
     /// Return a buffered instance of driver without CAN FD support. User must supply Buffers
     pub fn buffered<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
         &self,
         tx_buf: &'static mut TxBuf<TX_BUF_SIZE>,
         rxb: &'static mut RxBuf<RX_BUF_SIZE>,
-    ) -> BufferedCan<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE> {
+    ) -> BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE> {
         BufferedCan::new(PhantomData::<T>, T::regs(), self._mode, tx_buf, rxb)
     }
 
@@ -441,7 +411,7 @@ where
         &self,
         tx_buf: &'static mut TxFdBuf<TX_BUF_SIZE>,
         rxb: &'static mut RxFdBuf<RX_BUF_SIZE>,
-    ) -> BufferedCanFd<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE> {
+    ) -> BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE> {
         BufferedCanFd::new(PhantomData::<T>, T::regs(), self._mode, tx_buf, rxb)
     }
 }
@@ -453,24 +423,21 @@ pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (Classi
 pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, ClassicFrame, BUF_SIZE>;
 
 /// Buffered FDCAN Instance
-#[allow(dead_code)]
-pub struct BufferedCan<'d, T: Instance, M: FdcanOperatingMode, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _instance1: PhantomData<T>,
     _instance2: &'d crate::pac::can::Fdcan,
-    _mode: PhantomData<M>,
+    _mode: FdcanOperatingMode,
     tx_buf: &'static TxBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
 }
 
-impl<'c, 'd, T: Instance, M: Transmit, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
-    BufferedCan<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
-where
-    M: FdcanOperatingMode,
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
+    BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
 {
     fn new(
         _instance1: PhantomData<T>,
         _instance2: &'d crate::pac::can::Fdcan,
-        _mode: PhantomData<M>,
+        _mode: FdcanOperatingMode,
         tx_buf: &'static TxBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxBuf<RX_BUF_SIZE>,
     ) -> Self {
@@ -511,10 +478,8 @@ where
     }
 }
 
-impl<'c, 'd, T: Instance, M, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
-    for BufferedCan<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
-where
-    M: FdcanOperatingMode,
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
+    for BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
 {
     fn drop(&mut self) {
         critical_section::with(|_| unsafe {
@@ -531,24 +496,21 @@ pub type RxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (FdFr
 pub type TxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, FdFrame, BUF_SIZE>;
 
 /// Buffered FDCAN Instance
-#[allow(dead_code)]
-pub struct BufferedCanFd<'d, T: Instance, M: FdcanOperatingMode, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+pub struct BufferedCanFd<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
     _instance1: PhantomData<T>,
     _instance2: &'d crate::pac::can::Fdcan,
-    _mode: PhantomData<M>,
+    _mode: FdcanOperatingMode,
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
 }
 
-impl<'c, 'd, T: Instance, M: Transmit, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
-    BufferedCanFd<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
-where
-    M: FdcanOperatingMode,
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
+    BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
 {
     fn new(
         _instance1: PhantomData<T>,
         _instance2: &'d crate::pac::can::Fdcan,
-        _mode: PhantomData<M>,
+        _mode: FdcanOperatingMode,
         tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
         rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
     ) -> Self {
@@ -589,10 +551,8 @@ where
     }
 }
 
-impl<'c, 'd, T: Instance, M, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
-    for BufferedCanFd<'d, T, M, TX_BUF_SIZE, RX_BUF_SIZE>
-where
-    M: FdcanOperatingMode,
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
+    for BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
 {
     fn drop(&mut self) {
         critical_section::with(|_| unsafe {
@@ -603,21 +563,20 @@ where
 }
 
 /// FDCAN Rx only Instance
-#[allow(dead_code)]
-pub struct FdcanRx<'d, T: Instance, M: Receive> {
+pub struct FdcanRx<'d, T: Instance> {
     _instance1: PhantomData<T>,
     _instance2: &'d crate::pac::can::Fdcan,
-    _mode: PhantomData<M>,
+    _mode: FdcanOperatingMode,
 }
 
 /// FDCAN Tx only Instance
-pub struct FdcanTx<'d, T: Instance, M: Transmit> {
+pub struct FdcanTx<'d, T: Instance> {
     config: crate::can::fd::config::FdCanConfig,
     _instance: FdcanInstance<'d, T>, //(PeripheralRef<'a, T>);
-    _mode: PhantomData<M>,
+    _mode: FdcanOperatingMode,
 }
 
-impl<'c, 'd, T: Instance, M: Transmit> FdcanTx<'d, T, M> {
+impl<'c, 'd, T: Instance> FdcanTx<'d, T> {
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
@@ -635,7 +594,7 @@ impl<'c, 'd, T: Instance, M: Transmit> FdcanTx<'d, T, M> {
     }
 }
 
-impl<'c, 'd, T: Instance, M: Receive> FdcanRx<'d, T, M> {
+impl<'c, 'd, T: Instance> FdcanRx<'d, T> {
     /// Returns the next received message frame
     pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
         T::state().rx_mode.read::<T>().await

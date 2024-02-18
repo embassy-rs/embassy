@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
 
     let peripherals = embassy_stm32::init(config);
 
-    let mut can = can::Fdcan::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
+    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
 
     can.set_extended_filter(
         can::fd::filter::ExtendedFilterSlot::_0,
@@ -38,8 +38,10 @@ async fn main(_spawner: Spawner) {
 
     info!("Configured");
 
-    let mut can = can.into_normal_mode();
-    //let mut can = can.into_internal_loopback_mode();
+    let mut can = can.start(match use_fd {
+        true => can::FdcanOperatingMode::InternalLoopbackMode,
+        false => can::FdcanOperatingMode::NormalOperationMode,
+    });
 
     let mut i = 0;
     let mut last_read_ts = embassy_time::Instant::now();
@@ -106,7 +108,6 @@ async fn main(_spawner: Spawner) {
             break;
         }
     }
-
     i = 0;
     let (mut tx, mut rx) = can.split();
     // With split
