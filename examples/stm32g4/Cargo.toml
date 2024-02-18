@@ -24,6 +24,7 @@ embedded-can = { version = "0.4" }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 heapless = { version = "0.8", default-features = false }
+static_cell = "2.0.0"
 
 [profile.release]
 debug = 2
