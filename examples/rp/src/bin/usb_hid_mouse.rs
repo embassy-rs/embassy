@@ -99,11 +99,10 @@ async fn main(_spawner: Spawner) {
                 wheel: 0,
                 pan: 0,
             };
+            // Send the report.
             match writer.write_serialize(&report).await {
-                Ok(()) => {},
-                Err(e) => {
-                    warn!("Failed to send report: {:?}", e);
-                }
+                Ok(()) => {}
+                Err(e) => warn!("Failed to send report: {:?}", e),
             }
         }
     };
