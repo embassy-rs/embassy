@@ -10,8 +10,8 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::USB;
-use embassy_time::Timer;
 use embassy_rp::usb::{Driver, InterruptHandler};
+use embassy_time::Timer;
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
@@ -92,18 +92,18 @@ async fn main(_spawner: Spawner) {
         loop {
             // every 1 second
             _ = Timer::after_secs(1).await;
-            let report = MouseReport{
+            let report = MouseReport {
                 buttons: 0,
                 x: rng.gen_range(-100..100), // random small x movement
                 y: rng.gen_range(-100..100), // random small y movement
                 wheel: 0,
                 pan: 0,
             };
-            match writer.write_serialize(&report).await{
-                Ok(())=>{},
-                Err(e)=>{
+            match writer.write_serialize(&report).await {
+                Ok(()) => {},
+                Err(e) => {
                     warn!("Failed to send report: {:?}", e);
-                },
+                }
             }
         }
     };
