@@ -88,7 +88,7 @@ async fn main(_spawner: Spawner) {
     // Do stuff with the class!
     let in_fut = async {
         let mut rng = RoscRng;
-        
+
         loop {
             // every 1 second
             _ = Timer::after_secs(1).await;
