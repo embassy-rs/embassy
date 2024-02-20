@@ -703,7 +703,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
                 // Write block in
                 while index < end_index {
                     let mut in_word: [u8; 4] = [0; 4];
-                    in_word.copy_from_slice(&aad[index..index + 4]);
+                    in_word.copy_from_slice(&ctx.aad_buffer[index..index + 4]);
                     T::regs().din().write_value(u32::from_ne_bytes(in_word));
                     index += 4;
                 }
