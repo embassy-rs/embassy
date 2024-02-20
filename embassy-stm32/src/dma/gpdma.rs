@@ -259,7 +259,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         let this = Self { channel };
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, request);
+        super::dmamux::configure_dmamux(&*this.channel, request);
 
         ch.cr().write(|w| w.set_reset(true));
         ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs

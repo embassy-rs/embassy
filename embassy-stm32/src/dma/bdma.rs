@@ -299,7 +299,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         STATE.complete_count[this.channel.index()].store(0, Ordering::Release);
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+        super::dmamux::configure_dmamux(&*this.channel, _request);
 
         ch.par().write_value(peri_addr as u32);
         ch.mar().write_value(mem_addr as u32);
@@ -483,7 +483,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         this.clear_irqs();
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+        super::dmamux::configure_dmamux(&*this.channel, _request);
 
         let ch = dma.ch(channel_number);
         ch.par().write_value(peri_addr as u32);
@@ -641,7 +641,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         this.clear_irqs();
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+        super::dmamux::configure_dmamux(&*this.channel, _request);
 
         let ch = dma.ch(channel_number);
         ch.par().write_value(peri_addr as u32);

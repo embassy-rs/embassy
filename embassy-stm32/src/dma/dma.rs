@@ -366,7 +366,7 @@ impl<'a, C: Channel> Transfer<'a, C> {
         this.clear_irqs();
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+        super::dmamux::configure_dmamux(&*this.channel, _request);
 
         ch.par().write_value(peri_addr as u32);
         ch.m0ar().write_value(mem_addr as u32);
@@ -522,7 +522,7 @@ impl<'a, C: Channel, W: Word> DoubleBuffered<'a, C, W> {
         this.clear_irqs();
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+        super::dmamux::configure_dmamux(&*this.channel, _request);
 
         let ch = dma.st(channel_number);
         ch.par().write_value(peri_addr as u32);
@@ -726,7 +726,7 @@ impl<'a, C: Channel, W: Word> ReadableRingBuffer<'a, C, W> {
         this.clear_irqs();
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+        super::dmamux::configure_dmamux(&*this.channel, _request);
 
         let ch = dma.st(channel_number);
         ch.par().write_value(peri_addr as u32);
@@ -901,7 +901,7 @@ impl<'a, C: Channel, W: Word> WritableRingBuffer<'a, C, W> {
         this.clear_irqs();
 
         #[cfg(dmamux)]
-        super::dmamux::configure_dmamux(&mut *this.channel, _request);
+        super::dmamux::configure_dmamux(&*this.channel, _request);
 
         let ch = dma.st(channel_number);
         ch.par().write_value(peri_addr as u32);
