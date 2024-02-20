@@ -45,7 +45,7 @@ pub trait Cipher<'c> {
         &self,
         _p: &pac::cryp::Cryp,
         _dir: Direction,
-        _int_data: &[u8; AES_BLOCK_SIZE],
+        _int_data: &mut [u8; AES_BLOCK_SIZE],
         _temp1: [u32; 4],
         _padding_mask: [u8; 16],
     ) {
@@ -236,16 +236,18 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
         &self,
         p: &pac::cryp::Cryp,
         dir: Direction,
-        int_data: &[u8; AES_BLOCK_SIZE],
+        int_data: &mut [u8; AES_BLOCK_SIZE],
         _temp1: [u32; 4],
-        _padding_mask: [u8; 16],
+        padding_mask: [u8; AES_BLOCK_SIZE],
     ) {
         if dir == Direction::Encrypt {
             //Handle special GCM partial block process.
             p.cr().modify(|w| w.set_crypen(false));
-            p.cr().write(|w| w.set_algomode3(true));
-            p.cr().write(|w| w.set_algomode0(0));
-            p.init(1).ivrr().write_value(2);
+            p.cr().modify(|w| w.set_algomode3(true));
+            p.cr().modify(|w| w.set_algomode0(0));
+            for i in 0..AES_BLOCK_SIZE {
+                int_data[i] = int_data[i] & padding_mask[i];
+            }
             p.cr().modify(|w| w.set_crypen(true));
             p.cr().modify(|w| w.set_gcm_ccmph(3));
             let mut index = 0;
@@ -323,7 +325,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
         &self,
         p: &pac::cryp::Cryp,
         dir: Direction,
-        int_data: &[u8; AES_BLOCK_SIZE],
+        int_data: &mut [u8; AES_BLOCK_SIZE],
         _temp1: [u32; 4],
         _padding_mask: [u8; 16],
     ) {
@@ -493,7 +495,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCcm<'c, KEY_SIZE> {
         &self,
         p: &pac::cryp::Cryp,
         dir: Direction,
-        int_data: &[u8; AES_BLOCK_SIZE],
+        int_data: &mut [u8; AES_BLOCK_SIZE],
         temp1: [u32; 4],
         padding_mask: [u8; 16],
     ) {
@@ -872,7 +874,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
             let mut mask: [u8; 16] = [0; 16];
             mask[..last_block_remainder].fill(0xFF);
             ctx.cipher
-                .post_final_block(&T::regs(), ctx.dir, &intermediate_data, temp1, mask);
+                .post_final_block(&T::regs(), ctx.dir, &mut intermediate_data, temp1, mask);
         }
 
         ctx.payload_len += input.len() as u64;
