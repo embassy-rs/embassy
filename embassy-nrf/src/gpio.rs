@@ -189,7 +189,7 @@ impl<'d> Output<'d> {
     }
 }
 
-fn convert_drive(drive: OutputDrive) -> DRIVE_A {
+pub(crate) fn convert_drive(drive: OutputDrive) -> DRIVE_A {
     match drive {
         OutputDrive::Standard => DRIVE_A::S0S1,
         OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
