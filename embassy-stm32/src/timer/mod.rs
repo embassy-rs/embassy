@@ -65,17 +65,17 @@ pub(crate) mod sealed {
         fn regs_core() -> crate::pac::timer::TimCore;
 
         /// Start the timer.
-        fn start(&mut self) {
+        fn start(&self) {
             Self::regs_core().cr1().modify(|r| r.set_cen(true));
         }
 
         /// Stop the timer.
-        fn stop(&mut self) {
+        fn stop(&self) {
             Self::regs_core().cr1().modify(|r| r.set_cen(false));
         }
 
         /// Reset the counter value to 0
-        fn reset(&mut self) {
+        fn reset(&self) {
             Self::regs_core().cnt().write(|r| r.set_cnt(0));
         }
 
@@ -85,7 +85,7 @@ pub(crate) mod sealed {
         /// the timer counter will wrap around at the same frequency as is being set.
         /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
         /// because it needs to count up and down.
-        fn set_frequency(&mut self, frequency: Hertz) {
+        fn set_frequency(&self, frequency: Hertz) {
             let f = frequency.0;
             let timer_f = Self::frequency().0;
             assert!(f > 0);
@@ -108,7 +108,7 @@ pub(crate) mod sealed {
         /// Clear update interrupt.
         ///
         /// Returns whether the update interrupt flag was set.
-        fn clear_update_interrupt(&mut self) -> bool {
+        fn clear_update_interrupt(&self) -> bool {
             let regs = Self::regs_core();
             let sr = regs.sr().read();
             if sr.uif() {
@@ -122,12 +122,12 @@ pub(crate) mod sealed {
         }
 
         /// Enable/disable the update interrupt.
-        fn enable_update_interrupt(&mut self, enable: bool) {
+        fn enable_update_interrupt(&self, enable: bool) {
             Self::regs_core().dier().modify(|r| r.set_uie(enable));
         }
 
         /// Enable/disable autoreload preload.
-        fn set_autoreload_preload(&mut self, enable: bool) {
+        fn set_autoreload_preload(&self, enable: bool) {
             Self::regs_core().cr1().modify(|r| r.set_arpe(enable));
         }
 
@@ -154,7 +154,7 @@ pub(crate) mod sealed {
         fn regs_basic_no_cr2() -> crate::pac::timer::TimBasicNoCr2;
 
         /// Enable/disable the update dma.
-        fn enable_update_dma(&mut self, enable: bool) {
+        fn enable_update_dma(&self, enable: bool) {
             Self::regs_basic_no_cr2().dier().modify(|r| r.set_ude(enable));
         }
 
@@ -186,7 +186,7 @@ pub(crate) mod sealed {
         fn regs_1ch() -> crate::pac::timer::Tim1ch;
 
         /// Set clock divider.
-        fn set_clock_division(&mut self, ckd: vals::Ckd) {
+        fn set_clock_division(&self, ckd: vals::Ckd) {
             Self::regs_1ch().cr1().modify(|r| r.set_ckd(ckd));
         }
 
@@ -218,7 +218,7 @@ pub(crate) mod sealed {
         fn regs_gp16() -> crate::pac::timer::TimGp16;
 
         /// Set counting mode.
-        fn set_counting_mode(&mut self, mode: CountingMode) {
+        fn set_counting_mode(&self, mode: CountingMode) {
             let (cms, dir) = mode.into();
 
             let timer_enabled = Self::regs_core().cr1().read().cen();
@@ -237,7 +237,7 @@ pub(crate) mod sealed {
         }
 
         /// Set input capture filter.
-        fn set_input_capture_filter(&mut self, channel: Channel, icf: vals::FilterValue) {
+        fn set_input_capture_filter(&self, channel: Channel, icf: vals::FilterValue) {
             let raw_channel = channel.index();
             Self::regs_gp16()
                 .ccmr_input(raw_channel / 2)
@@ -245,17 +245,17 @@ pub(crate) mod sealed {
         }
 
         /// Clear input interrupt.
-        fn clear_input_interrupt(&mut self, channel: Channel) {
+        fn clear_input_interrupt(&self, channel: Channel) {
             Self::regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
         }
 
         /// Enable input interrupt.
-        fn enable_input_interrupt(&mut self, channel: Channel, enable: bool) {
+        fn enable_input_interrupt(&self, channel: Channel, enable: bool) {
             Self::regs_gp16().dier().modify(|r| r.set_ccie(channel.index(), enable));
         }
 
         /// Set input capture prescaler.
-        fn set_input_capture_prescaler(&mut self, channel: Channel, factor: u8) {
+        fn set_input_capture_prescaler(&self, channel: Channel, factor: u8) {
             let raw_channel = channel.index();
             Self::regs_gp16()
                 .ccmr_input(raw_channel / 2)
@@ -263,7 +263,7 @@ pub(crate) mod sealed {
         }
 
         /// Set input TI selection.
-        fn set_input_ti_selection(&mut self, channel: Channel, tisel: InputTISelection) {
+        fn set_input_ti_selection(&self, channel: Channel, tisel: InputTISelection) {
             let raw_channel = channel.index();
             Self::regs_gp16()
                 .ccmr_input(raw_channel / 2)
@@ -271,7 +271,7 @@ pub(crate) mod sealed {
         }
 
         /// Set input capture mode.
-        fn set_input_capture_mode(&mut self, channel: Channel, mode: InputCaptureMode) {
+        fn set_input_capture_mode(&self, channel: Channel, mode: InputCaptureMode) {
             Self::regs_gp16().ccer().modify(|r| match mode {
                 InputCaptureMode::Rising => {
                     r.set_ccnp(channel.index(), false);
@@ -289,7 +289,7 @@ pub(crate) mod sealed {
         }
 
         /// Set output compare mode.
-        fn set_output_compare_mode(&mut self, channel: Channel, mode: OutputCompareMode) {
+        fn set_output_compare_mode(&self, channel: Channel, mode: OutputCompareMode) {
             let raw_channel: usize = channel.index();
             Self::regs_gp16()
                 .ccmr_output(raw_channel / 2)
@@ -297,14 +297,14 @@ pub(crate) mod sealed {
         }
 
         /// Set output polarity.
-        fn set_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        fn set_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
             Self::regs_gp16()
                 .ccer()
                 .modify(|w| w.set_ccp(channel.index(), polarity.into()));
         }
 
         /// Enable/disable a channel.
-        fn enable_channel(&mut self, channel: Channel, enable: bool) {
+        fn enable_channel(&self, channel: Channel, enable: bool) {
             Self::regs_gp16().ccer().modify(|w| w.set_cce(channel.index(), enable));
         }
 
@@ -314,12 +314,12 @@ pub(crate) mod sealed {
         }
 
         /// Set compare value for a channel.
-        fn set_compare_value(&mut self, channel: Channel, value: u16) {
+        fn set_compare_value(&self, channel: Channel, value: u16) {
             Self::regs_gp16().ccr(channel.index()).modify(|w| w.set_ccr(value));
         }
 
         /// Get capture value for a channel.
-        fn get_capture_value(&mut self, channel: Channel) -> u16 {
+        fn get_capture_value(&self, channel: Channel) -> u16 {
             Self::regs_gp16().ccr(channel.index()).read().ccr()
         }
 
@@ -329,7 +329,7 @@ pub(crate) mod sealed {
         }
 
         /// Set output compare preload.
-        fn set_output_compare_preload(&mut self, channel: Channel, preload: bool) {
+        fn set_output_compare_preload(&self, channel: Channel, preload: bool) {
             let channel_index = channel.index();
             Self::regs_gp16()
                 .ccmr_output(channel_index / 2)
@@ -342,7 +342,7 @@ pub(crate) mod sealed {
         }
 
         /// Set capture compare DMA selection
-        fn set_cc_dma_selection(&mut self, ccds: super::vals::Ccds) {
+        fn set_cc_dma_selection(&self, ccds: super::vals::Ccds) {
             Self::regs_gp16().cr2().modify(|w| w.set_ccds(ccds))
         }
 
@@ -352,7 +352,7 @@ pub(crate) mod sealed {
         }
 
         /// Set capture compare DMA enable state
-        fn set_cc_dma_enable_state(&mut self, channel: Channel, ccde: bool) {
+        fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
             Self::regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
         }
     }
@@ -369,7 +369,7 @@ pub(crate) mod sealed {
         fn regs_gp32() -> crate::pac::timer::TimGp32;
 
         /// Set timer frequency.
-        fn set_frequency(&mut self, frequency: Hertz) {
+        fn set_frequency(&self, frequency: Hertz) {
             let f = frequency.0;
             assert!(f > 0);
             let timer_f = Self::frequency().0;
@@ -398,12 +398,12 @@ pub(crate) mod sealed {
         }
 
         /// Set comapre value for a channel.
-        fn set_compare_value(&mut self, channel: Channel, value: u32) {
+        fn set_compare_value(&self, channel: Channel, value: u32) {
             Self::regs_gp32().ccr(channel.index()).modify(|w| w.set_ccr(value));
         }
 
         /// Get capture value for a channel.
-        fn get_capture_value(&mut self, channel: Channel) -> u32 {
+        fn get_capture_value(&self, channel: Channel) -> u32 {
             Self::regs_gp32().ccr(channel.index()).read().ccr()
         }
 
@@ -430,17 +430,17 @@ pub(crate) mod sealed {
         fn regs_1ch_cmp() -> crate::pac::timer::Tim1chCmp;
 
         /// Set clock divider for the dead time.
-        fn set_dead_time_clock_division(&mut self, value: vals::Ckd) {
+        fn set_dead_time_clock_division(&self, value: vals::Ckd) {
             Self::regs_1ch_cmp().cr1().modify(|w| w.set_ckd(value));
         }
 
         /// Set dead time, as a fraction of the max duty value.
-        fn set_dead_time_value(&mut self, value: u8) {
+        fn set_dead_time_value(&self, value: u8) {
             Self::regs_1ch_cmp().bdtr().modify(|w| w.set_dtg(value));
         }
 
         /// Enable timer outputs.
-        fn enable_outputs(&mut self) {
+        fn enable_outputs(&self) {
             Self::regs_1ch_cmp().bdtr().modify(|w| w.set_moe(true));
         }
     }
@@ -468,14 +468,14 @@ pub(crate) mod sealed {
         fn regs_advanced() -> crate::pac::timer::TimAdv;
 
         /// Set complementary output polarity.
-        fn set_complementary_output_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        fn set_complementary_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
             Self::regs_advanced()
                 .ccer()
                 .modify(|w| w.set_ccnp(channel.index(), polarity.into()));
         }
 
         /// Enable/disable a complementary channel.
-        fn enable_complementary_channel(&mut self, channel: Channel, enable: bool) {
+        fn enable_complementary_channel(&self, channel: Channel, enable: bool) {
             Self::regs_advanced()
                 .ccer()
                 .modify(|w| w.set_ccne(channel.index(), enable));
