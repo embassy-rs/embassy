@@ -15,7 +15,7 @@ pub use pac::spim0::frequency::FREQUENCY_A as Frequency;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
-use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits};
+use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
 use crate::util::{slice_in_ram_or, slice_ptr_len, slice_ptr_parts, slice_ptr_parts_mut};
 use crate::{interrupt, pac, Peripheral};
@@ -46,6 +46,15 @@ pub struct Config {
     /// When doing bidirectional transfers, if the TX buffer is shorter than the RX buffer,
     /// this byte will be transmitted in the MOSI line for the left-over bytes.
     pub orc: u8,
+
+    /// Drive strength for the SCK line.
+    pub sck_drive: OutputDrive,
+
+    /// Drive strength for the MOSI line.
+    pub mosi_drive: OutputDrive,
+
+    /// Drive strength for the MISO line.
+    pub miso_drive: OutputDrive,
 }
 
 impl Default for Config {
@@ -55,6 +64,9 @@ impl Default for Config {
             mode: MODE_0,
             bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
+            sck_drive: OutputDrive::HighDrive,
+            mosi_drive: OutputDrive::HighDrive,
+            miso_drive: OutputDrive::HighDrive,
         }
     }
 }
@@ -159,13 +171,16 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Configure pins
         if let Some(sck) = &sck {
-            sck.conf().write(|w| w.dir().output().drive().h0h1());
+            sck.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.sck_drive)));
         }
         if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.dir().output().drive().h0h1());
+            mosi.conf()
+                .write(|w| w.dir().output().drive().variant(convert_drive(config.mosi_drive)));
         }
         if let Some(miso) = &miso {
-            miso.conf().write(|w| w.input().connect().drive().h0h1());
+            miso.conf()
+                .write(|w| w.input().connect().drive().variant(convert_drive(config.miso_drive)));
         }
 
         match config.mode.polarity {
