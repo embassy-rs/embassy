@@ -159,7 +159,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd, txd);
+        into_ref!(uarte, rxd, txd);
         Self::new_inner(uarte, rxd.map_into(), txd.map_into(), None, None, config)
     }
 
@@ -173,7 +173,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd, txd, cts, rts);
+        into_ref!(uarte, rxd, txd, cts, rts);
         Self::new_inner(
             uarte,
             rxd.map_into(),
@@ -185,16 +185,21 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 
     fn new_inner(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: PeripheralRef<'d, T>,
         rxd: PeripheralRef<'d, AnyPin>,
         txd: PeripheralRef<'d, AnyPin>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte);
-
         let r = T::regs();
+
+        let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
+            (false, false) => false,
+            (true, true) => true,
+            _ => panic!("RTS and CTS pins must be either both set or none set."),
+        };
+        configure(r, config, hardware_flow_control);
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
@@ -216,13 +221,6 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-
-        let hardware_flow_control = match (rts.is_some(), cts.is_some()) {
-            (false, false) => false,
-            (true, true) => true,
-            _ => panic!("RTS and CTS pins must be either both set or none set."),
-        };
-        configure(r, config, hardware_flow_control);
 
         let s = T::state();
         s.tx_rx_refcount.store(2, Ordering::Relaxed);
@@ -315,6 +313,12 @@ pub(crate) fn configure(r: &RegisterBlock, config: Config, hardware_flow_control
     r.events_rxstarted.reset();
     r.events_txstarted.reset();
 
+    // reset all pins
+    r.psel.txd.write(|w| w.connect().disconnected());
+    r.psel.rxd.write(|w| w.connect().disconnected());
+    r.psel.cts.write(|w| w.connect().disconnected());
+    r.psel.rts.write(|w| w.connect().disconnected());
+
     // Enable
     apply_workaround_for_enable_anomaly(r);
     r.enable.write(|w| w.enable().enabled());
@@ -328,7 +332,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         txd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(txd);
+        into_ref!(uarte, txd);
         Self::new_inner(uarte, txd.map_into(), None, config)
     }
 
@@ -340,19 +344,19 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         cts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(txd, cts);
+        into_ref!(uarte, txd, cts);
         Self::new_inner(uarte, txd.map_into(), Some(cts.map_into()), config)
     }
 
     fn new_inner(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: PeripheralRef<'d, T>,
         txd: PeripheralRef<'d, AnyPin>,
         cts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte);
-
         let r = T::regs();
+
+        configure(r, config, cts.is_some());
 
         txd.set_high();
         txd.conf().write(|w| w.dir().output().drive().s0s1());
@@ -362,12 +366,6 @@ impl<'d, T: Instance> UarteTx<'d, T> {
             pin.conf().write(|w| w.input().connect().drive().h0h1());
         }
         r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
-
-        r.psel.rxd.write(|w| w.connect().disconnected());
-        r.psel.rts.write(|w| w.connect().disconnected());
-
-        let hardware_flow_control = cts.is_some();
-        configure(r, config, hardware_flow_control);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -524,7 +522,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rxd: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd);
+        into_ref!(uarte, rxd);
         Self::new_inner(uarte, rxd.map_into(), None, config)
     }
 
@@ -536,7 +534,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         rts: impl Peripheral<P = impl GpioPin> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(rxd, rts);
+        into_ref!(uarte, rxd, rts);
         Self::new_inner(uarte, rxd.map_into(), Some(rts.map_into()), config)
     }
 
@@ -549,14 +547,14 @@ impl<'d, T: Instance> UarteRx<'d, T> {
     }
 
     fn new_inner(
-        uarte: impl Peripheral<P = T> + 'd,
+        uarte: PeripheralRef<'d, T>,
         rxd: PeripheralRef<'d, AnyPin>,
         rts: Option<PeripheralRef<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(uarte);
-
         let r = T::regs();
+
+        configure(r, config, rts.is_some());
 
         rxd.conf().write(|w| w.input().connect().drive().h0h1());
         r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
@@ -567,14 +565,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         }
         r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
 
-        r.psel.txd.write(|w| w.connect().disconnected());
-        r.psel.cts.write(|w| w.connect().disconnected());
-
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-
-        let hardware_flow_control = rts.is_some();
-        configure(r, config, hardware_flow_control);
 
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
