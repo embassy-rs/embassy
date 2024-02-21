@@ -1,4 +1,5 @@
 //! Crypto Accelerator (CRYP)
+#[cfg(cryp_v2)]
 use core::cmp::min;
 use core::marker::PhantomData;
 use embassy_hal_internal::{into_ref, PeripheralRef};
@@ -95,8 +96,15 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for TdesEcb<'c, KEY_SIZE> {
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(0));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(0));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(0));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
     }
 }
 
@@ -130,8 +138,15 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for TdesCbc<'c, KEY_SIZE> {
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(1));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(1));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(1));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
     }
 }
 
@@ -165,8 +180,15 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for DesEcb<'c, KEY_SIZE> {
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(2));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(2));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(2));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
     }
 }
 
@@ -199,8 +221,15 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for DesCbc<'c, KEY_SIZE> {
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(3));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(3));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(3));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
     }
 }
 
@@ -233,15 +262,29 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
     }
 
     fn prepare_key(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(7));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(7));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(7));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
         p.cr().modify(|w| w.set_crypen(true));
         while p.sr().read().busy() {}
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(2));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(2));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(2));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
     }
 }
 
@@ -276,15 +319,29 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
     }
 
     fn prepare_key(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(7));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(7));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(7));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
         p.cr().modify(|w| w.set_crypen(true));
         while p.sr().read().busy() {}
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(5));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(5));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(5));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
     }
 }
 
@@ -318,8 +375,15 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCtr<'c, KEY_SIZE> {
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(6));
-        p.cr().modify(|w| w.set_algomode3(false));
+        #[cfg(cryp_v1)]
+        {
+            p.cr().modify(|w| w.set_algomode(6));
+        }
+        #[cfg(cryp_v2)]
+        {
+            p.cr().modify(|w| w.set_algomode0(6));
+            p.cr().modify(|w| w.set_algomode3(false));
+        }
     }
 }
 
@@ -328,12 +392,14 @@ impl<'c> CipherSized for AesCtr<'c, { 192 / 8 }> {}
 impl<'c> CipherSized for AesCtr<'c, { 256 / 8 }> {}
 impl<'c, const KEY_SIZE: usize> IVSized for AesCtr<'c, KEY_SIZE> {}
 
+#[cfg(cryp_v2)]
 ///AES-GCM Cipher Mode
 pub struct AesGcm<'c, const KEY_SIZE: usize> {
     iv: [u8; 16],
     key: &'c [u8; KEY_SIZE],
 }
 
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> AesGcm<'c, KEY_SIZE> {
     /// Constucts a new AES-GCM cipher for a cryptographic operation.
     pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 12]) -> Self {
@@ -344,6 +410,7 @@ impl<'c, const KEY_SIZE: usize> AesGcm<'c, KEY_SIZE> {
     }
 }
 
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
     const BLOCK_SIZE: usize = AES_BLOCK_SIZE;
 
@@ -412,18 +479,25 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
     }
 }
 
+#[cfg(cryp_v2)]
 impl<'c> CipherSized for AesGcm<'c, { 128 / 8 }> {}
+#[cfg(cryp_v2)]
 impl<'c> CipherSized for AesGcm<'c, { 192 / 8 }> {}
+#[cfg(cryp_v2)]
 impl<'c> CipherSized for AesGcm<'c, { 256 / 8 }> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGcm<'c, KEY_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> IVSized for AesGcm<'c, KEY_SIZE> {}
 
+#[cfg(cryp_v2)]
 /// AES-GMAC Cipher Mode
 pub struct AesGmac<'c, const KEY_SIZE: usize> {
     iv: [u8; 16],
     key: &'c [u8; KEY_SIZE],
 }
 
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> AesGmac<'c, KEY_SIZE> {
     /// Constructs a new AES-GMAC cipher for a cryptographic operation.
     pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 12]) -> Self {
@@ -434,6 +508,7 @@ impl<'c, const KEY_SIZE: usize> AesGmac<'c, KEY_SIZE> {
     }
 }
 
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
     const BLOCK_SIZE: usize = AES_BLOCK_SIZE;
 
@@ -502,12 +577,18 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
     }
 }
 
+#[cfg(cryp_v2)]
 impl<'c> CipherSized for AesGmac<'c, { 128 / 8 }> {}
+#[cfg(cryp_v2)]
 impl<'c> CipherSized for AesGmac<'c, { 192 / 8 }> {}
+#[cfg(cryp_v2)]
 impl<'c> CipherSized for AesGmac<'c, { 256 / 8 }> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGmac<'c, KEY_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize> IVSized for AesGmac<'c, KEY_SIZE> {}
 
+#[cfg(cryp_v2)]
 /// AES-CCM Cipher Mode
 pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> {
     key: &'c [u8; KEY_SIZE],
@@ -517,6 +598,7 @@ pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZ
     ctr: [u8; 16],
 }
 
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE> {
     /// Constructs a new AES-CCM cipher for a cryptographic operation.
     pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; IV_SIZE], aad_len: usize, payload_len: usize) -> Self {
@@ -580,6 +662,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Aes
     }
 }
 
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cipher<'c>
     for AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE>
 {
@@ -672,24 +755,42 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
     }
 }
 
+#[cfg(cryp_v2)]
 impl<'c, const TAG_SIZE: usize, const IV_SIZE: usize> CipherSized for AesCcm<'c, { 128 / 8 }, TAG_SIZE, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const TAG_SIZE: usize, const IV_SIZE: usize> CipherSized for AesCcm<'c, { 192 / 8 }, TAG_SIZE, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const TAG_SIZE: usize, const IV_SIZE: usize> CipherSized for AesCcm<'c, { 256 / 8 }, TAG_SIZE, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<4> for AesCcm<'c, KEY_SIZE, 4, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<6> for AesCcm<'c, KEY_SIZE, 6, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<8> for AesCcm<'c, KEY_SIZE, 8, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<10> for AesCcm<'c, KEY_SIZE, 10, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<12> for AesCcm<'c, KEY_SIZE, 12, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<14> for AesCcm<'c, KEY_SIZE, 14, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<16> for AesCcm<'c, KEY_SIZE, 16, IV_SIZE> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 7> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 8> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 9> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 10> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 11> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 12> {}
+#[cfg(cryp_v2)]
 impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 13> {}
 
+#[allow(dead_code)]
 /// Holds the state information for a cipher operation.
 /// Allows suspending/resuming of cipher operations.
 pub struct Context<'c, C: Cipher<'c> + CipherSized> {
@@ -810,6 +911,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
         ctx
     }
 
+    #[cfg(cryp_v2)]
     /// Controls the header phase of cipher processing.
     /// This function is only valid for GCM, CCM, and GMAC modes.
     /// It only needs to be called if using one of these modes and there is associated data.
@@ -951,11 +1053,14 @@ impl<'d, T: Instance> Cryp<'d, T> {
         if !ctx.aad_complete && ctx.header_len > 0 {
             panic!("Additional associated data must be processed first!");
         } else if !ctx.aad_complete {
-            ctx.aad_complete = true;
-            T::regs().cr().modify(|w| w.set_crypen(false));
-            T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
-            T::regs().cr().modify(|w| w.fflush());
-            T::regs().cr().modify(|w| w.set_crypen(true));
+            #[cfg(cryp_v2)]
+            {
+                ctx.aad_complete = true;
+                T::regs().cr().modify(|w| w.set_crypen(false));
+                T::regs().cr().modify(|w| w.set_gcm_ccmph(2));
+                T::regs().cr().modify(|w| w.fflush());
+                T::regs().cr().modify(|w| w.set_crypen(true));
+            }
         }
         if ctx.last_block_processed {
             panic!("The last block has already been processed!");
@@ -1044,6 +1149,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
         self.store_context(ctx);
     }
 
+    #[cfg(cryp_v2)]
     /// This function only needs to be called for GCM, CCM, and GMAC modes to
     /// generate an authentication tag.
     pub fn finish_blocking<
@@ -1137,6 +1243,8 @@ impl<'d, T: Instance> Cryp<'d, T> {
         ctx.iv[1] = T::regs().init(0).ivrr().read();
         ctx.iv[2] = T::regs().init(1).ivlr().read();
         ctx.iv[3] = T::regs().init(1).ivrr().read();
+
+        #[cfg(cryp_v2)]
         for i in 0..8 {
             ctx.csgcmccm[i] = T::regs().csgcmccmr(i).read();
             ctx.csgcm[i] = T::regs().csgcmr(i).read();
@@ -1150,6 +1258,8 @@ impl<'d, T: Instance> Cryp<'d, T> {
         T::regs().init(0).ivrr().write_value(ctx.iv[1]);
         T::regs().init(1).ivlr().write_value(ctx.iv[2]);
         T::regs().init(1).ivrr().write_value(ctx.iv[3]);
+
+        #[cfg(cryp_v2)]
         for i in 0..8 {
             T::regs().csgcmccmr(i).write_value(ctx.csgcmccm[i]);
             T::regs().csgcmr(i).write_value(ctx.csgcm[i]);
