@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
     let mut tx_buffer = [0u8; 1024];
     let mut rx_buffer = [0u8; 1024];
 
-    let mut u = BufferedUarte::new(
+    let u = BufferedUarte::new(
         p.UARTE0,
         p.TIMER0,
         p.PPI_CH0,
