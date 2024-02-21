@@ -67,6 +67,29 @@ impl Into<bool> for FlashSelection {
     }
 }
 
+/// Wrap Size
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+pub enum WrapSize {
+    None,
+    _16Bytes,
+    _32Bytes,
+    _64Bytes,
+    _128Bytes,
+}
+
+impl Into<u8> for WrapSize {
+    fn into(self) -> u8 {
+        match self {
+            WrapSize::None => 0x00,
+            WrapSize::_16Bytes => 0x02,
+            WrapSize::_32Bytes => 0x03,
+            WrapSize::_64Bytes => 0x04,
+            WrapSize::_128Bytes => 0x05,
+        }
+    }
+}
+
 /// Ospi memory size.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]

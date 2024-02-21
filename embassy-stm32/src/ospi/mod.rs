@@ -11,20 +11,79 @@ use core::ptr;
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use embedded_hal_02::blocking::i2c::Operation;
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-use enums::*;
+// use embedded_hal_02::spi;
+pub use enums::*;
+use stm32_metapac::octospi::vals::{MemType, PhaseMode, SizeInBits};
 
 use crate::dma::{slice_ptr_parts, word, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Pull};
 use crate::pac::octospi::{regs, vals, Octospi as Regs};
 use crate::rcc::RccPeripheral;
-use crate::time::Hertz;
 use crate::{peripherals, Peripheral};
 
 /// OPSI driver config.
-pub struct Config;
+pub struct Config {
+    /// Fifo threshold used by the peripheral to generate the interrupt indicating data
+    /// or space is available in the FIFO
+    pub fifo_threshold: FIFOThresholdLevel,
+    /// Enables dual-quad mode which allows access to two devices simultaneously to
+    /// increase throughput
+    pub dual_quad: bool,
+    /// Indicates the type of external device connected
+    pub memory_type: MemType, // Need to add an additional enum to provide this public interface
+    /// Defines the size of the external device connected to the OSPI corresponding
+    /// to the number of address bits required to access the device
+    pub device_size: MemorySize,
+    /// Sets the minimum number of clock cycles that the chip select signal must be held high
+    /// between commands
+    pub chip_select_high_time: ChipSelectHighTime,
+    /// Enables the free running clock
+    pub free_running_clock: bool,
+    /// Sets the clock level when the device is not selected
+    pub clock_mode: bool,
+    /// Indicates the wrap size corresponding to the external device configuration
+    pub wrap_size: WrapSize,
+    /// Specified the prescaler factor used for generating the external clock based
+    /// on the AHB clock
+    pub clock_prescaler: u8,
+    /// Allows the delay of 1/2 cycle the data sampling to account for external
+    /// signal delays
+    pub sample_shifting: bool,
+    /// Allows hold to 1/4 cycle the data
+    pub delay_hold_quarter_cycle: bool,
+    /// Enables the transaction boundary feature and defines the boundary to release
+    /// the chip select
+    pub chip_select_boundary: u8,
+    /// Enbales the delay block bypass so the sampling is not affected by the delay block
+    pub delay_block_bypass: bool,
+    /// Enables communication regulation feature. Chip select is released when the other
+    /// OctoSpi requests access to the bus
+    pub max_transfer: u8,
+    /// Enables the refresh feature, chip select is released every refresh + 1 clock cycles
+    pub refresh: u32,
+}
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            fifo_threshold: FIFOThresholdLevel::_16Bytes, // 32 bytes FIFO, half capacity
+            dual_quad: false,
+            memory_type: MemType::B_STANDARD,
+            device_size: MemorySize::Other(0),
+            chip_select_high_time: ChipSelectHighTime::_5Cycle,
+            free_running_clock: false,
+            clock_mode: false,
+            wrap_size: WrapSize::None,
+            clock_prescaler: 0,
+            sample_shifting: false,
+            delay_hold_quarter_cycle: false,
+            chip_select_boundary: 0, // Acceptable range 0 to 31
+            delay_block_bypass: true,
+            max_transfer: 0,
+            refresh: 0,
+        }
+    }
+}
 
 /// OSPI transfer configuration.
 pub struct TransferConfig {
@@ -94,7 +153,8 @@ impl Default for TransferConfig {
 }
 
 pub enum OspiError {
-    Test,
+    InvalidConfiguration,
+    InvalidCommand,
 }
 
 pub trait Error {}
@@ -122,7 +182,7 @@ pub trait MultiSpi: ErrorType {
 
     /// Write function used to send data to the target device following the supplied transaction
     /// configuration.
-    async fn write(&mut self, data: &mut [u8], config: Self::Config) -> Result<(), Self::Error>;
+    async fn write(&mut self, data: &[u8], config: Self::Config) -> Result<(), Self::Error>;
 }
 
 /// OSPI driver.
@@ -141,6 +201,7 @@ pub struct Ospi<'d, T: Instance, Dma> {
     dqs: Option<PeripheralRef<'d, AnyPin>>,
     dma: PeripheralRef<'d, Dma>,
     config: Config,
+    width: OspiWidth,
 }
 
 impl Error for OspiError {}
@@ -153,21 +214,21 @@ impl<'d, T: Instance, Dma: OctoDma<T>> MultiSpi for Ospi<'d, T, Dma> {
     type Config = TransferConfig;
 
     async fn command(&mut self, config: Self::Config) -> Result<(), Self::Error> {
-        Ok(())
+        self.command(&config).await
     }
 
     async fn read(&mut self, data: &mut [u8], config: Self::Config) -> Result<(), Self::Error> {
-        Ok(())
+        self.read(data, config).await
     }
 
-    async fn write(&mut self, data: &mut [u8], config: Self::Config) -> Result<(), Self::Error> {
-        Ok(())
+    async fn write(&mut self, data: &[u8], config: Self::Config) -> Result<(), Self::Error> {
+        self.write(data, config).await
     }
 }
 
 impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     /// Create new OSPI driver for a dualspi external chip
-    pub fn new_dualspi(
+    pub fn new_spi(
         peri: impl Peripheral<P = T> + 'd,
         sck: impl Peripheral<P = impl SckPin<T>> + 'd,
         d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
@@ -182,28 +243,10 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         sck.set_speed(crate::gpio::Speed::VeryHigh);
         nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
         nss.set_speed(crate::gpio::Speed::VeryHigh);
-        // nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Down);
-        // nss.set_speed(crate::gpio::Speed::VeryHigh);
         d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
         d0.set_speed(crate::gpio::Speed::VeryHigh);
-        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
+        d1.set_as_af_pull(d1.af_num(), AFType::Input, Pull::None);
         d1.set_speed(crate::gpio::Speed::VeryHigh);
-
-        #[cfg(octospi_v1)]
-        {
-            T::REGS.ccr().modify(|w| {
-                w.set_imode(vals::PhaseMode::TWOLINES);
-                w.set_admode(vals::PhaseMode::TWOLINES);
-                w.set_abmode(vals::PhaseMode::TWOLINES);
-                w.set_dmode(vals::PhaseMode::TWOLINES);
-            });
-            T::REGS.wccr().modify(|w| {
-                w.set_imode(vals::PhaseMode::TWOLINES);
-                w.set_admode(vals::PhaseMode::TWOLINES);
-                w.set_abmode(vals::PhaseMode::TWOLINES);
-                w.set_dmode(vals::PhaseMode::TWOLINES);
-            });
-        }
 
         Self::new_inner(
             peri,
@@ -220,6 +263,209 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             None,
             dma,
             config,
+            OspiWidth::SING,
+        )
+    }
+
+    /// Create new OSPI driver for a dualspi external chip
+    pub fn new_dualspi(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
+        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, sck, d0, d1, nss);
+
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
+        nss.set_speed(crate::gpio::Speed::VeryHigh);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
+        d0.set_speed(crate::gpio::Speed::VeryHigh);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
+        d1.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(d0.map_into()),
+            Some(d1.map_into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(sck.map_into()),
+            Some(nss.map_into()),
+            None,
+            dma,
+            config,
+            OspiWidth::DUAL,
+        )
+    }
+
+    /// Create new OSPI driver for a quadspi external chip
+    pub fn new_quadspi(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
+        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, sck, d0, d1, d2, d3, nss);
+
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
+        nss.set_speed(crate::gpio::Speed::VeryHigh);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
+        d0.set_speed(crate::gpio::Speed::VeryHigh);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
+        d1.set_speed(crate::gpio::Speed::VeryHigh);
+        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
+        d2.set_speed(crate::gpio::Speed::VeryHigh);
+        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
+        d3.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(d0.map_into()),
+            Some(d1.map_into()),
+            Some(d2.map_into()),
+            Some(d3.map_into()),
+            None,
+            None,
+            None,
+            None,
+            Some(sck.map_into()),
+            Some(nss.map_into()),
+            None,
+            dma,
+            config,
+            OspiWidth::QUAD,
+        )
+    }
+
+    /// Create new OSPI driver for two quadspi external chips
+    pub fn new_dualquadspi(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
+        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
+        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
+        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
+        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
+        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, sck, d0, d1, d2, d3, d4, d5, d6, d7, nss);
+
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
+        nss.set_speed(crate::gpio::Speed::VeryHigh);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
+        d0.set_speed(crate::gpio::Speed::VeryHigh);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
+        d1.set_speed(crate::gpio::Speed::VeryHigh);
+        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
+        d2.set_speed(crate::gpio::Speed::VeryHigh);
+        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
+        d3.set_speed(crate::gpio::Speed::VeryHigh);
+        d4.set_as_af_pull(d4.af_num(), AFType::OutputPushPull, Pull::None);
+        d4.set_speed(crate::gpio::Speed::VeryHigh);
+        d5.set_as_af_pull(d5.af_num(), AFType::OutputPushPull, Pull::None);
+        d5.set_speed(crate::gpio::Speed::VeryHigh);
+        d6.set_as_af_pull(d6.af_num(), AFType::OutputPushPull, Pull::None);
+        d6.set_speed(crate::gpio::Speed::VeryHigh);
+        d7.set_as_af_pull(d7.af_num(), AFType::OutputPushPull, Pull::None);
+        d7.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(d0.map_into()),
+            Some(d1.map_into()),
+            Some(d2.map_into()),
+            Some(d3.map_into()),
+            Some(d4.map_into()),
+            Some(d5.map_into()),
+            Some(d6.map_into()),
+            Some(d7.map_into()),
+            Some(sck.map_into()),
+            Some(nss.map_into()),
+            None,
+            dma,
+            config,
+            OspiWidth::QUAD,
+        )
+    }
+
+    /// Create new OSPI driver for two quadspi external chips
+    pub fn new_octospi(
+        peri: impl Peripheral<P = T> + 'd,
+        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
+        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
+        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
+        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
+        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
+        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
+        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
+        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
+        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
+        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        dma: impl Peripheral<P = Dma> + 'd,
+        config: Config,
+    ) -> Self {
+        into_ref!(peri, sck, d0, d1, d2, d3, d4, d5, d6, d7, nss);
+
+        sck.set_as_af_pull(sck.af_num(), AFType::OutputPushPull, Pull::None);
+        sck.set_speed(crate::gpio::Speed::VeryHigh);
+        nss.set_as_af_pull(nss.af_num(), AFType::OutputPushPull, Pull::Up);
+        nss.set_speed(crate::gpio::Speed::VeryHigh);
+        d0.set_as_af_pull(d0.af_num(), AFType::OutputPushPull, Pull::None);
+        d0.set_speed(crate::gpio::Speed::VeryHigh);
+        d1.set_as_af_pull(d1.af_num(), AFType::OutputPushPull, Pull::None);
+        d1.set_speed(crate::gpio::Speed::VeryHigh);
+        d2.set_as_af_pull(d2.af_num(), AFType::OutputPushPull, Pull::None);
+        d2.set_speed(crate::gpio::Speed::VeryHigh);
+        d3.set_as_af_pull(d3.af_num(), AFType::OutputPushPull, Pull::None);
+        d3.set_speed(crate::gpio::Speed::VeryHigh);
+        d4.set_as_af_pull(d4.af_num(), AFType::OutputPushPull, Pull::None);
+        d4.set_speed(crate::gpio::Speed::VeryHigh);
+        d5.set_as_af_pull(d5.af_num(), AFType::OutputPushPull, Pull::None);
+        d5.set_speed(crate::gpio::Speed::VeryHigh);
+        d6.set_as_af_pull(d6.af_num(), AFType::OutputPushPull, Pull::None);
+        d6.set_speed(crate::gpio::Speed::VeryHigh);
+        d7.set_as_af_pull(d7.af_num(), AFType::OutputPushPull, Pull::None);
+        d7.set_speed(crate::gpio::Speed::VeryHigh);
+
+        Self::new_inner(
+            peri,
+            Some(d0.map_into()),
+            Some(d1.map_into()),
+            Some(d2.map_into()),
+            Some(d3.map_into()),
+            Some(d4.map_into()),
+            Some(d5.map_into()),
+            Some(d6.map_into()),
+            Some(d7.map_into()),
+            Some(sck.map_into()),
+            Some(nss.map_into()),
+            None,
+            dma,
+            config,
+            OspiWidth::OCTO,
         )
     }
 
@@ -238,22 +484,71 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         dqs: Option<PeripheralRef<'d, AnyPin>>,
         dma: impl Peripheral<P = Dma> + 'd,
         config: Config,
+        width: OspiWidth,
     ) -> Self {
         into_ref!(peri, dma);
 
+        // System configuration
         T::enable_and_reset();
         while T::REGS.sr().read().busy() {}
 
+        // Device configuration
+        T::REGS.dcr1().modify(|w| {
+            w.set_devsize(config.device_size.into());
+            w.set_mtyp(config.memory_type);
+            w.set_csht(config.chip_select_high_time.into());
+            w.set_dlybyp(config.delay_block_bypass);
+            w.set_frck(false);
+            w.set_ckmode(config.clock_mode);
+        });
+
+        T::REGS.dcr2().modify(|w| {
+            w.set_wrapsize(config.wrap_size.into());
+        });
+
+        T::REGS.dcr3().modify(|w| {
+            w.set_csbound(config.chip_select_boundary);
+            w.set_maxtran(config.max_transfer);
+        });
+
+        T::REGS.dcr4().modify(|w| {
+            w.set_refresh(config.refresh);
+        });
+
+        T::REGS.cr().modify(|w| {
+            w.set_fthres(vals::Threshold(config.fifo_threshold.into()));
+        });
+
+        // Wait for busy flag to clear
+        while T::REGS.sr().read().busy() {}
+
+        T::REGS.dcr2().modify(|w| {
+            w.set_prescaler(config.clock_prescaler);
+        });
+
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(config.dual_quad);
+        });
+
+        T::REGS.tcr().modify(|w| {
+            w.set_sshift(match config.sample_shifting {
+                true => vals::SampleShift::HALFCYCLE,
+                false => vals::SampleShift::NONE,
+            });
+            w.set_dhqc(config.delay_hold_quarter_cycle);
+        });
+
+        // Enable peripheral
         T::REGS.cr().modify(|w| {
             w.set_en(true);
         });
 
-        T::REGS.dcr1().modify(|w| {
-            w.set_devsize(23);
-            w.set_mtyp(vals::MemType::MACRONIX);
-            w.set_ckmode(false);
-            // w.se
-        });
+        // Free running clock needs to be set after peripheral enable
+        if config.free_running_clock {
+            T::REGS.dcr1().modify(|w| {
+                w.set_frck(config.free_running_clock);
+            });
+        }
 
         Self {
             _peri: peri,
@@ -270,53 +565,341 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             dqs,
             dma,
             config,
+            width,
         }
     }
 
-    pub fn blocking_read(&mut self, transaction: TransferConfig) -> Result<(), ()> {
-        Ok(())
-    }
+    // Function to configure the peripheral for the requested command
+    fn configure_command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
+        // Check that transaction doesn't use more than hardware initialized pins
+        if <enums::OspiWidth as Into<u8>>::into(command.iwidth) > <enums::OspiWidth as Into<u8>>::into(self.width)
+            || <enums::OspiWidth as Into<u8>>::into(command.adwidth) > <enums::OspiWidth as Into<u8>>::into(self.width)
+            || <enums::OspiWidth as Into<u8>>::into(command.abwidth) > <enums::OspiWidth as Into<u8>>::into(self.width)
+            || <enums::OspiWidth as Into<u8>>::into(command.dwidth) > <enums::OspiWidth as Into<u8>>::into(self.width)
+        {
+            return Err(OspiError::InvalidCommand);
+        }
 
-    fn configure_command(&mut self, command: &TransferConfig) -> Result<(), ()> {
-        Ok(())
-    }
-
-    /// Poor attempt to read data from memory
-    pub fn receive(&mut self, buf: &mut [u8], intruction: u8, data_len: usize) -> Result<(), ()> {
         T::REGS.cr().modify(|w| {
-            w.set_fmode(vals::FunctionalMode::INDIRECTREAD);
+            w.set_fmode(0.into());
         });
 
+        // Configure alternate bytes
+        if let Some(ab) = command.alternate_bytes {
+            T::REGS.abr().write(|v| v.set_alternate(ab));
+            T::REGS.ccr().modify(|w| {
+                w.set_abmode(PhaseMode::from_bits(command.abwidth.into()));
+                w.set_abdtr(command.abdtr);
+                w.set_absize(SizeInBits::from_bits(command.absize.into()));
+            })
+        }
+
+        // Configure dummy cycles
+        T::REGS.tcr().modify(|w| {
+            w.set_dcyc(command.dummy.into());
+        });
+
+        // Configure data
+        if let Some(data_length) = command.data_len {
+            T::REGS.dlr().write(|v| {
+                v.set_dl((data_length - 1) as u32);
+            })
+        }
+
+        // Configure instruction/address/data modes
         T::REGS.ccr().modify(|w| {
-            w.set_imode(vals::PhaseMode::ONELINE);
-            w.set_admode(vals::PhaseMode::NONE);
-            w.set_abmode(vals::PhaseMode::NONE);
+            w.set_imode(PhaseMode::from_bits(command.iwidth.into()));
+            w.set_idtr(command.idtr);
+            w.set_isize(SizeInBits::from_bits(command.isize.into()));
 
-            w.set_dmode(vals::PhaseMode::ONELINE);
+            w.set_admode(PhaseMode::from_bits(command.adwidth.into()));
+            w.set_addtr(command.idtr);
+            w.set_adsize(SizeInBits::from_bits(command.adsize.into()));
+
+            w.set_dmode(PhaseMode::from_bits(command.dwidth.into()));
+            w.set_ddtr(command.ddtr);
         });
 
-        T::REGS.dlr().modify(|w| {
-            w.set_dl((data_len - 1) as u32);
-        });
+        // Set informationrequired to initiate transaction
+        if let Some(instruction) = command.instruction {
+            if let Some(address) = command.address {
+                T::REGS.ir().write(|v| {
+                    v.set_instruction(instruction);
+                });
 
-        // set instruction
-        T::REGS.ir().modify(|w| w.set_instruction(intruction as u32));
+                T::REGS.ar().write(|v| {
+                    v.set_address(address);
+                });
+            } else {
+                // Double check requirements for delay hold and sample shifting
+                // if let None = command.data_len {
+                //     if self.config.delay_hold_quarter_cycle && command.idtr {
+                //         T::REGS.ccr().modify(|w| {
+                //             w.set_ddtr(true);
+                //         });
+                //     }
+                // }
 
-        // read bytes
-        // for idx in 0..data_len {
-        //     while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
-        //     buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
-        // }
-        // wait for finish
-        while !T::REGS.sr().read().tcf() {}
-
-        let fifo_count = T::REGS.sr().read().flevel();
-        for idx in 0..(fifo_count as usize) {
-            buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
+                T::REGS.ir().write(|v| {
+                    v.set_instruction(instruction);
+                });
+            }
+        } else {
+            if let Some(address) = command.address {
+                T::REGS.ar().write(|v| {
+                    v.set_address(address);
+                });
+            } else {
+                // The only single phase transaction supported is instruction only
+                return Err(OspiError::InvalidCommand);
+            }
         }
 
         Ok(())
     }
+
+    /// Function used to control or configure the target device without data transfer
+    pub async fn command(&mut self, command: &TransferConfig) -> Result<(), OspiError> {
+        // Prevent a transaction from being set with expected data transmission or reception
+        if let Some(_) = command.data_len {
+            return Err(OspiError::InvalidCommand);
+        };
+        while T::REGS.sr().read().busy() {}
+
+        // Need additional validation that command configuration doesn't have data set
+        self.configure_command(command)?;
+
+        // Transaction initiated by setting final configuration, i.e the instruction register
+        while !T::REGS.sr().read().tcf() {}
+        T::REGS.fcr().write(|w| {
+            w.set_ctcf(true);
+        });
+
+        Ok(())
+    }
+
+    /// Blocking read with byte by byte data transfer
+    pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) -> Result<(), OspiError> {
+        // Wait for peripheral to be free
+        while T::REGS.sr().read().busy() {}
+
+        // Ensure DMA is not enabled for this transaction
+        T::REGS.cr().modify(|w| {
+            w.set_dmaen(false);
+        });
+
+        self.configure_command(&transaction)?;
+
+        if let Some(len) = transaction.data_len {
+            let current_address = T::REGS.ar().read().address();
+            let current_instruction = T::REGS.ir().read().instruction();
+
+            // For a indirect read transaction, the transaction begins when the instruction/address is set
+            T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
+            if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+                T::REGS.ir().write(|v| v.set_instruction(current_instruction));
+            } else {
+                T::REGS.ar().write(|v| v.set_address(current_address));
+            }
+
+            for idx in 0..len {
+                while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
+                buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
+            }
+        }
+
+        while !T::REGS.sr().read().tcf() {}
+        T::REGS.fcr().write(|v| v.set_ctcf(true));
+
+        Ok(())
+    }
+
+    /// Blocking write with byte by byte data transfer
+    pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) -> Result<(), OspiError> {
+        T::REGS.cr().modify(|w| {
+            w.set_dmaen(false);
+        });
+        self.configure_command(&transaction)?;
+
+        if let Some(len) = transaction.data_len {
+            T::REGS
+                .cr()
+                .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
+
+            for idx in 0..len {
+                while !T::REGS.sr().read().ftf() {}
+                unsafe { (T::REGS.dr().as_ptr() as *mut u8).write_volatile(buf[idx]) };
+            }
+        }
+
+        while !T::REGS.sr().read().tcf() {}
+        T::REGS.fcr().write(|v| v.set_ctcf(true));
+
+        Ok(())
+    }
+
+    /// Blocking read with DMA transfer
+    pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) -> Result<(), OspiError>
+    where
+        Dma: OctoDma<T>,
+    {
+        self.configure_command(&transaction)?;
+
+        let current_address = T::REGS.ar().read().address();
+        let current_instruction = T::REGS.ir().read().instruction();
+
+        // For a indirect read transaction, the transaction begins when the instruction/address is set
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+            T::REGS.ir().write(|v| v.set_instruction(current_instruction));
+        } else {
+            T::REGS.ar().write(|v| v.set_address(current_address));
+        }
+
+        let request = self.dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                &mut self.dma,
+                request,
+                T::REGS.dr().as_ptr() as *mut u8,
+                buf,
+                Default::default(),
+            )
+        };
+
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
+
+        transfer.blocking_wait();
+
+        finish_dma(T::REGS);
+
+        Ok(())
+    }
+
+    /// Blocking write with DMA transfer
+    pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig) -> Result<(), OspiError>
+    where
+        Dma: OctoDma<T>,
+    {
+        self.configure_command(&transaction)?;
+        T::REGS
+            .cr()
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
+
+        let request = self.dma.request();
+        let transfer = unsafe {
+            Transfer::new_write(
+                &mut self.dma,
+                request,
+                buf,
+                T::REGS.dr().as_ptr() as *mut u8,
+                Default::default(),
+            )
+        };
+
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
+
+        transfer.blocking_wait();
+
+        finish_dma(T::REGS);
+
+        Ok(())
+    }
+
+    /// Asynchronous read from external device
+    pub async fn read(&mut self, buf: &mut [u8], transaction: TransferConfig) -> Result<(), OspiError>
+    where
+        Dma: OctoDma<T>,
+    {
+        self.configure_command(&transaction)?;
+
+        let current_address = T::REGS.ar().read().address();
+        let current_instruction = T::REGS.ir().read().instruction();
+
+        // For a indirect read transaction, the transaction begins when the instruction/address is set
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTREAD));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+            T::REGS.ir().write(|v| v.set_instruction(current_instruction));
+        } else {
+            T::REGS.ar().write(|v| v.set_address(current_address));
+        }
+
+        let request = self.dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                &mut self.dma,
+                request,
+                T::REGS.dr().as_ptr() as *mut u8,
+                buf,
+                Default::default(),
+            )
+        };
+
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
+
+        transfer.await;
+
+        finish_dma(T::REGS);
+
+        Ok(())
+    }
+
+    /// Asynchronous write to external device
+    pub async fn write(&mut self, buf: &[u8], transaction: TransferConfig) -> Result<(), OspiError>
+    where
+        Dma: OctoDma<T>,
+    {
+        self.configure_command(&transaction)?;
+        T::REGS
+            .cr()
+            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECTWRITE));
+
+        let request = self.dma.request();
+        let transfer = unsafe {
+            Transfer::new_write(
+                &mut self.dma,
+                request,
+                buf,
+                T::REGS.dr().as_ptr() as *mut u8,
+                Default::default(),
+            )
+        };
+
+        T::REGS.cr().modify(|w| w.set_dmaen(true));
+
+        transfer.await;
+
+        finish_dma(T::REGS);
+
+        Ok(())
+    }
+}
+
+impl<'d, T: Instance, Dma> Drop for Ospi<'d, T, Dma> {
+    fn drop(&mut self) {
+        self.sck.as_ref().map(|x| x.set_as_disconnected());
+        self.d0.as_ref().map(|x| x.set_as_disconnected());
+        self.d1.as_ref().map(|x| x.set_as_disconnected());
+        self.d2.as_ref().map(|x| x.set_as_disconnected());
+        self.d3.as_ref().map(|x| x.set_as_disconnected());
+        self.d4.as_ref().map(|x| x.set_as_disconnected());
+        self.d5.as_ref().map(|x| x.set_as_disconnected());
+        self.d6.as_ref().map(|x| x.set_as_disconnected());
+        self.d7.as_ref().map(|x| x.set_as_disconnected());
+        self.nss.as_ref().map(|x| x.set_as_disconnected());
+        self.dqs.as_ref().map(|x| x.set_as_disconnected());
+
+        T::disable();
+    }
+}
+
+fn finish_dma(regs: Regs) {
+    while !regs.sr().read().tcf() {}
+    regs.fcr().write(|v| v.set_ctcf(true));
+
+    regs.cr().modify(|w| {
+        w.set_dmaen(false);
+    });
 }
 
 pub(crate) mod sealed {
@@ -342,7 +925,6 @@ pin_trait!(D6Pin, Instance);
 pin_trait!(D7Pin, Instance);
 pin_trait!(DQSPin, Instance);
 pin_trait!(NSSPin, Instance);
-
 dma_trait!(OctoDma, Instance);
 
 foreach_peripheral!(
