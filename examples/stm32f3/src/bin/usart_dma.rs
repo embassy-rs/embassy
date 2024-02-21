@@ -17,9 +17,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut init_config = embassy_stm32::Config::default();
-    init_config.rcc.cfgr3.usart1sw = Some(embassy_stm32::pac::rcc::vals::Usart1sw::HSI);
-    let p = embassy_stm32::init(init_config);
+    let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let config = Config::default();
