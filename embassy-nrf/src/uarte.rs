@@ -242,6 +242,14 @@ impl<'d, T: Instance> Uarte<'d, T> {
         (self.tx, self.rx)
     }
 
+    /// Split the UART in reader and writer parts, by reference.
+    ///
+    /// The returned halves borrow from `self`, so you can drop them and go back to using
+    /// the "un-split" `self`. This allows temporarily splitting the UART.
+    pub fn split_by_ref(&mut self) -> (&mut UarteTx<'d, T>, &mut UarteRx<'d, T>) {
+        (&mut self.tx, &mut self.rx)
+    }
+
     /// Split the Uarte into the transmitter and receiver with idle support parts.
     ///
     /// This is useful to concurrently transmit and receive from independent tasks.
