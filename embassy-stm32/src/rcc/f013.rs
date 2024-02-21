@@ -99,8 +99,8 @@ pub struct Config {
     pub adc34: AdcClockSource,
     #[cfg(stm32f334)]
     pub hrtim: HrtimClockSource,
-    #[cfg(cfgr3)]
-    pub cfgr3: crate::_generated::CFGR3,
+    #[cfg(clock_mux)]
+    pub mux: crate::rcc::ClockMux,
 
     pub ls: super::LsConfig,
 }
@@ -130,8 +130,8 @@ impl Default for Config {
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
             #[cfg(stm32f334)]
             hrtim: HrtimClockSource::BusClk,
-            #[cfg(cfgr3)]
-            cfgr3: Default::default(),
+            #[cfg(clock_mux)]
+            mux: Default::default(),
         }
     }
 }
@@ -367,8 +367,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(cfgr3)]
-    config.cfgr3.init();
+    #[cfg(clock_mux)]
+    config.mux.init();
 
     set_clocks!(
         hsi: hsi,

@@ -430,7 +430,7 @@ fn main() {
 
     let mut clock_names = BTreeSet::new();
 
-    let mut rcc_cfgr_regs = BTreeMap::new();
+    let mut rcc_cfgr_regs = BTreeSet::new();
 
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
@@ -510,11 +510,7 @@ fn main() {
                     let field_name = format_ident!("{}", field_name);
                     let enum_name = format_ident!("{}", enum_name);
 
-                    if !rcc_cfgr_regs.contains_key(mux.register) {
-                        rcc_cfgr_regs.insert(mux.register, Vec::new());
-                    }
-
-                    rcc_cfgr_regs.get_mut(mux.register).unwrap().push((
+                    rcc_cfgr_regs.insert((
                         fieldset_name.clone(),
                         field_name.clone(),
                         enum_name.clone(),
@@ -602,10 +598,10 @@ fn main() {
         }
     }
 
-    for (rcc_cfgr_reg, fields) in rcc_cfgr_regs {
-        println!("cargo:rustc-cfg={}", rcc_cfgr_reg.to_ascii_lowercase());
+    if !rcc_cfgr_regs.is_empty() {
+        println!("cargo:rustc-cfg=clock_mux");
 
-        let struct_fields: Vec<_> = fields
+        let struct_fields: Vec<_> = rcc_cfgr_regs
             .iter()
             .map(|(_fieldset, fieldname, enum_name)| {
                 quote! {
@@ -614,12 +610,12 @@ fn main() {
             })
             .collect();
 
-        let field_names: Vec<_> = fields
+        let field_names: Vec<_> = rcc_cfgr_regs
             .iter()
             .map(|(_fieldset, fieldname, _enum_name)| fieldname)
             .collect();
 
-        let inits: Vec<_> = fields
+        let inits: Vec<_> = rcc_cfgr_regs
             .iter()
             .map(|(fieldset, fieldname, _enum_name)| {
                 let setter = format_ident!("set_{}", fieldname);
@@ -635,15 +631,13 @@ fn main() {
             })
             .collect();
 
-        let cfgr_reg = format_ident!("{}", rcc_cfgr_reg);
-
         g.extend(quote! {
             #[derive(Clone, Copy)]
-            pub struct #cfgr_reg {
+            pub struct ClockMux {
                 #( #struct_fields, )*
             }
 
-            impl Default for #cfgr_reg {
+            impl Default for ClockMux {
                 fn default() -> Self {
                     Self {
                         #( #field_names: None, )*
@@ -651,7 +645,7 @@ fn main() {
                 }
             }
 
-            impl #cfgr_reg {
+            impl ClockMux {
                 pub fn init(self) {
                     #( #inits )*
                 }
