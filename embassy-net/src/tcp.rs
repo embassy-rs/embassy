@@ -491,10 +491,16 @@ impl<'d> TcpIo<'d> {
     async fn flush(&mut self) -> Result<(), Error> {
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
-                let waiting_close = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
+                let data_pending = s.send_queue() > 0;
+                let fin_pending = matches!(
+                    s.state(),
+                    tcp::State::FinWait1 | tcp::State::Closing | tcp::State::LastAck
+                );
+                let rst_pending = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
+
                 // If there are outstanding send operations, register for wake up and wait
                 // smoltcp issues wake-ups when octets are dequeued from the send buffer
-                if s.send_queue() > 0 || waiting_close {
+                if data_pending || fin_pending || rst_pending {
                     s.register_send_waker(cx.waker());
                     Poll::Pending
                 // No outstanding sends, socket is flushed
