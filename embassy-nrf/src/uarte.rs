@@ -115,7 +115,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let endrx = r.events_endrx.read().bits();
         let error = r.events_error.read().bits();
         if endrx != 0 || error != 0 {
-            s.endrx_waker.wake();
+            s.rx_waker.wake();
             if endrx != 0 {
                 r.intenclr.write(|w| w.endrx().clear());
             }
@@ -124,7 +124,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             }
         }
         if r.events_endtx.read().bits() != 0 {
-            s.endtx_waker.wake();
+            s.tx_waker.wake();
             r.intenclr.write(|w| w.endtx().clear());
         }
     }
@@ -433,7 +433,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
 
         poll_fn(|cx| {
-            s.endtx_waker.register(cx.waker());
+            s.tx_waker.register(cx.waker());
             if r.events_endtx.read().bits() != 0 {
                 return Poll::Ready(());
             }
@@ -680,7 +680,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
         let result = poll_fn(|cx| {
-            s.endrx_waker.register(cx.waker());
+            s.rx_waker.register(cx.waker());
 
             if let Err(e) = self.check_and_clear_errors() {
                 r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
@@ -827,7 +827,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
 
         let result = poll_fn(|cx| {
-            s.endrx_waker.register(cx.waker());
+            s.rx_waker.register(cx.waker());
 
             if let Err(e) = self.rx.check_and_clear_errors() {
                 r.tasks_stoprx.write(|w| unsafe { w.bits(1) });
@@ -970,15 +970,15 @@ pub(crate) mod sealed {
     use super::*;
 
     pub struct State {
-        pub endrx_waker: AtomicWaker,
-        pub endtx_waker: AtomicWaker,
+        pub rx_waker: AtomicWaker,
+        pub tx_waker: AtomicWaker,
         pub tx_rx_refcount: AtomicU8,
     }
     impl State {
         pub const fn new() -> Self {
             Self {
-                endrx_waker: AtomicWaker::new(),
-                endtx_waker: AtomicWaker::new(),
+                rx_waker: AtomicWaker::new(),
+                tx_waker: AtomicWaker::new(),
                 tx_rx_refcount: AtomicU8::new(0),
             }
         }

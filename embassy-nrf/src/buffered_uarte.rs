@@ -17,7 +17,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use embassy_sync::waitqueue::AtomicWaker;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte0::{baudrate::BAUDRATE_A as Baudrate, config::PARITY_A as Parity};
 
@@ -35,11 +34,9 @@ mod sealed {
     use super::*;
 
     pub struct State {
-        pub tx_waker: AtomicWaker,
         pub tx_buf: RingBuffer,
         pub tx_count: AtomicUsize,
 
-        pub rx_waker: AtomicWaker,
         pub rx_buf: RingBuffer,
         pub rx_started: AtomicBool,
         pub rx_started_count: AtomicU8,
@@ -61,11 +58,9 @@ pub(crate) use sealed::State;
 impl State {
     pub(crate) const fn new() -> Self {
         Self {
-            tx_waker: AtomicWaker::new(),
             tx_buf: RingBuffer::new(),
             tx_count: AtomicUsize::new(0),
 
-            rx_waker: AtomicWaker::new(),
             rx_buf: RingBuffer::new(),
             rx_started: AtomicBool::new(false),
             rx_started_count: AtomicU8::new(0),
@@ -84,6 +79,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
     unsafe fn on_interrupt() {
         //trace!("irq: start");
         let r = U::regs();
+        let ss = U::state();
         let s = U::buffered_state();
 
         if let Some(mut rx) = unsafe { s.rx_buf.try_writer() } {
@@ -104,7 +100,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
             if r.inten.read().rxdrdy().bit_is_set() && r.events_rxdrdy.read().bits() != 0 {
                 r.intenclr.write(|w| w.rxdrdy().clear());
                 r.events_rxdrdy.reset();
-                s.rx_waker.wake();
+                ss.rx_waker.wake();
             }
 
             if r.events_endrx.read().bits() != 0 {
@@ -190,7 +186,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                 let n = s.tx_count.load(Ordering::Relaxed);
                 //trace!("  irq_tx: endtx {:?}", n);
                 tx.pop_done(n);
-                s.tx_waker.wake();
+                ss.tx_waker.wake();
                 s.tx_count.store(0, Ordering::Relaxed);
             }
 
@@ -477,13 +473,14 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
             //trace!("poll_write: {:?}", buf.len());
+            let ss = U::state();
             let s = U::buffered_state();
             let mut tx = unsafe { s.tx_buf.writer() };
 
             let tx_buf = tx.push_slice();
             if tx_buf.is_empty() {
                 //trace!("poll_write: pending");
-                s.tx_waker.register(cx.waker());
+                ss.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
@@ -505,10 +502,11 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     pub async fn flush(&mut self) -> Result<(), Error> {
         poll_fn(move |cx| {
             //trace!("poll_flush");
+            let ss = U::state();
             let s = U::buffered_state();
             if !s.tx_buf.is_empty() {
                 //trace!("poll_flush: pending");
-                s.tx_waker.register(cx.waker());
+                ss.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
@@ -567,6 +565,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
 
             let r = U::regs();
             let s = U::buffered_state();
+            let ss = U::state();
 
             // Read the RXDRDY counter.
             T::regs().tasks_capture[0].write(|w| unsafe { w.bits(1) });
@@ -590,7 +589,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
             let len = s.rx_buf.len();
             if start == end {
                 //trace!("  empty");
-                s.rx_waker.register(cx.waker());
+                ss.rx_waker.register(cx.waker());
                 r.intenset.write(|w| w.rxdrdy().set_bit());
                 return Poll::Pending;
             }
