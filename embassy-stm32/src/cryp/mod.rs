@@ -60,8 +60,152 @@ pub trait Cipher<'c> {
 /// This trait enables restriction of ciphers to specific key sizes.
 pub trait CipherSized {}
 
+/// This trait enables restriction of initialization vectors to sizes compatibile with a cipher mode.
+pub trait IVSized {}
+
 /// This trait enables restriction of a header phase to authenticated ciphers only.
-pub trait CipherAuthenticated {}
+pub trait CipherAuthenticated<const TAG_SIZE: usize> {
+    /// Defines the authentication tag size.
+    const TAG_SIZE: usize = TAG_SIZE;
+}
+
+/// TDES-ECB Cipher Mode
+pub struct TdesEcb<'c, const KEY_SIZE: usize> {
+    iv: &'c [u8; 0],
+    key: &'c [u8; KEY_SIZE],
+}
+
+impl<'c, const KEY_SIZE: usize> TdesEcb<'c, KEY_SIZE> {
+    /// Constructs a new AES-ECB cipher for a cryptographic operation.
+    pub fn new(key: &'c [u8; KEY_SIZE]) -> Self {
+        return Self { key: key, iv: &[0; 0] };
+    }
+}
+
+impl<'c, const KEY_SIZE: usize> Cipher<'c> for TdesEcb<'c, KEY_SIZE> {
+    const BLOCK_SIZE: usize = DES_BLOCK_SIZE;
+    const REQUIRES_PADDING: bool = true;
+
+    fn key(&self) -> &'c [u8] {
+        self.key
+    }
+
+    fn iv(&self) -> &'c [u8] {
+        self.iv
+    }
+
+    fn set_algomode(&self, p: &pac::cryp::Cryp) {
+        p.cr().modify(|w| w.set_algomode0(0));
+        p.cr().modify(|w| w.set_algomode3(false));
+    }
+}
+
+impl<'c> CipherSized for TdesEcb<'c, { 112 / 8 }> {}
+impl<'c> CipherSized for TdesEcb<'c, { 168 / 8 }> {}
+impl<'c, const KEY_SIZE: usize> IVSized for TdesEcb<'c, KEY_SIZE> {}
+
+/// TDES-CBC Cipher Mode
+pub struct TdesCbc<'c, const KEY_SIZE: usize> {
+    iv: &'c [u8; 8],
+    key: &'c [u8; KEY_SIZE],
+}
+
+impl<'c, const KEY_SIZE: usize> TdesCbc<'c, KEY_SIZE> {
+    /// Constructs a new TDES-CBC cipher for a cryptographic operation.
+    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 8]) -> Self {
+        return Self { key: key, iv: iv };
+    }
+}
+
+impl<'c, const KEY_SIZE: usize> Cipher<'c> for TdesCbc<'c, KEY_SIZE> {
+    const BLOCK_SIZE: usize = DES_BLOCK_SIZE;
+    const REQUIRES_PADDING: bool = true;
+
+    fn key(&self) -> &'c [u8] {
+        self.key
+    }
+
+    fn iv(&self) -> &'c [u8] {
+        self.iv
+    }
+
+    fn set_algomode(&self, p: &pac::cryp::Cryp) {
+        p.cr().modify(|w| w.set_algomode0(1));
+        p.cr().modify(|w| w.set_algomode3(false));
+    }
+}
+
+impl<'c> CipherSized for TdesCbc<'c, { 112 / 8 }> {}
+impl<'c> CipherSized for TdesCbc<'c, { 168 / 8 }> {}
+impl<'c, const KEY_SIZE: usize> IVSized for TdesCbc<'c, KEY_SIZE> {}
+
+/// DES-ECB Cipher Mode
+pub struct DesEcb<'c, const KEY_SIZE: usize> {
+    iv: &'c [u8; 0],
+    key: &'c [u8; KEY_SIZE],
+}
+
+impl<'c, const KEY_SIZE: usize> DesEcb<'c, KEY_SIZE> {
+    /// Constructs a new AES-ECB cipher for a cryptographic operation.
+    pub fn new(key: &'c [u8; KEY_SIZE]) -> Self {
+        return Self { key: key, iv: &[0; 0] };
+    }
+}
+
+impl<'c, const KEY_SIZE: usize> Cipher<'c> for DesEcb<'c, KEY_SIZE> {
+    const BLOCK_SIZE: usize = DES_BLOCK_SIZE;
+    const REQUIRES_PADDING: bool = true;
+
+    fn key(&self) -> &'c [u8] {
+        self.key
+    }
+
+    fn iv(&self) -> &'c [u8] {
+        self.iv
+    }
+
+    fn set_algomode(&self, p: &pac::cryp::Cryp) {
+        p.cr().modify(|w| w.set_algomode0(2));
+        p.cr().modify(|w| w.set_algomode3(false));
+    }
+}
+
+impl<'c> CipherSized for DesEcb<'c, { 56 / 8 }> {}
+impl<'c, const KEY_SIZE: usize> IVSized for DesEcb<'c, KEY_SIZE> {}
+
+/// DES-CBC Cipher Mode
+pub struct DesCbc<'c, const KEY_SIZE: usize> {
+    iv: &'c [u8; 8],
+    key: &'c [u8; KEY_SIZE],
+}
+
+impl<'c, const KEY_SIZE: usize> DesCbc<'c, KEY_SIZE> {
+    /// Constructs a new AES-CBC cipher for a cryptographic operation.
+    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 8]) -> Self {
+        return Self { key: key, iv: iv };
+    }
+}
+
+impl<'c, const KEY_SIZE: usize> Cipher<'c> for DesCbc<'c, KEY_SIZE> {
+    const BLOCK_SIZE: usize = DES_BLOCK_SIZE;
+    const REQUIRES_PADDING: bool = true;
+
+    fn key(&self) -> &'c [u8] {
+        self.key
+    }
+
+    fn iv(&self) -> &'c [u8] {
+        self.iv
+    }
+
+    fn set_algomode(&self, p: &pac::cryp::Cryp) {
+        p.cr().modify(|w| w.set_algomode0(3));
+        p.cr().modify(|w| w.set_algomode3(false));
+    }
+}
+
+impl<'c> CipherSized for DesCbc<'c, { 56 / 8 }> {}
+impl<'c, const KEY_SIZE: usize> IVSized for DesCbc<'c, KEY_SIZE> {}
 
 /// AES-ECB Cipher Mode
 pub struct AesEcb<'c, const KEY_SIZE: usize> {
@@ -96,7 +240,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
     }
 
     fn set_algomode(&self, p: &pac::cryp::Cryp) {
-        p.cr().modify(|w| w.set_algomode0(4));
+        p.cr().modify(|w| w.set_algomode0(2));
         p.cr().modify(|w| w.set_algomode3(false));
     }
 }
@@ -104,6 +248,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
 impl<'c> CipherSized for AesEcb<'c, { 128 / 8 }> {}
 impl<'c> CipherSized for AesEcb<'c, { 192 / 8 }> {}
 impl<'c> CipherSized for AesEcb<'c, { 256 / 8 }> {}
+impl<'c, const KEY_SIZE: usize> IVSized for AesEcb<'c, KEY_SIZE> {}
 
 /// AES-CBC Cipher Mode
 pub struct AesCbc<'c, const KEY_SIZE: usize> {
@@ -146,6 +291,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
 impl<'c> CipherSized for AesCbc<'c, { 128 / 8 }> {}
 impl<'c> CipherSized for AesCbc<'c, { 192 / 8 }> {}
 impl<'c> CipherSized for AesCbc<'c, { 256 / 8 }> {}
+impl<'c, const KEY_SIZE: usize> IVSized for AesCbc<'c, KEY_SIZE> {}
 
 /// AES-CTR Cipher Mode
 pub struct AesCtr<'c, const KEY_SIZE: usize> {
@@ -180,6 +326,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCtr<'c, KEY_SIZE> {
 impl<'c> CipherSized for AesCtr<'c, { 128 / 8 }> {}
 impl<'c> CipherSized for AesCtr<'c, { 192 / 8 }> {}
 impl<'c> CipherSized for AesCtr<'c, { 256 / 8 }> {}
+impl<'c, const KEY_SIZE: usize> IVSized for AesCtr<'c, KEY_SIZE> {}
 
 ///AES-GCM Cipher Mode
 pub struct AesGcm<'c, const KEY_SIZE: usize> {
@@ -268,7 +415,8 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
 impl<'c> CipherSized for AesGcm<'c, { 128 / 8 }> {}
 impl<'c> CipherSized for AesGcm<'c, { 192 / 8 }> {}
 impl<'c> CipherSized for AesGcm<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> CipherAuthenticated for AesGcm<'c, KEY_SIZE> {}
+impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGcm<'c, KEY_SIZE> {}
+impl<'c, const KEY_SIZE: usize> IVSized for AesGcm<'c, KEY_SIZE> {}
 
 /// AES-GMAC Cipher Mode
 pub struct AesGmac<'c, const KEY_SIZE: usize> {
@@ -357,9 +505,11 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
 impl<'c> CipherSized for AesGmac<'c, { 128 / 8 }> {}
 impl<'c> CipherSized for AesGmac<'c, { 192 / 8 }> {}
 impl<'c> CipherSized for AesGmac<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> CipherAuthenticated for AesGmac<'c, KEY_SIZE> {}
+impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGmac<'c, KEY_SIZE> {}
+impl<'c, const KEY_SIZE: usize> IVSized for AesGmac<'c, KEY_SIZE> {}
 
-pub struct AesCcm<'c, const KEY_SIZE: usize> {
+/// AES-CCM Cipher Mode
+pub struct AesCcm<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> {
     key: &'c [u8; KEY_SIZE],
     aad_header: [u8; 6],
     aad_header_len: usize,
@@ -367,18 +517,9 @@ pub struct AesCcm<'c, const KEY_SIZE: usize> {
     ctr: [u8; 16],
 }
 
-impl<'c, const KEY_SIZE: usize> AesCcm<'c, KEY_SIZE> {
-    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8], aad_len: usize, payload_len: usize, tag_len: u8) -> Self {
-        if (iv.len()) > 13 || (iv.len() < 7) {
-            panic!("CCM IV length must be 7-13 bytes.");
-        }
-        if (tag_len < 4) || (tag_len > 16) {
-            panic!("Tag length must be between 4 and 16 bytes.");
-        }
-        if tag_len % 2 > 0 {
-            panic!("Tag length must be a multiple of 2 bytes.");
-        }
-
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE> {
+    /// Constructs a new AES-CCM cipher for a cryptographic operation.
+    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; IV_SIZE], aad_len: usize, payload_len: usize) -> Self {
         let mut aad_header: [u8; 6] = [0; 6];
         let mut aad_header_len = 0;
         let mut block0: [u8; 16] = [0; 16];
@@ -408,7 +549,7 @@ impl<'c, const KEY_SIZE: usize> AesCcm<'c, KEY_SIZE> {
         if total_aad_len_padded > 0 {
             block0[0] = 0x40;
         }
-        block0[0] |= (((tag_len - 2) >> 1) & 0x07) << 3;
+        block0[0] |= ((((TAG_SIZE as u8) - 2) >> 1) & 0x07) << 3;
         block0[0] |= ((15 - (iv.len() as u8)) - 1) & 0x07;
         block0[1..1 + iv.len()].copy_from_slice(iv);
         let payload_len_bytes: [u8; 4] = payload_len.to_be_bytes();
@@ -439,7 +580,9 @@ impl<'c, const KEY_SIZE: usize> AesCcm<'c, KEY_SIZE> {
     }
 }
 
-impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCcm<'c, KEY_SIZE> {
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cipher<'c>
+    for AesCcm<'c, KEY_SIZE, TAG_SIZE, IV_SIZE>
+{
     const BLOCK_SIZE: usize = AES_BLOCK_SIZE;
 
     fn key(&self) -> &'c [u8] {
@@ -529,10 +672,23 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCcm<'c, KEY_SIZE> {
     }
 }
 
-impl<'c> CipherSized for AesCcm<'c, { 128 / 8 }> {}
-impl<'c> CipherSized for AesCcm<'c, { 192 / 8 }> {}
-impl<'c> CipherSized for AesCcm<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> CipherAuthenticated for AesCcm<'c, KEY_SIZE> {}
+impl<'c, const TAG_SIZE: usize, const IV_SIZE: usize> CipherSized for AesCcm<'c, { 128 / 8 }, TAG_SIZE, IV_SIZE> {}
+impl<'c, const TAG_SIZE: usize, const IV_SIZE: usize> CipherSized for AesCcm<'c, { 192 / 8 }, TAG_SIZE, IV_SIZE> {}
+impl<'c, const TAG_SIZE: usize, const IV_SIZE: usize> CipherSized for AesCcm<'c, { 256 / 8 }, TAG_SIZE, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<4> for AesCcm<'c, KEY_SIZE, 4, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<6> for AesCcm<'c, KEY_SIZE, 6, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<8> for AesCcm<'c, KEY_SIZE, 8, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<10> for AesCcm<'c, KEY_SIZE, 10, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<12> for AesCcm<'c, KEY_SIZE, 12, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<14> for AesCcm<'c, KEY_SIZE, 14, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize> CipherAuthenticated<16> for AesCcm<'c, KEY_SIZE, 16, IV_SIZE> {}
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 7> {}
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 8> {}
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 9> {}
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 10> {}
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 11> {}
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 12> {}
+impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize> IVSized for AesCcm<'c, KEY_SIZE, TAG_SIZE, 13> {}
 
 /// Holds the state information for a cipher operation.
 /// Allows suspending/resuming of cipher operations.
@@ -580,7 +736,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
     /// Key size must be 128, 192, or 256 bits.
     /// Initialization vector must only be supplied if necessary.
     /// Panics if there is any mismatch in parameters, such as an incorrect IV length or invalid mode.
-    pub fn start<'c, C: Cipher<'c> + CipherSized>(&self, cipher: &'c C, dir: Direction) -> Context<'c, C> {
+    pub fn start<'c, C: Cipher<'c> + CipherSized + IVSized>(&self, cipher: &'c C, dir: Direction) -> Context<'c, C> {
         let mut ctx: Context<'c, C> = Context {
             dir,
             last_block_processed: false,
@@ -660,7 +816,11 @@ impl<'d, T: Instance> Cryp<'d, T> {
     /// All AAD must be supplied to this function prior to starting the payload phase with `payload_blocking`.
     /// The AAD must be supplied in multiples of the block size (128 bits), except when supplying the last block.
     /// When supplying the last block of AAD, `last_aad_block` must be `true`.
-    pub fn aad_blocking<'c, C: Cipher<'c> + CipherSized + CipherAuthenticated>(
+    pub fn aad_blocking<
+        'c,
+        const TAG_SIZE: usize,
+        C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>,
+    >(
         &self,
         ctx: &mut Context<'c, C>,
         aad: &[u8],
@@ -776,7 +936,7 @@ impl<'d, T: Instance> Cryp<'d, T> {
     /// Data must be a multiple of block size (128-bits for AES, 64-bits for DES) for CBC and ECB modes.
     /// Padding or ciphertext stealing must be managed by the application for these modes.
     /// Data must also be a multiple of block size unless `last_block` is `true`.
-    pub fn payload_blocking<'c, C: Cipher<'c> + CipherSized>(
+    pub fn payload_blocking<'c, C: Cipher<'c> + CipherSized + IVSized>(
         &self,
         ctx: &mut Context<'c, C>,
         input: &[u8],
@@ -886,11 +1046,14 @@ impl<'d, T: Instance> Cryp<'d, T> {
 
     /// This function only needs to be called for GCM, CCM, and GMAC modes to
     /// generate an authentication tag.
-    pub fn finish_blocking<'c, C: Cipher<'c> + CipherSized + CipherAuthenticated>(
+    pub fn finish_blocking<
+        'c,
+        const TAG_SIZE: usize,
+        C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>,
+    >(
         &self,
         mut ctx: Context<'c, C>,
-        tag: &mut [u8; 16],
-    ) {
+    ) -> [u8; TAG_SIZE] {
         self.load_context(&mut ctx);
 
         T::regs().cr().modify(|w| w.set_crypen(false));
@@ -909,12 +1072,17 @@ impl<'d, T: Instance> Cryp<'d, T> {
 
         while !T::regs().sr().read().ofne() {}
 
-        tag[0..4].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
-        tag[4..8].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
-        tag[8..12].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
-        tag[12..16].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
+        let mut full_tag: [u8; 16] = [0; 16];
+        full_tag[0..4].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
+        full_tag[4..8].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
+        full_tag[8..12].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
+        full_tag[12..16].copy_from_slice(T::regs().dout().read().to_ne_bytes().as_slice());
+        let mut tag: [u8; TAG_SIZE] = [0; TAG_SIZE];
+        tag.copy_from_slice(&full_tag[0..TAG_SIZE]);
 
         T::regs().cr().modify(|w| w.set_crypen(false));
+
+        tag
     }
 
     fn load_key(&self, key: &[u8]) {
@@ -949,7 +1117,8 @@ impl<'d, T: Instance> Cryp<'d, T> {
         keyword.copy_from_slice(&key[keyidx..keyidx + 4]);
         keyidx += 4;
         T::regs().key(3).klr().write_value(u32::from_be_bytes(keyword));
-        keyword.copy_from_slice(&key[keyidx..keyidx + 4]);
+        keyword = [0; 4];
+        keyword[0..key.len() - keyidx].copy_from_slice(&key[keyidx..key.len()]);
         T::regs().key(3).krr().write_value(u32::from_be_bytes(keyword));
     }
 
