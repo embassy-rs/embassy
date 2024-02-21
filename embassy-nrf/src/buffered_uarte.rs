@@ -27,7 +27,7 @@ use crate::ppi::{
     self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
 };
 use crate::timer::{Instance as TimerInstance, Timer};
-use crate::uarte::{apply_workaround_for_enable_anomaly, drop_tx_rx, Config, Instance as UarteInstance};
+use crate::uarte::{configure, drop_tx_rx, Config, Instance as UarteInstance};
 use crate::{interrupt, pac, Peripheral};
 
 mod sealed {
@@ -238,7 +238,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        into_ref!(rxd, txd, ppi_ch1, ppi_ch2, ppi_group);
+        into_ref!(uarte, timer, rxd, txd, ppi_ch1, ppi_ch2, ppi_group);
         Self::new_inner(
             uarte,
             timer,
@@ -275,7 +275,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        into_ref!(rxd, txd, cts, rts, ppi_ch1, ppi_ch2, ppi_group);
+        into_ref!(uarte, timer, rxd, txd, cts, rts, ppi_ch1, ppi_ch2, ppi_group);
         Self::new_inner(
             uarte,
             timer,
@@ -293,8 +293,8 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     fn new_inner(
-        peri: impl Peripheral<P = U> + 'd,
-        timer: impl Peripheral<P = T> + 'd,
+        peri: PeripheralRef<'d, U>,
+        timer: PeripheralRef<'d, T>,
         ppi_ch1: PeripheralRef<'d, AnyConfigurableChannel>,
         ppi_ch2: PeripheralRef<'d, AnyConfigurableChannel>,
         ppi_group: PeripheralRef<'d, AnyGroup>,
@@ -306,114 +306,17 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        into_ref!(peri, timer);
+        configure(U::regs(), config, cts.is_some());
 
-        assert!(rx_buffer.len() % 2 == 0);
-
-        let r = U::regs();
-
-        let hwfc = cts.is_some();
-
-        rxd.conf().write(|w| w.input().connect().drive().h0h1());
-        r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
-
-        txd.set_high();
-        txd.conf().write(|w| w.dir().output().drive().h0h1());
-        r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
-
-        if let Some(pin) = &cts {
-            pin.conf().write(|w| w.input().connect().drive().h0h1());
-        }
-        r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
-
-        if let Some(pin) = &rts {
-            pin.set_high();
-            pin.conf().write(|w| w.dir().output().drive().h0h1());
-        }
-        r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
-
-        // Initialize state
-        let s = U::buffered_state();
-        s.tx_count.store(0, Ordering::Relaxed);
-        s.rx_started_count.store(0, Ordering::Relaxed);
-        s.rx_ended_count.store(0, Ordering::Relaxed);
-        s.rx_started.store(false, Ordering::Relaxed);
-        let len = tx_buffer.len();
-        unsafe { s.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
-        let len = rx_buffer.len();
-        unsafe { s.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
-
-        // Configure
-        r.config.write(|w| {
-            w.hwfc().bit(hwfc);
-            w.parity().variant(config.parity);
-            w
-        });
-        r.baudrate.write(|w| w.baudrate().variant(config.baudrate));
-
-        // clear errors
-        let errors = r.errorsrc.read().bits();
-        r.errorsrc.write(|w| unsafe { w.bits(errors) });
-
-        r.events_rxstarted.reset();
-        r.events_txstarted.reset();
-        r.events_error.reset();
-        r.events_endrx.reset();
-        r.events_endtx.reset();
-
-        // Enable interrupts
-        r.intenclr.write(|w| unsafe { w.bits(!0) });
-        r.intenset.write(|w| {
-            w.endtx().set();
-            w.rxstarted().set();
-            w.error().set();
-            w.endrx().set();
-            w
-        });
-
-        // Enable UARTE instance
-        apply_workaround_for_enable_anomaly(r);
-        r.enable.write(|w| w.enable().enabled());
-
-        // Configure byte counter.
-        let timer = Timer::new_counter(timer);
-        timer.cc(1).write(rx_buffer.len() as u32 * 2);
-        timer.cc(1).short_compare_clear();
-        timer.clear();
-        timer.start();
-
-        let mut ppi_ch1 = Ppi::new_one_to_one(ppi_ch1, Event::from_reg(&r.events_rxdrdy), timer.task_count());
-        ppi_ch1.enable();
-
-        s.rx_ppi_ch.store(ppi_ch2.number() as u8, Ordering::Relaxed);
-        let mut ppi_group = PpiGroup::new(ppi_group);
-        let mut ppi_ch2 = Ppi::new_one_to_two(
-            ppi_ch2,
-            Event::from_reg(&r.events_endrx),
-            Task::from_reg(&r.tasks_startrx),
-            ppi_group.task_disable_all(),
-        );
-        ppi_ch2.disable();
-        ppi_group.add_channel(&ppi_ch2);
+        let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
+        let rx = BufferedUarteRx::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
-        let s = U::state();
-        s.tx_rx_refcount.store(2, Ordering::Relaxed);
+        U::state().tx_rx_refcount.store(2, Ordering::Relaxed);
 
-        Self {
-            tx: BufferedUarteTx {
-                _peri: unsafe { peri.clone_unchecked() },
-            },
-            rx: BufferedUarteRx {
-                _peri: peri,
-                timer,
-                _ppi_ch1: ppi_ch1,
-                _ppi_ch2: ppi_ch2,
-                _ppi_group: ppi_group,
-            },
-        }
+        Self { tx, rx }
     }
 
     /// Adjust the baud rate to the provided value.
@@ -469,6 +372,88 @@ pub struct BufferedUarteTx<'d, U: UarteInstance> {
 }
 
 impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
+    /// Create a new BufferedUarteTx without hardware flow control.
+    pub fn new(
+        uarte: impl Peripheral<P = U> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+        tx_buffer: &'d mut [u8],
+    ) -> Self {
+        into_ref!(uarte, txd);
+        Self::new_inner(uarte, txd.map_into(), None, config, tx_buffer)
+    }
+
+    /// Create a new BufferedUarte with hardware flow control (RTS/CTS)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rx_buffer.len()` is odd.
+    pub fn new_with_cts(
+        uarte: impl Peripheral<P = U> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
+        txd: impl Peripheral<P = impl GpioPin> + 'd,
+        cts: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+        tx_buffer: &'d mut [u8],
+    ) -> Self {
+        into_ref!(uarte, txd, cts);
+        Self::new_inner(uarte, txd.map_into(), Some(cts.map_into()), config, tx_buffer)
+    }
+
+    fn new_inner(
+        peri: PeripheralRef<'d, U>,
+        txd: PeripheralRef<'d, AnyPin>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        config: Config,
+        tx_buffer: &'d mut [u8],
+    ) -> Self {
+        configure(U::regs(), config, cts.is_some());
+
+        let this = Self::new_innerer(peri, txd, cts, tx_buffer);
+
+        U::Interrupt::pend();
+        unsafe { U::Interrupt::enable() };
+
+        U::state().tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        this
+    }
+
+    fn new_innerer(
+        peri: PeripheralRef<'d, U>,
+        txd: PeripheralRef<'d, AnyPin>,
+        cts: Option<PeripheralRef<'d, AnyPin>>,
+        tx_buffer: &'d mut [u8],
+    ) -> Self {
+        let r = U::regs();
+
+        txd.set_high();
+        txd.conf().write(|w| w.dir().output().drive().h0h1());
+        r.psel.txd.write(|w| unsafe { w.bits(txd.psel_bits()) });
+
+        if let Some(pin) = &cts {
+            pin.conf().write(|w| w.input().connect().drive().h0h1());
+        }
+        r.psel.cts.write(|w| unsafe { w.bits(cts.psel_bits()) });
+
+        // Initialize state
+        let s = U::buffered_state();
+        s.tx_count.store(0, Ordering::Relaxed);
+        let len = tx_buffer.len();
+        unsafe { s.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+
+        r.events_txstarted.reset();
+
+        // Enable interrupts
+        r.intenset.write(|w| {
+            w.endtx().set();
+            w
+        });
+
+        Self { _peri: peri }
+    }
+
     /// Write a buffer into this writer, returning how many bytes were written.
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
@@ -548,6 +533,168 @@ pub struct BufferedUarteRx<'d, U: UarteInstance, T: TimerInstance> {
 }
 
 impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
+    /// Create a new BufferedUarte without hardware flow control.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rx_buffer.len()` is odd.
+    pub fn new(
+        uarte: impl Peripheral<P = U> + 'd,
+        timer: impl Peripheral<P = T> + 'd,
+        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel> + 'd,
+        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel> + 'd,
+        ppi_group: impl Peripheral<P = impl Group> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+        rx_buffer: &'d mut [u8],
+    ) -> Self {
+        into_ref!(uarte, timer, rxd, ppi_ch1, ppi_ch2, ppi_group);
+        Self::new_inner(
+            uarte,
+            timer,
+            ppi_ch1.map_into(),
+            ppi_ch2.map_into(),
+            ppi_group.map_into(),
+            rxd.map_into(),
+            None,
+            config,
+            rx_buffer,
+        )
+    }
+
+    /// Create a new BufferedUarte with hardware flow control (RTS/CTS)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rx_buffer.len()` is odd.
+    pub fn new_with_rts(
+        uarte: impl Peripheral<P = U> + 'd,
+        timer: impl Peripheral<P = T> + 'd,
+        ppi_ch1: impl Peripheral<P = impl ConfigurableChannel> + 'd,
+        ppi_ch2: impl Peripheral<P = impl ConfigurableChannel> + 'd,
+        ppi_group: impl Peripheral<P = impl Group> + 'd,
+        _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
+        rxd: impl Peripheral<P = impl GpioPin> + 'd,
+        rts: impl Peripheral<P = impl GpioPin> + 'd,
+        config: Config,
+        rx_buffer: &'d mut [u8],
+    ) -> Self {
+        into_ref!(uarte, timer, rxd, rts, ppi_ch1, ppi_ch2, ppi_group);
+        Self::new_inner(
+            uarte,
+            timer,
+            ppi_ch1.map_into(),
+            ppi_ch2.map_into(),
+            ppi_group.map_into(),
+            rxd.map_into(),
+            Some(rts.map_into()),
+            config,
+            rx_buffer,
+        )
+    }
+
+    fn new_inner(
+        peri: PeripheralRef<'d, U>,
+        timer: PeripheralRef<'d, T>,
+        ppi_ch1: PeripheralRef<'d, AnyConfigurableChannel>,
+        ppi_ch2: PeripheralRef<'d, AnyConfigurableChannel>,
+        ppi_group: PeripheralRef<'d, AnyGroup>,
+        rxd: PeripheralRef<'d, AnyPin>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
+        config: Config,
+        rx_buffer: &'d mut [u8],
+    ) -> Self {
+        configure(U::regs(), config, rts.is_some());
+
+        let this = Self::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
+
+        U::Interrupt::pend();
+        unsafe { U::Interrupt::enable() };
+
+        U::state().tx_rx_refcount.store(1, Ordering::Relaxed);
+
+        this
+    }
+
+    fn new_innerer(
+        peri: PeripheralRef<'d, U>,
+        timer: PeripheralRef<'d, T>,
+        ppi_ch1: PeripheralRef<'d, AnyConfigurableChannel>,
+        ppi_ch2: PeripheralRef<'d, AnyConfigurableChannel>,
+        ppi_group: PeripheralRef<'d, AnyGroup>,
+        rxd: PeripheralRef<'d, AnyPin>,
+        rts: Option<PeripheralRef<'d, AnyPin>>,
+        rx_buffer: &'d mut [u8],
+    ) -> Self {
+        assert!(rx_buffer.len() % 2 == 0);
+
+        let r = U::regs();
+
+        rxd.conf().write(|w| w.input().connect().drive().h0h1());
+        r.psel.rxd.write(|w| unsafe { w.bits(rxd.psel_bits()) });
+
+        if let Some(pin) = &rts {
+            pin.set_high();
+            pin.conf().write(|w| w.dir().output().drive().h0h1());
+        }
+        r.psel.rts.write(|w| unsafe { w.bits(rts.psel_bits()) });
+
+        // Initialize state
+        let s = U::buffered_state();
+        s.rx_started_count.store(0, Ordering::Relaxed);
+        s.rx_ended_count.store(0, Ordering::Relaxed);
+        s.rx_started.store(false, Ordering::Relaxed);
+        let len = rx_buffer.len();
+        unsafe { s.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
+
+        // clear errors
+        let errors = r.errorsrc.read().bits();
+        r.errorsrc.write(|w| unsafe { w.bits(errors) });
+
+        r.events_rxstarted.reset();
+        r.events_error.reset();
+        r.events_endrx.reset();
+
+        // Enable interrupts
+        r.intenset.write(|w| {
+            w.endtx().set();
+            w.rxstarted().set();
+            w.error().set();
+            w.endrx().set();
+            w
+        });
+
+        // Configure byte counter.
+        let timer = Timer::new_counter(timer);
+        timer.cc(1).write(rx_buffer.len() as u32 * 2);
+        timer.cc(1).short_compare_clear();
+        timer.clear();
+        timer.start();
+
+        let mut ppi_ch1 = Ppi::new_one_to_one(ppi_ch1, Event::from_reg(&r.events_rxdrdy), timer.task_count());
+        ppi_ch1.enable();
+
+        s.rx_ppi_ch.store(ppi_ch2.number() as u8, Ordering::Relaxed);
+        let mut ppi_group = PpiGroup::new(ppi_group);
+        let mut ppi_ch2 = Ppi::new_one_to_two(
+            ppi_ch2,
+            Event::from_reg(&r.events_endrx),
+            Task::from_reg(&r.tasks_startrx),
+            ppi_group.task_disable_all(),
+        );
+        ppi_ch2.disable();
+        ppi_group.add_channel(&ppi_ch2);
+
+        Self {
+            _peri: peri,
+            timer,
+            _ppi_ch1: ppi_ch1,
+            _ppi_ch2: ppi_ch2,
+            _ppi_group: ppi_group,
+        }
+    }
+
     /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let data = self.fill_buf().await?;

@@ -299,7 +299,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 }
 
-fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
+pub(crate) fn configure(r: &RegisterBlock, config: Config, hardware_flow_control: bool) {
     r.config.write(|w| {
         w.hwfc().bit(hardware_flow_control);
         w.parity().variant(config.parity);
