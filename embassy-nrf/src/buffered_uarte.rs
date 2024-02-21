@@ -426,7 +426,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     /// Split the UART in reader and writer parts.
     ///
     /// This allows reading and writing concurrently from independent tasks.
-    pub fn split<'u>(&'u mut self) -> (BufferedUarteRx<'u, 'd, U, T>, BufferedUarteTx<'u, 'd, U, T>) {
+    pub fn split(&mut self) -> (BufferedUarteRx<'_, U, T>, BufferedUarteTx<'_, U, T>) {
         (BufferedUarteRx { inner: self }, BufferedUarteTx { inner: self })
     }
 
@@ -570,11 +570,11 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 }
 
 /// Reader part of the buffered UARTE driver.
-pub struct BufferedUarteTx<'u, 'd, U: UarteInstance, T: TimerInstance> {
-    inner: &'u BufferedUarte<'d, U, T>,
+pub struct BufferedUarteTx<'d, U: UarteInstance, T: TimerInstance> {
+    inner: &'d BufferedUarte<'d, U, T>,
 }
 
-impl<'u, 'd, U: UarteInstance, T: TimerInstance> BufferedUarteTx<'u, 'd, U, T> {
+impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteTx<'d, U, T> {
     /// Write a buffer into this writer, returning how many bytes were written.
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         self.inner.inner_write(buf).await
@@ -587,11 +587,11 @@ impl<'u, 'd, U: UarteInstance, T: TimerInstance> BufferedUarteTx<'u, 'd, U, T> {
 }
 
 /// Writer part of the buffered UARTE driver.
-pub struct BufferedUarteRx<'u, 'd, U: UarteInstance, T: TimerInstance> {
-    inner: &'u BufferedUarte<'d, U, T>,
+pub struct BufferedUarteRx<'d, U: UarteInstance, T: TimerInstance> {
+    inner: &'d BufferedUarte<'d, U, T>,
 }
 
-impl<'u, 'd, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'u, 'd, U, T> {
+impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         self.inner.inner_read(buf).await
@@ -621,11 +621,11 @@ mod _embedded_io {
         type Error = Error;
     }
 
-    impl<'u, 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::ErrorType for BufferedUarteRx<'u, 'd, U, T> {
+    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io_async::ErrorType for BufferedUarteRx<'d, U, T> {
         type Error = Error;
     }
 
-    impl<'u, 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::ErrorType for BufferedUarteTx<'u, 'd, U, T> {
+    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io_async::ErrorType for BufferedUarteTx<'d, U, T> {
         type Error = Error;
     }
 
@@ -635,7 +635,7 @@ mod _embedded_io {
         }
     }
 
-    impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io_async::Read for BufferedUarteRx<'u, 'd, U, T> {
+    impl<'d: 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::Read for BufferedUarteRx<'d, U, T> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.inner.inner_read(buf).await
         }
@@ -651,7 +651,7 @@ mod _embedded_io {
         }
     }
 
-    impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io_async::BufRead for BufferedUarteRx<'u, 'd, U, T> {
+    impl<'d: 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::BufRead for BufferedUarteRx<'d, U, T> {
         async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
             self.inner.inner_fill_buf().await
         }
@@ -671,7 +671,7 @@ mod _embedded_io {
         }
     }
 
-    impl<'u, 'd: 'u, U: UarteInstance, T: TimerInstance> embedded_io_async::Write for BufferedUarteTx<'u, 'd, U, T> {
+    impl<'d: 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::Write for BufferedUarteTx<'d, U, T> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.inner.inner_write(buf).await
         }
