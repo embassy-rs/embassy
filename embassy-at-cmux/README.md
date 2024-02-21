@@ -1,6 +1,5 @@
 # `embassy-at-cmux`
 
-[`embassy-net`](https://crates.io/crates/embassy-net) integration for PPP over Serial.
 
 ## Interoperability
 

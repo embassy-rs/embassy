@@ -1,8 +1,8 @@
 [package]
 name = "embassy-at-cmux"
 version = "0.1.0"
-description = "embassy-net driver for PPP over Serial"
-keywords = ["embedded", "ppp", "embassy-net", "embedded-hal-async", "async"]
+description = "Multiplexes serial channels using the CMUX standard"
+keywords = ["embedded", "cmux", "embassy", "embedded-io-async", "async"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
 edition = "2021"
@@ -23,6 +23,8 @@ futures = { version = "0.3.17", default-features = false, features = [ "async-aw
 embedded-io-async = { version = "0.6.1" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+
+crc = "3.0"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-at-cmux-v$VERSION/embassy-at-cmux/src/"

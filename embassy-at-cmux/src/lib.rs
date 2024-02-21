@@ -1,12 +1,17 @@
+//! Implementation of 3GPP TS 27.010 based on
+//! https://www.3gpp.org/ftp/tsg_t/tsg_t/tsgt_04/docs/pdfs/TP-99119.pdf
+
 #![no_std]
 
 mod fmt;
+mod frame;
 
 use core::cell::Cell;
 use core::future::{poll_fn, Future};
 use core::mem::MaybeUninit;
 use core::task::Poll;
 
+use embassy_futures::join::join;
 use embassy_futures::select::{select, select_slice, Either};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::{Pipe, Reader, Writer};
@@ -15,6 +20,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embedded_io_async::{BufRead, Error, ErrorType, Read, Write};
 use futures::FutureExt;
 use heapless::Vec;
+
+use crate::frame::{Frame, InformationType};
 
 //   val   bit NAME   RX         TX
 // 0x0001   0  FC     -          -
@@ -108,7 +115,7 @@ pub struct Runner<'a, const N: usize, const BUF: usize> {
 impl<const N: usize, const BUF: usize> Mux<N, BUF> {
     const ONE_PIPE: Pipe<NoopRawMutex, BUF> = Pipe::new();
 
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         const LINE: Lines = Lines::new();
 
         Self {
@@ -150,28 +157,20 @@ impl<const N: usize, const BUF: usize> Mux<N, BUF> {
 }
 
 impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
-    pub async fn run<R: BufRead, W: Write>(mut self, mut port_r: R, mut port_w: W) {
+    pub async fn run<R: BufRead, W: Write>(&mut self, mut port_r: R, mut port_w: W) -> ! {
         // Open channels
-        for id in 0..(N + 1) {
-            debug!("open channel {}", id);
-
+        for id in 0..(N as u8 + 1) {
             // Send open channel request
-            let buf = &mut [0xf9, (id as u8) << 2 | 3, 0x3F, 0x01, 0, 0xf9];
-            buf[4] = crc(&buf[1..4]);
-            port_w.write_all(buf).await.unwrap();
+            debug!("open channel {}", id);
+            let sabm = frame::Sabm { id };
+            sabm.write(&mut port_w).await.unwrap();
 
             // Read response
-            let mut resp = [0xf9; 4];
-            while resp[0] == 0xf9 {
-                read_exact(&mut port_r, &mut resp[..1]).await.unwrap();
-            }
-            read_exact(&mut port_r, &mut resp[1..]).await.unwrap();
+            let mut header = frame::RxHeader::read(&mut port_r).await.unwrap();
+            debug!("header {:?}", header);
 
-            let mut expected = [(id as u8) << 2 | 3, 0x73, 0x01, 0x00];
-            expected[3] = crc(&expected[..3]);
-
-            if resp != expected {
-                warn!("bad open channel resp. expected {:02x}, got {:02x}", expected, resp);
+            if let Err(e) = header.finalize().await {
+                warn!("bad open channel resp: {:?}", e);
             }
         }
 
@@ -194,13 +193,12 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
                 match select(select_slice(&mut futs), self.line_status_updated.wait()).await {
                     Either::First((buf, i)) => {
-                        let id = i + 1;
-
-                        // max 127 bytes, because that's what fits in a packet.
-                        let len = buf.len().min(127);
-                        let buf = &buf[..len];
-
-                        write_packet(&mut port_w, id, buf).await.unwrap();
+                        let frame = frame::Uih {
+                            id: i as u8 + 1,
+                            cr: frame::CR::Command,
+                            information: &buf,
+                        };
+                        let len = frame.write(&mut port_w).await.unwrap();
 
                         drop(futs);
 
@@ -208,15 +206,20 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                     }
                     Either::Second(()) => {
                         for i in 0..N {
-                            let id = i + 1;
+                            let id = i as u8 + 1;
                             let lines = self.lines[i].tx.get();
                             if lines != line_tx_sent[i] {
                                 line_tx_sent[i] = lines;
 
                                 let b1 = (lines as u8 & 0x7F) << 1 | 1;
                                 let b2 = ((lines >> 7) as u8 & 0x7F) << 1 | 1;
-                                let packet = [0xe3, 0x07, ((id as u8) << 2) | 0x03, b1, b2];
-                                write_packet(&mut port_w, 0, &packet).await.unwrap();
+
+                                let frame = frame::Uih {
+                                    id: 0,
+                                    cr: frame::CR::Command,
+                                    information: &[0xe3, 0x07, (id << 2) | 0x03, b1, b2],
+                                };
+                                frame.write(&mut port_w).await.unwrap();
                             }
                         }
                     }
@@ -226,115 +229,77 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
         let rx_fut = async {
             loop {
-                let mut header = [0xf9; 3];
-                while header[0] == 0xf9 {
-                    read_exact(&mut port_r, &mut header[..1]).await.unwrap();
-                }
-                read_exact(&mut port_r, &mut header[1..]).await.unwrap();
+                let mut header = frame::RxHeader::read(&mut port_r).await.unwrap();
 
-                let id = (header[0] >> 2) as usize;
-                let len = (header[2] >> 1) as usize;
+                if header.len > 0 {
+                    if header.is_control() {
+                        // control channel command
+                        let mut buf = [0u8; 24];
+                        let info = header.read_information(&mut buf).await.unwrap();
 
-                if id == 0 {
-                    let mut buf = [0; 16];
-                    read_exact(&mut port_r, &mut buf[..len]).await.unwrap();
+                        if info.is_command() {
+                            let mut supported = true;
 
-                    // check length
-                    assert!(buf[1] & 1 == 1);
-                    let inner_len = (buf[1] >> 1) as usize;
-                    assert!(len == 2 + inner_len);
+                            match info.typ() {
+                                InformationType::MultiplexerCloseDown => {
+                                    info!("The mobile station requested mux-mode termination");
+                                }
+                                InformationType::TestCommand => {
+                                    debug!("Test command: {:?}", info.data);
+                                }
+                                InformationType::ModemStatusCommand if !info.data.is_empty() => {
+                                    assert!(buf[2] & 3 == 3);
+                                    let id = (buf[2] >> 2) as usize;
 
-                    match buf[0] {
-                        // Modem Status Command
-                        0xE3 => {
-                            assert!(buf[2] & 3 == 3);
-                            assert_eq!(inner_len, 3);
-                            let id = (buf[2] >> 2) as usize;
+                                    let b1 = buf[3] >> 1;
+                                    let b2 = buf[4] >> 1;
+                                    let lines_rx = (b1 as u16) | (b2 as u16) << 7;
+                                    let lines = &self.lines[id - 1];
+                                    debug!("channel {:?} lines rx: {:02x} -> {:02x}", id, lines.rx.get(), lines_rx);
+                                    lines.rx.set(lines_rx);
+                                    lines.check_hangup();
+                                }
+                                InformationType::ModemStatusCommand if info.data.is_empty() => {
+                                    error!("Modem status command, but no info");
+                                }
+                                n => {
+                                    warn!("Unknown command {:?} from the control channel", n);
 
-                            let b1 = buf[3] >> 1;
-                            let b2 = buf[4] >> 1;
-                            let lines_rx = (b1 as u16) | (b2 as u16) << 7;
-                            let lines = &self.lines[id - 1];
-                            debug!("channel {:?} lines rx: {:02x} -> {:02x}", id, lines.rx.get(), lines_rx);
-                            lines.rx.set(lines_rx);
-                            lines.check_hangup();
+                                    // Send `InformationType::NonSupportedCommandResponse`
+
+                                    supported = false;
+                                }
+                            }
+
+                            if supported {
+                                // acknowledge the command
+                                frame::Uih {
+                                    id: header.id(),
+                                    cr: frame::CR::Response,
+                                    information: &buf[..],
+                                };
+                            }
+                        } else {
+                            // received ack for a command
+                            if info.typ() == InformationType::NonSupportedCommandResponse {
+                                warn!("The mobile station didn't support the command sent");
+                            } else {
+                                debug!("Command acknowledged by the mobile station");
+                            }
                         }
-                        // Modem Status Response
-                        0xE1 => {}
-                        n => warn!("Unknown control {:?}", n),
+                    } else {
+                        // data from logical channel
+                        header.copy(&mut self.rx[header.id() as usize - 1]).await.unwrap();
                     }
                 } else {
-                    copy(&mut port_r, &mut self.rx[id - 1], len).await.unwrap();
-                }
-
-                let mut trailer = [0; 1];
-                read_exact(&mut port_r, &mut trailer).await.unwrap();
-
-                if trailer[0] != crc(&header) {
-                    warn!("bad crc");
+                    header.finalize().await.unwrap();
                 }
             }
         };
 
-        select(tx_fut, rx_fut).await;
+        join(tx_fut, rx_fut).await;
+        unreachable!()
     }
-}
-
-async fn write_packet<W: Write>(w: &mut W, id: usize, buf: &[u8]) -> Result<(), W::Error> {
-    let header = [0xf9, (id as u8) << 2 | 1, 0xEF, (buf.len() as u8) << 1 | 1];
-    let trailer = [crc(&header[1..4]), 0xf9];
-    w.write_all(&header).await?;
-    w.write_all(&buf).await?;
-    w.write_all(&trailer).await?;
-    Ok(())
-}
-
-async fn read_exact<R: BufRead>(r: &mut R, mut data: &mut [u8]) -> Result<(), R::Error> {
-    while !data.is_empty() {
-        let buf = r.fill_buf().await?;
-        if buf.is_empty() {
-            panic!("EOF");
-        }
-        let n = buf.len().min(data.len());
-        data[..n].copy_from_slice(&buf[..n]);
-        data = &mut data[n..];
-        r.consume(n);
-    }
-    Ok(())
-}
-
-async fn copy<R: BufRead, W: Write>(r: &mut R, w: &mut W, mut len: usize) -> Result<(), R::Error> {
-    while len != 0 {
-        let buf = r.fill_buf().await?;
-        if buf.is_empty() {
-            panic!("EOF");
-        }
-        let n = buf.len().min(len);
-        let n = w.write(&buf[..n]).await.unwrap();
-        if n == 0 {
-            panic!("Write zero!");
-        }
-        r.consume(n);
-        len -= n;
-    }
-    Ok(())
-}
-
-fn crc(buf: &[u8]) -> u8 {
-    let mut s = 0xFF;
-
-    for &b in buf {
-        s ^= b;
-        for _ in 0..8 {
-            if (s & 0x01) != 0 {
-                s = (s >> 1) ^ 0xe0;
-            } else {
-                s = s >> 1;
-            }
-        }
-    }
-
-    return 0xFF - s;
 }
 
 struct MaybeUninitArray<T, const N: usize>(MaybeUninit<[T; N]>);
