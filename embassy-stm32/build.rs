@@ -510,11 +510,7 @@ fn main() {
                     let field_name = format_ident!("{}", field_name);
                     let enum_name = format_ident!("{}", enum_name);
 
-                    rcc_cfgr_regs.insert((
-                        fieldset_name.clone(),
-                        field_name.clone(),
-                        enum_name.clone(),
-                    ));
+                    rcc_cfgr_regs.insert((fieldset_name.clone(), field_name.clone(), enum_name.clone()));
 
                     let match_arms: TokenStream = enumm
                         .variants
