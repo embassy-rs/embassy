@@ -52,8 +52,6 @@ type T = peripherals::TIM5;
 type T = peripherals::TIM8;
 #[cfg(time_driver_tim9)]
 type T = peripherals::TIM9;
-#[cfg(time_driver_tim11)]
-type T = peripherals::TIM11;
 #[cfg(time_driver_tim12)]
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
