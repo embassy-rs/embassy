@@ -1,16 +1,16 @@
+#[allow(unused_variables)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
-use cfg_if::cfg_if;
+pub mod fd;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-pub use fdcan::frame::{FrameFormat, RxFrameInfo, TxFrameHeader};
-pub use fdcan::id::{ExtendedId, Id, StandardId};
-use fdcan::message_ram::RegisterBlock;
-use fdcan::{self, LastErrorCode};
-pub use fdcan::{config, filter};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use fd::config::*;
+use fd::filter::*;
 
+use crate::can::fd::peripheral::Registers;
 use crate::gpio::sealed::AFType;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::RccPeripheral;
@@ -20,127 +20,14 @@ pub mod enums;
 use enums::*;
 pub mod util;
 
-/// CAN Frame returned by read
-pub struct RxFrame {
-    /// CAN Header info: frame ID, data length and other meta
-    pub header: RxFrameInfo,
-    /// CAN(0-8 bytes) or FDCAN(0-64 bytes) Frame data
-    pub data: Data,
-    /// Reception time.
-    #[cfg(feature = "time")]
-    pub timestamp: embassy_time::Instant,
-}
+pub mod frame;
+use frame::*;
 
-/// CAN frame used for write
-pub struct TxFrame {
-    /// CAN Header info: frame ID, data length and other meta
-    pub header: TxFrameHeader,
-    /// CAN(0-8 bytes) or FDCAN(0-64 bytes) Frame data
-    pub data: Data,
-}
+#[cfg(feature = "time")]
+type Timestamp = embassy_time::Instant;
 
-impl TxFrame {
-    /// Create new TX frame from header and data
-    pub fn new(header: TxFrameHeader, data: &[u8]) -> Option<Self> {
-        if data.len() < header.len as usize {
-            return None;
-        }
-
-        let Some(data) = Data::new(data) else { return None };
-
-        Some(TxFrame { header, data })
-    }
-
-    fn from_preserved(header: TxFrameHeader, data32: &[u32]) -> Option<Self> {
-        let mut data = [0u8; 64];
-
-        for i in 0..data32.len() {
-            data[4 * i..][..4].copy_from_slice(&data32[i].to_le_bytes());
-        }
-
-        let Some(data) = Data::new(&data) else { return None };
-
-        Some(TxFrame { header, data })
-    }
-
-    /// Access frame data. Slice length will match header.
-    pub fn data(&self) -> &[u8] {
-        &self.data.bytes[..(self.header.len as usize)]
-    }
-}
-
-impl RxFrame {
-    pub(crate) fn new(
-        header: RxFrameInfo,
-        data: &[u8],
-        #[cfg(feature = "time")] timestamp: embassy_time::Instant,
-    ) -> Self {
-        let data = Data::new(&data).unwrap_or_else(|| Data::empty());
-
-        RxFrame {
-            header,
-            data,
-            #[cfg(feature = "time")]
-            timestamp,
-        }
-    }
-
-    /// Access frame data. Slice length will match header.
-    pub fn data(&self) -> &[u8] {
-        &self.data.bytes[..(self.header.len as usize)]
-    }
-}
-
-/// Payload of a (FD)CAN data frame.
-///
-/// Contains 0 to 64 Bytes of data.
-#[derive(Debug, Copy, Clone)]
-pub struct Data {
-    pub(crate) bytes: [u8; 64],
-}
-
-impl Data {
-    /// Creates a data payload from a raw byte slice.
-    ///
-    /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
-    /// cannot be represented with an FDCAN DLC.
-    pub fn new(data: &[u8]) -> Option<Self> {
-        if !Data::is_valid_len(data.len()) {
-            return None;
-        }
-
-        let mut bytes = [0; 64];
-        bytes[..data.len()].copy_from_slice(data);
-
-        Some(Self { bytes })
-    }
-
-    /// Raw read access to data.
-    pub fn raw(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    /// Checks if the length can be encoded in FDCAN DLC field.
-    pub const fn is_valid_len(len: usize) -> bool {
-        match len {
-            0..=8 => true,
-            12 => true,
-            16 => true,
-            20 => true,
-            24 => true,
-            32 => true,
-            48 => true,
-            64 => true,
-            _ => false,
-        }
-    }
-
-    /// Creates an empty data payload containing 0 bytes.
-    #[inline]
-    pub const fn empty() -> Self {
-        Self { bytes: [0; 64] }
-    }
-}
+#[cfg(not(feature = "time"))]
+type Timestamp = u16;
 
 /// Interrupt handler channel 0.
 pub struct IT0InterruptHandler<T: Instance> {
@@ -154,14 +41,37 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
 
         let ir = regs.ir().read();
 
-        if ir.tc() {
-            regs.ir().write(|w| w.set_tc(true));
-            T::state().tx_waker.wake();
-        }
+        {
+            if ir.tc() {
+                regs.ir().write(|w| w.set_tc(true));
+            }
+            if ir.tefn() {
+                regs.ir().write(|w| w.set_tefn(true));
+            }
 
-        if ir.tefn() {
-            regs.ir().write(|w| w.set_tefn(true));
-            T::state().tx_waker.wake();
+            match &T::state().tx_mode {
+                sealed::TxMode::NonBuffered(waker) => waker.wake(),
+                sealed::TxMode::ClassicBuffered(buf) => {
+                    if !T::registers().tx_queue_is_full() {
+                        match buf.tx_receiver.try_receive() {
+                            Ok(frame) => {
+                                _ = T::registers().write_classic(&frame);
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+                sealed::TxMode::FdBuffered(buf) => {
+                    if !T::registers().tx_queue_is_full() {
+                        match buf.tx_receiver.try_receive() {
+                            Ok(frame) => {
+                                _ = T::registers().write_fd(&frame);
+                            }
+                            Err(_) => {}
+                        }
+                    }
+                }
+            }
         }
 
         if ir.ped() || ir.pea() {
@@ -172,13 +82,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
         }
 
         if ir.rfn(0) {
-            regs.ir().write(|w| w.set_rfn(0, true));
-            T::state().rx_waker.wake();
+            T::state().rx_mode.on_interrupt::<T>(0);
         }
 
         if ir.rfn(1) {
-            regs.ir().write(|w| w.set_rfn(1, true));
-            T::state().rx_waker.wake();
+            T::state().rx_mode.on_interrupt::<T>(1);
         }
     }
 }
@@ -192,44 +100,56 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT1Interrupt> for IT1Interrup
     unsafe fn on_interrupt() {}
 }
 
-impl BusError {
-    fn try_from(lec: LastErrorCode) -> Option<BusError> {
-        match lec {
-            LastErrorCode::AckError => Some(BusError::Acknowledge),
-            // `0` data bit encodes a dominant state. `1` data bit is recessive.
-            // Bit0Error: During transmit, the node wanted to send a 0 but monitored a 1
-            LastErrorCode::Bit0Error => Some(BusError::BitRecessive),
-            LastErrorCode::Bit1Error => Some(BusError::BitDominant),
-            LastErrorCode::CRCError => Some(BusError::Crc),
-            LastErrorCode::FormError => Some(BusError::Form),
-            LastErrorCode::StuffError => Some(BusError::Stuff),
-            _ => None,
-        }
-    }
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Different operating modes
+pub enum FdcanOperatingMode {
+    //PoweredDownMode,
+    //ConfigMode,
+    /// This mode can be used for a “Hot Selftest”, meaning the FDCAN can be tested without
+    /// affecting a running CAN system connected to the FDCAN_TX and FDCAN_RX pins. In this
+    /// mode, FDCAN_RX pin is disconnected from the FDCAN and FDCAN_TX pin is held
+    /// recessive.
+    InternalLoopbackMode,
+    /// This mode is provided for hardware self-test. To be independent from external stimulation,
+    /// the FDCAN ignores acknowledge errors (recessive bit sampled in the acknowledge slot of a
+    /// data / remote frame) in Loop Back mode. In this mode the FDCAN performs an internal
+    /// feedback from its transmit output to its receive input. The actual value of the FDCAN_RX
+    /// input pin is disregarded by the FDCAN. The transmitted messages can be monitored at the
+    /// FDCAN_TX transmit pin.
+    ExternalLoopbackMode,
+    /// The normal use of the Fdcan instance after configurations
+    NormalOperationMode,
+    /// In Restricted operation mode the node is able to receive data and remote frames and to give
+    /// acknowledge to valid frames, but it does not send data frames, remote frames, active error
+    /// frames, or overload frames. In case of an error condition or overload condition, it does not
+    /// send dominant bits, instead it waits for the occurrence of bus idle condition to resynchronize
+    /// itself to the CAN communication. The error counters for transmit and receive are frozen while
+    /// error logging (can_errors) is active. TODO: automatically enter in this mode?
+    RestrictedOperationMode,
+    ///  In Bus monitoring mode (for more details refer to ISO11898-1, 10.12 Bus monitoring),
+    /// the FDCAN is able to receive valid data frames and valid remote frames, but cannot start a
+    /// transmission. In this mode, it sends only recessive bits on the CAN bus. If the FDCAN is
+    /// required to send a dominant bit (ACK bit, overload flag, active error flag), the bit is
+    /// rerouted internally so that the FDCAN can monitor it, even if the CAN bus remains in recessive
+    /// state. In Bus monitoring mode the TXBRP register is held in reset state. The Bus monitoring
+    /// mode can be used to analyze the traffic on a CAN bus without affecting it by the transmission
+    /// of dominant bits.
+    BusMonitoringMode,
+    //TestMode,
 }
-
-/// Operating modes trait
-pub trait FdcanOperatingMode {}
-impl FdcanOperatingMode for fdcan::PoweredDownMode {}
-impl FdcanOperatingMode for fdcan::ConfigMode {}
-impl FdcanOperatingMode for fdcan::InternalLoopbackMode {}
-impl FdcanOperatingMode for fdcan::ExternalLoopbackMode {}
-impl FdcanOperatingMode for fdcan::NormalOperationMode {}
-impl FdcanOperatingMode for fdcan::RestrictedOperationMode {}
-impl FdcanOperatingMode for fdcan::BusMonitoringMode {}
-impl FdcanOperatingMode for fdcan::TestMode {}
 
 /// FDCAN Instance
-pub struct Fdcan<'d, T: Instance, M: FdcanOperatingMode> {
+pub struct FdcanConfigurator<'d, T: Instance> {
+    config: crate::can::fd::config::FdCanConfig,
     /// Reference to internals.
-    pub can: fdcan::FdCan<FdcanInstance<'d, T>, M>,
-    ns_per_timer_tick: u64, // For FDCAN internal timer
+    instance: FdcanInstance<'d, T>,
 }
 
-fn calc_ns_per_timer_tick<T: Instance>(mode: config::FrameTransmissionConfig) -> u64 {
+fn calc_ns_per_timer_tick<T: Instance>(mode: crate::can::fd::config::FrameTransmissionConfig) -> u64 {
     match mode {
         // Use timestamp from Rx FIFO to adjust timestamp reported to user
-        config::FrameTransmissionConfig::ClassicCanOnly => {
+        crate::can::fd::config::FrameTransmissionConfig::ClassicCanOnly => {
             let freq = T::frequency();
             let prescale: u64 =
                 ({ T::regs().nbtp().read().nbrp() } + 1) as u64 * ({ T::regs().tscc().read().tcp() } + 1) as u64;
@@ -241,42 +161,7 @@ fn calc_ns_per_timer_tick<T: Instance>(mode: config::FrameTransmissionConfig) ->
     }
 }
 
-#[cfg(feature = "time")]
-fn calc_timestamp<T: Instance>(ns_per_timer_tick: u64, ts_val: u16) -> embassy_time::Instant {
-    let now_embassy = embassy_time::Instant::now();
-    if ns_per_timer_tick == 0 {
-        return now_embassy;
-    }
-    let now_can = { T::regs().tscv().read().tsc() };
-    let delta = now_can.overflowing_sub(ts_val).0 as u64;
-    let ns = ns_per_timer_tick * delta as u64;
-    now_embassy - embassy_time::Duration::from_nanos(ns)
-}
-
-fn curr_error<T: Instance>() -> Option<BusError> {
-    let err = { T::regs().psr().read() };
-    if err.bo() {
-        return Some(BusError::BusOff);
-    } else if err.ep() {
-        return Some(BusError::BusPassive);
-    } else if err.ew() {
-        return Some(BusError::BusWarning);
-    } else {
-        cfg_if! {
-            if #[cfg(stm32h7)] {
-                let lec = err.lec();
-            } else {
-                let lec = err.lec().to_bits();
-            }
-        }
-        if let Ok(err) = LastErrorCode::try_from(lec) {
-            return BusError::try_from(err);
-        }
-    }
-    None
-}
-
-impl<'d, T: Instance> Fdcan<'d, T, fdcan::ConfigMode> {
+impl<'d, T: Instance> FdcanConfigurator<'d, T> {
     /// Creates a new Fdcan instance, keeping the peripheral in sleep mode.
     /// You must call [Fdcan::enable_non_blocking] to use the peripheral.
     pub fn new(
@@ -286,7 +171,7 @@ impl<'d, T: Instance> Fdcan<'d, T, fdcan::ConfigMode> {
         _irqs: impl interrupt::typelevel::Binding<T::IT0Interrupt, IT0InterruptHandler<T>>
             + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
             + 'd,
-    ) -> Fdcan<'d, T, fdcan::ConfigMode> {
+    ) -> FdcanConfigurator<'d, T> {
         into_ref!(peri, rx, tx);
 
         rx.set_as_af(rx.af_num(), AFType::Input);
@@ -294,10 +179,11 @@ impl<'d, T: Instance> Fdcan<'d, T, fdcan::ConfigMode> {
 
         T::enable_and_reset();
 
+        let mut config = crate::can::fd::config::FdCanConfig::default();
+        T::registers().into_config_mode(config);
+
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
-
-        let mut can = fdcan::FdCan::new(FdcanInstance(peri)).into_config_mode();
 
         T::configure_msg_ram();
         unsafe {
@@ -308,6 +194,7 @@ impl<'d, T: Instance> Fdcan<'d, T, fdcan::ConfigMode> {
                 .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::INCREMENT));
             #[cfg(stm32h7)]
             T::regs().tscc().write(|w| w.set_tss(0x01));
+            config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);
 
             T::IT0Interrupt::unpend(); // Not unsafe
             T::IT0Interrupt::enable();
@@ -320,94 +207,134 @@ impl<'d, T: Instance> Fdcan<'d, T, fdcan::ConfigMode> {
             T::regs().txbtie().write(|w| w.0 = 0xffff_ffff);
         }
 
-        can.enable_interrupt(fdcan::interrupt::Interrupt::RxFifo0NewMsg);
-        can.enable_interrupt(fdcan::interrupt::Interrupt::RxFifo1NewMsg);
-        can.enable_interrupt(fdcan::interrupt::Interrupt::TxComplete);
-        can.enable_interrupt_line(fdcan::interrupt::InterruptLine::_0, true);
-        can.enable_interrupt_line(fdcan::interrupt::InterruptLine::_1, true);
+        T::regs().ie().modify(|w| {
+            w.set_rfne(0, true); // Rx Fifo 0 New Msg
+            w.set_rfne(1, true); // Rx Fifo 1 New Msg
+            w.set_tce(true); //  Tx Complete
+        });
+        T::regs().ile().modify(|w| {
+            w.set_eint0(true); // Interrupt Line 0
+            w.set_eint1(true); // Interrupt Line 1
+        });
 
-        let ns_per_timer_tick = calc_ns_per_timer_tick::<T>(can.get_config().frame_transmit);
-        Self { can, ns_per_timer_tick }
+        Self {
+            config,
+            instance: FdcanInstance(peri),
+        }
+    }
+
+    /// Get configuration
+    pub fn config(&self) -> crate::can::fd::config::FdCanConfig {
+        return self.config;
+    }
+
+    /// Set configuration
+    pub fn set_config(&mut self, config: crate::can::fd::config::FdCanConfig) {
+        self.config = config;
     }
 
     /// Configures the bit timings calculated from supplied bitrate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
-        self.can.set_nominal_bit_timing(config::NominalBitTiming {
+
+        let nbtr = crate::can::fd::config::NominalBitTiming {
             sync_jump_width: bit_timing.sync_jump_width,
             prescaler: bit_timing.prescaler,
             seg1: bit_timing.seg1,
             seg2: bit_timing.seg2,
-        });
+        };
+        self.config = self.config.set_nominal_bit_timing(nbtr);
     }
-}
 
-macro_rules! impl_transition {
-    ($from_mode:ident, $to_mode:ident, $name:ident, $func: ident) => {
-        impl<'d, T: Instance> Fdcan<'d, T, fdcan::$from_mode> {
-            /// Transition from $from_mode:ident mode to $to_mode:ident mode
-            pub fn $name(self) -> Fdcan<'d, T, fdcan::$to_mode> {
-                let ns_per_timer_tick = calc_ns_per_timer_tick::<T>(self.can.get_config().frame_transmit);
-                Fdcan {
-                    can: self.can.$func(),
-                    ns_per_timer_tick,
-                }
-            }
+    /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets confit to allow can FD and VBR
+    pub fn set_fd_data_bitrate(&mut self, bitrate: u32, transceiver_delay_compensation: bool) {
+        let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
+        // Note, used existing calcluation for normal(non-VBR) bitrate, appears to work for 250k/1M
+        let nbtr = crate::can::fd::config::DataBitTiming {
+            transceiver_delay_compensation,
+            sync_jump_width: bit_timing.sync_jump_width,
+            prescaler: bit_timing.prescaler,
+            seg1: bit_timing.seg1,
+            seg2: bit_timing.seg2,
+        };
+        self.config.frame_transmit = FrameTransmissionConfig::AllowFdCanAndBRS;
+        self.config = self.config.set_data_bit_timing(nbtr);
+    }
+
+    /// Set an Standard Address CAN filter into slot 'id'
+    #[inline]
+    pub fn set_standard_filter(&mut self, slot: StandardFilterSlot, filter: StandardFilter) {
+        T::registers().msg_ram_mut().filters.flssa[slot as usize].activate(filter);
+    }
+
+    /// Set an array of Standard Address CAN filters and overwrite the current set
+    pub fn set_standard_filters(&mut self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
+        for (i, f) in filters.iter().enumerate() {
+            T::registers().msg_ram_mut().filters.flssa[i].activate(*f);
         }
-    };
-}
-
-impl_transition!(PoweredDownMode, ConfigMode, into_config_mode, into_config_mode);
-impl_transition!(InternalLoopbackMode, ConfigMode, into_config_mode, into_config_mode);
-
-impl_transition!(ConfigMode, NormalOperationMode, into_normal_mode, into_normal);
-impl_transition!(
-    ConfigMode,
-    ExternalLoopbackMode,
-    into_external_loopback_mode,
-    into_external_loopback
-);
-impl_transition!(
-    ConfigMode,
-    InternalLoopbackMode,
-    into_internal_loopback_mode,
-    into_internal_loopback
-);
-
-impl<'d, T: Instance, M: FdcanOperatingMode> Fdcan<'d, T, M>
-where
-    M: fdcan::Transmit,
-    M: fdcan::Receive,
-{
-    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
-    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
-    /// can be replaced, this call asynchronously waits for a frame to be successfully
-    /// transmitted, then tries again.
-    pub async fn write(&mut self, frame: &TxFrame) -> Option<TxFrame> {
-        poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
-            if let Ok(dropped) = self
-                .can
-                .transmit_preserve(frame.header, &frame.data.bytes, &mut |_, hdr, data32| {
-                    TxFrame::from_preserved(hdr, data32)
-                })
-            {
-                return Poll::Ready(dropped.flatten());
-            }
-
-            // Couldn't replace any lower priority frames.  Need to wait for some mailboxes
-            // to clear.
-            Poll::Pending
-        })
-        .await
     }
 
-    /// Flush one of the TX mailboxes.
-    pub async fn flush(&self, mb: fdcan::Mailbox) {
-        poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
+    /// Set an Extended Address CAN filter into slot 'id'
+    #[inline]
+    pub fn set_extended_filter(&mut self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
+        T::registers().msg_ram_mut().filters.flesa[slot as usize].activate(filter);
+    }
 
-            let idx: u8 = mb.into();
+    /// Set an array of Extended Address CAN filters and overwrite the current set
+    pub fn set_extended_filters(&mut self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
+        for (i, f) in filters.iter().enumerate() {
+            T::registers().msg_ram_mut().filters.flesa[i].activate(*f);
+        }
+    }
+
+    /// Start in mode.
+    pub fn start(self, mode: FdcanOperatingMode) -> Fdcan<'d, T> {
+        let ns_per_timer_tick = calc_ns_per_timer_tick::<T>(self.config.frame_transmit);
+        critical_section::with(|_| unsafe {
+            T::mut_state().ns_per_timer_tick = ns_per_timer_tick;
+        });
+        T::registers().into_mode(self.config, mode);
+        let ret = Fdcan {
+            config: self.config,
+            instance: self.instance,
+            _mode: mode,
+        };
+        ret
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_normal_mode(self) -> Fdcan<'d, T> {
+        self.start(FdcanOperatingMode::NormalOperationMode)
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_internal_loopback_mode(self) -> Fdcan<'d, T> {
+        self.start(FdcanOperatingMode::InternalLoopbackMode)
+    }
+
+    /// Start, entering mode. Does same as start(mode)
+    pub fn into_external_loopback_mode(self) -> Fdcan<'d, T> {
+        self.start(FdcanOperatingMode::ExternalLoopbackMode)
+    }
+}
+
+/// FDCAN Instance
+pub struct Fdcan<'d, T: Instance> {
+    config: crate::can::fd::config::FdCanConfig,
+    /// Reference to internals.
+    instance: FdcanInstance<'d, T>,
+    _mode: FdcanOperatingMode,
+}
+
+impl<'d, T: Instance> Fdcan<'d, T> {
+    /// Flush one of the TX mailboxes.
+    pub async fn flush(&self, idx: usize) {
+        poll_fn(|cx| {
+            T::state().tx_mode.register(cx.waker());
+
+            if idx > 3 {
+                panic!("Bad mailbox");
+            }
             let idx = 1 << idx;
             if !T::regs().txbrp().read().trp(idx) {
                 return Poll::Ready(());
@@ -418,179 +345,454 @@ where
         .await;
     }
 
-    /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<RxFrame, BusError> {
-        poll_fn(|cx| {
-            T::state().err_waker.register(cx.waker());
-            T::state().rx_waker.register(cx.waker());
-
-            let mut buffer: [u8; 64] = [0; 64];
-            if let Ok(rx) = self.can.receive0(&mut buffer) {
-                // rx: fdcan::ReceiveOverrun<RxFrameInfo>
-                // TODO: report overrun?
-                //  for now we just drop it
-
-                let frame: RxFrame = RxFrame::new(
-                    rx.unwrap(),
-                    &buffer,
-                    #[cfg(feature = "time")]
-                    calc_timestamp::<T>(self.ns_per_timer_tick, rx.unwrap().time_stamp),
-                );
-                return Poll::Ready(Ok(frame));
-            } else if let Ok(rx) = self.can.receive1(&mut buffer) {
-                // rx: fdcan::ReceiveOverrun<RxFrameInfo>
-                // TODO: report overrun?
-                //  for now we just drop it
-
-                let frame: RxFrame = RxFrame::new(
-                    rx.unwrap(),
-                    &buffer,
-                    #[cfg(feature = "time")]
-                    calc_timestamp::<T>(self.ns_per_timer_tick, rx.unwrap().time_stamp),
-                );
-                return Poll::Ready(Ok(frame));
-            } else if let Some(err) = curr_error::<T>() {
-                // TODO: this is probably wrong
-                return Poll::Ready(Err(err));
-            }
-            Poll::Pending
-        })
-        .await
-    }
-
-    /// Split instance into separate Tx(write) and Rx(read) portions
-    pub fn split<'c>(&'c mut self) -> (FdcanTx<'c, 'd, T, M>, FdcanRx<'c, 'd, T, M>) {
-        let (mut _control, tx, rx0, rx1) = self.can.split_by_ref();
-        (
-            FdcanTx { _control, tx },
-            FdcanRx {
-                rx0,
-                rx1,
-                ns_per_timer_tick: self.ns_per_timer_tick,
-            },
-        )
-    }
-}
-
-/// FDCAN Tx only Instance
-pub struct FdcanTx<'c, 'd, T: Instance, M: fdcan::Transmit> {
-    _control: &'c mut fdcan::FdCanControl<FdcanInstance<'d, T>, M>,
-    tx: &'c mut fdcan::Tx<FdcanInstance<'d, T>, M>,
-}
-
-impl<'c, 'd, T: Instance, M: fdcan::Transmit> FdcanTx<'c, 'd, T, M> {
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
-    pub async fn write(&mut self, frame: &TxFrame) -> Option<TxFrame> {
-        poll_fn(|cx| {
-            T::state().tx_waker.register(cx.waker());
-            if let Ok(dropped) = self
-                .tx
-                .transmit_preserve(frame.header, &frame.data.bytes, &mut |_, hdr, data32| {
-                    TxFrame::from_preserved(hdr, data32)
-                })
-            {
-                return Poll::Ready(dropped.flatten());
-            }
+    pub async fn write(&mut self, frame: &ClassicFrame) -> Option<ClassicFrame> {
+        T::state().tx_mode.write::<T>(frame).await
+    }
 
-            // Couldn't replace any lower priority frames.  Need to wait for some mailboxes
-            // to clear.
-            Poll::Pending
-        })
-        .await
+    /// Returns the next received message frame
+    pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
+        T::state().rx_mode.read::<T>().await
+    }
+
+    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+    /// can be replaced, this call asynchronously waits for a frame to be successfully
+    /// transmitted, then tries again.
+    pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
+        T::state().tx_mode.write_fd::<T>(frame).await
+    }
+
+    /// Returns the next received message frame
+    pub async fn read_fd(&mut self) -> Result<(FdFrame, Timestamp), BusError> {
+        T::state().rx_mode.read_fd::<T>().await
+    }
+
+    /// Split instance into separate Tx(write) and Rx(read) portions
+    pub fn split(self) -> (FdcanTx<'d, T>, FdcanRx<'d, T>) {
+        (
+            FdcanTx {
+                config: self.config,
+                _instance: self.instance,
+                _mode: self._mode,
+            },
+            FdcanRx {
+                _instance1: PhantomData::<T>,
+                _instance2: T::regs(),
+                _mode: self._mode,
+            },
+        )
+    }
+
+    /// Join split rx and tx portions back together
+    pub fn join(tx: FdcanTx<'d, T>, rx: FdcanRx<'d, T>) -> Self {
+        Fdcan {
+            config: tx.config,
+            //_instance2: T::regs(),
+            instance: tx._instance,
+            _mode: rx._mode,
+        }
+    }
+
+    /// Return a buffered instance of driver without CAN FD support. User must supply Buffers
+    pub fn buffered<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
+        &self,
+        tx_buf: &'static mut TxBuf<TX_BUF_SIZE>,
+        rxb: &'static mut RxBuf<RX_BUF_SIZE>,
+    ) -> BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE> {
+        BufferedCan::new(PhantomData::<T>, T::regs(), self._mode, tx_buf, rxb)
+    }
+
+    /// Return a buffered instance of driver with CAN FD support. User must supply Buffers
+    pub fn buffered_fd<const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>(
+        &self,
+        tx_buf: &'static mut TxFdBuf<TX_BUF_SIZE>,
+        rxb: &'static mut RxFdBuf<RX_BUF_SIZE>,
+    ) -> BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE> {
+        BufferedCanFd::new(PhantomData::<T>, T::regs(), self._mode, tx_buf, rxb)
+    }
+}
+
+/// User supplied buffer for RX Buffering
+pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (ClassicFrame, Timestamp), BUF_SIZE>;
+
+/// User supplied buffer for TX buffering
+pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, ClassicFrame, BUF_SIZE>;
+
+/// Buffered FDCAN Instance
+pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    _instance1: PhantomData<T>,
+    _instance2: &'d crate::pac::can::Fdcan,
+    _mode: FdcanOperatingMode,
+    tx_buf: &'static TxBuf<TX_BUF_SIZE>,
+    rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+}
+
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
+    BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
+{
+    fn new(
+        _instance1: PhantomData<T>,
+        _instance2: &'d crate::pac::can::Fdcan,
+        _mode: FdcanOperatingMode,
+        tx_buf: &'static TxBuf<TX_BUF_SIZE>,
+        rx_buf: &'static RxBuf<RX_BUF_SIZE>,
+    ) -> Self {
+        BufferedCan {
+            _instance1,
+            _instance2,
+            _mode,
+            tx_buf,
+            rx_buf,
+        }
+        .setup()
+    }
+
+    fn setup(self) -> Self {
+        // We don't want interrupts being processed while we change modes.
+        critical_section::with(|_| unsafe {
+            let rx_inner = sealed::ClassicBufferedRxInner {
+                rx_sender: self.rx_buf.sender().into(),
+            };
+            let tx_inner = sealed::ClassicBufferedTxInner {
+                tx_receiver: self.tx_buf.receiver().into(),
+            };
+            T::mut_state().rx_mode = sealed::RxMode::ClassicBuffered(rx_inner);
+            T::mut_state().tx_mode = sealed::TxMode::ClassicBuffered(tx_inner);
+        });
+        self
+    }
+
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: ClassicFrame) {
+        self.tx_buf.send(frame).await;
+        T::IT0Interrupt::pend(); // Wake for Tx
+    }
+
+    /// Async read frame from RX buffer.
+    pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
+        Ok(self.rx_buf.receive().await)
+    }
+}
+
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
+    for BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
+{
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            T::mut_state().rx_mode = sealed::RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().tx_mode = sealed::TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+        });
+    }
+}
+
+/// User supplied buffer for RX Buffering
+pub type RxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (FdFrame, Timestamp), BUF_SIZE>;
+
+/// User supplied buffer for TX buffering
+pub type TxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, FdFrame, BUF_SIZE>;
+
+/// Buffered FDCAN Instance
+pub struct BufferedCanFd<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> {
+    _instance1: PhantomData<T>,
+    _instance2: &'d crate::pac::can::Fdcan,
+    _mode: FdcanOperatingMode,
+    tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
+    rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
+}
+
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
+    BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
+{
+    fn new(
+        _instance1: PhantomData<T>,
+        _instance2: &'d crate::pac::can::Fdcan,
+        _mode: FdcanOperatingMode,
+        tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
+        rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
+    ) -> Self {
+        BufferedCanFd {
+            _instance1,
+            _instance2,
+            _mode,
+            tx_buf,
+            rx_buf,
+        }
+        .setup()
+    }
+
+    fn setup(self) -> Self {
+        // We don't want interrupts being processed while we change modes.
+        critical_section::with(|_| unsafe {
+            let rx_inner = sealed::FdBufferedRxInner {
+                rx_sender: self.rx_buf.sender().into(),
+            };
+            let tx_inner = sealed::FdBufferedTxInner {
+                tx_receiver: self.tx_buf.receiver().into(),
+            };
+            T::mut_state().rx_mode = sealed::RxMode::FdBuffered(rx_inner);
+            T::mut_state().tx_mode = sealed::TxMode::FdBuffered(tx_inner);
+        });
+        self
+    }
+
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: FdFrame) {
+        self.tx_buf.send(frame).await;
+        T::IT0Interrupt::pend(); // Wake for Tx
+    }
+
+    /// Async read frame from RX buffer.
+    pub async fn read(&mut self) -> Result<(FdFrame, Timestamp), BusError> {
+        Ok(self.rx_buf.receive().await)
+    }
+}
+
+impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
+    for BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
+{
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            T::mut_state().rx_mode = sealed::RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+            T::mut_state().tx_mode = sealed::TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+        });
     }
 }
 
 /// FDCAN Rx only Instance
-#[allow(dead_code)]
-pub struct FdcanRx<'c, 'd, T: Instance, M: fdcan::Receive> {
-    rx0: &'c mut fdcan::Rx<FdcanInstance<'d, T>, M, fdcan::Fifo0>,
-    rx1: &'c mut fdcan::Rx<FdcanInstance<'d, T>, M, fdcan::Fifo1>,
-    ns_per_timer_tick: u64, // For FDCAN internal timer
+pub struct FdcanRx<'d, T: Instance> {
+    _instance1: PhantomData<T>,
+    _instance2: &'d crate::pac::can::Fdcan,
+    _mode: FdcanOperatingMode,
 }
 
-impl<'c, 'd, T: Instance, M: fdcan::Receive> FdcanRx<'c, 'd, T, M> {
+/// FDCAN Tx only Instance
+pub struct FdcanTx<'d, T: Instance> {
+    config: crate::can::fd::config::FdCanConfig,
+    _instance: FdcanInstance<'d, T>, //(PeripheralRef<'a, T>);
+    _mode: FdcanOperatingMode,
+}
+
+impl<'c, 'd, T: Instance> FdcanTx<'d, T> {
+    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+    /// can be replaced, this call asynchronously waits for a frame to be successfully
+    /// transmitted, then tries again.
+    pub async fn write(&mut self, frame: &ClassicFrame) -> Option<ClassicFrame> {
+        T::state().tx_mode.write::<T>(frame).await
+    }
+
+    /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+    /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+    /// can be replaced, this call asynchronously waits for a frame to be successfully
+    /// transmitted, then tries again.
+    pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
+        T::state().tx_mode.write_fd::<T>(frame).await
+    }
+}
+
+impl<'c, 'd, T: Instance> FdcanRx<'d, T> {
     /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<RxFrame, BusError> {
-        poll_fn(|cx| {
-            T::state().err_waker.register(cx.waker());
-            T::state().rx_waker.register(cx.waker());
-
-            let mut buffer: [u8; 64] = [0; 64];
-            if let Ok(rx) = self.rx0.receive(&mut buffer) {
-                // rx: fdcan::ReceiveOverrun<RxFrameInfo>
-                // TODO: report overrun?
-                //  for now we just drop it
-                let frame: RxFrame = RxFrame::new(
-                    rx.unwrap(),
-                    &buffer,
-                    #[cfg(feature = "time")]
-                    calc_timestamp::<T>(self.ns_per_timer_tick, rx.unwrap().time_stamp),
-                );
-                return Poll::Ready(Ok(frame));
-            } else if let Ok(rx) = self.rx1.receive(&mut buffer) {
-                // rx: fdcan::ReceiveOverrun<RxFrameInfo>
-                // TODO: report overrun?
-                //  for now we just drop it
-                let frame: RxFrame = RxFrame::new(
-                    rx.unwrap(),
-                    &buffer,
-                    #[cfg(feature = "time")]
-                    calc_timestamp::<T>(self.ns_per_timer_tick, rx.unwrap().time_stamp),
-                );
-                return Poll::Ready(Ok(frame));
-            } else if let Some(err) = curr_error::<T>() {
-                // TODO: this is probably wrong
-                return Poll::Ready(Err(err));
-            }
-
-            Poll::Pending
-        })
-        .await
+    pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
+        T::state().rx_mode.read::<T>().await
     }
-}
-impl<'d, T: Instance, M: FdcanOperatingMode> Deref for Fdcan<'d, T, M> {
-    type Target = fdcan::FdCan<FdcanInstance<'d, T>, M>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.can
-    }
-}
-
-impl<'d, T: Instance, M: FdcanOperatingMode> DerefMut for Fdcan<'d, T, M> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.can
+    /// Returns the next received message frame
+    pub async fn read_fd(&mut self) -> Result<(FdFrame, Timestamp), BusError> {
+        T::state().rx_mode.read_fd::<T>().await
     }
 }
 
 pub(crate) mod sealed {
+    use core::future::poll_fn;
+    use core::task::Poll;
+
+    use embassy_sync::channel::{DynamicReceiver, DynamicSender};
     use embassy_sync::waitqueue::AtomicWaker;
 
+    use crate::can::_version::{BusError, Timestamp};
+    use crate::can::frame::{ClassicFrame, FdFrame};
+
+    pub struct ClassicBufferedRxInner {
+        pub rx_sender: DynamicSender<'static, (ClassicFrame, Timestamp)>,
+    }
+    pub struct ClassicBufferedTxInner {
+        pub tx_receiver: DynamicReceiver<'static, ClassicFrame>,
+    }
+
+    pub struct FdBufferedRxInner {
+        pub rx_sender: DynamicSender<'static, (FdFrame, Timestamp)>,
+    }
+    pub struct FdBufferedTxInner {
+        pub tx_receiver: DynamicReceiver<'static, FdFrame>,
+    }
+
+    pub enum RxMode {
+        NonBuffered(AtomicWaker),
+        ClassicBuffered(ClassicBufferedRxInner),
+        FdBuffered(FdBufferedRxInner),
+    }
+
+    impl RxMode {
+        pub fn register(&self, arg: &core::task::Waker) {
+            match self {
+                RxMode::NonBuffered(waker) => waker.register(arg),
+                _ => {
+                    panic!("Bad Mode")
+                }
+            }
+        }
+
+        pub fn on_interrupt<T: Instance>(&self, fifonr: usize) {
+            T::regs().ir().write(|w| w.set_rfn(fifonr, true));
+            match self {
+                RxMode::NonBuffered(waker) => {
+                    waker.wake();
+                }
+                RxMode::ClassicBuffered(buf) => {
+                    if let Some(r) = T::registers().read_classic(fifonr) {
+                        let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
+                        let _ = buf.rx_sender.try_send((r.0, ts));
+                    }
+                }
+                RxMode::FdBuffered(buf) => {
+                    if let Some(r) = T::registers().read_fd(fifonr) {
+                        let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
+                        let _ = buf.rx_sender.try_send((r.0, ts));
+                    }
+                }
+            }
+        }
+
+        pub async fn read<T: Instance>(&self) -> Result<(ClassicFrame, Timestamp), BusError> {
+            poll_fn(|cx| {
+                T::state().err_waker.register(cx.waker());
+                self.register(cx.waker());
+
+                if let Some((msg, ts)) = T::registers().read_classic(0) {
+                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+                    return Poll::Ready(Ok((msg, ts)));
+                } else if let Some((msg, ts)) = T::registers().read_classic(1) {
+                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+                    return Poll::Ready(Ok((msg, ts)));
+                } else if let Some(err) = T::registers().curr_error() {
+                    // TODO: this is probably wrong
+                    return Poll::Ready(Err(err));
+                }
+                Poll::Pending
+            })
+            .await
+        }
+
+        pub async fn read_fd<T: Instance>(&self) -> Result<(FdFrame, Timestamp), BusError> {
+            poll_fn(|cx| {
+                T::state().err_waker.register(cx.waker());
+                self.register(cx.waker());
+
+                if let Some((msg, ts)) = T::registers().read_fd(0) {
+                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+                    return Poll::Ready(Ok((msg, ts)));
+                } else if let Some((msg, ts)) = T::registers().read_fd(1) {
+                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+                    return Poll::Ready(Ok((msg, ts)));
+                } else if let Some(err) = T::registers().curr_error() {
+                    // TODO: this is probably wrong
+                    return Poll::Ready(Err(err));
+                }
+                Poll::Pending
+            })
+            .await
+        }
+    }
+
+    pub enum TxMode {
+        NonBuffered(AtomicWaker),
+        ClassicBuffered(ClassicBufferedTxInner),
+        FdBuffered(FdBufferedTxInner),
+    }
+
+    impl TxMode {
+        pub fn register(&self, arg: &core::task::Waker) {
+            match self {
+                TxMode::NonBuffered(waker) => {
+                    waker.register(arg);
+                }
+                _ => {
+                    panic!("Bad mode");
+                }
+            }
+        }
+
+        /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+        /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+        /// can be replaced, this call asynchronously waits for a frame to be successfully
+        /// transmitted, then tries again.
+        pub async fn write<T: Instance>(&self, frame: &ClassicFrame) -> Option<ClassicFrame> {
+            poll_fn(|cx| {
+                self.register(cx.waker());
+
+                if let Ok(dropped) = T::registers().write_classic(frame) {
+                    return Poll::Ready(dropped);
+                }
+
+                // Couldn't replace any lower priority frames.  Need to wait for some mailboxes
+                // to clear.
+                Poll::Pending
+            })
+            .await
+        }
+
+        /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+        /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+        /// can be replaced, this call asynchronously waits for a frame to be successfully
+        /// transmitted, then tries again.
+        pub async fn write_fd<T: Instance>(&self, frame: &FdFrame) -> Option<FdFrame> {
+            poll_fn(|cx| {
+                self.register(cx.waker());
+
+                if let Ok(dropped) = T::registers().write_fd(frame) {
+                    return Poll::Ready(dropped);
+                }
+
+                // Couldn't replace any lower priority frames.  Need to wait for some mailboxes
+                // to clear.
+                Poll::Pending
+            })
+            .await
+        }
+    }
+
     pub struct State {
-        pub tx_waker: AtomicWaker,
+        pub rx_mode: RxMode,
+        pub tx_mode: TxMode,
+        pub ns_per_timer_tick: u64,
+
         pub err_waker: AtomicWaker,
-        pub rx_waker: AtomicWaker,
     }
 
     impl State {
         pub const fn new() -> Self {
             Self {
-                tx_waker: AtomicWaker::new(),
+                rx_mode: RxMode::NonBuffered(AtomicWaker::new()),
+                tx_mode: TxMode::NonBuffered(AtomicWaker::new()),
+                ns_per_timer_tick: 0,
                 err_waker: AtomicWaker::new(),
-                rx_waker: AtomicWaker::new(),
             }
         }
     }
 
     pub trait Instance {
-        const REGISTERS: *mut fdcan::RegisterBlock;
-        const MSG_RAM: *mut fdcan::message_ram::RegisterBlock;
         const MSG_RAM_OFFSET: usize;
 
         fn regs() -> &'static crate::pac::can::Fdcan;
+        fn registers() -> crate::can::fd::peripheral::Registers;
+        fn ram() -> &'static crate::pac::fdcanram::Fdcanram;
         fn state() -> &'static State;
+        unsafe fn mut_state() -> &'static mut State;
+        fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp;
 
         #[cfg(not(stm32h7))]
         fn configure_msg_ram() {}
@@ -599,7 +801,8 @@ pub(crate) mod sealed {
         fn configure_msg_ram() {
             let r = Self::regs();
 
-            use fdcan::message_ram::*;
+            use crate::can::fd::message_ram::*;
+            //use fdcan::message_ram::*;
             let mut offset_words = Self::MSG_RAM_OFFSET as u16;
 
             // 11-bit filter
@@ -677,32 +880,45 @@ pub trait Instance: sealed::Instance + RccPeripheral + InterruptableInstance + '
 /// Fdcan Instance struct
 pub struct FdcanInstance<'a, T>(PeripheralRef<'a, T>);
 
-unsafe impl<'d, T: Instance> fdcan::message_ram::Instance for FdcanInstance<'d, T> {
-    const MSG_RAM: *mut RegisterBlock = T::MSG_RAM;
-}
-
-unsafe impl<'d, T: Instance> fdcan::Instance for FdcanInstance<'d, T>
-where
-    FdcanInstance<'d, T>: fdcan::message_ram::Instance,
-{
-    const REGISTERS: *mut fdcan::RegisterBlock = T::REGISTERS;
-}
-
 macro_rules! impl_fdcan {
     ($inst:ident, $msg_ram_inst:ident, $msg_ram_offset:literal) => {
         impl sealed::Instance for peripherals::$inst {
-            const REGISTERS: *mut fdcan::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
-            const MSG_RAM: *mut fdcan::message_ram::RegisterBlock = crate::pac::$msg_ram_inst.as_ptr() as *mut _;
             const MSG_RAM_OFFSET: usize = $msg_ram_offset;
 
             fn regs() -> &'static crate::pac::can::Fdcan {
                 &crate::pac::$inst
             }
-
-            fn state() -> &'static sealed::State {
-                static STATE: sealed::State = sealed::State::new();
-                &STATE
+            fn registers() -> Registers {
+                Registers{regs: &crate::pac::$inst, msgram: &crate::pac::$msg_ram_inst}
             }
+            fn ram() -> &'static crate::pac::fdcanram::Fdcanram {
+                &crate::pac::$msg_ram_inst
+            }
+            unsafe fn mut_state() -> & 'static mut sealed::State {
+                static mut STATE: sealed::State = sealed::State::new();
+                & mut STATE
+            }
+            fn state() -> &'static sealed::State {
+                unsafe { peripherals::$inst::mut_state() }
+            }
+
+#[cfg(feature = "time")]
+fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+    let now_embassy = embassy_time::Instant::now();
+    if ns_per_timer_tick == 0 {
+        return now_embassy;
+    }
+    let cantime = { Self::regs().tscv().read().tsc() };
+    let delta = cantime.overflowing_sub(ts_val).0 as u64;
+    let ns = ns_per_timer_tick * delta as u64;
+    now_embassy - embassy_time::Duration::from_nanos(ns)
+}
+
+#[cfg(not(feature = "time"))]
+fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+    ts_val
+}
+
         }
 
         impl Instance for peripherals::$inst {}
