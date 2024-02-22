@@ -83,6 +83,7 @@ impl Default for Config {
 pub struct I2cSlave<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
     pending_byte: Option<u8>,
+    config: Config,
 }
 
 impl<'d, T: Instance> I2cSlave<'d, T> {
@@ -99,6 +100,25 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         assert!(!i2c_reserved_addr(config.addr));
         assert!(config.addr != 0);
 
+        // Configure SCL & SDA pins
+        set_up_i2c_pin(&scl);
+        set_up_i2c_pin(&sda);
+
+        let mut ret = Self {
+            phantom: PhantomData,
+            pending_byte: None,
+            config,
+        };
+
+        ret.reset();
+
+        ret
+    }
+
+    /// Reset the i2c peripheral. If you cancel a respond_to_read, you may stall the bus.
+    /// You can recover the bus by calling this function, but doing so will almost certainly cause
+    /// an i/o error in the master.
+    pub fn reset(&mut self) {
         let p = T::regs();
 
         let reset = T::reset();
@@ -107,7 +127,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
         p.ic_enable().write(|w| w.set_enable(false));
 
-        p.ic_sar().write(|w| w.set_ic_sar(config.addr));
+        p.ic_sar().write(|w| w.set_ic_sar(self.config.addr));
         p.ic_con().modify(|w| {
             w.set_master_mode(false);
             w.set_ic_slave_disable(false);
@@ -121,20 +141,16 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             // Generate stop interrupts for general calls
             // This also causes stop interrupts for other devices on the bus but those will not be
             // propagated up to the application.
-            w.set_stop_det_ifaddressed(!config.general_call);
+            w.set_stop_det_ifaddressed(!self.config.general_call);
         });
         p.ic_ack_general_call()
-            .write(|w| w.set_ack_gen_call(config.general_call));
+            .write(|w| w.set_ack_gen_call(self.config.general_call));
 
         // Set FIFO watermarks to 1 to make things simpler. This is encoded
         // by a register value of 0. Rx watermark should never change, but Tx watermark will be
         // adjusted in operation.
         p.ic_tx_tl().write(|w| w.set_tx_tl(0));
         p.ic_rx_tl().write(|w| w.set_rx_tl(0));
-
-        // Configure SCL & SDA pins
-        set_up_i2c_pin(&scl);
-        set_up_i2c_pin(&sda);
 
         // Clear interrupts
         p.ic_clr_intr().read();
@@ -146,11 +162,6 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         p.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-
-        Self {
-            phantom: PhantomData,
-            pending_byte: None,
-        }
     }
 
     /// Calls `f` to check if we are ready or not.
@@ -178,15 +189,13 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     fn drain_fifo(&mut self, buffer: &mut [u8], offset: &mut usize) {
         let p = T::regs();
 
-        for b in &mut buffer[*offset..] {
-            if let Some(pending) = self.pending_byte.take() {
-                *b = pending;
-                *offset += 1;
-                continue;
-            }
+        if let Some(pending) = self.pending_byte.take() {
+            buffer[*offset] = pending;
+            *offset += 1;
+        }
 
-            let status = p.ic_status().read();
-            if !status.rfne() {
+        for b in &mut buffer[*offset..] {
+            if !p.ic_status().read().rfne() {
                 break;
             }
 
@@ -207,14 +216,6 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         }
     }
 
-    #[inline(always)]
-    fn write_to_fifo(&mut self, buffer: &[u8]) {
-        let p = T::regs();
-        for byte in buffer {
-            p.ic_data_cmd().write(|w| w.set_dat(*byte));
-        }
-    }
-
     /// Wait asynchronously for commands from an I2C master.
     /// `buffer` is provided in case master does a 'write', 'write read', or 'general call' and is unused for 'read'.
     pub async fn listen(&mut self, buffer: &mut [u8]) -> Result<Command, Error> {
@@ -227,8 +228,9 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         self.wait_on(
             |me| {
                 let stat = p.ic_raw_intr_stat().read();
+                trace!("ls:{:013b} len:{}", stat.0, len);
 
-                if p.ic_rxflr().read().rxflr() > 0 {
+                if p.ic_rxflr().read().rxflr() > 0 || me.pending_byte.is_some() {
                     me.drain_fifo(buffer, &mut len);
                     // we're recieving data, set rx fifo watermark to 12 bytes (3/4 full) to reduce interrupt noise
                     p.ic_rx_tl().write(|w| w.set_rx_tl(11));
@@ -240,6 +242,10 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                     } else {
                         return Poll::Ready(Err(Error::PartialWrite(buffer.len())));
                     }
+                }
+                trace!("len:{}, pend:{:?}", len, me.pending_byte);
+                if me.pending_byte.is_some() {
+                    warn!("pending")
                 }
 
                 if stat.restart_det() && stat.rd_req() {
@@ -257,12 +263,17 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                     p.ic_clr_restart_det().read();
                     p.ic_clr_gen_call().read();
                     Poll::Ready(Ok(Command::Read))
+                } else if stat.stop_det() {
+                    // clear stuck stop bit
+                    // This can happen if the SDA/SCL pullups are enabled after calling this func
+                    p.ic_clr_stop_det().read();
+                    Poll::Pending
                 } else {
                     Poll::Pending
                 }
             },
             |_me| {
-                p.ic_intr_mask().modify(|w| {
+                p.ic_intr_mask().write(|w| {
                     w.set_m_stop_det(true);
                     w.set_m_restart_det(true);
                     w.set_m_gen_call(true);
@@ -286,27 +297,30 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
         self.wait_on(
             |me| {
-                if let Err(abort_reason) = me.read_and_clear_abort_reason() {
-                    if let Error::Abort(AbortReason::TxNotEmpty(bytes)) = abort_reason {
-                        p.ic_clr_intr().read();
-                        return Poll::Ready(Ok(ReadStatus::LeftoverBytes(bytes)));
-                    } else {
-                        return Poll::Ready(Err(abort_reason));
+                let stat = p.ic_raw_intr_stat().read();
+                trace!("rs:{:013b}", stat.0);
+
+                if stat.tx_abrt() {
+                    if let Err(abort_reason) = me.read_and_clear_abort_reason() {
+                        if let Error::Abort(AbortReason::TxNotEmpty(bytes)) = abort_reason {
+                            p.ic_clr_intr().read();
+                            return Poll::Ready(Ok(ReadStatus::LeftoverBytes(bytes)));
+                        } else {
+                            return Poll::Ready(Err(abort_reason));
+                        }
                     }
                 }
 
                 if let Some(chunk) = chunks.next() {
-                    me.write_to_fifo(chunk);
-
-                    p.ic_clr_rd_req().read();
+                    for byte in chunk {
+                        p.ic_clr_rd_req().read();
+                        p.ic_data_cmd().write(|w| w.set_dat(*byte));
+                    }
 
                     Poll::Pending
                 } else {
-                    let stat = p.ic_raw_intr_stat().read();
-
-                    if stat.rx_done() && stat.stop_det() {
+                    if stat.rx_done() {
                         p.ic_clr_rx_done().read();
-                        p.ic_clr_stop_det().read();
                         Poll::Ready(Ok(ReadStatus::Done))
                     } else if stat.rd_req() && stat.tx_empty() {
                         Poll::Ready(Ok(ReadStatus::NeedMoreBytes))
@@ -316,8 +330,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                 }
             },
             |_me| {
-                p.ic_intr_mask().modify(|w| {
-                    w.set_m_stop_det(true);
+                p.ic_intr_mask().write(|w| {
                     w.set_m_rx_done(true);
                     w.set_m_tx_empty(true);
                     w.set_m_tx_abrt(true);
@@ -329,9 +342,14 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
     /// Respond to reads with the fill byte until the controller stops asking
     pub async fn respond_till_stop(&mut self, fill: u8) -> Result<(), Error> {
+        // Send fill bytes a full fifo at a time, to reduce interrupt noise.
+        // This does mean we'll almost certainly abort the write, but since these are fill bytes,
+        // we don't care.
+        let buff = [fill; FIFO_SIZE as usize];
         loop {
-            match self.respond_to_read(&[fill]).await {
+            match self.respond_to_read(&buff).await {
                 Ok(ReadStatus::NeedMoreBytes) => (),
+                Ok(ReadStatus::LeftoverBytes(_)) => break Ok(()),
                 Ok(_) => break Ok(()),
                 Err(e) => break Err(e),
             }
@@ -353,10 +371,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     #[inline(always)]
     fn read_and_clear_abort_reason(&mut self) -> Result<(), Error> {
         let p = T::regs();
-        let mut abort_reason = p.ic_tx_abrt_source().read();
-
-        // Mask off master_dis
-        abort_reason.set_abrt_master_dis(false);
+        let abort_reason = p.ic_tx_abrt_source().read();
 
         if abort_reason.0 != 0 {
             // Note clearing the abort flag also clears the reason, and this
