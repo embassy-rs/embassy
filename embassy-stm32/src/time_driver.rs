@@ -38,7 +38,7 @@ cfg_if::cfg_if! {
     }
 }
 
-#[cfg(time_drvier_tim1)]
+#[cfg(time_driver_tim1)]
 type T = peripherals::TIM1;
 #[cfg(time_driver_tim2)]
 type T = peripherals::TIM2;

@@ -130,6 +130,8 @@ _time-driver = ["dep:embassy-time-driver", "time"]
 
 ## Use any time driver
 time-driver-any = ["_time-driver"]
+## Use TIM1 as time driver
+time-driver-tim1 = ["_time-driver"]
 ## Use TIM2 as time driver
 time-driver-tim2 = ["_time-driver"]
 ## Use TIM3 as time driver
