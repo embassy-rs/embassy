@@ -388,7 +388,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         let mut me = Self { phantom: PhantomData };
 
         if let Err(e) = me.set_config_inner(&config) {
-            panic!("Error configuring i2c: {}", e);
+            panic!("Error configuring i2c: {:?}", e);
         }
 
         me
