@@ -331,9 +331,9 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             },
             |_me| {
                 p.ic_intr_mask().write(|w| {
+                    w.set_m_rx_done(true);
                     w.set_m_tx_empty(true);
                     w.set_m_tx_abrt(true);
-                    w.set_m_rx_done(true);
                 })
             },
         )

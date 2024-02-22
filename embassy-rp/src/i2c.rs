@@ -414,7 +414,6 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         let lcnt = period * 3 / 5; // spend 3/5 (60%) of the period low
         let hcnt = period - lcnt; // and 2/5 (40%) of the period high
 
-        warn!("cb:{} h:{:x} l:{:x}", clk_base, hcnt, lcnt);
         // Check for out-of-range divisors:
         if hcnt > 0xffff || lcnt > 0xffff {
             return Err(ConfigError::ClockTooFast);
@@ -443,11 +442,10 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             // fit in uint. Add 1 to avoid division truncation.
             ((clk_base * 3) / 25_000_000) + 1
         };
-        /*
-        if sda_tx_hold_count <= lcnt - 2 {
-            return Err(ConfigError::HoldCountOutOfRange);
+
+        if sda_tx_hold_count > lcnt - 2 {
+            return Err(ConfigError::ClockTooSlow);
         }
-        */
 
         p.ic_fs_scl_hcnt().write(|w| w.set_ic_fs_scl_hcnt(hcnt as u16));
         p.ic_fs_scl_lcnt().write(|w| w.set_ic_fs_scl_lcnt(lcnt as u16));
