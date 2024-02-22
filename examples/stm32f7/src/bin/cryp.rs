@@ -1,0 +1,69 @@
+#![no_std]
+#![no_main]
+
+use aes_gcm::{
+    aead::{heapless::Vec, AeadInPlace, KeyInit},
+    Aes128Gcm,
+};
+use defmt::info;
+use embassy_executor::Spawner;
+use embassy_stm32::cryp::*;
+use embassy_stm32::Config;
+use embassy_time::Instant;
+use {defmt_rtt as _, panic_probe as _};
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) -> ! {
+    let config = Config::default();
+    let p = embassy_stm32::init(config);
+
+    let payload: &[u8] = b"hello world";
+    let aad: &[u8] = b"additional data";
+
+    let hw_cryp = Cryp::new(p.CRYP);
+    let key: [u8; 16] = [0; 16];
+    let mut ciphertext: [u8; 11] = [0; 11];
+    let mut plaintext: [u8; 11] = [0; 11];
+    let iv: [u8; 12] = [0; 12];
+
+    let hw_start_time = Instant::now();
+
+    // Encrypt in hardware using AES-GCM 128-bit
+    let aes_gcm = AesGcm::new(&key, &iv);
+    let mut gcm_encrypt = hw_cryp.start(&aes_gcm, Direction::Encrypt);
+    hw_cryp.aad_blocking(&mut gcm_encrypt, aad, true);
+    hw_cryp.payload_blocking(&mut gcm_encrypt, payload, &mut ciphertext, true);
+    let encrypt_tag = hw_cryp.finish_blocking(gcm_encrypt);
+
+    // Decrypt in hardware using AES-GCM 128-bit
+    let mut gcm_decrypt = hw_cryp.start(&aes_gcm, Direction::Decrypt);
+    hw_cryp.aad_blocking(&mut gcm_decrypt, aad, true);
+    hw_cryp.payload_blocking(&mut gcm_decrypt, &ciphertext, &mut plaintext, true);
+    let decrypt_tag = hw_cryp.finish_blocking(gcm_decrypt);
+
+    let hw_end_time = Instant::now();
+    let hw_execution_time = hw_end_time - hw_start_time;
+
+    info!("AES-GCM Ciphertext: {:?}", ciphertext);
+    info!("AES-GCM Plaintext: {:?}", plaintext);
+    assert_eq!(payload, plaintext);
+    assert_eq!(encrypt_tag, decrypt_tag);
+
+    let sw_start_time = Instant::now();
+
+    //Encrypt in software using AES-GCM 128-bit
+    let mut payload_vec: Vec<u8, 32> = Vec::from_slice(&payload).unwrap();
+    let cipher = Aes128Gcm::new(&key.into());
+    let _ = cipher.encrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
+
+    //Decrypt in software using AES-GCM 128-bit
+    let _ = cipher.encrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
+
+    let sw_end_time = Instant::now();
+    let sw_execution_time = sw_end_time - sw_start_time;
+
+    info!("Hardware Execution Time: {:?}", hw_execution_time);
+    info!("Software Execution Time: {:?}", sw_execution_time);
+
+    loop {}
+}
