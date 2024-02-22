@@ -243,7 +243,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                         return Poll::Ready(Err(Error::PartialWrite(buffer.len())));
                     }
                 }
-                trace!("len:{}, pend:{}", len, me.pending_byte);
+                trace!("len:{}, pend:{:?}", len, me.pending_byte);
                 if me.pending_byte.is_some() {
                     warn!("pending")
                 }
