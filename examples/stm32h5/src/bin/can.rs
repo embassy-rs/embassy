@@ -16,54 +16,76 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-
-    // configure FDCAN to use PLL1_Q at 64 MHz
-    config.rcc.pll1 = Some(rcc::Pll {
-        source: rcc::PllSource::HSI,
-        prediv: rcc::PllPreDiv::DIV4,
-        mul: rcc::PllMul::MUL8,
-        divp: None,
-        divq: Some(rcc::PllDiv::DIV2),
-        divr: None,
+    config.rcc.hse = Some(rcc::Hse {
+        freq: embassy_stm32::time::Hertz(25_000_000),
+        mode: rcc::HseMode::Oscillator,
     });
-    config.rcc.fdcan_clock_source = rcc::FdCanClockSource::PLL1_Q;
+    config.rcc.fdcan_clock_source = rcc::FdCanClockSource::HSE;
 
     let peripherals = embassy_stm32::init(config);
 
-    let mut can = can::Fdcan::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
+    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
 
-    can.can.apply_config(
-        can::config::FdCanConfig::default().set_nominal_bit_timing(can::config::NominalBitTiming {
-            sync_jump_width: 1.try_into().unwrap(),
-            prescaler: 8.try_into().unwrap(),
-            seg1: 13.try_into().unwrap(),
-            seg2: 2.try_into().unwrap(),
-        }),
-    );
+    // 250k bps
+    can.set_bitrate(250_000);
 
-    info!("Configured");
+    //let mut can = can.into_internal_loopback_mode();
+    let mut can = can.into_normal_mode();
 
-    let mut can = can.into_external_loopback_mode();
-    //let mut can = can.into_normal_mode();
+    info!("CAN Configured");
 
     let mut i = 0;
+    let mut last_read_ts = embassy_time::Instant::now();
+
     loop {
-        let frame = can::TxFrame::new(
-            can::TxFrameHeader {
-                len: 1,
-                frame_format: can::FrameFormat::Standard,
-                id: can::StandardId::new(0x123).unwrap().into(),
-                bit_rate_switching: false,
-                marker: None,
-            },
-            &[i],
-        )
-        .unwrap();
+        let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
         info!("Writing frame");
         _ = can.write(&frame).await;
 
         match can.read().await {
-            Ok(rx_frame) => info!("Rx: {}", rx_frame.data()[0]),
+            Ok((rx_frame, ts)) => {
+                let delta = (ts - last_read_ts).as_millis();
+                last_read_ts = ts;
+                info!(
+                    "Rx: {:x} {:x} {:x} {:x} --- NEW {}",
+                    rx_frame.data()[0],
+                    rx_frame.data()[1],
+                    rx_frame.data()[2],
+                    rx_frame.data()[3],
+                    delta,
+                )
+            }
+            Err(_err) => error!("Error in frame"),
+        }
+
+        Timer::after_millis(250).await;
+
+        i += 1;
+        if i > 3 {
+            break;
+        }
+    }
+
+    let (mut tx, mut rx) = can.split();
+    // With split
+    loop {
+        let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
+        info!("Writing frame");
+        _ = tx.write(&frame).await;
+
+        match rx.read().await {
+            Ok((rx_frame, ts)) => {
+                let delta = (ts - last_read_ts).as_millis();
+                last_read_ts = ts;
+                info!(
+                    "Rx: {:x} {:x} {:x} {:x} --- NEW {}",
+                    rx_frame.data()[0],
+                    rx_frame.data()[1],
+                    rx_frame.data()[2],
+                    rx_frame.data()[3],
+                    delta,
+                )
+            }
             Err(_err) => error!("Error in frame"),
         }
 
