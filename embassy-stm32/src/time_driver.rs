@@ -16,6 +16,8 @@ use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
+#[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
+use crate::timer::sealed::AdvancedControlInstance;
 use crate::timer::sealed::{CoreInstance, GeneralPurpose16bitInstance as Instance};
 use crate::{interrupt, peripherals};
 
@@ -76,6 +78,14 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
+    (TIM1, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim1)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim2)]
         #[cfg(feature = "rt")]
@@ -116,6 +126,14 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
+    (TIM8, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim8)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM9, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim9)]
         #[cfg(feature = "rt")]
@@ -141,6 +159,14 @@ foreach_interrupt! {
         }
     };
     (TIM20, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim20)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM20, timer, $block:ident, CC, $irq:ident) => {
         #[cfg(time_driver_tim20)]
         #[cfg(feature = "rt")]
         #[interrupt]
@@ -280,6 +306,14 @@ impl RtcDriver {
 
         <T as CoreInstance>::Interrupt::unpend();
         unsafe { <T as CoreInstance>::Interrupt::enable() };
+
+        #[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
+        {
+            <T as AdvancedControlInstance>::CaptureCompareInterrupt::unpend();
+            unsafe {
+                <T as AdvancedControlInstance>::CaptureCompareInterrupt::enable();
+            }
+        }
 
         r.cr1().modify(|w| w.set_cen(true));
     }
