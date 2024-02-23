@@ -5,6 +5,7 @@ use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{select, Either};
+use embassy_futures::yield_now;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Timer;
@@ -187,7 +188,19 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         let r = T::regs();
         while !r.uartfr().read().txfe() {}
+        while self.busy() {}
         Ok(())
+    }
+
+    /// Flush the UART TX, doing a yield-spinloop until done
+    pub async fn yielding_flush(&self) {
+        let r = T::regs();
+        while !r.uartfr().read().txfe() {
+            yield_now().await;
+        }
+        while self.busy() {
+            yield_now().await;
+        }
     }
 
     /// Check if UART is busy transmitting.
@@ -216,8 +229,8 @@ impl<'d, T: Instance, M: Mode> UartTx<'d, T, M> {
         let div_clk = clk_peri_freq() as u64 * 64;
         let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
 
-        self.blocking_flush().unwrap();
-        while self.busy() {}
+        self.yielding_flush().await;
+
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
         Timer::after_micros(wait_usecs).await;
         regs.uartlcr_h().write_clear(|w| w.set_brk(true));

@@ -378,7 +378,9 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         })
     }
 
-    fn flush() -> impl Future<Output = Result<(), Error>> {
+    /// Flush until all bytes are enqueued, which is as far as we can get with
+    /// actual interrupt notifications.
+    fn flush_to_enqueued() -> impl Future<Output = Result<(), Error>> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
             if !state.tx_buf.is_empty() {
@@ -421,8 +423,17 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         loop {
             let state = T::buffered_state();
             if state.tx_buf.is_empty() {
-                return Ok(());
+                break;
             }
+        }
+        while self.busy() {}
+        Ok(())
+    }
+
+    /// Flush until the sender is no longer busy, using a yield-spinloop
+    pub async fn yielding_busyloop(&self) {
+        while self.busy() {
+            yield_now().await;
         }
     }
 
@@ -452,8 +463,8 @@ impl<'d, T: Instance> BufferedUartTx<'d, T> {
         let div_clk = clk_peri_freq() as u64 * 64;
         let wait_usecs = (1_000_000 * bits as u64 * divx64 * 16 + div_clk - 1) / div_clk;
 
-        Self::flush().await.unwrap();
-        while self.busy() {}
+        Self::flush_to_enqueued().await.unwrap();
+        self.yielding_busyloop().await;
         regs.uartlcr_h().write_set(|w| w.set_brk(true));
         Timer::after_micros(wait_usecs).await;
         regs.uartlcr_h().write_clear(|w| w.set_brk(true));
@@ -643,7 +654,9 @@ impl<'d, T: Instance + 'd> embedded_io_async::Write for BufferedUart<'d, T> {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        BufferedUartTx::<'d, T>::flush().await
+        let res = BufferedUartTx::<'d, T>::flush_to_enqueued().await;
+        self.tx.yielding_busyloop().await;
+        res
     }
 }
 
@@ -653,7 +666,9 @@ impl<'d, T: Instance + 'd> embedded_io_async::Write for BufferedUartTx<'d, T> {
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        Self::flush().await
+        let res = Self::flush_to_enqueued().await;
+        self.yielding_busyloop().await;
+        res
     }
 }
 
