@@ -1166,10 +1166,10 @@ impl<'d, T: Instance> Cryp<'d, T> {
         T::regs().cr().modify(|w| w.set_gcm_ccmph(3));
         T::regs().cr().modify(|w| w.set_crypen(true));
 
-        let headerlen1: u32 = (ctx.header_len >> 32) as u32;
-        let headerlen2: u32 = ctx.header_len as u32;
-        let payloadlen1: u32 = (ctx.payload_len >> 32) as u32;
-        let payloadlen2: u32 = ctx.payload_len as u32;
+        let headerlen1: u32 = ((ctx.header_len * 8) >> 32) as u32;
+        let headerlen2: u32 = (ctx.header_len * 8) as u32;
+        let payloadlen1: u32 = ((ctx.payload_len * 8) >> 32) as u32;
+        let payloadlen2: u32 = (ctx.payload_len * 8) as u32;
 
         T::regs().din().write_value(headerlen1.swap_bytes());
         T::regs().din().write_value(headerlen2.swap_bytes());

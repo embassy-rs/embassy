@@ -51,13 +51,16 @@ async fn main(_spawner: Spawner) -> ! {
 
     let sw_start_time = Instant::now();
 
-    //Encrypt in software using AES-GCM 128-bit
+    // Encrypt in software using AES-GCM 128-bit
     let mut payload_vec: Vec<u8, 32> = Vec::from_slice(&payload).unwrap();
     let cipher = Aes128Gcm::new(&key.into());
     let _ = cipher.encrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
+    
+    assert_eq!(ciphertext, payload_vec[0..ciphertext.len()]);
+    assert_eq!(encrypt_tag, payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]);
 
-    //Decrypt in software using AES-GCM 128-bit
-    let _ = cipher.encrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
+    // Decrypt in software using AES-GCM 128-bit
+    let _ = cipher.decrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
 
     let sw_end_time = Instant::now();
     let sw_execution_time = sw_end_time - sw_start_time;
