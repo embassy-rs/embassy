@@ -577,7 +577,18 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32u585ai", feature = "stm32u5a5zj"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::MSI(Msirange::RANGE_48MHZ);
+        config.rcc.hsi = true;
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI, // 16 MHz
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL10,
+            divp: None,
+            divq: None,
+            divr: Some(PllDiv::DIV1), // 160 MHz
+        });
+        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.voltage_range = VoltageScale::RANGE1;
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
     }
 
     #[cfg(feature = "stm32wba52cg")]
