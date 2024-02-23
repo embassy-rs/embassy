@@ -213,7 +213,7 @@ impl LsConfig {
         //    bdcr().modify(|w| w.set_vswrst(true));
         //    bdcr().modify(|w| w.set_vswrst(false));
         //}
-        #[cfg(any(stm32c0))]
+        #[cfg(any(stm32c0, stm32l0))]
         {
             bdcr().modify(|w| w.set_rtcrst(true));
             bdcr().modify(|w| w.set_rtcrst(false));
