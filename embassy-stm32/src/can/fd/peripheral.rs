@@ -475,9 +475,9 @@ impl Registers {
     #[inline]
     fn leave_init_mode(&mut self, config: FdCanConfig) {
         self.apply_config(config);
-
-        self.regs.cccr().modify(|w| w.set_cce(false));
+        
         self.regs.cccr().modify(|w| w.set_init(false));
+        self.regs.cccr().modify(|w| w.set_cce(false));
         while self.regs.cccr().read().init() == true {}
     }
 
