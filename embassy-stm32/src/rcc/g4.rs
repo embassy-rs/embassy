@@ -176,13 +176,15 @@ pub(crate) unsafe fn init(config: Config) {
             _ => unreachable!(),
         };
 
-        // TODO: check PLL input, internal and output frequencies for validity
+        assert!(max::PLL_IN.contains(&src_freq));
 
         // Disable PLL before configuration
         RCC.cr().modify(|w| w.set_pllon(false));
         while RCC.cr().read().pllrdy() {}
 
         let internal_freq = src_freq / pll_config.prediv * pll_config.mul;
+
+        assert!(max::PLL_VCO.contains(&internal_freq));
 
         RCC.pllcfgr().write(|w| {
             w.set_plln(pll_config.mul);
@@ -195,7 +197,9 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_pllp(div_p);
                 w.set_pllpen(true);
             });
-            internal_freq / div_p
+            let freq = internal_freq / div_p;
+            assert!(max::PCLK.contains(&freq));
+            freq
         });
 
         let pll_q_freq = pll_config.divq.map(|div_q| {
@@ -203,7 +207,9 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_pllq(div_q);
                 w.set_pllqen(true);
             });
-            internal_freq / div_q
+            let freq = internal_freq / div_q;
+            assert!(max::PCLK.contains(&freq));
+            freq
         });
 
         let pll_r_freq = pll_config.divr.map(|div_r| {
@@ -211,7 +217,9 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_pllr(div_r);
                 w.set_pllren(true);
             });
-            internal_freq / div_r
+            let freq = internal_freq / div_r;
+            assert!(max::PCLK.contains(&freq));
+            freq
         });
 
         // Enable the PLL
@@ -234,7 +242,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             let freq = pll_freq.as_ref().unwrap().pll_r.unwrap().0;
 
-            assert!(freq <= 170_000_000);
+            assert!(max::SYSCLK.contains(&Hertz(freq)));
 
             (Hertz(freq), Sw::PLL1_R)
         }
@@ -243,6 +251,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
     let hclk = sys_clk / config.ahb_pre;
+
+    assert!(max::HCLK.contains(&hclk));
 
     // Configure Core Boost mode ([RM0440] p234 – inverted because setting r1mode to 0 enables boost mode!)
     if config.boost {
@@ -346,32 +356,40 @@ pub(crate) unsafe fn init(config: Config) {
         adc: adc12_ck,
         adc34: adc345_ck,
         pll1_p: pll_freq.as_ref().and_then(|pll| pll.pll_p),
-        pll1_q: pll_freq.as_ref().and_then(|pll| pll.pll_p),
+        pll1_q: pll_freq.as_ref().and_then(|pll| pll.pll_q),
+        pll1_r: pll_freq.as_ref().and_then(|pll| pll.pll_r),
         hse: hse,
         rtc: rtc,
     );
 }
 
-// TODO: if necessary, make more of these, gated behind cfg attrs
+/// Acceptable Frequency Ranges
+/// Currently assuming voltage scaling range 1 boost mode.
+/// Where not specified in the generic G4 reference manual (RM0440), values taken from the STM32G474 datasheet.
+/// If acceptable ranges for other G4-family chips differ, make additional max modules gated behind cfg attrs.
 mod max {
     use core::ops::RangeInclusive;
 
     use crate::time::Hertz;
 
-    /// HSE 4-48MHz (RM0440 p280)
+    /// HSE Frequency Range (RM0440 p280)
     pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(48_000_000);
 
-    /// External Clock ?-48MHz (RM0440 p280)
+    /// External Clock Frequency Range (RM0440 p280)
     pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
 
-    // SYSCLK ?-170MHz (RM0440 p282)
-    //pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
+    /// SYSCLK Frequency Range (RM0440 p282)
+    pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
 
-    // PLL Output frequency ?-170MHz (RM0440 p281)
-    //pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
+    /// PLL Output Frequency Range (RM0440 p281, STM32G474 Datasheet p123, Table 46)
+    pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(8)..=Hertz(170_000_000);
 
-    // Left over from f.rs, remove if not necessary
-    //pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(12_500_000)..=Hertz(216_000_000);
-    //pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(1_000_000)..=Hertz(2_100_000);
-    //pub(crate) const PLL_VCO: RangeInclusive<Hertz> = Hertz(100_000_000)..=Hertz(432_000_000);
+    /// HCLK (AHB) Clock Frequency Range (STM32G474 Datasheet)
+    pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(170_000_000);
+
+    /// PLL Source Frequency Range (STM32G474 Datasheet p123, Table 46)
+    pub(crate) const PLL_IN: RangeInclusive<Hertz> = Hertz(2_660_000)..=Hertz(16_000_000);
+
+    /// PLL VCO (internal) Frequency Range (STM32G474 Datasheet p123, Table 46)
+    pub(crate) const PLL_VCO: RangeInclusive<Hertz> = Hertz(96_000_000)..=Hertz(344_000_000);
 }
