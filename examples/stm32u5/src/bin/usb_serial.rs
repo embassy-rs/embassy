@@ -4,7 +4,6 @@
 use defmt::{panic, *};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::*;
 use embassy_stm32::usb_otg::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -22,22 +21,28 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL1_R(PllConfig {
-        source: PllSource::HSI,
-        m: Pllm::DIV2,
-        n: Plln::MUL10,
-        p: Plldiv::DIV1,
-        q: Plldiv::DIV1,
-        r: Plldiv::DIV1,
-    });
-    config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = true;
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI, // 16 MHz
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL10,
+            divp: None,
+            divq: None,
+            divr: Some(PllDiv::DIV1), // 160 MHz
+        });
+        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.voltage_range = VoltageScale::RANGE1;
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+    }
 
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
     let mut config = embassy_stm32::usb_otg::Config::default();
-    config.vbus_detection = true;
+    config.vbus_detection = false;
     let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 
     // Create embassy-usb Config
