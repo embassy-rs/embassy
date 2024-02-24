@@ -929,22 +929,22 @@ macro_rules! impl_fdcan {
                 unsafe { peripherals::$inst::mut_state() }
             }
 
-#[cfg(feature = "time")]
-fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-    let now_embassy = embassy_time::Instant::now();
-    if ns_per_timer_tick == 0 {
-        return now_embassy;
-    }
-    let cantime = { Self::regs().tscv().read().tsc() };
-    let delta = cantime.overflowing_sub(ts_val).0 as u64;
-    let ns = ns_per_timer_tick * delta as u64;
-    now_embassy - embassy_time::Duration::from_nanos(ns)
-}
+            #[cfg(feature = "time")]
+            fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+                let now_embassy = embassy_time::Instant::now();
+                if ns_per_timer_tick == 0 {
+                    return now_embassy;
+                }
+                let cantime = { Self::regs().tscv().read().tsc() };
+                let delta = cantime.overflowing_sub(ts_val).0 as u64;
+                let ns = ns_per_timer_tick * delta as u64;
+                now_embassy - embassy_time::Duration::from_nanos(ns)
+            }
 
-#[cfg(not(feature = "time"))]
-fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-    ts_val
-}
+            #[cfg(not(feature = "time"))]
+            fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+                ts_val
+            }
 
         }
 
