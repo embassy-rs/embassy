@@ -3,12 +3,9 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-pub mod fd;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use fd::config::*;
-use fd::filter::*;
 
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::sealed::AFType;
@@ -17,10 +14,14 @@ use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals, Peripheral};
 
 pub mod enums;
-use enums::*;
+pub(crate) mod fd;
+pub mod frame;
 mod util;
 
-pub mod frame;
+use enums::*;
+use fd::config::*;
+use fd::filter::*;
+pub use fd::{config, filter};
 use frame::*;
 
 /// Timestamp for incoming packets. Use Embassy time when enabled.
