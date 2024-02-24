@@ -434,6 +434,12 @@ pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_S
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
 }
 
+/// Sender that can be used for sending CAN frames.
+pub type BufferedCanSender = embassy_sync::channel::DynamicSender<'static, ClassicFrame>;
+
+/// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+pub type BufferedCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (ClassicFrame, Timestamp)>;
+
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
 {
@@ -479,6 +485,16 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
         Ok(self.rx_buf.receive().await)
     }
+
+    /// Returns a sender that can be used for sending CAN frames.
+    pub fn writer(&self) -> BufferedCanSender {
+        self.tx_buf.sender().into()
+    }
+
+    /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+    pub fn reader(&self) -> BufferedCanReceiver {
+        self.rx_buf.receiver().into()
+    }
 }
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
@@ -506,6 +522,12 @@ pub struct BufferedCanFd<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
 }
+
+/// Sender that can be used for sending CAN frames.
+pub type BufferedFdCanSender = embassy_sync::channel::DynamicSender<'static, FdFrame>;
+
+/// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+pub type BufferedFdCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (FdFrame, Timestamp)>;
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
@@ -551,6 +573,16 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<(FdFrame, Timestamp), BusError> {
         Ok(self.rx_buf.receive().await)
+    }
+
+    /// Returns a sender that can be used for sending CAN frames.
+    pub fn writer(&self) -> BufferedFdCanSender {
+        self.tx_buf.sender().into()
+    }
+
+    /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+    pub fn reader(&self) -> BufferedFdCanReceiver {
+        self.rx_buf.receiver().into()
     }
 }
 
