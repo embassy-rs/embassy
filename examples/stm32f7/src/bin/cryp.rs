@@ -1,10 +1,9 @@
 #![no_std]
 #![no_main]
 
-use aes_gcm::{
-    aead::{heapless::Vec, AeadInPlace, KeyInit},
-    Aes128Gcm,
-};
+use aes_gcm::aead::heapless::Vec;
+use aes_gcm::aead::{AeadInPlace, KeyInit};
+use aes_gcm::Aes128Gcm;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::*;
@@ -55,9 +54,12 @@ async fn main(_spawner: Spawner) -> ! {
     let mut payload_vec: Vec<u8, 32> = Vec::from_slice(&payload).unwrap();
     let cipher = Aes128Gcm::new(&key.into());
     let _ = cipher.encrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
-    
+
     assert_eq!(ciphertext, payload_vec[0..ciphertext.len()]);
-    assert_eq!(encrypt_tag, payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]);
+    assert_eq!(
+        encrypt_tag,
+        payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]
+    );
 
     // Decrypt in software using AES-GCM 128-bit
     let _ = cipher.decrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);

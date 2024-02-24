@@ -2,12 +2,11 @@
 #[cfg(cryp_v2)]
 use core::cmp::min;
 use core::marker::PhantomData;
+
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use crate::pac;
-use crate::peripherals::CRYP;
 use crate::rcc::sealed::RccPeripheral;
-use crate::{interrupt, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals, Peripheral};
 
 const DES_BLOCK_SIZE: usize = 8; // 64 bits
 const AES_BLOCK_SIZE: usize = 16; // 128 bits
@@ -827,7 +826,7 @@ pub struct Cryp<'d, T: Instance> {
 impl<'d, T: Instance> Cryp<'d, T> {
     /// Create a new CRYP driver.
     pub fn new(peri: impl Peripheral<P = T> + 'd) -> Self {
-        CRYP::enable_and_reset();
+        T::enable_and_reset();
         into_ref!(peri);
         let instance = Self { _peripheral: peri };
         instance
