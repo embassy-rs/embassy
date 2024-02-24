@@ -107,7 +107,7 @@ pub fn run(args: &[NestedMeta], f: syn::ItemFn) -> Result<TokenStream, TokenStre
 
             const POOL_SIZE: usize = #pool_size;
             static POOL: ::embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, POOL_SIZE> = ::embassy_executor::raw::TaskPool::new();
-            unsafe { POOL._spawn_async_fn(move || ThisTask::construct(#(#full_args,)*)) }
+            unsafe { POOL._spawn_async_fn(move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
         }
     };
     #[cfg(not(feature = "nightly"))]
