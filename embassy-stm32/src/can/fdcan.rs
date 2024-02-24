@@ -861,22 +861,13 @@ pub(crate) mod sealed {
     }
 }
 
-/// Trait for FDCAN interrupt channel 0
-pub trait IT0Instance {
-    /// Type for FDCAN interrupt channel 0
+/// Instance trait
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+    /// Interrupt 0
     type IT0Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-/// Trait for FDCAN interrupt channel 1
-pub trait IT1Instance {
-    /// Type for FDCAN interrupt channel 1
+    /// Interrupt 0
     type IT1Interrupt: crate::interrupt::typelevel::Interrupt;
 }
-
-/// InterruptableInstance trait
-pub trait InterruptableInstance: IT0Instance + IT1Instance {}
-/// Instance trait
-pub trait Instance: sealed::Instance + RccPeripheral + InterruptableInstance + 'static {}
 /// Fdcan Instance struct
 pub struct FdcanInstance<'a, T>(PeripheralRef<'a, T>);
 
@@ -921,22 +912,22 @@ fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
 
         }
 
-        impl Instance for peripherals::$inst {}
+        #[allow(non_snake_case)]
+        pub(crate) mod $inst {
 
-        foreach_interrupt!(
-            ($inst,can,FDCAN,IT0,$irq:ident) => {
-                impl IT0Instance for peripherals::$inst {
-                    type IT0Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,FDCAN,IT1,$irq:ident) => {
-                impl IT1Instance for peripherals::$inst {
-                    type IT1Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-        );
-
-        impl InterruptableInstance for peripherals::$inst {}
+            foreach_interrupt!(
+                ($inst,can,FDCAN,IT0,$irq:ident) => {
+                    pub type Interrupt0 = crate::interrupt::typelevel::$irq;
+                };
+                ($inst,can,FDCAN,IT1,$irq:ident) => {
+                    pub type Interrupt1 = crate::interrupt::typelevel::$irq;
+                };
+            );
+        }
+        impl Instance for peripherals::$inst {
+            type IT0Interrupt = $inst::Interrupt0;
+            type IT1Interrupt = $inst::Interrupt1;
+        }
     };
 
     ($inst:ident, $msg_ram_inst:ident) => {
