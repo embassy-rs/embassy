@@ -5,7 +5,6 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
 
-use crate::rcc::sealed::RccPeripheral;
 use crate::{interrupt, pac, peripherals, Peripheral};
 
 const DES_BLOCK_SIZE: usize = 8; // 64 bits
