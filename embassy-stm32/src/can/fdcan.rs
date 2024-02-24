@@ -18,16 +18,18 @@ use crate::{interrupt, peripherals, Peripheral};
 
 pub mod enums;
 use enums::*;
-pub mod util;
+mod util;
 
 pub mod frame;
 use frame::*;
 
+/// Timestamp for incoming packets. Use Embassy time when enabled.
 #[cfg(feature = "time")]
-type Timestamp = embassy_time::Instant;
+pub type Timestamp = embassy_time::Instant;
 
+/// Timestamp for incoming packets.
 #[cfg(not(feature = "time"))]
-type Timestamp = u16;
+pub type Timestamp = u16;
 
 /// Interrupt handler channel 0.
 pub struct IT0InterruptHandler<T: Instance> {
@@ -139,7 +141,8 @@ pub enum FdcanOperatingMode {
     //TestMode,
 }
 
-/// FDCAN Instance
+/// FDCAN Configuration instance instance
+/// Create instance of this first
 pub struct FdcanConfigurator<'d, T: Instance> {
     config: crate::can::fd::config::FdCanConfig,
     /// Reference to internals.
@@ -868,6 +871,7 @@ pub trait Instance: sealed::Instance + RccPeripheral + 'static {
     /// Interrupt 0
     type IT1Interrupt: crate::interrupt::typelevel::Interrupt;
 }
+
 /// Fdcan Instance struct
 pub struct FdcanInstance<'a, T>(PeripheralRef<'a, T>);
 
