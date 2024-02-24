@@ -601,7 +601,7 @@ fn main() {
             .iter()
             .map(|(_fieldset, fieldname, enum_name)| {
                 quote! {
-                    pub #fieldname: Option<crate::pac::rcc::vals::#enum_name>
+                    pub #fieldname: Option<#enum_name>
                 }
             })
             .collect();
@@ -627,23 +627,32 @@ fn main() {
             })
             .collect();
 
-        g.extend(quote! {
-            #[derive(Clone, Copy)]
-            pub struct ClockMux {
-                #( #struct_fields, )*
-            }
+        let enum_names: BTreeSet<_> = rcc_cfgr_regs
+            .iter()
+            .map(|(_fieldset, _fieldname, enum_name)| enum_name)
+            .collect();
 
-            impl Default for ClockMux {
-                fn default() -> Self {
-                    Self {
-                        #( #field_names: None, )*
+        g.extend(quote! {
+            pub mod mux {
+                #(pub use crate::pac::rcc::vals::#enum_names as #enum_names; )*
+
+                #[derive(Clone, Copy)]
+                pub struct ClockMux {
+                    #( #struct_fields, )*
+                }
+
+                impl Default for ClockMux {
+                    fn default() -> Self {
+                        Self {
+                            #( #field_names: None, )*
+                        }
                     }
                 }
-            }
 
-            impl ClockMux {
-                pub fn init(self) {
-                    #( #inits )*
+                impl ClockMux {
+                    pub fn init(self) {
+                        #( #inits )*
+                    }
                 }
             }
         });
