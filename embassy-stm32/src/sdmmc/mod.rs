@@ -228,10 +228,10 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
 }
 
 #[cfg(sdmmc_v1)]
-type Transfer<'a, C> = crate::dma::Transfer<'a, C>;
+type Transfer<'a> = crate::dma::Transfer<'a>;
 #[cfg(sdmmc_v2)]
-struct Transfer<'a, C> {
-    _dummy: core::marker::PhantomData<&'a mut C>,
+struct Transfer<'a> {
+    _dummy: PhantomData<&'a ()>,
 }
 
 #[cfg(all(sdmmc_v1, dma))]
@@ -548,7 +548,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
         buffer: &'a mut [u32],
         length_bytes: u32,
         block_size: u8,
-    ) -> Transfer<'a, Dma> {
+    ) -> Transfer<'a> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 
@@ -596,12 +596,7 @@ impl<'d, T: Instance, Dma: SdmmcDma<T> + 'd> Sdmmc<'d, T, Dma> {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    fn prepare_datapath_write<'a>(
-        &'a mut self,
-        buffer: &'a [u32],
-        length_bytes: u32,
-        block_size: u8,
-    ) -> Transfer<'a, Dma> {
+    fn prepare_datapath_write<'a>(&'a mut self, buffer: &'a [u32], length_bytes: u32, block_size: u8) -> Transfer<'a> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = T::regs();
 

@@ -354,50 +354,6 @@ fn main() {
     g.extend(quote! { pub mod flash_regions { #flash_regions } });
 
     // ========
-    // Generate DMA IRQs.
-
-    let mut dma_irqs: BTreeMap<&str, Vec<(&str, &str, &str)>> = BTreeMap::new();
-
-    for p in METADATA.peripherals {
-        if let Some(r) = &p.registers {
-            if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" {
-                if p.name == "BDMA1" {
-                    // BDMA1 in H7 doesn't use DMAMUX, which breaks
-                    continue;
-                }
-                for irq in p.interrupts {
-                    dma_irqs
-                        .entry(irq.interrupt)
-                        .or_default()
-                        .push((r.kind, p.name, irq.signal));
-                }
-            }
-        }
-    }
-
-    let dma_irqs: TokenStream = dma_irqs
-        .iter()
-        .map(|(irq, channels)| {
-            let irq = format_ident!("{}", irq);
-
-            let xdma = format_ident!("{}", channels[0].0);
-            let channels = channels.iter().map(|(_, dma, ch)| format_ident!("{}_{}", dma, ch));
-
-            quote! {
-                #[cfg(feature = "rt")]
-                #[crate::interrupt]
-                unsafe fn #irq () {
-                    #(
-                        <crate::peripherals::#channels as crate::dma::#xdma::sealed::Channel>::on_irq();
-                    )*
-                }
-            }
-        })
-        .collect();
-
-    g.extend(dma_irqs);
-
-    // ========
     // Extract the rcc registers
     let rcc_registers = METADATA
         .peripherals
@@ -664,7 +620,7 @@ fn main() {
 
     #[rustfmt::skip]
     let signals: HashMap<_, _> = [
-        // (kind, signal) => trait
+                // (kind, signal) => trait
         (("usart", "TX"), quote!(crate::usart::TxPin)),
         (("usart", "RX"), quote!(crate::usart::RxPin)),
         (("usart", "CTS"), quote!(crate::usart::CtsPin)),
@@ -897,7 +853,7 @@ fn main() {
         (("quadspi", "BK2_IO3"), quote!(crate::qspi::BK2D3Pin)),
         (("quadspi", "BK2_NCS"), quote!(crate::qspi::BK2NSSPin)),
         (("quadspi", "CLK"), quote!(crate::qspi::SckPin)),
-    ].into();
+             ].into();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
@@ -959,7 +915,7 @@ fn main() {
                     };
                     if let Some(ch) = ch {
                         g.extend(quote! {
-                            impl_adc_pin!( #peri, #pin_name, #ch);
+                        impl_adc_pin!( #peri, #pin_name, #ch);
                         })
                     }
                 }
@@ -991,7 +947,7 @@ fn main() {
                     let ch: u8 = pin.signal.strip_prefix("OUT").unwrap().parse().unwrap();
 
                     g.extend(quote! {
-                        impl_dac_pin!( #peri, #pin_name, #ch);
+                    impl_dac_pin!( #peri, #pin_name, #ch);
                     })
                 }
             }
@@ -1189,7 +1145,6 @@ fn main() {
     let mut interrupts_table: Vec<Vec<String>> = Vec::new();
     let mut peripherals_table: Vec<Vec<String>> = Vec::new();
     let mut pins_table: Vec<Vec<String>> = Vec::new();
-    let mut dma_channels_table: Vec<Vec<String>> = Vec::new();
     let mut adc_common_table: Vec<Vec<String>> = Vec::new();
 
     /*
@@ -1283,51 +1238,108 @@ fn main() {
         }
     }
 
-    let mut dma_channel_count: usize = 0;
-    let mut bdma_channel_count: usize = 0;
-    let mut gpdma_channel_count: usize = 0;
+    let mut dmas = TokenStream::new();
+    let has_dmamux = METADATA
+        .peripherals
+        .iter()
+        .flat_map(|p| &p.registers)
+        .any(|p| p.kind == "dmamux");
 
-    for ch in METADATA.dma_channels {
-        let mut row = Vec::new();
+    for (ch_idx, ch) in METADATA.dma_channels.iter().enumerate() {
+        // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
+        if has_dmamux && ch.dmamux.is_none() {
+            continue;
+        }
+
+        let name = format_ident!("{}", ch.name);
+        let idx = ch_idx as u8;
+        g.extend(quote!(dma_channel_impl!(#name, #idx);));
+
+        let dma = format_ident!("{}", ch.dma);
+        let ch_num = ch.channel as usize;
+
         let dma_peri = METADATA.peripherals.iter().find(|p| p.name == ch.dma).unwrap();
         let bi = dma_peri.registers.as_ref().unwrap();
 
-        let num;
-        match bi.kind {
-            "dma" => {
-                num = dma_channel_count;
-                dma_channel_count += 1;
-            }
-            "bdma" => {
-                num = bdma_channel_count;
-                bdma_channel_count += 1;
-            }
-            "gpdma" => {
-                num = gpdma_channel_count;
-                gpdma_channel_count += 1;
-            }
+        let dma_info = match bi.kind {
+            "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
+            "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
+            "gpdma" => quote!(crate::pac::#dma),
             _ => panic!("bad dma channel kind {}", bi.kind),
-        }
+        };
 
-        row.push(ch.name.to_string());
-        row.push(ch.dma.to_string());
-        row.push(bi.kind.to_string());
-        row.push(ch.channel.to_string());
-        row.push(num.to_string());
-        if let Some(dmamux) = &ch.dmamux {
-            let dmamux_channel = ch.dmamux_channel.unwrap();
-            row.push(format!("{{dmamux: {}, dmamux_channel: {}}}", dmamux, dmamux_channel));
-        } else {
-            row.push("{}".to_string());
-        }
+        let dmamux = match &ch.dmamux {
+            Some(dmamux) => {
+                let dmamux = format_ident!("{}", dmamux);
+                let num = ch.dmamux_channel.unwrap() as usize;
 
-        dma_channels_table.push(row);
+                g.extend(quote!(dmamux_channel_impl!(#name, #dmamux);));
+
+                quote! {
+                    dmamux: crate::dma::DmamuxInfo {
+                        mux: crate::pac::#dmamux,
+                        num: #num,
+                    },
+                }
+            }
+            None => quote!(),
+        };
+
+        dmas.extend(quote! {
+            crate::dma::ChannelInfo {
+                dma: #dma_info,
+                num: #ch_num,
+                #dmamux
+            },
+        });
     }
 
+    // ========
+    // Generate DMA IRQs.
+
+    let mut dma_irqs: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+
+    for p in METADATA.peripherals {
+        if let Some(r) = &p.registers {
+            if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" {
+                for irq in p.interrupts {
+                    let ch_name = format!("{}_{}", p.name, irq.signal);
+                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name).unwrap();
+
+                    // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
+                    if has_dmamux && ch.dmamux.is_none() {
+                        continue;
+                    }
+
+                    dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
+                }
+            }
+        }
+    }
+
+    let dma_irqs: TokenStream = dma_irqs
+        .iter()
+        .map(|(irq, channels)| {
+            let irq = format_ident!("{}", irq);
+
+            let channels = channels.iter().map(|c| format_ident!("{}", c));
+
+            quote! {
+                #[cfg(feature = "rt")]
+                #[crate::interrupt]
+                unsafe fn #irq () {
+                    #(
+                        <crate::peripherals::#channels as crate::dma::sealed::ChannelInterrupt>::on_irq();
+                    )*
+                }
+            }
+        })
+        .collect();
+
+    g.extend(dma_irqs);
+
     g.extend(quote! {
-        pub(crate) const DMA_CHANNEL_COUNT: usize = #dma_channel_count;
-        pub(crate) const BDMA_CHANNEL_COUNT: usize = #bdma_channel_count;
-        pub(crate) const GPDMA_CHANNEL_COUNT: usize = #gpdma_channel_count;
+        pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
 
     for irq in METADATA.interrupts {
@@ -1347,7 +1359,6 @@ fn main() {
     make_table(&mut m, "foreach_interrupt", &interrupts_table);
     make_table(&mut m, "foreach_peripheral", &peripherals_table);
     make_table(&mut m, "foreach_pin", &pins_table);
-    make_table(&mut m, "foreach_dma_channel", &dma_channels_table);
     make_table(&mut m, "foreach_adc", &adc_common_table);
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
