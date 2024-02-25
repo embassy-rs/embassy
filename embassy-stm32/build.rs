@@ -379,6 +379,8 @@ fn main() {
 
     let mut clock_names = BTreeSet::new();
 
+    let mut rcc_cfgr_regs = BTreeSet::new();
+
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
             continue;
@@ -456,6 +458,8 @@ fn main() {
                     let fieldset_name = format_ident!("{}", fieldset_name);
                     let field_name = format_ident!("{}", field_name);
                     let enum_name = format_ident!("{}", enum_name);
+
+                    rcc_cfgr_regs.insert((fieldset_name.clone(), field_name.clone(), enum_name.clone()));
 
                     let match_arms: TokenStream = enumm
                         .variants
@@ -537,6 +541,70 @@ fn main() {
                 impl crate::rcc::RccPeripheral for peripherals::#pname {}
             });
         }
+    }
+
+    if !rcc_cfgr_regs.is_empty() {
+        println!("cargo:rustc-cfg=clock_mux");
+
+        let struct_fields: Vec<_> = rcc_cfgr_regs
+            .iter()
+            .map(|(_fieldset, fieldname, enum_name)| {
+                quote! {
+                    pub #fieldname: Option<#enum_name>
+                }
+            })
+            .collect();
+
+        let field_names: Vec<_> = rcc_cfgr_regs
+            .iter()
+            .map(|(_fieldset, fieldname, _enum_name)| fieldname)
+            .collect();
+
+        let inits: Vec<_> = rcc_cfgr_regs
+            .iter()
+            .map(|(fieldset, fieldname, _enum_name)| {
+                let setter = format_ident!("set_{}", fieldname);
+                quote! {
+                    match self.#fieldname {
+                        None => {}
+                        Some(val) => {
+                            crate::pac::RCC.#fieldset()
+                                .modify(|w| w.#setter(val));
+                        }
+                    };
+                }
+            })
+            .collect();
+
+        let enum_names: BTreeSet<_> = rcc_cfgr_regs
+            .iter()
+            .map(|(_fieldset, _fieldname, enum_name)| enum_name)
+            .collect();
+
+        g.extend(quote! {
+            pub mod mux {
+                #(pub use crate::pac::rcc::vals::#enum_names as #enum_names; )*
+
+                #[derive(Clone, Copy)]
+                pub struct ClockMux {
+                    #( #struct_fields, )*
+                }
+
+                impl Default for ClockMux {
+                    fn default() -> Self {
+                        Self {
+                            #( #field_names: None, )*
+                        }
+                    }
+                }
+
+                impl ClockMux {
+                    pub fn init(self) {
+                        #( #inits )*
+                    }
+                }
+            }
+        });
     }
 
     // Generate RCC

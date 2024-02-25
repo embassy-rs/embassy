@@ -27,7 +27,8 @@ async fn main(_spawner: Spawner) {
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
         config.rcc.apb1_pre = APBPrescaler::DIV2;
         config.rcc.apb2_pre = APBPrescaler::DIV1;
-        config.rcc.hrtim = HrtimClockSource::PllClk;
+
+        config.rcc.mux.hrtim1sw = Some(embassy_stm32::rcc::mux::Timsw::PLL1_P);
     }
     let p = embassy_stm32::init(config);
 

@@ -97,8 +97,9 @@ pub struct Config {
     pub adc: AdcClockSource,
     #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
     pub adc34: AdcClockSource,
-    #[cfg(stm32f334)]
-    pub hrtim: HrtimClockSource,
+
+    #[cfg(clock_mux)]
+    pub mux: crate::rcc::mux::ClockMux,
 
     pub ls: super::LsConfig,
 }
@@ -122,13 +123,13 @@ impl Default for Config {
             // ensure ADC is not out of range by default even if APB2 is maxxed out (36mhz)
             adc_pre: ADCPrescaler::DIV6,
 
-
             #[cfg(all(stm32f3, not(rcc_f37)))]
             adc: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
             #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
-            #[cfg(stm32f334)]
-            hrtim: HrtimClockSource::BusClk,
+
+            #[cfg(clock_mux)]
+            mux: Default::default(),
         }
     }
 }
@@ -347,7 +348,8 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
-    #[cfg(stm32f334)]
+    /*
+    TODO: Maybe add something like this to clock_mux? How can we autogenerate the data for this?
     let hrtim = match config.hrtim {
         // Must be configured after the bus is ready, otherwise it won't work
         HrtimClockSource::BusClk => None,
@@ -363,6 +365,10 @@ pub(crate) unsafe fn init(config: Config) {
             Some(pll * 2u32)
         }
     };
+     */
+
+    #[cfg(clock_mux)]
+    config.mux.init();
 
     set_clocks!(
         hsi: hsi,
@@ -378,8 +384,6 @@ pub(crate) unsafe fn init(config: Config) {
         adc: Some(adc),
         #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
         adc34: Some(adc34),
-        #[cfg(stm32f334)]
-        hrtim: hrtim,
         rtc: rtc,
         hsi48: hsi48,
         #[cfg(any(rcc_f1, rcc_f1cl, stm32f3))]
