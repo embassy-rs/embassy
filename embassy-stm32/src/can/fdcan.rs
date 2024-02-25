@@ -3,12 +3,9 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-pub mod fd;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use fd::config::*;
-use fd::filter::*;
 
 use crate::can::fd::peripheral::Registers;
 use crate::gpio::sealed::AFType;
@@ -17,17 +14,23 @@ use crate::rcc::RccPeripheral;
 use crate::{interrupt, peripherals, Peripheral};
 
 pub mod enums;
-use enums::*;
-pub mod util;
-
+pub(crate) mod fd;
 pub mod frame;
+mod util;
+
+use enums::*;
+use fd::config::*;
+use fd::filter::*;
+pub use fd::{config, filter};
 use frame::*;
 
+/// Timestamp for incoming packets. Use Embassy time when enabled.
 #[cfg(feature = "time")]
-type Timestamp = embassy_time::Instant;
+pub type Timestamp = embassy_time::Instant;
 
+/// Timestamp for incoming packets.
 #[cfg(not(feature = "time"))]
-type Timestamp = u16;
+pub type Timestamp = u16;
 
 /// Interrupt handler channel 0.
 pub struct IT0InterruptHandler<T: Instance> {
@@ -139,7 +142,8 @@ pub enum FdcanOperatingMode {
     //TestMode,
 }
 
-/// FDCAN Instance
+/// FDCAN Configuration instance instance
+/// Create instance of this first
 pub struct FdcanConfigurator<'d, T: Instance> {
     config: crate::can::fd::config::FdCanConfig,
     /// Reference to internals.
@@ -431,6 +435,12 @@ pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_S
     rx_buf: &'static RxBuf<RX_BUF_SIZE>,
 }
 
+/// Sender that can be used for sending CAN frames.
+pub type BufferedCanSender = embassy_sync::channel::DynamicSender<'static, ClassicFrame>;
+
+/// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+pub type BufferedCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (ClassicFrame, Timestamp)>;
+
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
 {
@@ -476,6 +486,16 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
         Ok(self.rx_buf.receive().await)
     }
+
+    /// Returns a sender that can be used for sending CAN frames.
+    pub fn writer(&self) -> BufferedCanSender {
+        self.tx_buf.sender().into()
+    }
+
+    /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+    pub fn reader(&self) -> BufferedCanReceiver {
+        self.rx_buf.receiver().into()
+    }
 }
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Drop
@@ -503,6 +523,12 @@ pub struct BufferedCanFd<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF
     tx_buf: &'static TxFdBuf<TX_BUF_SIZE>,
     rx_buf: &'static RxFdBuf<RX_BUF_SIZE>,
 }
+
+/// Sender that can be used for sending CAN frames.
+pub type BufferedFdCanSender = embassy_sync::channel::DynamicSender<'static, FdFrame>;
+
+/// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+pub type BufferedFdCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (FdFrame, Timestamp)>;
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
@@ -548,6 +574,16 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<(FdFrame, Timestamp), BusError> {
         Ok(self.rx_buf.receive().await)
+    }
+
+    /// Returns a sender that can be used for sending CAN frames.
+    pub fn writer(&self) -> BufferedFdCanSender {
+        self.tx_buf.sender().into()
+    }
+
+    /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
+    pub fn reader(&self) -> BufferedFdCanReceiver {
+        self.rx_buf.receiver().into()
     }
 }
 
@@ -861,22 +897,14 @@ pub(crate) mod sealed {
     }
 }
 
-/// Trait for FDCAN interrupt channel 0
-pub trait IT0Instance {
-    /// Type for FDCAN interrupt channel 0
+/// Instance trait
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+    /// Interrupt 0
     type IT0Interrupt: crate::interrupt::typelevel::Interrupt;
-}
-
-/// Trait for FDCAN interrupt channel 1
-pub trait IT1Instance {
-    /// Type for FDCAN interrupt channel 1
+    /// Interrupt 0
     type IT1Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-/// InterruptableInstance trait
-pub trait InterruptableInstance: IT0Instance + IT1Instance {}
-/// Instance trait
-pub trait Instance: sealed::Instance + RccPeripheral + InterruptableInstance + 'static {}
 /// Fdcan Instance struct
 pub struct FdcanInstance<'a, T>(PeripheralRef<'a, T>);
 
@@ -902,41 +930,41 @@ macro_rules! impl_fdcan {
                 unsafe { peripherals::$inst::mut_state() }
             }
 
-#[cfg(feature = "time")]
-fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-    let now_embassy = embassy_time::Instant::now();
-    if ns_per_timer_tick == 0 {
-        return now_embassy;
-    }
-    let cantime = { Self::regs().tscv().read().tsc() };
-    let delta = cantime.overflowing_sub(ts_val).0 as u64;
-    let ns = ns_per_timer_tick * delta as u64;
-    now_embassy - embassy_time::Duration::from_nanos(ns)
-}
+            #[cfg(feature = "time")]
+            fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+                let now_embassy = embassy_time::Instant::now();
+                if ns_per_timer_tick == 0 {
+                    return now_embassy;
+                }
+                let cantime = { Self::regs().tscv().read().tsc() };
+                let delta = cantime.overflowing_sub(ts_val).0 as u64;
+                let ns = ns_per_timer_tick * delta as u64;
+                now_embassy - embassy_time::Duration::from_nanos(ns)
+            }
 
-#[cfg(not(feature = "time"))]
-fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
-    ts_val
-}
+            #[cfg(not(feature = "time"))]
+            fn calc_timestamp(_ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+                ts_val
+            }
 
         }
 
-        impl Instance for peripherals::$inst {}
+        #[allow(non_snake_case)]
+        pub(crate) mod $inst {
 
-        foreach_interrupt!(
-            ($inst,can,FDCAN,IT0,$irq:ident) => {
-                impl IT0Instance for peripherals::$inst {
-                    type IT0Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-            ($inst,can,FDCAN,IT1,$irq:ident) => {
-                impl IT1Instance for peripherals::$inst {
-                    type IT1Interrupt = crate::interrupt::typelevel::$irq;
-                }
-            };
-        );
-
-        impl InterruptableInstance for peripherals::$inst {}
+            foreach_interrupt!(
+                ($inst,can,FDCAN,IT0,$irq:ident) => {
+                    pub type Interrupt0 = crate::interrupt::typelevel::$irq;
+                };
+                ($inst,can,FDCAN,IT1,$irq:ident) => {
+                    pub type Interrupt1 = crate::interrupt::typelevel::$irq;
+                };
+            );
+        }
+        impl Instance for peripherals::$inst {
+            type IT0Interrupt = $inst::Interrupt0;
+            type IT1Interrupt = $inst::Interrupt1;
+        }
     };
 
     ($inst:ident, $msg_ram_inst:ident) => {

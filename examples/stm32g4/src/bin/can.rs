@@ -22,8 +22,8 @@ async fn main(_spawner: Spawner) {
     let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);
 
     can.set_extended_filter(
-        can::fd::filter::ExtendedFilterSlot::_0,
-        can::fd::filter::ExtendedFilter::accept_all_into_fifo1(),
+        can::filter::ExtendedFilterSlot::_0,
+        can::filter::ExtendedFilter::accept_all_into_fifo1(),
     );
 
     // 250k bps

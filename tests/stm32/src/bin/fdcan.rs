@@ -81,8 +81,8 @@ async fn main(_spawner: Spawner) {
     can.set_bitrate(250_000);
 
     can.set_extended_filter(
-        can::fd::filter::ExtendedFilterSlot::_0,
-        can::fd::filter::ExtendedFilter::accept_all_into_fifo1(),
+        can::filter::ExtendedFilterSlot::_0,
+        can::filter::ExtendedFilter::accept_all_into_fifo1(),
     );
 
     let mut can = can.into_internal_loopback_mode();

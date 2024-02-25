@@ -1,5 +1,5 @@
 //! Configuration for FDCAN Module
-//! Note: This file is copied and modified from fdcan crate by Richard Meadows
+// Note: This file is copied and modified from fdcan crate by Richard Meadows
 
 use core::num::{NonZeroU16, NonZeroU8};
 
