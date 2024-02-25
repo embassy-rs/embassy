@@ -1,5 +1,5 @@
 //! Definition of Filter structs for FDCAN Module
-//! Note: This file is copied and modified from fdcan crate by Richard Meadows
+// Note: This file is copied and modified from fdcan crate by Richard Meadows
 
 use embedded_can::{ExtendedId, StandardId};
 
