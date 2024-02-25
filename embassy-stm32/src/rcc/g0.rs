@@ -19,7 +19,7 @@ pub enum HseMode {
 
 /// System clock mux source
 #[derive(Clone, Copy)]
-pub enum ClockSrc {
+pub enum Sysclk {
     HSE(Hertz, HseMode),
     HSI(HSIPrescaler),
     PLL(PllConfig),
@@ -89,7 +89,7 @@ pub enum UsbSrc {
 
 /// Clocks configutation
 pub struct Config {
-    pub mux: ClockSrc,
+    pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
     pub apb_pre: APBPrescaler,
     pub low_power_run: bool,
@@ -102,7 +102,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI(HSIPrescaler::DIV1),
+            sys: Sysclk::HSI(HSIPrescaler::DIV1),
             ahb_pre: AHBPrescaler::DIV1,
             apb_pre: APBPrescaler::DIV1,
             low_power_run: false,
@@ -202,8 +202,8 @@ pub(crate) unsafe fn init(config: Config) {
     let mut pll1_q_freq = None;
     let mut pll1_p_freq = None;
 
-    let (sys_clk, sw) = match config.mux {
-        ClockSrc::HSI(div) => {
+    let (sys_clk, sw) = match config.sys {
+        Sysclk::HSI(div) => {
             // Enable HSI
             RCC.cr().write(|w| {
                 w.set_hsidiv(div);
@@ -213,7 +213,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             (HSI_FREQ / div, Sw::HSI)
         }
-        ClockSrc::HSE(freq, mode) => {
+        Sysclk::HSE(freq, mode) => {
             // Enable HSE
             RCC.cr().write(|w| {
                 w.set_hseon(true);
@@ -223,7 +223,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             (freq, Sw::HSE)
         }
-        ClockSrc::PLL(pll) => {
+        Sysclk::PLL(pll) => {
             let (r_freq, q_freq, p_freq) = pll.init();
 
             pll1_q_freq = q_freq;
@@ -231,7 +231,7 @@ pub(crate) unsafe fn init(config: Config) {
 
             (r_freq, Sw::PLL1_R)
         }
-        ClockSrc::LSI => {
+        Sysclk::LSI => {
             // Enable LSI
             RCC.csr().write(|w| w.set_lsion(true));
             while !RCC.csr().read().lsirdy() {}

@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
             divq: None,
             divr: Some(PllDiv::DIV1), // 160 MHz
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.voltage_range = VoltageScale::RANGE1;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
     }

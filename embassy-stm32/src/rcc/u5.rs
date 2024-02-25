@@ -1,7 +1,7 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange, Msirange as MSIRange, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
-    Pllsrc as PllSource, Ppre as APBPrescaler, Sw as ClockSrc,
+    Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Hseext, Msirgsel, Pllmboost, Pllrge};
 use crate::pac::{FLASH, PWR, RCC};
@@ -72,7 +72,7 @@ pub struct Config {
     pub pll3: Option<Pll>,
 
     // sysclk, buses.
-    pub mux: ClockSrc,
+    pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
@@ -97,7 +97,7 @@ impl Default for Config {
             pll1: None,
             pll2: None,
             pll3: None,
-            mux: ClockSrc::MSIS,
+            sys: Sysclk::MSIS,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
@@ -181,11 +181,11 @@ pub(crate) unsafe fn init(config: Config) {
     let pll2 = init_pll(PllInstance::Pll2, config.pll2, &pll_input, config.voltage_range);
     let pll3 = init_pll(PllInstance::Pll3, config.pll3, &pll_input, config.voltage_range);
 
-    let sys_clk = match config.mux {
-        ClockSrc::HSE => hse.unwrap(),
-        ClockSrc::HSI => hsi.unwrap(),
-        ClockSrc::MSIS => msi.unwrap(),
-        ClockSrc::PLL1_R => pll1.r.unwrap(),
+    let sys_clk = match config.sys {
+        Sysclk::HSE => hse.unwrap(),
+        Sysclk::HSI => hsi.unwrap(),
+        Sysclk::MSIS => msi.unwrap(),
+        Sysclk::PLL1_R => pll1.r.unwrap(),
     };
 
     // Do we need the EPOD booster to reach the target clock speed per § 10.5.4?
@@ -230,8 +230,8 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     // Switch the system clock source
-    RCC.cfgr1().modify(|w| w.set_sw(config.mux));
-    while RCC.cfgr1().read().sws() != config.mux {}
+    RCC.cfgr1().modify(|w| w.set_sw(config.sys));
+    while RCC.cfgr1().read().sws() != config.sys {}
 
     // Configure the bus prescalers
     RCC.cfgr2().modify(|w| {

@@ -527,7 +527,7 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32l496zg", feature = "stm32l4a6zg", feature = "stm32l4r5zi"))]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
@@ -547,7 +547,7 @@ pub fn config() -> Config {
             mode: HseMode::Bypass,
             prescaler: HsePrescaler::DIV1,
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSE,
             prediv: PllPreDiv::DIV2,
@@ -562,7 +562,7 @@ pub fn config() -> Config {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.pll = Some(Pll {
             // 110Mhz clock (16 / 4 * 55 / 2)
             source: PllSource::HSI,
@@ -586,7 +586,7 @@ pub fn config() -> Config {
             divq: None,
             divr: Some(PllDiv::DIV1), // 160 MHz
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.voltage_range = VoltageScale::RANGE1;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
     }
@@ -594,7 +594,7 @@ pub fn config() -> Config {
     #[cfg(feature = "stm32wba52cg")]
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::HSI;
+        config.rcc.sys = Sysclk::HSI;
 
         embassy_stm32::pac::RCC.ccipr2().write(|w| {
             w.set_rngsel(embassy_stm32::pac::rcc::vals::Rngsel::HSI);
@@ -610,7 +610,7 @@ pub fn config() -> Config {
             mul: PllMul::MUL4,
             div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
     }
 
     #[cfg(any(feature = "stm32l152re"))]
@@ -622,7 +622,7 @@ pub fn config() -> Config {
             mul: PllMul::MUL4,
             div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
     }
 
     config

@@ -9,7 +9,7 @@ pub const HSI_FREQ: Hertz = Hertz(48_000_000);
 
 /// System clock mux source
 #[derive(Clone, Copy)]
-pub enum ClockSrc {
+pub enum Sysclk {
     HSE(Hertz),
     HSI(HSIPrescaler),
     LSI,
@@ -17,7 +17,7 @@ pub enum ClockSrc {
 
 /// Clocks configutation
 pub struct Config {
-    pub mux: ClockSrc,
+    pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
     pub apb_pre: APBPrescaler,
     pub ls: super::LsConfig,
@@ -27,7 +27,7 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            mux: ClockSrc::HSI(HSIPrescaler::DIV1),
+            sys: Sysclk::HSI(HSIPrescaler::DIV1),
             ahb_pre: AHBPrescaler::DIV1,
             apb_pre: APBPrescaler::DIV1,
             ls: Default::default(),
@@ -36,8 +36,8 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    let (sys_clk, sw) = match config.mux {
-        ClockSrc::HSI(div) => {
+    let (sys_clk, sw) = match config.sys {
+        Sysclk::HSI(div) => {
             // Enable HSI
             RCC.cr().write(|w| {
                 w.set_hsidiv(div);
@@ -47,14 +47,14 @@ pub(crate) unsafe fn init(config: Config) {
 
             (HSI_FREQ / div, Sw::HSI)
         }
-        ClockSrc::HSE(freq) => {
+        Sysclk::HSE(freq) => {
             // Enable HSE
             RCC.cr().write(|w| w.set_hseon(true));
             while !RCC.cr().read().hserdy() {}
 
             (freq, Sw::HSE)
         }
-        ClockSrc::LSI => {
+        Sysclk::LSI => {
             // Enable LSI
             RCC.csr2().write(|w| w.set_lsion(true));
             while !RCC.csr2().read().lsirdy() {}
