@@ -75,7 +75,7 @@ async fn main(spawner: Spawner) {
         use embassy_stm32::rcc::*;
         // 80Mhz clock (Source: 8 / SrcDiv: 1 * PllMul 20 / ClkDiv 2)
         // 80MHz highest frequency for flash 0 wait.
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.hse = Some(Hse {
             freq: Hertz::mhz(8),
             mode: HseMode::Oscillator,

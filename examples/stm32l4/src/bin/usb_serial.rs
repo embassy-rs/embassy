@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::default();
     config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.sys = Sysclk::PLL1_R;
     config.rcc.hsi = true;
     config.rcc.pll = Some(Pll {
         source: PllSource::HSI,

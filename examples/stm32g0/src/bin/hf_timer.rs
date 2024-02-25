@@ -5,7 +5,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::pac::rcc::vals::Tim1sel;
-use embassy_stm32::rcc::{ClockSrc, Config as RccConfig, PllConfig, PllSource, Pllm, Plln, Pllq, Pllr};
+use embassy_stm32::rcc::{Config as RccConfig, PllConfig, PllSource, Pllm, Plln, Pllq, Pllr, Sysclk};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
 use embassy_stm32::timer::simple_pwm::PwmPin;
@@ -16,7 +16,7 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut rcc_config = RccConfig::default();
-    rcc_config.mux = ClockSrc::PLL(PllConfig {
+    rcc_config.sys = Sysclk::PLL(PllConfig {
         source: PllSource::HSI,
         m: Pllm::DIV1,
         n: Plln::MUL16,

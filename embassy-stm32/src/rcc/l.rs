@@ -7,7 +7,7 @@ pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
 pub use crate::pac::rcc::vals::Clk48sel as Clk48Src;
 #[cfg(any(stm32wb, stm32wl))]
 pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange as MSIRange, Ppre as APBPrescaler, Sw as ClockSrc};
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange as MSIRange, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -50,7 +50,7 @@ pub struct Config {
     pub pllsai2: Option<Pll>,
 
     // sysclk, buses.
-    pub mux: ClockSrc,
+    pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
@@ -80,7 +80,7 @@ impl Default for Config {
             hse: None,
             hsi: false,
             msi: Some(MSIRange::RANGE4M),
-            mux: ClockSrc::MSI,
+            sys: Sysclk::MSI,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
@@ -113,7 +113,7 @@ pub const WPAN_DEFAULT: Config = Config {
         mode: HseMode::Oscillator,
         prescaler: HsePrescaler::DIV1,
     }),
-    mux: ClockSrc::PLL1_R,
+    sys: Sysclk::PLL1_R,
     #[cfg(crs)]
     hsi48: Some(super::Hsi48Config { sync_from_usb: false }),
     msi: None,
@@ -161,11 +161,11 @@ pub(crate) unsafe fn init(config: Config) {
         // Turn on MSI and configure it to 4MHz.
         msi_enable(MSIRange::RANGE4M)
     }
-    if RCC.cfgr().read().sws() != ClockSrc::MSI {
+    if RCC.cfgr().read().sws() != Sysclk::MSI {
         // Set MSI as a clock source, reset prescalers.
         RCC.cfgr().write_value(Cfgr::default());
         // Wait for clock switch status bits to change.
-        while RCC.cfgr().read().sws() != ClockSrc::MSI {}
+        while RCC.cfgr().read().sws() != Sysclk::MSI {}
     }
 
     // Set voltage scale
@@ -260,11 +260,11 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
     let pllsai2 = init_pll(PllInstance::Pllsai2, config.pllsai2, &pll_input);
 
-    let sys_clk = match config.mux {
-        ClockSrc::HSE => hse.unwrap(),
-        ClockSrc::HSI => hsi.unwrap(),
-        ClockSrc::MSI => msi.unwrap(),
-        ClockSrc::PLL1_R => pll.r.unwrap(),
+    let sys_clk = match config.sys {
+        Sysclk::HSE => hse.unwrap(),
+        Sysclk::HSI => hsi.unwrap(),
+        Sysclk::MSI => msi.unwrap(),
+        Sysclk::PLL1_R => pll.r.unwrap(),
     };
 
     #[cfg(any(rcc_l0_v2, stm32l4, stm32l5, stm32wb))]
@@ -350,12 +350,12 @@ pub(crate) unsafe fn init(config: Config) {
     while FLASH.acr().read().latency() != latency {}
 
     RCC.cfgr().modify(|w| {
-        w.set_sw(config.mux);
+        w.set_sw(config.sys);
         w.set_hpre(config.ahb_pre);
         w.set_ppre1(config.apb1_pre);
         w.set_ppre2(config.apb2_pre);
     });
-    while RCC.cfgr().read().sws() != config.mux {}
+    while RCC.cfgr().read().sws() != config.sys {}
 
     #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl))]
     RCC.ccipr().modify(|w| w.set_adcsel(config.adc_clock_source));

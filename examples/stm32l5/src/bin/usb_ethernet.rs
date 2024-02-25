@@ -45,7 +45,7 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.hsi = true;
-    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.sys = Sysclk::PLL1_R;
     config.rcc.pll = Some(Pll {
         // 80Mhz clock (16 / 1 * 10 / 2)
         source: PllSource::HSI,
