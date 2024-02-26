@@ -210,7 +210,7 @@ pub(crate) unsafe fn init(config: Config) {
     });
 
     #[cfg(stm32f3)]
-    let pll_mul_2 = pll.map(|pll| pll * 2u32 );
+    let pll_mul_2 = pll.map(|pll| pll * 2u32);
 
     #[cfg(any(rcc_f1, rcc_f1cl, stm32f3))]
     let usb = match pll {
