@@ -12,7 +12,7 @@ embassy-executor = { version = "0.5.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-usbd-hid = "0.6.0"
+usbd-hid = "0.7.0"
 
 defmt = "0.3"
 defmt-rtt = "0.4"

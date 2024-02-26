@@ -28,7 +28,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.1"
-usbd-hid = "0.6.0"
+usbd-hid = "0.7.0"
 serde = { version = "1.0.136", default-features = false }
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
