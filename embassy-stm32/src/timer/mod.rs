@@ -464,6 +464,9 @@ pub(crate) mod sealed {
     pub trait AdvancedControlInstance:
         GeneralPurpose2ChannelComplementaryInstance + GeneralPurpose16bitInstance
     {
+        /// Capture compare interrupt for this timer.
+        type CaptureCompareInterrupt: interrupt::typelevel::Interrupt;
+
         /// Get access to the advanced timer registers.
         fn regs_advanced() -> crate::pac::timer::TimAdv;
 
@@ -831,8 +834,10 @@ macro_rules! impl_2ch_cmp_timer {
 
 #[allow(unused)]
 macro_rules! impl_adv_timer {
-    ($inst:ident) => {
+    ($inst:ident, $irq:ident) => {
         impl sealed::AdvancedControlInstance for crate::peripherals::$inst {
+            type CaptureCompareInterrupt = crate::interrupt::typelevel::$irq;
+
             fn regs_advanced() -> crate::pac::timer::TimAdv {
                 unsafe { crate::pac::timer::TimAdv::from_ptr(crate::pac::$inst.as_ptr()) }
             }
@@ -905,10 +910,12 @@ foreach_interrupt! {
         impl_gp16_timer!($inst);
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
-        impl_adv_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
+    };
+    ($inst:ident, timer, TIM_1CH_CMP, CC, $irq:ident) => {
+        impl_adv_timer!($inst, $irq);
     };
 
 
@@ -921,10 +928,12 @@ foreach_interrupt! {
         impl_gp16_timer!($inst);
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
-        impl_adv_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
+    };
+    ($inst:ident, timer, TIM_2CH_CMP, CC, $irq:ident) => {
+        impl_adv_timer!($inst, $irq);
     };
 
 
@@ -937,10 +946,12 @@ foreach_interrupt! {
         impl_gp16_timer!($inst);
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
-        impl_adv_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
+    };
+    ($inst:ident, timer, TIM_ADV, CC, $irq:ident) => {
+        impl_adv_timer!($inst, $irq);
     };
 }
 

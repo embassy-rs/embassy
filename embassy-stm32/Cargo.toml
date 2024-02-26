@@ -130,6 +130,8 @@ _time-driver = ["dep:embassy-time-driver", "time"]
 
 ## Use any time driver
 time-driver-any = ["_time-driver"]
+## Use TIM1 as time driver
+time-driver-tim1 = ["_time-driver"]
 ## Use TIM2 as time driver
 time-driver-tim2 = ["_time-driver"]
 ## Use TIM3 as time driver
@@ -138,18 +140,24 @@ time-driver-tim3 = ["_time-driver"]
 time-driver-tim4 = ["_time-driver"]
 ## Use TIM5 as time driver
 time-driver-tim5 = ["_time-driver"]
+## Use TIM8 as time driver
+time-driver-tim8 = ["_time-driver"]
 ## Use TIM9 as time driver
 time-driver-tim9 = ["_time-driver"]
-## Use TIM11 as time driver
-time-driver-tim11 = ["_time-driver"]
 ## Use TIM12 as time driver
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
+## Use TIM20 as time driver
+time-driver-tim20 = ["_time-driver"]
 ## Use TIM21 as time driver
 time-driver-tim21 = ["_time-driver"]
 ## Use TIM22 as time driver
 time-driver-tim22 = ["_time-driver"]
+## Use TIM23 as time driver
+time-driver-tim23 = ["_time-driver"]
+## Use TIM24 as time driver
+time-driver-tim24 = ["_time-driver"]
 
 
 #! ## Analog Switch Pins (Pxy_C) on STM32H7 series
