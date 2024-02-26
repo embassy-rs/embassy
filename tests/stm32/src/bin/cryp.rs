@@ -59,9 +59,7 @@ async fn main(_spawner: Spawner) {
     let _ = cipher.encrypt_in_place(&iv.into(), &aad, &mut payload_vec);
 
     defmt::assert!(ciphertext == payload_vec[0..ciphertext.len()]);
-    defmt::assert!(
-        encrypt_tag == payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]
-    );
+    defmt::assert!(encrypt_tag == payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]);
 
     // Decrypt in software using AES-GCM 128-bit
     let _ = cipher.decrypt_in_place(&iv.into(), &aad, &mut payload_vec);
