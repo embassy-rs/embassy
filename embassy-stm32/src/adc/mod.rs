@@ -10,7 +10,7 @@
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
-#[cfg_attr(any(adc_v3, adc_g0), path = "v3.rs")]
+#[cfg_attr(any(adc_v3, adc_g0, adc_h5), path = "v3.rs")]
 #[cfg_attr(adc_v4, path = "v4.rs")]
 mod _version;
 
@@ -79,10 +79,10 @@ pub(crate) mod sealed {
 }
 
 /// ADC instance.
-#[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0)))]
+#[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0, adc_h5)))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> {}
 /// ADC instance.
-#[cfg(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0))]
+#[cfg(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0, adc_h5))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 
 /// ADC pin.
