@@ -10,22 +10,17 @@
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
-#[cfg_attr(any(adc_v3, adc_g0), path = "v3.rs")]
+#[cfg_attr(any(adc_v3, adc_g0, adc_h5), path = "v3.rs")]
 #[cfg_attr(adc_v4, path = "v4.rs")]
 mod _version;
-
-#[cfg(not(any(adc_f1, adc_f3_v2)))]
-mod resolution;
-mod sample_time;
 
 #[allow(unused)]
 #[cfg(not(adc_f3_v2))]
 pub use _version::*;
-#[cfg(not(any(adc_f1, adc_f3, adc_f3_v2)))]
-pub use resolution::Resolution;
-#[cfg(not(adc_f3_v2))]
-pub use sample_time::SampleTime;
 
+#[cfg(not(any(adc_f1, adc_f3_v2)))]
+pub use crate::pac::adc::vals::Res as Resolution;
+pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
 
 /// Analog to Digital driver.
@@ -79,10 +74,10 @@ pub(crate) mod sealed {
 }
 
 /// ADC instance.
-#[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0)))]
+#[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0, adc_h5)))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> {}
 /// ADC instance.
-#[cfg(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0))]
+#[cfg(any(adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_f3, adc_f3_v1_1, adc_g0, adc_h5))]
 pub trait Instance: sealed::Instance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {}
 
 /// ADC pin.
@@ -136,4 +131,28 @@ macro_rules! impl_adc_pin {
             }
         }
     };
+}
+
+/// Get the maximum reading value for this resolution.
+///
+/// This is `2**n - 1`.
+#[cfg(not(any(adc_f1, adc_f3_v2)))]
+pub const fn resolution_to_max_count(res: Resolution) -> u32 {
+    match res {
+        #[cfg(adc_v4)]
+        Resolution::BITS16 => (1 << 16) - 1,
+        #[cfg(adc_v4)]
+        Resolution::BITS14 => (1 << 14) - 1,
+        #[cfg(adc_v4)]
+        Resolution::BITS14V => (1 << 14) - 1,
+        #[cfg(adc_v4)]
+        Resolution::BITS12V => (1 << 12) - 1,
+        Resolution::BITS12 => (1 << 12) - 1,
+        Resolution::BITS10 => (1 << 10) - 1,
+        Resolution::BITS8 => (1 << 8) - 1,
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_g0, adc_f3, adc_f3_v1_1, adc_h5))]
+        Resolution::BITS6 => (1 << 6) - 1,
+        #[allow(unreachable_patterns)]
+        _ => core::unreachable!(),
+    }
 }

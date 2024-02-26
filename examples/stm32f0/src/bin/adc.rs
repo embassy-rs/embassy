@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC, Irqs, &mut Delay);
-    adc.set_sample_time(SampleTime::Cycles71_5);
+    adc.set_sample_time(SampleTime::CYCLES71_5);
     let mut pin = p.PA1;
 
     let mut vrefint = adc.enable_vref(&mut Delay);

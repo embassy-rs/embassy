@@ -365,5 +365,6 @@ pub(crate) unsafe fn init(config: Config) {
         pll1_q: pll1_q_freq,
         pll1_p: pll1_p_freq,
         rtc: rtc,
+        hsi_div_488: None,
     );
 }

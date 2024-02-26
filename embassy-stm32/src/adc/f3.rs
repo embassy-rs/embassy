@@ -97,7 +97,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
@@ -107,13 +107,13 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     pub fn sample_time_for_us(&self, us: u32) -> SampleTime {
         match us * Self::freq().0 / 1_000_000 {
-            0..=1 => SampleTime::Cycles1_5,
-            2..=4 => SampleTime::Cycles4_5,
-            5..=7 => SampleTime::Cycles7_5,
-            8..=19 => SampleTime::Cycles19_5,
-            20..=61 => SampleTime::Cycles61_5,
-            62..=181 => SampleTime::Cycles181_5,
-            _ => SampleTime::Cycles601_5,
+            0..=1 => SampleTime::CYCLES1_5,
+            2..=4 => SampleTime::CYCLES4_5,
+            5..=7 => SampleTime::CYCLES7_5,
+            8..=19 => SampleTime::CYCLES19_5,
+            20..=61 => SampleTime::CYCLES61_5,
+            62..=181 => SampleTime::CYCLES181_5,
+            _ => SampleTime::CYCLES601_5,
         }
     }
 

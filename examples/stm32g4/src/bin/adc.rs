@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC2, &mut Delay);
-    adc.set_sample_time(SampleTime::Cycles32_5);
+    adc.set_sample_time(SampleTime::CYCLES32_5);
 
     loop {
         let measured = adc.read(&mut p.PA7);

@@ -290,6 +290,8 @@ pub(crate) unsafe fn init(config: Config) {
         lsi: None,
         msik: None,
         iclk: None,
+        shsi: None,
+        shsi_div_2: None,
     );
 }
 
