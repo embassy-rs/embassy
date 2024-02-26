@@ -93,7 +93,7 @@ required-features = [ "can",]
 [[bin]]
 name = "cryp"
 path = "src/bin/cryp.rs"
-required-features = [ "hash",]
+required-features = [ "cryp",]
 
 [[bin]]
 name = "dac"
