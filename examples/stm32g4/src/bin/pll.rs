@@ -12,6 +12,7 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
+    config.rcc.hsi = true;
     config.rcc.pll = Some(Pll {
         source: Pllsrc::HSI,
         prediv: PllPreDiv::DIV4,

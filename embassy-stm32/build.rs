@@ -5,7 +5,9 @@ use std::{env, fs};
 
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
-use stm32_metapac::metadata::{MemoryRegionKind, PeripheralRccKernelClock, StopMode, METADATA};
+use stm32_metapac::metadata::{
+    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, METADATA,
+};
 
 fn main() {
     let target = env::var("TARGET").unwrap();
@@ -374,12 +376,130 @@ fn main() {
         }
     }
 
-    let force_refcount = HashSet::from(["usart"]);
-    let mut refcount_statics = BTreeSet::new();
+    struct ClockGen<'a> {
+        rcc_registers: &'a PeripheralRegisters,
+        chained_muxes: HashMap<&'a str, &'a PeripheralRccRegister>,
+        force_refcount: HashSet<&'a str>,
 
-    let mut clock_names = BTreeSet::new();
+        refcount_statics: BTreeSet<Ident>,
+        clock_names: BTreeSet<String>,
+        muxes: BTreeSet<(Ident, Ident, Ident)>,
+    }
 
-    let mut rcc_cfgr_regs = BTreeSet::new();
+    let mut clock_gen = ClockGen {
+        rcc_registers,
+        chained_muxes: HashMap::new(),
+        force_refcount: HashSet::from(["usart"]),
+
+        refcount_statics: BTreeSet::new(),
+        clock_names: BTreeSet::new(),
+        muxes: BTreeSet::new(),
+    };
+    if chip_name.starts_with("stm32h5") {
+        clock_gen.chained_muxes.insert(
+            "PER",
+            &PeripheralRccRegister {
+                register: "CCIPR5",
+                field: "PERSEL",
+            },
+        );
+    }
+    if chip_name.starts_with("stm32h7") {
+        clock_gen.chained_muxes.insert(
+            "PER",
+            &PeripheralRccRegister {
+                register: "D1CCIPR",
+                field: "PERSEL",
+            },
+        );
+    }
+    if chip_name.starts_with("stm32u5") {
+        clock_gen.chained_muxes.insert(
+            "ICLK",
+            &PeripheralRccRegister {
+                register: "CCIPR1",
+                field: "ICLKSEL",
+            },
+        );
+    }
+    if chip_name.starts_with("stm32wb") && !chip_name.starts_with("stm32wba") {
+        clock_gen.chained_muxes.insert(
+            "CLK48",
+            &PeripheralRccRegister {
+                register: "CCIPR",
+                field: "CLK48SEL",
+            },
+        );
+    }
+    if chip_name.starts_with("stm32f7") {
+        clock_gen.chained_muxes.insert(
+            "CLK48",
+            &PeripheralRccRegister {
+                register: "DCKCFGR2",
+                field: "CLK48SEL",
+            },
+        );
+    }
+    if chip_name.starts_with("stm32f4") && !chip_name.starts_with("stm32f410") {
+        clock_gen.chained_muxes.insert(
+            "CLK48",
+            &PeripheralRccRegister {
+                register: "DCKCFGR",
+                field: "CLK48SEL",
+            },
+        );
+    }
+
+    impl<'a> ClockGen<'a> {
+        fn gen_clock(&mut self, name: &str) -> TokenStream {
+            let clock_name = format_ident!("{}", name.to_ascii_lowercase());
+            self.clock_names.insert(name.to_ascii_lowercase());
+            quote!( unsafe { crate::rcc::get_freqs().#clock_name.unwrap() } )
+        }
+
+        fn gen_mux(&mut self, mux: &PeripheralRccRegister) -> TokenStream {
+            let ir = &self.rcc_registers.ir;
+            let fieldset_name = mux.register.to_ascii_lowercase();
+            let fieldset = ir
+                .fieldsets
+                .iter()
+                .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
+                .unwrap();
+            let field_name = mux.field.to_ascii_lowercase();
+            let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+            let enum_name = field.enumm.unwrap();
+            let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
+
+            let fieldset_name = format_ident!("{}", fieldset_name);
+            let field_name = format_ident!("{}", field_name);
+            let enum_name = format_ident!("{}", enum_name);
+
+            self.muxes
+                .insert((fieldset_name.clone(), field_name.clone(), enum_name.clone()));
+
+            let mut match_arms = TokenStream::new();
+
+            for v in enumm.variants.iter().filter(|v| v.name != "DISABLE") {
+                let variant_name = format_ident!("{}", v.name);
+                let expr = if let Some(mux) = self.chained_muxes.get(&v.name) {
+                    self.gen_mux(mux)
+                } else {
+                    self.gen_clock(&v.name)
+                };
+                match_arms.extend(quote! {
+                    crate::pac::rcc::vals::#enum_name::#variant_name => #expr,
+                });
+            }
+
+            quote! {
+                match crate::pac::RCC.#fieldset_name().read().#field_name() {
+                    #match_arms
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
+                }
+            }
+        }
+    }
 
     for p in METADATA.peripherals {
         if !singletons.contains(&p.name.to_string()) {
@@ -416,12 +536,12 @@ fn main() {
             let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
 
             let refcount =
-                force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
+                clock_gen.force_refcount.contains(ptype) || *rcc_field_count.get(&(en.register, en.field)).unwrap() > 1;
             let (before_enable, before_disable) = if refcount {
                 let refcount_static =
                     format_ident!("{}_{}", en.register.to_ascii_uppercase(), en.field.to_ascii_uppercase());
 
-                refcount_statics.insert(refcount_static.clone());
+                clock_gen.refcount_statics.insert(refcount_static.clone());
 
                 (
                     quote! {
@@ -442,63 +562,12 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => {
-                    let ir = &rcc_registers.ir;
-                    let fieldset_name = mux.register.to_ascii_lowercase();
-                    let fieldset = ir
-                        .fieldsets
-                        .iter()
-                        .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
-                        .unwrap();
-                    let field_name = mux.field.to_ascii_lowercase();
-                    let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
-                    let enum_name = field.enumm.unwrap();
-                    let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
-
-                    let fieldset_name = format_ident!("{}", fieldset_name);
-                    let field_name = format_ident!("{}", field_name);
-                    let enum_name = format_ident!("{}", enum_name);
-
-                    rcc_cfgr_regs.insert((fieldset_name.clone(), field_name.clone(), enum_name.clone()));
-
-                    let match_arms: TokenStream = enumm
-                        .variants
-                        .iter()
-                        .filter(|v| v.name != "DISABLE")
-                        .map(|v| {
-                            let variant_name = format_ident!("{}", v.name);
-                            let clock_name = format_ident!("{}", v.name.to_ascii_lowercase());
-                            clock_names.insert(v.name.to_ascii_lowercase());
-                            quote! {
-                                #enum_name::#variant_name => unsafe { crate::rcc::get_freqs().#clock_name.unwrap() },
-                            }
-                        })
-                        .collect();
-
-                    quote! {
-                        use crate::pac::rcc::vals::#enum_name;
-
-                        #[allow(unreachable_patterns)]
-                        match crate::pac::RCC.#fieldset_name().read().#field_name() {
-                            #match_arms
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-                PeripheralRccKernelClock::Clock(clock) => {
-                    let clock = clock.to_ascii_lowercase();
-                    let clock_name = format_ident!("{}", clock);
-                    clock_names.insert(clock.to_string());
-                    quote! {
-                        unsafe { crate::rcc::get_freqs().#clock_name.unwrap() }
-                    }
-                }
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(mux),
+                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(clock),
             };
 
-            /*
-                A refcount leak can result if the same field is shared by peripherals with different stop modes
-                This condition should be checked in stm32-data
-            */
+            // A refcount leak can result if the same field is shared by peripherals with different stop modes
+            // This condition should be checked in stm32-data
             let stop_refcount = match rcc.stop_mode {
                 StopMode::Standby => None,
                 StopMode::Stop2 => Some(quote! { REFCOUNT_STOP2 }),
@@ -543,74 +612,79 @@ fn main() {
         }
     }
 
-    if !rcc_cfgr_regs.is_empty() {
-        println!("cargo:rustc-cfg=clock_mux");
+    let struct_fields: Vec<_> = clock_gen
+        .muxes
+        .iter()
+        .map(|(_fieldset, fieldname, enum_name)| {
+            quote! {
+                pub #fieldname: #enum_name
+            }
+        })
+        .collect();
 
-        let struct_fields: Vec<_> = rcc_cfgr_regs
+    let mut inits = TokenStream::new();
+    for fieldset in clock_gen
+        .muxes
+        .iter()
+        .map(|(f, _, _)| f)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+    {
+        let setters: Vec<_> = clock_gen
+            .muxes
             .iter()
-            .map(|(_fieldset, fieldname, enum_name)| {
-                quote! {
-                    pub #fieldname: Option<#enum_name>
-                }
-            })
-            .collect();
-
-        let field_names: Vec<_> = rcc_cfgr_regs
-            .iter()
-            .map(|(_fieldset, fieldname, _enum_name)| fieldname)
-            .collect();
-
-        let inits: Vec<_> = rcc_cfgr_regs
-            .iter()
-            .map(|(fieldset, fieldname, _enum_name)| {
+            .filter(|(f, _, _)| f == fieldset)
+            .map(|(_, fieldname, _)| {
                 let setter = format_ident!("set_{}", fieldname);
                 quote! {
-                    match self.#fieldname {
-                        None => {}
-                        Some(val) => {
-                            crate::pac::RCC.#fieldset()
-                                .modify(|w| w.#setter(val));
-                        }
-                    };
+                    w.#setter(self.#fieldname);
                 }
             })
             .collect();
 
-        let enum_names: BTreeSet<_> = rcc_cfgr_regs
-            .iter()
-            .map(|(_fieldset, _fieldname, enum_name)| enum_name)
-            .collect();
-
-        g.extend(quote! {
-            pub mod mux {
-                #(pub use crate::pac::rcc::vals::#enum_names as #enum_names; )*
-
-                #[derive(Clone, Copy)]
-                pub struct ClockMux {
-                    #( #struct_fields, )*
-                }
-
-                impl Default for ClockMux {
-                    fn default() -> Self {
-                        Self {
-                            #( #field_names: None, )*
-                        }
-                    }
-                }
-
-                impl ClockMux {
-                    pub fn init(self) {
-                        #( #inits )*
-                    }
-                }
-            }
-        });
+        inits.extend(quote! {
+            crate::pac::RCC.#fieldset().modify(|w| {
+                #(#setters)*
+            });
+        })
     }
 
+    let enum_names: BTreeSet<_> = clock_gen.muxes.iter().map(|(_, _, enum_name)| enum_name).collect();
+
+    g.extend(quote! {
+        pub mod mux {
+            #(pub use crate::pac::rcc::vals::#enum_names as #enum_names; )*
+
+            #[derive(Clone, Copy)]
+            pub struct ClockMux {
+                #( #struct_fields, )*
+            }
+
+            impl ClockMux {
+                pub(crate) const fn default() -> Self {
+                    // safety: zero value is valid for all PAC enums.
+                    unsafe { ::core::mem::zeroed() }
+                }
+            }
+
+            impl Default for ClockMux {
+                fn default() -> Self {
+                    Self::default()
+                }
+            }
+
+            impl ClockMux {
+                pub(crate) fn init(&self) {
+                    #inits
+                }
+            }
+        }
+    });
+
     // Generate RCC
-    clock_names.insert("sys".to_string());
-    clock_names.insert("rtc".to_string());
-    let clock_idents: Vec<_> = clock_names.iter().map(|n| format_ident!("{}", n)).collect();
+    clock_gen.clock_names.insert("sys".to_string());
+    clock_gen.clock_names.insert("rtc".to_string());
+    let clock_idents: Vec<_> = clock_gen.clock_names.iter().map(|n| format_ident!("{}", n)).collect();
     g.extend(quote! {
         #[derive(Clone, Copy, Debug)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -640,7 +714,8 @@ fn main() {
         }
     );
 
-    let refcount_mod: TokenStream = refcount_statics
+    let refcount_mod: TokenStream = clock_gen
+        .refcount_statics
         .iter()
         .map(|refcount_static| {
             quote! {

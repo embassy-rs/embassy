@@ -3,6 +3,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::*;
+use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, can, Config};
 use embassy_time::Timer;
 use static_cell::StaticCell;
@@ -15,8 +16,24 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let config = Config::default();
-
+    let mut config = Config::default();
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(24_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll = Some(Pll {
+            source: Pllsrc::HSE,
+            prediv: PllPreDiv::DIV6,
+            mul: PllMul::MUL85,
+            divp: None,
+            divq: Some(PllQDiv::DIV8), // 42.5 Mhz for fdcan.
+            divr: Some(PllRDiv::DIV2), // Main system clock at 170 MHz
+        });
+        config.rcc.mux.fdcansel = mux::Fdcansel::PLL1_Q;
+        config.rcc.sys = Sysclk::PLL1_R;
+    }
     let peripherals = embassy_stm32::init(config);
 
     let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PA11, peripherals.PA12, Irqs);

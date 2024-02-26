@@ -98,8 +98,8 @@ pub struct Config {
     #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
     pub adc34: AdcClockSource,
 
-    #[cfg(clock_mux)]
-    pub mux: crate::rcc::mux::ClockMux,
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 
     pub ls: super::LsConfig,
 }
@@ -128,7 +128,6 @@ impl Default for Config {
             #[cfg(all(stm32f3, not(rcc_f37), adc3_common))]
             adc34: AdcClockSource::Hclk(AdcHclkPrescaler::Div1),
 
-            #[cfg(clock_mux)]
             mux: Default::default(),
         }
     }
@@ -370,7 +369,6 @@ pub(crate) unsafe fn init(config: Config) {
     };
      */
 
-    #[cfg(clock_mux)]
     config.mux.init();
 
     set_clocks!(

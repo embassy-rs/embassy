@@ -1,8 +1,6 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
-pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk,
-};
+pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -32,9 +30,10 @@ pub struct Config {
     // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
 
-    pub adc_clock_source: AdcClockSource,
-
     pub voltage_scale: VoltageScale,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
@@ -49,8 +48,8 @@ impl Default for Config {
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
             ls: Default::default(),
-            adc_clock_source: AdcClockSource::HCLK4,
             voltage_scale: VoltageScale::RANGE2,
+            mux: Default::default(),
         }
     }
 }
@@ -152,7 +151,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
 
-    RCC.ccipr3().modify(|w| w.set_adcsel(config.adc_clock_source));
+    config.mux.init();
 
     set_clocks!(
         sys: Some(sys_clk),

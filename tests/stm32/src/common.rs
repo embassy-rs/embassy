@@ -2,6 +2,8 @@
 
 pub use defmt::*;
 #[allow(unused)]
+use embassy_stm32::rcc::*;
+#[allow(unused)]
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
@@ -265,7 +267,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f091rc")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
@@ -281,7 +282,6 @@ pub fn config() -> Config {
     }
     #[cfg(feature = "stm32f103c8")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Oscillator,
@@ -298,7 +298,6 @@ pub fn config() -> Config {
     }
     #[cfg(feature = "stm32f207zg")]
     {
-        use embassy_stm32::rcc::*;
         // By default, HSE on the board comes from a 8 MHz clock signal (not a crystal)
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
@@ -327,7 +326,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f303ze")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
@@ -345,7 +343,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f429zi")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
@@ -366,7 +363,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f446re")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Oscillator,
@@ -387,7 +383,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f767zi")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
@@ -408,7 +403,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32h563zi")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = None;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.hse = Some(Hse {
@@ -433,7 +427,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32h503rb")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = None;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.hse = Some(Hse {
@@ -456,9 +449,26 @@ pub fn config() -> Config {
         config.rcc.voltage_scale = VoltageScale::Scale0;
     }
 
+    #[cfg(feature = "stm32g491re")]
+    {
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(24_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll = Some(Pll {
+            source: Pllsrc::HSE,
+            prediv: PllPreDiv::DIV6,
+            mul: PllMul::MUL85,
+            divp: None,
+            divq: Some(PllQDiv::DIV8), // 42.5 Mhz for fdcan.
+            divr: Some(PllRDiv::DIV2), // Main system clock at 170 MHz
+        });
+        config.rcc.mux.fdcansel = mux::Fdcansel::PLL1_Q;
+        config.rcc.sys = Sysclk::PLL1_R;
+    }
+
     #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
@@ -485,7 +495,7 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
         #[cfg(any(feature = "stm32h755zi"))]
         {
             config.rcc.supply_config = SupplyConfig::DirectSMPS;
@@ -494,7 +504,6 @@ pub fn config() -> Config {
 
     #[cfg(any(feature = "stm32h7a3zi"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
@@ -521,12 +530,11 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 140 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 140 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale0;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
 
     #[cfg(any(feature = "stm32l496zg", feature = "stm32l4a6zg", feature = "stm32l4r5zi"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
@@ -541,7 +549,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32wl55jc")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(32_000_000),
             mode: HseMode::Bypass,
@@ -560,7 +567,6 @@ pub fn config() -> Config {
 
     #[cfg(any(feature = "stm32l552ze"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.pll = Some(Pll {
@@ -576,7 +582,6 @@ pub fn config() -> Config {
 
     #[cfg(any(feature = "stm32u585ai", feature = "stm32u5a5zj"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll1 = Some(Pll {
             source: PllSource::HSI, // 16 MHz
@@ -593,17 +598,12 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32wba52cg")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.sys = Sysclk::HSI;
-
-        embassy_stm32::pac::RCC.ccipr2().write(|w| {
-            w.set_rngsel(embassy_stm32::pac::rcc::vals::Rngsel::HSI);
-        });
+        config.rcc.mux.rngsel = mux::Rngsel::HSI;
     }
 
     #[cfg(feature = "stm32l073rz")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
@@ -615,7 +615,6 @@ pub fn config() -> Config {
 
     #[cfg(any(feature = "stm32l152re"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
