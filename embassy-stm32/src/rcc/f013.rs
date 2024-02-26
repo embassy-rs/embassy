@@ -379,6 +379,7 @@ pub(crate) unsafe fn init(config: Config) {
         pll1_p: pll,
         #[cfg(stm32f3)]
         pll1_p_mul_2: pll_mul_2,
+        hsi_div_244: hsi.map(|h| h / 244u32),
         sys: Some(sys),
         pclk1: Some(pclk1),
         pclk2: Some(pclk2),

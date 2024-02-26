@@ -79,20 +79,20 @@ impl Format {
     #[cfg(any(spi_v1, spi_f1))]
     const fn datlen(&self) -> vals::Datlen {
         match self {
-            Format::Data16Channel16 => vals::Datlen::SIXTEENBIT,
-            Format::Data16Channel32 => vals::Datlen::SIXTEENBIT,
-            Format::Data24Channel32 => vals::Datlen::TWENTYFOURBIT,
-            Format::Data32Channel32 => vals::Datlen::THIRTYTWOBIT,
+            Format::Data16Channel16 => vals::Datlen::BITS16,
+            Format::Data16Channel32 => vals::Datlen::BITS16,
+            Format::Data24Channel32 => vals::Datlen::BITS24,
+            Format::Data32Channel32 => vals::Datlen::BITS32,
         }
     }
 
     #[cfg(any(spi_v1, spi_f1))]
     const fn chlen(&self) -> vals::Chlen {
         match self {
-            Format::Data16Channel16 => vals::Chlen::SIXTEENBIT,
-            Format::Data16Channel32 => vals::Chlen::THIRTYTWOBIT,
-            Format::Data24Channel32 => vals::Chlen::THIRTYTWOBIT,
-            Format::Data32Channel32 => vals::Chlen::THIRTYTWOBIT,
+            Format::Data16Channel16 => vals::Chlen::BITS16,
+            Format::Data16Channel32 => vals::Chlen::BITS32,
+            Format::Data24Channel32 => vals::Chlen::BITS32,
+            Format::Data32Channel32 => vals::Chlen::BITS32,
         }
     }
 }
