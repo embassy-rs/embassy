@@ -102,7 +102,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
@@ -259,8 +259,8 @@ impl<'d, T: Instance> Adc<'d, T> {
             } else {
                 let sample_time = sample_time.into();
                 T::regs()
-                    .smpr(ch as usize / 10)
-                    .modify(|reg| reg.set_smp(ch as usize % 10, sample_time));
+                    .smpr(_ch as usize / 10)
+                    .modify(|reg| reg.set_smp(_ch as usize % 10, sample_time));
             }
         }
     }
