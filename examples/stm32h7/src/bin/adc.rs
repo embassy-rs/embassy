@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
 
     let mut adc = Adc::new(p.ADC3, &mut Delay);
 
-    adc.set_sample_time(SampleTime::Cycles32_5);
+    adc.set_sample_time(SampleTime::CYCLES32_5);
 
     let mut vrefint_channel = adc.enable_vrefint();
 

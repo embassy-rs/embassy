@@ -288,6 +288,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         clk48: pll.q,
 
+        hsi_div488: hsi.map(|hsi| hsi/488u32),
         hsi_hse: None,
         afif: None,
     );

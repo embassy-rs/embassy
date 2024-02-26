@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) -> ! {
     let mut adc = Adc::new(p.ADC2, Irqs, &mut Delay);
     let mut opamp = OpAmp::new(p.OPAMP2);
 
-    adc.set_sample_time(SampleTime::Cycles601_5);
+    adc.set_sample_time(SampleTime::CYCLES601_5);
 
     info!("enable vrefint...");
 

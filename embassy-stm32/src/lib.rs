@@ -218,6 +218,11 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
+            #[cfg(any(dbgmcu_h5))]
+            {
+                cr.set_stop(config.enable_debug_during_sleep);
+                cr.set_standby(config.enable_debug_during_sleep);
+            }
             #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5, dbgmcu_wba, dbgmcu_l5))]
             {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);

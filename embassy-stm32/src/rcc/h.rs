@@ -617,6 +617,7 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hsi48: hsi48,
         csi: csi,
+        csi_div_122: csi.map(|c| c / 122u32),
         hse: hse,
 
         lse: None,
