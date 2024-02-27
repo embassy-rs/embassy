@@ -292,8 +292,6 @@ pub struct FdFrame {
 }
 
 impl FdFrame {
-    pub(crate) const MAX_DATA_LEN: usize = 64;
-
     /// Create a new CAN classic Frame
     pub fn new(can_header: Header, data: FdData) -> FdFrame {
         FdFrame { can_header, data }

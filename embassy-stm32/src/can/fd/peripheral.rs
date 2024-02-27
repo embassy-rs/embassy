@@ -62,11 +62,6 @@ impl Registers {
     }
 
     pub fn put_tx_frame(&self, bufidx: usize, header: &Header, buffer: &[u8]) {
-        // Fill level - do we have a msg?
-        //if self.regs.rxfs(fifonr).read().ffl() < 1 { return None; }
-
-        //let read_idx = self.regs.rxfs(fifonr).read().fgi();
-
         let mailbox = self.tx_buffer_element(bufidx);
 
         mailbox.reset();
@@ -169,9 +164,6 @@ impl Registers {
     }
 
     #[inline]
-    //fn abort_pending_mailbox<PTX, R>(&mut self, idx: Mailbox, pending: PTX) -> Option<R>
-//where
-    //    PTX: FnOnce(Mailbox, TxFrameHeader, &[u32]) -> R,
     pub fn abort_pending_mailbox_generic<F: embedded_can::Frame>(&self, bufidx: usize) -> Option<F> {
         if self.abort(bufidx) {
             let mailbox = self.tx_buffer_element(bufidx);
@@ -187,7 +179,6 @@ impl Registers {
                 return None;
             }
 
-            //let tx_ram = self.tx_msg_ram();
             let mut data = [0u8; 64];
             data_from_tx_buffer(&mut data, mailbox, len as usize);
 
@@ -205,9 +196,6 @@ impl Registers {
         }
     }
 
-    /// As Transmit, but if there is a pending frame, `pending` will be called so that the frame can
-    /// be preserved.
-    //pub fn transmit_preserve<PTX, P>(
     pub fn write<F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> nb::Result<Option<F>, Infallible> {
         let queue_is_full = self.tx_queue_is_full();
 
@@ -459,8 +447,6 @@ impl Registers {
     /// parameter to this method.
     #[inline]
     pub fn set_nominal_bit_timing(&mut self, btr: NominalBitTiming) {
-        //self.control.config.nbtr = btr;
-
         self.regs.nbtp().write(|w| {
             w.set_nbrp(btr.nbrp() - 1);
             w.set_ntseg1(btr.ntseg1() - 1);
@@ -473,8 +459,6 @@ impl Registers {
     /// This is not used when frame_transmit is set to anything other than AllowFdCanAndBRS.
     #[inline]
     pub fn set_data_bit_timing(&mut self, btr: DataBitTiming) {
-        //self.control.config.dbtr = btr;
-
         self.regs.dbtp().write(|w| {
             w.set_dbrp(btr.dbrp() - 1);
             w.set_dtseg1(btr.dtseg1() - 1);
@@ -492,7 +476,6 @@ impl Registers {
     #[inline]
     pub fn set_automatic_retransmit(&mut self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_dar(!enabled));
-        //self.control.config.automatic_retransmit = enabled;
     }
 
     /// Configures the transmit pause feature. See
@@ -500,21 +483,18 @@ impl Registers {
     #[inline]
     pub fn set_transmit_pause(&mut self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_txp(!enabled));
-        //self.control.config.transmit_pause = enabled;
     }
 
     /// Configures non-iso mode. See [`FdCanConfig::set_non_iso_mode`]
     #[inline]
     pub fn set_non_iso_mode(&mut self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_niso(enabled));
-        //self.control.config.non_iso_mode = enabled;
     }
 
     /// Configures edge filtering. See [`FdCanConfig::set_edge_filtering`]
     #[inline]
     pub fn set_edge_filtering(&mut self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_efbi(enabled));
-        //self.control.config.edge_filtering = enabled;
     }
 
     /// Configures frame transmission mode. See
@@ -534,16 +514,12 @@ impl Registers {
             #[cfg(not(stm32h7))]
             w.set_brse(brse);
         });
-
-        //self.control.config.frame_transmit = fts;
     }
 
     /// Sets the protocol exception handling on/off
     #[inline]
     pub fn set_protocol_exception_handling(&mut self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_pxhd(!enabled));
-
-        //self.control.config.protocol_exception_handling = enabled;
     }
 
     /// Configures and resets the timestamp counter
@@ -567,8 +543,6 @@ impl Registers {
             w.set_tcp(tcp);
             w.set_tss(tss);
         });
-
-        //self.control.config.timestamp_source = select;
     }
 
     #[cfg(not(stm32h7))]
@@ -693,22 +667,6 @@ fn data_from_tx_buffer(buffer: &mut [u8], mailbox: &TxBufferElement, len: usize)
             break;
         }
         buffer[i * 4..(i + 1) * 4].copy_from_slice(register_bytes);
-    }
-}
-
-impl From<&RxFifoElement> for ClassicFrame {
-    fn from(mailbox: &RxFifoElement) -> Self {
-        let header_reg = mailbox.header.read();
-
-        let id = make_id(header_reg.id().bits(), header_reg.xtd().bits());
-        let dlc = header_reg.to_data_length().len();
-        let len = dlc as usize;
-
-        let mut buffer: [u8; 64] = [0; 64];
-        data_from_fifo(&mut buffer, mailbox, len);
-        let data = ClassicData::new(&buffer[0..len]);
-        let header = Header::new(id, dlc, header_reg.rtr().bits());
-        ClassicFrame::new(header, data.unwrap())
     }
 }
 
