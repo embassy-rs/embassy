@@ -739,7 +739,7 @@ fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
     } else {
         FrameFormat::Classic
     };
-    let brs = header.len() > 8 || header.bit_rate_switching();
+    let brs = (frame_format == FrameFormat::Fdcan) && header.bit_rate_switching();
 
     mailbox.header.write(|w| {
         unsafe { w.id().bits(id) }
