@@ -56,6 +56,16 @@ impl Header {
     }
 }
 
+/// Trait for FDCAN frame types, providing ability to construct from a Header
+/// and to retrieve the Header from a frame
+pub trait CanHeader: Sized {
+    /// Construct frame from header and payload
+    fn from_header(header: Header, data: &[u8]) -> Option<Self>;
+
+    /// Get this frame's header struct
+    fn header(&self) -> &Header;
+}
+
 /// Payload of a classic CAN data frame.
 ///
 /// Contains 0 to 8 Bytes of data.
@@ -213,6 +223,16 @@ impl embedded_can::Frame for ClassicFrame {
     }
 }
 
+impl CanHeader for ClassicFrame {
+    fn from_header(header: Header, data: &[u8]) -> Option<Self> {
+        Some(Self::new(header, ClassicData::new(data)?))
+    }
+
+    fn header(&self) -> &Header {
+        self.header()
+    }
+}
+
 /// Payload of a (FD)CAN data frame.
 ///
 /// Contains 0 to 64 Bytes of data.
@@ -366,5 +386,15 @@ impl embedded_can::Frame for FdFrame {
     }
     fn data(&self) -> &[u8] {
         &self.data.raw()
+    }
+}
+
+impl CanHeader for FdFrame {
+    fn from_header(header: Header, data: &[u8]) -> Option<Self> {
+        Some(Self::new(header, FdData::new(data)?))
+    }
+
+    fn header(&self) -> &Header {
+        self.header()
     }
 }

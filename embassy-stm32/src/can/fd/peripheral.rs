@@ -37,7 +37,7 @@ impl Registers {
         &mut self.msg_ram_mut().receive[fifonr].fxsa[bufnum]
     }
 
-    pub fn read_classic(&self, fifonr: usize) -> Option<(ClassicFrame, u16)> {
+    pub fn read<F: CanHeader>(&self, fifonr: usize) -> Option<(F, u16)> {
         // Fill level - do we have a msg?
         if self.regs.rxfs(fifonr).read().ffl() < 1 {
             return None;
@@ -54,32 +54,8 @@ impl Registers {
 
         match maybe_header {
             Some((header, ts)) => {
-                let data = ClassicData::new(&buffer[0..header.len() as usize]);
-                Some((ClassicFrame::new(header, data.unwrap()), ts))
-            }
-            None => None,
-        }
-    }
-
-    pub fn read_fd(&self, fifonr: usize) -> Option<(FdFrame, u16)> {
-        // Fill level - do we have a msg?
-        if self.regs.rxfs(fifonr).read().ffl() < 1 {
-            return None;
-        }
-
-        let read_idx = self.regs.rxfs(fifonr).read().fgi();
-        let mailbox = self.rx_fifo_element(fifonr, read_idx as usize);
-
-        let mut buffer: [u8; 64] = [0; 64];
-        let maybe_header = extract_frame(mailbox, &mut buffer);
-
-        // Clear FIFO, reduces count and increments read buf
-        self.regs.rxfa(fifonr).modify(|w| w.set_fai(read_idx));
-
-        match maybe_header {
-            Some((header, ts)) => {
-                let data = FdData::new(&buffer[0..header.len() as usize]);
-                Some((FdFrame::new(header, data.unwrap()), ts))
+                let data = &buffer[0..header.len() as usize];
+                Some((F::from_header(header, data)?, ts))
             }
             None => None,
         }
@@ -194,10 +170,9 @@ impl Registers {
 
     #[inline]
     //fn abort_pending_mailbox<PTX, R>(&mut self, idx: Mailbox, pending: PTX) -> Option<R>
-    pub fn abort_pending_mailbox(&self, bufidx: usize) -> Option<ClassicFrame>
 //where
     //    PTX: FnOnce(Mailbox, TxFrameHeader, &[u32]) -> R,
-    {
+    pub fn abort_pending_mailbox_generic<F: embedded_can::Frame>(&self, bufidx: usize) -> Option<F> {
         if self.abort(bufidx) {
             let mailbox = self.tx_buffer_element(bufidx);
 
@@ -216,50 +191,11 @@ impl Registers {
             let mut data = [0u8; 64];
             data_from_tx_buffer(&mut data, mailbox, len as usize);
 
-            let cd = ClassicData::new(&data).unwrap();
-            Some(ClassicFrame::new(Header::new(id, len, header_reg.rtr().bit()), cd))
-        } else {
-            // Abort request failed because the frame was already sent (or being sent) on
-            // the bus. All mailboxes are now free. This can happen for small prescaler
-            // values (e.g. 1MBit/s bit timing with a source clock of 8MHz) or when an ISR
-            // has preempted the execution.
-            None
-        }
-    }
-
-    #[inline]
-    //fn abort_pending_mailbox<PTX, R>(&mut self, idx: Mailbox, pending: PTX) -> Option<R>
-    pub fn abort_pending_fd_mailbox(&self, bufidx: usize) -> Option<FdFrame>
-//where
-    //    PTX: FnOnce(Mailbox, TxFrameHeader, &[u32]) -> R,
-    {
-        if self.abort(bufidx) {
-            let mailbox = self.tx_buffer_element(bufidx);
-
-            let header_reg = mailbox.header.read();
-            let id = make_id(header_reg.id().bits(), header_reg.xtd().bits());
-
-            let len = match header_reg.to_data_length() {
-                DataLength::Fdcan(len) => len,
-                DataLength::Classic(len) => len,
-            };
-            if len as usize > FdFrame::MAX_DATA_LEN {
-                return None;
-            }
-
-            //let tx_ram = self.tx_msg_ram();
-            let mut data = [0u8; 64];
-            data_from_tx_buffer(&mut data, mailbox, len as usize);
-
-            let cd = FdData::new(&data).unwrap();
-
-            let header = if header_reg.fdf().frame_format() == FrameFormat::Fdcan {
-                Header::new_fd(id, len, header_reg.rtr().bit(), header_reg.brs().bit())
+            if header_reg.rtr().bit() {
+                F::new_remote(id, len as usize)
             } else {
-                Header::new(id, len, header_reg.rtr().bit())
-            };
-
-            Some(FdFrame::new(header, cd))
+                F::new(id, &data)
+            }
         } else {
             // Abort request failed because the frame was already sent (or being sent) on
             // the bus. All mailboxes are now free. This can happen for small prescaler
@@ -272,7 +208,7 @@ impl Registers {
     /// As Transmit, but if there is a pending frame, `pending` will be called so that the frame can
     /// be preserved.
     //pub fn transmit_preserve<PTX, P>(
-    pub fn write_classic(&self, frame: &ClassicFrame) -> nb::Result<Option<ClassicFrame>, Infallible> {
+    pub fn write<F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> nb::Result<Option<F>, Infallible> {
         let queue_is_full = self.tx_queue_is_full();
 
         let id = frame.header().id();
@@ -281,45 +217,11 @@ impl Registers {
         // Discard the first slot with a lower priority message
         let (idx, pending_frame) = if queue_is_full {
             if self.is_available(0, id) {
-                (0, self.abort_pending_mailbox(0))
+                (0, self.abort_pending_mailbox_generic(0))
             } else if self.is_available(1, id) {
-                (1, self.abort_pending_mailbox(1))
+                (1, self.abort_pending_mailbox_generic(1))
             } else if self.is_available(2, id) {
-                (2, self.abort_pending_mailbox(2))
-            } else {
-                // For now we bail when there is no lower priority slot available
-                // Can this lead to priority inversion?
-                return Err(nb::Error::WouldBlock);
-            }
-        } else {
-            // Read the Write Pointer
-            let idx = self.regs.txfqs().read().tfqpi();
-
-            (idx, None)
-        };
-
-        self.put_tx_frame(idx as usize, frame.header(), frame.data());
-
-        Ok(pending_frame)
-    }
-
-    /// As Transmit, but if there is a pending frame, `pending` will be called so that the frame can
-    /// be preserved.
-    //pub fn transmit_preserve<PTX, P>(
-    pub fn write_fd(&self, frame: &FdFrame) -> nb::Result<Option<FdFrame>, Infallible> {
-        let queue_is_full = self.tx_queue_is_full();
-
-        let id = frame.header().id();
-
-        // If the queue is full,
-        // Discard the first slot with a lower priority message
-        let (idx, pending_frame) = if queue_is_full {
-            if self.is_available(0, id) {
-                (0, self.abort_pending_fd_mailbox(0))
-            } else if self.is_available(1, id) {
-                (1, self.abort_pending_fd_mailbox(1))
-            } else if self.is_available(2, id) {
-                (2, self.abort_pending_fd_mailbox(2))
+                (2, self.abort_pending_mailbox_generic(2))
             } else {
                 // For now we bail when there is no lower priority slot available
                 // Can this lead to priority inversion?

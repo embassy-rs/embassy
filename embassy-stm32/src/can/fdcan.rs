@@ -58,7 +58,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
                     if !T::registers().tx_queue_is_full() {
                         match buf.tx_receiver.try_receive() {
                             Ok(frame) => {
-                                _ = T::registers().write_classic(&frame);
+                                _ = T::registers().write(&frame);
                             }
                             Err(_) => {}
                         }
@@ -68,7 +68,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
                     if !T::registers().tx_queue_is_full() {
                         match buf.tx_receiver.try_receive() {
                             Ok(frame) => {
-                                _ = T::registers().write_fd(&frame);
+                                _ = T::registers().write(&frame);
                             }
                             Err(_) => {}
                         }
@@ -359,7 +359,7 @@ impl<'d, T: Instance> Fdcan<'d, T> {
 
     /// Returns the next received message frame
     pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
-        T::state().rx_mode.read::<T>().await
+        T::state().rx_mode.read_classic::<T>().await
     }
 
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
@@ -633,7 +633,7 @@ impl<'c, 'd, T: Instance> FdcanTx<'d, T> {
 impl<'c, 'd, T: Instance> FdcanRx<'d, T> {
     /// Returns the next received message frame
     pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
-        T::state().rx_mode.read::<T>().await
+        T::state().rx_mode.read_classic::<T>().await
     }
 
     /// Returns the next received message frame
@@ -649,6 +649,7 @@ pub(crate) mod sealed {
     use embassy_sync::channel::{DynamicReceiver, DynamicSender};
     use embassy_sync::waitqueue::AtomicWaker;
 
+    use super::CanHeader;
     use crate::can::_version::{BusError, Timestamp};
     use crate::can::frame::{ClassicFrame, FdFrame};
 
@@ -689,13 +690,13 @@ pub(crate) mod sealed {
                     waker.wake();
                 }
                 RxMode::ClassicBuffered(buf) => {
-                    if let Some(r) = T::registers().read_classic(fifonr) {
+                    if let Some(r) = T::registers().read(fifonr) {
                         let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
                         let _ = buf.rx_sender.try_send((r.0, ts));
                     }
                 }
                 RxMode::FdBuffered(buf) => {
-                    if let Some(r) = T::registers().read_fd(fifonr) {
+                    if let Some(r) = T::registers().read(fifonr) {
                         let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
                         let _ = buf.rx_sender.try_send((r.0, ts));
                     }
@@ -703,15 +704,15 @@ pub(crate) mod sealed {
             }
         }
 
-        pub async fn read<T: Instance>(&self) -> Result<(ClassicFrame, Timestamp), BusError> {
+        async fn read<T: Instance, F: CanHeader>(&self) -> Result<(F, Timestamp), BusError> {
             poll_fn(|cx| {
                 T::state().err_waker.register(cx.waker());
                 self.register(cx.waker());
 
-                if let Some((msg, ts)) = T::registers().read_classic(0) {
+                if let Some((msg, ts)) = T::registers().read(0) {
                     let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
                     return Poll::Ready(Ok((msg, ts)));
-                } else if let Some((msg, ts)) = T::registers().read_classic(1) {
+                } else if let Some((msg, ts)) = T::registers().read(1) {
                     let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
                     return Poll::Ready(Ok((msg, ts)));
                 } else if let Some(err) = T::registers().curr_error() {
@@ -723,24 +724,12 @@ pub(crate) mod sealed {
             .await
         }
 
-        pub async fn read_fd<T: Instance>(&self) -> Result<(FdFrame, Timestamp), BusError> {
-            poll_fn(|cx| {
-                T::state().err_waker.register(cx.waker());
-                self.register(cx.waker());
+        pub async fn read_classic<T: Instance>(&self) -> Result<(ClassicFrame, Timestamp), BusError> {
+            self.read::<T, _>().await
+        }
 
-                if let Some((msg, ts)) = T::registers().read_fd(0) {
-                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-                    return Poll::Ready(Ok((msg, ts)));
-                } else if let Some((msg, ts)) = T::registers().read_fd(1) {
-                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-                    return Poll::Ready(Ok((msg, ts)));
-                } else if let Some(err) = T::registers().curr_error() {
-                    // TODO: this is probably wrong
-                    return Poll::Ready(Err(err));
-                }
-                Poll::Pending
-            })
-            .await
+        pub async fn read_fd<T: Instance>(&self) -> Result<(FdFrame, Timestamp), BusError> {
+            self.read::<T, _>().await
         }
     }
 
@@ -766,11 +755,11 @@ pub(crate) mod sealed {
         /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
         /// can be replaced, this call asynchronously waits for a frame to be successfully
         /// transmitted, then tries again.
-        pub async fn write<T: Instance>(&self, frame: &ClassicFrame) -> Option<ClassicFrame> {
+        async fn write_generic<T: Instance, F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> Option<F> {
             poll_fn(|cx| {
                 self.register(cx.waker());
 
-                if let Ok(dropped) = T::registers().write_classic(frame) {
+                if let Ok(dropped) = T::registers().write(frame) {
                     return Poll::Ready(dropped);
                 }
 
@@ -785,19 +774,16 @@ pub(crate) mod sealed {
         /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
         /// can be replaced, this call asynchronously waits for a frame to be successfully
         /// transmitted, then tries again.
+        pub async fn write<T: Instance>(&self, frame: &ClassicFrame) -> Option<ClassicFrame> {
+            self.write_generic::<T, _>(frame).await
+        }
+
+        /// Queues the message to be sent but exerts backpressure.  If a lower-priority
+        /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
+        /// can be replaced, this call asynchronously waits for a frame to be successfully
+        /// transmitted, then tries again.
         pub async fn write_fd<T: Instance>(&self, frame: &FdFrame) -> Option<FdFrame> {
-            poll_fn(|cx| {
-                self.register(cx.waker());
-
-                if let Ok(dropped) = T::registers().write_fd(frame) {
-                    return Poll::Ready(dropped);
-                }
-
-                // Couldn't replace any lower priority frames.  Need to wait for some mailboxes
-                // to clear.
-                Poll::Pending
-            })
-            .await
+            self.write_generic::<T, _>(frame).await
         }
     }
 
