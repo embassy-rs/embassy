@@ -557,6 +557,9 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.d3ccipr().modify(|w| {
             w.set_adcsel(config.adc_clock_source);
         });
+        RCC.d2ccip1r().modify(|w| {
+            w.set_fdcansel(config.fdcan_clock_source);
+        });
     }
     #[cfg(stm32h5)]
     {
