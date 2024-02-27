@@ -312,7 +312,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         match self.blocking_inner_from_ram(rx, tx) {
             Ok(_) => Ok(()),
             Err(Error::BufferNotInRAM) => {
-                trace!("Copying SPIM tx buffer into RAM for DMA");
+                // trace!("Copying SPIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
                 tx_ram_buf.copy_from_slice(tx);
                 self.blocking_inner_from_ram(rx, tx_ram_buf)
@@ -366,7 +366,7 @@ impl<'d, T: Instance> Spim<'d, T> {
         match self.async_inner_from_ram(rx, tx).await {
             Ok(_) => Ok(()),
             Err(Error::BufferNotInRAM) => {
-                trace!("Copying SPIM tx buffer into RAM for DMA");
+                // trace!("Copying SPIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..tx.len()];
                 tx_ram_buf.copy_from_slice(tx);
                 self.async_inner_from_ram(rx, tx_ram_buf).await
