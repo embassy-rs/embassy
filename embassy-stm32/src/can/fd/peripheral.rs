@@ -721,13 +721,15 @@ fn make_id(id: u32, extended: bool) -> embedded_can::Id {
     if extended {
         embedded_can::Id::from(unsafe { embedded_can::ExtendedId::new_unchecked(id & 0x1FFFFFFF) })
     } else {
-        embedded_can::Id::from(unsafe { embedded_can::StandardId::new_unchecked((id & 0x000007FF) as u16) })
+        // A standard identifier is stored into ID[28:18].
+        embedded_can::Id::from(unsafe { embedded_can::StandardId::new_unchecked(((id >> 18) & 0x000007FF) as u16) })
     }
 }
 
 fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
     let (id, id_type) = match header.id() {
-        embedded_can::Id::Standard(id) => (id.as_raw() as u32, IdType::StandardId),
+        // A standard identifier has to be written to ID[28:18].
+        embedded_can::Id::Standard(id) => ((id.as_raw() as u32) << 18, IdType::StandardId),
         embedded_can::Id::Extended(id) => (id.as_raw() as u32, IdType::ExtendedId),
     };
 
@@ -737,7 +739,7 @@ fn put_tx_header(mailbox: &mut TxBufferElement, header: &Header) {
     } else {
         FrameFormat::Classic
     };
-    let brs = header.len() > 8 || header.bit_rate_switching();
+    let brs = (frame_format == FrameFormat::Fdcan) && header.bit_rate_switching();
 
     mailbox.header.write(|w| {
         unsafe { w.id().bits(id) }
