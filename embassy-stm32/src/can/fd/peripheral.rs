@@ -302,10 +302,8 @@ impl Registers {
 
         // Framework specific settings are set here
 
-        // set TxBuffer to Queue Mode
-        self.regs
-            .txbc()
-            .write(|w| w.set_tfqm(crate::pac::can::vals::Tfqm::QUEUE));
+        // set TxBuffer Mode
+        self.regs.txbc().write(|w| w.set_tfqm(_config.tx_buffer_mode.into()));
 
         // set standard filters list size to 28
         // set extended filters list size to 8

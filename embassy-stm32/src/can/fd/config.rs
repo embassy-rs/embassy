@@ -287,6 +287,24 @@ impl Default for GlobalFilter {
     }
 }
 
+/// TX buffer operation mode
+#[derive(Clone, Copy, Debug)]
+pub enum TxBufferMode {
+    /// TX FIFO operation
+    Fifo,
+    /// TX queue operation
+    Queue,
+}
+
+impl From<TxBufferMode> for crate::pac::can::vals::Tfqm {
+    fn from(value: TxBufferMode) -> Self {
+        match value {
+            TxBufferMode::Queue => Self::QUEUE,
+            TxBufferMode::Fifo => Self::FIFO,
+        }
+    }
+}
+
 /// FdCan Config Struct
 #[derive(Clone, Copy, Debug)]
 pub struct FdCanConfig {
@@ -327,6 +345,8 @@ pub struct FdCanConfig {
     pub timestamp_source: TimestampSource,
     /// Configures the Global Filter
     pub global_filter: GlobalFilter,
+    /// TX buffer mode (FIFO or queue)
+    pub tx_buffer_mode: TxBufferMode,
 }
 
 impl FdCanConfig {
@@ -433,6 +453,7 @@ impl Default for FdCanConfig {
             clock_divider: ClockDivider::_1,
             timestamp_source: TimestampSource::None,
             global_filter: GlobalFilter::default(),
+            tx_buffer_mode: TxBufferMode::Queue,
         }
     }
 }
