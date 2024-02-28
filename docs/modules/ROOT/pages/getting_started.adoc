@@ -3,7 +3,7 @@
 So you want to try Embassy, great! To get started, there are a few tools you need to install:
 
 * link:https://rustup.rs/[rustup] - the Rust toolchain is needed to compile Rust code.
-* link:https://crates.io/crates/probe-rs[probe-rs] - to flash the firmware on your device. If you already have other tools like `OpenOCD` setup, you can use that as well.
+* link:https://probe.rs/[probe-rs] - to flash the firmware on your device. If you already have other tools like `OpenOCD` setup, you can use that as well.
 
 If you don't have any supported board, don't worry: you can also run embassy on your PC using the `std` examples.
 
@@ -82,19 +82,19 @@ If everything worked correctly, you should see a blinking LED on your board, and
 └─ blinky::__embassy_main::task::{generator#0} @ src/bin/blinky.rs:27
 ----
 
-NOTE: How does the `cargo run` command know how to connect to our board and program it? In each `examples` folder, there’s a `.cargo/config.toml` file which tells cargo to use link:https://probe.rs/[probe-rs] as the runner for ARM binaries in that folder. probe-rs handles communication with the debug probe and MCU. In order for this to work, probe-rs needs to know which chip it’s programming, so you’ll have to edit this file if you want to run examples on other chips.
+NOTE: How does the `+cargo run+` command know how to connect to our board and program it? In each `examples` folder, there’s a `.cargo/config.toml` file which tells cargo to use link:https://probe.rs/[probe-rs] as the runner for ARM binaries in that folder. probe-rs handles communication with the debug probe and MCU. In order for this to work, probe-rs needs to know which chip it’s programming, so you’ll have to edit this file if you want to run examples on other chips.
 
 === It didn’t work!
 
-If you hare having issues when running `cargo run --release`, please check the following:
+If you hare having issues when running `+cargo run --release+`, please check the following:
 
-* You are specifying the correct `--chip` on the command line, OR
-* You have set `.cargo/config.toml`'s run line to the correct chip, AND
-* You have changed `examples/Cargo.toml`'s HAL (e.g. embassy-stm32) dependency's feature to use the correct chip (replace the existing stm32xxxx feature)
+* You are specifying the correct `+--chip+` on the command line, OR
+* You have set `+.cargo/config.toml+`’s run line to the correct chip, AND
+* You have changed `+examples/Cargo.toml+`’s HAL (e.g. embassy-stm32) dependency's feature to use the correct chip (replace the existing stm32xxxx feature)
 
 At this point the project should run. If you do not see a blinky LED for blinky, for example, be sure to check the code is toggling your board's LED pin.
 
-If you are trying to run an example with `cargo run --release` and you see the following output:
+If you are trying to run an example with `+cargo run --release+` and you see the following output:
 [source]
 ----
 0.000000 INFO Hello World!
@@ -114,6 +114,20 @@ To get rid of the frame-index error add the following to your `Cargo.toml`:
 [profile.release]
 debug = 2
 ----
+
+If you’re get an extremely long error message containing something like the following:
+
+[source]
+----
+error[E0463]: can't find crate for `std`
+  |
+  = note: the `thumbv6m-none-eabi` target may not support the standard library
+  = note: `std` is required by `stable_deref_trait` because it does not declare `#![no_std]`
+----
+
+Make sure that you didn’t accidentally run `+cargo add probe-rs+` (which adds it as a dependency) instead of link:https://probe.rs/docs/getting-started/installation/[correctly installing probe-rs].
+
+If you’re using a raspberry pi pico-w, make sure you’re running `+cargo run --bin wifi_blinky --release+` rather than the regular blinky. The pico-w’s on-board LED is connected to the WiFi chip, which needs to be initialized before the LED can be blinked.
 
 If you’re still having problems, check the link:https://embassy.dev/book/dev/faq.html[FAQ], or ask for help in the link:https://matrix.to/#/#embassy-rs:matrix.org[Embassy Chat Room].
 
