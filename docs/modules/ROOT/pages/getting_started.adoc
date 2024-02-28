@@ -115,7 +115,7 @@ To get rid of the frame-index error add the following to your `Cargo.toml`:
 debug = 2
 ----
 
-If you’re get an extremely long error message containing something like the following:
+If you’re getting an extremely long error message containing something like the following:
 
 [source]
 ----
