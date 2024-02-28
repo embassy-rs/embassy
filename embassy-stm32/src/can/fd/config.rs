@@ -288,7 +288,7 @@ impl Default for GlobalFilter {
 }
 
 /// TX buffer operation mode
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TxBufferMode {
     /// TX FIFO operation
     Fifo,
@@ -301,6 +301,15 @@ impl From<TxBufferMode> for crate::pac::can::vals::Tfqm {
         match value {
             TxBufferMode::Queue => Self::QUEUE,
             TxBufferMode::Fifo => Self::FIFO,
+        }
+    }
+}
+
+impl From<crate::pac::can::vals::Tfqm> for TxBufferMode {
+    fn from(value: crate::pac::can::vals::Tfqm) -> Self {
+        match value {
+            crate::pac::can::vals::Tfqm::QUEUE => Self::Queue,
+            crate::pac::can::vals::Tfqm::FIFO => Self::Fifo,
         }
     }
 }
