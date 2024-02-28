@@ -170,7 +170,7 @@ impl Registers {
     }
 
     #[inline]
-    pub fn abort_pending_mailbox_generic<F: embedded_can::Frame>(&self, bufidx: usize) -> Option<F> {
+    fn abort_pending_mailbox<F: embedded_can::Frame>(&self, bufidx: usize) -> Option<F> {
         if self.abort(bufidx) {
             let mailbox = self.tx_buffer_element(bufidx);
 
@@ -212,11 +212,11 @@ impl Registers {
             // Discard the first slot with a lower priority message
             let id = frame.header().id();
             if self.is_available(0, id) {
-                (0, self.abort_pending_mailbox_generic(0))
+                (0, self.abort_pending_mailbox(0))
             } else if self.is_available(1, id) {
-                (1, self.abort_pending_mailbox_generic(1))
+                (1, self.abort_pending_mailbox(1))
             } else if self.is_available(2, id) {
-                (2, self.abort_pending_mailbox_generic(2))
+                (2, self.abort_pending_mailbox(2))
             } else {
                 // For now we bail when there is no lower priority slot available
                 // Can this lead to priority inversion?
