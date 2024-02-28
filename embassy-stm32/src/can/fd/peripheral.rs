@@ -114,6 +114,12 @@ impl Registers {
         self.regs.txfqs().read().tfqf()
     }
 
+    /// Returns the current TX buffer operation mode (queue or FIFO)
+    #[inline]
+    pub fn tx_queue_mode(&self) -> TxBufferMode {
+        self.regs.txbc().read().tfqm().into()
+    }
+
     #[inline]
     pub fn has_pending_frame(&self, idx: usize) -> bool {
         self.regs.txbrp().read().trp(idx)
@@ -197,13 +203,14 @@ impl Registers {
     }
 
     pub fn write<F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> nb::Result<Option<F>, Infallible> {
-        let queue_is_full = self.tx_queue_is_full();
-
-        let id = frame.header().id();
-
-        // If the queue is full,
-        // Discard the first slot with a lower priority message
-        let (idx, pending_frame) = if queue_is_full {
+        let (idx, pending_frame) = if self.tx_queue_is_full() {
+            if self.tx_queue_mode() == TxBufferMode::Fifo {
+                // Does not make sense to cancel a pending frame when using FIFO
+                return Err(nb::Error::WouldBlock);
+            }
+            // If the queue is full,
+            // Discard the first slot with a lower priority message
+            let id = frame.header().id();
             if self.is_available(0, id) {
                 (0, self.abort_pending_mailbox_generic(0))
             } else if self.is_available(1, id) {
