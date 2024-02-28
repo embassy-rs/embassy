@@ -46,7 +46,7 @@ impl Registers {
         let read_idx = self.regs.rxfs(fifonr).read().fgi();
         let mailbox = self.rx_fifo_element(fifonr, read_idx as usize);
 
-        let mut buffer: [u8; 8] = [0; 8];
+        let mut buffer = [0u8; 64];
         let maybe_header = extract_frame(mailbox, &mut buffer);
 
         // Clear FIFO, reduces count and increments read buf
