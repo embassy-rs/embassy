@@ -379,7 +379,7 @@ pub(crate) mod sealed {
 
             let regs = Self::regs_gp32();
             regs.psc().write(|r| r.set_psc(psc));
-            regs.arr().write(|r| r.set_arr(arr));
+            regs.arr().write_value(arr);
 
             regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
             regs.egr().write(|r| r.set_ug(true));
@@ -391,7 +391,7 @@ pub(crate) mod sealed {
             let timer_f = Self::frequency();
 
             let regs = Self::regs_gp32();
-            let arr = regs.arr().read().arr();
+            let arr = regs.arr().read();
             let psc = regs.psc().read().psc();
 
             timer_f / arr / (psc + 1)
@@ -399,22 +399,22 @@ pub(crate) mod sealed {
 
         /// Set comapre value for a channel.
         fn set_compare_value(&self, channel: Channel, value: u32) {
-            Self::regs_gp32().ccr(channel.index()).modify(|w| w.set_ccr(value));
+            Self::regs_gp32().ccr(channel.index()).write_value(value);
         }
 
         /// Get capture value for a channel.
         fn get_capture_value(&self, channel: Channel) -> u32 {
-            Self::regs_gp32().ccr(channel.index()).read().ccr()
+            Self::regs_gp32().ccr(channel.index()).read()
         }
 
         /// Get max compare value. This depends on the timer frequency and the clock frequency from RCC.
         fn get_max_compare_value(&self) -> u32 {
-            Self::regs_gp32().arr().read().arr()
+            Self::regs_gp32().arr().read()
         }
 
         /// Get compare value for a channel.
         fn get_compare_value(&self, channel: Channel) -> u32 {
-            Self::regs_gp32().ccr(channel.index()).read().ccr()
+            Self::regs_gp32().ccr(channel.index()).read()
         }
     }
 
