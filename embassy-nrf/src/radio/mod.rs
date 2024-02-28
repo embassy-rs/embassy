@@ -7,10 +7,31 @@
 
 /// Bluetooth Low Energy Radio driver.
 pub mod ble;
+mod event;
+#[cfg(any(feature = "nrf52840", feature = "nrf52833", feature = "_nrf5340-net"))]
+/// IEEE 802.15.4
+pub mod ieee802154;
+
+pub use event::Event;
 
 use core::marker::PhantomData;
 
 use crate::{interrupt, pac, Peripheral};
+
+/// RADIO error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// Buffer was too long.
+    BufferTooLong,
+    /// Buffer was too short.
+    BufferTooShort,
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
+    /// Clear channel assessment reported channel in use
+    ChannelInUse,
+}
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
@@ -21,11 +42,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
-
-        if r.events_end.read().events_end().bit_is_set() {
-            s.end_waker.wake();
-            r.intenclr.write(|w| w.end().clear());
-        }
+        let events = Event::from_radio_masked(r);
+        // clear active interrupts
+        r.intenclr.write(|w| w.bits(events.bits()));
+        s.event_waker.wake();
     }
 }
 
@@ -34,12 +54,12 @@ pub(crate) mod sealed {
 
     pub struct State {
         /// end packet transmission or reception
-        pub end_waker: AtomicWaker,
+        pub event_waker: AtomicWaker,
     }
     impl State {
         pub const fn new() -> Self {
             Self {
-                end_waker: AtomicWaker::new(),
+                event_waker: AtomicWaker::new(),
             }
         }
     }

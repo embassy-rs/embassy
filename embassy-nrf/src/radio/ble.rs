@@ -15,19 +15,6 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::radio::*;
 use crate::util::slice_in_ram_or;
 
-/// RADIO error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
-    /// Buffer was too long.
-    BufferTooLong,
-    /// Buffer was to short.
-    BufferTooShort,
-    /// The buffer is not in data RAM. It is most likely in flash, and nRF's DMA cannot access flash.
-    BufferNotInRAM,
-}
-
 /// Radio driver.
 pub struct Radio<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
@@ -393,7 +380,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         // On poll check if interrupt happen
         poll_fn(|cx| {
-            s.end_waker.register(cx.waker());
+            s.event_waker.register(cx.waker());
             if r.events_end.read().events_end().bit_is_set() {
                 // trace!("radio:end");
                 return core::task::Poll::Ready(());
