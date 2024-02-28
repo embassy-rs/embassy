@@ -15,7 +15,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::radio::*;
 use crate::util::slice_in_ram_or;
 
-/// UART error.
+/// RADIO error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
