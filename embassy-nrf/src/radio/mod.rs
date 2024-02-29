@@ -7,12 +7,9 @@
 
 /// Bluetooth Low Energy Radio driver.
 pub mod ble;
-mod event;
 #[cfg(any(feature = "nrf52840", feature = "nrf52833", feature = "_nrf5340-net"))]
 /// IEEE 802.15.4
 pub mod ieee802154;
-
-pub use event::Event;
 
 use core::marker::PhantomData;
 

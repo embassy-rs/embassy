@@ -3,7 +3,7 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use super::{Error, Event, Instance, InterruptHandler};
+use super::{Error, Instance, InterruptHandler};
 use crate::{
     interrupt::{self, typelevel::Interrupt},
     pac, Peripheral,
@@ -319,7 +319,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         r.shorts.reset();
         if r.events_framestart.read().events_framestart().bit_is_set() {
             // TODO: Is there a way to finish receiving this frame
-            trace!("EVENTS {}", Event::from_radio(r));
         }
         r.tasks_stop.write(|w| w.tasks_stop().set_bit());
         loop {
