@@ -379,7 +379,7 @@ pub(crate) mod sealed {
 
             let regs = Self::regs_gp32();
             regs.psc().write(|r| r.set_psc(psc));
-            regs.arr().write(|r| r.set_arr(arr));
+            regs.arr().write_value(arr);
 
             regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
             regs.egr().write(|r| r.set_ug(true));
@@ -391,7 +391,7 @@ pub(crate) mod sealed {
             let timer_f = Self::frequency();
 
             let regs = Self::regs_gp32();
-            let arr = regs.arr().read().arr();
+            let arr = regs.arr().read();
             let psc = regs.psc().read().psc();
 
             timer_f / arr / (psc + 1)
@@ -399,22 +399,22 @@ pub(crate) mod sealed {
 
         /// Set comapre value for a channel.
         fn set_compare_value(&self, channel: Channel, value: u32) {
-            Self::regs_gp32().ccr(channel.index()).modify(|w| w.set_ccr(value));
+            Self::regs_gp32().ccr(channel.index()).write_value(value);
         }
 
         /// Get capture value for a channel.
         fn get_capture_value(&self, channel: Channel) -> u32 {
-            Self::regs_gp32().ccr(channel.index()).read().ccr()
+            Self::regs_gp32().ccr(channel.index()).read()
         }
 
         /// Get max compare value. This depends on the timer frequency and the clock frequency from RCC.
         fn get_max_compare_value(&self) -> u32 {
-            Self::regs_gp32().arr().read().arr()
+            Self::regs_gp32().arr().read()
         }
 
         /// Get compare value for a channel.
         fn get_compare_value(&self, channel: Channel) -> u32 {
-            Self::regs_gp32().ccr(channel.index()).read().ccr()
+            Self::regs_gp32().ccr(channel.index()).read()
         }
     }
 
@@ -464,6 +464,9 @@ pub(crate) mod sealed {
     pub trait AdvancedControlInstance:
         GeneralPurpose2ChannelComplementaryInstance + GeneralPurpose16bitInstance
     {
+        /// Capture compare interrupt for this timer.
+        type CaptureCompareInterrupt: interrupt::typelevel::Interrupt;
+
         /// Get access to the advanced timer registers.
         fn regs_advanced() -> crate::pac::timer::TimAdv;
 
@@ -831,8 +834,10 @@ macro_rules! impl_2ch_cmp_timer {
 
 #[allow(unused)]
 macro_rules! impl_adv_timer {
-    ($inst:ident) => {
+    ($inst:ident, $irq:ident) => {
         impl sealed::AdvancedControlInstance for crate::peripherals::$inst {
+            type CaptureCompareInterrupt = crate::interrupt::typelevel::$irq;
+
             fn regs_advanced() -> crate::pac::timer::TimAdv {
                 unsafe { crate::pac::timer::TimAdv::from_ptr(crate::pac::$inst.as_ptr()) }
             }
@@ -905,10 +910,12 @@ foreach_interrupt! {
         impl_gp16_timer!($inst);
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
-        impl_adv_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
+    };
+    ($inst:ident, timer, TIM_1CH_CMP, CC, $irq:ident) => {
+        impl_adv_timer!($inst, $irq);
     };
 
 
@@ -921,10 +928,12 @@ foreach_interrupt! {
         impl_gp16_timer!($inst);
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
-        impl_adv_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
+    };
+    ($inst:ident, timer, TIM_2CH_CMP, CC, $irq:ident) => {
+        impl_adv_timer!($inst, $irq);
     };
 
 
@@ -937,10 +946,12 @@ foreach_interrupt! {
         impl_gp16_timer!($inst);
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
-        impl_adv_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
         impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
+    };
+    ($inst:ident, timer, TIM_ADV, CC, $irq:ident) => {
+        impl_adv_timer!($inst, $irq);
     };
 }
 

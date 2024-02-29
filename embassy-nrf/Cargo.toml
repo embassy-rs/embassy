@@ -146,7 +146,7 @@ critical-section = "1.1"
 rand_core = "0.6.3"
 fixed = "1.10.0"
 embedded-storage = "0.3.1"
-embedded-storage-async = "0.4.0"
+embedded-storage-async = "0.4.1"
 cfg-if = "1.0.0"
 document-features = "0.2.7"
 
