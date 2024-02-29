@@ -37,7 +37,7 @@ use crate::waitqueue::MultiWakerRegistration;
 /// let mut snd = WATCH.sender();
 ///
 /// // No more receivers, and no update
-/// assert!(WATCH.receiver().is_err());
+/// assert!(WATCH.receiver().is_none());
 /// assert_eq!(rcv1.try_changed(), None);
 ///
 /// snd.send(10);
