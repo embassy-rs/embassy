@@ -97,6 +97,7 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_framestart.read().events_framestart().bit_is_set() {
@@ -106,6 +107,7 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_edend.read().events_edend().bit_is_set() {
@@ -115,20 +117,36 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_edstopped.read().events_edstopped().bit_is_set() {
             value |= Self::ED_STOPPED;
         }
-        #[cfg(any(feature = "nrf52820", feature = "nrf52833", feature = "_nrf5340-net"))]
+        #[cfg(any(
+            feature = "nrf52820",
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340-net"
+        ))]
         if radio.events_ccaidle.read().events_ccaidle().bit_is_set() {
             value |= Self::CCA_IDLE;
         }
-        #[cfg(any(feature = "nrf52820", feature = "nrf52833", feature = "_nrf5340-net"))]
+        #[cfg(any(
+            feature = "nrf52820",
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340-net"
+        ))]
         if radio.events_ccabusy.read().events_ccabusy().bit_is_set() {
             value |= Self::CCA_BUSY;
         }
-        #[cfg(any(feature = "nrf52820", feature = "nrf52833", feature = "_nrf5340-net"))]
+        #[cfg(any(
+            feature = "nrf52820",
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340-net"
+        ))]
         if radio.events_ccastopped.read().events_ccastopped().bit_is_set() {
             value |= Self::CCA_STOPPED;
         }
@@ -136,6 +154,7 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_rateboost.read().events_rateboost().bit_is_set() {
@@ -146,6 +165,7 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_txready.read().events_txready().bit_is_set() {
@@ -156,6 +176,7 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_rxready.read().events_rxready().bit_is_set() {
@@ -165,6 +186,7 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_mhrmatch.read().events_mhrmatch().bit_is_set() {
@@ -179,6 +201,7 @@ impl Event {
             feature = "nrf52811",
             feature = "nrf52820",
             feature = "nrf52833",
+            feature = "nrf52840",
             feature = "_nrf5340-net"
         ))]
         if radio.events_phyend.read().events_phyend().bit_is_set() {

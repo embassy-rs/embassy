@@ -164,7 +164,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         }
     }
 
-    /// Changes the Start of Frame Delimiter
+    /// Changes the Start of Frame Delimiter (SFD)
     pub fn set_sfd(&mut self, sfd: u8) {
         let r = T::regs();
         r.sfd.write(|w| unsafe { w.sfd().bits(sfd) });
