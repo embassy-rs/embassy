@@ -208,14 +208,7 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
     }
 }
 
-#[derive(Debug)]
-/// An error that can occur when a `Watch` returns a `Result::Err(_)`.
-pub enum Error {
-    /// The maximum number of [`Receiver`](crate::watch::Receiver)/[`DynReceiver`](crate::watch::DynReceiver) has been reached.
-    MaximumReceiversReached,
-}
-
-impl<'a, M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
+impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
     /// Create a new `Watch` channel.
     pub const fn new() -> Self {
         Self {
@@ -238,28 +231,30 @@ impl<'a, M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
         DynSender(Snd::new(self))
     }
 
-    /// Create a new [`Receiver`] for the `Watch`.
-    pub fn receiver(&self) -> Result<Receiver<'_, M, T, N>, Error> {
+    /// Try to create a new [`Receiver`] for the `Watch`. If the
+    /// maximum number of receivers has been reached, `None` is returned.
+    pub fn receiver(&self) -> Option<Receiver<'_, M, T, N>> {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
             if s.receiver_count < N {
                 s.receiver_count += 1;
-                Ok(Receiver(Rcv::new(self, 0)))
+                Some(Receiver(Rcv::new(self, 0)))
             } else {
-                Err(Error::MaximumReceiversReached)
+                None
             }
         })
     }
 
-    /// Create a new [`DynReceiver`] for the `Watch`.
-    pub fn dyn_receiver(&self) -> Result<DynReceiver<'_, T>, Error> {
+    /// Try to create a new [`DynReceiver`] for the `Watch`. If the
+    /// maximum number of receivers has been reached, `None` is returned.
+    pub fn dyn_receiver(&self) -> Option<DynReceiver<'_, T>> {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
             if s.receiver_count < N {
                 s.receiver_count += 1;
-                Ok(DynReceiver(Rcv::new(self, 0)))
+                Some(DynReceiver(Rcv::new(self, 0)))
             } else {
-                Err(Error::MaximumReceiversReached)
+                None
             }
         })
     }
