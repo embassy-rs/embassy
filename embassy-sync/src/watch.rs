@@ -551,16 +551,16 @@ mod tests {
             let rcv2 = WATCH.receiver();
 
             // Ensure the first two are successful and the third is not
-            assert!(rcv0.is_ok());
-            assert!(rcv1.is_ok());
-            assert!(rcv2.is_err());
+            assert!(rcv0.is_some());
+            assert!(rcv1.is_some());
+            assert!(rcv2.is_none());
 
             // Drop the first receiver
             drop(rcv0);
 
             // Create another receiver and ensure it is successful
             let rcv3 = WATCH.receiver();
-            assert!(rcv3.is_ok());
+            assert!(rcv3.is_some());
         };
         block_on(f);
     }
@@ -693,9 +693,9 @@ mod tests {
             let rcv2 = WATCH.receiver();
 
             // Ensure the first two are successful and the third is not
-            assert!(rcv0.is_ok());
-            assert!(rcv1.is_ok());
-            assert!(rcv2.is_err());
+            assert!(rcv0.is_some());
+            assert!(rcv1.is_some());
+            assert!(rcv2.is_none());
 
             // Convert to dynamic
             let dyn_rcv0 = rcv0.unwrap().as_dyn();
@@ -706,8 +706,8 @@ mod tests {
             // Create another receiver and ensure it is successful
             let rcv3 = WATCH.receiver();
             let rcv4 = WATCH.receiver();
-            assert!(rcv3.is_ok());
-            assert!(rcv4.is_err());
+            assert!(rcv3.is_some());
+            assert!(rcv4.is_none());
         };
         block_on(f);
     }
