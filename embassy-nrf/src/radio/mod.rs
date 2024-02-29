@@ -42,9 +42,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
-        let events = Event::from_radio_masked(r);
-        // clear active interrupts
-        r.intenclr.write(|w| w.bits(events.bits()));
+        // clear all interrupts
+        r.intenclr.write(|w| w.bits(0xffff_ffff));
         s.event_waker.wake();
     }
 }
