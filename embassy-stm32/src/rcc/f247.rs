@@ -95,6 +95,9 @@ pub struct Config {
 
     pub ls: super::LsConfig,
 
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
+
     #[cfg(stm32f2)]
     pub voltage: VoltageScale,
 }
@@ -120,6 +123,7 @@ impl Default for Config {
 
             #[cfg(stm32f2)]
             voltage: VoltageScale::Range3,
+            mux: Default::default(),
         }
     }
 }
@@ -256,6 +260,8 @@ pub(crate) unsafe fn init(config: Config) {
     });
     while RCC.cfgr().read().sws() != config.sys {}
 
+    config.mux.init();
+
     set_clocks!(
         hsi: hsi,
         hse: hse,
@@ -286,7 +292,9 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7))]
         pllsai1_r: pllsai.r,
 
-        clk48: pll.q,
+        // TODO workaround until f4 rcc is fixed in stm32-data
+        #[cfg(not(any(stm32f446, stm32f427, stm32f437, stm32f4x9, stm32f7)))]
+        pllsai1_q: None,
 
         hsi_div488: hsi.map(|hsi| hsi/488u32),
         hsi_hse: None,

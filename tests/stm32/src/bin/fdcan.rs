@@ -33,7 +33,7 @@ fn options() -> TestOptions {
         freq: embassy_stm32::time::Hertz(25_000_000),
         mode: rcc::HseMode::Oscillator,
     });
-    c.rcc.fdcan_clock_source = rcc::FdCanClockSource::HSE;
+    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::HSE;
     TestOptions {
         config: c,
         max_latency: Duration::from_micros(1200),
@@ -50,7 +50,7 @@ fn options() -> TestOptions {
         freq: embassy_stm32::time::Hertz(25_000_000),
         mode: rcc::HseMode::Oscillator,
     });
-    c.rcc.fdcan_clock_source = rcc::FdCanClockSource::HSE;
+    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::HSE;
     TestOptions {
         config: c,
         max_latency: Duration::from_micros(1200),

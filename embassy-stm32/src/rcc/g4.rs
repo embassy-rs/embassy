@@ -1,11 +1,10 @@
 use stm32_metapac::flash::vals::Latency;
-use stm32_metapac::rcc::vals::{Adcsel, Sw};
+use stm32_metapac::rcc::vals::Sw;
 use stm32_metapac::FLASH;
 
 pub use crate::pac::rcc::vals::{
-    Adcsel as AdcClockSource, Clk48sel as Clk48Src, Fdcansel as FdCanClockSource, Hpre as AHBPrescaler,
-    Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc, Ppre as APBPrescaler,
-    Sw as Sysclk,
+    Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc,
+    Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{PWR, RCC};
 use crate::time::Hertz;
@@ -82,24 +81,15 @@ pub struct Config {
 
     pub low_power_run: bool,
 
-    /// Sets the clock source for the 48MHz clock used by the USB and RNG peripherals.
-    pub clk48_src: Clk48Src,
-
     /// Low-Speed Clock Configuration
     pub ls: super::LsConfig,
-
-    /// Clock Source for ADCs 1 and 2
-    pub adc12_clock_source: AdcClockSource,
-
-    /// Clock Source for ADCs 3, 4 and 5
-    pub adc345_clock_source: AdcClockSource,
-
-    /// Clock Source for FDCAN
-    pub fdcan_clock_source: FdCanClockSource,
 
     /// Enable range1 boost mode
     /// Recommended when the SYSCLK frequency is greater than 150MHz.
     pub boost: bool,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
@@ -115,12 +105,9 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             low_power_run: false,
-            clk48_src: Clk48Src::HSI48,
             ls: Default::default(),
-            adc12_clock_source: Adcsel::DISABLE,
-            adc345_clock_source: Adcsel::DISABLE,
-            fdcan_clock_source: FdCanClockSource::PCLK1,
             boost: false,
+            mux: Default::default(),
         }
     }
 }
@@ -165,9 +152,7 @@ pub(crate) unsafe fn init(config: Config) {
     };
 
     // Configure HSI48 if required
-    if let Some(hsi48_config) = config.hsi48 {
-        super::init_hsi48(hsi48_config);
-    }
+    let hsi48 = config.hsi48.map(super::init_hsi48);
 
     let pll_freq = config.pll.map(|pll_config| {
         let src_freq = match pll_config.source {
@@ -176,13 +161,13 @@ pub(crate) unsafe fn init(config: Config) {
             _ => unreachable!(),
         };
 
-        assert!(max::PLL_IN.contains(&src_freq));
-
         // Disable PLL before configuration
         RCC.cr().modify(|w| w.set_pllon(false));
         while RCC.cr().read().pllrdy() {}
 
-        let internal_freq = src_freq / pll_config.prediv * pll_config.mul;
+        let in_freq = src_freq / pll_config.prediv;
+        assert!(max::PLL_IN.contains(&in_freq));
+        let internal_freq = in_freq * pll_config.mul;
 
         assert!(max::PLL_VCO.contains(&internal_freq));
 
@@ -301,48 +286,14 @@ pub(crate) unsafe fn init(config: Config) {
     let (apb1_freq, apb1_tim_freq) = super::util::calc_pclk(hclk, config.apb1_pre);
     let (apb2_freq, apb2_tim_freq) = super::util::calc_pclk(hclk, config.apb2_pre);
 
-    // Configure the 48MHz clock source for USB and RNG peripherals.
-    RCC.ccipr().modify(|w| {
-        w.set_clk48sel(match config.clk48_src {
-            Clk48Src::PLL1_Q => {
-                // Not checking that PLL1_Q is 48MHz here so as not to require the user to have a 48MHz clock.
-                // Peripherals which require one (USB, RNG) should check that they‘re driven by a valid 48MHz
-                // clock at init.
-                crate::pac::rcc::vals::Clk48sel::PLL1_Q
-            }
-            Clk48Src::HSI48 => {
-                // Make sure HSI48 is enabled
-                assert!(config.hsi48.is_some());
-                crate::pac::rcc::vals::Clk48sel::HSI48
-            }
-            _ => unreachable!(),
-        })
-    });
-
-    RCC.ccipr().modify(|w| w.set_adc12sel(config.adc12_clock_source));
-    RCC.ccipr().modify(|w| w.set_adc345sel(config.adc345_clock_source));
-    RCC.ccipr().modify(|w| w.set_fdcansel(config.fdcan_clock_source));
-
-    let adc12_ck = match config.adc12_clock_source {
-        AdcClockSource::DISABLE => None,
-        AdcClockSource::PLL1_P => pll_freq.as_ref().unwrap().pll_p,
-        AdcClockSource::SYS => Some(sys_clk),
-        _ => unreachable!(),
-    };
-
-    let adc345_ck = match config.adc345_clock_source {
-        AdcClockSource::DISABLE => None,
-        AdcClockSource::PLL1_P => pll_freq.as_ref().unwrap().pll_p,
-        AdcClockSource::SYS => Some(sys_clk),
-        _ => unreachable!(),
-    };
-
     if config.low_power_run {
         assert!(sys_clk <= Hertz(2_000_000));
         PWR.cr1().modify(|w| w.set_lpr(true));
     }
 
     let rtc = config.ls.init();
+
+    config.mux.init();
 
     set_clocks!(
         sys: Some(sys_clk),
@@ -353,12 +304,11 @@ pub(crate) unsafe fn init(config: Config) {
         pclk1_tim: Some(apb1_tim_freq),
         pclk2: Some(apb2_freq),
         pclk2_tim: Some(apb2_tim_freq),
-        adc: adc12_ck,
-        adc34: adc345_ck,
         pll1_p: pll_freq.as_ref().and_then(|pll| pll.pll_p),
         pll1_q: pll_freq.as_ref().and_then(|pll| pll.pll_q),
         pll1_r: pll_freq.as_ref().and_then(|pll| pll.pll_r),
         hse: hse,
+        hsi48: hsi48,
         rtc: rtc,
     );
 }

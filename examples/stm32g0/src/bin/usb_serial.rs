@@ -4,7 +4,6 @@
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::rcc::{Hsi48Config, UsbSrc};
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -19,10 +18,11 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.usb_src = Some(UsbSrc::Hsi48(Hsi48Config {
-        sync_from_usb: true,
-        ..Default::default()
-    }));
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
+        config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+    }
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");

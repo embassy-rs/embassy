@@ -21,6 +21,9 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb_pre: APBPrescaler,
     pub ls: super::LsConfig,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
@@ -31,6 +34,7 @@ impl Default for Config {
             ahb_pre: AHBPrescaler::DIV1,
             apb_pre: APBPrescaler::DIV1,
             ls: Default::default(),
+            mux: Default::default(),
         }
     }
 }
@@ -97,28 +101,25 @@ pub(crate) unsafe fn init(config: Config) {
 
     if !set_flash_latency_after {
         // Spin until the effective flash latency is compatible with the clock change
-        while FLASH.acr().read().latency().to_bits() < target_flash_latency.to_bits() {}
+        while FLASH.acr().read().latency() < target_flash_latency {}
     }
 
     // Configure SYSCLK source, HCLK divisor, and PCLK divisor all at once
-    let (sw, hpre, ppre) = (sw.into(), config.ahb_pre, config.apb_pre);
     RCC.cfgr().modify(|w| {
         w.set_sw(sw);
-        w.set_hpre(hpre);
-        w.set_ppre(ppre);
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre(config.apb_pre);
     });
-
-    if set_flash_latency_after {
-        // We can make the flash require fewer wait states
-        // Spin until the SYSCLK changes have taken effect
-        loop {
-            let cfgr = RCC.cfgr().read();
-            if cfgr.sw() == sw && cfgr.hpre() == hpre && cfgr.ppre() == ppre {
-                break;
-            }
+    // Spin until the SYSCLK changes have taken effect
+    loop {
+        let cfgr = RCC.cfgr().read();
+        if cfgr.sw() == sw && cfgr.hpre() == config.ahb_pre && cfgr.ppre() == config.apb_pre {
+            break;
         }
+    }
 
-        // Set the flash latency to require fewer wait states
+    // Set the flash latency to require fewer wait states
+    if set_flash_latency_after {
         FLASH.acr().modify(|w| w.set_latency(target_flash_latency));
     }
 
@@ -131,6 +132,11 @@ pub(crate) unsafe fn init(config: Config) {
             (freq, freq * 2u32)
         }
     };
+
+    config.mux.init();
+
+    // without this, the ringbuffered uart test fails.
+    cortex_m::asm::dsb();
 
     set_clocks!(
         hsi: None,

@@ -2,15 +2,10 @@ use core::ops::RangeInclusive;
 
 use crate::pac;
 use crate::pac::pwr::vals::Vos;
-#[cfg(stm32h5)]
-pub use crate::pac::rcc::vals::Adcdacsel as AdcClockSource;
-#[cfg(stm32h7)]
-pub use crate::pac::rcc::vals::Adcsel as AdcClockSource;
 pub use crate::pac::rcc::vals::{
-    Ckpersel as PerClockSource, Fdcansel as FdCanClockSource, Hsidiv as HSIPrescaler, Plldiv as PllDiv,
-    Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
+    Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
 };
-use crate::pac::rcc::vals::{Ckpersel, Pllrge, Pllvcosel, Timpre};
+use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::time::Hertz;
 
@@ -194,16 +189,15 @@ pub struct Config {
     #[cfg(stm32h7)]
     pub apb4_pre: APBPrescaler,
 
-    pub per_clock_source: PerClockSource,
-    pub adc_clock_source: AdcClockSource,
-    pub fdcan_clock_source: FdCanClockSource,
-
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
 
     #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
     pub supply_config: SupplyConfig,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
@@ -227,21 +221,14 @@ impl Default for Config {
             #[cfg(stm32h7)]
             apb4_pre: APBPrescaler::DIV1,
 
-            per_clock_source: PerClockSource::HSI,
-
-            #[cfg(stm32h5)]
-            adc_clock_source: AdcClockSource::HCLK1,
-            #[cfg(stm32h7)]
-            adc_clock_source: AdcClockSource::PER,
-
-            fdcan_clock_source: FdCanClockSource::from_bits(0), // HSE
-
             timer_prescaler: TimerPrescaler::DefaultX2,
             voltage_scale: VoltageScale::Scale0,
             ls: Default::default(),
 
             #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468))]
             supply_config: SupplyConfig::Default,
+
+            mux: Default::default(),
         }
     }
 }
@@ -504,31 +491,6 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32h7)]
     assert!(apb4 <= pclk_max);
 
-    let _per_ck = match config.per_clock_source {
-        Ckpersel::HSI => hsi,
-        Ckpersel::CSI => csi,
-        Ckpersel::HSE => hse,
-        _ => unreachable!(),
-    };
-
-    #[cfg(stm32h7)]
-    let adc = match config.adc_clock_source {
-        AdcClockSource::PLL2_P => pll2.p,
-        AdcClockSource::PLL3_R => pll3.r,
-        AdcClockSource::PER => _per_ck,
-        _ => unreachable!(),
-    };
-    #[cfg(stm32h5)]
-    let adc = match config.adc_clock_source {
-        AdcClockSource::HCLK1 => Some(hclk),
-        AdcClockSource::SYS => Some(sys),
-        AdcClockSource::PLL2_R => pll2.r,
-        AdcClockSource::HSE => hse,
-        AdcClockSource::HSI => hsi,
-        AdcClockSource::CSI => csi,
-        _ => unreachable!(),
-    };
-
     flash_setup(hclk, config.voltage_scale);
 
     let rtc = config.ls.init();
@@ -550,16 +512,6 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.d3cfgr().modify(|w| {
             w.set_d3ppre(config.apb4_pre);
         });
-
-        RCC.d1ccipr().modify(|w| {
-            w.set_ckpersel(config.per_clock_source);
-        });
-        RCC.d3ccipr().modify(|w| {
-            w.set_adcsel(config.adc_clock_source);
-        });
-        RCC.d2ccip1r().modify(|w| {
-            w.set_fdcansel(config.fdcan_clock_source);
-        });
     }
     #[cfg(stm32h5)]
     {
@@ -572,12 +524,6 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_ppre1(config.apb1_pre);
             w.set_ppre2(config.apb2_pre);
             w.set_ppre3(config.apb3_pre);
-        });
-
-        RCC.ccipr5().modify(|w| {
-            w.set_ckpersel(config.per_clock_source);
-            w.set_adcdacsel(config.adc_clock_source);
-            w.set_fdcan12sel(config.fdcan_clock_source)
         });
     }
 
@@ -601,6 +547,8 @@ pub(crate) unsafe fn init(config: Config) {
         while !pac::SYSCFG.cccsr().read().ready() {}
     }
 
+    config.mux.init();
+
     set_clocks!(
         sys: Some(sys),
         hclk1: Some(hclk),
@@ -614,7 +562,6 @@ pub(crate) unsafe fn init(config: Config) {
         pclk4: Some(apb4),
         pclk1_tim: Some(apb1_tim),
         pclk2_tim: Some(apb2_tim),
-        adc: adc,
         rtc: rtc,
 
         hsi: hsi,
@@ -646,7 +593,6 @@ pub(crate) unsafe fn init(config: Config) {
 
         #[cfg(stm32h5)]
         audioclk: None,
-        per: None,
         i2s_ckin: None,
     );
 }
