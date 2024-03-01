@@ -40,8 +40,7 @@ critical-section = "1.1"
 
 document-features = "0.2.7"
 
-# needed for riscv and avr
-# remove when https://github.com/rust-lang/rust/pull/114499 lands on stable (on 1.76)
+# needed for AVR
 portable-atomic = { version = "1.5", optional = true }
 
 # arch-cortex-m dependencies
@@ -78,7 +77,7 @@ arch-std = ["_arch", "critical-section/std"]
 ## Cortex-M
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 ## RISC-V 32
-arch-riscv32 = ["_arch", "dep:portable-atomic"]
+arch-riscv32 = ["_arch"]
 ## WASM
 arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
 ## AVR
