@@ -184,7 +184,11 @@ async fn main(_spawner: Spawner) {
             let frame = can::frame::ClassicFrame::new_extended(0x123456F, &[i; 8]).unwrap();
             info!("Writing frame");
 
-            _ = can.write(frame).await;
+            // You can use any of these approaches to send. The writer makes it
+            // easy to share sending from multiple tasks.
+            //_ = can.write(frame).await;
+            //can.writer().try_write(frame).unwrap();
+            can.writer().write(frame).await;
 
             match can.read().await {
                 Ok((rx_frame, ts)) => {
