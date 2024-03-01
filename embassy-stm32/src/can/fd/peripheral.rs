@@ -307,11 +307,6 @@ impl Registers {
             "Error reading endianness test value from FDCAN core"
         );
 
-        // Framework specific settings are set here
-
-        // set TxBuffer Mode
-        self.regs.txbc().write(|w| w.set_tfqm(_config.tx_buffer_mode.into()));
-
         // set standard filters list size to 28
         // set extended filters list size to 8
         // REQUIRED: we use the memory map as if these settings are set
@@ -357,6 +352,7 @@ impl Registers {
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]
     #[inline]
     pub fn apply_config(&mut self, config: FdCanConfig) {
+        self.set_tx_buffer_mode(config.tx_buffer_mode);
         self.set_data_bit_timing(config.dbtr);
         self.set_nominal_bit_timing(config.nbtr);
         self.set_automatic_retransmit(config.automatic_retransmit);
@@ -502,6 +498,12 @@ impl Registers {
     #[inline]
     pub fn set_edge_filtering(&mut self, enabled: bool) {
         self.regs.cccr().modify(|w| w.set_efbi(enabled));
+    }
+
+    /// Configures TX Buffer Mode
+    #[inline]
+    pub fn set_tx_buffer_mode(&mut self, tbm: TxBufferMode) {
+        self.regs.txbc().write(|w| w.set_tfqm(tbm.into()));
     }
 
     /// Configures frame transmission mode. See

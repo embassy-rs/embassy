@@ -290,9 +290,9 @@ impl Default for GlobalFilter {
 /// TX buffer operation mode
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TxBufferMode {
-    /// TX FIFO operation
+    /// TX FIFO operation - In this mode CAN frames are trasmitted strictly in write order.
     Fifo,
-    /// TX queue operation
+    /// TX queue operation - In this mode CAN frames are transmitted according to CAN priority.
     Queue,
 }
 
