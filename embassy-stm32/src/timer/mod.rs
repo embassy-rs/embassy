@@ -439,9 +439,9 @@ pub(crate) mod sealed {
             Self::regs_1ch_cmp().bdtr().modify(|w| w.set_dtg(value));
         }
 
-        /// Enable timer outputs.
-        fn enable_outputs(&self) {
-            Self::regs_1ch_cmp().bdtr().modify(|w| w.set_moe(true));
+        /// Set state of MOE-bit in BDTR register to en-/disable output
+        fn set_moe(&self, enable: bool) {
+            Self::regs_1ch_cmp().bdtr().modify(|w| w.set_moe(enable));
         }
     }
 
@@ -685,6 +685,13 @@ pub trait CaptureCompare16bitInstance:
     + sealed::GeneralPurpose16bitInstance
     + 'static
 {
+    // SimplePwm<'d, T> is implemented for T: CaptureCompare16bitInstance
+    // Advanced timers implement this trait, but the output needs to be
+    // enabled explicitly.
+    // To support general-purpose and advanced timers, this function is added
+    // here defaulting to noop and overwritten for advanced timers.
+    /// Enable timer outputs.
+    fn enable_outputs(&self) {}
 }
 
 #[cfg(not(stm32l0))]
@@ -911,7 +918,13 @@ foreach_interrupt! {
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl CaptureCompare16bitInstance for crate::peripherals::$inst {
+            /// Enable timer outputs.
+            fn enable_outputs(&self) {
+                use crate::timer::sealed::GeneralPurpose1ChannelComplementaryInstance;
+                self.set_moe(true);
+            }
+        }
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
     };
     ($inst:ident, timer, TIM_1CH_CMP, CC, $irq:ident) => {
@@ -929,7 +942,13 @@ foreach_interrupt! {
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl CaptureCompare16bitInstance for crate::peripherals::$inst {
+            /// Enable timer outputs.
+            fn enable_outputs(&self) {
+                use crate::timer::sealed::GeneralPurpose1ChannelComplementaryInstance;
+                self.set_moe(true);
+            }
+        }
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
     };
     ($inst:ident, timer, TIM_2CH_CMP, CC, $irq:ident) => {
@@ -947,7 +966,13 @@ foreach_interrupt! {
         impl_1ch_cmp_timer!($inst);
         impl_2ch_cmp_timer!($inst);
         impl BasicInstance for crate::peripherals::$inst {}
-        impl CaptureCompare16bitInstance for crate::peripherals::$inst {}
+        impl CaptureCompare16bitInstance for crate::peripherals::$inst {
+            /// Enable timer outputs.
+            fn enable_outputs(&self) {
+                use crate::timer::sealed::GeneralPurpose1ChannelComplementaryInstance;
+                self.set_moe(true);
+            }
+        }
         impl ComplementaryCaptureCompare16bitInstance for crate::peripherals::$inst {}
     };
     ($inst:ident, timer, TIM_ADV, CC, $irq:ident) => {
