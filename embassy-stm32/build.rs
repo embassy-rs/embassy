@@ -764,6 +764,8 @@ fn main() {
     #[rustfmt::skip]
     let signals: HashMap<_, _> = [
                 // (kind, signal) => trait
+        (("ucpd", "CC1"), quote!(crate::ucpd::Cc1Pin)),
+        (("ucpd", "CC2"), quote!(crate::ucpd::Cc2Pin)),
         (("usart", "TX"), quote!(crate::usart::TxPin)),
         (("usart", "RX"), quote!(crate::usart::RxPin)),
         (("usart", "CTS"), quote!(crate::usart::CtsPin)),
@@ -1102,6 +1104,8 @@ fn main() {
 
     let signals: HashMap<_, _> = [
         // (kind, signal) => trait
+        (("ucpd", "RX"), quote!(crate::ucpd::RxDma)),
+        (("ucpd", "TX"), quote!(crate::ucpd::TxDma)),
         (("usart", "RX"), quote!(crate::usart::RxDma)),
         (("usart", "TX"), quote!(crate::usart::TxDma)),
         (("lpuart", "RX"), quote!(crate::usart::RxDma)),

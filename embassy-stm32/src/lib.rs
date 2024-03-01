@@ -73,6 +73,8 @@ pub mod sai;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(ucpd)]
+pub mod ucpd;
 #[cfg(uid)]
 pub mod uid;
 #[cfg(usart)]
