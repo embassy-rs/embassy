@@ -88,11 +88,26 @@ pub trait WatchBehavior<T: Clone> {
     /// Tries to peek the value of the `Watch`, **without** marking it as seen.
     fn try_peek(&self) -> Option<T>;
 
+    /// Poll the `Watch` for the value if it matches the predicate function
+    /// `f`, **without** making it as seen.
+    fn poll_peek_and(&self, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T>;
+
+    /// Tries to peek the value of the `Watch` if it matches the predicate function `f`, **without** marking it as seen.
+    fn try_peek_and(&self, f: &mut dyn Fn(&T) -> bool) -> Option<T>;
+
     /// Poll the `Watch` for the current value, making it as seen.
     fn poll_get(&self, id: &mut u64, cx: &mut Context<'_>) -> Poll<T>;
 
     /// Tries to get the value of the `Watch`, marking it as seen.
     fn try_get(&self, id: &mut u64) -> Option<T>;
+
+    /// Poll the `Watch` for the value if it matches the predicate function
+    /// `f`, making it as seen.
+    fn poll_get_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T>;
+
+    /// Tries to get the value of the `Watch` if it matches the predicate function
+    /// `f`, marking it as seen.
+    fn try_get_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool) -> Option<T>;
 
     /// Poll the `Watch` for a changed value, marking it as seen.
     fn poll_changed(&self, id: &mut u64, cx: &mut Context<'_>) -> Poll<T>;
@@ -100,8 +115,20 @@ pub trait WatchBehavior<T: Clone> {
     /// Tries to retrieve the value of the `Watch` if it has changed, marking it as seen.
     fn try_changed(&self, id: &mut u64) -> Option<T>;
 
+    /// Poll the `Watch` for a changed value that matches the predicate function
+    /// `f`, marking it as seen.
+    fn poll_changed_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T>;
+
+    /// Tries to retrieve the value of the `Watch` if it has changed and matches the
+    /// predicate function `f`, marking it as seen.
+    fn try_changed_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool) -> Option<T>;
+
     /// Checks if the `Watch` is been initialized with a value.
     fn contains_value(&self) -> bool;
+
+    /// Modify the value of the `Watch` using a closure. Returns `false` if the
+    /// `Watch` does not already contain a value.
+    fn modify(&self, f: &mut dyn Fn(&mut Option<T>));
 
     /// Used when a receiver is dropped to decrement the receiver count.
     ///
@@ -143,6 +170,29 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
         self.mutex.lock(|state| state.borrow().data.clone())
     }
 
+    fn poll_peek_and(&self, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T> {
+        self.mutex.lock(|state| {
+            let mut s = state.borrow_mut();
+            match s.data {
+                Some(ref data) if f(data) => Poll::Ready(data.clone()),
+                _ => {
+                    s.wakers.register(cx.waker());
+                    Poll::Pending
+                }
+            }
+        })
+    }
+
+    fn try_peek_and(&self, f: &mut dyn Fn(&T) -> bool) -> Option<T> {
+        self.mutex.lock(|state| {
+            let s = state.borrow();
+            match s.data {
+                Some(ref data) if f(data) => Some(data.clone()),
+                _ => None,
+            }
+        })
+    }
+
     fn poll_get(&self, id: &mut u64, cx: &mut Context<'_>) -> Poll<T> {
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
@@ -164,6 +214,35 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
             let s = state.borrow();
             *id = s.current_id;
             state.borrow().data.clone()
+        })
+    }
+
+    fn poll_get_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T> {
+        self.mutex.lock(|state| {
+            let mut s = state.borrow_mut();
+            match s.data {
+                Some(ref data) if f(data) => {
+                    *id = s.current_id;
+                    Poll::Ready(data.clone())
+                }
+                _ => {
+                    s.wakers.register(cx.waker());
+                    Poll::Pending
+                }
+            }
+        })
+    }
+
+    fn try_get_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool) -> Option<T> {
+        self.mutex.lock(|state| {
+            let s = state.borrow();
+            match s.data {
+                Some(ref data) if f(data) => {
+                    *id = s.current_id;
+                    Some(data.clone())
+                }
+                _ => None,
+            }
         })
     }
 
@@ -189,9 +268,38 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
             match s.current_id > *id {
                 true => {
                     *id = s.current_id;
-                    state.borrow().data.clone()
+                    s.data.clone()
                 }
                 false => None,
+            }
+        })
+    }
+
+    fn poll_changed_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool, cx: &mut Context<'_>) -> Poll<T> {
+        self.mutex.lock(|state| {
+            let mut s = state.borrow_mut();
+            match (&s.data, s.current_id > *id) {
+                (Some(data), true) if f(data) => {
+                    *id = s.current_id;
+                    Poll::Ready(data.clone())
+                }
+                _ => {
+                    s.wakers.register(cx.waker());
+                    Poll::Pending
+                }
+            }
+        })
+    }
+
+    fn try_changed_and(&self, id: &mut u64, f: &mut dyn Fn(&T) -> bool) -> Option<T> {
+        self.mutex.lock(|state| {
+            let s = state.borrow();
+            match (&s.data, s.current_id > *id) {
+                (Some(data), true) if f(data) => {
+                    *id = s.current_id;
+                    s.data.clone()
+                }
+                _ => None,
             }
         })
     }
@@ -204,6 +312,15 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
         self.mutex.lock(|state| {
             let mut s = state.borrow_mut();
             s.receiver_count -= 1;
+        })
+    }
+
+    fn modify(&self, f: &mut dyn Fn(&mut Option<T>)) {
+        self.mutex.lock(|state| {
+            let mut s = state.borrow_mut();
+            f(&mut s.data);
+            s.current_id += 1;
+            s.wakers.wake();
         })
     }
 }
@@ -300,9 +417,26 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Snd<'a, T, W> {
         self.watch.try_peek()
     }
 
+    /// Tries to peek the current value of the `Watch` if it matches the predicate
+    /// function `f`.
+    pub fn try_peek_and<F>(&self, mut f: F) -> Option<T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        self.watch.try_peek_and(&mut f)
+    }
+
     /// Returns true if the `Watch` contains a value.
     pub fn contains_value(&self) -> bool {
         self.watch.contains_value()
+    }
+
+    /// Modify the value of the `Watch` using a closure.
+    pub fn modify<F>(&self, mut f: F)
+    where
+        F: Fn(&mut Option<T>),
+    {
+        self.watch.modify(&mut f)
     }
 }
 
@@ -399,6 +533,26 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Rcv<'a, T, W> {
         self.watch.try_peek()
     }
 
+    /// Returns the current value of the `Watch` if it matches the predicate function `f`,
+    /// or waits for it to match, **without** marking it as seen.
+    ///
+    /// **Note**: Futures do nothing unless you `.await` or poll them.
+    pub async fn peek_and<F>(&self, mut f: F) -> T
+    where
+        F: Fn(&T) -> bool,
+    {
+        poll_fn(|cx| self.watch.poll_peek_and(&mut f, cx)).await
+    }
+
+    /// Tries to peek the current value of the `Watch` if it matches the predicate
+    /// function `f` without waiting, and **without** marking it as seen.
+    pub fn try_peek_and<F>(&self, mut f: F) -> Option<T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        self.watch.try_peek_and(&mut f)
+    }
+
     /// Returns the current value of the `Watch` once it is initialized, marking it as seen.
     ///
     /// **Note**: Futures do nothing unless you `.await` or poll them.
@@ -411,6 +565,26 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Rcv<'a, T, W> {
         self.watch.try_get(&mut self.at_id)
     }
 
+    /// Returns the value of the `Watch` if it matches the predicate function `f`,
+    /// or waits for it to match, marking it as seen.
+    ///
+    /// **Note**: Futures do nothing unless you `.await` or poll them.
+    pub async fn get_and<F>(&mut self, mut f: F) -> T
+    where
+        F: Fn(&T) -> bool,
+    {
+        poll_fn(|cx| self.watch.poll_get_and(&mut self.at_id, &mut f, cx)).await
+    }
+
+    /// Tries to get the current value of the `Watch` if it matches the predicate
+    /// function `f` without waiting, marking it as seen.
+    pub fn try_get_and<F>(&mut self, mut f: F) -> Option<T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        self.watch.try_get_and(&mut self.at_id, &mut f)
+    }
+
     /// Waits for the `Watch` to change and returns the new value, marking it as seen.
     ///
     /// **Note**: Futures do nothing unless you `.await` or poll them.
@@ -421,6 +595,26 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Rcv<'a, T, W> {
     /// Tries to get the new value of the watch without waiting, marking it as seen.
     pub fn try_changed(&mut self) -> Option<T> {
         self.watch.try_changed(&mut self.at_id)
+    }
+
+    /// Waits for the `Watch` to change to a value which satisfies the predicate
+    /// function `f` and returns the new value, marking it as seen.
+    ///
+    /// **Note**: Futures do nothing unless you `.await` or poll them.
+    pub async fn changed_and<F>(&mut self, mut f: F) -> T
+    where
+        F: Fn(&T) -> bool,
+    {
+        poll_fn(|cx| self.watch.poll_changed_and(&mut self.at_id, &mut f, cx)).await
+    }
+
+    /// Tries to get the new value of the watch which satisfies the predicate
+    /// function `f` and returns the new value without waiting, marking it as seen.
+    pub fn try_changed_and<F>(&mut self, mut f: F) -> Option<T>
+    where
+        F: Fn(&T) -> bool,
+    {
+        self.watch.try_changed_and(&mut self.at_id, &mut f)
     }
 
     /// Checks if the `Watch` contains a value. If this returns true,
@@ -442,12 +636,9 @@ pub struct Receiver<'a, M: RawMutex, T: Clone, const N: usize>(Rcv<'a, T, Watch<
 impl<'a, M: RawMutex, T: Clone, const N: usize> Receiver<'a, M, T, N> {
     /// Converts the `Receiver` into a [`DynReceiver`].
     pub fn as_dyn(self) -> DynReceiver<'a, T> {
-        // We need to increment the receiver count since the original
-        // receiver is being dropped, which decrements the count.
-        self.watch.mutex.lock(|state| {
-            state.borrow_mut().receiver_count += 1;
-        });
-        DynReceiver(Rcv::new(self.0.watch, self.at_id))
+        let rcv = DynReceiver(Rcv::new(self.0.watch, self.at_id));
+        core::mem::forget(self); // Ensures the destructor is not called
+        rcv
     }
 }
 
@@ -520,6 +711,68 @@ mod tests {
 
             // No update
             assert_eq!(rcv.try_changed(), None);
+        };
+        block_on(f);
+    }
+
+    #[test]
+    fn sender_modify() {
+        let f = async {
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
+
+            // Obtain receiver and sender
+            let mut rcv = WATCH.receiver().unwrap();
+            let snd = WATCH.sender();
+
+            // Receive the new value
+            snd.send(10);
+            assert_eq!(rcv.try_changed(), Some(10));
+
+            // Modify the value inplace
+            snd.modify(|opt|{
+                if let Some(inner) = opt {
+                    *inner += 5;
+                }
+            });
+
+            // Get the modified value
+            assert_eq!(rcv.try_changed(), Some(15));
+            assert_eq!(rcv.try_changed(), None);
+        };
+        block_on(f);
+    }
+
+    #[test]
+    fn predicate_fn() {
+        let f = async {
+            static WATCH: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
+
+            // Obtain receiver and sender
+            let mut rcv = WATCH.receiver().unwrap();
+            let snd = WATCH.sender();
+
+            snd.send(10);
+            assert_eq!(rcv.try_peek_and(|x| x > &5), Some(10));
+            assert_eq!(rcv.try_peek_and(|x| x < &5), None);
+            assert!(rcv.try_changed().is_some());
+
+            snd.send(15);
+            assert_eq!(rcv.try_get_and(|x| x > &5), Some(15));
+            assert_eq!(rcv.try_get_and(|x| x < &5), None);
+            assert!(rcv.try_changed().is_none());
+
+            snd.send(20);
+            assert_eq!(rcv.try_changed_and(|x| x > &5), Some(20));
+            assert_eq!(rcv.try_changed_and(|x| x > &5), None);
+
+            snd.send(25);
+            assert_eq!(rcv.try_changed_and(|x| x < &5), None);
+            assert_eq!(rcv.try_changed(), Some(25));
+
+            snd.send(30);
+            assert_eq!(rcv.changed_and(|x| x > &5).await, 30);
+            assert_eq!(rcv.peek_and(|x| x > &5).await, 30);
+            assert_eq!(rcv.get_and(|x| x > &5).await, 30);
         };
         block_on(f);
     }
