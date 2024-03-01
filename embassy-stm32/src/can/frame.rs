@@ -206,7 +206,7 @@ impl embedded_can::Frame for ClassicFrame {
     fn is_extended(&self) -> bool {
         match self.can_header.id {
             embedded_can::Id::Extended(_) => true,
-            embedded_can::Id::Standard(_) => true,
+            embedded_can::Id::Standard(_) => false,
         }
     }
     fn is_remote_frame(&self) -> bool {
@@ -369,7 +369,7 @@ impl embedded_can::Frame for FdFrame {
     fn is_extended(&self) -> bool {
         match self.can_header.id {
             embedded_can::Id::Extended(_) => true,
-            embedded_can::Id::Standard(_) => true,
+            embedded_can::Id::Standard(_) => false,
         }
     }
     fn is_remote_frame(&self) -> bool {
