@@ -729,7 +729,7 @@ mod tests {
             assert_eq!(rcv.try_changed(), Some(10));
 
             // Modify the value inplace
-            snd.modify(|opt|{
+            snd.modify(|opt| {
                 if let Some(inner) = opt {
                     *inner += 5;
                 }
