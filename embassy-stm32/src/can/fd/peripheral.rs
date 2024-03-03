@@ -22,6 +22,7 @@ enum LoopbackMode {
 pub struct Registers {
     pub regs: &'static crate::pac::can::Fdcan,
     pub msgram: &'static crate::pac::fdcanram::Fdcanram,
+    pub msg_ram_offset: usize,
 }
 
 impl Registers {
@@ -114,6 +115,12 @@ impl Registers {
         self.regs.txfqs().read().tfqf()
     }
 
+    /// Returns the current TX buffer operation mode (queue or FIFO)
+    #[inline]
+    pub fn tx_queue_mode(&self) -> TxBufferMode {
+        self.regs.txbc().read().tfqm().into()
+    }
+
     #[inline]
     pub fn has_pending_frame(&self, idx: usize) -> bool {
         self.regs.txbrp().read().trp(idx)
@@ -164,7 +171,7 @@ impl Registers {
     }
 
     #[inline]
-    pub fn abort_pending_mailbox_generic<F: embedded_can::Frame>(&self, bufidx: usize) -> Option<F> {
+    fn abort_pending_mailbox<F: embedded_can::Frame>(&self, bufidx: usize) -> Option<F> {
         if self.abort(bufidx) {
             let mailbox = self.tx_buffer_element(bufidx);
 
@@ -197,19 +204,20 @@ impl Registers {
     }
 
     pub fn write<F: embedded_can::Frame + CanHeader>(&self, frame: &F) -> nb::Result<Option<F>, Infallible> {
-        let queue_is_full = self.tx_queue_is_full();
-
-        let id = frame.header().id();
-
-        // If the queue is full,
-        // Discard the first slot with a lower priority message
-        let (idx, pending_frame) = if queue_is_full {
+        let (idx, pending_frame) = if self.tx_queue_is_full() {
+            if self.tx_queue_mode() == TxBufferMode::Fifo {
+                // Does not make sense to cancel a pending frame when using FIFO
+                return Err(nb::Error::WouldBlock);
+            }
+            // If the queue is full,
+            // Discard the first slot with a lower priority message
+            let id = frame.header().id();
             if self.is_available(0, id) {
-                (0, self.abort_pending_mailbox_generic(0))
+                (0, self.abort_pending_mailbox(0))
             } else if self.is_available(1, id) {
-                (1, self.abort_pending_mailbox_generic(1))
+                (1, self.abort_pending_mailbox(1))
             } else if self.is_available(2, id) {
-                (2, self.abort_pending_mailbox_generic(2))
+                (2, self.abort_pending_mailbox(2))
             } else {
                 // For now we bail when there is no lower priority slot available
                 // Can this lead to priority inversion?
@@ -287,7 +295,6 @@ impl Registers {
     pub fn into_config_mode(mut self, _config: FdCanConfig) {
         self.set_power_down_mode(false);
         self.enter_init_mode();
-
         self.reset_msg_ram();
 
         // check the FDCAN core matches our expections
@@ -299,34 +306,6 @@ impl Registers {
             self.regs.endn().read().etv() == 0x87654321_u32,
             "Error reading endianness test value from FDCAN core"
         );
-
-        // Framework specific settings are set here
-
-        // set TxBuffer to Queue Mode
-        self.regs
-            .txbc()
-            .write(|w| w.set_tfqm(crate::pac::can::vals::Tfqm::QUEUE));
-
-        // set standard filters list size to 28
-        // set extended filters list size to 8
-        // REQUIRED: we use the memory map as if these settings are set
-        // instead of re-calculating them.
-        #[cfg(not(stm32h7))]
-        {
-            self.regs.rxgfc().modify(|w| {
-                w.set_lss(crate::can::fd::message_ram::STANDARD_FILTER_MAX);
-                w.set_lse(crate::can::fd::message_ram::EXTENDED_FILTER_MAX);
-            });
-        }
-        #[cfg(stm32h7)]
-        {
-            self.regs
-                .sidfc()
-                .modify(|w| w.set_lss(crate::can::fd::message_ram::STANDARD_FILTER_MAX));
-            self.regs
-                .xidfc()
-                .modify(|w| w.set_lse(crate::can::fd::message_ram::EXTENDED_FILTER_MAX));
-        }
 
         /*
         for fid in 0..crate::can::message_ram::STANDARD_FILTER_MAX {
@@ -352,6 +331,52 @@ impl Registers {
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]
     #[inline]
     pub fn apply_config(&mut self, config: FdCanConfig) {
+        self.set_tx_buffer_mode(config.tx_buffer_mode);
+
+        // set standard filters list size to 28
+        // set extended filters list size to 8
+        // REQUIRED: we use the memory map as if these settings are set
+        // instead of re-calculating them.
+        #[cfg(not(stm32h7))]
+        {
+            self.regs.rxgfc().modify(|w| {
+                w.set_lss(crate::can::fd::message_ram::STANDARD_FILTER_MAX);
+                w.set_lse(crate::can::fd::message_ram::EXTENDED_FILTER_MAX);
+            });
+        }
+        #[cfg(stm32h7)]
+        {
+            self.regs
+                .sidfc()
+                .modify(|w| w.set_lss(crate::can::fd::message_ram::STANDARD_FILTER_MAX));
+            self.regs
+                .xidfc()
+                .modify(|w| w.set_lse(crate::can::fd::message_ram::EXTENDED_FILTER_MAX));
+        }
+
+        self.configure_msg_ram();
+
+        // Enable timestamping
+        #[cfg(not(stm32h7))]
+        self.regs
+            .tscc()
+            .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::INCREMENT));
+        #[cfg(stm32h7)]
+        self.regs.tscc().write(|w| w.set_tss(0x01));
+
+        // this isn't really documented in the reference manual
+        // but corresponding txbtie bit has to be set for the TC (TxComplete) interrupt to fire
+        self.regs.txbtie().write(|w| w.0 = 0xffff_ffff);
+        self.regs.ie().modify(|w| {
+            w.set_rfne(0, true); // Rx Fifo 0 New Msg
+            w.set_rfne(1, true); // Rx Fifo 1 New Msg
+            w.set_tce(true); //  Tx Complete
+        });
+        self.regs.ile().modify(|w| {
+            w.set_eint0(true); // Interrupt Line 0
+            w.set_eint1(true); // Interrupt Line 1
+        });
+
         self.set_data_bit_timing(config.dbtr);
         self.set_nominal_bit_timing(config.nbtr);
         self.set_automatic_retransmit(config.automatic_retransmit);
@@ -499,6 +524,12 @@ impl Registers {
         self.regs.cccr().modify(|w| w.set_efbi(enabled));
     }
 
+    /// Configures TX Buffer Mode
+    #[inline]
+    pub fn set_tx_buffer_mode(&mut self, tbm: TxBufferMode) {
+        self.regs.txbc().write(|w| w.set_tfqm(tbm.into()));
+    }
+
     /// Configures frame transmission mode. See
     /// [`FdCanConfig::set_frame_transmit`]
     #[inline]
@@ -592,6 +623,71 @@ impl Registers {
             w.set_rrfs(filter.reject_remote_standard_frames);
             w.set_rrfe(filter.reject_remote_extended_frames);
         });
+    }
+
+    #[cfg(not(stm32h7))]
+    fn configure_msg_ram(&mut self) {}
+
+    #[cfg(stm32h7)]
+    fn configure_msg_ram(&mut self) {
+        let r = self.regs;
+
+        use crate::can::fd::message_ram::*;
+        //use fdcan::message_ram::*;
+        let mut offset_words = self.msg_ram_offset as u16;
+
+        // 11-bit filter
+        r.sidfc().modify(|w| w.set_flssa(offset_words));
+        offset_words += STANDARD_FILTER_MAX as u16;
+
+        // 29-bit filter
+        r.xidfc().modify(|w| w.set_flesa(offset_words));
+        offset_words += 2 * EXTENDED_FILTER_MAX as u16;
+
+        // Rx FIFO 0 and 1
+        for i in 0..=1 {
+            r.rxfc(i).modify(|w| {
+                w.set_fsa(offset_words);
+                w.set_fs(RX_FIFO_MAX);
+                w.set_fwm(RX_FIFO_MAX);
+            });
+            offset_words += 18 * RX_FIFO_MAX as u16;
+        }
+
+        // Rx buffer - see below
+        // Tx event FIFO
+        r.txefc().modify(|w| {
+            w.set_efsa(offset_words);
+            w.set_efs(TX_EVENT_MAX);
+            w.set_efwm(TX_EVENT_MAX);
+        });
+        offset_words += 2 * TX_EVENT_MAX as u16;
+
+        // Tx buffers
+        r.txbc().modify(|w| {
+            w.set_tbsa(offset_words);
+            w.set_tfqs(TX_FIFO_MAX);
+        });
+        offset_words += 18 * TX_FIFO_MAX as u16;
+
+        // Rx Buffer - not used
+        r.rxbc().modify(|w| {
+            w.set_rbsa(offset_words);
+        });
+
+        // TX event FIFO?
+        // Trigger memory?
+
+        // Set the element sizes to 16 bytes
+        r.rxesc().modify(|w| {
+            w.set_rbds(0b111);
+            for i in 0..=1 {
+                w.set_fds(i, 0b111);
+            }
+        });
+        r.txesc().modify(|w| {
+            w.set_tbds(0b111);
+        })
     }
 }
 

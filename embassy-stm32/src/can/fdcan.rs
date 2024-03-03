@@ -184,42 +184,19 @@ impl<'d, T: Instance> FdcanConfigurator<'d, T> {
         T::enable_and_reset();
 
         let mut config = crate::can::fd::config::FdCanConfig::default();
+        config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);
         T::registers().into_config_mode(config);
 
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        T::configure_msg_ram();
         unsafe {
-            // Enable timestamping
-            #[cfg(not(stm32h7))]
-            T::regs()
-                .tscc()
-                .write(|w| w.set_tss(stm32_metapac::can::vals::Tss::INCREMENT));
-            #[cfg(stm32h7)]
-            T::regs().tscc().write(|w| w.set_tss(0x01));
-            config.timestamp_source = TimestampSource::Prescaler(TimestampPrescaler::_1);
-
             T::IT0Interrupt::unpend(); // Not unsafe
             T::IT0Interrupt::enable();
 
             T::IT1Interrupt::unpend(); // Not unsafe
             T::IT1Interrupt::enable();
-
-            // this isn't really documented in the reference manual
-            // but corresponding txbtie bit has to be set for the TC (TxComplete) interrupt to fire
-            T::regs().txbtie().write(|w| w.0 = 0xffff_ffff);
         }
-
-        T::regs().ie().modify(|w| {
-            w.set_rfne(0, true); // Rx Fifo 0 New Msg
-            w.set_rfne(1, true); // Rx Fifo 1 New Msg
-            w.set_tce(true); //  Tx Complete
-        });
-        T::regs().ile().modify(|w| {
-            w.set_eint0(true); // Interrupt Line 0
-            w.set_eint1(true); // Interrupt Line 1
-        });
 
         Self {
             config,
@@ -869,71 +846,6 @@ pub(crate) mod sealed {
         fn state() -> &'static State;
         unsafe fn mut_state() -> &'static mut State;
         fn calc_timestamp(ns_per_timer_tick: u64, ts_val: u16) -> Timestamp;
-
-        #[cfg(not(stm32h7))]
-        fn configure_msg_ram() {}
-
-        #[cfg(stm32h7)]
-        fn configure_msg_ram() {
-            let r = Self::regs();
-
-            use crate::can::fd::message_ram::*;
-            //use fdcan::message_ram::*;
-            let mut offset_words = Self::MSG_RAM_OFFSET as u16;
-
-            // 11-bit filter
-            r.sidfc().modify(|w| w.set_flssa(offset_words));
-            offset_words += STANDARD_FILTER_MAX as u16;
-
-            // 29-bit filter
-            r.xidfc().modify(|w| w.set_flesa(offset_words));
-            offset_words += 2 * EXTENDED_FILTER_MAX as u16;
-
-            // Rx FIFO 0 and 1
-            for i in 0..=1 {
-                r.rxfc(i).modify(|w| {
-                    w.set_fsa(offset_words);
-                    w.set_fs(RX_FIFO_MAX);
-                    w.set_fwm(RX_FIFO_MAX);
-                });
-                offset_words += 18 * RX_FIFO_MAX as u16;
-            }
-
-            // Rx buffer - see below
-            // Tx event FIFO
-            r.txefc().modify(|w| {
-                w.set_efsa(offset_words);
-                w.set_efs(TX_EVENT_MAX);
-                w.set_efwm(TX_EVENT_MAX);
-            });
-            offset_words += 2 * TX_EVENT_MAX as u16;
-
-            // Tx buffers
-            r.txbc().modify(|w| {
-                w.set_tbsa(offset_words);
-                w.set_tfqs(TX_FIFO_MAX);
-            });
-            offset_words += 18 * TX_FIFO_MAX as u16;
-
-            // Rx Buffer - not used
-            r.rxbc().modify(|w| {
-                w.set_rbsa(offset_words);
-            });
-
-            // TX event FIFO?
-            // Trigger memory?
-
-            // Set the element sizes to 16 bytes
-            r.rxesc().modify(|w| {
-                w.set_rbds(0b111);
-                for i in 0..=1 {
-                    w.set_fds(i, 0b111);
-                }
-            });
-            r.txesc().modify(|w| {
-                w.set_tbds(0b111);
-            })
-        }
     }
 }
 
@@ -957,7 +869,7 @@ macro_rules! impl_fdcan {
                 &crate::pac::$inst
             }
             fn registers() -> Registers {
-                Registers{regs: &crate::pac::$inst, msgram: &crate::pac::$msg_ram_inst}
+                Registers{regs: &crate::pac::$inst, msgram: &crate::pac::$msg_ram_inst, msg_ram_offset: Self::MSG_RAM_OFFSET}
             }
             fn ram() -> &'static crate::pac::fdcanram::Fdcanram {
                 &crate::pac::$msg_ram_inst
