@@ -71,22 +71,6 @@ pub enum PllSource {
     HSE(Hertz, HseMode),
 }
 
-/// Sets the source for the 48MHz clock to the USB peripheral.
-#[cfg(any(stm32g0b1, stm32g0c1, stm32g0b0))]
-pub enum UsbSrc {
-    /// Use the High Speed Internal Oscillator. The CRS must be used to calibrate the
-    /// oscillator to comply with the USB specification for oscillator tolerance.
-    #[cfg(any(stm32g0b1, stm32g0c1))]
-    Hsi48(super::Hsi48Config),
-    /// Use the PLLQ output. The PLL must be configured to output a 48MHz clock. The
-    /// PLL needs to be using the HSE source to comply with the USB specification for oscillator
-    /// tolerance.
-    PllQ,
-    /// Use the HSE source directly.  The HSE must be a 48MHz source.  The HSE source must comply
-    /// with the USB specification for oscillator tolerance.
-    HSE,
-}
-
 /// Clocks configutation
 pub struct Config {
     pub sys: Sysclk,
@@ -94,8 +78,10 @@ pub struct Config {
     pub apb_pre: APBPrescaler,
     pub low_power_run: bool,
     pub ls: super::LsConfig,
-    #[cfg(any(stm32g0b1, stm32g0c1, stm32g0b0))]
-    pub usb_src: Option<UsbSrc>,
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Default for Config {
@@ -107,8 +93,9 @@ impl Default for Config {
             apb_pre: APBPrescaler::DIV1,
             low_power_run: false,
             ls: Default::default(),
-            #[cfg(any(stm32g0b1, stm32g0c1, stm32g0b0))]
-            usb_src: None,
+            #[cfg(crs)]
+            hsi48: Some(Default::default()),
+            mux: Default::default(),
         }
     }
 }
@@ -322,34 +309,12 @@ pub(crate) unsafe fn init(config: Config) {
     let lsi_freq = (sw == Sw::LSI).then_some(super::LSI_FREQ);
     let hse_freq = (sw == Sw::HSE).then_some(sys_clk);
 
-    #[cfg(any(stm32g0b1, stm32g0c1, stm32g0b0))]
-    let hsi48_freq = config.usb_src.and_then(|config| {
-        match config {
-            UsbSrc::PllQ => {
-                // Make sure the PLLQ is enabled and running at 48Mhz
-                assert!(pll1_q_freq.is_some() && pll1_q_freq.unwrap().0 == 48_000_000);
-                RCC.ccipr2()
-                    .modify(|w| w.set_usbsel(crate::pac::rcc::vals::Usbsel::PLL1_Q));
-                None
-            }
-            UsbSrc::HSE => {
-                // Make sure the HSE is enabled and running at 48Mhz
-                assert!(hse_freq.is_some() && hse_freq.unwrap().0 == 48_000_000);
-                RCC.ccipr2()
-                    .modify(|w| w.set_usbsel(crate::pac::rcc::vals::Usbsel::HSE));
-                None
-            }
-            #[cfg(any(stm32g0b1, stm32g0c1))]
-            UsbSrc::Hsi48(config) => {
-                let freq = super::init_hsi48(config);
-                RCC.ccipr2()
-                    .modify(|w| w.set_usbsel(crate::pac::rcc::vals::Usbsel::HSI48));
-                Some(freq)
-            }
-        }
-    });
-    #[cfg(not(any(stm32g0b1, stm32g0c1, stm32g0b0)))]
-    let hsi48_freq: Option<Hertz> = None;
+    #[cfg(crs)]
+    let hsi48 = config.hsi48.map(super::init_hsi48);
+    #[cfg(not(crs))]
+    let hsi48: Option<Hertz> = None;
+
+    config.mux.init();
 
     set_clocks!(
         sys: Some(sys_clk),
@@ -357,7 +322,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk1: Some(apb_freq),
         pclk1_tim: Some(apb_tim_freq),
         hsi: hsi_freq,
-        hsi48: hsi48_freq,
+        hsi48: hsi48,
         hsi_div_8: hsi_div_8_freq,
         hse: hse_freq,
         lse: lse_freq,

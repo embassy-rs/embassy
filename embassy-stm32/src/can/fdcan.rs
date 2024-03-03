@@ -436,7 +436,31 @@ pub struct BufferedCan<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_S
 }
 
 /// Sender that can be used for sending CAN frames.
-pub type BufferedCanSender = embassy_sync::channel::DynamicSender<'static, ClassicFrame>;
+#[derive(Copy, Clone)]
+pub struct BufferedCanSender {
+    tx_buf: embassy_sync::channel::DynamicSender<'static, ClassicFrame>,
+    waker: fn(),
+}
+
+impl BufferedCanSender {
+    /// Async write frame to TX buffer.
+    pub fn try_write(&mut self, frame: ClassicFrame) -> Result<(), embassy_sync::channel::TrySendError<ClassicFrame>> {
+        self.tx_buf.try_send(frame)?;
+        (self.waker)();
+        Ok(())
+    }
+
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: ClassicFrame) {
+        self.tx_buf.send(frame).await;
+        (self.waker)();
+    }
+
+    /// Allows a poll_fn to poll until the channel is ready to write
+    pub fn poll_ready_to_send(&self, cx: &mut core::task::Context<'_>) -> core::task::Poll<()> {
+        self.tx_buf.poll_ready_to_send(cx)
+    }
+}
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub type BufferedCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (ClassicFrame, Timestamp)>;
@@ -489,7 +513,10 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
 
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
-        self.tx_buf.sender().into()
+        BufferedCanSender {
+            tx_buf: self.tx_buf.sender().into(),
+            waker: T::IT0Interrupt::pend,
+        }
     }
 
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
@@ -525,7 +552,31 @@ pub struct BufferedCanFd<'d, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF
 }
 
 /// Sender that can be used for sending CAN frames.
-pub type BufferedFdCanSender = embassy_sync::channel::DynamicSender<'static, FdFrame>;
+#[derive(Copy, Clone)]
+pub struct BufferedFdCanSender {
+    tx_buf: embassy_sync::channel::DynamicSender<'static, FdFrame>,
+    waker: fn(),
+}
+
+impl BufferedFdCanSender {
+    /// Async write frame to TX buffer.
+    pub fn try_write(&mut self, frame: FdFrame) -> Result<(), embassy_sync::channel::TrySendError<FdFrame>> {
+        self.tx_buf.try_send(frame)?;
+        (self.waker)();
+        Ok(())
+    }
+
+    /// Async write frame to TX buffer.
+    pub async fn write(&mut self, frame: FdFrame) {
+        self.tx_buf.send(frame).await;
+        (self.waker)();
+    }
+
+    /// Allows a poll_fn to poll until the channel is ready to write
+    pub fn poll_ready_to_send(&self, cx: &mut core::task::Context<'_>) -> core::task::Poll<()> {
+        self.tx_buf.poll_ready_to_send(cx)
+    }
+}
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub type BufferedFdCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (FdFrame, Timestamp)>;
@@ -578,7 +629,10 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
 
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedFdCanSender {
-        self.tx_buf.sender().into()
+        BufferedFdCanSender {
+            tx_buf: self.tx_buf.sender().into(),
+            waker: T::IT0Interrupt::pend,
+        }
     }
 
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.

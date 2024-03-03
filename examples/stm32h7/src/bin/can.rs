@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
         freq: embassy_stm32::time::Hertz(25_000_000),
         mode: rcc::HseMode::Oscillator,
     });
-    config.rcc.fdcan_clock_source = rcc::FdCanClockSource::HSE;
+    config.rcc.mux.fdcansel = rcc::mux::Fdcansel::HSE;
 
     let peripherals = embassy_stm32::init(config);
 
