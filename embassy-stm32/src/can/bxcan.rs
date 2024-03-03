@@ -167,21 +167,14 @@ impl<'d, T: Instance> Can<'d, T> {
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        let can = crate::can::bx::Can::builder(BxcanInstance(peri)).leave_disabled();
+        let can = crate::can::bx::Can::builder(BxcanInstance(peri), T::regs()).leave_disabled();
         Self { can }
     }
 
     /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
-        let sjw = u8::from(bit_timing.sync_jump_width) as u32;
-        let seg1 = u8::from(bit_timing.seg1) as u32;
-        let seg2 = u8::from(bit_timing.seg2) as u32;
-        let prescaler = u16::from(bit_timing.prescaler) as u32;
-        self.can
-            .modify_config()
-            .set_bit_timing((sjw - 1) << 24 | (seg1 - 1) << 16 | (seg2 - 1) << 20 | (prescaler - 1))
-            .leave_disabled();
+        self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
     }
 
     /// Enables the peripheral and synchronizes with the bus.
@@ -299,7 +292,7 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Split the CAN driver into transmit and receive halves.
     ///
     /// Useful for doing separate transmit/receive tasks.
-    pub fn split<'c>(&'c mut self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
+    pub fn split<'c>(&'c mut self) -> (CanTx<'d, T>, CanRx<'d, T>) {
         let (tx, rx0, rx1) = self.can.split_by_ref();
         (CanTx { tx }, CanRx { rx0, rx1 })
     }
@@ -313,11 +306,11 @@ impl<'d, T: Instance> AsMut<crate::can::bx::Can<BxcanInstance<'d, T>>> for Can<'
 }
 
 /// CAN driver, transmit half.
-pub struct CanTx<'c, 'd, T: Instance> {
-    tx: &'c mut crate::can::bx::Tx<BxcanInstance<'d, T>>,
+pub struct CanTx<'d, T: Instance> {
+    tx: crate::can::bx::Tx<BxcanInstance<'d, T>>,
 }
 
-impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
+impl<'d, T: Instance> CanTx<'d, T> {
     /// Queues the message to be sent.
     ///
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
@@ -404,12 +397,12 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
 
 /// CAN driver, receive half.
 #[allow(dead_code)]
-pub struct CanRx<'c, 'd, T: Instance> {
-    rx0: &'c mut crate::can::bx::Rx0<BxcanInstance<'d, T>>,
-    rx1: &'c mut crate::can::bx::Rx1<BxcanInstance<'d, T>>,
+pub struct CanRx<'d, T: Instance> {
+    rx0: crate::can::bx::Rx0<BxcanInstance<'d, T>>,
+    rx1: crate::can::bx::Rx1<BxcanInstance<'d, T>>,
 }
 
-impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
+impl<'d, T: Instance> CanRx<'d, T> {
     /// Read a CAN frame.
     ///
     /// If no CAN frame is in the RX buffer, this will wait until there is one.

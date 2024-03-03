@@ -35,7 +35,6 @@ use core::cmp::{Ord, Ordering};
 use core::convert::{Infallible, TryInto};
 use core::marker::PhantomData;
 use core::mem;
-use core::ptr::NonNull;
 
 pub use id::{ExtendedId, Id, StandardId};
 
@@ -125,7 +124,7 @@ pub struct OverrunError {
 /// priority than remote frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-struct IdReg(u32);
+pub(crate) struct IdReg(u32);
 
 impl IdReg {
     const STANDARD_SHIFT: u32 = 21;
@@ -243,23 +242,25 @@ impl<I: Instance> CanConfig<'_, I> {
     ///
     /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
     /// parameter to this method.
-    pub fn set_bit_timing(self, btr: u32) -> Self {
-        self.can.set_bit_timing(btr);
+    pub fn set_bit_timing(self, bt: crate::can::util::NominalBitTiming) -> Self {
+        self.can.set_bit_timing(bt);
         self
     }
 
     /// Enables or disables loopback mode: Internally connects the TX and RX
     /// signals together.
     pub fn set_loopback(self, enabled: bool) -> Self {
-        let can = self.can.registers();
-        can.btr.modify(|_, w| w.lbkm().bit(enabled));
+        self.can.canregs.btr().modify(|reg| reg.set_lbkm(enabled));
         self
     }
 
     /// Enables or disables silent mode: Disconnects the TX signal from the pin.
     pub fn set_silent(self, enabled: bool) -> Self {
-        let can = self.can.registers();
-        can.btr.modify(|_, w| w.silm().bit(enabled));
+        let mode = match enabled {
+            false => stm32_metapac::can::vals::Silm::NORMAL,
+            true => stm32_metapac::can::vals::Silm::SILENT,
+        };
+        self.can.canregs.btr().modify(|reg| reg.set_silm(mode));
         self
     }
 
@@ -270,8 +271,7 @@ impl<I: Instance> CanConfig<'_, I> {
     ///
     /// Automatic retransmission is enabled by default.
     pub fn set_automatic_retransmit(self, enabled: bool) -> Self {
-        let can = self.can.registers();
-        can.mcr.modify(|_, w| w.nart().bit(!enabled));
+        self.can.canregs.mcr().modify(|reg| reg.set_nart(enabled));
         self
     }
 
@@ -304,11 +304,13 @@ impl<I: Instance> CanConfig<'_, I> {
 
     /// Leaves initialization mode, enters sleep mode.
     fn leave_init_mode(&mut self) {
-        let can = self.can.registers();
-        can.mcr.modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
+        self.can.canregs.mcr().modify(|reg| {
+            reg.set_sleep(true);
+            reg.set_inrq(false);
+        });
         loop {
-            let msr = can.msr.read();
-            if msr.slak().bit_is_set() && msr.inak().bit_is_clear() {
+            let msr = self.can.canregs.msr().read();
+            if msr.slak() && !msr.inak() {
                 break;
             }
         }
@@ -341,23 +343,24 @@ impl<I: Instance> CanBuilder<I> {
     ///
     /// Then copy the `CAN_BUS_TIME` register value from the table and pass it as the `btr`
     /// parameter to this method.
-    pub fn set_bit_timing(mut self, btr: u32) -> Self {
-        self.can.set_bit_timing(btr);
+    pub fn set_bit_timing(mut self, bt: crate::can::util::NominalBitTiming) -> Self {
+        self.can.set_bit_timing(bt);
         self
     }
-
     /// Enables or disables loopback mode: Internally connects the TX and RX
     /// signals together.
     pub fn set_loopback(self, enabled: bool) -> Self {
-        let can = self.can.registers();
-        can.btr.modify(|_, w| w.lbkm().bit(enabled));
+        self.can.canregs.btr().modify(|reg| reg.set_lbkm(enabled));
         self
     }
 
     /// Enables or disables silent mode: Disconnects the TX signal from the pin.
     pub fn set_silent(self, enabled: bool) -> Self {
-        let can = self.can.registers();
-        can.btr.modify(|_, w| w.silm().bit(enabled));
+        let mode = match enabled {
+            false => stm32_metapac::can::vals::Silm::NORMAL,
+            true => stm32_metapac::can::vals::Silm::SILENT,
+        };
+        self.can.canregs.btr().modify(|reg| reg.set_silm(mode));
         self
     }
 
@@ -368,8 +371,7 @@ impl<I: Instance> CanBuilder<I> {
     ///
     /// Automatic retransmission is enabled by default.
     pub fn set_automatic_retransmit(self, enabled: bool) -> Self {
-        let can = self.can.registers();
-        can.mcr.modify(|_, w| w.nart().bit(!enabled));
+        self.can.canregs.mcr().modify(|reg| reg.set_nart(enabled));
         self
     }
 
@@ -403,11 +405,13 @@ impl<I: Instance> CanBuilder<I> {
 
     /// Leaves initialization mode, enters sleep mode.
     fn leave_init_mode(&mut self) {
-        let can = self.can.registers();
-        can.mcr.modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
+        self.can.canregs.mcr().modify(|reg| {
+            reg.set_sleep(true);
+            reg.set_inrq(false);
+        });
         loop {
-            let msr = can.msr.read();
-            if msr.slak().bit_is_set() && msr.inak().bit_is_clear() {
+            let msr = self.can.canregs.msr().read();
+            if msr.slak() && !msr.inak() {
                 break;
             }
         }
@@ -417,6 +421,7 @@ impl<I: Instance> CanBuilder<I> {
 /// Interface to a bxCAN peripheral.
 pub struct Can<I: Instance> {
     instance: I,
+    canregs: crate::pac::can::Can,
 }
 
 impl<I> Can<I>
@@ -424,15 +429,18 @@ where
     I: Instance,
 {
     /// Creates a [`CanBuilder`] for constructing a CAN interface.
-    pub fn builder(instance: I) -> CanBuilder<I> {
-        let can_builder = CanBuilder { can: Can { instance } };
+    pub fn builder(instance: I, canregs: crate::pac::can::Can) -> CanBuilder<I> {
+        let can_builder = CanBuilder {
+            can: Can { instance, canregs },
+        };
 
-        let can_reg = can_builder.can.registers();
-        // Enter init mode.
-        can_reg.mcr.modify(|_, w| w.sleep().clear_bit().inrq().set_bit());
+        canregs.mcr().modify(|reg| {
+            reg.set_sleep(false);
+            reg.set_inrq(true);
+        });
         loop {
-            let msr = can_reg.msr.read();
-            if msr.slak().bit_is_clear() && msr.inak().bit_is_set() {
+            let msr = canregs.msr().read();
+            if !msr.slak() && msr.inak() {
                 break;
             }
         }
@@ -440,18 +448,16 @@ where
         can_builder
     }
 
-    fn registers(&self) -> &RegisterBlock {
-        unsafe { &*I::REGISTERS }
-    }
-
-    fn set_bit_timing(&mut self, btr: u32) {
-        // Mask of all non-reserved BTR bits, except the mode flags.
-        const MASK: u32 = 0x037F_03FF;
-
-        let can = self.registers();
-        can.btr.modify(|r, w| unsafe {
-            let mode_bits = r.bits() & 0xC000_0000;
-            w.bits(mode_bits | (btr & MASK))
+    fn set_bit_timing(&mut self, bt: crate::can::util::NominalBitTiming) {
+        let prescaler = u16::from(bt.prescaler) & 0x1FF;
+        let seg1 = u8::from(bt.seg1);
+        let seg2 = u8::from(bt.seg2) & 0x7F;
+        let sync_jump_width = u8::from(bt.sync_jump_width) & 0x7F;
+        self.canregs.btr().modify(|reg| {
+            reg.set_brp(prescaler - 1);
+            reg.set_ts(0, seg1 - 1);
+            reg.set_ts(1, seg2 - 1);
+            reg.set_sjw(sync_jump_width - 1);
         });
     }
 
@@ -467,7 +473,7 @@ where
     /// The peripheral is disabled by setting `RESET` in `CAN_MCR`, which causes the peripheral to
     /// enter sleep mode.
     pub fn free(self) -> I {
-        self.registers().mcr.write(|w| w.reset().set_bit());
+        self.canregs.mcr().write(|reg| reg.set_reset(true));
         self.instance
     }
 
@@ -475,13 +481,13 @@ where
     ///
     /// Calling this method will enter initialization mode.
     pub fn modify_config(&mut self) -> CanConfig<'_, I> {
-        let can = self.registers();
-
-        // Enter init mode.
-        can.mcr.modify(|_, w| w.sleep().clear_bit().inrq().set_bit());
+        self.canregs.mcr().modify(|reg| {
+            reg.set_sleep(false);
+            reg.set_inrq(true);
+        });
         loop {
-            let msr = can.msr.read();
-            if msr.slak().bit_is_clear() && msr.inak().bit_is_set() {
+            let msr = self.canregs.msr().read();
+            if !msr.slak() && msr.inak() {
                 break;
             }
         }
@@ -497,8 +503,7 @@ where
     /// receive the frame. If enabled, [`Interrupt::Wakeup`] will also be triggered by the incoming
     /// frame.
     pub fn set_automatic_wakeup(&mut self, enabled: bool) {
-        let can = self.registers();
-        can.mcr.modify(|_, w| w.awum().bit(enabled));
+        self.canregs.mcr().modify(|reg| reg.set_awum(enabled));
     }
 
     /// Leaves initialization mode and enables the peripheral (non-blocking version).
@@ -510,10 +515,12 @@ where
     /// in the background. The peripheral is enabled and ready to use when this method returns
     /// successfully.
     pub fn enable_non_blocking(&mut self) -> nb::Result<(), Infallible> {
-        let can = self.registers();
-        let msr = can.msr.read();
-        if msr.slak().bit_is_set() {
-            can.mcr.modify(|_, w| w.abom().set_bit().sleep().clear_bit());
+        let msr = self.canregs.msr().read();
+        if msr.slak() {
+            self.canregs.mcr().modify(|reg| {
+                reg.set_abom(true);
+                reg.set_sleep(false);
+            });
             Err(nb::Error::WouldBlock)
         } else {
             Ok(())
@@ -524,11 +531,13 @@ where
     ///
     /// While in sleep mode, an incoming CAN frame will trigger [`Interrupt::Wakeup`] if enabled.
     pub fn sleep(&mut self) {
-        let can = self.registers();
-        can.mcr.modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
+        self.canregs.mcr().modify(|reg| {
+            reg.set_sleep(true);
+            reg.set_inrq(false);
+        });
         loop {
-            let msr = can.msr.read();
-            if msr.slak().bit_is_set() && msr.inak().bit_is_clear() {
+            let msr = self.canregs.msr().read();
+            if msr.slak() && !msr.inak() {
                 break;
             }
         }
@@ -539,11 +548,13 @@ where
     /// Note that this will not trigger [`Interrupt::Wakeup`], only reception of an incoming CAN
     /// frame will cause that interrupt.
     pub fn wakeup(&mut self) {
-        let can = self.registers();
-        can.mcr.modify(|_, w| w.sleep().clear_bit().inrq().clear_bit());
+        self.canregs.mcr().modify(|reg| {
+            reg.set_sleep(false);
+            reg.set_inrq(false);
+        });
         loop {
-            let msr = can.msr.read();
-            if msr.slak().bit_is_clear() && msr.inak().bit_is_clear() {
+            let msr = self.canregs.msr().read();
+            if !msr.slak() && !msr.inak() {
                 break;
             }
         }
@@ -560,13 +571,13 @@ where
     /// [`TransmitStatus::dequeued_frame`].
     pub fn transmit(&mut self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
         // Safety: We have a `&mut self` and have unique access to the peripheral.
-        unsafe { Tx::<I>::conjure().transmit(frame) }
+        unsafe { Tx::<I>::conjure(self.canregs).transmit(frame) }
     }
 
     /// Returns `true` if no frame is pending for transmission.
     pub fn is_transmitter_idle(&self) -> bool {
         // Safety: Read-only operation.
-        unsafe { Tx::<I>::conjure().is_idle() }
+        unsafe { Tx::<I>::conjure(self.canregs).is_idle() }
     }
 
     /// Attempts to abort the sending of a frame that is pending in a mailbox.
@@ -578,7 +589,7 @@ where
     /// returns `true`.
     pub fn abort(&mut self, mailbox: Mailbox) -> bool {
         // Safety: We have a `&mut self` and have unique access to the peripheral.
-        unsafe { Tx::<I>::conjure().abort(mailbox) }
+        unsafe { Tx::<I>::conjure(self.canregs).abort(mailbox) }
     }
 
     /// Returns a received frame if available.
@@ -589,8 +600,8 @@ where
     /// Returns `Err` when a frame was lost due to buffer overrun.
     pub fn receive(&mut self) -> nb::Result<Frame, OverrunError> {
         // Safety: We have a `&mut self` and have unique access to the peripheral.
-        let mut rx0 = unsafe { Rx0::<I>::conjure() };
-        let mut rx1 = unsafe { Rx1::<I>::conjure() };
+        let mut rx0 = unsafe { Rx0::<I>::conjure(self.canregs) };
+        let mut rx1 = unsafe { Rx1::<I>::conjure(self.canregs) };
 
         match rx0.receive() {
             Err(nb::Error::WouldBlock) => rx1.receive(),
@@ -599,30 +610,35 @@ where
     }
 
     /// Returns a reference to the RX FIFO 0.
-    pub fn rx0(&mut self) -> &mut Rx0<I> {
+    pub fn rx0(&mut self) -> Rx0<I> {
         // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
-        unsafe { Rx0::conjure_by_ref() }
+        unsafe { Rx0::conjure(self.canregs) }
     }
 
     /// Returns a reference to the RX FIFO 1.
-    pub fn rx1(&mut self) -> &mut Rx1<I> {
+    pub fn rx1(&mut self) -> Rx1<I> {
         // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
-        unsafe { Rx1::conjure_by_ref() }
+        unsafe { Rx1::conjure(self.canregs) }
     }
 
-    /// Splits this `Can` instance into transmitting and receiving halves, by reference.
-    pub fn split_by_ref(&mut self) -> (&mut Tx<I>, &mut Rx0<I>, &mut Rx1<I>) {
+    pub fn split_by_ref(&mut self) -> (Tx<I>, Rx0<I>, Rx1<I>) {
         // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
-        let tx = unsafe { Tx::conjure_by_ref() };
-        let rx0 = unsafe { Rx0::conjure_by_ref() };
-        let rx1 = unsafe { Rx1::conjure_by_ref() };
+        let tx = unsafe { Tx::conjure(self.canregs) };
+        let rx0 = unsafe { Rx0::conjure(self.canregs) };
+        let rx1 = unsafe { Rx1::conjure(self.canregs) };
         (tx, rx0, rx1)
     }
 
     /// Consumes this `Can` instance and splits it into transmitting and receiving halves.
     pub fn split(self) -> (Tx<I>, Rx0<I>, Rx1<I>) {
         // Safety: `Self` is not `Copy` and is destroyed by moving it into this method.
-        unsafe { (Tx::conjure(), Rx0::conjure(), Rx1::conjure()) }
+        unsafe {
+            (
+                Tx::conjure(self.canregs),
+                Rx0::conjure(self.canregs),
+                Rx1::conjure(self.canregs),
+            )
+        }
     }
 }
 
@@ -632,46 +648,25 @@ impl<I: FilterOwner> Can<I> {
     /// To modify filters of a slave peripheral, `modify_filters` has to be called on the master
     /// peripheral instead.
     pub fn modify_filters(&mut self) -> MasterFilters<'_, I> {
-        unsafe { MasterFilters::new() }
+        unsafe { MasterFilters::new(self.canregs) }
     }
 }
 
 /// Interface to the CAN transmitter part.
 pub struct Tx<I> {
     _can: PhantomData<I>,
-}
-
-#[inline]
-const fn ok_mask(idx: usize) -> u32 {
-    0x02 << (8 * idx)
-}
-
-#[inline]
-const fn abort_mask(idx: usize) -> u32 {
-    0x80 << (8 * idx)
+    canregs: crate::pac::can::Can,
 }
 
 impl<I> Tx<I>
 where
     I: Instance,
 {
-    unsafe fn conjure() -> Self {
-        Self { _can: PhantomData }
-    }
-
-    /// Creates a `&mut Self` out of thin air.
-    ///
-    /// This is only safe if it is the only way to access a `Tx<I>`.
-    unsafe fn conjure_by_ref<'a>() -> &'a mut Self {
-        // Cause out of bounds access when `Self` is not zero-sized.
-        [()][core::mem::size_of::<Self>()];
-
-        // Any aligned pointer is valid for ZSTs.
-        &mut *NonNull::dangling().as_ptr()
-    }
-
-    fn registers(&self) -> &RegisterBlock {
-        unsafe { &*I::REGISTERS }
+    unsafe fn conjure(canregs: crate::pac::can::Can) -> Self {
+        Self {
+            _can: PhantomData,
+            canregs,
+        }
     }
 
     /// Puts a CAN frame in a transmit mailbox for transmission on the bus.
@@ -684,13 +679,11 @@ where
     /// cancelled and `frame` is enqueued instead. The frame that was replaced is returned as
     /// [`TransmitStatus::dequeued_frame`].
     pub fn transmit(&mut self, frame: &Frame) -> nb::Result<TransmitStatus, Infallible> {
-        let can = self.registers();
-
         // Get the index of the next free mailbox or the one with the lowest priority.
-        let tsr = can.tsr.read();
-        let idx = tsr.code().bits() as usize;
+        let tsr = self.canregs.tsr().read();
+        let idx = tsr.code() as usize;
 
-        let frame_is_pending = tsr.tme0().bit_is_clear() || tsr.tme1().bit_is_clear() || tsr.tme2().bit_is_clear();
+        let frame_is_pending = !tsr.tme(0) || !tsr.tme(1) || !tsr.tme(2);
         let pending_frame = if frame_is_pending {
             // High priority frames are transmitted first by the mailbox system.
             // Frames with identical identifier shall be transmitted in FIFO order.
@@ -701,8 +694,7 @@ where
             self.check_priority(1, frame.id)?;
             self.check_priority(2, frame.id)?;
 
-            let all_frames_are_pending =
-                tsr.tme0().bit_is_clear() && tsr.tme1().bit_is_clear() && tsr.tme2().bit_is_clear();
+            let all_frames_are_pending = !tsr.tme(0) && !tsr.tme(1) && !tsr.tme(2);
             if all_frames_are_pending {
                 // No free mailbox is available. This can only happen when three frames with
                 // ascending priority (descending IDs) were requested for transmission and all
@@ -735,15 +727,14 @@ where
     /// Returns `Ok` when the mailbox is free or if it contains pending frame with a
     /// lower priority (higher ID) than the identifier `id`.
     fn check_priority(&self, idx: usize, id: IdReg) -> nb::Result<(), Infallible> {
-        let can = self.registers();
-
         // Read the pending frame's id to check its priority.
         assert!(idx < 3);
-        let tir = &can.tx[idx].tir.read();
+        let tir = &self.canregs.tx(idx).tir().read();
+        //let tir = &can.tx[idx].tir.read();
 
         // Check the priority by comparing the identifiers. But first make sure the
         // frame has not finished the transmission (`TXRQ` == 0) in the meantime.
-        if tir.txrq().bit_is_set() && id <= IdReg::from_register(tir.bits()) {
+        if tir.txrq() && id <= IdReg::from_register(tir.0) {
             // There's a mailbox whose priority is higher or equal
             // the priority of the new frame.
             return Err(nb::Error::WouldBlock);
@@ -753,33 +744,34 @@ where
     }
 
     fn write_mailbox(&mut self, idx: usize, frame: &Frame) {
-        let can = self.registers();
-
         debug_assert!(idx < 3);
-        let mb = unsafe { &can.tx.get_unchecked(idx) };
 
-        mb.tdtr.write(|w| unsafe { w.dlc().bits(frame.dlc() as u8) });
-        mb.tdlr
-            .write(|w| unsafe { w.bits(u32::from_ne_bytes(frame.data.bytes[0..4].try_into().unwrap())) });
-        mb.tdhr
-            .write(|w| unsafe { w.bits(u32::from_ne_bytes(frame.data.bytes[4..8].try_into().unwrap())) });
-        mb.tir.write(|w| unsafe { w.bits(frame.id.0).txrq().set_bit() });
+        let mb = self.canregs.tx(idx);
+        mb.tdtr().write(|w| w.set_dlc(frame.dlc() as u8));
+
+        mb.tdlr()
+            .write(|w| w.0 = u32::from_ne_bytes(frame.data.bytes[0..4].try_into().unwrap()));
+        mb.tdhr()
+            .write(|w| w.0 = u32::from_ne_bytes(frame.data.bytes[4..8].try_into().unwrap()));
+        mb.tir().write(|w| {
+            w.0 = frame.id.0;
+            w.set_txrq(true);
+        });
     }
 
     fn read_pending_mailbox(&mut self, idx: usize) -> Option<Frame> {
         if self.abort_by_index(idx) {
-            let can = self.registers();
             debug_assert!(idx < 3);
-            let mb = unsafe { &can.tx.get_unchecked(idx) };
 
+            let mb = self.canregs.tx(idx);
             // Read back the pending frame.
             let mut pending_frame = Frame {
-                id: IdReg(mb.tir.read().bits()),
+                id: IdReg(mb.tir().read().0),
                 data: Data::empty(),
             };
-            pending_frame.data.bytes[0..4].copy_from_slice(&mb.tdlr.read().bits().to_ne_bytes());
-            pending_frame.data.bytes[4..8].copy_from_slice(&mb.tdhr.read().bits().to_ne_bytes());
-            pending_frame.data.len = mb.tdtr.read().dlc().bits();
+            pending_frame.data.bytes[0..4].copy_from_slice(&mb.tdlr().read().0.to_ne_bytes());
+            pending_frame.data.bytes[4..8].copy_from_slice(&mb.tdhr().read().0.to_ne_bytes());
+            pending_frame.data.len = mb.tdtr().read().dlc();
 
             Some(pending_frame)
         } else {
@@ -793,15 +785,13 @@ where
 
     /// Tries to abort a pending frame. Returns `true` when aborted.
     fn abort_by_index(&mut self, idx: usize) -> bool {
-        let can = self.registers();
-
-        can.tsr.write(|w| unsafe { w.bits(abort_mask(idx)) });
+        self.canregs.tsr().write(|reg| reg.set_abrq(idx, true));
 
         // Wait for the abort request to be finished.
         loop {
-            let tsr = can.tsr.read().bits();
-            if tsr & abort_mask(idx) == 0 {
-                break tsr & ok_mask(idx) == 0;
+            let tsr = self.canregs.tsr().read();
+            if false == tsr.abrq(idx) {
+                break tsr.txok(idx) == false;
             }
         }
     }
@@ -816,11 +806,11 @@ where
     pub fn abort(&mut self, mailbox: Mailbox) -> bool {
         // If the mailbox is empty, the value of TXOKx depends on what happened with the previous
         // frame in that mailbox. Only call abort_by_index() if the mailbox is not empty.
-        let tsr = self.registers().tsr.read();
+        let tsr = self.canregs.tsr().read();
         let mailbox_empty = match mailbox {
-            Mailbox::Mailbox0 => tsr.tme0().bit_is_set(),
-            Mailbox::Mailbox1 => tsr.tme1().bit_is_set(),
-            Mailbox::Mailbox2 => tsr.tme2().bit_is_set(),
+            Mailbox::Mailbox0 => tsr.tme(0),
+            Mailbox::Mailbox1 => tsr.tme(1),
+            Mailbox::Mailbox2 => tsr.tme(2),
         };
         if mailbox_empty {
             false
@@ -831,119 +821,101 @@ where
 
     /// Returns `true` if no frame is pending for transmission.
     pub fn is_idle(&self) -> bool {
-        let can = self.registers();
-        let tsr = can.tsr.read();
-        tsr.tme0().bit_is_set() && tsr.tme1().bit_is_set() && tsr.tme2().bit_is_set()
+        let tsr = self.canregs.tsr().read();
+        tsr.tme(0) && tsr.tme(1) && tsr.tme(2)
     }
 
     /// Clears the request complete flag for all mailboxes.
     pub fn clear_interrupt_flags(&mut self) {
-        let can = self.registers();
-        can.tsr
-            .write(|w| w.rqcp2().set_bit().rqcp1().set_bit().rqcp0().set_bit());
+        self.canregs.tsr().write(|reg| {
+            reg.set_rqcp(0, true);
+            reg.set_rqcp(1, true);
+            reg.set_rqcp(2, true);
+        });
     }
 }
 
 /// Interface to receiver FIFO 0.
 pub struct Rx0<I> {
     _can: PhantomData<I>,
+    canregs: crate::pac::can::Can,
 }
 
 impl<I> Rx0<I>
 where
     I: Instance,
 {
-    unsafe fn conjure() -> Self {
-        Self { _can: PhantomData }
-    }
-
-    /// Creates a `&mut Self` out of thin air.
-    ///
-    /// This is only safe if it is the only way to access an `Rx<I>`.
-    unsafe fn conjure_by_ref<'a>() -> &'a mut Self {
-        // Cause out of bounds access when `Self` is not zero-sized.
-        [()][core::mem::size_of::<Self>()];
-
-        // Any aligned pointer is valid for ZSTs.
-        &mut *NonNull::dangling().as_ptr()
+    unsafe fn conjure(canregs: crate::pac::can::Can) -> Self {
+        Self {
+            _can: PhantomData,
+            canregs,
+        }
     }
 
     /// Returns a received frame if available.
     ///
     /// Returns `Err` when a frame was lost due to buffer overrun.
     pub fn receive(&mut self) -> nb::Result<Frame, OverrunError> {
-        receive_fifo(self.registers(), 0)
-    }
-
-    fn registers(&self) -> &RegisterBlock {
-        unsafe { &*I::REGISTERS }
+        receive_fifo(self.canregs, 0)
     }
 }
 
 /// Interface to receiver FIFO 1.
 pub struct Rx1<I> {
     _can: PhantomData<I>,
+    canregs: crate::pac::can::Can,
 }
 
 impl<I> Rx1<I>
 where
     I: Instance,
 {
-    unsafe fn conjure() -> Self {
-        Self { _can: PhantomData }
-    }
-
-    /// Creates a `&mut Self` out of thin air.
-    ///
-    /// This is only safe if it is the only way to access an `Rx<I>`.
-    unsafe fn conjure_by_ref<'a>() -> &'a mut Self {
-        // Cause out of bounds access when `Self` is not zero-sized.
-        [()][core::mem::size_of::<Self>()];
-
-        // Any aligned pointer is valid for ZSTs.
-        &mut *NonNull::dangling().as_ptr()
+    unsafe fn conjure(canregs: crate::pac::can::Can) -> Self {
+        Self {
+            _can: PhantomData,
+            canregs,
+        }
     }
 
     /// Returns a received frame if available.
     ///
     /// Returns `Err` when a frame was lost due to buffer overrun.
     pub fn receive(&mut self) -> nb::Result<Frame, OverrunError> {
-        receive_fifo(self.registers(), 1)
-    }
-
-    fn registers(&self) -> &RegisterBlock {
-        unsafe { &*I::REGISTERS }
+        receive_fifo(self.canregs, 1)
     }
 }
 
-fn receive_fifo(can: &RegisterBlock, fifo_nr: usize) -> nb::Result<Frame, OverrunError> {
+fn receive_fifo(canregs: crate::pac::can::Can, fifo_nr: usize) -> nb::Result<Frame, OverrunError> {
     assert!(fifo_nr < 2);
-    let rfr = &can.rfr[fifo_nr];
-    let rx = &can.rx[fifo_nr];
+    let rfr = canregs.rfr(fifo_nr);
+    let rx = canregs.rx(fifo_nr);
+
+    //let rfr = &can.rfr[fifo_nr];
+    //let rx = &can.rx[fifo_nr];
 
     // Check if a frame is available in the mailbox.
     let rfr_read = rfr.read();
-    if rfr_read.fmp().bits() == 0 {
+    if rfr_read.fmp() == 0 {
         return Err(nb::Error::WouldBlock);
     }
 
     // Check for RX FIFO overrun.
-    if rfr_read.fovr().bit_is_set() {
-        rfr.write(|w| w.fovr().set_bit());
+    if rfr_read.fovr() {
+        rfr.write(|w| w.set_fovr(true));
         return Err(nb::Error::Other(OverrunError { _priv: () }));
     }
 
     // Read the frame.
     let mut frame = Frame {
-        id: IdReg(rx.rir.read().bits()),
+        id: IdReg(rx.rir().read().0),
         data: [0; 8].into(),
     };
-    frame.data[0..4].copy_from_slice(&rx.rdlr.read().bits().to_ne_bytes());
-    frame.data[4..8].copy_from_slice(&rx.rdhr.read().bits().to_ne_bytes());
-    frame.data.len = rx.rdtr.read().dlc().bits();
+    frame.data[0..4].copy_from_slice(&rx.rdlr().read().0.to_ne_bytes());
+    frame.data[4..8].copy_from_slice(&rx.rdhr().read().0.to_ne_bytes());
+    frame.data.len = rx.rdtr().read().dlc();
 
     // Release the mailbox.
-    rfr.write(|w| w.rfom().set_bit());
+    rfr.write(|w| w.set_rfom(true));
 
     Ok(frame)
 }

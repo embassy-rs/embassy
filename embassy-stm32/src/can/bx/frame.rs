@@ -1,5 +1,4 @@
 #[cfg(test)]
-
 use core::cmp::Ordering;
 use core::ops::{Deref, DerefMut};
 
