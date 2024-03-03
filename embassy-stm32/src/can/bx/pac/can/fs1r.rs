@@ -1,9 +1,9 @@
 #[doc = "Reader of register FS1R"]
-pub type R = crate::R<u32, super::FS1R>;
+pub type R = crate::can::bx::R<u32, super::FS1R>;
 #[doc = "Writer for register FS1R"]
-pub type W = crate::W<u32, super::FS1R>;
+pub type W = crate::can::bx::W<u32, super::FS1R>;
 #[doc = "Register FS1R `reset()`'s with value 0"]
-impl crate::ResetValue for super::FS1R {
+impl crate::can::bx::ResetValue for super::FS1R {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,7 +11,7 @@ impl crate::ResetValue for super::FS1R {
     }
 }
 #[doc = "Reader of field `FSC0`"]
-pub type FSC0_R = crate::R<bool, bool>;
+pub type FSC0_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC0`"]
 pub struct FSC0_W<'a> {
     w: &'a mut W,
@@ -35,7 +35,7 @@ impl<'a> FSC0_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC1`"]
-pub type FSC1_R = crate::R<bool, bool>;
+pub type FSC1_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC1`"]
 pub struct FSC1_W<'a> {
     w: &'a mut W,
@@ -59,7 +59,7 @@ impl<'a> FSC1_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC2`"]
-pub type FSC2_R = crate::R<bool, bool>;
+pub type FSC2_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC2`"]
 pub struct FSC2_W<'a> {
     w: &'a mut W,
@@ -83,7 +83,7 @@ impl<'a> FSC2_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC3`"]
-pub type FSC3_R = crate::R<bool, bool>;
+pub type FSC3_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC3`"]
 pub struct FSC3_W<'a> {
     w: &'a mut W,
@@ -107,7 +107,7 @@ impl<'a> FSC3_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC4`"]
-pub type FSC4_R = crate::R<bool, bool>;
+pub type FSC4_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC4`"]
 pub struct FSC4_W<'a> {
     w: &'a mut W,
@@ -131,7 +131,7 @@ impl<'a> FSC4_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC5`"]
-pub type FSC5_R = crate::R<bool, bool>;
+pub type FSC5_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC5`"]
 pub struct FSC5_W<'a> {
     w: &'a mut W,
@@ -155,7 +155,7 @@ impl<'a> FSC5_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC6`"]
-pub type FSC6_R = crate::R<bool, bool>;
+pub type FSC6_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC6`"]
 pub struct FSC6_W<'a> {
     w: &'a mut W,
@@ -179,7 +179,7 @@ impl<'a> FSC6_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC7`"]
-pub type FSC7_R = crate::R<bool, bool>;
+pub type FSC7_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC7`"]
 pub struct FSC7_W<'a> {
     w: &'a mut W,
@@ -203,7 +203,7 @@ impl<'a> FSC7_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC8`"]
-pub type FSC8_R = crate::R<bool, bool>;
+pub type FSC8_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC8`"]
 pub struct FSC8_W<'a> {
     w: &'a mut W,
@@ -227,7 +227,7 @@ impl<'a> FSC8_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC9`"]
-pub type FSC9_R = crate::R<bool, bool>;
+pub type FSC9_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC9`"]
 pub struct FSC9_W<'a> {
     w: &'a mut W,
@@ -251,7 +251,7 @@ impl<'a> FSC9_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC10`"]
-pub type FSC10_R = crate::R<bool, bool>;
+pub type FSC10_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC10`"]
 pub struct FSC10_W<'a> {
     w: &'a mut W,
@@ -275,7 +275,7 @@ impl<'a> FSC10_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC11`"]
-pub type FSC11_R = crate::R<bool, bool>;
+pub type FSC11_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC11`"]
 pub struct FSC11_W<'a> {
     w: &'a mut W,
@@ -299,7 +299,7 @@ impl<'a> FSC11_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC12`"]
-pub type FSC12_R = crate::R<bool, bool>;
+pub type FSC12_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC12`"]
 pub struct FSC12_W<'a> {
     w: &'a mut W,
@@ -323,7 +323,7 @@ impl<'a> FSC12_W<'a> {
     }
 }
 #[doc = "Reader of field `FSC13`"]
-pub type FSC13_R = crate::R<bool, bool>;
+pub type FSC13_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FSC13`"]
 pub struct FSC13_W<'a> {
     w: &'a mut W,

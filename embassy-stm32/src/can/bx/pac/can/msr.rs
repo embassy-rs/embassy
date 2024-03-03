@@ -1,9 +1,9 @@
 #[doc = "Reader of register MSR"]
-pub type R = crate::R<u32, super::MSR>;
+pub type R = crate::can::bx::R<u32, super::MSR>;
 #[doc = "Writer for register MSR"]
-pub type W = crate::W<u32, super::MSR>;
+pub type W = crate::can::bx::W<u32, super::MSR>;
 #[doc = "Register MSR `reset()`'s with value 0"]
-impl crate::ResetValue for super::MSR {
+impl crate::can::bx::ResetValue for super::MSR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,15 +11,15 @@ impl crate::ResetValue for super::MSR {
     }
 }
 #[doc = "Reader of field `RX`"]
-pub type RX_R = crate::R<bool, bool>;
+pub type RX_R = crate::can::bx::R<bool, bool>;
 #[doc = "Reader of field `SAMP`"]
-pub type SAMP_R = crate::R<bool, bool>;
+pub type SAMP_R = crate::can::bx::R<bool, bool>;
 #[doc = "Reader of field `RXM`"]
-pub type RXM_R = crate::R<bool, bool>;
+pub type RXM_R = crate::can::bx::R<bool, bool>;
 #[doc = "Reader of field `TXM`"]
-pub type TXM_R = crate::R<bool, bool>;
+pub type TXM_R = crate::can::bx::R<bool, bool>;
 #[doc = "Reader of field `SLAKI`"]
-pub type SLAKI_R = crate::R<bool, bool>;
+pub type SLAKI_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `SLAKI`"]
 pub struct SLAKI_W<'a> {
     w: &'a mut W,
@@ -43,7 +43,7 @@ impl<'a> SLAKI_W<'a> {
     }
 }
 #[doc = "Reader of field `WKUI`"]
-pub type WKUI_R = crate::R<bool, bool>;
+pub type WKUI_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `WKUI`"]
 pub struct WKUI_W<'a> {
     w: &'a mut W,
@@ -67,7 +67,7 @@ impl<'a> WKUI_W<'a> {
     }
 }
 #[doc = "Reader of field `ERRI`"]
-pub type ERRI_R = crate::R<bool, bool>;
+pub type ERRI_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `ERRI`"]
 pub struct ERRI_W<'a> {
     w: &'a mut W,
@@ -91,9 +91,9 @@ impl<'a> ERRI_W<'a> {
     }
 }
 #[doc = "Reader of field `SLAK`"]
-pub type SLAK_R = crate::R<bool, bool>;
+pub type SLAK_R = crate::can::bx::R<bool, bool>;
 #[doc = "Reader of field `INAK`"]
-pub type INAK_R = crate::R<bool, bool>;
+pub type INAK_R = crate::can::bx::R<bool, bool>;
 impl R {
     #[doc = "Bit 11 - RX"]
     #[inline(always)]

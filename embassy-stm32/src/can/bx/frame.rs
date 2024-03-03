@@ -1,14 +1,14 @@
 #[cfg(test)]
-mod tests;
 
 use core::cmp::Ordering;
 use core::ops::{Deref, DerefMut};
 
-use crate::{Id, IdReg};
+use crate::can::bx::{Id, IdReg};
 
 /// A CAN data or remote frame.
 #[derive(Clone, Debug, Eq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+//#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Frame {
     pub(crate) id: IdReg,
     pub(crate) data: Data,
@@ -128,20 +128,20 @@ pub struct FramePriority(IdReg);
 /// Ordering is based on the Identifier and frame type (data vs. remote) and can be used to sort
 /// frames by priority.
 impl Ord for FramePriority {
-    fn cmp(&self, other: &Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         self.0.cmp(&other.0)
     }
 }
 
 impl PartialOrd for FramePriority {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl PartialEq for FramePriority {
     fn eq(&self, other: &Self) -> bool {
-        self.cmp(other) == Ordering::Equal
+        self.cmp(other) == core::cmp::Ordering::Equal
     }
 }
 
@@ -227,7 +227,7 @@ impl PartialEq for Data {
 
 impl Eq for Data {}
 
-#[cfg(feature = "unstable-defmt")]
+#[cfg(feature = "defmt")]
 impl defmt::Format for Data {
     fn format(&self, fmt: defmt::Formatter<'_>) {
         self.as_ref().format(fmt)

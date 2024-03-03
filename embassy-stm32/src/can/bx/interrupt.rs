@@ -3,7 +3,7 @@
 use core::ops;
 
 #[allow(unused_imports)] // for intra-doc links only
-use crate::{Can, Rx0};
+use crate::can::bx::{Can, Rx0};
 
 /// bxCAN interrupt sources.
 ///
@@ -18,7 +18,7 @@ use crate::{Can, Rx0};
 /// This means that some of the interrupts listed here will result in the same interrupt handler
 /// being invoked.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Interrupt {
     /// Fires the **TX** interrupt when one of the transmit mailboxes returns to empty state.

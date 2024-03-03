@@ -1,9 +1,9 @@
 #[doc = "Reader of register FMR"]
-pub type R = crate::R<u32, super::FMR>;
+pub type R = crate::can::bx::R<u32, super::FMR>;
 #[doc = "Writer for register FMR"]
-pub type W = crate::W<u32, super::FMR>;
+pub type W = crate::can::bx::W<u32, super::FMR>;
 #[doc = "Register FMR `reset()`'s with value 0"]
-impl crate::ResetValue for super::FMR {
+impl crate::can::bx::ResetValue for super::FMR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,7 +11,7 @@ impl crate::ResetValue for super::FMR {
     }
 }
 #[doc = "Reader of field `CAN2SB`"]
-pub type CAN2SB_R = crate::R<u8, u8>;
+pub type CAN2SB_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `CAN2SB`"]
 pub struct CAN2SB_W<'a> {
     w: &'a mut W,
@@ -25,7 +25,7 @@ impl<'a> CAN2SB_W<'a> {
     }
 }
 #[doc = "Reader of field `FINIT`"]
-pub type FINIT_R = crate::R<bool, bool>;
+pub type FINIT_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `FINIT`"]
 pub struct FINIT_W<'a> {
     w: &'a mut W,

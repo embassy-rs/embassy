@@ -79,135 +79,135 @@ pub struct FB {
 #[doc = r"Register block"]
 #[doc = "CAN Filter Bank cluster"]
 pub mod fb;
-#[doc = "CAN_MCR\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [mcr](mcr) module"]
-pub type MCR = crate::Reg<u32, _MCR>;
+#[doc = "CAN_MCR\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [mcr](mcr) module"]
+pub type MCR = crate::can::bx::Reg<u32, _MCR>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _MCR;
 #[doc = "`read()` method returns [mcr::R](mcr::R) reader structure"]
-impl crate::Readable for MCR {}
+impl crate::can::bx::Readable for MCR {}
 #[doc = "`write(|w| ..)` method takes [mcr::W](mcr::W) writer structure"]
-impl crate::Writable for MCR {}
+impl crate::can::bx::Writable for MCR {}
 #[doc = "CAN_MCR"]
 pub mod mcr;
-#[doc = "CAN_MSR\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [msr](msr) module"]
-pub type MSR = crate::Reg<u32, _MSR>;
+#[doc = "CAN_MSR\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [msr](msr) module"]
+pub type MSR = crate::can::bx::Reg<u32, _MSR>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _MSR;
 #[doc = "`read()` method returns [msr::R](msr::R) reader structure"]
-impl crate::Readable for MSR {}
+impl crate::can::bx::Readable for MSR {}
 #[doc = "`write(|w| ..)` method takes [msr::W](msr::W) writer structure"]
-impl crate::Writable for MSR {}
+impl crate::can::bx::Writable for MSR {}
 #[doc = "CAN_MSR"]
 pub mod msr;
-#[doc = "CAN_TSR\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [tsr](tsr) module"]
-pub type TSR = crate::Reg<u32, _TSR>;
+#[doc = "CAN_TSR\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [tsr](tsr) module"]
+pub type TSR = crate::can::bx::Reg<u32, _TSR>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _TSR;
 #[doc = "`read()` method returns [tsr::R](tsr::R) reader structure"]
-impl crate::Readable for TSR {}
+impl crate::can::bx::Readable for TSR {}
 #[doc = "`write(|w| ..)` method takes [tsr::W](tsr::W) writer structure"]
-impl crate::Writable for TSR {}
+impl crate::can::bx::Writable for TSR {}
 #[doc = "CAN_TSR"]
 pub mod tsr;
-#[doc = "CAN_RF0R\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [rfr](rfr) module"]
-pub type RFR = crate::Reg<u32, _RFR>;
+#[doc = "CAN_RF0R\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [rfr](rfr) module"]
+pub type RFR = crate::can::bx::Reg<u32, _RFR>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _RFR;
 #[doc = "`read()` method returns [rfr::R](rfr::R) reader structure"]
-impl crate::Readable for RFR {}
+impl crate::can::bx::Readable for RFR {}
 #[doc = "`write(|w| ..)` method takes [rfr::W](rfr::W) writer structure"]
-impl crate::Writable for RFR {}
+impl crate::can::bx::Writable for RFR {}
 #[doc = "CAN_RF0R"]
 pub mod rfr;
-#[doc = "CAN_IER\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [ier](ier) module"]
-pub type IER = crate::Reg<u32, _IER>;
+#[doc = "CAN_IER\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [ier](ier) module"]
+pub type IER = crate::can::bx::Reg<u32, _IER>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _IER;
 #[doc = "`read()` method returns [ier::R](ier::R) reader structure"]
-impl crate::Readable for IER {}
+impl crate::can::bx::Readable for IER {}
 #[doc = "`write(|w| ..)` method takes [ier::W](ier::W) writer structure"]
-impl crate::Writable for IER {}
+impl crate::can::bx::Writable for IER {}
 #[doc = "CAN_IER"]
 pub mod ier;
-#[doc = "CAN_ESR\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [esr](esr) module"]
-pub type ESR = crate::Reg<u32, _ESR>;
+#[doc = "CAN_ESR\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [esr](esr) module"]
+pub type ESR = crate::can::bx::Reg<u32, _ESR>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _ESR;
 #[doc = "`read()` method returns [esr::R](esr::R) reader structure"]
-impl crate::Readable for ESR {}
+impl crate::can::bx::Readable for ESR {}
 #[doc = "`write(|w| ..)` method takes [esr::W](esr::W) writer structure"]
-impl crate::Writable for ESR {}
+impl crate::can::bx::Writable for ESR {}
 #[doc = "CAN_ESR"]
 pub mod esr;
-#[doc = "CAN_BTR\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [btr](btr) module"]
-pub type BTR = crate::Reg<u32, _BTR>;
+#[doc = "CAN_BTR\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [btr](btr) module"]
+pub type BTR = crate::can::bx::Reg<u32, _BTR>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _BTR;
 #[doc = "`read()` method returns [btr::R](btr::R) reader structure"]
-impl crate::Readable for BTR {}
+impl crate::can::bx::Readable for BTR {}
 #[doc = "`write(|w| ..)` method takes [btr::W](btr::W) writer structure"]
-impl crate::Writable for BTR {}
+impl crate::can::bx::Writable for BTR {}
 #[doc = "CAN_BTR"]
 pub mod btr;
-#[doc = "CAN_FMR\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fmr](fmr) module"]
-pub type FMR = crate::Reg<u32, _FMR>;
+#[doc = "CAN_FMR\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fmr](fmr) module"]
+pub type FMR = crate::can::bx::Reg<u32, _FMR>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _FMR;
 #[doc = "`read()` method returns [fmr::R](fmr::R) reader structure"]
-impl crate::Readable for FMR {}
+impl crate::can::bx::Readable for FMR {}
 #[doc = "`write(|w| ..)` method takes [fmr::W](fmr::W) writer structure"]
-impl crate::Writable for FMR {}
+impl crate::can::bx::Writable for FMR {}
 #[doc = "CAN_FMR"]
 pub mod fmr;
-#[doc = "CAN_FM1R\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fm1r](fm1r) module"]
-pub type FM1R = crate::Reg<u32, _FM1R>;
+#[doc = "CAN_FM1R\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fm1r](fm1r) module"]
+pub type FM1R = crate::can::bx::Reg<u32, _FM1R>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _FM1R;
 #[doc = "`read()` method returns [fm1r::R](fm1r::R) reader structure"]
-impl crate::Readable for FM1R {}
+impl crate::can::bx::Readable for FM1R {}
 #[doc = "`write(|w| ..)` method takes [fm1r::W](fm1r::W) writer structure"]
-impl crate::Writable for FM1R {}
+impl crate::can::bx::Writable for FM1R {}
 #[doc = "CAN_FM1R"]
 pub mod fm1r;
-#[doc = "CAN_FS1R\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fs1r](fs1r) module"]
-pub type FS1R = crate::Reg<u32, _FS1R>;
+#[doc = "CAN_FS1R\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fs1r](fs1r) module"]
+pub type FS1R = crate::can::bx::Reg<u32, _FS1R>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _FS1R;
 #[doc = "`read()` method returns [fs1r::R](fs1r::R) reader structure"]
-impl crate::Readable for FS1R {}
+impl crate::can::bx::Readable for FS1R {}
 #[doc = "`write(|w| ..)` method takes [fs1r::W](fs1r::W) writer structure"]
-impl crate::Writable for FS1R {}
+impl crate::can::bx::Writable for FS1R {}
 #[doc = "CAN_FS1R"]
 pub mod fs1r;
-#[doc = "CAN_FFA1R\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [ffa1r](ffa1r) module"]
-pub type FFA1R = crate::Reg<u32, _FFA1R>;
+#[doc = "CAN_FFA1R\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [ffa1r](ffa1r) module"]
+pub type FFA1R = crate::can::bx::Reg<u32, _FFA1R>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _FFA1R;
 #[doc = "`read()` method returns [ffa1r::R](ffa1r::R) reader structure"]
-impl crate::Readable for FFA1R {}
+impl crate::can::bx::Readable for FFA1R {}
 #[doc = "`write(|w| ..)` method takes [ffa1r::W](ffa1r::W) writer structure"]
-impl crate::Writable for FFA1R {}
+impl crate::can::bx::Writable for FFA1R {}
 #[doc = "CAN_FFA1R"]
 pub mod ffa1r;
-#[doc = "CAN_FA1R\n\nThis register you can [`read`](crate::generic::Reg::read), [`reset`](crate::generic::Reg::reset), [`write`](crate::generic::Reg::write), [`write_with_zero`](crate::generic::Reg::write_with_zero), [`modify`](crate::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fa1r](fa1r) module"]
-pub type FA1R = crate::Reg<u32, _FA1R>;
+#[doc = "CAN_FA1R\n\nThis register you can [`read`](crate::can::bx::generic::Reg::read), [`reset`](crate::can::bx::generic::Reg::reset), [`write`](crate::can::bx::generic::Reg::write), [`write_with_zero`](crate::can::bx::generic::Reg::write_with_zero), [`modify`](crate::can::bx::generic::Reg::modify). See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [fa1r](fa1r) module"]
+pub type FA1R = crate::can::bx::Reg<u32, _FA1R>;
 #[allow(missing_docs)]
 #[doc(hidden)]
 pub struct _FA1R;
 #[doc = "`read()` method returns [fa1r::R](fa1r::R) reader structure"]
-impl crate::Readable for FA1R {}
+impl crate::can::bx::Readable for FA1R {}
 #[doc = "`write(|w| ..)` method takes [fa1r::W](fa1r::W) writer structure"]
-impl crate::Writable for FA1R {}
+impl crate::can::bx::Writable for FA1R {}
 #[doc = "CAN_FA1R"]
 pub mod fa1r;

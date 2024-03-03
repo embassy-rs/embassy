@@ -1,9 +1,9 @@
 #[doc = "Reader of register ESR"]
-pub type R = crate::R<u32, super::ESR>;
+pub type R = crate::can::bx::R<u32, super::ESR>;
 #[doc = "Writer for register ESR"]
-pub type W = crate::W<u32, super::ESR>;
+pub type W = crate::can::bx::W<u32, super::ESR>;
 #[doc = "Register ESR `reset()`'s with value 0"]
-impl crate::ResetValue for super::ESR {
+impl crate::can::bx::ResetValue for super::ESR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,9 +11,9 @@ impl crate::ResetValue for super::ESR {
     }
 }
 #[doc = "Reader of field `REC`"]
-pub type REC_R = crate::R<u8, u8>;
+pub type REC_R = crate::can::bx::R<u8, u8>;
 #[doc = "Reader of field `TEC`"]
-pub type TEC_R = crate::R<u8, u8>;
+pub type TEC_R = crate::can::bx::R<u8, u8>;
 #[doc = "LEC\n\nValue on reset: 0"]
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(u8)]
@@ -42,7 +42,7 @@ impl From<LEC_A> for u8 {
     }
 }
 #[doc = "Reader of field `LEC`"]
-pub type LEC_R = crate::R<u8, LEC_A>;
+pub type LEC_R = crate::can::bx::R<u8, LEC_A>;
 impl LEC_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -160,11 +160,11 @@ impl<'a> LEC_W<'a> {
     }
 }
 #[doc = "Reader of field `BOFF`"]
-pub type BOFF_R = crate::R<bool, bool>;
+pub type BOFF_R = crate::can::bx::R<bool, bool>;
 #[doc = "Reader of field `EPVF`"]
-pub type EPVF_R = crate::R<bool, bool>;
+pub type EPVF_R = crate::can::bx::R<bool, bool>;
 #[doc = "Reader of field `EWGF`"]
-pub type EWGF_R = crate::R<bool, bool>;
+pub type EWGF_R = crate::can::bx::R<bool, bool>;
 impl R {
     #[doc = "Bits 24:31 - REC"]
     #[inline(always)]

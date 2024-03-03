@@ -23,7 +23,7 @@
 //!
 //! | Feature | Description |
 //! |---------|-------------|
-//! | `unstable-defmt` | Implements [`defmt`]'s `Format` trait for the types in this crate.[^1] |
+//! | `defmt` | Implements [`defmt`]'s `Format` trait for the types in this crate.[^1] |
 //!
 //! [^1]: The specific version of defmt is unspecified and may be updated in a patch release.
 //!
@@ -36,7 +36,7 @@
 #![no_std]
 #![allow(clippy::unnecessary_operation)] // lint is bugged
 
-mod embedded_hal;
+//mod embedded_hal;
 pub mod filter;
 mod frame;
 mod id;
@@ -47,11 +47,11 @@ mod pac;
 
 pub use id::{ExtendedId, Id, StandardId};
 
-pub use crate::frame::{Data, Frame, FramePriority};
-pub use crate::interrupt::{Interrupt, Interrupts};
-pub use crate::pac::can::RegisterBlock;
+pub use crate::can::bx::frame::{Data, Frame, FramePriority};
+pub use crate::can::bx::interrupt::{Interrupt, Interrupts};
+pub use crate::can::bx::pac::can::RegisterBlock;
 
-use crate::filter::MasterFilters;
+use crate::can::bx::filter::MasterFilters;
 use core::cmp::{Ord, Ordering};
 use core::convert::{Infallible, TryInto};
 use core::marker::PhantomData;
@@ -124,7 +124,7 @@ pub enum Error {
 
 /// Error that indicates that an incoming message has been lost due to buffer overrun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError {
     _priv: (),
 }
@@ -140,7 +140,7 @@ pub struct OverrunError {
 /// have a higher priority than extended frames and data frames have a higher
 /// priority than remote frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct IdReg(u32);
 
 impl IdReg {
@@ -1060,7 +1060,7 @@ fn receive_fifo(can: &RegisterBlock, fifo_nr: usize) -> nb::Result<Frame, Overru
 
 /// Identifies one of the two receive FIFOs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Fifo {
     Fifo0 = 0,
     Fifo1 = 1,
@@ -1068,7 +1068,7 @@ pub enum Fifo {
 
 /// Identifies one of the three transmit mailboxes.
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Mailbox {
     /// Transmit mailbox 0
     Mailbox0 = 0,

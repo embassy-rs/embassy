@@ -1,9 +1,9 @@
 #[doc = "Reader of register MCR"]
-pub type R = crate::R<u32, super::MCR>;
+pub type R = crate::can::bx::R<u32, super::MCR>;
 #[doc = "Writer for register MCR"]
-pub type W = crate::W<u32, super::MCR>;
+pub type W = crate::can::bx::W<u32, super::MCR>;
 #[doc = "Register MCR `reset()`'s with value 0"]
-impl crate::ResetValue for super::MCR {
+impl crate::can::bx::ResetValue for super::MCR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,7 +11,7 @@ impl crate::ResetValue for super::MCR {
     }
 }
 #[doc = "Reader of field `DBF`"]
-pub type DBF_R = crate::R<bool, bool>;
+pub type DBF_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `DBF`"]
 pub struct DBF_W<'a> {
     w: &'a mut W,
@@ -35,7 +35,7 @@ impl<'a> DBF_W<'a> {
     }
 }
 #[doc = "Reader of field `RESET`"]
-pub type RESET_R = crate::R<bool, bool>;
+pub type RESET_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `RESET`"]
 pub struct RESET_W<'a> {
     w: &'a mut W,
@@ -59,7 +59,7 @@ impl<'a> RESET_W<'a> {
     }
 }
 #[doc = "Reader of field `TTCM`"]
-pub type TTCM_R = crate::R<bool, bool>;
+pub type TTCM_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `TTCM`"]
 pub struct TTCM_W<'a> {
     w: &'a mut W,
@@ -83,7 +83,7 @@ impl<'a> TTCM_W<'a> {
     }
 }
 #[doc = "Reader of field `ABOM`"]
-pub type ABOM_R = crate::R<bool, bool>;
+pub type ABOM_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `ABOM`"]
 pub struct ABOM_W<'a> {
     w: &'a mut W,
@@ -107,7 +107,7 @@ impl<'a> ABOM_W<'a> {
     }
 }
 #[doc = "Reader of field `AWUM`"]
-pub type AWUM_R = crate::R<bool, bool>;
+pub type AWUM_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `AWUM`"]
 pub struct AWUM_W<'a> {
     w: &'a mut W,
@@ -131,7 +131,7 @@ impl<'a> AWUM_W<'a> {
     }
 }
 #[doc = "Reader of field `NART`"]
-pub type NART_R = crate::R<bool, bool>;
+pub type NART_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `NART`"]
 pub struct NART_W<'a> {
     w: &'a mut W,
@@ -155,7 +155,7 @@ impl<'a> NART_W<'a> {
     }
 }
 #[doc = "Reader of field `RFLM`"]
-pub type RFLM_R = crate::R<bool, bool>;
+pub type RFLM_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `RFLM`"]
 pub struct RFLM_W<'a> {
     w: &'a mut W,
@@ -179,7 +179,7 @@ impl<'a> RFLM_W<'a> {
     }
 }
 #[doc = "Reader of field `TXFP`"]
-pub type TXFP_R = crate::R<bool, bool>;
+pub type TXFP_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `TXFP`"]
 pub struct TXFP_W<'a> {
     w: &'a mut W,
@@ -203,7 +203,7 @@ impl<'a> TXFP_W<'a> {
     }
 }
 #[doc = "Reader of field `SLEEP`"]
-pub type SLEEP_R = crate::R<bool, bool>;
+pub type SLEEP_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `SLEEP`"]
 pub struct SLEEP_W<'a> {
     w: &'a mut W,
@@ -227,7 +227,7 @@ impl<'a> SLEEP_W<'a> {
     }
 }
 #[doc = "Reader of field `INRQ`"]
-pub type INRQ_R = crate::R<bool, bool>;
+pub type INRQ_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `INRQ`"]
 pub struct INRQ_W<'a> {
     w: &'a mut W,

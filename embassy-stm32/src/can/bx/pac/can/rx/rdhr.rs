@@ -1,13 +1,13 @@
 #[doc = "Reader of register RDHR"]
-pub type R = crate::R<u32, super::RDHR>;
+pub type R = crate::can::bx::R<u32, super::RDHR>;
 #[doc = "Reader of field `DATA7`"]
-pub type DATA7_R = crate::R<u8, u8>;
+pub type DATA7_R = crate::can::bx::R<u8, u8>;
 #[doc = "Reader of field `DATA6`"]
-pub type DATA6_R = crate::R<u8, u8>;
+pub type DATA6_R = crate::can::bx::R<u8, u8>;
 #[doc = "Reader of field `DATA5`"]
-pub type DATA5_R = crate::R<u8, u8>;
+pub type DATA5_R = crate::can::bx::R<u8, u8>;
 #[doc = "Reader of field `DATA4`"]
-pub type DATA4_R = crate::R<u8, u8>;
+pub type DATA4_R = crate::can::bx::R<u8, u8>;
 impl R {
     #[doc = "Bits 24:31 - DATA7"]
     #[inline(always)]

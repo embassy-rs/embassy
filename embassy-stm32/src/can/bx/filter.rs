@@ -2,8 +2,8 @@
 
 use core::marker::PhantomData;
 
-use crate::pac::can::RegisterBlock;
-use crate::{ExtendedId, Fifo, FilterOwner, Id, Instance, MasterInstance, StandardId};
+use crate::can::bx::pac::can::RegisterBlock;
+use crate::can::bx::{ExtendedId, Fifo, FilterOwner, Id, Instance, MasterInstance, StandardId};
 
 const F32_RTR: u32 = 0b010; // set the RTR bit to match remote frames
 const F32_IDE: u32 = 0b100; // set the IDE bit to match extended identifiers
@@ -14,19 +14,19 @@ const F16_IDE: u16 = 0b01000;
 ///
 /// This can match data and remote frames using standard IDs.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ListEntry16(u16);
 
 /// A 32-bit filter list entry.
 ///
 /// This can match data and remote frames using extended or standard IDs.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ListEntry32(u32);
 
 /// A 16-bit identifier mask.
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Mask16 {
     id: u16,
     mask: u16,
@@ -34,7 +34,7 @@ pub struct Mask16 {
 
 /// A 32-bit identifier mask.
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Mask32 {
     id: u32,
     mask: u32,
@@ -170,7 +170,7 @@ impl Mask32 {
 
 /// The configuration of a filter bank.
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "unstable-defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BankConfig {
     List16([ListEntry16; 4]),
     List32([ListEntry32; 2]),

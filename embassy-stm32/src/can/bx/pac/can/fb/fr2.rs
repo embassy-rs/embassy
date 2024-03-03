@@ -1,9 +1,9 @@
 #[doc = "Reader of register FR2"]
-pub type R = crate::R<u32, super::FR2>;
+pub type R = crate::can::bx::R<u32, super::FR2>;
 #[doc = "Writer for register FR2"]
-pub type W = crate::W<u32, super::FR2>;
+pub type W = crate::can::bx::W<u32, super::FR2>;
 #[doc = "Register FR2 `reset()`'s with value 0"]
-impl crate::ResetValue for super::FR2 {
+impl crate::can::bx::ResetValue for super::FR2 {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,7 +11,7 @@ impl crate::ResetValue for super::FR2 {
     }
 }
 #[doc = "Reader of field `FB`"]
-pub type FB_R = crate::R<u32, u32>;
+pub type FB_R = crate::can::bx::R<u32, u32>;
 #[doc = "Write proxy for field `FB`"]
 pub struct FB_W<'a> {
     w: &'a mut W,

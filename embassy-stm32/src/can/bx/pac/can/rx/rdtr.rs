@@ -1,11 +1,11 @@
 #[doc = "Reader of register RDTR"]
-pub type R = crate::R<u32, super::RDTR>;
+pub type R = crate::can::bx::R<u32, super::RDTR>;
 #[doc = "Reader of field `TIME`"]
-pub type TIME_R = crate::R<u16, u16>;
+pub type TIME_R = crate::can::bx::R<u16, u16>;
 #[doc = "Reader of field `FMI`"]
-pub type FMI_R = crate::R<u8, u8>;
+pub type FMI_R = crate::can::bx::R<u8, u8>;
 #[doc = "Reader of field `DLC`"]
-pub type DLC_R = crate::R<u8, u8>;
+pub type DLC_R = crate::can::bx::R<u8, u8>;
 impl R {
     #[doc = "Bits 16:31 - TIME"]
     #[inline(always)]

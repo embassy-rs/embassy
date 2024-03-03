@@ -1,9 +1,9 @@
 #[doc = "Reader of register RIR"]
-pub type R = crate::R<u32, super::RIR>;
+pub type R = crate::can::bx::R<u32, super::RIR>;
 #[doc = "Reader of field `STID`"]
-pub type STID_R = crate::R<u16, u16>;
+pub type STID_R = crate::can::bx::R<u16, u16>;
 #[doc = "Reader of field `EXID`"]
-pub type EXID_R = crate::R<u32, u32>;
+pub type EXID_R = crate::can::bx::R<u32, u32>;
 #[doc = "IDE\n\nValue on reset: 0"]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IDE_A {
@@ -19,7 +19,7 @@ impl From<IDE_A> for bool {
     }
 }
 #[doc = "Reader of field `IDE`"]
-pub type IDE_R = crate::R<bool, IDE_A>;
+pub type IDE_R = crate::can::bx::R<bool, IDE_A>;
 impl IDE_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -55,7 +55,7 @@ impl From<RTR_A> for bool {
     }
 }
 #[doc = "Reader of field `RTR`"]
-pub type RTR_R = crate::R<bool, RTR_A>;
+pub type RTR_R = crate::can::bx::R<bool, RTR_A>;
 impl RTR_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]

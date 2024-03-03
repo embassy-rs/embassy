@@ -1,9 +1,9 @@
 #[doc = "Reader of register TDTR"]
-pub type R = crate::R<u32, super::TDTR>;
+pub type R = crate::can::bx::R<u32, super::TDTR>;
 #[doc = "Writer for register TDTR"]
-pub type W = crate::W<u32, super::TDTR>;
+pub type W = crate::can::bx::W<u32, super::TDTR>;
 #[doc = "Register TDTR `reset()`'s with value 0"]
-impl crate::ResetValue for super::TDTR {
+impl crate::can::bx::ResetValue for super::TDTR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,7 +11,7 @@ impl crate::ResetValue for super::TDTR {
     }
 }
 #[doc = "Reader of field `TIME`"]
-pub type TIME_R = crate::R<u16, u16>;
+pub type TIME_R = crate::can::bx::R<u16, u16>;
 #[doc = "Write proxy for field `TIME`"]
 pub struct TIME_W<'a> {
     w: &'a mut W,
@@ -25,7 +25,7 @@ impl<'a> TIME_W<'a> {
     }
 }
 #[doc = "Reader of field `TGT`"]
-pub type TGT_R = crate::R<bool, bool>;
+pub type TGT_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `TGT`"]
 pub struct TGT_W<'a> {
     w: &'a mut W,
@@ -49,7 +49,7 @@ impl<'a> TGT_W<'a> {
     }
 }
 #[doc = "Reader of field `DLC`"]
-pub type DLC_R = crate::R<u8, u8>;
+pub type DLC_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `DLC`"]
 pub struct DLC_W<'a> {
     w: &'a mut W,

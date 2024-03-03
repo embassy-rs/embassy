@@ -1,9 +1,9 @@
 #[doc = "Reader of register TIR"]
-pub type R = crate::R<u32, super::TIR>;
+pub type R = crate::can::bx::R<u32, super::TIR>;
 #[doc = "Writer for register TIR"]
-pub type W = crate::W<u32, super::TIR>;
+pub type W = crate::can::bx::W<u32, super::TIR>;
 #[doc = "Register TIR `reset()`'s with value 0"]
-impl crate::ResetValue for super::TIR {
+impl crate::can::bx::ResetValue for super::TIR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,7 +11,7 @@ impl crate::ResetValue for super::TIR {
     }
 }
 #[doc = "Reader of field `STID`"]
-pub type STID_R = crate::R<u16, u16>;
+pub type STID_R = crate::can::bx::R<u16, u16>;
 #[doc = "Write proxy for field `STID`"]
 pub struct STID_W<'a> {
     w: &'a mut W,
@@ -25,7 +25,7 @@ impl<'a> STID_W<'a> {
     }
 }
 #[doc = "Reader of field `EXID`"]
-pub type EXID_R = crate::R<u32, u32>;
+pub type EXID_R = crate::can::bx::R<u32, u32>;
 #[doc = "Write proxy for field `EXID`"]
 pub struct EXID_W<'a> {
     w: &'a mut W,
@@ -53,7 +53,7 @@ impl From<IDE_A> for bool {
     }
 }
 #[doc = "Reader of field `IDE`"]
-pub type IDE_R = crate::R<bool, IDE_A>;
+pub type IDE_R = crate::can::bx::R<bool, IDE_A>;
 impl IDE_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -128,7 +128,7 @@ impl From<RTR_A> for bool {
     }
 }
 #[doc = "Reader of field `RTR`"]
-pub type RTR_R = crate::R<bool, RTR_A>;
+pub type RTR_R = crate::can::bx::R<bool, RTR_A>;
 impl RTR_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -189,7 +189,7 @@ impl<'a> RTR_W<'a> {
     }
 }
 #[doc = "Reader of field `TXRQ`"]
-pub type TXRQ_R = crate::R<bool, bool>;
+pub type TXRQ_R = crate::can::bx::R<bool, bool>;
 #[doc = "Write proxy for field `TXRQ`"]
 pub struct TXRQ_W<'a> {
     w: &'a mut W,

@@ -1,9 +1,9 @@
 #[doc = "Reader of register BTR"]
-pub type R = crate::R<u32, super::BTR>;
+pub type R = crate::can::bx::R<u32, super::BTR>;
 #[doc = "Writer for register BTR"]
-pub type W = crate::W<u32, super::BTR>;
+pub type W = crate::can::bx::W<u32, super::BTR>;
 #[doc = "Register BTR `reset()`'s with value 0"]
-impl crate::ResetValue for super::BTR {
+impl crate::can::bx::ResetValue for super::BTR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -25,7 +25,7 @@ impl From<SILM_A> for bool {
     }
 }
 #[doc = "Reader of field `SILM`"]
-pub type SILM_R = crate::R<bool, SILM_A>;
+pub type SILM_R = crate::can::bx::R<bool, SILM_A>;
 impl SILM_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -100,7 +100,7 @@ impl From<LBKM_A> for bool {
     }
 }
 #[doc = "Reader of field `LBKM`"]
-pub type LBKM_R = crate::R<bool, LBKM_A>;
+pub type LBKM_R = crate::can::bx::R<bool, LBKM_A>;
 impl LBKM_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -161,7 +161,7 @@ impl<'a> LBKM_W<'a> {
     }
 }
 #[doc = "Reader of field `SJW`"]
-pub type SJW_R = crate::R<u8, u8>;
+pub type SJW_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `SJW`"]
 pub struct SJW_W<'a> {
     w: &'a mut W,
@@ -175,7 +175,7 @@ impl<'a> SJW_W<'a> {
     }
 }
 #[doc = "Reader of field `TS2`"]
-pub type TS2_R = crate::R<u8, u8>;
+pub type TS2_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `TS2`"]
 pub struct TS2_W<'a> {
     w: &'a mut W,
@@ -189,7 +189,7 @@ impl<'a> TS2_W<'a> {
     }
 }
 #[doc = "Reader of field `TS1`"]
-pub type TS1_R = crate::R<u8, u8>;
+pub type TS1_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `TS1`"]
 pub struct TS1_W<'a> {
     w: &'a mut W,
@@ -203,7 +203,7 @@ impl<'a> TS1_W<'a> {
     }
 }
 #[doc = "Reader of field `BRP`"]
-pub type BRP_R = crate::R<u16, u16>;
+pub type BRP_R = crate::can::bx::R<u16, u16>;
 #[doc = "Write proxy for field `BRP`"]
 pub struct BRP_W<'a> {
     w: &'a mut W,

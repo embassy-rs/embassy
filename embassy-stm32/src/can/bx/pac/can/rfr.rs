@@ -1,9 +1,9 @@
 #[doc = "Reader of register RF%sR"]
-pub type R = crate::R<u32, super::RFR>;
+pub type R = crate::can::bx::R<u32, super::RFR>;
 #[doc = "Writer for register RF%sR"]
-pub type W = crate::W<u32, super::RFR>;
+pub type W = crate::can::bx::W<u32, super::RFR>;
 #[doc = "Register RF%sR `reset()`'s with value 0"]
-impl crate::ResetValue for super::RFR {
+impl crate::can::bx::ResetValue for super::RFR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -23,12 +23,12 @@ impl From<RFOM_A> for bool {
     }
 }
 #[doc = "Reader of field `RFOM`"]
-pub type RFOM_R = crate::R<bool, RFOM_A>;
+pub type RFOM_R = crate::can::bx::R<bool, RFOM_A>;
 impl RFOM_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
-    pub fn variant(&self) -> crate::Variant<bool, RFOM_A> {
-        use crate::Variant::*;
+    pub fn variant(&self) -> crate::can::bx::Variant<bool, RFOM_A> {
+        use crate::can::bx::Variant::*;
         match self.bits {
             true => Val(RFOM_A::RELEASE),
             i => Res(i),
@@ -89,7 +89,7 @@ impl From<FOVR_A> for bool {
     }
 }
 #[doc = "Reader of field `FOVR`"]
-pub type FOVR_R = crate::R<bool, FOVR_A>;
+pub type FOVR_R = crate::can::bx::R<bool, FOVR_A>;
 impl FOVR_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -171,7 +171,7 @@ impl From<FULL_A> for bool {
     }
 }
 #[doc = "Reader of field `FULL`"]
-pub type FULL_R = crate::R<bool, FULL_A>;
+pub type FULL_R = crate::can::bx::R<bool, FULL_A>;
 impl FULL_R {
     #[doc = r"Get enumerated values variant"]
     #[inline(always)]
@@ -239,7 +239,7 @@ impl<'a> FULL_W<'a> {
     }
 }
 #[doc = "Reader of field `FMP`"]
-pub type FMP_R = crate::R<u8, u8>;
+pub type FMP_R = crate::can::bx::R<u8, u8>;
 impl R {
     #[doc = "Bit 5 - RFOM0"]
     #[inline(always)]

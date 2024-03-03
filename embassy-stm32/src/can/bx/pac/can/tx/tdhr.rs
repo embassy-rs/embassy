@@ -1,9 +1,9 @@
 #[doc = "Reader of register TDHR"]
-pub type R = crate::R<u32, super::TDHR>;
+pub type R = crate::can::bx::R<u32, super::TDHR>;
 #[doc = "Writer for register TDHR"]
-pub type W = crate::W<u32, super::TDHR>;
+pub type W = crate::can::bx::W<u32, super::TDHR>;
 #[doc = "Register TDHR `reset()`'s with value 0"]
-impl crate::ResetValue for super::TDHR {
+impl crate::can::bx::ResetValue for super::TDHR {
     type Type = u32;
     #[inline(always)]
     fn reset_value() -> Self::Type {
@@ -11,7 +11,7 @@ impl crate::ResetValue for super::TDHR {
     }
 }
 #[doc = "Reader of field `DATA7`"]
-pub type DATA7_R = crate::R<u8, u8>;
+pub type DATA7_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `DATA7`"]
 pub struct DATA7_W<'a> {
     w: &'a mut W,
@@ -25,7 +25,7 @@ impl<'a> DATA7_W<'a> {
     }
 }
 #[doc = "Reader of field `DATA6`"]
-pub type DATA6_R = crate::R<u8, u8>;
+pub type DATA6_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `DATA6`"]
 pub struct DATA6_W<'a> {
     w: &'a mut W,
@@ -39,7 +39,7 @@ impl<'a> DATA6_W<'a> {
     }
 }
 #[doc = "Reader of field `DATA5`"]
-pub type DATA5_R = crate::R<u8, u8>;
+pub type DATA5_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `DATA5`"]
 pub struct DATA5_W<'a> {
     w: &'a mut W,
@@ -53,7 +53,7 @@ impl<'a> DATA5_W<'a> {
     }
 }
 #[doc = "Reader of field `DATA4`"]
-pub type DATA4_R = crate::R<u8, u8>;
+pub type DATA4_R = crate::can::bx::R<u8, u8>;
 #[doc = "Write proxy for field `DATA4`"]
 pub struct DATA4_W<'a> {
     w: &'a mut W,
