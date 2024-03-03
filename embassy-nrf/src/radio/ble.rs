@@ -12,6 +12,7 @@ use pac::radio::state::STATE_A as RadioState;
 pub use pac::radio::txpower::TXPOWER_A as TxPower;
 
 use crate::interrupt::typelevel::Interrupt;
+pub use crate::radio::Error;
 use crate::radio::*;
 use crate::util::slice_in_ram_or;
 
