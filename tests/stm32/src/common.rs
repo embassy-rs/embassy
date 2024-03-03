@@ -260,6 +260,17 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
+    #[cfg(feature = "stm32c031c6")]
+    {
+        config.rcc.hsi = Some(Hsi {
+            sys_div: HsiSysDiv::DIV1, // 48Mhz
+            ker_div: HsiKerDiv::DIV3, // 16Mhz
+        });
+        config.rcc.sys = Sysclk::HSISYS;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+    }
+
     #[cfg(feature = "stm32g071rb")]
     {
         config.rcc.hsi = true;
