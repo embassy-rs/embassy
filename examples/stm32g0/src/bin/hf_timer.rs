@@ -16,15 +16,16 @@ async fn main(_spawner: Spawner) {
     let mut config = PeripheralConfig::default();
     {
         use embassy_stm32::rcc::*;
-
-        config.rcc.sys = Sysclk::PLL(PllConfig {
+        config.rcc.hsi = true;
+        config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
-            m: Pllm::DIV1,
-            n: Plln::MUL16,
-            r: Pllr::DIV4,       // CPU clock comes from PLLR (HSI (16MHz) / 1 * 16 / 4 = 64MHz)
-            q: Some(Pllq::DIV2), // TIM1 or TIM15 can be sourced from PLLQ (HSI (16MHz) / 1 * 16 / 2 = 128MHz)
-            p: None,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL16,
+            divp: None,
+            divq: Some(PllQDiv::DIV2), // 16 / 1 * 16 / 2 = 128 Mhz
+            divr: Some(PllRDiv::DIV4), // 16 / 1 * 16 / 4 = 64 Mhz
         });
+        config.rcc.sys = Sysclk::PLL1_R;
 
         // configure TIM1 mux to select PLLQ as clock source
         // https://www.st.com/resource/en/reference_manual/rm0444-stm32g0x1-advanced-armbased-32bit-mcus-stmicroelectronics.pdf

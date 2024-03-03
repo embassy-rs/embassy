@@ -1,25 +1,56 @@
 use crate::pac::flash::vals::Latency;
-use crate::pac::rcc::vals::Sw;
-pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Hsidiv as HSIPrescaler, Ppre as APBPrescaler};
+pub use crate::pac::rcc::vals::{
+    Hpre as AHBPrescaler, Hsidiv as HsiSysDiv, Hsikerdiv as HsiKerDiv, Ppre as APBPrescaler, Sw as Sysclk,
+};
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
 /// HSI speed
-pub const HSI_FREQ: Hertz = Hertz(48_000_000);
+pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 
-/// System clock mux source
-#[derive(Clone, Copy)]
-pub enum Sysclk {
-    HSE(Hertz),
-    HSI(HSIPrescaler),
-    LSI,
+/// HSE Mode
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum HseMode {
+    /// crystal/ceramic oscillator (HSEBYP=0)
+    Oscillator,
+    /// external analog clock (low swing) (HSEBYP=1)
+    Bypass,
+}
+
+/// HSE Configuration
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hse {
+    /// HSE frequency.
+    pub freq: Hertz,
+    /// HSE mode.
+    pub mode: HseMode,
+}
+
+/// HSI Configuration
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hsi {
+    /// Division factor for HSISYS clock. Default is 4.
+    pub sys_div: HsiSysDiv,
+    /// Division factor for HSIKER clock. Default is 3.
+    pub ker_div: HsiKerDiv,
 }
 
 /// Clocks configutation
+#[non_exhaustive]
 pub struct Config {
+    /// HSI Configuration
+    pub hsi: Option<Hsi>,
+
+    /// HSE Configuration
+    pub hse: Option<Hse>,
+
+    /// System Clock Configuration
     pub sys: Sysclk,
+
     pub ahb_pre: AHBPrescaler,
-    pub apb_pre: APBPrescaler,
+    pub apb1_pre: APBPrescaler,
+
+    /// Low-Speed Clock Configuration
     pub ls: super::LsConfig,
 
     /// Per-peripheral kernel clock selection muxes
@@ -30,9 +61,14 @@ impl Default for Config {
     #[inline]
     fn default() -> Config {
         Config {
-            sys: Sysclk::HSI(HSIPrescaler::DIV1),
+            hsi: Some(Hsi {
+                sys_div: HsiSysDiv::DIV4,
+                ker_div: HsiKerDiv::DIV3,
+            }),
+            hse: None,
+            sys: Sysclk::HSISYS,
             ahb_pre: AHBPrescaler::DIV1,
-            apb_pre: APBPrescaler::DIV1,
+            apb1_pre: APBPrescaler::DIV1,
             ls: Default::default(),
             mux: Default::default(),
         }
@@ -40,111 +76,109 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    let (sys_clk, sw) = match config.sys {
-        Sysclk::HSI(div) => {
-            // Enable HSI
-            RCC.cr().write(|w| {
-                w.set_hsidiv(div);
-                w.set_hsion(true)
+    // Configure HSI
+    let (hsi, hsisys, hsiker) = match config.hsi {
+        None => {
+            RCC.cr().modify(|w| w.set_hsion(false));
+            (None, None, None)
+        }
+        Some(hsi) => {
+            RCC.cr().modify(|w| {
+                w.set_hsidiv(hsi.sys_div);
+                w.set_hsikerdiv(hsi.ker_div);
+                w.set_hsion(true);
             });
             while !RCC.cr().read().hsirdy() {}
-
-            (HSI_FREQ / div, Sw::HSI)
-        }
-        Sysclk::HSE(freq) => {
-            // Enable HSE
-            RCC.cr().write(|w| w.set_hseon(true));
-            while !RCC.cr().read().hserdy() {}
-
-            (freq, Sw::HSE)
-        }
-        Sysclk::LSI => {
-            // Enable LSI
-            RCC.csr2().write(|w| w.set_lsion(true));
-            while !RCC.csr2().read().lsirdy() {}
-            (super::LSI_FREQ, Sw::LSI)
+            (
+                Some(HSI_FREQ),
+                Some(HSI_FREQ / hsi.sys_div),
+                Some(HSI_FREQ / hsi.ker_div),
+            )
         }
     };
+
+    // Configure HSE
+    let hse = match config.hse {
+        None => {
+            RCC.cr().modify(|w| w.set_hseon(false));
+            None
+        }
+        Some(hse) => {
+            match hse.mode {
+                HseMode::Bypass => assert!(max::HSE_BYP.contains(&hse.freq)),
+                HseMode::Oscillator => assert!(max::HSE_OSC.contains(&hse.freq)),
+            }
+
+            RCC.cr().modify(|w| w.set_hsebyp(hse.mode != HseMode::Oscillator));
+            RCC.cr().modify(|w| w.set_hseon(true));
+            while !RCC.cr().read().hserdy() {}
+            Some(hse.freq)
+        }
+    };
+
+    let sys = match config.sys {
+        Sysclk::HSISYS => unwrap!(hsisys),
+        Sysclk::HSE => unwrap!(hse),
+        _ => unreachable!(),
+    };
+
+    assert!(max::SYSCLK.contains(&sys));
+
+    // Calculate the AHB frequency (HCLK), among other things so we can calculate the correct flash read latency.
+    let hclk = sys / config.ahb_pre;
+    assert!(max::HCLK.contains(&hclk));
+
+    let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk, config.apb1_pre);
+    assert!(max::PCLK.contains(&pclk1));
+
+    let latency = match hclk.0 {
+        ..=24_000_000 => Latency::WS0,
+        _ => Latency::WS1,
+    };
+
+    // Configure flash read access latency based on voltage scale and frequency
+    FLASH.acr().modify(|w| {
+        w.set_latency(latency);
+    });
+
+    // Spin until the effective flash latency is set.
+    while FLASH.acr().read().latency() != latency {}
+
+    // Now that boost mode and flash read access latency are configured, set up SYSCLK
+    RCC.cfgr().modify(|w| {
+        w.set_sw(config.sys);
+        w.set_hpre(config.ahb_pre);
+        w.set_ppre(config.apb1_pre);
+    });
 
     let rtc = config.ls.init();
 
-    // Determine the flash latency implied by the target clock speed
-    // RM0454 § 3.3.4:
-    let target_flash_latency = if sys_clk <= Hertz(24_000_000) {
-        Latency::WS0
-    } else {
-        Latency::WS1
-    };
-
-    // Increase the number of cycles we wait for flash if the new value is higher
-    // There's no harm in waiting a little too much before the clock change, but we'll
-    // crash immediately if we don't wait enough after the clock change
-    let mut set_flash_latency_after = false;
-    FLASH.acr().modify(|w| {
-        // Is the current flash latency less than what we need at the new SYSCLK?
-        if w.latency().to_bits() <= target_flash_latency.to_bits() {
-            // We must increase the number of wait states now
-            w.set_latency(target_flash_latency)
-        } else {
-            // We may decrease the number of wait states later
-            set_flash_latency_after = true;
-        }
-
-        // RM0490 § 3.3.4:
-        // > Prefetch is enabled by setting the PRFTEN bit of the FLASH access control register
-        // > (FLASH_ACR). This feature is useful if at least one wait state is needed to access the
-        // > Flash memory.
-        //
-        // Enable flash prefetching if we have at least one wait state, and disable it otherwise.
-        w.set_prften(target_flash_latency.to_bits() > 0);
-    });
-
-    if !set_flash_latency_after {
-        // Spin until the effective flash latency is compatible with the clock change
-        while FLASH.acr().read().latency() < target_flash_latency {}
-    }
-
-    // Configure SYSCLK source, HCLK divisor, and PCLK divisor all at once
-    RCC.cfgr().modify(|w| {
-        w.set_sw(sw);
-        w.set_hpre(config.ahb_pre);
-        w.set_ppre(config.apb_pre);
-    });
-    // Spin until the SYSCLK changes have taken effect
-    loop {
-        let cfgr = RCC.cfgr().read();
-        if cfgr.sw() == sw && cfgr.hpre() == config.ahb_pre && cfgr.ppre() == config.apb_pre {
-            break;
-        }
-    }
-
-    // Set the flash latency to require fewer wait states
-    if set_flash_latency_after {
-        FLASH.acr().modify(|w| w.set_latency(target_flash_latency));
-    }
-
-    let ahb_freq = sys_clk / config.ahb_pre;
-
-    let (apb_freq, apb_tim_freq) = match config.apb_pre {
-        APBPrescaler::DIV1 => (ahb_freq, ahb_freq),
-        pre => {
-            let freq = ahb_freq / pre;
-            (freq, freq * 2u32)
-        }
-    };
-
     config.mux.init();
 
-    // without this, the ringbuffered uart test fails.
-    cortex_m::asm::dsb();
-
     set_clocks!(
-        hsi: None,
-        lse: None,
-        sys: Some(sys_clk),
-        hclk1: Some(ahb_freq),
-        pclk1: Some(apb_freq),
-        pclk1_tim: Some(apb_tim_freq),
+        sys: Some(sys),
+        hclk1: Some(hclk),
+        pclk1: Some(pclk1),
+        pclk1_tim: Some(pclk1_tim),
+        hsi: hsi,
+        hsiker: hsiker,
+        hse: hse,
         rtc: rtc,
+
+        // TODO
+        lsi: None,
+        lse: None,
     );
+}
+
+mod max {
+    use core::ops::RangeInclusive;
+
+    use crate::time::Hertz;
+
+    pub(crate) const HSE_OSC: RangeInclusive<Hertz> = Hertz(4_000_000)..=Hertz(48_000_000);
+    pub(crate) const HSE_BYP: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
+    pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
+    pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(8)..=Hertz(48_000_000);
+    pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(48_000_000);
 }

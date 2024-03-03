@@ -260,6 +260,30 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
+    #[cfg(feature = "stm32c031c6")]
+    {
+        config.rcc.hsi = Some(Hsi {
+            sys_div: HsiSysDiv::DIV1, // 48Mhz
+            ker_div: HsiKerDiv::DIV3, // 16Mhz
+        });
+        config.rcc.sys = Sysclk::HSISYS;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+    }
+
+    #[cfg(feature = "stm32g071rb")]
+    {
+        config.rcc.hsi = true;
+        config.rcc.pll = Some(Pll {
+            source: PllSource::HSI,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL16,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV4), // 16 / 1 * 16 / 4 = 64 Mhz
+        });
+        config.rcc.sys = Sysclk::PLL1_R;
+    }
     #[cfg(feature = "stm32wb55rg")]
     {
         config.rcc = embassy_stm32::rcc::WPAN_DEFAULT;
@@ -456,7 +480,7 @@ pub fn config() -> Config {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: Pllsrc::HSE,
+            source: PllSource::HSE,
             prediv: PllPreDiv::DIV6,
             mul: PllMul::MUL85,
             divp: None,

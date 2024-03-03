@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: Pllsrc::HSE,
+            source: PllSource::HSE,
             prediv: PllPreDiv::DIV6,
             mul: PllMul::MUL85,
             divp: None,
