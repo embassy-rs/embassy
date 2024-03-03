@@ -4,8 +4,8 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareState, FirmwareUpdater,
-    FirmwareUpdaterConfig, State,
+    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
+    FirmwareUpdater, FirmwareUpdaterConfig, State,
 };
 use embassy_rp::flash::{Blocking, Flash, ERASE_SIZE};
 use embassy_rp::peripherals::{FLASH, WATCHDOG};
@@ -21,10 +21,17 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
         config: BootLoaderConfig<ACTIVE, DFU, STATE>,
     ) -> Self {
+        Self::try_prepare::<ACTIVE, DFU, STATE>(config).expect("Boot prepare error")
+    }
+
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
+    pub fn try_prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
-        boot.prepare_boot(aligned_buf.as_mut()).expect("Boot prepare error");
-        Self
+        let state = boot.prepare_boot(aligned_buf.as_mut())?;
+        Ok(Self { state })
     }
 
     /// Boots the application.
