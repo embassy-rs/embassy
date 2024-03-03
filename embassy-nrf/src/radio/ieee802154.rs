@@ -3,15 +3,15 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use super::{Error, Instance, InterruptHandler};
-use crate::{
-    interrupt::{self, typelevel::Interrupt},
-    pac, Peripheral,
-};
-use pac::radio::{state::STATE_A as RadioState, txpower::TXPOWER_A as TxPower};
-
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
+use pac::radio::state::STATE_A as RadioState;
+use pac::radio::txpower::TXPOWER_A as TxPower;
+
+use super::{Error, Instance, InterruptHandler};
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
+use crate::{pac, Peripheral};
 
 /// Default Start of Frame Delimiter = `0xA7` (IEEE compliant)
 pub const DEFAULT_SFD: u8 = 0xA7;
