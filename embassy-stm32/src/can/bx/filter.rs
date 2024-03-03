@@ -286,12 +286,7 @@ impl<I: FilterOwner> MasterFilters<'_, I> {
     /// - `index`: the filter index.
     /// - `fifo`: the receive FIFO the filter should pass accepted messages to.
     /// - `config`: the filter configuration.
-    pub fn enable_bank(
-        &mut self,
-        index: u8,
-        fifo: Fifo,
-        config: impl Into<BankConfig>,
-    ) -> &mut Self {
+    pub fn enable_bank(&mut self, index: u8, fifo: Fifo, config: impl Into<BankConfig>) -> &mut Self {
         self.banks_imm().enable(index, fifo, config.into());
         self
     }
@@ -380,12 +375,7 @@ impl<I: Instance> SlaveFilters<'_, I> {
     /// - `index`: the filter index.
     /// - `fifo`: the receive FIFO the filter should pass accepted messages to.
     /// - `config`: the filter configuration.
-    pub fn enable_bank(
-        &mut self,
-        index: u8,
-        fifo: Fifo,
-        config: impl Into<BankConfig>,
-    ) -> &mut Self {
+    pub fn enable_bank(&mut self, index: u8, fifo: Fifo, config: impl Into<BankConfig>) -> &mut Self {
         self.banks_imm().enable(index, fifo, config.into());
         self
     }
@@ -415,9 +405,7 @@ impl FilterBanks<'_> {
     fn disable(&mut self, index: u8) {
         self.assert_bank_index(index);
 
-        self.can
-            .fa1r
-            .modify(|r, w| unsafe { w.bits(r.bits() & !(1 << index)) })
+        self.can.fa1r.modify(|r, w| unsafe { w.bits(r.bits() & !(1 << index)) })
     }
 
     fn enable(&mut self, index: u8, fifo: Fifo, config: BankConfig) {
@@ -482,9 +470,7 @@ impl FilterBanks<'_> {
         });
 
         // Set active.
-        self.can
-            .fa1r
-            .modify(|r, w| unsafe { w.bits(r.bits() | (1 << index)) })
+        self.can.fa1r.modify(|r, w| unsafe { w.bits(r.bits() | (1 << index)) })
     }
 }
 

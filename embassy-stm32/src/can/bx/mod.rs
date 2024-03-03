@@ -19,21 +19,8 @@
 //!
 //! - Support for querying error states and handling error interrupts is incomplete.
 //!
-//! # Cargo Features
-//!
-//! | Feature | Description |
-//! |---------|-------------|
-//! | `defmt` | Implements [`defmt`]'s `Format` trait for the types in this crate.[^1] |
-//!
-//! [^1]: The specific version of defmt is unspecified and may be updated in a patch release.
-//!
-//! [`defmt`]: https://docs.rs/defmt
-//! [`embedded-hal`]: https://docs.rs/embedded-hal
 
-#![doc(html_root_url = "https://docs.rs/bxcan/0.7.0")]
 // Deny a few warnings in doctests, since rustdoc `allow`s many warnings by default
-#![doc(test(attr(deny(unused_imports, unused_must_use))))]
-#![no_std]
 #![allow(clippy::unnecessary_operation)] // lint is bugged
 
 //mod embedded_hal;
@@ -45,20 +32,19 @@ mod interrupt;
 #[allow(clippy::all)] // generated code
 mod pac;
 
-pub use id::{ExtendedId, Id, StandardId};
-
-pub use crate::can::bx::frame::{Data, Frame, FramePriority};
-pub use crate::can::bx::interrupt::{Interrupt, Interrupts};
-pub use crate::can::bx::pac::can::RegisterBlock;
-
-use crate::can::bx::filter::MasterFilters;
 use core::cmp::{Ord, Ordering};
 use core::convert::{Infallible, TryInto};
 use core::marker::PhantomData;
 use core::mem;
 use core::ptr::NonNull;
 
-use self::pac::generic::*; // To make the PAC extraction build
+pub use id::{ExtendedId, Id, StandardId};
+
+use self::pac::generic::*;
+use crate::can::bx::filter::MasterFilters;
+pub use crate::can::bx::frame::{Data, Frame, FramePriority};
+pub use crate::can::bx::interrupt::{Interrupt, Interrupts};
+pub use crate::can::bx::pac::can::RegisterBlock; // To make the PAC extraction build
 
 /// A bxCAN peripheral instance.
 ///
@@ -186,9 +172,7 @@ impl IdReg {
         if self.is_extended() {
             Id::Extended(unsafe { ExtendedId::new_unchecked(self.0 >> Self::EXTENDED_SHIFT) })
         } else {
-            Id::Standard(unsafe {
-                StandardId::new_unchecked((self.0 >> Self::STANDARD_SHIFT) as u16)
-            })
+            Id::Standard(unsafe { StandardId::new_unchecked((self.0 >> Self::STANDARD_SHIFT) as u16) })
         }
     }
 
@@ -229,12 +213,9 @@ impl Ord for IdReg {
                     .reverse()
                     .then(Ordering::Greater)
             }
-            (Id::Extended(a), Id::Standard(b)) => a
-                .standard_id()
-                .as_raw()
-                .cmp(&b.as_raw())
-                .reverse()
-                .then(Ordering::Less),
+            (Id::Extended(a), Id::Standard(b)) => {
+                a.standard_id().as_raw().cmp(&b.as_raw()).reverse().then(Ordering::Less)
+            }
         }
     }
 }
@@ -326,8 +307,7 @@ impl<I: Instance> CanConfig<'_, I> {
     /// Leaves initialization mode, enters sleep mode.
     fn leave_init_mode(&mut self) {
         let can = self.can.registers();
-        can.mcr
-            .modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
+        can.mcr.modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
         loop {
             let msr = can.msr.read();
             if msr.slak().bit_is_set() && msr.inak().bit_is_clear() {
@@ -426,8 +406,7 @@ impl<I: Instance> CanBuilder<I> {
     /// Leaves initialization mode, enters sleep mode.
     fn leave_init_mode(&mut self) {
         let can = self.can.registers();
-        can.mcr
-            .modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
+        can.mcr.modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
         loop {
             let msr = can.msr.read();
             if msr.slak().bit_is_set() && msr.inak().bit_is_clear() {
@@ -448,15 +427,11 @@ where
 {
     /// Creates a [`CanBuilder`] for constructing a CAN interface.
     pub fn builder(instance: I) -> CanBuilder<I> {
-        let can_builder = CanBuilder {
-            can: Can { instance },
-        };
+        let can_builder = CanBuilder { can: Can { instance } };
 
         let can_reg = can_builder.can.registers();
         // Enter init mode.
-        can_reg
-            .mcr
-            .modify(|_, w| w.sleep().clear_bit().inrq().set_bit());
+        can_reg.mcr.modify(|_, w| w.sleep().clear_bit().inrq().set_bit());
         loop {
             let msr = can_reg.msr.read();
             if msr.slak().bit_is_clear() && msr.inak().bit_is_set() {
@@ -505,8 +480,7 @@ where
         let can = self.registers();
 
         // Enter init mode.
-        can.mcr
-            .modify(|_, w| w.sleep().clear_bit().inrq().set_bit());
+        can.mcr.modify(|_, w| w.sleep().clear_bit().inrq().set_bit());
         loop {
             let msr = can.msr.read();
             if msr.slak().bit_is_clear() && msr.inak().bit_is_set() {
@@ -541,8 +515,7 @@ where
         let can = self.registers();
         let msr = can.msr.read();
         if msr.slak().bit_is_set() {
-            can.mcr
-                .modify(|_, w| w.abom().set_bit().sleep().clear_bit());
+            can.mcr.modify(|_, w| w.abom().set_bit().sleep().clear_bit());
             Err(nb::Error::WouldBlock)
         } else {
             Ok(())
@@ -554,8 +527,7 @@ where
     /// While in sleep mode, an incoming CAN frame will trigger [`Interrupt::Wakeup`] if enabled.
     pub fn sleep(&mut self) {
         let can = self.registers();
-        can.mcr
-            .modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
+        can.mcr.modify(|_, w| w.sleep().set_bit().inrq().clear_bit());
         loop {
             let msr = can.msr.read();
             if msr.slak().bit_is_set() && msr.inak().bit_is_clear() {
@@ -570,8 +542,7 @@ where
     /// frame will cause that interrupt.
     pub fn wakeup(&mut self) {
         let can = self.registers();
-        can.mcr
-            .modify(|_, w| w.sleep().clear_bit().inrq().clear_bit());
+        can.mcr.modify(|_, w| w.sleep().clear_bit().inrq().clear_bit());
         loop {
             let msr = can.msr.read();
             if msr.slak().bit_is_clear() && msr.inak().bit_is_clear() {
@@ -791,8 +762,7 @@ where
         let tsr = can.tsr.read();
         let idx = tsr.code().bits() as usize;
 
-        let frame_is_pending =
-            tsr.tme0().bit_is_clear() || tsr.tme1().bit_is_clear() || tsr.tme2().bit_is_clear();
+        let frame_is_pending = tsr.tme0().bit_is_clear() || tsr.tme1().bit_is_clear() || tsr.tme2().bit_is_clear();
         let pending_frame = if frame_is_pending {
             // High priority frames are transmitted first by the mailbox system.
             // Frames with identical identifier shall be transmitted in FIFO order.
@@ -860,20 +830,12 @@ where
         debug_assert!(idx < 3);
         let mb = unsafe { &can.tx.get_unchecked(idx) };
 
-        mb.tdtr
-            .write(|w| unsafe { w.dlc().bits(frame.dlc() as u8) });
-        mb.tdlr.write(|w| unsafe {
-            w.bits(u32::from_ne_bytes(
-                frame.data.bytes[0..4].try_into().unwrap(),
-            ))
-        });
-        mb.tdhr.write(|w| unsafe {
-            w.bits(u32::from_ne_bytes(
-                frame.data.bytes[4..8].try_into().unwrap(),
-            ))
-        });
-        mb.tir
-            .write(|w| unsafe { w.bits(frame.id.0).txrq().set_bit() });
+        mb.tdtr.write(|w| unsafe { w.dlc().bits(frame.dlc() as u8) });
+        mb.tdlr
+            .write(|w| unsafe { w.bits(u32::from_ne_bytes(frame.data.bytes[0..4].try_into().unwrap())) });
+        mb.tdhr
+            .write(|w| unsafe { w.bits(u32::from_ne_bytes(frame.data.bytes[4..8].try_into().unwrap())) });
+        mb.tir.write(|w| unsafe { w.bits(frame.id.0).txrq().set_bit() });
     }
 
     fn read_pending_mailbox(&mut self, idx: usize) -> Option<Frame> {

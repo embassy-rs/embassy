@@ -22,10 +22,7 @@ impl Frame {
             Id::Extended(id) => IdReg::new_extended(id),
         };
 
-        Self {
-            id,
-            data: data.into(),
-        }
+        Self { id, data: data.into() }
     }
 
     /// Creates a new remote frame with configurable data length code (DLC).
@@ -182,10 +179,7 @@ impl Data {
     /// Creates an empty data payload containing 0 bytes.
     #[inline]
     pub const fn empty() -> Self {
-        Self {
-            len: 0,
-            bytes: [0; 8],
-        }
+        Self { len: 0, bytes: [0; 8] }
     }
 }
 
