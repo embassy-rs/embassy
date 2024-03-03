@@ -33,7 +33,7 @@ use core::task::Poll;
 /// // Wait for the value to be initialized
 /// // and get a static reference it
 /// assert_eq!(VALUE.get().await, &20);
-/// 
+///
 /// };
 /// block_on(f)
 /// ```
@@ -56,7 +56,6 @@ impl<T> OnceLock<T> {
     /// Get a reference to the underlying value, waiting for it to be set.
     /// If the value is already set, this will return immediately.
     pub async fn get(&self) -> &T {
-        
         poll_fn(|cx| match self.try_get() {
             Some(data) => Poll::Ready(data),
             None => {
