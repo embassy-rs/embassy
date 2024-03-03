@@ -14,7 +14,7 @@ async fn main(_spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.pll = Some(Pll {
-            source: Pllsrc::HSI,
+            source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL85,
             divp: None,
