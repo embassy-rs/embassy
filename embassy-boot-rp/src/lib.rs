@@ -30,8 +30,8 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
-        let state = boot.prepare_boot(aligned_buf.as_mut())?;
-        Ok(Self { state })
+        let _state = boot.prepare_boot(aligned_buf.as_mut())?;
+        Ok(Self)
     }
 
     /// Boots the application.
