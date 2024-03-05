@@ -6,6 +6,7 @@
 #![macro_use]
 
 /// Bluetooth Low Energy Radio driver.
+#[cfg(not(feature = "nrf51"))]
 pub mod ble;
 #[cfg(any(
     feature = "nrf52820",
@@ -19,6 +20,7 @@ pub mod ieee802154;
 use core::marker::PhantomData;
 
 use pac::radio::state::STATE_A as RadioState;
+#[cfg(not(feature = "nrf51"))]
 use pac::radio::txpower::TXPOWER_A as TxPower;
 
 use crate::{interrupt, pac, Peripheral};

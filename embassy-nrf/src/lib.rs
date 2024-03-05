@@ -47,7 +47,7 @@ pub mod gpio;
 pub mod gpiote;
 
 // TODO: tested on other chips
-#[cfg(not(any(feature = "nrf51", feature = "_nrf9160")))]
+#[cfg(not(any(feature = "_nrf9160")))]
 pub mod radio;
 
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
