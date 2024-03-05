@@ -13,10 +13,10 @@ pub mod ieee802154;
 
 use core::marker::PhantomData;
 
-use crate::{interrupt, pac, Peripheral};
-
 use pac::radio::state::STATE_A as RadioState;
 use pac::radio::txpower::TXPOWER_A as TxPower;
+
+use crate::{interrupt, pac, Peripheral};
 
 /// RADIO error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
