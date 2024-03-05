@@ -99,6 +99,9 @@ embassy_hal_internal::peripherals! {
 
     // TEMP
     TEMP,
+
+    // Radio
+    RADIO,
 }
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
@@ -139,6 +142,8 @@ impl_pin!(P0_28, 0, 28);
 impl_pin!(P0_29, 0, 29);
 impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,

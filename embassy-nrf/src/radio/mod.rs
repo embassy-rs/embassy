@@ -7,7 +7,12 @@
 
 /// Bluetooth Low Energy Radio driver.
 pub mod ble;
-#[cfg(any(feature = "nrf52840", feature = "nrf52833", feature = "_nrf5340-net"))]
+#[cfg(any(
+    feature = "nrf52820",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-net"
+))]
 /// IEEE 802.15.4
 pub mod ieee802154;
 

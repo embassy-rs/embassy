@@ -7,6 +7,7 @@ use core::task::Poll;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use pac::radio::mode::MODE_A as Mode;
+#[cfg(not(feature = "nrf51"))]
 use pac::radio::pcnf0::PLEN_A as PreambleLength;
 
 use crate::interrupt::typelevel::Interrupt;
@@ -84,6 +85,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         // Ch map between 2400 MHZ .. 2500 MHz
         // All modes use this range
+        #[cfg(not(feature = "nrf51"))]
         r.frequency.write(|w| w.map().default());
 
         // Configure shortcuts to simplify and speed up sending and receiving packets.
@@ -121,10 +123,18 @@ impl<'d, T: Instance> Radio<'d, T> {
         let r = T::regs();
         r.mode.write(|w| w.mode().variant(mode));
 
+        #[cfg(not(feature = "nrf51"))]
         r.pcnf0.write(|w| {
             w.plen().variant(match mode {
                 Mode::BLE_1MBIT => PreambleLength::_8BIT,
                 Mode::BLE_2MBIT => PreambleLength::_16BIT,
+                #[cfg(any(
+                    feature = "nrf52811",
+                    feature = "nrf52820",
+                    feature = "nrf52833",
+                    feature = "nrf52840",
+                    feature = "_nrf5340-net"
+                ))]
                 Mode::BLE_LR125KBIT | Mode::BLE_LR500KBIT => PreambleLength::LONG_RANGE,
                 _ => unimplemented!(),
             })
@@ -307,7 +317,11 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("txen");
+
+            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
             r.tasks_txen.write(|w| w.tasks_txen().set_bit());
+            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
+            r.tasks_txen.write(|w| unsafe { w.bits(1) });
         })
         .await;
 
@@ -324,7 +338,10 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("rxen");
+            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
             r.tasks_rxen.write(|w| w.tasks_rxen().set_bit());
+            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
+            r.tasks_rxen.write(|w| unsafe { w.bits(1) });
         })
         .await;
 
@@ -346,10 +363,16 @@ impl<'d, T: Instance> Radio<'d, T> {
             r.intenclr.write(|w| w.end().clear());
             r.events_end.reset();
 
+            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
             r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
 
             // The docs don't explicitly mention any event to acknowledge the stop task
+            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
             while r.events_end.read().events_end().bit_is_clear() {}
+            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
+            while r.events_end.read().bits() == 0 {}
 
             trace!("radio drop: stopped");
         });
@@ -370,7 +393,11 @@ impl<'d, T: Instance> Radio<'d, T> {
         // On poll check if interrupt happen
         poll_fn(|cx| {
             s.event_waker.register(cx.waker());
-            if r.events_end.read().events_end().bit_is_set() {
+            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
+            let end_event = r.events_end.read().events_end().bit_is_set();
+            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
+            let end_event = r.events_end.read().bits() == 1;
+            if end_event {
                 // trace!("radio:end");
                 return core::task::Poll::Ready(());
             }
@@ -394,10 +421,16 @@ impl<'d, T: Instance> Radio<'d, T> {
         if self.state() != RadioState::DISABLED {
             trace!("radio:disable");
             // Trigger the disable task
+            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
             r.tasks_disable.write(|w| w.tasks_disable().set_bit());
+            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
+            r.tasks_disable.write(|w| unsafe { w.bits(1) });
 
             // Wait until the radio is disabled
+            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
             while r.events_disabled.read().events_disabled().bit_is_clear() {}
+            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
+            while r.events_disabled.read().bits() == 0 {}
 
             compiler_fence(Ordering::SeqCst);
 
