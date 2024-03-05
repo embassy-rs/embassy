@@ -15,6 +15,9 @@ use core::marker::PhantomData;
 
 use crate::{interrupt, pac, Peripheral};
 
+use pac::radio::state::STATE_A as RadioState;
+use pac::radio::txpower::TXPOWER_A as TxPower;
+
 /// RADIO error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -28,6 +31,8 @@ pub enum Error {
     BufferNotInRAM,
     /// Clear channel assessment reported channel in use
     ChannelInUse,
+    /// CRC check failed
+    CrcFailed(u16),
 }
 
 /// Interrupt handler
@@ -88,4 +93,27 @@ macro_rules! impl_radio {
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+/// Get the state of the radio
+pub(crate) fn state(radio: &pac::radio::RegisterBlock) -> RadioState {
+    match radio.state.read().state().variant() {
+        Some(state) => state,
+        None => unreachable!(),
+    }
+}
+
+#[allow(dead_code)]
+pub(crate) fn trace_state(radio: &pac::radio::RegisterBlock) {
+    match state(radio) {
+        RadioState::DISABLED => trace!("radio:state:DISABLED"),
+        RadioState::RX_RU => trace!("radio:state:RX_RU"),
+        RadioState::RX_IDLE => trace!("radio:state:RX_IDLE"),
+        RadioState::RX => trace!("radio:state:RX"),
+        RadioState::RX_DISABLE => trace!("radio:state:RX_DISABLE"),
+        RadioState::TX_RU => trace!("radio:state:TX_RU"),
+        RadioState::TX_IDLE => trace!("radio:state:TX_IDLE"),
+        RadioState::TX => trace!("radio:state:TX"),
+        RadioState::TX_DISABLE => trace!("radio:state:TX_DISABLE"),
+    }
 }

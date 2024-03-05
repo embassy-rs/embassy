@@ -8,8 +8,6 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use pac::radio::mode::MODE_A as Mode;
 use pac::radio::pcnf0::PLEN_A as PreambleLength;
-use pac::radio::state::STATE_A as RadioState;
-pub use pac::radio::txpower::TXPOWER_A as TxPower;
 
 use crate::interrupt::typelevel::Interrupt;
 pub use crate::radio::Error;
@@ -111,17 +109,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     #[allow(dead_code)]
     fn trace_state(&self) {
-        match self.state() {
-            RadioState::DISABLED => trace!("radio:state:DISABLED"),
-            RadioState::RX_RU => trace!("radio:state:RX_RU"),
-            RadioState::RX_IDLE => trace!("radio:state:RX_IDLE"),
-            RadioState::RX => trace!("radio:state:RX"),
-            RadioState::RX_DISABLE => trace!("radio:state:RX_DISABLE"),
-            RadioState::TX_RU => trace!("radio:state:TX_RU"),
-            RadioState::TX_IDLE => trace!("radio:state:TX_IDLE"),
-            RadioState::TX => trace!("radio:state:TX"),
-            RadioState::TX_DISABLE => trace!("radio:state:TX_DISABLE"),
-        }
+        super::trace_state(T::regs())
     }
 
     /// Set the radio mode

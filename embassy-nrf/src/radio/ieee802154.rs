@@ -1,19 +1,17 @@
-//! IEEE 802.15.4 radio
+//! IEEE 802.15.4 radio driver
 
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-use pac::radio::state::STATE_A as RadioState;
-use pac::radio::txpower::TXPOWER_A as TxPower;
 
-use super::{Error, Instance, InterruptHandler};
+use super::{state, Error, Instance, InterruptHandler, RadioState, TxPower};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
-use crate::{pac, Peripheral};
+use crate::Peripheral;
 
-/// Default Start of Frame Delimiter = `0xA7` (IEEE compliant)
+/// Default (IEEE compliant) Start of Frame Delimiter
 pub const DEFAULT_SFD: u8 = 0xA7;
 
 // TODO expose the other variants in `pac::CCAMODE_A`
@@ -32,35 +30,14 @@ pub enum Cca {
     },
 }
 
-fn get_state(radio: &pac::radio::RegisterBlock) -> RadioState {
-    match radio.state.read().state().variant() {
-        Some(state) => state,
-        None => unreachable!(),
-    }
-}
-
-fn trace_state(state: RadioState) {
-    match state {
-        RadioState::DISABLED => trace!("radio:state:DISABLED"),
-        RadioState::RX_RU => trace!("radio:state:RX_RU"),
-        RadioState::RX_IDLE => trace!("radio:state:RX_IDLE"),
-        RadioState::RX => trace!("radio:state:RX"),
-        RadioState::RX_DISABLE => trace!("radio:state:RX_DISABLE"),
-        RadioState::TX_RU => trace!("radio:state:TX_RU"),
-        RadioState::TX_IDLE => trace!("radio:state:TX_IDLE"),
-        RadioState::TX => trace!("radio:state:TX"),
-        RadioState::TX_DISABLE => trace!("radio:state:TX_DISABLE"),
-    }
-}
-
-/// Radio driver.
+/// IEEE 802.15.4 radio driver.
 pub struct Radio<'d, T: Instance> {
     _p: PeripheralRef<'d, T>,
     needs_enable: bool,
 }
 
 impl<'d, T: Instance> Radio<'d, T> {
-    /// Create a new radio driver.
+    /// Create a new IEEE 802.15.4 radio driver.
     pub fn new(
         radio: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -81,40 +58,43 @@ impl<'d, T: Instance> Radio<'d, T> {
             // Configure CRC polynomial and init
             r.crcpoly.write(|w| w.crcpoly().bits(0x0001_1021));
             r.crcinit.write(|w| w.crcinit().bits(0));
-            // Configure packet layout
-            // 8-bit on air length
-            // S0 length, zero bytes
-            // S1 length, zero bytes
-            // S1 included in RAM if S1 length > 0, No.
-            // Code Indicator length, 0
-            // Preamble length 32-bit zero
-            // Exclude CRC
-            // No TERM field
             r.pcnf0.write(|w| {
+                // 8-bit on air length
                 w.lflen()
                     .bits(8)
+                    // Zero bytes S0 field length
                     .s0len()
                     .clear_bit()
+                    // Zero bytes S1 field length
                     .s1len()
                     .bits(0)
+                    // Do not include S1 field in RAM if S1 length > 0
                     .s1incl()
                     .clear_bit()
+                    // Zero code Indicator length
                     .cilen()
                     .bits(0)
+                    // 32-bit zero preamble
                     .plen()
                     ._32bit_zero()
+                    // Include CRC in length
                     .crcinc()
                     .include()
             });
             r.pcnf1.write(|w| {
+                // Maximum packet length
                 w.maxlen()
                     .bits(Packet::MAX_PSDU_LEN)
+                    // Zero static length
                     .statlen()
                     .bits(0)
+                    // Zero base address length
                     .balen()
                     .bits(0)
+                    // Little-endian
                     .endian()
                     .clear_bit()
+                    // Disable packet whitening
                     .whiteen()
                     .clear_bit()
             });
@@ -208,16 +188,9 @@ impl<'d, T: Instance> Radio<'d, T> {
         while self.state() != state {}
     }
 
+    /// Get the current radio state
     fn state(&self) -> RadioState {
-        let r = T::regs();
-        match r.state.read().state().variant() {
-            Some(state) => state,
-            None => unreachable!(),
-        }
-    }
-
-    fn trace_state(&self) {
-        trace_state(self.state());
+        state(T::regs())
     }
 
     /// Moves the radio from any state to the DISABLED state
@@ -227,20 +200,17 @@ impl<'d, T: Instance> Radio<'d, T> {
         loop {
             match self.state() {
                 RadioState::DISABLED => return,
-
+                // idle or ramping up
                 RadioState::RX_RU | RadioState::RX_IDLE | RadioState::TX_RU | RadioState::TX_IDLE => {
                     r.tasks_disable.write(|w| w.tasks_disable().set_bit());
-
                     self.wait_for_radio_state(RadioState::DISABLED);
                     return;
                 }
-
                 // ramping down
                 RadioState::RX_DISABLE | RadioState::TX_DISABLE => {
                     self.wait_for_radio_state(RadioState::DISABLED);
                     return;
                 }
-
                 // cancel ongoing transfer or ongoing CCA
                 RadioState::RX => {
                     r.tasks_ccastop.write(|w| w.tasks_ccastop().set_bit());
@@ -262,34 +232,26 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Moves the radio to the RXIDLE state
     fn receive_prepare(&mut self) {
-        let state = self.state();
-
-        let disable = match state {
+        // clear related events
+        T::regs().events_ccabusy.reset();
+        T::regs().events_phyend.reset();
+        // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE -> DISABLED -> RX_IDLE
+        let disable = match self.state() {
             RadioState::DISABLED => false,
-            RadioState::RX_DISABLE => true,
-            RadioState::TX_DISABLE => true,
             RadioState::RX_IDLE => self.needs_enable,
-            // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE -> DISABLED -> RX_IDLE
-            RadioState::TX_IDLE => true,
-            _ => unreachable!(),
+            _ => true,
         };
         if disable {
-            trace!("Receive Setup");
-            self.trace_state();
             self.disable();
         }
         self.needs_enable = false;
     }
 
+    /// Prepare radio for receiving a packet
     fn receive_start(&mut self, packet: &mut Packet) {
         // NOTE we do NOT check the address of `packet` because the mutable reference ensures it's
         // allocated in RAM
         let r = T::regs();
-
-        // clear related events
-        r.events_framestart.reset();
-        r.events_ccabusy.reset();
-        r.events_phyend.reset();
 
         self.receive_prepare();
 
@@ -314,15 +276,13 @@ impl<'d, T: Instance> Radio<'d, T> {
         }
     }
 
+    /// Cancel receiving packet
     fn receive_cancel() {
         let r = T::regs();
         r.shorts.reset();
-        if r.events_framestart.read().events_framestart().bit_is_set() {
-            // TODO: Is there a way to finish receiving this frame
-        }
         r.tasks_stop.write(|w| w.tasks_stop().set_bit());
         loop {
-            match get_state(r) {
+            match state(r) {
                 RadioState::DISABLED | RadioState::RX_IDLE => break,
                 _ => (),
             }
@@ -336,7 +296,7 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// This methods returns the `Ok` variant if the CRC included the packet was successfully
     /// validated by the hardware; otherwise it returns the `Err` variant. In either case, `packet`
     /// will be updated with the received packet's data
-    pub async fn receive(&mut self, packet: &mut Packet) -> Result<(), u16> {
+    pub async fn receive(&mut self, packet: &mut Packet) -> Result<(), Error> {
         let s = T::state();
         let r = T::regs();
 
@@ -369,7 +329,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         if r.crcstatus.read().crcstatus().bit_is_set() {
             Ok(())
         } else {
-            Err(crc)
+            Err(Error::CrcFailed(crc))
         }
     }
 
@@ -386,11 +346,6 @@ impl<'d, T: Instance> Radio<'d, T> {
     pub async fn try_send(&mut self, packet: &mut Packet) -> Result<(), Error> {
         let s = T::state();
         let r = T::regs();
-
-        // clear related events
-        r.events_framestart.reset();
-        r.events_ccabusy.reset();
-        r.events_phyend.reset();
 
         // enable radio to perform cca
         self.receive_prepare();
