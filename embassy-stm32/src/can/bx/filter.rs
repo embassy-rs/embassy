@@ -171,9 +171,13 @@ impl Mask32 {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BankConfig {
+    /// Specify up to 4 exact standard CAN ID's.
     List16([ListEntry16; 4]),
+    /// Specify up to 2 exact standard or extended CAN ID's.
     List32([ListEntry32; 2]),
+    /// Specify up to 2 standard ID's with masks.
     Mask16([Mask16; 2]),
+    /// Specify a single extended ID with mask.
     Mask32(Mask32),
 }
 

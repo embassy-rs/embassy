@@ -621,7 +621,7 @@ where
         unsafe { Rx1::conjure(self.canregs) }
     }
 
-    pub fn split_by_ref(&mut self) -> (Tx<I>, Rx0<I>, Rx1<I>) {
+    pub(crate) fn split_by_ref(&mut self) -> (Tx<I>, Rx0<I>, Rx1<I>) {
         // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
         let tx = unsafe { Tx::conjure(self.canregs) };
         let rx0 = unsafe { Rx0::conjure(self.canregs) };
@@ -924,7 +924,9 @@ fn receive_fifo(canregs: crate::pac::can::Can, fifo_nr: usize) -> nb::Result<Fra
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Fifo {
+    /// First receive FIFO
     Fifo0 = 0,
+    /// Second receive FIFO
     Fifo1 = 1,
 }
 
