@@ -6,9 +6,9 @@
 #![macro_use]
 
 /// Bluetooth Low Energy Radio driver.
-#[cfg(not(feature = "nrf51"))]
 pub mod ble;
 #[cfg(any(
+    feature = "nrf52811",
     feature = "nrf52820",
     feature = "nrf52833",
     feature = "nrf52840",
@@ -20,8 +20,7 @@ pub mod ieee802154;
 use core::marker::PhantomData;
 
 use pac::radio::state::STATE_A as RadioState;
-#[cfg(not(feature = "nrf51"))]
-use pac::radio::txpower::TXPOWER_A as TxPower;
+pub use pac::radio::txpower::TXPOWER_A as TxPower;
 
 use crate::{interrupt, pac, Peripheral};
 
@@ -107,20 +106,5 @@ pub(crate) fn state(radio: &pac::radio::RegisterBlock) -> RadioState {
     match radio.state.read().state().variant() {
         Some(state) => state,
         None => unreachable!(),
-    }
-}
-
-#[allow(dead_code)]
-pub(crate) fn trace_state(radio: &pac::radio::RegisterBlock) {
-    match state(radio) {
-        RadioState::DISABLED => trace!("radio:state:DISABLED"),
-        RadioState::RX_RU => trace!("radio:state:RX_RU"),
-        RadioState::RX_IDLE => trace!("radio:state:RX_IDLE"),
-        RadioState::RX => trace!("radio:state:RX"),
-        RadioState::RX_DISABLE => trace!("radio:state:RX_DISABLE"),
-        RadioState::TX_RU => trace!("radio:state:TX_RU"),
-        RadioState::TX_IDLE => trace!("radio:state:TX_IDLE"),
-        RadioState::TX => trace!("radio:state:TX"),
-        RadioState::TX_DISABLE => trace!("radio:state:TX_DISABLE"),
     }
 }

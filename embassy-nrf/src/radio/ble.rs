@@ -11,8 +11,8 @@ pub use pac::radio::mode::MODE_A as Mode;
 use pac::radio::pcnf0::PLEN_A as PreambleLength;
 
 use crate::interrupt::typelevel::Interrupt;
-pub use crate::radio::Error;
 use crate::radio::*;
+pub use crate::radio::{Error, TxPower};
 use crate::util::slice_in_ram_or;
 
 /// Radio driver.
@@ -103,15 +103,7 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     fn state(&self) -> RadioState {
-        match T::regs().state.read().state().variant() {
-            Some(s) => s,
-            None => unreachable!(),
-        }
-    }
-
-    #[allow(dead_code)]
-    fn trace_state(&self) {
-        super::trace_state(T::regs())
+        super::state(T::regs())
     }
 
     /// Set the radio mode
@@ -318,9 +310,6 @@ impl<'d, T: Instance> Radio<'d, T> {
             // Initialize the transmission
             // trace!("txen");
 
-            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
-            r.tasks_txen.write(|w| w.tasks_txen().set_bit());
-            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
             r.tasks_txen.write(|w| unsafe { w.bits(1) });
         })
         .await;
@@ -338,9 +327,6 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("rxen");
-            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
-            r.tasks_rxen.write(|w| w.tasks_rxen().set_bit());
-            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
             r.tasks_rxen.write(|w| unsafe { w.bits(1) });
         })
         .await;
@@ -363,15 +349,9 @@ impl<'d, T: Instance> Radio<'d, T> {
             r.intenclr.write(|w| w.end().clear());
             r.events_end.reset();
 
-            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
-            r.tasks_stop.write(|w| w.tasks_stop().set_bit());
-            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
 
             // The docs don't explicitly mention any event to acknowledge the stop task
-            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
-            while r.events_end.read().events_end().bit_is_clear() {}
-            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
             while r.events_end.read().bits() == 0 {}
 
             trace!("radio drop: stopped");
@@ -393,11 +373,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         // On poll check if interrupt happen
         poll_fn(|cx| {
             s.event_waker.register(cx.waker());
-            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
-            let end_event = r.events_end.read().events_end().bit_is_set();
-            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
-            let end_event = r.events_end.read().bits() == 1;
-            if end_event {
+            if r.events_end.read().bits() == 1 {
                 // trace!("radio:end");
                 return core::task::Poll::Ready(());
             }
@@ -421,15 +397,9 @@ impl<'d, T: Instance> Radio<'d, T> {
         if self.state() != RadioState::DISABLED {
             trace!("radio:disable");
             // Trigger the disable task
-            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
-            r.tasks_disable.write(|w| w.tasks_disable().set_bit());
-            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
             r.tasks_disable.write(|w| unsafe { w.bits(1) });
 
             // Wait until the radio is disabled
-            #[cfg(not(any(feature = "nrf51", feature = "nrf52832")))]
-            while r.events_disabled.read().events_disabled().bit_is_clear() {}
-            #[cfg(any(feature = "nrf51", feature = "nrf52832"))]
             while r.events_disabled.read().bits() == 0 {}
 
             compiler_fence(Ordering::SeqCst);

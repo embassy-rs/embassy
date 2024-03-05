@@ -162,19 +162,19 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.needs_enable = true;
 
         let tx_power: TxPower = match power {
-            #[cfg(not(feature = "_nrf5340-net"))]
+            #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
             8 => TxPower::POS8D_BM,
-            #[cfg(not(feature = "_nrf5340-net"))]
+            #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
             7 => TxPower::POS7D_BM,
-            #[cfg(not(feature = "_nrf5340-net"))]
+            #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
             6 => TxPower::POS6D_BM,
-            #[cfg(not(feature = "_nrf5340-net"))]
+            #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
             5 => TxPower::POS5D_BM,
             #[cfg(not(feature = "_nrf5340-net"))]
             4 => TxPower::POS4D_BM,
             #[cfg(not(feature = "_nrf5340-net"))]
             3 => TxPower::POS3D_BM,
-            #[cfg(not(feature = "_nrf5340-net"))]
+            #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
             2 => TxPower::POS2D_BM,
             0 => TxPower::_0D_BM,
             #[cfg(feature = "_nrf5340-net")]
