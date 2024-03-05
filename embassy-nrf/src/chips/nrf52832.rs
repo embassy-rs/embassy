@@ -150,6 +150,9 @@ embassy_hal_internal::peripherals! {
 
     // PDM
     PDM,
+
+    // RADIO
+    RADIO,
 }
 
 impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
@@ -183,6 +186,8 @@ impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
 impl_timer!(TIMER3, TIMER3, TIMER3, extended);
 impl_timer!(TIMER4, TIMER4, TIMER4, extended);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
