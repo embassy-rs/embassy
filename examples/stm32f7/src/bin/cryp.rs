@@ -6,10 +6,18 @@ use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::Aes128Gcm;
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::cryp::*;
-use embassy_stm32::Config;
+use embassy_stm32::dma::NoDma;
+use embassy_stm32::{
+    bind_interrupts,
+    cryp::{self, *},
+};
+use embassy_stm32::{peripherals, Config};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    CRYP => cryp::InterruptHandler<peripherals::CRYP>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -19,7 +27,7 @@ async fn main(_spawner: Spawner) -> ! {
     let payload: &[u8] = b"hello world";
     let aad: &[u8] = b"additional data";
 
-    let hw_cryp = Cryp::new(p.CRYP);
+    let hw_cryp = Cryp::new(p.CRYP, NoDma, NoDma, Irqs);
     let key: [u8; 16] = [0; 16];
     let mut ciphertext: [u8; 11] = [0; 11];
     let mut plaintext: [u8; 11] = [0; 11];
