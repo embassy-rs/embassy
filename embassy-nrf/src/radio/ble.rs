@@ -125,7 +125,7 @@ impl<'d, T: Instance> Radio<'d, T> {
             w.plen().variant(match mode {
                 Mode::BLE_1MBIT => PreambleLength::_8BIT,
                 Mode::BLE_2MBIT => PreambleLength::_16BIT,
-                Mode::BLE_LR125KBIT | Mode::BLE_LR500KBIT => PreambleLength::LONG_RANGE,
+                // Mode::BLE_LR125KBIT | Mode::BLE_LR500KBIT => PreambleLength::LONG_RANGE,
                 _ => unimplemented!(),
             })
         });
@@ -307,7 +307,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("txen");
-            r.tasks_txen.write(|w| w.tasks_txen().set_bit());
+            r.tasks_txen.write(|w| unsafe { w.bits(1) });
         })
         .await;
 
@@ -324,7 +324,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.trigger_and_wait_end(move || {
             // Initialize the transmission
             // trace!("rxen");
-            r.tasks_rxen.write(|w| w.tasks_rxen().set_bit());
+            r.tasks_txen.write(|w| unsafe { w.bits(1) });
         })
         .await;
 
@@ -346,10 +346,10 @@ impl<'d, T: Instance> Radio<'d, T> {
             r.intenclr.write(|w| w.end().clear());
             r.events_end.reset();
 
-            r.tasks_stop.write(|w| w.tasks_stop().set_bit());
+            r.tasks_stop.write(|w| unsafe { w.bits(1) });
 
             // The docs don't explicitly mention any event to acknowledge the stop task
-            while r.events_end.read().events_end().bit_is_clear() {}
+            while r.events_end.read().bits() == 0 {}
 
             trace!("radio drop: stopped");
         });
@@ -370,7 +370,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         // On poll check if interrupt happen
         poll_fn(|cx| {
             s.event_waker.register(cx.waker());
-            if r.events_end.read().events_end().bit_is_set() {
+            if r.events_end.read().bits() != 0 {
                 // trace!("radio:end");
                 return core::task::Poll::Ready(());
             }
@@ -394,10 +394,10 @@ impl<'d, T: Instance> Radio<'d, T> {
         if self.state() != RadioState::DISABLED {
             trace!("radio:disable");
             // Trigger the disable task
-            r.tasks_disable.write(|w| w.tasks_disable().set_bit());
+            r.tasks_disable.write(|w| unsafe { w.bits(1) });
 
             // Wait until the radio is disabled
-            while r.events_disabled.read().events_disabled().bit_is_clear() {}
+            while r.events_disabled.read().bits() == 0 {}
 
             compiler_fence(Ordering::SeqCst);
 
