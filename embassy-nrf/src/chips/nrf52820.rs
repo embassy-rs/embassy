@@ -130,6 +130,9 @@ embassy_hal_internal::peripherals! {
 
     // QDEC
     QDEC,
+
+    // RADIO
+    RADIO,
 }
 
 impl_usb!(USBD, USBD, USBD);
@@ -223,6 +226,8 @@ impl_ppi_channel!(PPI_CH28, 28 => static);
 impl_ppi_channel!(PPI_CH29, 29 => static);
 impl_ppi_channel!(PPI_CH30, 30 => static);
 impl_ppi_channel!(PPI_CH31, 31 => static);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
     POWER_CLOCK,

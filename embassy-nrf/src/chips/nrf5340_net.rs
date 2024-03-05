@@ -248,6 +248,9 @@ embassy_hal_internal::peripherals! {
     P1_13,
     P1_14,
     P1_15,
+
+    // RADIO
+    RADIO,
 }
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
@@ -344,6 +347,8 @@ impl_ppi_channel!(PPI_CH28, 28 => configurable);
 impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
+
+impl_radio!(RADIO, RADIO, RADIO);
 
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,
