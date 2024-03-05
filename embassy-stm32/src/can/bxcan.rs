@@ -6,7 +6,7 @@ use core::task::Poll;
 
 pub mod bx;
 
-use bx::{Data, ExtendedId, Frame, Id, StandardId};
+pub use bx::{filter, Data, ExtendedId, Fifo, Frame, Id, StandardId};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::FutureExt;
 

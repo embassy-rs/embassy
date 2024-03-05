@@ -3,9 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::can::bx::filter::Mask32;
-use embassy_stm32::can::bx::{Fifo, Frame, Id, StandardId};
-use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
+use embassy_stm32::can::{
+    filter, Can, Fifo, Frame, Id, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, StandardId,
+    TxInterruptHandler,
+};
 use embassy_stm32::peripherals::CAN;
 use embassy_stm32::{bind_interrupts, Config};
 use {defmt_rtt as _, panic_probe as _};
@@ -31,7 +32,7 @@ async fn main(_spawner: Spawner) {
 
     can.as_mut()
         .modify_filters()
-        .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
+        .enable_bank(0, Fifo::Fifo0, filter::Mask32::accept_all());
 
     can.as_mut()
         .modify_config()
