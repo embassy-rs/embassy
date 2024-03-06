@@ -27,6 +27,7 @@ heapless = { version = "0.8", default-features = false }
 nb = "1.0.0"
 embedded-storage = "0.3.1"
 micromath = "2.0.0"
+usbd-hid = "0.7.0"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false}
 
