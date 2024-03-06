@@ -10,8 +10,8 @@ use embassy_time::Timer;
 use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
-use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use futures::future::join;
+use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -127,22 +127,22 @@ join(usb_fut, hid_fut).await;
 struct MyRequestHandler {}
 
 impl RequestHandler for MyRequestHandler {
-fn get_report(&self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
-    info!("Get report for {:?}", id);
-    None
-}
+    fn get_report(&self, id: ReportId, _buf: &mut [u8]) -> Option<usize> {
+        info!("Get report for {:?}", id);
+        None
+    }
 
-fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
-    info!("Set report for {:?}: {=[u8]}", id, data);
-    OutResponse::Accepted
-}
+    fn set_report(&self, id: ReportId, data: &[u8]) -> OutResponse {
+        info!("Set report for {:?}: {=[u8]}", id, data);
+        OutResponse::Accepted
+    }
 
-fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
-    info!("Set idle rate for {:?} to {:?}", id, dur);
-}
+    fn set_idle_ms(&self, id: Option<ReportId>, dur: u32) {
+        info!("Set idle rate for {:?} to {:?}", id, dur);
+    }
 
-fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
-    info!("Get idle rate for {:?}", id);
-    None
-}
+    fn get_idle_ms(&self, id: Option<ReportId>) -> Option<u32> {
+        info!("Get idle rate for {:?}", id);
+        None
+    }
 }
