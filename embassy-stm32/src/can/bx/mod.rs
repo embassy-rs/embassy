@@ -29,8 +29,6 @@ mod frame;
 mod id;
 
 #[allow(clippy::all)] // generated code
-mod pac;
-
 use core::cmp::{Ord, Ordering};
 use core::convert::{Infallible, TryInto};
 use core::marker::PhantomData;
@@ -38,10 +36,8 @@ use core::mem;
 
 pub use id::{ExtendedId, Id, StandardId};
 
-use self::pac::generic::*;
 use crate::can::bx::filter::MasterFilters;
 pub use crate::can::bx::frame::{Data, Frame, FramePriority};
-pub use crate::can::bx::pac::can::RegisterBlock; // To make the PAC extraction build
 
 /// A bxCAN peripheral instance.
 ///
@@ -56,10 +52,7 @@ pub use crate::can::bx::pac::can::RegisterBlock; // To make the PAC extraction b
 ///   register block.
 /// * `REGISTERS` is a pointer to that peripheral's register block and can be safely accessed for as
 ///   long as ownership or a borrow of the implementing type is present.
-pub unsafe trait Instance {
-    /// Pointer to the instance's register block.
-    const REGISTERS: *mut RegisterBlock;
-}
+pub unsafe trait Instance {}
 
 /// A bxCAN instance that owns filter banks.
 ///

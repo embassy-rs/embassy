@@ -509,8 +509,6 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        const REGISTERS: *mut crate::can::bx::RegisterBlock;
-
         fn regs() -> crate::pac::can::Can;
         fn state() -> &'static State;
     }
@@ -531,14 +529,11 @@ pub trait Instance: sealed::Instance + RccPeripheral + 'static {
 /// BXCAN instance newtype.
 pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
-unsafe impl<'d, T: Instance> crate::can::bx::Instance for BxcanInstance<'d, T> {
-    const REGISTERS: *mut crate::can::bx::RegisterBlock = T::REGISTERS;
-}
+unsafe impl<'d, T: Instance> crate::can::bx::Instance for BxcanInstance<'d, T> {}
 
 foreach_peripheral!(
     (can, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            const REGISTERS: *mut crate::can::bx::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
 
             fn regs() -> crate::pac::can::Can {
                 crate::pac::$inst
