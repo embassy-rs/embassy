@@ -292,14 +292,14 @@ impl Default for GlobalFilter {
 pub enum TxBufferMode {
     /// TX FIFO operation - In this mode CAN frames are trasmitted strictly in write order.
     Fifo,
-    /// TX queue operation - In this mode CAN frames are transmitted according to CAN priority.
-    Queue,
+    /// TX priority queue operation - In this mode CAN frames are transmitted according to CAN priority.
+    Priority,
 }
 
 impl From<TxBufferMode> for crate::pac::can::vals::Tfqm {
     fn from(value: TxBufferMode) -> Self {
         match value {
-            TxBufferMode::Queue => Self::QUEUE,
+            TxBufferMode::Priority => Self::QUEUE,
             TxBufferMode::Fifo => Self::FIFO,
         }
     }
@@ -308,7 +308,7 @@ impl From<TxBufferMode> for crate::pac::can::vals::Tfqm {
 impl From<crate::pac::can::vals::Tfqm> for TxBufferMode {
     fn from(value: crate::pac::can::vals::Tfqm) -> Self {
         match value {
-            crate::pac::can::vals::Tfqm::QUEUE => Self::Queue,
+            crate::pac::can::vals::Tfqm::QUEUE => Self::Priority,
             crate::pac::can::vals::Tfqm::FIFO => Self::Fifo,
         }
     }
@@ -354,7 +354,7 @@ pub struct FdCanConfig {
     pub timestamp_source: TimestampSource,
     /// Configures the Global Filter
     pub global_filter: GlobalFilter,
-    /// TX buffer mode (FIFO or queue)
+    /// TX buffer mode (FIFO or priority queue)
     pub tx_buffer_mode: TxBufferMode,
 }
 
@@ -445,6 +445,13 @@ impl FdCanConfig {
         self.global_filter = filter;
         self
     }
+
+    /// Sets the TX buffer mode (FIFO or priority queue)
+    #[inline]
+    pub const fn set_tx_buffer_mode(mut self, txbm: TxBufferMode) -> Self {
+        self.tx_buffer_mode = txbm;
+        self
+    }
 }
 
 impl Default for FdCanConfig {
@@ -462,7 +469,7 @@ impl Default for FdCanConfig {
             clock_divider: ClockDivider::_1,
             timestamp_source: TimestampSource::None,
             global_filter: GlobalFilter::default(),
-            tx_buffer_mode: TxBufferMode::Queue,
+            tx_buffer_mode: TxBufferMode::Priority,
         }
     }
 }

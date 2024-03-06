@@ -398,7 +398,8 @@ impl<'d, T: Instance> Fdcan<'d, T> {
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (ClassicFrame, Timestamp), BUF_SIZE>;
+pub type RxBuf<const BUF_SIZE: usize> =
+    Channel<CriticalSectionRawMutex, Result<(ClassicFrame, Timestamp), BusError>, BUF_SIZE>;
 
 /// User supplied buffer for TX buffering
 pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, ClassicFrame, BUF_SIZE>;
@@ -440,7 +441,8 @@ impl BufferedCanSender {
 }
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-pub type BufferedCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (ClassicFrame, Timestamp)>;
+pub type BufferedCanReceiver =
+    embassy_sync::channel::DynamicReceiver<'static, Result<(ClassicFrame, Timestamp), BusError>>;
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCan<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
@@ -485,7 +487,7 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
 
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<(ClassicFrame, Timestamp), BusError> {
-        Ok(self.rx_buf.receive().await)
+        self.rx_buf.receive().await
     }
 
     /// Returns a sender that can be used for sending CAN frames.
@@ -514,7 +516,8 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> Dr
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, (FdFrame, Timestamp), BUF_SIZE>;
+pub type RxFdBuf<const BUF_SIZE: usize> =
+    Channel<CriticalSectionRawMutex, Result<(FdFrame, Timestamp), BusError>, BUF_SIZE>;
 
 /// User supplied buffer for TX buffering
 pub type TxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, FdFrame, BUF_SIZE>;
@@ -556,7 +559,8 @@ impl BufferedFdCanSender {
 }
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
-pub type BufferedFdCanReceiver = embassy_sync::channel::DynamicReceiver<'static, (FdFrame, Timestamp)>;
+pub type BufferedFdCanReceiver =
+    embassy_sync::channel::DynamicReceiver<'static, Result<(FdFrame, Timestamp), BusError>>;
 
 impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE>
@@ -601,7 +605,7 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
 
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<(FdFrame, Timestamp), BusError> {
-        Ok(self.rx_buf.receive().await)
+        self.rx_buf.receive().await
     }
 
     /// Returns a sender that can be used for sending CAN frames.
@@ -685,14 +689,14 @@ pub(crate) mod sealed {
     use crate::can::frame::{ClassicFrame, FdFrame};
 
     pub struct ClassicBufferedRxInner {
-        pub rx_sender: DynamicSender<'static, (ClassicFrame, Timestamp)>,
+        pub rx_sender: DynamicSender<'static, Result<(ClassicFrame, Timestamp), BusError>>,
     }
     pub struct ClassicBufferedTxInner {
         pub tx_receiver: DynamicReceiver<'static, ClassicFrame>,
     }
 
     pub struct FdBufferedRxInner {
-        pub rx_sender: DynamicSender<'static, (FdFrame, Timestamp)>,
+        pub rx_sender: DynamicSender<'static, Result<(FdFrame, Timestamp), BusError>>,
     }
     pub struct FdBufferedTxInner {
         pub tx_receiver: DynamicReceiver<'static, FdFrame>,
@@ -721,46 +725,51 @@ pub(crate) mod sealed {
                     waker.wake();
                 }
                 RxMode::ClassicBuffered(buf) => {
-                    if let Some(r) = T::registers().read(fifonr) {
-                        let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
-                        let _ = buf.rx_sender.try_send((r.0, ts));
+                    if let Some(result) = self.read::<T, _>() {
+                        let _ = buf.rx_sender.try_send(result);
                     }
                 }
                 RxMode::FdBuffered(buf) => {
-                    if let Some(r) = T::registers().read(fifonr) {
-                        let ts = T::calc_timestamp(T::state().ns_per_timer_tick, r.1);
-                        let _ = buf.rx_sender.try_send((r.0, ts));
+                    if let Some(result) = self.read::<T, _>() {
+                        let _ = buf.rx_sender.try_send(result);
                     }
                 }
             }
         }
 
-        async fn read<T: Instance, F: CanHeader>(&self) -> Result<(F, Timestamp), BusError> {
+        fn read<T: Instance, F: CanHeader>(&self) -> Option<Result<(F, Timestamp), BusError>> {
+            if let Some((msg, ts)) = T::registers().read(0) {
+                let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+                Some(Ok((msg, ts)))
+            } else if let Some((msg, ts)) = T::registers().read(1) {
+                let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
+                Some(Ok((msg, ts)))
+            } else if let Some(err) = T::registers().curr_error() {
+                // TODO: this is probably wrong
+                Some(Err(err))
+            } else {
+                None
+            }
+        }
+
+        async fn read_async<T: Instance, F: CanHeader>(&self) -> Result<(F, Timestamp), BusError> {
             poll_fn(|cx| {
                 T::state().err_waker.register(cx.waker());
                 self.register(cx.waker());
-
-                if let Some((msg, ts)) = T::registers().read(0) {
-                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-                    return Poll::Ready(Ok((msg, ts)));
-                } else if let Some((msg, ts)) = T::registers().read(1) {
-                    let ts = T::calc_timestamp(T::state().ns_per_timer_tick, ts);
-                    return Poll::Ready(Ok((msg, ts)));
-                } else if let Some(err) = T::registers().curr_error() {
-                    // TODO: this is probably wrong
-                    return Poll::Ready(Err(err));
+                match self.read::<T, _>() {
+                    Some(result) => Poll::Ready(result),
+                    None => Poll::Pending,
                 }
-                Poll::Pending
             })
             .await
         }
 
         pub async fn read_classic<T: Instance>(&self) -> Result<(ClassicFrame, Timestamp), BusError> {
-            self.read::<T, _>().await
+            self.read_async::<T, _>().await
         }
 
         pub async fn read_fd<T: Instance>(&self) -> Result<(FdFrame, Timestamp), BusError> {
-            self.read::<T, _>().await
+            self.read_async::<T, _>().await
         }
     }
 
