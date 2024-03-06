@@ -7,10 +7,39 @@
 
 /// Bluetooth Low Energy Radio driver.
 pub mod ble;
+#[cfg(any(
+    feature = "nrf52811",
+    feature = "nrf52820",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-net"
+))]
+/// IEEE 802.15.4
+pub mod ieee802154;
 
 use core::marker::PhantomData;
 
+use pac::radio::state::STATE_A as RadioState;
+pub use pac::radio::txpower::TXPOWER_A as TxPower;
+
 use crate::{interrupt, pac, Peripheral};
+
+/// RADIO error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// Buffer was too long.
+    BufferTooLong,
+    /// Buffer was too short.
+    BufferTooShort,
+    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    BufferNotInRAM,
+    /// Clear channel assessment reported channel in use
+    ChannelInUse,
+    /// CRC check failed
+    CrcFailed(u16),
+}
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
@@ -21,11 +50,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let r = T::regs();
         let s = T::state();
-
-        if r.events_end.read().events_end().bit_is_set() {
-            s.end_waker.wake();
-            r.intenclr.write(|w| w.end().clear());
-        }
+        // clear all interrupts
+        r.intenclr.write(|w| w.bits(0xffff_ffff));
+        s.event_waker.wake();
     }
 }
 
@@ -34,12 +61,12 @@ pub(crate) mod sealed {
 
     pub struct State {
         /// end packet transmission or reception
-        pub end_waker: AtomicWaker,
+        pub event_waker: AtomicWaker,
     }
     impl State {
         pub const fn new() -> Self {
             Self {
-                end_waker: AtomicWaker::new(),
+                event_waker: AtomicWaker::new(),
             }
         }
     }
@@ -72,4 +99,12 @@ macro_rules! impl_radio {
 pub trait Instance: Peripheral<P = Self> + sealed::Instance + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+/// Get the state of the radio
+pub(crate) fn state(radio: &pac::radio::RegisterBlock) -> RadioState {
+    match radio.state.read().state().variant() {
+        Some(state) => state,
+        None => unreachable!(),
+    }
 }
