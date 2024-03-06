@@ -199,6 +199,8 @@ pub enum Error {
     Parity,
     /// Buffer too large for DMA
     BufferTooLong,
+    /// An attempted write could not write any data.
+    WriteZero,
 }
 
 enum ReadCompletionEvent {
@@ -1188,6 +1190,7 @@ impl embedded_hal_nb::serial::Error for Error {
             Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
             Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
             Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
+            Self::WriteZero => embedded_hal_nb::serial::ErrorKind::Other,
         }
     }
 }
@@ -1266,6 +1269,11 @@ where
         Ok(buf.len())
     }
 
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(())
+    }
+
     fn flush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
     }
@@ -1279,6 +1287,11 @@ where
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
         Ok(buf.len())
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(buf)?;
+        Ok(())
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -1296,6 +1309,11 @@ where
         Ok(buf.len())
     }
 
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.write(buf).await?;
+        Ok(())
+    }
+
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
     }
@@ -1309,6 +1327,11 @@ where
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.write(buf).await?;
         Ok(buf.len())
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        self.write(buf).await?;
+        Ok(())
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {

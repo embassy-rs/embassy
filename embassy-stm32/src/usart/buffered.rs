@@ -562,6 +562,18 @@ impl<'d, T: BasicInstance> embedded_io_async::Write for BufferedUart<'d, T> {
         self.tx.write(buf).await
     }
 
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        let mut buf = buf;
+        while !buf.is_empty() {
+            match self.tx.write(buf).await {
+                Ok(0) => return Err(Error::WriteZero),
+                Ok(n) => buf = &buf[n..],
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
     async fn flush(&mut self) -> Result<(), Self::Error> {
         self.tx.flush().await
     }
@@ -570,6 +582,18 @@ impl<'d, T: BasicInstance> embedded_io_async::Write for BufferedUart<'d, T> {
 impl<'d, T: BasicInstance> embedded_io_async::Write for BufferedUartTx<'d, T> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Self::write(self, buf).await
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        let mut buf = buf;
+        while !buf.is_empty() {
+            match Self::write(self, buf).await {
+                Ok(0) => return Err(Error::WriteZero),
+                Ok(n) => buf = &buf[n..],
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
@@ -594,6 +618,18 @@ impl<'d, T: BasicInstance> embedded_io::Write for BufferedUart<'d, T> {
         self.tx.blocking_write(buf)
     }
 
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        let mut buf = buf;
+        while !buf.is_empty() {
+            match self.tx.blocking_write(buf) {
+                Ok(0) => return Err(Error::WriteZero),
+                Ok(n) => buf = &buf[n..],
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
     fn flush(&mut self) -> Result<(), Self::Error> {
         self.tx.blocking_flush()
     }
@@ -602,6 +638,18 @@ impl<'d, T: BasicInstance> embedded_io::Write for BufferedUart<'d, T> {
 impl<'d, T: BasicInstance> embedded_io::Write for BufferedUartTx<'d, T> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Self::blocking_write(self, buf)
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        let mut buf = buf;
+        while !buf.is_empty() {
+            match Self::blocking_write(self, buf) {
+                Ok(0) => return Err(Error::WriteZero),
+                Ok(n) => buf = &buf[n..],
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -643,7 +691,7 @@ impl<'d, T: BasicInstance> embedded_hal_02::blocking::serial::Write<u8> for Buff
     fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
         while !buffer.is_empty() {
             match self.blocking_write(buffer) {
-                Ok(0) => panic!("zero-length write."),
+                Ok(0) => return Err(Error::WriteZero),
                 Ok(n) => buffer = &buffer[n..],
                 Err(e) => return Err(e),
             }
@@ -670,7 +718,7 @@ impl<'d, T: BasicInstance> embedded_hal_02::blocking::serial::Write<u8> for Buff
     fn bwrite_all(&mut self, mut buffer: &[u8]) -> Result<(), Self::Error> {
         while !buffer.is_empty() {
             match self.tx.blocking_write(buffer) {
-                Ok(0) => panic!("zero-length write."),
+                Ok(0) => return Err(Error::WriteZero),
                 Ok(n) => buffer = &buffer[n..],
                 Err(e) => return Err(e),
             }
