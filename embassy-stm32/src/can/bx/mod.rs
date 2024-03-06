@@ -71,8 +71,7 @@ pub unsafe trait Instance {}
 pub unsafe trait FilterOwner: Instance {
     /// The total number of filter banks available to the instance.
     ///
-    /// This is usually either 14 or 28, and should be specified in the chip's reference manual or
-    /// datasheet.
+    /// This is usually either 14 or 28, and should be specified in the chip's reference manual or datasheet.
     const NUM_FILTER_BANKS: u8;
 }
 
