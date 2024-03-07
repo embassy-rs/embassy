@@ -6,7 +6,7 @@ use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
 /// HSI speed
-pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+pub const HSI_FREQ: Hertz = Hertz(48_000_000);
 
 /// HSE Mode
 #[derive(Clone, Copy, Eq, PartialEq)]
