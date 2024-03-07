@@ -60,7 +60,7 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
+        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i]);
 
         info!("Transmitting frame...");
         let tx_ts = Instant::now();
@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
         info!("Frame received!");
 
         info!("loopback time {}", envelope.ts);
-        info!("loopback frame {=u8}", envelope.frame.data().unwrap()[0]);
+        info!("loopback frame {=u8}", envelope.frame.data()[0]);
 
         let latency = envelope.ts.saturating_duration_since(tx_ts);
         info!("loopback latency {} us", latency.as_micros());

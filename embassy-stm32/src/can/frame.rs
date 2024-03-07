@@ -9,6 +9,20 @@ pub struct Header {
     flags: u8,
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Header {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        match self.id() {
+            embedded_can::Id::Standard(id) => {
+                defmt::write!(fmt, "Can Standard ID={:x} len={}", id.as_raw(), self.len,)
+            }
+            embedded_can::Id::Extended(id) => {
+                defmt::write!(fmt, "Can Extended ID={:x} len={}", id.as_raw(), self.len,)
+            }
+        }
+    }
+}
+
 impl Header {
     const FLAG_RTR: usize = 0; // Remote
     const FLAG_FDCAN: usize = 1; // FDCan vs Classic CAN
@@ -54,6 +68,14 @@ impl Header {
     pub fn bit_rate_switching(&self) -> bool {
         self.flags.get_bit(Self::FLAG_BRS)
     }
+
+    /// Get priority of frame
+    pub(crate) fn priority(&self) -> u32 {
+        match self.id() {
+            embedded_can::Id::Standard(id) => (id.as_raw() as u32) << 18,
+            embedded_can::Id::Extended(id) => id.as_raw(),
+        }
+    }
 }
 
 /// Trait for FDCAN frame types, providing ability to construct from a Header
@@ -70,11 +92,13 @@ pub trait CanHeader: Sized {
 ///
 /// Contains 0 to 8 Bytes of data.
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClassicData {
-    pub(crate) bytes: [u8; 8],
+    pub(crate) bytes: [u8; Self::MAX_DATA_LEN],
 }
 
 impl ClassicData {
+    pub(crate) const MAX_DATA_LEN: usize = 8;
     /// Creates a data payload from a raw byte slice.
     ///
     /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
@@ -110,19 +134,34 @@ impl ClassicData {
     }
 }
 
+impl From<&[u8]> for ClassicData {
+    fn from(d: &[u8]) -> Self {
+        ClassicData::new(d).unwrap()
+    }
+}
+
 /// Frame with up to 8 bytes of data payload as per Classic CAN
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClassicFrame {
     can_header: Header,
     data: ClassicData,
 }
 
 impl ClassicFrame {
-    pub(crate) const MAX_DATA_LEN: usize = 8;
-
     /// Create a new CAN classic Frame
-    pub fn new(can_header: Header, data: ClassicData) -> ClassicFrame {
-        ClassicFrame { can_header, data }
+    pub fn new(can_header: Header, data: impl Into<ClassicData>) -> ClassicFrame {
+        ClassicFrame {
+            can_header,
+            data: data.into(),
+        }
+    }
+
+    /// Creates a new data frame.
+    pub fn new_data(id: impl Into<embedded_can::Id>, data: &[u8]) -> Self {
+        let eid: embedded_can::Id = id.into();
+        let header = Header::new(eid, data.len() as u8, false);
+        Self::new(header, data)
     }
 
     /// Create new extended frame
@@ -180,6 +219,11 @@ impl ClassicFrame {
     /// Get reference to data
     pub fn data(&self) -> &[u8] {
         &self.data.raw()
+    }
+
+    /// Get priority of frame
+    pub fn priority(&self) -> u32 {
+        self.header().priority()
     }
 }
 

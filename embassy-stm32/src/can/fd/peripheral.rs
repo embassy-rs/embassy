@@ -182,7 +182,7 @@ impl Registers {
                 DataLength::Fdcan(len) => len,
                 DataLength::Classic(len) => len,
             };
-            if len as usize > ClassicFrame::MAX_DATA_LEN {
+            if len as usize > ClassicData::MAX_DATA_LEN {
                 return None;
             }
 
