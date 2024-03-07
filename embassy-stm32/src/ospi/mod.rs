@@ -9,12 +9,12 @@ use embassy_embedded_hal::{GetConfig, SetConfig};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use embedded_hal_1::spi::ErrorKind;
 pub use enums::*;
-use stm32_metapac::octospi::vals::{MemType, PhaseMode, SizeInBits};
+use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
-use crate::dma::{slice_ptr_parts, word, Transfer};
+use crate::dma::{word, Transfer};
 use crate::gpio::sealed::{AFType, Pin as _};
 use crate::gpio::{AnyPin, Pull};
-use crate::pac::octospi::{regs, vals, Octospi as Regs};
+use crate::pac::octospi::{vals, Octospi as Regs};
 use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 

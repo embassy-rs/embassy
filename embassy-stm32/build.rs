@@ -1010,7 +1010,6 @@ fn main() {
         (("octospi", "NCLK"), quote!(crate::ospi::NckPin)),
     ].into();
 
-
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             for pin in p.pins {
