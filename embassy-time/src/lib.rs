@@ -32,7 +32,7 @@ pub use delay::{block_for, Delay};
 pub use duration::Duration;
 pub use embassy_time_driver::TICK_HZ;
 pub use instant::Instant;
-pub use timer::{with_timeout, Ticker, TimeoutError, Timer};
+pub use timer::{with_deadline, with_timeout, Ticker, TimeoutError, Timer};
 
 const fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 {

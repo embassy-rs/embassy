@@ -3,7 +3,6 @@
 
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{Clock48MhzSrc, ClockSrc, Hsi48Config, Pll, PllM, PllN, PllQ, PllR, PllSource};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{self, Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, Config};
@@ -20,31 +19,27 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-
-    // Change this to `false` to use the HSE clock source for the USB. This example assumes an 8MHz HSE.
-    const USE_HSI48: bool = true;
-
-    let plldivq = if USE_HSI48 { None } else { Some(PllQ::DIV6) };
-
-    config.rcc.pll = Some(Pll {
-        source: PllSource::HSE(Hertz(8_000_000)),
-        prediv_m: PllM::DIV2,
-        mul_n: PllN::MUL72,
-        div_p: None,
-        div_q: plldivq,
-        // Main system clock at 144 MHz
-        div_r: Some(PllR::DIV2),
-    });
-
-    config.rcc.mux = ClockSrc::PLL;
-
-    if USE_HSI48 {
+    {
+        use embassy_stm32::rcc::*;
         // Sets up the Clock Recovery System (CRS) to use the USB SOF to trim the HSI48 oscillator.
-        config.rcc.clock_48mhz_src = Some(Clock48MhzSrc::Hsi48(Hsi48Config { sync_from_usb: true }));
-    } else {
-        config.rcc.clock_48mhz_src = Some(Clock48MhzSrc::PllQ);
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll = Some(Pll {
+            source: PllSource::HSE,
+            prediv: PllPreDiv::DIV2,
+            mul: PllMul::MUL72,
+            divp: None,
+            divq: Some(PllQDiv::DIV6), // 48mhz
+            divr: Some(PllRDiv::DIV2), // Main system clock at 144 MHz
+        });
+        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.boost = true; // BOOST!
+        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48;
+        //config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q; // uncomment to use PLL1_Q instead.
     }
-
     let p = embassy_stm32::init(config);
 
     info!("Hello World!");

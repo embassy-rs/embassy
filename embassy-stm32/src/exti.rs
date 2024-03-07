@@ -5,10 +5,10 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::impl_peripheral;
+use embassy_hal_internal::{impl_peripheral, into_ref};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin};
+use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, Pull};
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
 use crate::{interrupt, pac, peripherals, Peripheral};
@@ -93,16 +93,27 @@ impl Iterator for BitIter {
 /// EXTI channel, which is a limited resource.
 ///
 /// Pins PA5, PB5, PC5... all use EXTI channel 5, so you can't use EXTI on, say, PA5 and PC5 at the same time.
-pub struct ExtiInput<'d, T: GpioPin> {
-    pin: Input<'d, T>,
+pub struct ExtiInput<'d> {
+    pin: Input<'d>,
 }
 
-impl<'d, T: GpioPin> Unpin for ExtiInput<'d, T> {}
+impl<'d> Unpin for ExtiInput<'d> {}
 
-impl<'d, T: GpioPin> ExtiInput<'d, T> {
+impl<'d> ExtiInput<'d> {
     /// Create an EXTI input.
-    pub fn new(pin: Input<'d, T>, _ch: impl Peripheral<P = T::ExtiChannel> + 'd) -> Self {
-        Self { pin }
+    pub fn new<T: GpioPin>(
+        pin: impl Peripheral<P = T> + 'd,
+        ch: impl Peripheral<P = T::ExtiChannel> + 'd,
+        pull: Pull,
+    ) -> Self {
+        into_ref!(pin, ch);
+
+        // Needed if using AnyPin+AnyChannel.
+        assert_eq!(pin.pin(), ch.number());
+
+        Self {
+            pin: Input::new(pin, pull),
+        }
     }
 
     /// Get whether the pin is high.
@@ -162,7 +173,7 @@ impl<'d, T: GpioPin> ExtiInput<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, T> {
+impl<'d> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -174,11 +185,11 @@ impl<'d, T: GpioPin> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, T>
     }
 }
 
-impl<'d, T: GpioPin> embedded_hal_1::digital::ErrorType for ExtiInput<'d, T> {
+impl<'d> embedded_hal_1::digital::ErrorType for ExtiInput<'d> {
     type Error = Infallible;
 }
 
-impl<'d, T: GpioPin> embedded_hal_1::digital::InputPin for ExtiInput<'d, T> {
+impl<'d> embedded_hal_1::digital::InputPin for ExtiInput<'d> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -188,7 +199,7 @@ impl<'d, T: GpioPin> embedded_hal_1::digital::InputPin for ExtiInput<'d, T> {
     }
 }
 
-impl<'d, T: GpioPin> embedded_hal_async::digital::Wait for ExtiInput<'d, T> {
+impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
         Ok(())
@@ -326,7 +337,7 @@ pub(crate) mod sealed {
 /// EXTI channel trait.
 pub trait Channel: sealed::Channel + Sized {
     /// Get the EXTI channel number.
-    fn number(&self) -> usize;
+    fn number(&self) -> u8;
 
     /// Type-erase (degrade) this channel into an `AnyChannel`.
     ///
@@ -350,8 +361,8 @@ pub struct AnyChannel {
 impl_peripheral!(AnyChannel);
 impl sealed::Channel for AnyChannel {}
 impl Channel for AnyChannel {
-    fn number(&self) -> usize {
-        self.number as usize
+    fn number(&self) -> u8 {
+        self.number
     }
 }
 
@@ -359,8 +370,8 @@ macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
         impl sealed::Channel for peripherals::$type {}
         impl Channel for peripherals::$type {
-            fn number(&self) -> usize {
-                $number as usize
+            fn number(&self) -> u8 {
+                $number
             }
         }
     };

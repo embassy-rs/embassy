@@ -9,7 +9,7 @@ Async USB device stack for embedded devices in Rust.
 - Suspend/resume, remote wakeup.
 - USB composite devices.
 - Ergonomic descriptor builder.
-- Ready-to-use implementations for a few USB classes (note you can still implement any class yourself oustide the crate).
+- Ready-to-use implementations for a few USB classes (note you can still implement any class yourself outside the crate).
     - Serial ports (CDC ACM)
     - Ethernet (CDC NCM)
     - Human Interface Devices (HID)

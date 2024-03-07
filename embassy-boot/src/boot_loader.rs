@@ -49,16 +49,51 @@ pub struct BootLoaderConfig<ACTIVE, DFU, STATE> {
     pub state: STATE,
 }
 
-impl<'a, FLASH: NorFlash>
+impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
     BootLoaderConfig<
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
-        BlockingPartition<'a, NoopRawMutex, FLASH>,
+        BlockingPartition<'a, NoopRawMutex, ACTIVE>,
+        BlockingPartition<'a, NoopRawMutex, DFU>,
+        BlockingPartition<'a, NoopRawMutex, STATE>,
     >
 {
-    /// Create a bootloader config from the flash and address symbols defined in the linkerfile
+    /// Constructs a `BootLoaderConfig` instance from flash memory and address symbols defined in the linker file.
+    ///
+    /// This method initializes `BlockingPartition` instances for the active, DFU (Device Firmware Update),
+    /// and state partitions, leveraging start and end addresses specified by the linker. These partitions
+    /// are critical for managing firmware updates, application state, and boot operations within the bootloader.
+    ///
+    /// # Parameters
+    /// - `active_flash`: A reference to a mutex-protected `RefCell` for the active partition's flash interface.
+    /// - `dfu_flash`: A reference to a mutex-protected `RefCell` for the DFU partition's flash interface.
+    /// - `state_flash`: A reference to a mutex-protected `RefCell` for the state partition's flash interface.
+    ///
+    /// # Safety
+    /// The method contains `unsafe` blocks for dereferencing raw pointers that represent the start and end addresses
+    /// of the bootloader's partitions in flash memory. It is crucial that these addresses are accurately defined
+    /// in the memory.x file to prevent undefined behavior.
+    ///
+    /// The caller must ensure that the memory regions defined by these symbols are valid and that the flash memory
+    /// interfaces provided are compatible with these regions.
+    ///
+    /// # Returns
+    /// A `BootLoaderConfig` instance with `BlockingPartition` instances for the active, DFU, and state partitions.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Assume `active_flash`, `dfu_flash`, and `state_flash` all share the same flash memory interface.
+    /// let layout = Flash::new_blocking(p.FLASH).into_blocking_regions();
+    /// let flash = Mutex::new(RefCell::new(layout.bank1_region));
+    ///
+    /// let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
+    /// // `config` can now be used to create a `BootLoader` instance for managing boot operations.
+    /// ```
+    /// Working examples can be found in the bootloader examples folder.
     // #[cfg(target_os = "none")]
-    pub fn from_linkerfile_blocking(flash: &'a Mutex<NoopRawMutex, RefCell<FLASH>>) -> Self {
+    pub fn from_linkerfile_blocking(
+        active_flash: &'a Mutex<NoopRawMutex, RefCell<ACTIVE>>,
+        dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFU>>,
+        state_flash: &'a Mutex<NoopRawMutex, RefCell<STATE>>,
+    ) -> Self {
         extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
@@ -73,21 +108,21 @@ impl<'a, FLASH: NorFlash>
             let end = &__bootloader_active_end as *const u32 as u32;
             trace!("ACTIVE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(active_flash, start, end - start)
         };
         let dfu = unsafe {
             let start = &__bootloader_dfu_start as *const u32 as u32;
             let end = &__bootloader_dfu_end as *const u32 as u32;
             trace!("DFU: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(dfu_flash, start, end - start)
         };
         let state = unsafe {
             let start = &__bootloader_state_start as *const u32 as u32;
             let end = &__bootloader_state_end as *const u32 as u32;
             trace!("STATE: 0x{:x} - 0x{:x}", start, end);
 
-            BlockingPartition::new(flash, start, end - start)
+            BlockingPartition::new(state_flash, start, end - start)
         };
 
         Self { active, dfu, state }

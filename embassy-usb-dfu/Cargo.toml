@@ -12,14 +12,24 @@ categories = [
     "asynchronous"
 ]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb-dfu/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-dfu/src/"
+features = ["defmt", "cortex-m"]
+target = "thumbv7em-none-eabi"
+flavors = [
+    { name = "dfu",         features = [ "dfu" ] },
+    { name = "application", features = [ "application" ] },
+]
+
+[package.metadata.docs.rs]
+features = ["defmt", "cortex-m", "dfu"]
 
 [dependencies]
 bitflags = "2.4.1"
 cortex-m = { version = "0.7.7", features = ["inline-asm"], optional = true }
 defmt = { version = "0.3.5", optional = true }
 embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
-# embassy-embedded-hal = { version = "0.1.0", path = "../embassy-embedded-hal" }
 embassy-futures = { version = "0.1.1", path = "../embassy-futures" }
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
 embassy-time = { version = "0.3.0", path = "../embassy-time" }

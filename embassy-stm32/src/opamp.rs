@@ -90,6 +90,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         in_pin.set_as_analog();
         out_pin.set_as_analog();
 
+        // PGA_GAIN value may have different meaning in different MCU serials, use with caution.
         let (vm_sel, pga_gain) = match gain {
             OpAmpGain::Mul1 => (0b11, 0b00),
             OpAmpGain::Mul2 => (0b10, 0b00),
@@ -127,6 +128,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
         into_ref!(pin);
         pin.set_as_analog();
 
+        // PGA_GAIN value may have different meaning in different MCU serials, use with caution.
         let (vm_sel, pga_gain) = match gain {
             OpAmpGain::Mul1 => (0b11, 0b00),
             OpAmpGain::Mul2 => (0b10, 0b00),

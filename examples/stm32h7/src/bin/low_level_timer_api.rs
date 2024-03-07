@@ -113,11 +113,11 @@ impl<'d, T: CaptureCompare32bitInstance> SimplePwm32<'d, T> {
     }
 
     pub fn get_max_duty(&self) -> u32 {
-        T::regs_gp32().arr().read().arr()
+        T::regs_gp32().arr().read()
     }
 
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         defmt::assert!(duty < self.get_max_duty());
-        T::regs_gp32().ccr(channel.index()).modify(|w| w.set_ccr(duty))
+        T::regs_gp32().ccr(channel.index()).write_value(duty)
     }
 }

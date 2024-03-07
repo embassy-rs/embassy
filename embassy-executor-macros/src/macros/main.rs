@@ -12,6 +12,20 @@ struct Args {
     entry: Option<String>,
 }
 
+pub fn avr() -> TokenStream {
+    quote! {
+        #[avr_device::entry]
+        fn main() -> ! {
+            let mut executor = ::embassy_executor::Executor::new();
+            let executor = unsafe { __make_static(&mut executor) };
+
+            executor.run(|spawner| {
+                spawner.must_spawn(__embassy_main(spawner));
+            })
+        }
+    }
+}
+
 pub fn riscv(args: &[NestedMeta]) -> TokenStream {
     let maybe_entry = match Args::from_list(args) {
         Ok(args) => args.entry,

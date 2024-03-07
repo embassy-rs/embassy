@@ -507,6 +507,16 @@ where
         Receiver { channel: self }
     }
 
+    /// Get a sender for this channel using dynamic dispatch.
+    pub fn dyn_sender(&self) -> DynamicSender<'_, T> {
+        DynamicSender { channel: self }
+    }
+
+    /// Get a receiver for this channel using dynamic dispatch.
+    pub fn dyn_receiver(&self) -> DynamicReceiver<'_, T> {
+        DynamicReceiver { channel: self }
+    }
+
     /// Send a value, waiting until there is capacity.
     ///
     /// Sending completes when the value has been pushed to the channel's queue.
@@ -648,10 +658,20 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_dispatch() {
+    fn dynamic_dispatch_into() {
         let c = Channel::<NoopRawMutex, u32, 3>::new();
         let s: DynamicSender<'_, u32> = c.sender().into();
         let r: DynamicReceiver<'_, u32> = c.receiver().into();
+
+        assert!(s.try_send(1).is_ok());
+        assert_eq!(r.try_receive().unwrap(), 1);
+    }
+
+    #[test]
+    fn dynamic_dispatch_constructor() {
+        let c = Channel::<NoopRawMutex, u32, 3>::new();
+        let s = c.dyn_sender();
+        let r = c.dyn_receiver();
 
         assert!(s.try_send(1).is_ok());
         assert_eq!(r.try_receive().unwrap(), 1);

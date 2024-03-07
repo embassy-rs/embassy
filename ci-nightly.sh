@@ -28,3 +28,6 @@ cargo batch  \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32,executor-thread,integrated-timers \
     --- build --release --manifest-path examples/nrf52840-rtic/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840-rtic \
 
+cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-unknown-gnu-atmega328 -Z build-std=core,alloc --features nightly,arch-avr,avr-device/atmega328p
+cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-unknown-gnu-atmega328 -Z build-std=core,alloc --features nightly,arch-avr,integrated-timers,avr-device/atmega328p
+

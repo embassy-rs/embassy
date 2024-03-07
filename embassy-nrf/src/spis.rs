@@ -9,8 +9,9 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use pac::spis0::config::ORDER_A as BitOrder;
 
-use crate::chip::FORCE_COPY_BUFFER_SIZE;
+use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::sealed::Pin as _;
 use crate::gpio::{self, AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
@@ -36,6 +37,9 @@ pub struct Config {
     /// SPI mode
     pub mode: Mode,
 
+    /// Bit order
+    pub bit_order: BitOrder,
+
     /// Overread character.
     ///
     /// If the master keeps clocking the bus after all the bytes in the TX buffer have
@@ -56,6 +60,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mode: MODE_0,
+            bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
@@ -222,11 +227,17 @@ impl<'d, T: Instance> Spis<'d, T> {
 
         // Set up the DMA write.
         let (ptr, len) = slice_ptr_parts(tx);
+        if len > EASY_DMA_SIZE {
+            return Err(Error::TxBufferTooLong);
+        }
         r.txd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
         // Set up the DMA read.
         let (ptr, len) = slice_ptr_parts_mut(rx);
+        if len > EASY_DMA_SIZE {
+            return Err(Error::RxBufferTooLong);
+        }
         r.rxd.ptr.write(|w| unsafe { w.ptr().bits(ptr as _) });
         r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(len as _) });
 
@@ -503,22 +514,22 @@ impl<'d, T: Instance> SetConfig for Spis<'d, T> {
         r.config.write(|w| {
             match mode {
                 MODE_0 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().leading();
                 }
                 MODE_1 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_high();
                     w.cpha().trailing();
                 }
                 MODE_2 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().leading();
                 }
                 MODE_3 => {
-                    w.order().msb_first();
+                    w.order().variant(config.bit_order);
                     w.cpol().active_low();
                     w.cpha().trailing();
                 }

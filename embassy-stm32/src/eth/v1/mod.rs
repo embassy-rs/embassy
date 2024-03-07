@@ -20,6 +20,7 @@ use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
 use crate::pac::{ETH, RCC};
+use crate::rcc::sealed::RccPeripheral;
 use crate::{interrupt, Peripheral};
 
 /// Interrupt handler.
@@ -191,8 +192,7 @@ impl<'d, T: Instance, P: PHY> Ethernet<'d, T, P> {
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
-        // NOTE(unsafe) We got the peripheral singleton, which means that `rcc::init` was called
-        let hclk = unsafe { crate::rcc::get_freqs() }.hclk1;
+        let hclk = <T as RccPeripheral>::frequency();
         let hclk_mhz = hclk.0 / 1_000_000;
 
         // Set the MDC clock frequency in the range 1MHz - 2.5MHz

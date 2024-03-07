@@ -1,7 +1,7 @@
 #!/bin/bash
 ## on push branch=main
 
-set -euo pipefail
+set -euxo pipefail
 
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
@@ -35,6 +35,7 @@ docserver-builder -i ./embassy-time-driver -o webroot/crates/embassy-time-driver
 docserver-builder -i ./embassy-time-queue-driver -o webroot/crates/embassy-time-queue-driver/git.zup
 
 docserver-builder -i ./embassy-usb -o webroot/crates/embassy-usb/git.zup
+docserver-builder -i ./embassy-usb-dfu -o webroot/crates/embassy-usb-dfu/git.zup
 docserver-builder -i ./embassy-usb-driver -o webroot/crates/embassy-usb-driver/git.zup
 docserver-builder -i ./embassy-usb-logger -o webroot/crates/embassy-usb-logger/git.zup
 

@@ -4,8 +4,8 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareState, FirmwareUpdater,
-    FirmwareUpdaterConfig, State,
+    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
+    FirmwareUpdater, FirmwareUpdaterConfig, State,
 };
 use embedded_storage::nor_flash::NorFlash;
 
@@ -20,10 +20,17 @@ impl BootLoader {
     pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>(
         config: BootLoaderConfig<ACTIVE, DFU, STATE>,
     ) -> Self {
+        Self::try_prepare::<ACTIVE, DFU, STATE, BUFFER_SIZE>(config).expect("Boot prepare error")
+    }
+
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
+    pub fn try_prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, const BUFFER_SIZE: usize>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
-        let state = boot.prepare_boot(aligned_buf.as_mut()).expect("Boot prepare error");
-        Self { state }
+        let state = boot.prepare_boot(aligned_buf.as_mut())?;
+        Ok(Self { state })
     }
 
     /// Boots the application.

@@ -34,6 +34,8 @@ pub mod adc;
 pub mod can;
 #[cfg(crc)]
 pub mod crc;
+#[cfg(cryp)]
+pub mod cryp;
 #[cfg(dac)]
 pub mod dac;
 #[cfg(dcmi)]
@@ -45,6 +47,8 @@ pub mod exti;
 pub mod flash;
 #[cfg(fmc)]
 pub mod fmc;
+#[cfg(hash)]
+pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;
 #[cfg(i2c)]
@@ -216,6 +220,11 @@ pub fn init(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
+            #[cfg(any(dbgmcu_h5))]
+            {
+                cr.set_stop(config.enable_debug_during_sleep);
+                cr.set_standby(config.enable_debug_during_sleep);
+            }
             #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u5, dbgmcu_wba, dbgmcu_l5))]
             {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);

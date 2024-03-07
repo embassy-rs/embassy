@@ -7,7 +7,6 @@ use core::task::Poll;
 use self::sealed::Instance;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::rcc::vals::{Lptim1sel, Lptim2sel};
 use crate::peripherals::IPCC;
 use crate::rcc::sealed::RccPeripheral;
 
@@ -105,7 +104,8 @@ impl Ipcc {
         IPCC::enable_and_reset();
         IPCC::set_cpu2(true);
 
-        _configure_pwr();
+        // set RF wake-up clock = LSE
+        crate::pac::RCC.csr().modify(|w| w.set_rfwkpsel(0b01));
 
         let regs = IPCC::regs();
 
@@ -270,19 +270,4 @@ pub(crate) mod sealed {
         fn set_cpu2(enabled: bool);
         fn state() -> &'static State;
     }
-}
-
-fn _configure_pwr() {
-    // TODO: move the rest of this to rcc
-    let rcc = crate::pac::RCC;
-
-    // TODO: required
-    // set RF wake-up clock = LSE
-    rcc.csr().modify(|w| w.set_rfwkpsel(0b01));
-
-    // set LPTIM1 & LPTIM2 clock source
-    rcc.ccipr().modify(|w| {
-        w.set_lptim1sel(Lptim1sel::PCLK1);
-        w.set_lptim2sel(Lptim2sel::PCLK1);
-    });
 }
