@@ -24,7 +24,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
 use crate::interrupt;
-use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk};
+use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
 use crate::rcc::RccPeripheral;
 
@@ -194,6 +194,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_phyrxen(true);
         });
 
+        // TODO: Currently only SOP messages are supported.
+        r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
+
         into_ref!(rx_dma, tx_dma);
         let rx_dma_req = rx_dma.request();
         let tx_dma_req = tx_dma.request();
@@ -308,11 +311,80 @@ impl<'d, T: Instance> PdRx<'d, T> {
     }
 }
 
+/// Transmit Error.
+#[derive(Debug, Clone, Copy)]
+pub enum TxError {
+    /// Concurrent receive in progress or excessive noise on the line.
+    Discarded,
+}
+
 /// Power Delivery (PD) Transmitter.
 pub struct PdTx<'d, T: Instance> {
     _ucpd: &'d Ucpd<'d, T>,
     dma_ch: PeripheralRef<'d, AnyChannel>,
     dma_req: Request,
+}
+
+impl<'d, T: Instance> PdTx<'d, T> {
+    /// Transmits a PD message.
+    pub async fn transmit(&mut self, buf: &[u8]) -> Result<(), TxError> {
+        let r = T::REGS;
+
+        // When a previous transmission was dropped before it had finished it
+        // might still be running because there is no way to abort an ongoing
+        // message transmission. Wait for it to finish but ignore errors.
+        if r.cr().read().txsend() {
+            let _ = self.wait_tx_done().await;
+        }
+
+        // Clear the TX interrupt flags.
+        T::REGS.icr().write(|w| {
+            w.set_txmsgdisccf(true);
+            w.set_txmsgsentcf(true);
+        });
+
+        // Start the DMA and let it do its thing in the background.
+        let _dma = unsafe {
+            Transfer::new_write(
+                &self.dma_ch,
+                self.dma_req,
+                buf,
+                r.txdr().as_ptr() as *mut u8,
+                TransferOptions::default(),
+            )
+        };
+
+        // Configure and start the transmission.
+        r.tx_payszr().write(|w| w.set_txpaysz(buf.len() as _));
+        r.cr().modify(|w| {
+            w.set_txmode(Txmode::PACKET);
+            w.set_txsend(true);
+        });
+
+        self.wait_tx_done().await
+    }
+
+    async fn wait_tx_done(&self) -> Result<(), TxError> {
+        poll_fn(|cx| {
+            let r = T::REGS;
+            if r.sr().read().txmsgdisc() {
+                Poll::Ready(Err(TxError::Discarded))
+            } else if r.sr().read().txmsgsent() {
+                Poll::Ready(Ok(()))
+            } else {
+                // Enable transmit interrupts.
+                T::waker().register(cx.waker());
+                r.imr().modify(|w| {
+                    w.set_txmsgdiscie(true);
+                    w.set_txmsgsentie(true);
+                });
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    fn clear_tx_flags(&self) {}
 }
 
 /// Interrupt handler.
@@ -334,6 +406,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         if sr.rxmsgend() {
             r.imr().modify(|w| w.set_rxmsgendie(false));
+        }
+
+        if sr.txmsgdisc() || sr.txmsgsent() {
+            r.imr().modify(|w| {
+                w.set_txmsgdiscie(false);
+                w.set_txmsgsentie(false);
+            });
         }
 
         // Wake the task to clear and re-enabled interrupts.
