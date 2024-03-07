@@ -8,7 +8,7 @@ pub mod enums;
 use core::ops::Add;
 use core::ptr;
 
-use embassy_embedded_hal::SetConfig;
+use embassy_embedded_hal::{GetConfig, SetConfig};
 use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, PeripheralRef};
 // use embedded_hal_02::spi;
@@ -23,6 +23,7 @@ use crate::rcc::RccPeripheral;
 use crate::{peripherals, Peripheral};
 
 /// OPSI driver config.
+#[derive(Clone, Copy)]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
@@ -63,6 +64,7 @@ pub struct Config {
     /// Enables the refresh feature, chip select is released every refresh + 1 clock cycles
     pub refresh: u32,
 }
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -873,6 +875,83 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
         Ok(())
     }
+
+    /// Set new bus configuration
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
+        // Wait for busy flag to clear
+        while T::REGS.sr().read().busy() {}
+
+        // Disable DMA channel while configuring the peripheral
+        T::REGS.cr().modify(|w| {
+            w.set_dmaen(false);
+        });
+
+        // Device configuration
+        T::REGS.dcr1().modify(|w| {
+            w.set_devsize(config.device_size.into());
+            w.set_mtyp(config.memory_type);
+            w.set_csht(config.chip_select_high_time.into());
+            w.set_dlybyp(config.delay_block_bypass);
+            w.set_frck(false);
+            w.set_ckmode(config.clock_mode);
+        });
+
+        T::REGS.dcr2().modify(|w| {
+            w.set_wrapsize(config.wrap_size.into());
+        });
+
+        T::REGS.dcr3().modify(|w| {
+            w.set_csbound(config.chip_select_boundary);
+            w.set_maxtran(config.max_transfer);
+        });
+
+        T::REGS.dcr4().modify(|w| {
+            w.set_refresh(config.refresh);
+        });
+
+        T::REGS.cr().modify(|w| {
+            w.set_fthres(vals::Threshold(config.fifo_threshold.into()));
+        });
+
+        // Wait for busy flag to clear
+        while T::REGS.sr().read().busy() {}
+
+        T::REGS.dcr2().modify(|w| {
+            w.set_prescaler(config.clock_prescaler);
+        });
+
+        T::REGS.cr().modify(|w| {
+            w.set_dmm(config.dual_quad);
+        });
+
+        T::REGS.tcr().modify(|w| {
+            w.set_sshift(match config.sample_shifting {
+                true => vals::SampleShift::HALFCYCLE,
+                false => vals::SampleShift::NONE,
+            });
+            w.set_dhqc(config.delay_hold_quarter_cycle);
+        });
+
+        // Enable peripheral
+        T::REGS.cr().modify(|w| {
+            w.set_en(true);
+        });
+
+        // Free running clock needs to be set after peripheral enable
+        if config.free_running_clock {
+            T::REGS.dcr1().modify(|w| {
+                w.set_frck(config.free_running_clock);
+            });
+        }
+
+        self.config = *config;
+        Ok(())
+    }
+
+    /// Get current configuration
+    pub fn get_config(&self) -> Config {
+        self.config
+    }
 }
 
 impl<'d, T: Instance, Dma> Drop for Ospi<'d, T, Dma> {
@@ -900,6 +979,17 @@ fn finish_dma(regs: Regs) {
     regs.cr().modify(|w| {
         w.set_dmaen(false);
     });
+}
+
+trait RegsExt {
+    fn dr_ptr<W>(&self) -> *mut W;
+}
+
+impl RegsExt for Regs {
+    fn dr_ptr<W>(&self) -> *mut W {
+        let dr = self.dr();
+        dr.as_ptr() as *mut W
+    }
 }
 
 pub(crate) mod sealed {
@@ -936,3 +1026,18 @@ foreach_peripheral!(
         impl Instance for peripherals::$inst {}
     };
 );
+
+impl<'d, T: Instance, Dma> SetConfig for Ospi<'d, T, Dma> {
+    type Config = Config;
+    type ConfigError = ();
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config)
+    }
+}
+
+impl<'d, T: Instance, Dma> GetConfig for Ospi<'d, T, Dma> {
+    type Config = Config;
+    fn get_config(&self) -> Self::Config {
+        self.get_config()
+    }
+}
