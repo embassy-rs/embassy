@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, Format};
+use defmt::{error, info, Format};
 use embassy_executor::Spawner;
 use embassy_stm32::ucpd::{self, CcPull, CcSel, CcVState, Ucpd};
 use embassy_stm32::Config;
@@ -69,5 +69,12 @@ async fn main(_spawner: Spawner) {
     };
     let mut pd_phy = ucpd.pd_phy(p.DMA1_CH1, p.DMA1_CH2, cc_sel);
 
-    loop {}
+    loop {
+        // Enough space for the longest non-extended data message.
+        let mut buf = [0_u8; 30];
+        match pd_phy.receive(buf.as_mut()).await {
+            Ok(n) => info!("USB PD RX: {=[u8]:?}", &buf[..n]),
+            Err(e) => error!("USB PD RX: {}", e),
+        }
+    }
 }

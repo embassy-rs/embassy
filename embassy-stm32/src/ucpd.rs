@@ -30,6 +30,7 @@ use crate::rcc::RccPeripheral;
 
 /// Pull-up or Pull-down resistor state of both CC lines.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CcPull {
     /// Analog PHY for CC pin disabled.
     Disabled,
@@ -209,6 +210,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
 /// Receive Error.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RxError {
     /// Incorrect CRC or truncated message (a line becoming static before EOP is met).
     Crc,
@@ -219,6 +221,7 @@ pub enum RxError {
 
 /// Transmit Error.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TxError {
     /// Concurrent receive in progress or excessive noise on the line.
     Discarded,
