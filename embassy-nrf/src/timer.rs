@@ -111,7 +111,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: impl Peripheral<P = T> + 'd, is_counter: bool) -> Self {
+    fn new_inner(timer: impl Peripheral<P = T> + 'd, _is_counter: bool) -> Self {
         into_ref!(timer);
 
         let regs = T::regs();
@@ -122,11 +122,15 @@ impl<'d, T: Instance> Timer<'d, T> {
         // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.
         this.stop();
 
-        if is_counter {
+        #[cfg(not(feature = "nrf51"))]
+        if _is_counter {
             regs.mode.write(|w| w.mode().low_power_counter());
         } else {
             regs.mode.write(|w| w.mode().timer());
         }
+
+        #[cfg(feature = "nrf51")]
+        regs.mode.write(|w| w.mode().timer());
 
         // Make the counter's max value as high as possible.
         // TODO: is there a reason someone would want to set this lower?
@@ -238,7 +242,11 @@ pub struct Cc<'d, T: Instance> {
 impl<'d, T: Instance> Cc<'d, T> {
     /// Get the current value stored in the register.
     pub fn read(&self) -> u32 {
-        T::regs().cc[self.n].read().cc().bits()
+        #[cfg(not(feature = "nrf51"))]
+        return T::regs().cc[self.n].read().cc().bits();
+
+        #[cfg(feature = "nrf51")]
+        return T::regs().cc[self.n].read().bits();
     }
 
     /// Set the value stored in the register.
@@ -246,7 +254,11 @@ impl<'d, T: Instance> Cc<'d, T> {
     /// `event_compare` will fire when the timer's counter reaches this value.
     pub fn write(&self, value: u32) {
         // SAFETY: there are no invalid values for the CC register.
-        T::regs().cc[self.n].write(|w| unsafe { w.cc().bits(value) })
+        #[cfg(not(feature = "nrf51"))]
+        T::regs().cc[self.n].write(|w| unsafe { w.cc().bits(value) });
+
+        #[cfg(feature = "nrf51")]
+        T::regs().cc[self.n].write(|w| unsafe { w.bits(value) });
     }
 
     /// Capture the current value of the timer's counter in this register, and return it.

@@ -1,5 +1,6 @@
 use core::future::poll_fn;
 use core::slice;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
@@ -46,8 +47,10 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
             let mut rx_writer = state.rx_buf.writer();
             let buf = rx_writer.push_slice();
             if !buf.is_empty() {
-                buf[0] = dr.unwrap();
-                rx_writer.push_done(1);
+                if let Some(byte) = dr {
+                    buf[0] = byte;
+                    rx_writer.push_done(1);
+                }
             } else {
                 // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
             }
@@ -61,6 +64,22 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
             state.rx_waker.wake();
         }
 
+        // With `usart_v4` hardware FIFO is enabled and Transmission complete (TC)
+        // indicates that all bytes are pushed out from the FIFO.
+        // For other usart variants it shows that last byte from the buffer was just sent.
+        if sr_val.tc() {
+            // For others it is cleared above with `clear_interrupt_flags`.
+            #[cfg(any(usart_v1, usart_v2))]
+            sr(r).modify(|w| w.set_tc(false));
+
+            r.cr1().modify(|w| {
+                w.set_tcie(false);
+            });
+
+            state.tx_done.store(true, Ordering::Release);
+            state.tx_waker.wake();
+        }
+
         // TX
         if sr(r).read().txe() {
             let mut tx_reader = state.tx_buf.reader();
@@ -69,11 +88,18 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
                 r.cr1().modify(|w| {
                     w.set_txeie(true);
                 });
+
+                // Enable transmission complete interrupt when last byte is going to be sent out.
+                if buf.len() == 1 {
+                    r.cr1().modify(|w| {
+                        w.set_tcie(true);
+                    });
+                }
+
                 tdr(r).write_volatile(buf[0].into());
                 tx_reader.pop_done(1);
-                state.tx_waker.wake();
             } else {
-                // Disable interrupt until we have something to transmit again
+                // Disable interrupt until we have something to transmit again.
                 r.cr1().modify(|w| {
                     w.set_txeie(false);
                 });
@@ -82,23 +108,27 @@ impl<T: BasicInstance> interrupt::typelevel::Handler<T::Interrupt> for Interrupt
     }
 }
 
-/// Buffered UART State
-pub struct State {
-    rx_waker: AtomicWaker,
-    rx_buf: RingBuffer,
+pub(crate) use sealed::State;
+pub(crate) mod sealed {
+    use super::*;
+    pub struct State {
+        pub(crate) rx_waker: AtomicWaker,
+        pub(crate) rx_buf: RingBuffer,
+        pub(crate) tx_waker: AtomicWaker,
+        pub(crate) tx_buf: RingBuffer,
+        pub(crate) tx_done: AtomicBool,
+    }
 
-    tx_waker: AtomicWaker,
-    tx_buf: RingBuffer,
-}
-
-impl State {
-    /// Create new state
-    pub const fn new() -> Self {
-        Self {
-            rx_buf: RingBuffer::new(),
-            tx_buf: RingBuffer::new(),
-            rx_waker: AtomicWaker::new(),
-            tx_waker: AtomicWaker::new(),
+    impl State {
+        /// Create new state
+        pub const fn new() -> Self {
+            Self {
+                rx_buf: RingBuffer::new(),
+                tx_buf: RingBuffer::new(),
+                rx_waker: AtomicWaker::new(),
+                tx_waker: AtomicWaker::new(),
+                tx_done: AtomicBool::new(true),
+            }
         }
     }
 }
@@ -110,11 +140,15 @@ pub struct BufferedUart<'d, T: BasicInstance> {
 }
 
 /// Tx-only buffered UART
+///
+/// Created with [BufferedUart::split]
 pub struct BufferedUartTx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }
 
 /// Rx-only buffered UART
+///
+/// Created with [BufferedUart::split]
 pub struct BufferedUartRx<'d, T: BasicInstance> {
     phantom: PhantomData<&'d mut T>,
 }
@@ -364,6 +398,8 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
     async fn write(&self, buf: &[u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
+            state.tx_done.store(false, Ordering::Release);
+
             let empty = state.tx_buf.is_empty();
 
             let mut tx_writer = unsafe { state.tx_buf.writer() };
@@ -389,7 +425,8 @@ impl<'d, T: BasicInstance> BufferedUartTx<'d, T> {
     async fn flush(&self) -> Result<(), Error> {
         poll_fn(move |cx| {
             let state = T::buffered_state();
-            if !state.tx_buf.is_empty() {
+
+            if !state.tx_done.load(Ordering::Acquire) {
                 state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }

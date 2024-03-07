@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
     let nvmc = Nvmc::new(p.NVMC);
     let nvmc = Mutex::new(BlockingAsync::new(nvmc));
 
-    let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc);
+    let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc, &nvmc);
     let mut magic = [0; 4];
     let mut updater = FirmwareUpdater::new(config, &mut magic);
     loop {

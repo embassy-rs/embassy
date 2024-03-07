@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use core::cell::Cell;
 use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
@@ -14,7 +16,9 @@ use crate::pac::timer::vals;
 use crate::rcc::sealed::RccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
-use crate::timer::sealed::{Basic16bitInstance as BasicInstance, GeneralPurpose16bitInstance as Instance};
+#[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
+use crate::timer::sealed::AdvancedControlInstance;
+use crate::timer::sealed::{CoreInstance, GeneralPurpose16bitInstance as Instance};
 use crate::{interrupt, peripherals};
 
 // NOTE regarding ALARM_COUNT:
@@ -22,18 +26,22 @@ use crate::{interrupt, peripherals};
 // As of 2023-12-04, this driver is implemented using CC1 as the halfway rollover interrupt, and any
 // additional CC capabilities to provide timer alarms to embassy-time. embassy-time requires AT LEAST
 // one alarm to be allocatable, which means timers that only have CC1, such as TIM16/TIM17, are not
-// candidates for use as an embassy-time driver provider.
+// candidates for use as an embassy-time driver provider. (a.k.a 1CH and 1CH_CMP are not, others are good.)
 //
 // The values of ALARM_COUNT below are not the TOTAL CC registers available, but rather the number
 // available after reserving CC1 for regular time keeping. For example, TIM2 has four CC registers:
 // CC1, CC2, CC3, and CC4, so it can provide ALARM_COUNT = 3.
 
-#[cfg(not(any(time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22)))]
-const ALARM_COUNT: usize = 3;
+cfg_if::cfg_if! {
+    if #[cfg(any(time_driver_tim9, time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))] {
+        const ALARM_COUNT: usize = 1;
+    } else {
+        const ALARM_COUNT: usize = 3;
+    }
+}
 
-#[cfg(any(time_driver_tim12, time_driver_tim15, time_driver_tim21, time_driver_tim22))]
-const ALARM_COUNT: usize = 1;
-
+#[cfg(time_driver_tim1)]
+type T = peripherals::TIM1;
 #[cfg(time_driver_tim2)]
 type T = peripherals::TIM2;
 #[cfg(time_driver_tim3)]
@@ -42,20 +50,42 @@ type T = peripherals::TIM3;
 type T = peripherals::TIM4;
 #[cfg(time_driver_tim5)]
 type T = peripherals::TIM5;
+#[cfg(time_driver_tim8)]
+type T = peripherals::TIM8;
 #[cfg(time_driver_tim9)]
 type T = peripherals::TIM9;
-#[cfg(time_driver_tim11)]
-type T = peripherals::TIM11;
 #[cfg(time_driver_tim12)]
 type T = peripherals::TIM12;
 #[cfg(time_driver_tim15)]
 type T = peripherals::TIM15;
+#[cfg(time_driver_tim20)]
+type T = peripherals::TIM20;
 #[cfg(time_driver_tim21)]
 type T = peripherals::TIM21;
 #[cfg(time_driver_tim22)]
 type T = peripherals::TIM22;
+#[cfg(time_driver_tim23)]
+type T = peripherals::TIM23;
+#[cfg(time_driver_tim24)]
+type T = peripherals::TIM24;
 
 foreach_interrupt! {
+    (TIM1, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim1)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM1, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim1)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM2, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim2)]
         #[cfg(feature = "rt")]
@@ -88,16 +118,24 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
-    (TIM9, timer, $block:ident, UP, $irq:ident) => {
-        #[cfg(time_driver_tim9)]
+    (TIM8, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim8)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
             DRIVER.on_interrupt()
         }
     };
-    (TIM11, timer, $block:ident, UP, $irq:ident) => {
-        #[cfg(time_driver_tim11)]
+    (TIM8, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim8)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM9, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim9)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
@@ -120,6 +158,22 @@ foreach_interrupt! {
             DRIVER.on_interrupt()
         }
     };
+    (TIM20, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim20)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM20, timer, $block:ident, CC, $irq:ident) => {
+        #[cfg(time_driver_tim20)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
     (TIM21, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim21)]
         #[cfg(feature = "rt")]
@@ -130,6 +184,22 @@ foreach_interrupt! {
     };
     (TIM22, timer, $block:ident, UP, $irq:ident) => {
         #[cfg(time_driver_tim22)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM23, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim23)]
+        #[cfg(feature = "rt")]
+        #[interrupt]
+        fn $irq() {
+            DRIVER.on_interrupt()
+        }
+    };
+    (TIM24, timer, $block:ident, UP, $irq:ident) => {
+        #[cfg(time_driver_tim24)]
         #[cfg(feature = "rt")]
         #[interrupt]
         fn $irq() {
@@ -234,8 +304,16 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
-        <T as BasicInstance>::Interrupt::unpend();
-        unsafe { <T as BasicInstance>::Interrupt::enable() };
+        <T as CoreInstance>::Interrupt::unpend();
+        unsafe { <T as CoreInstance>::Interrupt::enable() };
+
+        #[cfg(any(time_driver_tim1, time_driver_tim8, time_driver_tim20))]
+        {
+            <T as AdvancedControlInstance>::CaptureCompareInterrupt::unpend();
+            unsafe {
+                <T as AdvancedControlInstance>::CaptureCompareInterrupt::enable();
+            }
+        }
 
         r.cr1().modify(|w| w.set_cen(true));
     }
@@ -251,7 +329,7 @@ impl RtcDriver {
             // Clear all interrupt flags. Bits in SR are "write 0 to clear", so write the bitwise NOT.
             // Other approaches such as writing all zeros, or RMWing won't work, they can
             // miss interrupts.
-            r.sr().write_value(regs::SrGp(!sr.0));
+            r.sr().write_value(regs::SrGp16(!sr.0));
 
             // Overflow
             if sr.uif() {

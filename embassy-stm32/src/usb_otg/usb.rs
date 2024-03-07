@@ -606,13 +606,6 @@ impl<'d, T: Instance> Bus<'d, T> {
             // Wait for USB power to stabilize
             while !crate::pac::PWR.cr3().read().usb33rdy() {}
 
-            // Use internal 48MHz HSI clock. Should be enabled in RCC by default.
-            critical_section::with(|_| {
-                crate::pac::RCC
-                    .d2ccip2r()
-                    .modify(|w| w.set_usbsel(crate::pac::rcc::vals::Usbsel::HSI48))
-            });
-
             // Enable ULPI clock if external PHY is used
             let ulpien = !self.phy_type.internal();
             critical_section::with(|_| {
@@ -645,13 +638,6 @@ impl<'d, T: Instance> Bus<'d, T> {
 
             // Wait for USB power to stabilize
             while !crate::pac::PWR.svmsr().read().vddusbrdy() {}
-
-            // Select HSI48 as USB clock source.
-            critical_section::with(|_| {
-                crate::pac::RCC.ccipr1().modify(|w| {
-                    w.set_iclksel(crate::pac::rcc::vals::Iclksel::HSI48);
-                })
-            });
         }
 
         <T as RccPeripheral>::enable_and_reset();

@@ -1,0 +1,20 @@
+[package]
+edition = "2021"
+name = "embassy-nrf51-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["task-arena-size-4096", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf51", "gpiote", "time-driver-rtc1", "unstable-pac", "time", "rt"] }
+
+defmt = "0.3"
+defmt-rtt = "0.4"
+
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+
+[profile.release]
+debug = 2

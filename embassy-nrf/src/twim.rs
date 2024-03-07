@@ -372,7 +372,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Start write operation.
         r.shorts.write(|w| w.lasttx_stop().enabled());
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             // With a zero-length buffer, LASTTX doesn't fire (because there's no last byte!), so do the STOP ourselves.
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
         }
@@ -403,7 +403,7 @@ impl<'d, T: Instance> Twim<'d, T> {
         // Start read operation.
         r.shorts.write(|w| w.lastrx_stop().enabled());
         r.tasks_startrx.write(|w| unsafe { w.bits(1) });
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STOP ourselves.
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
         }
@@ -447,7 +447,7 @@ impl<'d, T: Instance> Twim<'d, T> {
             w
         });
         r.tasks_starttx.write(|w| unsafe { w.bits(1) });
-        if wr_buffer.len() == 0 && rd_buffer.len() == 0 {
+        if wr_buffer.is_empty() && rd_buffer.is_empty() {
             // With a zero-length buffer, LASTRX/LASTTX doesn't fire (because there's no last byte!), so do the STOP ourselves.
             // TODO handle when only one of the buffers is zero length
             r.tasks_stop.write(|w| unsafe { w.bits(1) });
@@ -469,7 +469,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
-                self.setup_write_read_from_ram(address, &tx_ram_buf, rd_buffer, inten)
+                self.setup_write_read_from_ram(address, tx_ram_buf, rd_buffer, inten)
             }
             Err(error) => Err(error),
         }
@@ -482,7 +482,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 trace!("Copying TWIM tx buffer into RAM for DMA");
                 let tx_ram_buf = &mut [0; FORCE_COPY_BUFFER_SIZE][..wr_buffer.len()];
                 tx_ram_buf.copy_from_slice(wr_buffer);
-                self.setup_write_from_ram(address, &tx_ram_buf, inten)
+                self.setup_write_from_ram(address, tx_ram_buf, inten)
             }
             Err(error) => Err(error),
         }
@@ -779,7 +779,7 @@ mod eh02 {
     impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Write for Twim<'a, T> {
         type Error = Error;
 
-        fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Error> {
+        fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
             if slice_in_ram(bytes) {
                 self.blocking_write(addr, bytes)
             } else {
@@ -796,7 +796,7 @@ mod eh02 {
     impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Read for Twim<'a, T> {
         type Error = Error;
 
-        fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Error> {
+        fn read(&mut self, addr: u8, bytes: &mut [u8]) -> Result<(), Error> {
             self.blocking_read(addr, bytes)
         }
     }
@@ -847,10 +847,10 @@ impl<'d, T: Instance> embedded_hal_1::i2c::I2c for Twim<'d, T> {
         self.blocking_write_read(address, wr_buffer, rd_buffer)
     }
 
-    fn transaction<'a>(
+    fn transaction(
         &mut self,
         _address: u8,
-        _operations: &mut [embedded_hal_1::i2c::Operation<'a>],
+        _operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         todo!();
     }

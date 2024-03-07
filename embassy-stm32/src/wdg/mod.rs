@@ -42,9 +42,13 @@ impl<'d, T: Instance> IndependentWatchdog<'d, T> {
         // Prescaler value
         let psc = 2u16.pow(psc_power);
 
+        #[cfg(not(iwdg_v3))]
+        assert!(psc <= 256, "IWDG prescaler should be no more than 256");
+        #[cfg(iwdg_v3)] // H5, U5, WBA
+        assert!(psc <= 1024, "IWDG prescaler should be no more than 1024");
+
         // Convert prescaler power to PR register value
         let pr = psc_power as u8 - 2;
-        assert!(pr <= 0b110);
 
         // Reload value
         let rl = reload_value(psc, timeout_us);

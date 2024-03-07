@@ -37,6 +37,7 @@ pub struct ReadableDmaRingBuffer<'a, W: Word> {
 }
 
 #[derive(Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
 pub trait DmaCtrl {
@@ -261,6 +262,17 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     /// The current position of the ringbuffer
     fn pos(&self, dma: &mut impl DmaCtrl) -> usize {
         self.cap() - dma.get_remaining_transfers()
+    }
+
+    /// Write elements directly to the buffer. This must be done before the DMA is started
+    /// or after the buffer has been cleared using `clear()`.
+    pub fn write_immediate(&mut self, buffer: &[W]) -> Result<(usize, usize), OverrunError> {
+        if self.end != 0 {
+            return Err(OverrunError);
+        }
+        let written = self.copy_from(buffer, 0..self.cap());
+        self.end = written % self.cap();
+        Ok((written, self.cap() - written))
     }
 
     /// Write an exact number of elements to the ringbuffer.

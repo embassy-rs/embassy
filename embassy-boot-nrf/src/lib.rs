@@ -4,8 +4,8 @@
 mod fmt;
 
 pub use embassy_boot::{
-    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootLoaderConfig, FirmwareState, FirmwareUpdater,
-    FirmwareUpdaterConfig,
+    AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
+    FirmwareUpdater, FirmwareUpdaterConfig,
 };
 use embassy_nrf::nvmc::PAGE_SIZE;
 use embassy_nrf::peripherals::WDT;
@@ -16,14 +16,21 @@ use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 pub struct BootLoader<const BUFFER_SIZE: usize = PAGE_SIZE>;
 
 impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
-    /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware.
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
     pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
         config: BootLoaderConfig<ACTIVE, DFU, STATE>,
     ) -> Self {
+        Self::try_prepare::<ACTIVE, DFU, STATE>(config).expect("Boot prepare error")
+    }
+
+    /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
+    pub fn try_prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
+        config: BootLoaderConfig<ACTIVE, DFU, STATE>,
+    ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
-        boot.prepare_boot(&mut aligned_buf.0).expect("Boot prepare error");
-        Self
+        let _state = boot.prepare_boot(aligned_buf.as_mut())?;
+        Ok(Self)
     }
 
     /// Boots the application without softdevice mechanisms.

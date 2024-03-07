@@ -8,7 +8,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::{select, Either};
-use embassy_nrf::gpio::{Input, Pin, Pull};
+use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
@@ -97,7 +97,7 @@ async fn main(_spawner: Spawner) {
         }
     };
 
-    let mut button = Input::new(p.P0_11.degrade(), Pull::Up);
+    let mut button = Input::new(p.P0_11, Pull::Up);
 
     let (reader, mut writer) = hid.split();
 

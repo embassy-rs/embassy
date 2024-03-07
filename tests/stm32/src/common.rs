@@ -2,6 +2,8 @@
 
 pub use defmt::*;
 #[allow(unused)]
+use embassy_stm32::rcc::*;
+#[allow(unused)]
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
@@ -54,6 +56,10 @@ teleprobe_meta::target!(b"nucleo-stm32l496zg");
 teleprobe_meta::target!(b"nucleo-stm32wl55jc");
 #[cfg(feature = "stm32wba52cg")]
 teleprobe_meta::target!(b"nucleo-stm32wba52cg");
+#[cfg(feature = "stm32f091rc")]
+teleprobe_meta::target!(b"nucleo-stm32f091rc");
+#[cfg(feature = "stm32h503rb")]
+teleprobe_meta::target!(b"nucleo-stm32h503rb");
 
 macro_rules! define_peris {
     ($($name:ident = $peri:ident,)* $(@irq $irq_name:ident = $irq_code:tt,)*) => {
@@ -85,6 +91,12 @@ macro_rules! define_peris {
     };
 }
 
+#[cfg(feature = "stm32f091rc")]
+define_peris!(
+    UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
 #[cfg(feature = "stm32f103c8")]
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
@@ -156,6 +168,12 @@ define_peris!(
     UART = LPUART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI4, SPI_SCK = PE12, SPI_MOSI = PE14, SPI_MISO = PE13, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
     @irq UART = {LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;},
+);
+#[cfg(feature = "stm32h503rb")]
+define_peris!(
+    UART = USART1, UART_TX = PB14, UART_RX = PB15, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32c031c6")]
 define_peris!(
@@ -242,14 +260,68 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
+    #[cfg(feature = "stm32c031c6")]
+    {
+        config.rcc.hsi = Some(Hsi {
+            sys_div: HsiSysDiv::DIV1, // 48Mhz
+            ker_div: HsiKerDiv::DIV3, // 16Mhz
+        });
+        config.rcc.sys = Sysclk::HSISYS;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+    }
+
+    #[cfg(feature = "stm32g071rb")]
+    {
+        config.rcc.hsi = true;
+        config.rcc.pll = Some(Pll {
+            source: PllSource::HSI,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL16,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV4), // 16 / 1 * 16 / 4 = 64 Mhz
+        });
+        config.rcc.sys = Sysclk::PLL1_R;
+    }
     #[cfg(feature = "stm32wb55rg")]
     {
         config.rcc = embassy_stm32::rcc::WPAN_DEFAULT;
     }
 
+    #[cfg(feature = "stm32f091rc")]
+    {
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll = Some(Pll {
+            src: PllSource::HSE,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL6,
+        });
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+    }
+    #[cfg(feature = "stm32f103c8")]
+    {
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll = Some(Pll {
+            src: PllSource::HSE,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL9,
+        });
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV2;
+        config.rcc.apb2_pre = APBPrescaler::DIV1;
+    }
     #[cfg(feature = "stm32f207zg")]
     {
-        use embassy_stm32::rcc::*;
         // By default, HSE on the board comes from a 8 MHz clock signal (not a crystal)
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
@@ -276,9 +348,25 @@ pub fn config() -> Config {
         config.rcc.apb2_pre = APBPrescaler::DIV2;
     }
 
+    #[cfg(feature = "stm32f303ze")]
+    {
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll = Some(Pll {
+            src: PllSource::HSE,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL9,
+        });
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV2;
+        config.rcc.apb2_pre = APBPrescaler::DIV1;
+    }
+
     #[cfg(feature = "stm32f429zi")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
@@ -299,7 +387,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f446re")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Oscillator,
@@ -320,7 +407,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32f767zi")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
@@ -341,7 +427,6 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32h563zi")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = None;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.hse = Some(Hse {
@@ -364,9 +449,50 @@ pub fn config() -> Config {
         config.rcc.voltage_scale = VoltageScale::Scale0;
     }
 
+    #[cfg(feature = "stm32h503rb")]
+    {
+        config.rcc.hsi = None;
+        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(24_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSE,
+            prediv: PllPreDiv::DIV6,
+            mul: PllMul::MUL125,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV2),
+            divr: None,
+        });
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.apb3_pre = APBPrescaler::DIV1;
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.voltage_scale = VoltageScale::Scale0;
+    }
+
+    #[cfg(feature = "stm32g491re")]
+    {
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(24_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.pll = Some(Pll {
+            source: PllSource::HSE,
+            prediv: PllPreDiv::DIV6,
+            mul: PllMul::MUL85,
+            divp: None,
+            divq: Some(PllQDiv::DIV8), // 42.5 Mhz for fdcan.
+            divr: Some(PllRDiv::DIV2), // Main system clock at 170 MHz
+        });
+        config.rcc.mux.fdcansel = mux::Fdcansel::PLL1_Q;
+        config.rcc.sys = Sysclk::PLL1_R;
+    }
+
     #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
@@ -393,12 +519,15 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
+        #[cfg(any(feature = "stm32h755zi"))]
+        {
+            config.rcc.supply_config = SupplyConfig::DirectSMPS;
+        }
     }
 
     #[cfg(any(feature = "stm32h7a3zi"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(HSIPrescaler::DIV1);
         config.rcc.csi = true;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
@@ -425,13 +554,12 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV2; // 140 Mhz
         config.rcc.apb4_pre = APBPrescaler::DIV2; // 140 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale0;
-        config.rcc.adc_clock_source = AdcClockSource::PLL2_P;
+        config.rcc.mux.adcsel = mux::Adcsel::PLL2_P;
     }
 
     #[cfg(any(feature = "stm32l496zg", feature = "stm32l4a6zg", feature = "stm32l4r5zi"))]
     {
-        use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
@@ -445,13 +573,12 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32wl55jc")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hse = Some(Hse {
             freq: Hertz(32_000_000),
             mode: HseMode::Bypass,
             prescaler: HsePrescaler::DIV1,
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSE,
             prediv: PllPreDiv::DIV2,
@@ -464,9 +591,8 @@ pub fn config() -> Config {
 
     #[cfg(any(feature = "stm32l552ze"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.pll = Some(Pll {
             // 110Mhz clock (16 / 4 * 55 / 2)
             source: PllSource::HSI,
@@ -480,42 +606,46 @@ pub fn config() -> Config {
 
     #[cfg(any(feature = "stm32u585ai", feature = "stm32u5a5zj"))]
     {
-        use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::MSI(Msirange::RANGE_48MHZ);
+        config.rcc.hsi = true;
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI, // 16 MHz
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL10,
+            divp: None,
+            divq: None,
+            divr: Some(PllDiv::DIV1), // 160 MHz
+        });
+        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.voltage_range = VoltageScale::RANGE1;
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
     }
 
     #[cfg(feature = "stm32wba52cg")]
     {
-        use embassy_stm32::rcc::*;
-        config.rcc.mux = ClockSrc::HSI;
-
-        embassy_stm32::pac::RCC.ccipr2().write(|w| {
-            w.set_rngsel(embassy_stm32::pac::rcc::vals::Rngsel::HSI);
-        });
+        config.rcc.sys = Sysclk::HSI;
+        config.rcc.mux.rngsel = mux::Rngsel::HSI;
     }
 
     #[cfg(feature = "stm32l073rz")]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
             mul: PllMul::MUL4,
             div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
     }
 
     #[cfg(any(feature = "stm32l152re"))]
     {
-        use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
             mul: PllMul::MUL4,
             div: PllDiv::DIV2, // 32Mhz clock (16 * 4 / 2)
         });
-        config.rcc.mux = ClockSrc::PLL1_R;
+        config.rcc.sys = Sysclk::PLL1_R;
     }
 
     config

@@ -264,7 +264,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         let regs = T::regs();
 
-        #[cfg(any(stm32l5, stm32wb))]
+        #[cfg(any(stm32l4, stm32l5, stm32wb))]
         crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
 
         #[cfg(pwr_h5)]
@@ -280,7 +280,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(time)]
         embassy_time::block_for(embassy_time::Duration::from_millis(100));
         #[cfg(not(time))]
-        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.0 / 10);
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 10);
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));

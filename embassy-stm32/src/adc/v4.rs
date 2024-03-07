@@ -159,7 +159,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
         let mut s = Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         };
         s.power_up(delay);
         s.configure_differential_inputs();

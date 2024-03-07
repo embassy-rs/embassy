@@ -242,13 +242,12 @@ where
                         cmd,
                         iface,
                     }) => {
-                        self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }).await;
+                        self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }, &mut buf).await;
                         self.check_status(&mut buf).await;
                     }
                     Either3::Second(packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
-                        let mut buf = [0; 512];
                         let buf8 = slice8_mut(&mut buf);
 
                         // There MUST be 2 bytes of padding between the SDPCM and BDC headers.
@@ -480,9 +479,8 @@ where
         self.sdpcm_seq != self.sdpcm_seq_max && self.sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 == 0
     }
 
-    async fn send_ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, data: &[u8]) {
-        let mut buf = [0; 512];
-        let buf8 = slice8_mut(&mut buf);
+    async fn send_ioctl(&mut self, kind: IoctlType, cmd: u32, iface: u32, data: &[u8], buf: &mut [u32; 512]) {
+        let buf8 = slice8_mut(buf);
 
         let total_len = SdpcmHeader::SIZE + CdcHeader::SIZE + data.len();
 

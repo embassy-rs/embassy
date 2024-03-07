@@ -36,8 +36,10 @@ where
         // fmc v1 and v2 does not have the fmcen bit
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
-        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1)))]
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1, fmc_v4)))]
         T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        #[cfg(any(fmc_v4))]
+        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
     }
 
     /// Get the kernel clock currently in use for this FMC instance.
@@ -60,8 +62,10 @@ where
         // fmc v1 and v2 does not have the fmcen bit
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
-        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1)))]
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fsmc_v2x3, fsmc_v3x1, fmc_v4)))]
         T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        #[cfg(any(fmc_v4))]
+        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
     }
 
     fn source_clock_hz(&self) -> u32 {

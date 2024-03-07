@@ -311,13 +311,13 @@ pub struct Status {
     pub status: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone)]
 pub enum Payload {
     None,
     BssInfo(BssInfo),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Copy, Clone)]
 
 pub struct Message {
     pub header: Status,
