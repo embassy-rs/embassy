@@ -96,6 +96,13 @@ impl AnyChannel {
     }
 }
 
+impl sealed::Channel for AnyChannel {
+    fn id(&self) -> u8 {
+        self.id
+    }
+}
+impl Channel for AnyChannel {}
+
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
 static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
 
