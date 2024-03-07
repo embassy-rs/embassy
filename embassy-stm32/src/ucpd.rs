@@ -18,13 +18,14 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use crate::rcc::RccPeripheral;
-use crate::{interrupt, pac};
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk};
 
-pub use pac::ucpd::vals::TypecVstateCc as CcVState;
+use crate::interrupt;
+pub use crate::pac::ucpd::vals::TypecVstateCc as CcVState;
+use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk};
+use crate::rcc::RccPeripheral;
 
 /// Pull-up or Pull-down resistor state of both CC lines.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,6 +52,16 @@ pub enum CcPull {
 /// UCPD driver.
 pub struct Ucpd<'d, T: Instance> {
     _peri: PeripheralRef<'d, T>,
+}
+
+impl<'d, T: Instance> Drop for Ucpd<'d, T> {
+    fn drop(&mut self) {
+        T::REGS.cr().modify(|w| {
+            w.set_ccenable(Ccenable::DISABLED);
+            w.set_cc1tcdis(true);
+            w.set_cc2tcdis(true);
+        });
+    }
 }
 
 impl<'d, T: Instance> Ucpd<'d, T> {
@@ -113,13 +124,17 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             } else {
                 Ccenable::DISABLED
             });
+
+            // Make sure detector is enabled on both pins.
+            w.set_cc1tcdis(false);
+            w.set_cc2tcdis(false);
         });
 
         // Disable dead-battery pull-down resistors which are enabled by default on boot.
         critical_section::with(|_| {
             // TODO: other families
             #[cfg(stm32g4)]
-            pac::PWR
+            crate::pac::PWR
                 .cr3()
                 .modify(|w| w.set_ucpd1_dbdis(cc_pull != CcPull::SinkDeadBattery));
         });
@@ -138,26 +153,29 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     }
 
     /// Waits for a change in voltage state on either CC line.
-    pub async fn wait_for_cc_change(&mut self) {
-        let r = T::REGS;
+    pub async fn wait_for_cc_vstate_change(&self) -> (CcVState, CcVState) {
+        let _on_drop = OnDrop::new(|| critical_section::with(|_| self.enable_cc_interrupts(false)));
+        let prev_vstate = self.cc_vstate();
         poll_fn(|cx| {
-            let sr = r.sr().read();
-            if sr.typecevt1() || sr.typecevt2() {
-                r.icr().write(|w| {
-                    w.set_typecevt1cf(true);
-                    w.set_typecevt2cf(true);
-                });
-                Poll::Ready(())
+            let vstate = self.cc_vstate();
+            if vstate != prev_vstate {
+                Poll::Ready(vstate)
             } else {
                 T::waker().register(cx.waker());
-                r.imr().modify(|w| {
-                    w.set_typecevt1ie(true);
-                    w.set_typecevt2ie(true);
-                });
+                self.enable_cc_interrupts(true);
                 Poll::Pending
             }
         })
-        .await;
+        .await
+    }
+
+    fn enable_cc_interrupts(&self, enable: bool) {
+        critical_section::with(|_| {
+            T::REGS.imr().modify(|w| {
+                w.set_typecevt1ie(enable);
+                w.set_typecevt2ie(enable);
+            })
+        });
     }
 }
 
@@ -172,9 +190,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let sr = r.sr().read();
 
         if sr.typecevt1() || sr.typecevt2() {
-            r.imr().modify(|w| {
-                w.set_typecevt1ie(true);
-                w.set_typecevt2ie(true);
+            r.icr().write(|w| {
+                w.set_typecevt1cf(true);
+                w.set_typecevt2cf(true);
             });
         }
 

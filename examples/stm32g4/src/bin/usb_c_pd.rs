@@ -3,10 +3,8 @@
 
 use defmt::{info, Format};
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    ucpd::{self, CcPull, CcVState, Ucpd},
-    Config,
-};
+use embassy_stm32::ucpd::{self, CcPull, CcVState, Ucpd};
+use embassy_stm32::Config;
 use embassy_time::{with_timeout, Duration};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -18,17 +16,17 @@ enum CableOrientation {
 }
 
 // Returns true when the cable
-async fn wait_attached<'d, T: ucpd::Instance>(ucpd: &mut Ucpd<'d, T>) -> CableOrientation {
+async fn wait_attached<T: ucpd::Instance>(ucpd: &mut Ucpd<'_, T>) -> CableOrientation {
     loop {
         let (cc1, cc2) = ucpd.cc_vstate();
         if cc1 == CcVState::LOWEST && cc2 == CcVState::LOWEST {
             // Detached, wait until attached by monitoring the CC lines.
-            ucpd.wait_for_cc_change().await;
+            ucpd.wait_for_cc_vstate_change().await;
             continue;
         }
 
         // Attached, wait for CC lines to be stable for tCCDebounce (100..200ms).
-        if with_timeout(Duration::from_millis(100), ucpd.wait_for_cc_change())
+        if with_timeout(Duration::from_millis(100), ucpd.wait_for_cc_vstate_change())
             .await
             .is_ok()
         {
