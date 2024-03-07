@@ -22,9 +22,10 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::dma::AnyChannel;
 use crate::interrupt;
-pub use crate::pac::ucpd::vals::TypecVstateCc as CcVState;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk};
+pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
 use crate::rcc::RccPeripheral;
 
 /// Pull-up or Pull-down resistor state of both CC lines.
@@ -177,6 +178,50 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             })
         });
     }
+
+    /// Returns PD receiver and transmitter.
+    pub fn pd(
+        &mut self,
+        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        cc_sel: CcSel,
+    ) -> (PdRx<'_, T>, PdTx<'_, T>) {
+        into_ref!(rx_dma, tx_dma);
+        let rx_dma_req = rx_dma.request();
+        let tx_dma_req = tx_dma.request();
+        (
+            PdRx {
+                _ucpd: self,
+                dma_ch: rx_dma.map_into(),
+                dma_req: rx_dma_req,
+            },
+            PdTx {
+                _ucpd: self,
+                dma_ch: tx_dma.map_into(),
+                dma_req: tx_dma_req,
+            },
+        )
+    }
+}
+
+/// Power Delivery (PD) Receiver.
+pub struct PdRx<'d, T: Instance> {
+    _ucpd: &'d Ucpd<'d, T>,
+    dma_ch: PeripheralRef<'d, AnyChannel>,
+    dma_req: Request,
+}
+
+impl<'d, T: Instance> Drop for PdRx<'d, T> {
+    fn drop(&mut self) {
+        T::REGS.cr().modify(|w| w.set_phyrxen(false));
+    }
+}
+
+/// Power Delivery (PD) Transmitter.
+pub struct PdTx<'d, T: Instance> {
+    _ucpd: &'d Ucpd<'d, T>,
+    dma_ch: PeripheralRef<'d, AnyChannel>,
+    dma_req: Request,
 }
 
 /// Interrupt handler.

@@ -3,7 +3,7 @@
 
 use defmt::{info, Format};
 use embassy_executor::Spawner;
-use embassy_stm32::ucpd::{self, CcPull, CcVState, Ucpd};
+use embassy_stm32::ucpd::{self, CcPull, CcSel, CcVState, Ucpd};
 use embassy_stm32::Config;
 use embassy_time::{with_timeout, Duration};
 use {defmt_rtt as _, panic_probe as _};
@@ -55,6 +55,19 @@ async fn main(_spawner: Spawner) {
     info!("Waiting for USB connection...");
     let cable_orientation = wait_attached(&mut ucpd).await;
     info!("USB cable connected, orientation: {}", cable_orientation);
+
+    let cc_sel = match cable_orientation {
+        CableOrientation::Normal => {
+            info!("Starting PD communication on CC1 pin");
+            CcSel::CC1
+        }
+        CableOrientation::Flipped => {
+            info!("Starting PD communication on CC2 pin");
+            CcSel::CC2
+        }
+        CableOrientation::DebugAccessoryMode => panic!("No PD communication in DAM"),
+    };
+    let (mut _rx, mut _tx) = ucpd.pd(p.DMA1_CH1, p.DMA1_CH2, cc_sel);
 
     loop {}
 }
