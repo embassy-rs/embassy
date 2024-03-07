@@ -5,13 +5,9 @@
 
 pub mod enums;
 
-use core::ops::Add;
-use core::ptr;
-
 use embassy_embedded_hal::{GetConfig, SetConfig};
-use embassy_futures::join::join;
 use embassy_hal_internal::{into_ref, PeripheralRef};
-// use embedded_hal_02::spi;
+use embedded_hal_1::spi::ErrorKind;
 pub use enums::*;
 use stm32_metapac::octospi::vals::{MemType, PhaseMode, SizeInBits};
 
@@ -32,7 +28,7 @@ pub struct Config {
     /// increase throughput
     pub dual_quad: bool,
     /// Indicates the type of external device connected
-    pub memory_type: MemType, // Need to add an additional enum to provide this public interface
+    pub memory_type: MemoryType, // Need to add an additional enum to provide this public interface
     /// Defines the size of the external device connected to the OSPI corresponding
     /// to the number of address bits required to access the device
     pub device_size: MemorySize,
@@ -70,7 +66,7 @@ impl Default for Config {
         Self {
             fifo_threshold: FIFOThresholdLevel::_16Bytes, // 32 bytes FIFO, half capacity
             dual_quad: false,
-            memory_type: MemType::B_STANDARD,
+            memory_type: MemoryType::Micron,
             device_size: MemorySize::Other(0),
             chip_select_high_time: ChipSelectHighTime::_5Cycle,
             free_running_clock: false,
@@ -154,23 +150,17 @@ impl Default for TransferConfig {
     }
 }
 
+/// Error used for Octospi implementation
+#[derive(Debug)]
 pub enum OspiError {
+    /// Peripheral configuration is invalid
     InvalidConfiguration,
+    /// Operation configuration is invalid
     InvalidCommand,
 }
 
-pub trait Error {}
-
-pub trait ErrorType {
-    type Error: Error;
-}
-
-impl<T: ErrorType + ?Sized> ErrorType for &mut T {
-    type Error = T::Error;
-}
-
 /// MultiSpi interface trait
-pub trait MultiSpi: ErrorType {
+pub trait MultiSpiBus<Word: Copy + 'static = u8>: embedded_hal_1::spi::ErrorType {
     /// Transaction configuration for specific multispi implementation
     type Config;
 
@@ -180,11 +170,27 @@ pub trait MultiSpi: ErrorType {
 
     /// Read function used to read data from the target device following the supplied transaction
     /// configuration.
-    async fn read(&mut self, data: &mut [u8], config: Self::Config) -> Result<(), Self::Error>;
+    async fn read(&mut self, data: &mut [Word], config: Self::Config) -> Result<(), Self::Error>;
 
     /// Write function used to send data to the target device following the supplied transaction
     /// configuration.
-    async fn write(&mut self, data: &[u8], config: Self::Config) -> Result<(), Self::Error>;
+    async fn write(&mut self, data: &[Word], config: Self::Config) -> Result<(), Self::Error>;
+}
+
+impl<T: MultiSpiBus<Word> + ?Sized, Word: Copy + 'static> MultiSpiBus<Word> for &mut T {
+    type Config = T::Config;
+    #[inline]
+    async fn command(&mut self, config: Self::Config) -> Result<(), Self::Error> {
+        T::command(self, config).await
+    }
+
+    async fn read(&mut self, data: &mut [Word], config: Self::Config) -> Result<(), Self::Error> {
+        T::read(self, data, config).await
+    }
+
+    async fn write(&mut self, data: &[Word], config: Self::Config) -> Result<(), Self::Error> {
+        T::write(self, data, config).await
+    }
 }
 
 /// OSPI driver.
@@ -206,24 +212,28 @@ pub struct Ospi<'d, T: Instance, Dma> {
     width: OspiWidth,
 }
 
-impl Error for OspiError {}
+impl embedded_hal_1::spi::Error for OspiError {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Other
+    }
+}
 
-impl<'d, T: Instance, Dma> ErrorType for Ospi<'d, T, Dma> {
+impl<'d, T: Instance, Dma> embedded_hal_1::spi::ErrorType for Ospi<'d, T, Dma> {
     type Error = OspiError;
 }
 
-impl<'d, T: Instance, Dma: OctoDma<T>> MultiSpi for Ospi<'d, T, Dma> {
+impl<'d, T: Instance, Dma: OctoDma<T>, W: Word> MultiSpiBus<W> for Ospi<'d, T, Dma> {
     type Config = TransferConfig;
 
     async fn command(&mut self, config: Self::Config) -> Result<(), Self::Error> {
         self.command(&config).await
     }
 
-    async fn read(&mut self, data: &mut [u8], config: Self::Config) -> Result<(), Self::Error> {
+    async fn read(&mut self, data: &mut [W], config: Self::Config) -> Result<(), Self::Error> {
         self.read(data, config).await
     }
 
-    async fn write(&mut self, data: &[u8], config: Self::Config) -> Result<(), Self::Error> {
+    async fn write(&mut self, data: &[W], config: Self::Config) -> Result<(), Self::Error> {
         self.write(data, config).await
     }
 }
@@ -497,7 +507,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         // Device configuration
         T::REGS.dcr1().modify(|w| {
             w.set_devsize(config.device_size.into());
-            w.set_mtyp(config.memory_type);
+            w.set_mtyp(vals::MemType::from_bits(config.memory_type.into()));
             w.set_csht(config.chip_select_high_time.into());
             w.set_dlybyp(config.delay_block_bypass);
             w.set_frck(false);
@@ -681,7 +691,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     /// Blocking read with byte by byte data transfer
-    pub fn blocking_read(&mut self, buf: &mut [u8], transaction: TransferConfig) -> Result<(), OspiError> {
+    pub fn blocking_read<W: Word>(&mut self, buf: &mut [W], transaction: TransferConfig) -> Result<(), OspiError> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
@@ -706,7 +716,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
             for idx in 0..len {
                 while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
-                buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut u8).read_volatile() };
+                buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut W).read_volatile() };
             }
         }
 
@@ -717,7 +727,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     /// Blocking write with byte by byte data transfer
-    pub fn blocking_write(&mut self, buf: &[u8], transaction: TransferConfig) -> Result<(), OspiError> {
+    pub fn blocking_write<W: Word>(&mut self, buf: &[W], transaction: TransferConfig) -> Result<(), OspiError> {
         T::REGS.cr().modify(|w| {
             w.set_dmaen(false);
         });
@@ -730,7 +740,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
 
             for idx in 0..len {
                 while !T::REGS.sr().read().ftf() {}
-                unsafe { (T::REGS.dr().as_ptr() as *mut u8).write_volatile(buf[idx]) };
+                unsafe { (T::REGS.dr().as_ptr() as *mut W).write_volatile(buf[idx]) };
             }
         }
 
@@ -741,7 +751,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     /// Blocking read with DMA transfer
-    pub fn blocking_read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) -> Result<(), OspiError>
+    pub fn blocking_read_dma<W: Word>(&mut self, buf: &mut [W], transaction: TransferConfig) -> Result<(), OspiError>
     where
         Dma: OctoDma<T>,
     {
@@ -763,7 +773,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             Transfer::new_read(
                 &mut self.dma,
                 request,
-                T::REGS.dr().as_ptr() as *mut u8,
+                T::REGS.dr().as_ptr() as *mut W,
                 buf,
                 Default::default(),
             )
@@ -779,7 +789,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     /// Blocking write with DMA transfer
-    pub fn blocking_write_dma(&mut self, buf: &[u8], transaction: TransferConfig) -> Result<(), OspiError>
+    pub fn blocking_write_dma<W: Word>(&mut self, buf: &[W], transaction: TransferConfig) -> Result<(), OspiError>
     where
         Dma: OctoDma<T>,
     {
@@ -794,7 +804,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
                 &mut self.dma,
                 request,
                 buf,
-                T::REGS.dr().as_ptr() as *mut u8,
+                T::REGS.dr().as_ptr() as *mut W,
                 Default::default(),
             )
         };
@@ -809,7 +819,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     /// Asynchronous read from external device
-    pub async fn read(&mut self, buf: &mut [u8], transaction: TransferConfig) -> Result<(), OspiError>
+    pub async fn read<W: Word>(&mut self, buf: &mut [W], transaction: TransferConfig) -> Result<(), OspiError>
     where
         Dma: OctoDma<T>,
     {
@@ -831,7 +841,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
             Transfer::new_read(
                 &mut self.dma,
                 request,
-                T::REGS.dr().as_ptr() as *mut u8,
+                T::REGS.dr().as_ptr() as *mut W,
                 buf,
                 Default::default(),
             )
@@ -847,7 +857,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
     }
 
     /// Asynchronous write to external device
-    pub async fn write(&mut self, buf: &[u8], transaction: TransferConfig) -> Result<(), OspiError>
+    pub async fn write<W: Word>(&mut self, buf: &[W], transaction: TransferConfig) -> Result<(), OspiError>
     where
         Dma: OctoDma<T>,
     {
@@ -862,7 +872,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
                 &mut self.dma,
                 request,
                 buf,
-                T::REGS.dr().as_ptr() as *mut u8,
+                T::REGS.dr().as_ptr() as *mut W,
                 Default::default(),
             )
         };
@@ -889,7 +899,7 @@ impl<'d, T: Instance, Dma> Ospi<'d, T, Dma> {
         // Device configuration
         T::REGS.dcr1().modify(|w| {
             w.set_devsize(config.device_size.into());
-            w.set_mtyp(config.memory_type);
+            w.set_mtyp(vals::MemType::from_bits(config.memory_type.into()));
             w.set_csht(config.chip_select_high_time.into());
             w.set_dlybyp(config.delay_block_bypass);
             w.set_frck(false);
@@ -998,6 +1008,10 @@ pub(crate) mod sealed {
     pub trait Instance {
         const REGS: Regs;
     }
+
+    pub trait Word {
+        const CONFIG: word_impl::Config;
+    }
 }
 
 /// OSPI instance trait.
@@ -1040,4 +1054,26 @@ impl<'d, T: Instance, Dma> GetConfig for Ospi<'d, T, Dma> {
     fn get_config(&self) -> Self::Config {
         self.get_config()
     }
+}
+
+/// Word sizes usable for OSPI.
+pub trait Word: word::Word + sealed::Word {}
+
+macro_rules! impl_word {
+    ($T:ty, $config:expr) => {
+        impl sealed::Word for $T {
+            const CONFIG: Config = $config;
+        }
+        impl Word for $T {}
+    };
+}
+
+mod word_impl {
+    use super::*;
+
+    pub type Config = u8;
+
+    impl_word!(u8, 8);
+    impl_word!(u16, 16);
+    impl_word!(u32, 32);
 }

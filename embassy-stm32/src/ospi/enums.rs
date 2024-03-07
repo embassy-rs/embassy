@@ -69,6 +69,7 @@ impl Into<bool> for FlashSelection {
 
 /// Wrap Size
 #[allow(dead_code)]
+#[allow(missing_docs)]
 #[derive(Copy, Clone)]
 pub enum WrapSize {
     None,
@@ -86,6 +87,32 @@ impl Into<u8> for WrapSize {
             WrapSize::_32Bytes => 0x03,
             WrapSize::_64Bytes => 0x04,
             WrapSize::_128Bytes => 0x05,
+        }
+    }
+}
+
+/// Memory Type
+#[allow(missing_docs)]
+#[allow(dead_code)]
+#[derive(Copy, Clone)]
+pub enum MemoryType {
+    Micron,
+    Macronix,
+    Standard,
+    MacronixRam,
+    HyperBusMemory,
+    HyperBusRegister,
+}
+
+impl Into<u8> for MemoryType {
+    fn into(self) -> u8 {
+        match self {
+            MemoryType::Micron => 0x00,
+            MemoryType::Macronix => 0x01,
+            MemoryType::Standard => 0x02,
+            MemoryType::MacronixRam => 0x03,
+            MemoryType::HyperBusMemory => 0x04,
+            MemoryType::HyperBusRegister => 0x04,
         }
     }
 }
