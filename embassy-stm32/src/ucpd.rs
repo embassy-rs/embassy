@@ -22,7 +22,7 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::AnyChannel;
+use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
 use crate::interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
@@ -99,7 +99,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             // 1.75us * 17 = ~30us
             w.set_ifrgap(17 - 1);
 
-            // TODO: Only receive SOP messages
+            // TODO: Currently only SOP messages are supported.
             w.set_rxordseten(0x1);
 
             // Enable DMA and the peripheral
@@ -186,6 +186,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         cc_sel: CcSel,
     ) -> (PdRx<'_, T>, PdTx<'_, T>) {
+        let r = T::REGS;
+
+        // Enable the receiver on one of the two CC lines.
+        r.cr().modify(|w| {
+            w.set_phyccsel(cc_sel);
+            w.set_phyrxen(true);
+        });
+
         into_ref!(rx_dma, tx_dma);
         let rx_dma_req = rx_dma.request();
         let tx_dma_req = tx_dma.request();
@@ -204,6 +212,16 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     }
 }
 
+/// Receive Error.
+#[derive(Debug, Clone, Copy)]
+pub enum RxError {
+    /// Incorrect CRC or truncated message (a line becoming static before EOP is met).
+    Crc,
+
+    /// Provided buffer was too small for the received message.
+    Overrun,
+}
+
 /// Power Delivery (PD) Receiver.
 pub struct PdRx<'d, T: Instance> {
     _ucpd: &'d Ucpd<'d, T>,
@@ -214,6 +232,79 @@ pub struct PdRx<'d, T: Instance> {
 impl<'d, T: Instance> Drop for PdRx<'d, T> {
     fn drop(&mut self) {
         T::REGS.cr().modify(|w| w.set_phyrxen(false));
+    }
+}
+
+impl<'d, T: Instance> PdRx<'d, T> {
+    /// Receives a PD message into the provided buffer.
+    ///
+    /// Returns the number of received bytes or an error.
+    pub async fn receive(&mut self, buf: &mut [u8]) -> Result<usize, RxError> {
+        let r = T::REGS;
+
+        // Check if a message is already being received. If yes, wait until its
+        // done, ignore errors and try to receive the next message.
+        if r.sr().read().rxorddet() {
+            let _ = self.wait_rx_done().await;
+            r.rxdr().read(); // Clear the RX buffer.
+        }
+
+        // Keep the DMA transfer alive so its drop code does not stop it right away.
+        let dma = unsafe {
+            // Disable the DMA complete interrupt because the end of packet is
+            // signaled by the UCPD receiver. When the DMA buffer is too short
+            // DMA stops by itself and the overrun RXOVR flag of UCPD is set.
+            let mut transfer_options = TransferOptions::default();
+            transfer_options.complete_transfer_ir = false;
+
+            Transfer::new_read(
+                &self.dma_ch,
+                self.dma_req,
+                r.rxdr().as_ptr() as *mut u8,
+                buf,
+                transfer_options,
+            )
+        };
+
+        self.wait_rx_done().await?;
+
+        // Make sure the the last byte to byte was fetched by DMA.
+        while r.sr().read().rxne() {
+            if dma.get_remaining_transfers() == 0 {
+                return Err(RxError::Overrun);
+            }
+        }
+
+        Ok(r.rx_payszr().read().rxpaysz().into())
+    }
+
+    async fn wait_rx_done(&self) -> Result<(), RxError> {
+        poll_fn(|cx| {
+            let r = T::REGS;
+            let sr = r.sr().read();
+            if sr.rxmsgend() {
+                let ret = if sr.rxovr() {
+                    Err(RxError::Overrun)
+                } else if sr.rxerr() {
+                    Err(RxError::Crc)
+                } else {
+                    Ok(())
+                };
+                // Message received, clear interrupt flags.
+                r.icr().write(|w| {
+                    w.set_rxorddetcf(true);
+                    w.set_rxovrcf(true);
+                    w.set_rxmsgendcf(true);
+                });
+                Poll::Ready(ret)
+            } else {
+                // Enable receiver interrupt.
+                T::waker().register(cx.waker());
+                r.imr().modify(|w| w.set_rxmsgendie(true));
+                Poll::Pending
+            }
+        })
+        .await
     }
 }
 
@@ -239,6 +330,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 w.set_typecevt1cf(true);
                 w.set_typecevt2cf(true);
             });
+        }
+
+        if sr.rxmsgend() {
+            r.imr().modify(|w| w.set_rxmsgendie(false));
         }
 
         // Wake the task to clear and re-enabled interrupts.
