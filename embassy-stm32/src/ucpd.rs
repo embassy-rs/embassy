@@ -57,11 +57,7 @@ pub struct Ucpd<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for Ucpd<'d, T> {
     fn drop(&mut self) {
-        T::REGS.cr().modify(|w| {
-            w.set_ccenable(Ccenable::DISABLED);
-            w.set_cc1tcdis(true);
-            w.set_cc2tcdis(true);
-        });
+        T::REGS.cfgr1().write(|w| w.set_ucpden(false));
     }
 }
 
@@ -99,12 +95,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             // 1.75us * 17 = ~30us
             w.set_ifrgap(17 - 1);
 
-            // TODO: Currently only SOP messages are supported.
-            w.set_rxordseten(0x1);
-
-            // Enable DMA and the peripheral
-            w.set_txdmaen(true);
-            w.set_rxdmaen(true);
             w.set_ucpden(true);
         });
 
@@ -155,7 +145,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
     /// Waits for a change in voltage state on either CC line.
     pub async fn wait_for_cc_vstate_change(&self) -> (CcVState, CcVState) {
-        let _on_drop = OnDrop::new(|| critical_section::with(|_| self.enable_cc_interrupts(false)));
+        let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
         let prev_vstate = self.cc_vstate();
         poll_fn(|cx| {
             let vstate = self.cc_vstate();
@@ -171,22 +161,32 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     }
 
     fn enable_cc_interrupts(&self, enable: bool) {
-        critical_section::with(|_| {
-            T::REGS.imr().modify(|w| {
-                w.set_typecevt1ie(enable);
-                w.set_typecevt2ie(enable);
-            })
+        T::REGS.imr().modify(|w| {
+            w.set_typecevt1ie(enable);
+            w.set_typecevt2ie(enable);
         });
     }
 
     /// Returns PD receiver and transmitter.
-    pub fn pd(
+    pub fn pd_phy(
         &mut self,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         cc_sel: CcSel,
-    ) -> (PdRx<'_, T>, PdTx<'_, T>) {
+    ) -> PdPhy<'_, T> {
         let r = T::REGS;
+
+        // TODO: Currently only SOP messages are supported.
+        r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
+
+        r.cfgr1().modify(|w| {
+            // TODO: Currently only SOP messages are supported.
+            w.set_rxordseten(0x1);
+
+            // Enable DMA
+            w.set_txdmaen(true);
+            w.set_rxdmaen(true);
+        });
 
         // Enable the receiver on one of the two CC lines.
         r.cr().modify(|w| {
@@ -194,24 +194,16 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_phyrxen(true);
         });
 
-        // TODO: Currently only SOP messages are supported.
-        r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
-
         into_ref!(rx_dma, tx_dma);
         let rx_dma_req = rx_dma.request();
         let tx_dma_req = tx_dma.request();
-        (
-            PdRx {
-                _ucpd: self,
-                dma_ch: rx_dma.map_into(),
-                dma_req: rx_dma_req,
-            },
-            PdTx {
-                _ucpd: self,
-                dma_ch: tx_dma.map_into(),
-                dma_req: tx_dma_req,
-            },
-        )
+        PdPhy {
+            _ucpd: self,
+            rx_dma_ch: rx_dma.map_into(),
+            rx_dma_req,
+            tx_dma_ch: tx_dma.map_into(),
+            tx_dma_req,
+        }
     }
 }
 
@@ -225,20 +217,29 @@ pub enum RxError {
     Overrun,
 }
 
-/// Power Delivery (PD) Receiver.
-pub struct PdRx<'d, T: Instance> {
-    _ucpd: &'d Ucpd<'d, T>,
-    dma_ch: PeripheralRef<'d, AnyChannel>,
-    dma_req: Request,
+/// Transmit Error.
+#[derive(Debug, Clone, Copy)]
+pub enum TxError {
+    /// Concurrent receive in progress or excessive noise on the line.
+    Discarded,
 }
 
-impl<'d, T: Instance> Drop for PdRx<'d, T> {
+/// Power Delivery (PD) PHY.
+pub struct PdPhy<'d, T: Instance> {
+    _ucpd: &'d Ucpd<'d, T>,
+    rx_dma_ch: PeripheralRef<'d, AnyChannel>,
+    rx_dma_req: Request,
+    tx_dma_ch: PeripheralRef<'d, AnyChannel>,
+    tx_dma_req: Request,
+}
+
+impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
         T::REGS.cr().modify(|w| w.set_phyrxen(false));
     }
 }
 
-impl<'d, T: Instance> PdRx<'d, T> {
+impl<'d, T: Instance> PdPhy<'d, T> {
     /// Receives a PD message into the provided buffer.
     ///
     /// Returns the number of received bytes or an error.
@@ -261,8 +262,8 @@ impl<'d, T: Instance> PdRx<'d, T> {
             transfer_options.complete_transfer_ir = false;
 
             Transfer::new_read(
-                &self.dma_ch,
-                self.dma_req,
+                &self.rx_dma_ch,
+                self.rx_dma_req,
                 r.rxdr().as_ptr() as *mut u8,
                 buf,
                 transfer_options,
@@ -282,6 +283,7 @@ impl<'d, T: Instance> PdRx<'d, T> {
     }
 
     async fn wait_rx_done(&self) -> Result<(), RxError> {
+        let _on_drop = OnDrop::new(|| self.enable_rx_interrupt(false));
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
@@ -301,31 +303,18 @@ impl<'d, T: Instance> PdRx<'d, T> {
                 });
                 Poll::Ready(ret)
             } else {
-                // Enable receiver interrupt.
                 T::waker().register(cx.waker());
-                r.imr().modify(|w| w.set_rxmsgendie(true));
+                self.enable_rx_interrupt(true);
                 Poll::Pending
             }
         })
         .await
     }
-}
 
-/// Transmit Error.
-#[derive(Debug, Clone, Copy)]
-pub enum TxError {
-    /// Concurrent receive in progress or excessive noise on the line.
-    Discarded,
-}
+    fn enable_rx_interrupt(&self, enable: bool) {
+        T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
+    }
 
-/// Power Delivery (PD) Transmitter.
-pub struct PdTx<'d, T: Instance> {
-    _ucpd: &'d Ucpd<'d, T>,
-    dma_ch: PeripheralRef<'d, AnyChannel>,
-    dma_req: Request,
-}
-
-impl<'d, T: Instance> PdTx<'d, T> {
     /// Transmits a PD message.
     pub async fn transmit(&mut self, buf: &[u8]) -> Result<(), TxError> {
         let r = T::REGS;
@@ -346,8 +335,8 @@ impl<'d, T: Instance> PdTx<'d, T> {
         // Start the DMA and let it do its thing in the background.
         let _dma = unsafe {
             Transfer::new_write(
-                &self.dma_ch,
-                self.dma_req,
+                &self.tx_dma_ch,
+                self.tx_dma_req,
                 buf,
                 r.txdr().as_ptr() as *mut u8,
                 TransferOptions::default(),
@@ -365,6 +354,7 @@ impl<'d, T: Instance> PdTx<'d, T> {
     }
 
     async fn wait_tx_done(&self) -> Result<(), TxError> {
+        let _on_drop = OnDrop::new(|| self.enable_tx_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
             if r.sr().read().txmsgdisc() {
@@ -372,19 +362,20 @@ impl<'d, T: Instance> PdTx<'d, T> {
             } else if r.sr().read().txmsgsent() {
                 Poll::Ready(Ok(()))
             } else {
-                // Enable transmit interrupts.
                 T::waker().register(cx.waker());
-                r.imr().modify(|w| {
-                    w.set_txmsgdiscie(true);
-                    w.set_txmsgsentie(true);
-                });
+                self.enable_tx_interrupts(true);
                 Poll::Pending
             }
         })
         .await
     }
 
-    fn clear_tx_flags(&self) {}
+    fn enable_tx_interrupts(&self, enable: bool) {
+        T::REGS.imr().modify(|w| {
+            w.set_txmsgdiscie(enable);
+            w.set_txmsgsentie(enable);
+        });
+    }
 }
 
 /// Interrupt handler.

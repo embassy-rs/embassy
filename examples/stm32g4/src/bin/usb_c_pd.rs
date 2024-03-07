@@ -67,7 +67,7 @@ async fn main(_spawner: Spawner) {
         }
         CableOrientation::DebugAccessoryMode => panic!("No PD communication in DAM"),
     };
-    let (mut _rx, mut _tx) = ucpd.pd(p.DMA1_CH1, p.DMA1_CH2, cc_sel);
+    let mut pd_phy = ucpd.pd_phy(p.DMA1_CH1, p.DMA1_CH2, cc_sel);
 
     loop {}
 }
