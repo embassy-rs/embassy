@@ -16,11 +16,11 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
-use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
 use crate::interrupt;
@@ -53,22 +53,15 @@ pub enum CcPull {
 
 /// UCPD driver.
 pub struct Ucpd<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
-}
-
-impl<'d, T: Instance> Drop for Ucpd<'d, T> {
-    fn drop(&mut self) {
-        T::REGS.cfgr1().write(|w| w.set_ucpden(false));
-    }
+    cc_phy: CcPhy<'d, T>,
 }
 
 impl<'d, T: Instance> Ucpd<'d, T> {
     /// Creates a new UCPD driver instance.
     pub fn new(
-        peri: impl Peripheral<P = T> + 'd,
+        _peri: impl Peripheral<P = T> + 'd,
         _cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
         _cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
-        cc_pull: CcPull,
     ) -> Self {
         T::enable_and_reset();
 
@@ -99,82 +92,24 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_ucpden(true);
         });
 
-        r.cr().write(|w| {
-            w.set_anamode(if cc_pull == CcPull::Sink {
-                Anamode::SINK
-            } else {
-                Anamode::SOURCE
-            });
-            w.set_anasubmode(match cc_pull {
-                CcPull::SourceDefaultUsb => 1,
-                CcPull::Source1_5A => 2,
-                CcPull::Source3_0A => 3,
-                _ => 0,
-            });
-            w.set_ccenable(if cc_pull != CcPull::SinkDeadBattery {
-                Ccenable::BOTH
-            } else {
-                Ccenable::DISABLED
-            });
-
-            // Make sure detector is enabled on both pins.
-            w.set_cc1tcdis(false);
-            w.set_cc2tcdis(false);
-        });
-
-        // Disable dead-battery pull-down resistors which are enabled by default on boot.
-        critical_section::with(|_| {
-            // TODO: other families
-            #[cfg(stm32g4)]
-            crate::pac::PWR
-                .cr3()
-                .modify(|w| w.set_ucpd1_dbdis(cc_pull != CcPull::SinkDeadBattery));
-        });
-
-        into_ref!(peri);
-        Self { _peri: peri }
+        Self {
+            cc_phy: CcPhy { _lifetime: PhantomData },
+        }
     }
 
-    /// Returns the current voltage level of CC1 and CC2 pin as tuple.
-    ///
-    /// Interpretation of the voltage levels depends on the configured CC line
-    /// pull-up/pull-down resistance.
-    pub fn cc_vstate(&self) -> (CcVState, CcVState) {
-        let sr = T::REGS.sr().read();
-        (sr.typec_vstate_cc1(), sr.typec_vstate_cc2())
+    /// Returns the TypeC CC PHY.
+    pub fn cc_phy(&mut self) -> &mut CcPhy<'d, T> {
+        &mut self.cc_phy
     }
 
-    /// Waits for a change in voltage state on either CC line.
-    pub async fn wait_for_cc_vstate_change(&self) -> (CcVState, CcVState) {
-        let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
-        let prev_vstate = self.cc_vstate();
-        poll_fn(|cx| {
-            let vstate = self.cc_vstate();
-            if vstate != prev_vstate {
-                Poll::Ready(vstate)
-            } else {
-                T::waker().register(cx.waker());
-                self.enable_cc_interrupts(true);
-                Poll::Pending
-            }
-        })
-        .await
-    }
-
-    fn enable_cc_interrupts(&self, enable: bool) {
-        T::REGS.imr().modify(|w| {
-            w.set_typecevt1ie(enable);
-            w.set_typecevt2ie(enable);
-        });
-    }
-
-    /// Returns PD receiver and transmitter.
-    pub fn pd_phy(
-        &mut self,
+    /// Splits the UCPD driver into a TypeC PHY to control and monitor CC voltage
+    /// and a Power Delivery (PD) PHY with receiver and transmitter.
+    pub fn split_pd_phy(
+        self,
         rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
         tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
         cc_sel: CcSel,
-    ) -> PdPhy<'_, T> {
+    ) -> (CcPhy<'d, T>, PdPhy<'d, T>) {
         let r = T::REGS;
 
         // TODO: Currently only SOP messages are supported.
@@ -198,16 +133,112 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Enable hard reset receive interrupt.
         r.imr().modify(|w| w.set_rxhrstdetie(true));
 
+        // Both parts must be dropped before the peripheral can be disabled.
+        T::state().drop_not_ready.store(true, Ordering::Relaxed);
+
         into_ref!(rx_dma, tx_dma);
         let rx_dma_req = rx_dma.request();
         let tx_dma_req = tx_dma.request();
-        PdPhy {
-            _ucpd: self,
-            rx_dma_ch: rx_dma.map_into(),
-            rx_dma_req,
-            tx_dma_ch: tx_dma.map_into(),
-            tx_dma_req,
+        (
+            self.cc_phy,
+            PdPhy {
+                _lifetime: PhantomData,
+                rx_dma_ch: rx_dma.map_into(),
+                rx_dma_req,
+                tx_dma_ch: tx_dma.map_into(),
+                tx_dma_req,
+            },
+        )
+    }
+}
+
+/// Control and monitoring of TypeC CC pin functionailty.
+pub struct CcPhy<'d, T: Instance> {
+    _lifetime: PhantomData<&'d mut T>,
+}
+
+impl<'d, T: Instance> Drop for CcPhy<'d, T> {
+    fn drop(&mut self) {
+        let r = T::REGS;
+        r.cr().modify(|w| {
+            w.set_cc1tcdis(true);
+            w.set_cc2tcdis(true);
+            w.set_ccenable(Ccenable::DISABLED);
+        });
+
+        // Check if the PdPhy part was dropped already.
+        let drop_not_ready = &T::state().drop_not_ready;
+        if drop_not_ready.load(Ordering::Relaxed) {
+            drop_not_ready.store(true, Ordering::Relaxed);
+        } else {
+            r.cfgr1().write(|w| w.set_ucpden(false));
         }
+    }
+}
+
+impl<'d, T: Instance> CcPhy<'d, T> {
+    /// Sets the pull-up/pull-down resistor values exposed on the CC pins.
+    pub fn set_pull(&mut self, cc_pull: CcPull) {
+        T::REGS.cr().write(|w| {
+            w.set_anamode(if cc_pull == CcPull::Sink {
+                Anamode::SINK
+            } else {
+                Anamode::SOURCE
+            });
+            w.set_anasubmode(match cc_pull {
+                CcPull::SourceDefaultUsb => 1,
+                CcPull::Source1_5A => 2,
+                CcPull::Source3_0A => 3,
+                _ => 0,
+            });
+            w.set_ccenable(if cc_pull != CcPull::SinkDeadBattery {
+                Ccenable::BOTH
+            } else {
+                Ccenable::DISABLED
+            });
+        });
+
+        // Disable dead-battery pull-down resistors which are enabled by default on boot.
+        critical_section::with(|_| {
+            // TODO: other families
+            #[cfg(stm32g4)]
+            crate::pac::PWR
+                .cr3()
+                .modify(|w| w.set_ucpd1_dbdis(cc_pull != CcPull::SinkDeadBattery));
+        });
+    }
+
+    /// Returns the current voltage level of CC1 and CC2 pin as tuple.
+    ///
+    /// Interpretation of the voltage levels depends on the configured CC line
+    /// pull-up/pull-down resistance.
+    pub fn vstate(&self) -> (CcVState, CcVState) {
+        let sr = T::REGS.sr().read();
+        (sr.typec_vstate_cc1(), sr.typec_vstate_cc2())
+    }
+
+    /// Waits for a change in voltage state on either CC line.
+    pub async fn wait_for_vstate_change(&self) -> (CcVState, CcVState) {
+        let _on_drop = OnDrop::new(|| self.enable_cc_interrupts(false));
+        let prev_vstate = self.vstate();
+        poll_fn(|cx| {
+            let vstate = self.vstate();
+            if vstate != prev_vstate {
+                Poll::Ready(vstate)
+            } else {
+                T::state().waker.register(cx.waker());
+                self.enable_cc_interrupts(true);
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    fn enable_cc_interrupts(&self, enable: bool) {
+        T::REGS.imr().modify(|w| {
+            w.set_typecevt1ie(enable);
+            w.set_typecevt2ie(enable);
+        });
     }
 }
 
@@ -238,7 +269,7 @@ pub enum TxError {
 
 /// Power Delivery (PD) PHY.
 pub struct PdPhy<'d, T: Instance> {
-    _ucpd: &'d Ucpd<'d, T>,
+    _lifetime: PhantomData<&'d mut T>,
     rx_dma_ch: PeripheralRef<'d, AnyChannel>,
     rx_dma_req: Request,
     tx_dma_ch: PeripheralRef<'d, AnyChannel>,
@@ -247,7 +278,16 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
-        T::REGS.cr().modify(|w| w.set_phyrxen(false));
+        let r = T::REGS;
+        r.cr().modify(|w| w.set_phyrxen(false));
+
+        // Check if the Type-C part was dropped already.
+        let drop_not_ready = &T::state().drop_not_ready;
+        if drop_not_ready.load(Ordering::Relaxed) {
+            drop_not_ready.store(true, Ordering::Relaxed);
+        } else {
+            r.cfgr1().write(|w| w.set_ucpden(false));
+        }
     }
 }
 
@@ -316,7 +356,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 });
                 Poll::Ready(ret)
             } else {
-                T::waker().register(cx.waker());
+                T::state().waker.register(cx.waker());
                 self.enable_rx_interrupt(true);
                 Poll::Pending
             }
@@ -383,7 +423,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             } else if sr.txmsgsent() {
                 Poll::Ready(Ok(()))
             } else {
-                T::waker().register(cx.waker());
+                T::state().waker.register(cx.waker());
                 self.enable_tx_interrupts(true);
                 Poll::Pending
             }
@@ -427,7 +467,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             } else if sr.hrstsent() {
                 Poll::Ready(Ok(()))
             } else {
-                T::waker().register(cx.waker());
+                T::state().waker.register(cx.waker());
                 self.enable_hardreset_interrupts(true);
                 Poll::Pending
             }
@@ -483,18 +523,37 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         }
 
         // Wake the task to clear and re-enabled interrupts.
-        T::waker().wake();
+        T::state().waker.wake();
     }
 }
 
 /// UCPD instance trait.
 pub trait Instance: sealed::Instance + RccPeripheral {}
 
-pub(crate) mod sealed {
+mod sealed {
+    use core::sync::atomic::AtomicBool;
+
+    use embassy_sync::waitqueue::AtomicWaker;
+
+    pub struct State {
+        pub waker: AtomicWaker,
+        // Inverted logic for a default state of 0 so that the data goes into the .bss section.
+        pub drop_not_ready: AtomicBool,
+    }
+
+    impl State {
+        pub const fn new() -> Self {
+            Self {
+                waker: AtomicWaker::new(),
+                drop_not_ready: AtomicBool::new(false),
+            }
+        }
+    }
+
     pub trait Instance {
         type Interrupt: crate::interrupt::typelevel::Interrupt;
         const REGS: crate::pac::ucpd::Ucpd;
-        fn waker() -> &'static embassy_sync::waitqueue::AtomicWaker;
+        fn state() -> &'static crate::ucpd::sealed::State;
     }
 }
 
@@ -505,9 +564,9 @@ foreach_interrupt!(
 
             const REGS: crate::pac::ucpd::Ucpd = crate::pac::$inst;
 
-            fn waker() -> &'static AtomicWaker {
-                static WAKER: AtomicWaker = AtomicWaker::new();
-                &WAKER
+            fn state() -> &'static crate::ucpd::sealed::State {
+                static STATE: crate::ucpd::sealed::State = crate::ucpd::sealed::State::new();
+                &STATE
             }
         }
 
