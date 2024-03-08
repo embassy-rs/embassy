@@ -269,18 +269,12 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         // Keep the DMA transfer alive so its drop code does not stop it right away.
         let dma = unsafe {
-            // Disable the DMA complete interrupt because the end of packet is
-            // signaled by the UCPD receiver. When the DMA buffer is too short
-            // DMA stops by itself and the overrun RXOVR flag of UCPD is set.
-            let mut transfer_options = TransferOptions::default();
-            transfer_options.complete_transfer_ir = false;
-
             Transfer::new_read(
                 &self.rx_dma_ch,
                 self.rx_dma_req,
                 r.rxdr().as_ptr() as *mut u8,
                 buf,
-                transfer_options,
+                TransferOptions::default(),
             )
         };
 
