@@ -181,8 +181,8 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
 
         r.cfgr1().modify(|w| {
-            // TODO: Currently only SOP messages are supported.
-            w.set_rxordseten(0x1);
+            // TODO: Currently only hard reset and SOP messages can be received.
+            w.set_rxordseten(0b1001);
 
             // Enable DMA
             w.set_txdmaen(true);
@@ -194,6 +194,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_phyccsel(cc_sel);
             w.set_phyrxen(true);
         });
+
+        // Enable hard reset receive interrupt.
+        r.imr().modify(|w| w.set_rxhrstdetie(true));
 
         into_ref!(rx_dma, tx_dma);
         let rx_dma_req = rx_dma.request();
@@ -217,6 +220,9 @@ pub enum RxError {
 
     /// Provided buffer was too small for the received message.
     Overrun,
+
+    /// Hard Reset received before or during reception.
+    HardReset,
 }
 
 /// Transmit Error.
@@ -225,6 +231,9 @@ pub enum RxError {
 pub enum TxError {
     /// Concurrent receive in progress or excessive noise on the line.
     Discarded,
+
+    /// Hard Reset received before or during transmission.
+    HardReset,
 }
 
 /// Power Delivery (PD) PHY.
@@ -252,7 +261,9 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // Check if a message is already being received. If yes, wait until its
         // done, ignore errors and try to receive the next message.
         if r.sr().read().rxorddet() {
-            let _ = self.wait_rx_done().await;
+            if let Err(RxError::HardReset) = self.wait_rx_done().await {
+                return Err(RxError::HardReset);
+            }
             r.rxdr().read(); // Clear the RX buffer.
         }
 
@@ -290,7 +301,12 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         poll_fn(|cx| {
             let r = T::REGS;
             let sr = r.sr().read();
-            if sr.rxmsgend() {
+            if sr.rxhrstdet() {
+                // Clean and re-enable hard reset receive interrupt.
+                r.icr().write(|w| w.set_rxhrstdetcf(true));
+                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                Poll::Ready(Err(RxError::HardReset))
+            } else if sr.rxmsgend() {
                 let ret = if sr.rxovr() {
                     Err(RxError::Overrun)
                 } else if sr.rxerr() {
@@ -326,7 +342,9 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // might still be running because there is no way to abort an ongoing
         // message transmission. Wait for it to finish but ignore errors.
         if r.cr().read().txsend() {
-            let _ = self.wait_tx_done().await;
+            if let Err(TxError::HardReset) = self.wait_tx_done().await {
+                return Err(TxError::HardReset);
+            }
         }
 
         // Clear the TX interrupt flags.
@@ -360,9 +378,15 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         let _on_drop = OnDrop::new(|| self.enable_tx_interrupts(false));
         poll_fn(|cx| {
             let r = T::REGS;
-            if r.sr().read().txmsgdisc() {
+            let sr = r.sr().read();
+            if sr.rxhrstdet() {
+                // Clean and re-enable hard reset receive interrupt.
+                r.icr().write(|w| w.set_rxhrstdetcf(true));
+                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                Poll::Ready(Err(TxError::HardReset))
+            } else if sr.txmsgdisc() {
                 Poll::Ready(Err(TxError::Discarded))
-            } else if r.sr().read().txmsgsent() {
+            } else if sr.txmsgsent() {
                 Poll::Ready(Ok(()))
             } else {
                 T::waker().register(cx.waker());
@@ -396,6 +420,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 w.set_typecevt1cf(true);
                 w.set_typecevt2cf(true);
             });
+        }
+
+        if sr.rxhrstdet() {
+            r.imr().modify(|w| w.set_rxhrstdetie(false));
         }
 
         if sr.rxmsgend() {
