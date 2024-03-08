@@ -403,6 +403,50 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txmsgsentie(enable);
         });
     }
+
+    /// Transmit a hard reset.
+    pub async fn transmit_hardreset(&mut self) -> Result<(), TxError> {
+        let r = T::REGS;
+
+        // Clear the hardreset interrupt flags.
+        T::REGS.icr().write(|w| {
+            w.set_txmsgdisccf(true);
+            w.set_txmsgsentcf(true);
+        });
+
+        // Trigger hard reset transmission.
+        r.cr().modify(|w| {
+            w.set_txhrst(true);
+        });
+
+        let _on_drop = OnDrop::new(|| self.enable_hardreset_interrupts(false));
+        poll_fn(|cx| {
+            let r = T::REGS;
+            let sr = r.sr().read();
+            if sr.rxhrstdet() {
+                // Clean and re-enable hard reset receive interrupt.
+                r.icr().write(|w| w.set_rxhrstdetcf(true));
+                r.imr().modify(|w| w.set_rxhrstdetie(true));
+                Poll::Ready(Err(TxError::HardReset))
+            } else if sr.hrstdisc() {
+                Poll::Ready(Err(TxError::Discarded))
+            } else if sr.hrstsent() {
+                Poll::Ready(Ok(()))
+            } else {
+                T::waker().register(cx.waker());
+                self.enable_hardreset_interrupts(true);
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    fn enable_hardreset_interrupts(&self, enable: bool) {
+        T::REGS.imr().modify(|w| {
+            w.set_hrstdiscie(enable);
+            w.set_hrstsentie(enable);
+        });
+    }
 }
 
 /// Interrupt handler.
@@ -434,6 +478,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             r.imr().modify(|w| {
                 w.set_txmsgdiscie(false);
                 w.set_txmsgsentie(false);
+            });
+        }
+
+        if sr.hrstdisc() || sr.hrstsent() {
+            r.imr().modify(|w| {
+                w.set_hrstdiscie(false);
+                w.set_hrstsentie(false);
             });
         }
 
