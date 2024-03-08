@@ -314,15 +314,6 @@ impl Registers {
             self.regs.endn().read().etv() == 0x87654321_u32,
             "Error reading endianness test value from FDCAN core"
         );
-
-        /*
-        for fid in 0..crate::can::message_ram::STANDARD_FILTER_MAX {
-            self.set_standard_filter((fid as u8).into(), StandardFilter::disable());
-        }
-        for fid in 0..Ecrate::can::message_ram::XTENDED_FILTER_MAX {
-            self.set_extended_filter(fid.into(), ExtendedFilter::disable());
-        }
-        */
     }
 
     /// Applies the settings of a new FdCanConfig See [`FdCanConfig`]

@@ -165,6 +165,28 @@ fn calc_ns_per_timer_tick<T: Instance>(mode: crate::can::fd::config::FrameTransm
     }
 }
 
+#[inline]
+fn set_standard_filter<T: Instance>(slot: StandardFilterSlot, filter: StandardFilter) {
+    T::registers().msg_ram_mut().filters.flssa[slot as usize].activate(filter);
+}
+
+fn set_standard_filters<T: Instance>(filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
+    for (i, f) in filters.iter().enumerate() {
+        T::registers().msg_ram_mut().filters.flssa[i].activate(*f);
+    }
+}
+
+#[inline]
+fn set_extended_filter<T: Instance>(slot: ExtendedFilterSlot, filter: ExtendedFilter) {
+    T::registers().msg_ram_mut().filters.flesa[slot as usize].activate(filter);
+}
+
+fn set_extended_filters<T: Instance>(filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
+    for (i, f) in filters.iter().enumerate() {
+        T::registers().msg_ram_mut().filters.flesa[i].activate(*f);
+    }
+}
+
 impl<'d, T: Instance> CanConfigurator<'d, T> {
     /// Creates a new Fdcan instance, keeping the peripheral in sleep mode.
     /// You must call [Fdcan::enable_non_blocking] to use the peripheral.
@@ -245,27 +267,23 @@ impl<'d, T: Instance> CanConfigurator<'d, T> {
     /// Set an Standard Address CAN filter into slot 'id'
     #[inline]
     pub fn set_standard_filter(&mut self, slot: StandardFilterSlot, filter: StandardFilter) {
-        T::registers().msg_ram_mut().filters.flssa[slot as usize].activate(filter);
+        set_standard_filter::<T>(slot, filter)
     }
 
     /// Set an array of Standard Address CAN filters and overwrite the current set
     pub fn set_standard_filters(&mut self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
-        for (i, f) in filters.iter().enumerate() {
-            T::registers().msg_ram_mut().filters.flssa[i].activate(*f);
-        }
+        set_standard_filters::<T>(filters)
     }
 
     /// Set an Extended Address CAN filter into slot 'id'
     #[inline]
     pub fn set_extended_filter(&mut self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
-        T::registers().msg_ram_mut().filters.flesa[slot as usize].activate(filter);
+        set_extended_filter::<T>(slot, filter)
     }
 
     /// Set an array of Extended Address CAN filters and overwrite the current set
     pub fn set_extended_filters(&mut self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
-        for (i, f) in filters.iter().enumerate() {
-            T::registers().msg_ram_mut().filters.flesa[i].activate(*f);
-        }
+        set_extended_filters::<T>(filters)
     }
 
     /// Start in mode.
@@ -395,6 +413,28 @@ impl<'d, T: Instance> Can<'d, T> {
     ) -> BufferedCanFd<'d, T, TX_BUF_SIZE, RX_BUF_SIZE> {
         BufferedCanFd::new(PhantomData::<T>, T::regs(), self._mode, tx_buf, rxb)
     }
+
+    /// Set an Standard Address CAN filter into slot 'id'
+    #[inline]
+    pub fn set_standard_filter(&mut self, slot: StandardFilterSlot, filter: StandardFilter) {
+        set_standard_filter::<T>(slot, filter)
+    }
+
+    /// Set an array of Standard Address CAN filters and overwrite the current set
+    pub fn set_standard_filters(&mut self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
+        set_standard_filters::<T>(filters)
+    }
+
+    /// Set an Extended Address CAN filter into slot 'id'
+    #[inline]
+    pub fn set_extended_filter(&mut self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
+        set_extended_filter::<T>(slot, filter)
+    }
+
+    /// Set an array of Extended Address CAN filters and overwrite the current set
+    pub fn set_extended_filters(&mut self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
+        set_extended_filters::<T>(filters)
+    }
 }
 
 /// User supplied buffer for RX Buffering
@@ -469,6 +509,28 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
     /// Returns a receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
     pub fn reader(&self) -> BufferedCanReceiver {
         self.rx_buf.receiver().into()
+    }
+
+    /// Set an Standard Address CAN filter into slot 'id'
+    #[inline]
+    pub fn set_standard_filter(&mut self, slot: StandardFilterSlot, filter: StandardFilter) {
+        set_standard_filter::<T>(slot, filter)
+    }
+
+    /// Set an array of Standard Address CAN filters and overwrite the current set
+    pub fn set_standard_filters(&mut self, filters: &[StandardFilter; STANDARD_FILTER_MAX as usize]) {
+        set_standard_filters::<T>(filters)
+    }
+
+    /// Set an Extended Address CAN filter into slot 'id'
+    #[inline]
+    pub fn set_extended_filter(&mut self, slot: ExtendedFilterSlot, filter: ExtendedFilter) {
+        set_extended_filter::<T>(slot, filter)
+    }
+
+    /// Set an array of Extended Address CAN filters and overwrite the current set
+    pub fn set_extended_filters(&mut self, filters: &[ExtendedFilter; EXTENDED_FILTER_MAX as usize]) {
+        set_extended_filters::<T>(filters)
     }
 }
 
