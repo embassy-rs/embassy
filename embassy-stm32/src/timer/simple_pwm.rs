@@ -82,6 +82,7 @@ impl<'d, T: CaptureCompare16bitInstance> SimplePwm<'d, T> {
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
+        this.inner.enable_outputs(); // Required for advanced timers, see CaptureCompare16bitInstance for details
         this.inner.start();
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
