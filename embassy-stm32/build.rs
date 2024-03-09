@@ -509,25 +509,20 @@ fn main() {
         if let Some(rcc) = &p.rcc {
             let en = rcc.enable.as_ref().unwrap();
 
-            let rst = match &rcc.reset {
+            let (start_rst, end_rst) = match &rcc.reset {
                 Some(rst) => {
                     let rst_reg = format_ident!("{}", rst.register.to_ascii_lowercase());
                     let set_rst_field = format_ident!("set_{}", rst.field.to_ascii_lowercase());
-                    quote! {
-                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
-                        crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
-                    }
+                    (
+                        quote! {
+                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(true));
+                        },
+                        quote! {
+                            crate::pac::RCC.#rst_reg().modify(|w| w.#set_rst_field(false));
+                        },
+                    )
                 }
-                None => TokenStream::new(),
-            };
-
-            let after_enable = if chip_name.starts_with("stm32f2") {
-                // Errata: ES0005 - 2.1.11 Delay after an RCC peripheral clock enabling
-                quote! {
-                    cortex_m::asm::dsb();
-                }
-            } else {
-                TokenStream::new()
+                None => (TokenStream::new(), TokenStream::new()),
             };
 
             let ptype = if let Some(reg) = &p.registers { reg.kind } else { "" };
@@ -596,9 +591,26 @@ fn main() {
                     fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
                         #before_enable
                         #incr_stop_refcount
+
+                        #start_rst
+
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-                        #after_enable
-                        #rst
+                        // dummy read to ensure write is completed
+                        let _ = crate::pac::RCC.#en_reg().read();
+
+                        // wait two peripheral clock cycles before the clock is active
+                        // accomplish this with two dummy reads from the peripheral. this shouldn't
+                        // cause any side effects since the peripheral is in reset
+                        unsafe {
+                            //apparently volatile accesses to ZST like () can be optimized out. lol
+                            let ptr = crate::pac::#pname.as_ptr() as *const usize;
+                            let _ = ::core::ptr::read_volatile(ptr);
+                            let _ = ::core::ptr::read_volatile(ptr);
+                            // wait for memory accesses to finish
+                            ::core::arch::asm!("dmb");
+                        }
+
+                        #end_rst
                     }
                     fn disable_with_cs(_cs: critical_section::CriticalSection) {
                         #before_disable
