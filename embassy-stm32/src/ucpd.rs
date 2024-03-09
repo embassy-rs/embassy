@@ -172,6 +172,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
+            T::disable();
         }
     }
 }
@@ -287,6 +288,7 @@ impl<'d, T: Instance> Drop for PdPhy<'d, T> {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
+            T::disable();
         }
     }
 }
