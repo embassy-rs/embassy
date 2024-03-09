@@ -455,7 +455,14 @@ pub(crate) unsafe fn init(config: Config) {
     };
     #[cfg(pwr_h7rm0468)]
     let (d1cpre_clk_max, hclk_max, pclk_max) = match config.voltage_scale {
-        VoltageScale::Scale0 => (Hertz(550_000_000), Hertz(275_000_000), Hertz(137_500_000)),
+        VoltageScale::Scale0 => {
+            let d1cpre_clk_max = if pac::SYSCFG.ur18().read().cpu_freq_boost() {
+                550_000_000
+            } else {
+                520_000_000
+            };
+            (Hertz(d1cpre_clk_max), Hertz(275_000_000), Hertz(137_500_000))
+        }
         VoltageScale::Scale1 => (Hertz(400_000_000), Hertz(200_000_000), Hertz(100_000_000)),
         VoltageScale::Scale2 => (Hertz(300_000_000), Hertz(150_000_000), Hertz(75_000_000)),
         VoltageScale::Scale3 => (Hertz(170_000_000), Hertz(85_000_000), Hertz(42_500_000)),
