@@ -23,7 +23,7 @@ use core::mem;
 
 use embassy_hal_internal::{impl_peripheral, Peripheral};
 
-use crate::interrupt::Priority;
+use crate::interrupt;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -131,9 +131,9 @@ pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
 // safety: must be called only once at startup
 pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,
-    #[cfg(bdma)] bdma_priority: Priority,
-    #[cfg(dma)] dma_priority: Priority,
-    #[cfg(gpdma)] gpdma_priority: Priority,
+    #[cfg(bdma)] bdma_priority: interrupt::Priority,
+    #[cfg(dma)] dma_priority: interrupt::Priority,
+    #[cfg(gpdma)] gpdma_priority: interrupt::Priority,
 ) {
     #[cfg(any(dma, bdma))]
     dma_bdma::init(
