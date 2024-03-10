@@ -247,6 +247,7 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
 };
 #[cfg(all(sdmmc_v1, not(dma)))]
 const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
+    priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
