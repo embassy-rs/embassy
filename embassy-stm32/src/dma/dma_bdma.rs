@@ -10,8 +10,7 @@ use super::ringbuffer::{DmaCtrl, OverrunError, ReadableDmaRingBuffer, WritableDm
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
-use crate::interrupt;
-use crate::pac;
+use crate::{interrupt, pac};
 
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
@@ -74,6 +73,44 @@ impl Default for TransferOptions {
             circular: false,
             half_transfer_ir: false,
             complete_transfer_ir: true,
+        }
+    }
+}
+
+/// DMA request priority
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Priority {
+    /// Low Priority
+    Low,
+    /// Medium Priority
+    Medium,
+    /// High Priority
+    High,
+    /// Very High Priority
+    VeryHigh,
+}
+
+#[cfg(dma)]
+impl From<Priority> for pac::dma::vals::Pl {
+    fn from(value: Priority) -> Self {
+        match value {
+            Priority::Low => pac::dma::vals::Pl::LOW,
+            Priority::Medium => pac::dma::vals::Pl::MEDIUM,
+            Priority::High => pac::dma::vals::Pl::HIGH,
+            Priority::VeryHigh => pac::dma::vals::Pl::VERYHIGH,
+        }
+    }
+}
+
+#[cfg(bdma)]
+impl From<Priority> for pac::bdma::vals::Pl {
+    fn from(value: Priority) -> Self {
+        match value {
+            Priority::Low => pac::bdma::vals::Pl::LOW,
+            Priority::Medium => pac::bdma::vals::Pl::MEDIUM,
+            Priority::High => pac::bdma::vals::Pl::HIGH,
+            Priority::VeryHigh => pac::bdma::vals::Pl::VERYHIGH,
         }
     }
 }
@@ -173,31 +210,6 @@ mod dma_only {
             }
         }
     }
-
-    /// DMA request priority
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum Priority {
-        /// Low Priority
-        Low,
-        /// Medium Priority
-        Medium,
-        /// High Priority
-        High,
-        /// Very High Priority
-        VeryHigh,
-    }
-
-    impl From<Priority> for vals::Pl {
-        fn from(value: Priority) -> Self {
-            match value {
-                Priority::Low => vals::Pl::LOW,
-                Priority::Medium => vals::Pl::MEDIUM,
-                Priority::High => vals::Pl::HIGH,
-                Priority::VeryHigh => vals::Pl::VERYHIGH,
-            }
-        }
-    }
 }
 
 #[cfg(bdma)]
@@ -221,31 +233,6 @@ mod bdma_only {
             match raw {
                 Dir::MemoryToPeripheral => Self::FROMMEMORY,
                 Dir::PeripheralToMemory => Self::FROMPERIPHERAL,
-            }
-        }
-    }
-
-    /// DMA request priority
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum Priority {
-        /// Low Priority
-        Low,
-        /// Medium Priority
-        Medium,
-        /// High Priority
-        High,
-        /// Very High Priority
-        VeryHigh,
-    }
-
-    impl From<Priority> for vals::Pl {
-        fn from(value: Priority) -> Self {
-            match value {
-                Priority::Low => vals::Pl::LOW,
-                Priority::Medium => vals::Pl::MEDIUM,
-                Priority::High => vals::Pl::HIGH,
-                Priority::VeryHigh => vals::Pl::VERYHIGH,
             }
         }
     }
