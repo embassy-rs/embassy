@@ -607,7 +607,7 @@ fn main() {
                             let _ = ::core::ptr::read_volatile(ptr);
                             let _ = ::core::ptr::read_volatile(ptr);
                             // wait for memory accesses to finish
-                            ::core::arch::asm!("dmb");
+                            cortex_m::asm::dsb();
                         }
 
                         #end_rst
