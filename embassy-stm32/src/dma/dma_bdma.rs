@@ -10,8 +10,7 @@ use super::ringbuffer::{DmaCtrl, OverrunError, ReadableDmaRingBuffer, WritableDm
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
-use crate::interrupt::Priority;
-use crate::pac;
+use crate::{interrupt, pac};
 
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
@@ -45,6 +44,8 @@ pub struct TransferOptions {
     /// FIFO threshold for DMA FIFO mode. If none, direct mode is used.
     #[cfg(dma)]
     pub fifo_threshold: Option<FifoThreshold>,
+    /// Request priority level
+    pub priority: Priority,
     /// Enable circular DMA
     ///
     /// Note:
@@ -68,9 +69,48 @@ impl Default for TransferOptions {
             flow_ctrl: FlowControl::Dma,
             #[cfg(dma)]
             fifo_threshold: None,
+            priority: Priority::VeryHigh,
             circular: false,
             half_transfer_ir: false,
             complete_transfer_ir: true,
+        }
+    }
+}
+
+/// DMA request priority
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Priority {
+    /// Low Priority
+    Low,
+    /// Medium Priority
+    Medium,
+    /// High Priority
+    High,
+    /// Very High Priority
+    VeryHigh,
+}
+
+#[cfg(dma)]
+impl From<Priority> for pac::dma::vals::Pl {
+    fn from(value: Priority) -> Self {
+        match value {
+            Priority::Low => pac::dma::vals::Pl::LOW,
+            Priority::Medium => pac::dma::vals::Pl::MEDIUM,
+            Priority::High => pac::dma::vals::Pl::HIGH,
+            Priority::VeryHigh => pac::dma::vals::Pl::VERYHIGH,
+        }
+    }
+}
+
+#[cfg(bdma)]
+impl From<Priority> for pac::bdma::vals::Pl {
+    fn from(value: Priority) -> Self {
+        match value {
+            Priority::Low => pac::bdma::vals::Pl::LOW,
+            Priority::Medium => pac::bdma::vals::Pl::MEDIUM,
+            Priority::High => pac::bdma::vals::Pl::HIGH,
+            Priority::VeryHigh => pac::bdma::vals::Pl::VERYHIGH,
         }
     }
 }
@@ -213,8 +253,8 @@ impl ChannelState {
 /// safety: must be called only once
 pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,
-    #[cfg(dma)] dma_priority: Priority,
-    #[cfg(bdma)] bdma_priority: Priority,
+    #[cfg(dma)] dma_priority: interrupt::Priority,
+    #[cfg(bdma)] bdma_priority: interrupt::Priority,
 ) {
     foreach_interrupt! {
         ($peri:ident, dma, $block:ident, $signal_name:ident, $irq:ident) => {
@@ -334,7 +374,7 @@ impl AnyChannel {
                     w.set_dir(dir.into());
                     w.set_msize(data_size.into());
                     w.set_psize(data_size.into());
-                    w.set_pl(pac::dma::vals::Pl::VERYHIGH);
+                    w.set_pl(options.priority.into());
                     w.set_minc(incr_mem);
                     w.set_pinc(false);
                     w.set_teie(true);
@@ -374,7 +414,7 @@ impl AnyChannel {
                     w.set_tcie(options.complete_transfer_ir);
                     w.set_htie(options.half_transfer_ir);
                     w.set_circ(options.circular);
-                    w.set_pl(pac::bdma::vals::Pl::VERYHIGH);
+                    w.set_pl(options.priority.into());
                     w.set_en(false); // don't start yet
                 });
             }
