@@ -189,6 +189,18 @@ pub struct Config {
     /// Defaults to P0 (highest).
     #[cfg(gpdma)]
     pub gpdma_interrupt_priority: Priority,
+
+    /// Disables UCPD1 dead battery functionality.
+    ///
+    /// Defaults to true (disabled).
+    #[cfg(ucpd)]
+    pub disable_ucpd1_dead_battery: bool,
+
+    /// Disables UCPD2 dead battery functionality.
+    ///
+    /// Defaults to true (disabled).
+    #[cfg(all(ucpd, stm32g0x1))]
+    pub disable_ucpd2_dead_battery: bool,
 }
 
 impl Default for Config {
@@ -203,6 +215,10 @@ impl Default for Config {
             dma_interrupt_priority: Priority::P0,
             #[cfg(gpdma)]
             gpdma_interrupt_priority: Priority::P0,
+            #[cfg(ucpd)]
+            disable_ucpd1_dead_battery: true,
+            #[cfg(all(ucpd, stm32g0x1))]
+            uisable_ucpd2_dead_battery: true,
         }
     }
 }
@@ -253,6 +269,36 @@ pub fn init(config: Config) -> Peripherals {
         peripherals::PWR::enable_and_reset_with_cs(cs);
         #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
         peripherals::FLASH::enable_and_reset_with_cs(cs);
+
+        // dead battery IOs are still present on g0x0 despite not having UCPD
+        #[cfg(any(stm32g070, stm32g0b0))]
+        let (disable_ucpd1_dead_battery, disable_ucpd2_dead_battery) = (true, true);
+        #[cfg(ucpd)]
+        let disable_ucpd1_dead_battery = config.disable_ucpd1_dead_battery;
+        #[cfg(all(ucpd, stm32g0x1))]
+        let disable_ucpd2_dead_battery = config.disable_ucpd2_dead_battery;
+
+        #[cfg(any(stm32g070, stm32g0b0, all(ucpd, stm32g0x1)))]
+        {
+            crate::pac::SYSCFG.cfgr1().modify(|w| {
+                w.set_ucpd1_strobe(disable_ucpd1_dead_battery);
+                w.set_ucpd2_strobe(disable_ucpd2_dead_battery);
+            });
+        }
+
+        #[cfg(all(ucpd, any(stm32g4, stm32l5)))]
+        {
+            crate::pac::PWR
+                .cr3()
+                .modify(|w| w.set_ucpd1_dbdis(disable_ucpd1_dead_battery))
+        }
+
+        #[cfg(all(ucpd, any(stm32h5, stm32u5)))]
+        {
+            crate::pac::PWR
+                .ucpdr()
+                .modify(|w| w.set_ucpd1_dbdis(disable_ucpd1_dead_battery))
+        }
 
         unsafe {
             #[cfg(feature = "_split-pins-enabled")]
