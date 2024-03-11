@@ -700,7 +700,7 @@ use vals::Mbr as Br;
 
 fn compute_baud_rate(clocks: Hertz, freq: Hertz) -> Br {
     let val = match clocks.0 / freq.0 {
-        0 => unreachable!(),
+        0 => panic!("You are trying to reach a frequency higher than the clock"),
         1..=2 => 0b000,
         3..=5 => 0b001,
         6..=11 => 0b010,
