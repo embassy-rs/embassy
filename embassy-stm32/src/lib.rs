@@ -190,17 +190,17 @@ pub struct Config {
     #[cfg(gpdma)]
     pub gpdma_interrupt_priority: Priority,
 
-    /// Disables UCPD1 dead battery functionality.
+    /// Enables UCPD1 dead battery functionality.
     ///
-    /// Defaults to true (disabled).
-    #[cfg(ucpd)]
-    pub disable_ucpd1_dead_battery: bool,
+    /// Defaults to false (disabled).
+    #[cfg(peri_ucpd1)]
+    pub enable_ucpd1_dead_battery: bool,
 
-    /// Disables UCPD2 dead battery functionality.
+    /// Enables UCPD2 dead battery functionality.
     ///
-    /// Defaults to true (disabled).
-    #[cfg(all(ucpd, stm32g0x1))]
-    pub disable_ucpd2_dead_battery: bool,
+    /// Defaults to false (disabled).
+    #[cfg(peri_ucpd2)]
+    pub enable_ucpd2_dead_battery: bool,
 }
 
 impl Default for Config {
@@ -215,10 +215,10 @@ impl Default for Config {
             dma_interrupt_priority: Priority::P0,
             #[cfg(gpdma)]
             gpdma_interrupt_priority: Priority::P0,
-            #[cfg(ucpd)]
-            disable_ucpd1_dead_battery: true,
-            #[cfg(all(ucpd, stm32g0x1))]
-            uisable_ucpd2_dead_battery: true,
+            #[cfg(peri_ucpd1)]
+            enable_ucpd1_dead_battery: false,
+            #[cfg(peri_ucpd2)]
+            enable_ucpd2_dead_battery: false,
         }
     }
 }
@@ -270,37 +270,27 @@ pub fn init(config: Config) -> Peripherals {
         #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7)))]
         peripherals::FLASH::enable_and_reset_with_cs(cs);
 
-        // dead battery IOs are still present on g0x0 despite not having UCPD
+        // dead battery functionality is still present on these
+        // chips despite them not having UCPD- disable it
         #[cfg(any(stm32g070, stm32g0b0))]
-        let (disable_ucpd1_dead_battery, disable_ucpd2_dead_battery) = (true, true);
-        #[cfg(ucpd)]
-        let disable_ucpd1_dead_battery = config.disable_ucpd1_dead_battery;
-        #[cfg(all(ucpd, stm32g0x1))]
-        let disable_ucpd2_dead_battery = config.disable_ucpd2_dead_battery;
-
-        #[cfg(any(stm32g070, stm32g0b0, all(ucpd, stm32g0x1)))]
         {
             crate::pac::SYSCFG.cfgr1().modify(|w| {
-                w.set_ucpd1_strobe(disable_ucpd1_dead_battery);
-                w.set_ucpd2_strobe(disable_ucpd2_dead_battery);
+                w.set_ucpd1_strobe(true);
+                w.set_ucpd2_strobe(true);
             });
         }
 
-        #[cfg(all(ucpd, any(stm32g4, stm32l5)))]
-        {
-            crate::pac::PWR
-                .cr3()
-                .modify(|w| w.set_ucpd1_dbdis(disable_ucpd1_dead_battery))
-        }
-
-        #[cfg(all(ucpd, any(stm32h5, stm32u5)))]
-        {
-            crate::pac::PWR
-                .ucpdr()
-                .modify(|w| w.set_ucpd1_dbdis(disable_ucpd1_dead_battery))
-        }
-
         unsafe {
+            // TODO: refactor into mod ucpd
+            #[cfg(ucpd)]
+            ucpd_init(
+                cs,
+                #[cfg(peri_ucpd1)]
+                config.enable_ucpd1_dead_battery,
+                #[cfg(peri_ucpd2)]
+                config.enable_ucpd2_dead_battery,
+            );
+
             #[cfg(feature = "_split-pins-enabled")]
             crate::pac::SYSCFG.pmcr().modify(|pmcr| {
                 #[cfg(feature = "split-pa0")]
@@ -341,4 +331,42 @@ pub fn init(config: Config) -> Peripherals {
 
         p
     })
+}
+
+#[cfg(ucpd)]
+/// Safety: must only be called when all UCPDs are disabled (e.g. at startup)
+unsafe fn ucpd_init(
+    _cs: critical_section::CriticalSection,
+    #[cfg(peri_ucpd1)] ucpd1_db_enable: bool,
+    #[cfg(peri_ucpd2)] ucpd2_db_enable: bool,
+) {
+    #[cfg(stm32g0x1)]
+    {
+        // according to RM0444 (STM32G0x1) section 8.1.1:
+        // when UCPD is disabled setting the strobe will disable dead battery
+        // (which is enabled after reset) but if UCPD is enabled, setting the
+        // strobe will apply the CC pin configuration from the control register
+        // (which is why we need to be careful about when we call this)
+        crate::pac::SYSCFG.cfgr1().modify(|w| {
+            w.set_ucpd1_strobe(ucpd1_db_enable);
+            w.set_ucpd2_strobe(ucpd2_db_enable);
+        });
+    }
+
+    #[cfg(any(stm32g4, stm32l5))]
+    {
+        crate::pac::PWR.cr3().modify(|w| {
+            #[cfg(stm32g4)]
+            w.set_ucpd1_dbdis(!ucpd1_db_enable);
+            #[cfg(stm32l5)]
+            w.set_ucpd_dbdis(!ucpd1_db_enable);
+        })
+    }
+
+    #[cfg(any(stm32h5, stm32u5))]
+    {
+        crate::pac::PWR.ucpdr().modify(|w| {
+            w.set_ucpd_dbdis(!ucpd1_db_enable);
+        })
+    }
 }
