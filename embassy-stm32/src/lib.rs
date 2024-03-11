@@ -32,6 +32,8 @@ pub mod timer;
 pub mod adc;
 #[cfg(can)]
 pub mod can;
+#[cfg(cordic)]
+pub mod cordic;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
