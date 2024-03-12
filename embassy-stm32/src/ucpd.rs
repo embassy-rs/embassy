@@ -124,6 +124,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             // 1.75us * 17 = ~30us
             w.set_ifrgap(17 - 1);
 
+            // TODO: Currently only hard reset and SOP messages can be received.
+            // UNDOCUMENTED: This register can only be written while UCPDEN=0 (found by testing).
+            w.set_rxordseten(0b1001);
+
+            // Enable DMA
+            w.set_txdmaen(true);
+            w.set_rxdmaen(true);
+
             w.set_ucpden(true);
         });
 
@@ -149,15 +157,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
         // TODO: Currently only SOP messages are supported.
         r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
-
-        r.cfgr1().modify(|w| {
-            // TODO: Currently only hard reset and SOP messages can be received.
-            w.set_rxordseten(0b1001);
-
-            // Enable DMA
-            w.set_txdmaen(true);
-            w.set_rxdmaen(true);
-        });
 
         // Enable the receiver on one of the two CC lines.
         r.cr().modify(|w| {
@@ -216,7 +215,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
 impl<'d, T: Instance> CcPhy<'d, T> {
     /// Sets the pull-up/pull-down resistor values exposed on the CC pins.
     pub fn set_pull(&mut self, cc_pull: CcPull) {
-        T::REGS.cr().write(|w| {
+        T::REGS.cr().modify(|w| {
             w.set_anamode(if cc_pull == CcPull::Sink {
                 Anamode::SINK
             } else {
