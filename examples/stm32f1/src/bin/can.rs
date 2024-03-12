@@ -3,9 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::can::bxcan::filter::Mask32;
-use embassy_stm32::can::bxcan::{Fifo, Frame, Id, StandardId};
-use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
+use embassy_stm32::can::{
+    filter, Can, Fifo, Frame, Id, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, StandardId,
+    TxInterruptHandler,
+};
 use embassy_stm32::peripherals::CAN;
 use embassy_stm32::{bind_interrupts, Config};
 use {defmt_rtt as _, panic_probe as _};
@@ -31,7 +32,7 @@ async fn main(_spawner: Spawner) {
 
     can.as_mut()
         .modify_filters()
-        .enable_bank(0, Fifo::Fifo0, Mask32::accept_all());
+        .enable_bank(0, Fifo::Fifo0, filter::Mask32::accept_all());
 
     can.as_mut()
         .modify_config()
@@ -45,16 +46,16 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
+        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i, 0, 1, 2, 3, 4, 5, 6]);
         can.write(&tx_frame).await;
 
         match can.read().await {
             Ok(env) => match env.frame.id() {
                 Id::Extended(id) => {
-                    defmt::println!("Extended Frame id={:x}", id.as_raw());
+                    defmt::println!("Extended Frame id={:x} {:02x}", id.as_raw(), env.frame.data().unwrap());
                 }
                 Id::Standard(id) => {
-                    defmt::println!("Standard Frame id={:x}", id.as_raw());
+                    defmt::println!("Standard Frame id={:x} {:02x}", id.as_raw(), env.frame.data().unwrap());
                 }
             },
             Err(err) => {

@@ -4,8 +4,9 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
-pub use bxcan;
-use bxcan::{Data, ExtendedId, Frame, Id, StandardId};
+pub mod bx;
+
+pub use bx::{filter, Data, ExtendedId, Fifo, Frame, Id, StandardId};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::FutureExt;
 
@@ -29,7 +30,7 @@ pub struct Envelope {
     #[cfg(feature = "time")]
     pub ts: embassy_time::Instant,
     /// The actual CAN frame.
-    pub frame: bxcan::Frame,
+    pub frame: crate::can::bx::Frame,
 }
 
 /// Interrupt handler.
@@ -93,7 +94,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterrup
 
 /// CAN driver
 pub struct Can<'d, T: Instance> {
-    can: bxcan::Can<BxcanInstance<'d, T>>,
+    can: crate::can::bx::Can<BxcanInstance<'d, T>>,
 }
 
 /// Error returned by `try_read`
@@ -166,21 +167,14 @@ impl<'d, T: Instance> Can<'d, T> {
         rx.set_as_af(rx.af_num(), AFType::Input);
         tx.set_as_af(tx.af_num(), AFType::OutputPushPull);
 
-        let can = bxcan::Can::builder(BxcanInstance(peri)).leave_disabled();
+        let can = crate::can::bx::Can::builder(BxcanInstance(peri), T::regs()).leave_disabled();
         Self { can }
     }
 
     /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
         let bit_timing = util::calc_can_timings(T::frequency(), bitrate).unwrap();
-        let sjw = u8::from(bit_timing.sync_jump_width) as u32;
-        let seg1 = u8::from(bit_timing.seg1) as u32;
-        let seg2 = u8::from(bit_timing.seg2) as u32;
-        let prescaler = u16::from(bit_timing.prescaler) as u32;
-        self.can
-            .modify_config()
-            .set_bit_timing((sjw - 1) << 24 | (seg1 - 1) << 16 | (seg2 - 1) << 20 | (prescaler - 1))
-            .leave_disabled();
+        self.can.modify_config().set_bit_timing(bit_timing).leave_disabled();
     }
 
     /// Enables the peripheral and synchronizes with the bus.
@@ -198,19 +192,19 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Queues the message to be sent.
     ///
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
-    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+    pub async fn write(&mut self, frame: &Frame) -> crate::can::bx::TransmitStatus {
         self.split().0.write(frame).await
     }
 
     /// Attempts to transmit a frame without blocking.
     ///
     /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
-    pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
+    pub fn try_write(&mut self, frame: &Frame) -> Result<crate::can::bx::TransmitStatus, TryWriteError> {
         self.split().0.try_write(frame)
     }
 
     /// Waits for a specific transmit mailbox to become empty
-    pub async fn flush(&self, mb: bxcan::Mailbox) {
+    pub async fn flush(&self, mb: crate::can::bx::Mailbox) {
         CanTx::<T>::flush_inner(mb).await
     }
 
@@ -298,29 +292,29 @@ impl<'d, T: Instance> Can<'d, T> {
     /// Split the CAN driver into transmit and receive halves.
     ///
     /// Useful for doing separate transmit/receive tasks.
-    pub fn split<'c>(&'c mut self) -> (CanTx<'c, 'd, T>, CanRx<'c, 'd, T>) {
+    pub fn split<'c>(&'c mut self) -> (CanTx<'d, T>, CanRx<'d, T>) {
         let (tx, rx0, rx1) = self.can.split_by_ref();
         (CanTx { tx }, CanRx { rx0, rx1 })
     }
 }
 
-impl<'d, T: Instance> AsMut<bxcan::Can<BxcanInstance<'d, T>>> for Can<'d, T> {
+impl<'d, T: Instance> AsMut<crate::can::bx::Can<BxcanInstance<'d, T>>> for Can<'d, T> {
     /// Get mutable access to the lower-level driver from the `bxcan` crate.
-    fn as_mut(&mut self) -> &mut bxcan::Can<BxcanInstance<'d, T>> {
+    fn as_mut(&mut self) -> &mut crate::can::bx::Can<BxcanInstance<'d, T>> {
         &mut self.can
     }
 }
 
 /// CAN driver, transmit half.
-pub struct CanTx<'c, 'd, T: Instance> {
-    tx: &'c mut bxcan::Tx<BxcanInstance<'d, T>>,
+pub struct CanTx<'d, T: Instance> {
+    tx: crate::can::bx::Tx<BxcanInstance<'d, T>>,
 }
 
-impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
+impl<'d, T: Instance> CanTx<'d, T> {
     /// Queues the message to be sent.
     ///
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
-    pub async fn write(&mut self, frame: &Frame) -> bxcan::TransmitStatus {
+    pub async fn write(&mut self, frame: &Frame) -> crate::can::bx::TransmitStatus {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
             if let Ok(status) = self.tx.transmit(frame) {
@@ -335,11 +329,11 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     /// Attempts to transmit a frame without blocking.
     ///
     /// Returns [Err(TryWriteError::Full)] if all transmit mailboxes are full.
-    pub fn try_write(&mut self, frame: &Frame) -> Result<bxcan::TransmitStatus, TryWriteError> {
+    pub fn try_write(&mut self, frame: &Frame) -> Result<crate::can::bx::TransmitStatus, TryWriteError> {
         self.tx.transmit(frame).map_err(|_| TryWriteError::Full)
     }
 
-    async fn flush_inner(mb: bxcan::Mailbox) {
+    async fn flush_inner(mb: crate::can::bx::Mailbox) {
         poll_fn(|cx| {
             T::state().tx_waker.register(cx.waker());
             if T::regs().tsr().read().tme(mb.index()) {
@@ -352,7 +346,7 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
     }
 
     /// Waits for a specific transmit mailbox to become empty
-    pub async fn flush(&self, mb: bxcan::Mailbox) {
+    pub async fn flush(&self, mb: crate::can::bx::Mailbox) {
         Self::flush_inner(mb).await
     }
 
@@ -361,9 +355,9 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
             T::state().tx_waker.register(cx.waker());
 
             let tsr = T::regs().tsr().read();
-            if tsr.tme(bxcan::Mailbox::Mailbox0.index())
-                || tsr.tme(bxcan::Mailbox::Mailbox1.index())
-                || tsr.tme(bxcan::Mailbox::Mailbox2.index())
+            if tsr.tme(crate::can::bx::Mailbox::Mailbox0.index())
+                || tsr.tme(crate::can::bx::Mailbox::Mailbox1.index())
+                || tsr.tme(crate::can::bx::Mailbox::Mailbox2.index())
             {
                 return Poll::Ready(());
             }
@@ -383,9 +377,9 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
             T::state().tx_waker.register(cx.waker());
 
             let tsr = T::regs().tsr().read();
-            if tsr.tme(bxcan::Mailbox::Mailbox0.index())
-                && tsr.tme(bxcan::Mailbox::Mailbox1.index())
-                && tsr.tme(bxcan::Mailbox::Mailbox2.index())
+            if tsr.tme(crate::can::bx::Mailbox::Mailbox0.index())
+                && tsr.tme(crate::can::bx::Mailbox::Mailbox1.index())
+                && tsr.tme(crate::can::bx::Mailbox::Mailbox2.index())
             {
                 return Poll::Ready(());
             }
@@ -403,12 +397,12 @@ impl<'c, 'd, T: Instance> CanTx<'c, 'd, T> {
 
 /// CAN driver, receive half.
 #[allow(dead_code)]
-pub struct CanRx<'c, 'd, T: Instance> {
-    rx0: &'c mut bxcan::Rx0<BxcanInstance<'d, T>>,
-    rx1: &'c mut bxcan::Rx1<BxcanInstance<'d, T>>,
+pub struct CanRx<'d, T: Instance> {
+    rx0: crate::can::bx::Rx0<BxcanInstance<'d, T>>,
+    rx1: crate::can::bx::Rx1<BxcanInstance<'d, T>>,
 }
 
-impl<'c, 'd, T: Instance> CanRx<'c, 'd, T> {
+impl<'d, T: Instance> CanRx<'d, T> {
     /// Read a CAN frame.
     ///
     /// If no CAN frame is in the RX buffer, this will wait until there is one.
@@ -478,7 +472,7 @@ impl<'d, T: Instance> Drop for Can<'d, T> {
 }
 
 impl<'d, T: Instance> Deref for Can<'d, T> {
-    type Target = bxcan::Can<BxcanInstance<'d, T>>;
+    type Target = crate::can::bx::Can<BxcanInstance<'d, T>>;
 
     fn deref(&self) -> &Self::Target {
         &self.can
@@ -515,8 +509,6 @@ pub(crate) mod sealed {
     }
 
     pub trait Instance {
-        const REGISTERS: *mut bxcan::RegisterBlock;
-
         fn regs() -> crate::pac::can::Can;
         fn state() -> &'static State;
     }
@@ -537,14 +529,11 @@ pub trait Instance: sealed::Instance + RccPeripheral + 'static {
 /// BXCAN instance newtype.
 pub struct BxcanInstance<'a, T>(PeripheralRef<'a, T>);
 
-unsafe impl<'d, T: Instance> bxcan::Instance for BxcanInstance<'d, T> {
-    const REGISTERS: *mut bxcan::RegisterBlock = T::REGISTERS;
-}
+unsafe impl<'d, T: Instance> crate::can::bx::Instance for BxcanInstance<'d, T> {}
 
 foreach_peripheral!(
     (can, $inst:ident) => {
         impl sealed::Instance for peripherals::$inst {
-            const REGISTERS: *mut bxcan::RegisterBlock = crate::pac::$inst.as_ptr() as *mut _;
 
             fn regs() -> crate::pac::can::Can {
                 crate::pac::$inst
@@ -567,7 +556,7 @@ foreach_peripheral!(
 
 foreach_peripheral!(
     (can, CAN) => {
-        unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN> {
+        unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN> {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
@@ -582,19 +571,19 @@ foreach_peripheral!(
             ))] {
                 // Most L4 devices and some F7 devices use the name "CAN1"
                 // even if there is no "CAN2" peripheral.
-                unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
+                unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
                     const NUM_FILTER_BANKS: u8 = 14;
                 }
             } else {
-                unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
+                unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN1> {
                     const NUM_FILTER_BANKS: u8 = 28;
                 }
-                unsafe impl<'d> bxcan::MasterInstance for BxcanInstance<'d, peripherals::CAN1> {}
+                unsafe impl<'d> crate::can::bx::MasterInstance for BxcanInstance<'d, peripherals::CAN1> {}
             }
         }
     };
     (can, CAN3) => {
-        unsafe impl<'d> bxcan::FilterOwner for BxcanInstance<'d, peripherals::CAN3> {
+        unsafe impl<'d> crate::can::bx::FilterOwner for BxcanInstance<'d, peripherals::CAN3> {
             const NUM_FILTER_BANKS: u8 = 14;
         }
     };
@@ -607,12 +596,12 @@ trait Index {
     fn index(&self) -> usize;
 }
 
-impl Index for bxcan::Mailbox {
+impl Index for crate::can::bx::Mailbox {
     fn index(&self) -> usize {
         match self {
-            bxcan::Mailbox::Mailbox0 => 0,
-            bxcan::Mailbox::Mailbox1 => 1,
-            bxcan::Mailbox::Mailbox2 => 2,
+            crate::can::bx::Mailbox::Mailbox0 => 0,
+            crate::can::bx::Mailbox::Mailbox1 => 1,
+            crate::can::bx::Mailbox::Mailbox2 => 2,
         }
     }
 }
