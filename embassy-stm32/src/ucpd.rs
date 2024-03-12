@@ -24,6 +24,7 @@ use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 use crate::dma::{AnyChannel, Request, Transfer, TransferOptions};
 use crate::interrupt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
 use crate::rcc::RccPeripheral;
@@ -93,10 +94,13 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     /// Creates a new UCPD driver instance.
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         _cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
         _cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
     ) -> Self {
         T::enable_and_reset();
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let r = T::REGS;
         r.cfgr1().write(|w| {
@@ -206,6 +210,7 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
             T::disable();
+            T::Interrupt::disable();
         }
     }
 }
@@ -323,6 +328,7 @@ impl<'d, T: Instance> Drop for PdPhy<'d, T> {
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
             T::disable();
+            T::Interrupt::disable();
         }
     }
 }

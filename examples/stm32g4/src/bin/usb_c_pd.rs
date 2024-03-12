@@ -4,9 +4,13 @@
 use defmt::{error, info, Format};
 use embassy_executor::Spawner;
 use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, Ucpd};
-use embassy_stm32::Config;
+use embassy_stm32::{bind_interrupts, peripherals, Config};
 use embassy_time::{with_timeout, Duration};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    UCPD1 => ucpd::InterruptHandler<peripherals::UCPD1>;
+});
 
 #[derive(Debug, Format)]
 enum CableOrientation {
@@ -50,7 +54,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut ucpd = Ucpd::new(p.UCPD1, p.PB6, p.PB4);
+    let mut ucpd = Ucpd::new(p.UCPD1, Irqs {}, p.PB6, p.PB4);
     ucpd.cc_phy().set_pull(CcPull::Sink);
 
     info!("Waiting for USB connection...");
