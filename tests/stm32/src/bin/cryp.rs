@@ -10,11 +10,8 @@ use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::Aes128Gcm;
 use common::*;
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    bind_interrupts,
-    cryp::{self, *},
-    peripherals,
-};
+use embassy_stm32::cryp::{self, *};
+use embassy_stm32::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
