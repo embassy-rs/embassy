@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i, 0, 1, 2, 3, 4, 5, 6]);
+        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i, 0, 1, 2, 3, 4, 5, 6]).unwrap();
         can.write(&tx_frame).await;
 
         match can.read().await {

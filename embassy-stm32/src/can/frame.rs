@@ -1,6 +1,8 @@
 //! Definition for CAN Frames
 use bit_field::BitField;
 
+use crate::can::enums::FrameCreateError;
+
 /// CAN Header, without meta data
 #[derive(Debug, Copy, Clone)]
 pub struct Header {
@@ -82,7 +84,7 @@ impl Header {
 /// and to retrieve the Header from a frame
 pub trait CanHeader: Sized {
     /// Construct frame from header and payload
-    fn from_header(header: Header, data: &[u8]) -> Option<Self>;
+    fn from_header(header: Header, data: &[u8]) -> Result<Self, FrameCreateError>;
 
     /// Get this frame's header struct
     fn header(&self) -> &Header;
@@ -103,15 +105,15 @@ impl ClassicData {
     ///
     /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
     /// cannot be represented with an FDCAN DLC.
-    pub fn new(data: &[u8]) -> Option<Self> {
-        if !FdData::is_valid_len(data.len()) {
-            return None;
+    pub fn new(data: &[u8]) -> Result<Self, FrameCreateError> {
+        if data.len() > 8 {
+            return Err(FrameCreateError::InvalidDataLength);
         }
 
         let mut bytes = [0; 8];
         bytes[..data.len()].copy_from_slice(data);
 
-        Some(Self { bytes })
+        Ok(Self { bytes })
     }
 
     /// Raw read access to data.
@@ -134,12 +136,6 @@ impl ClassicData {
     }
 }
 
-impl From<&[u8]> for ClassicData {
-    fn from(d: &[u8]) -> Self {
-        ClassicData::new(d).unwrap()
-    }
-}
-
 /// Frame with up to 8 bytes of data payload as per Classic CAN
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -150,59 +146,42 @@ pub struct ClassicFrame {
 
 impl ClassicFrame {
     /// Create a new CAN classic Frame
-    pub fn new(can_header: Header, data: impl Into<ClassicData>) -> ClassicFrame {
-        ClassicFrame {
-            can_header,
-            data: data.into(),
-        }
+    pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
+        let data = ClassicData::new(raw_data)?;
+        Ok(ClassicFrame { can_header, data: data })
     }
 
     /// Creates a new data frame.
-    pub fn new_data(id: impl Into<embedded_can::Id>, data: &[u8]) -> Self {
+    pub fn new_data(id: impl Into<embedded_can::Id>, data: &[u8]) -> Result<Self, FrameCreateError> {
         let eid: embedded_can::Id = id.into();
         let header = Header::new(eid, data.len() as u8, false);
         Self::new(header, data)
     }
 
     /// Create new extended frame
-    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            match ClassicData::new(raw_data) {
-                Some(data) => Some(ClassicFrame::new(
-                    Header::new(id.into(), raw_data.len() as u8, false),
-                    data,
-                )),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new standard frame
-    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            match ClassicData::new(raw_data) {
-                Some(data) => Some(ClassicFrame::new(
-                    Header::new(id.into(), raw_data.len() as u8, false),
-                    data,
-                )),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new remote frame
-    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
+    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Result<Self, FrameCreateError> {
         if len <= 8usize {
-            Some(ClassicFrame::new(
-                Header::new(id.into(), len as u8, true),
-                ClassicData::empty(),
-            ))
+            Self::new(Header::new(id.into(), len as u8, true), &[0; 8])
         } else {
-            None
+            Err(FrameCreateError::InvalidDataLength)
         }
     }
 
@@ -229,20 +208,19 @@ impl ClassicFrame {
 
 impl embedded_can::Frame for ClassicFrame {
     fn new(id: impl Into<embedded_can::Id>, raw_data: &[u8]) -> Option<Self> {
-        match ClassicData::new(raw_data) {
-            Some(data) => Some(ClassicFrame::new(
-                Header::new(id.into(), raw_data.len() as u8, false),
-                data,
-            )),
-            None => None,
+        let frameopt = ClassicFrame::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data);
+        match frameopt {
+            Ok(frame) => Some(frame),
+            Err(_) => None,
         }
     }
     fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
         if len <= 8 {
-            Some(ClassicFrame::new(
-                Header::new(id.into(), len as u8, true),
-                ClassicData::empty(),
-            ))
+            let frameopt = ClassicFrame::new(Header::new(id.into(), len as u8, true), &[0; 8]);
+            match frameopt {
+                Ok(frame) => Some(frame),
+                Err(_) => None,
+            }
         } else {
             None
         }
@@ -268,8 +246,8 @@ impl embedded_can::Frame for ClassicFrame {
 }
 
 impl CanHeader for ClassicFrame {
-    fn from_header(header: Header, data: &[u8]) -> Option<Self> {
-        Some(Self::new(header, ClassicData::new(data)?))
+    fn from_header(header: Header, data: &[u8]) -> Result<Self, FrameCreateError> {
+        Self::new(header, data)
     }
 
     fn header(&self) -> &Header {
@@ -290,15 +268,15 @@ impl FdData {
     ///
     /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
     /// cannot be represented with an FDCAN DLC.
-    pub fn new(data: &[u8]) -> Option<Self> {
+    pub fn new(data: &[u8]) -> Result<Self, FrameCreateError> {
         if !FdData::is_valid_len(data.len()) {
-            return None;
+            return Err(FrameCreateError::InvalidDataLength);
         }
 
         let mut bytes = [0; 64];
         bytes[..data.len()].copy_from_slice(data);
 
-        Some(Self { bytes })
+        Ok(Self { bytes })
     }
 
     /// Raw read access to data.
@@ -337,40 +315,35 @@ pub struct FdFrame {
 
 impl FdFrame {
     /// Create a new CAN classic Frame
-    pub fn new(can_header: Header, data: FdData) -> FdFrame {
-        FdFrame { can_header, data }
+    pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
+        let data = FdData::new(raw_data)?;
+        Ok(FdFrame { can_header, data })
     }
 
     /// Create new extended frame
-    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            match FdData::new(raw_data) {
-                Some(data) => Some(FdFrame::new(Header::new(id.into(), raw_data.len() as u8, false), data)),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new standard frame
-    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Option<Self> {
+    pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            match FdData::new(raw_data) {
-                Some(data) => Some(FdFrame::new(Header::new(id.into(), raw_data.len() as u8, false), data)),
-                None => None,
-            }
+            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
         } else {
-            None
+            Err(FrameCreateError::InvalidCanId)
         }
     }
 
     /// Create new remote frame
-    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
+    pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Result<Self, FrameCreateError> {
         if len <= 8 {
-            Some(FdFrame::new(Header::new(id.into(), len as u8, true), FdData::empty()))
+            Self::new(Header::new(id.into(), len as u8, true), &[0; 8])
         } else {
-            None
+            Err(FrameCreateError::InvalidDataLength)
         }
     }
 
@@ -392,20 +365,17 @@ impl FdFrame {
 
 impl embedded_can::Frame for FdFrame {
     fn new(id: impl Into<embedded_can::Id>, raw_data: &[u8]) -> Option<Self> {
-        match FdData::new(raw_data) {
-            Some(data) => Some(FdFrame::new(
-                Header::new_fd(id.into(), raw_data.len() as u8, false, true),
-                data,
-            )),
-            None => None,
+        match FdFrame::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data) {
+            Ok(frame) => Some(frame),
+            Err(_) => None,
         }
     }
     fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
         if len <= 8 {
-            Some(FdFrame::new(
-                Header::new_fd(id.into(), len as u8, true, true),
-                FdData::empty(),
-            ))
+            match FdFrame::new(Header::new_fd(id.into(), len as u8, true, true), &[0; 64]) {
+                Ok(frame) => Some(frame),
+                Err(_) => None,
+            }
         } else {
             None
         }
@@ -432,8 +402,8 @@ impl embedded_can::Frame for FdFrame {
 }
 
 impl CanHeader for FdFrame {
-    fn from_header(header: Header, data: &[u8]) -> Option<Self> {
-        Some(Self::new(header, FdData::new(data)?))
+    fn from_header(header: Header, data: &[u8]) -> Result<Self, FrameCreateError> {
+        Self::new(header, data)
     }
 
     fn header(&self) -> &Header {

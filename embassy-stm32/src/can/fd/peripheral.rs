@@ -56,7 +56,10 @@ impl Registers {
         match maybe_header {
             Some((header, ts)) => {
                 let data = &buffer[0..header.len() as usize];
-                Some((F::from_header(header, data)?, ts))
+                match F::from_header(header, data) {
+                    Ok(frame) => Some((frame, ts)),
+                    Err(_) => None,
+                }
             }
             None => None,
         }

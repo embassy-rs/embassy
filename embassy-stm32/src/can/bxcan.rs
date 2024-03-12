@@ -274,7 +274,7 @@ impl<'d, T: Instance> Can<'d, T> {
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-            let frame = Frame::new(Header::new(id, data_len, false), Data::new(&data).unwrap());
+            let frame = Frame::new(Header::new(id, data_len, false), &data).unwrap();
             let envelope = Envelope {
                 #[cfg(feature = "time")]
                 ts,

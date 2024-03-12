@@ -44,7 +44,6 @@ pub type Data = crate::can::frame::ClassicData;
 pub type Frame = crate::can::frame::ClassicFrame;
 
 use crate::can::bx::filter::MasterFilters;
-use crate::can::frame::ClassicData;
 
 /// A bxCAN peripheral instance.
 ///
@@ -799,10 +798,7 @@ where
             data[4..8].copy_from_slice(&mb.tdhr().read().0.to_ne_bytes());
             let len = mb.tdtr().read().dlc();
 
-            Some(Frame::new(
-                Header::new(id, len, false),
-                ClassicData::new(&data).unwrap(),
-            ))
+            Some(Frame::new(Header::new(id, len, false), &data).unwrap())
         } else {
             // Abort request failed because the frame was already sent (or being sent) on
             // the bus. All mailboxes are now free. This can happen for small prescaler
@@ -944,10 +940,7 @@ fn receive_fifo(canregs: crate::pac::can::Can, fifo_nr: usize) -> nb::Result<Fra
     // Release the mailbox.
     rfr.write(|w| w.set_rfom(true));
 
-    Ok(Frame::new(
-        Header::new(id, len, false),
-        ClassicData::new(&data).unwrap(),
-    ))
+    Ok(Frame::new(Header::new(id, len, false), &data).unwrap())
 }
 
 /// Identifies one of the two receive FIFOs.
