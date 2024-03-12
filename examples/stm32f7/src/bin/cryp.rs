@@ -6,7 +6,6 @@ use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::Aes128Gcm;
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::{
     bind_interrupts,
     cryp::{self, *},
@@ -27,7 +26,7 @@ async fn main(_spawner: Spawner) -> ! {
     let payload: &[u8] = b"hello world";
     let aad: &[u8] = b"additional data";
 
-    let hw_cryp = Cryp::new(p.CRYP, NoDma, NoDma, Irqs);
+    let mut hw_cryp = Cryp::new(p.CRYP, p.DMA2_CH6, p.DMA2_CH5, Irqs);
     let key: [u8; 16] = [0; 16];
     let mut ciphertext: [u8; 11] = [0; 11];
     let mut plaintext: [u8; 11] = [0; 11];
@@ -37,16 +36,16 @@ async fn main(_spawner: Spawner) -> ! {
 
     // Encrypt in hardware using AES-GCM 128-bit
     let aes_gcm = AesGcm::new(&key, &iv);
-    let mut gcm_encrypt = hw_cryp.start(&aes_gcm, Direction::Encrypt);
-    hw_cryp.aad_blocking(&mut gcm_encrypt, aad, true);
-    hw_cryp.payload_blocking(&mut gcm_encrypt, payload, &mut ciphertext, true);
-    let encrypt_tag = hw_cryp.finish_blocking(gcm_encrypt);
+    let mut gcm_encrypt = hw_cryp.start(&aes_gcm, Direction::Encrypt).await;
+    hw_cryp.aad(&mut gcm_encrypt, aad, true).await;
+    hw_cryp.payload(&mut gcm_encrypt, payload, &mut ciphertext, true).await;
+    let encrypt_tag = hw_cryp.finish(gcm_encrypt).await;
 
     // Decrypt in hardware using AES-GCM 128-bit
-    let mut gcm_decrypt = hw_cryp.start(&aes_gcm, Direction::Decrypt);
-    hw_cryp.aad_blocking(&mut gcm_decrypt, aad, true);
-    hw_cryp.payload_blocking(&mut gcm_decrypt, &ciphertext, &mut plaintext, true);
-    let decrypt_tag = hw_cryp.finish_blocking(gcm_decrypt);
+    let mut gcm_decrypt = hw_cryp.start(&aes_gcm, Direction::Decrypt).await;
+    hw_cryp.aad(&mut gcm_decrypt, aad, true).await;
+    hw_cryp.payload(&mut gcm_decrypt, &ciphertext, &mut plaintext, true).await;
+    let decrypt_tag = hw_cryp.finish(gcm_decrypt).await;
 
     let hw_end_time = Instant::now();
     let hw_execution_time = hw_end_time - hw_start_time;
