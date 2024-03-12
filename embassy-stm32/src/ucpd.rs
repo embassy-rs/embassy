@@ -112,10 +112,8 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             // Prescaler to produce a target half-bit frequency of 600kHz which is required
             // to produce transmit with a nominal nominal bit rate of 300Kbps+-10% using
             // biphase mark coding (BMC, aka differential manchester coding).
-            // A divider of 13 gives the target frequency closest to spec (~615kHz, 1.625us)
-            // but we go with the (hopefully well tested) default value used by the Cube HAL
-            // which is 14 divides the clock down to ~571kHz, 1.75us.
-            w.set_hbitclkdiv(14 - 1);
+            // A divider of 13 gives the target frequency closest to spec (~615kHz, 1.625us).
+            w.set_hbitclkdiv(13 - 1);
 
             // Time window for detecting non-idle (12-20us).
             // 1.75us * 8 = 14us.
