@@ -140,6 +140,7 @@ define_peris!(
 );
 #[cfg(any(feature = "stm32h755zi", feature = "stm32h753zi"))]
 define_peris!(
+    CRYP_IN_DMA = DMA1_CH0, CRYP_OUT_DMA = DMA1_CH1,
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH0, UART_RX_DMA = DMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH0, SPI_RX_DMA = DMA1_CH1,
     ADC = ADC1, DAC = DAC1, DAC_PIN = PA4,

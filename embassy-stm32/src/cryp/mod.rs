@@ -98,7 +98,7 @@ pub trait Cipher<'c> {
         DmaOut: crate::cryp::DmaOut<T>,
     {}
 
-    /// Called prior to processing the first associated data block for cipher-specific operations.
+    /// Returns the AAD header block as required by the cipher.
     fn get_header_block(&self) -> &[u8] {
         return [0; 0].as_slice();
     }
@@ -500,7 +500,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
     }
 
     #[cfg(cryp_v3)]
-    fn pre_final_block(&self, p: &pac::cryp::Cryp, _dir: Direction, padding_len: usize) -> [u32; 4] {
+    fn pre_final(&self, p: &pac::cryp::Cryp, _dir: Direction, padding_len: usize) -> [u32; 4] {
         //Handle special GCM partial block process.
         p.cr().modify(|w| w.set_npblb(padding_len as u8));
         [0; 4]
@@ -643,7 +643,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
     }
 
     #[cfg(cryp_v3)]
-    fn pre_final_block(&self, p: &pac::cryp::Cryp, _dir: Direction, padding_len: usize) -> [u32; 4] {
+    fn pre_final(&self, p: &pac::cryp::Cryp, _dir: Direction, padding_len: usize) -> [u32; 4] {
         //Handle special GCM partial block process.
         p.cr().modify(|w| w.set_npblb(padding_len as u8));
         [0; 4]
@@ -861,7 +861,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
     }
 
     #[cfg(cryp_v3)]
-    fn pre_final_block(&self, p: &pac::cryp::Cryp, _dir: Direction, padding_len: usize) -> [u32; 4] {
+    fn pre_final(&self, p: &pac::cryp::Cryp, _dir: Direction, padding_len: usize) -> [u32; 4] {
         //Handle special GCM partial block process.
         p.cr().modify(|w| w.set_npblb(padding_len as u8));
         [0; 4]
@@ -1039,10 +1039,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         instance
     }
 
-    /// Start a new cipher operation.
-    /// Key size must be 128, 192, or 256 bits.
-    /// Initialization vector must only be supplied if necessary.
-    /// Panics if there is any mismatch in parameters, such as an incorrect IV length or invalid mode.
+    /// Start a new encrypt or decrypt operation for the given cipher.
     pub fn start_blocking<'c, C: Cipher<'c> + CipherSized + IVSized>(&self, cipher: &'c C, dir: Direction) -> Context<'c, C> {
         let mut ctx: Context<'c, C> = Context {
             dir,
@@ -1117,10 +1114,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         ctx
     }
 
-    /// Start a new cipher operation.
-    /// Key size must be 128, 192, or 256 bits.
-    /// Initialization vector must only be supplied if necessary.
-    /// Panics if there is any mismatch in parameters, such as an incorrect IV length or invalid mode.
+    /// Start a new encrypt or decrypt operation for the given cipher.
     pub async fn start<'c, C: Cipher<'c> + CipherSized + IVSized>(&mut self, cipher: &'c C, dir: Direction) -> Context<'c, C> 
     where
         DmaIn: crate::cryp::DmaIn<T>,
@@ -1201,10 +1195,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
 
     #[cfg(any(cryp_v2, cryp_v3))]
     /// Controls the header phase of cipher processing.
-    /// This function is only valid for GCM, CCM, and GMAC modes.
-    /// It only needs to be called if using one of these modes and there is associated data.
-    /// All AAD must be supplied to this function prior to starting the payload phase with `payload_blocking`.
-    /// The AAD must be supplied in multiples of the block size (128 bits), except when supplying the last block.
+    /// This function is only valid for authenticated ciphers including GCM, CCM, and GMAC.
+    /// All additional associated data (AAD) must be supplied to this function prior to starting the payload phase with `payload_blocking`.
+    /// The AAD must be supplied in multiples of the block size (128-bits for AES, 64-bits for DES), except when supplying the last block.
     /// When supplying the last block of AAD, `last_aad_block` must be `true`.
     pub fn aad_blocking<
         'c,
@@ -1299,10 +1292,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
 
     #[cfg(any(cryp_v2, cryp_v3))]
     /// Controls the header phase of cipher processing.
-    /// This function is only valid for GCM, CCM, and GMAC modes.
-    /// It only needs to be called if using one of these modes and there is associated data.
-    /// All AAD must be supplied to this function prior to starting the payload phase with `payload_blocking`.
-    /// The AAD must be supplied in multiples of the block size (128 bits), except when supplying the last block.
+    /// This function is only valid for authenticated ciphers including GCM, CCM, and GMAC.
+    /// All additional associated data (AAD) must be supplied to this function prior to starting the payload phase with `payload`.
+    /// The AAD must be supplied in multiples of the block size (128-bits for AES, 64-bits for DES), except when supplying the last block.
     /// When supplying the last block of AAD, `last_aad_block` must be `true`.
     pub async fn aad<
         'c,
@@ -1402,7 +1394,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     /// The context determines algorithm, mode, and state of the crypto accelerator.
     /// When the last piece of data is supplied, `last_block` should be `true`.
     /// This function panics under various mismatches of parameters.
-    /// Input and output buffer lengths must match.
+    /// Output buffer must be at least as long as the input buffer.
     /// Data must be a multiple of block size (128-bits for AES, 64-bits for DES) for CBC and ECB modes.
     /// Padding or ciphertext stealing must be managed by the application for these modes.
     /// Data must also be a multiple of block size unless `last_block` is `true`.
@@ -1455,9 +1447,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         for block in 0..num_full_blocks {
             let index = block * C::BLOCK_SIZE;
             // Write block in
-            self.write_bytes_blocking(C::BLOCK_SIZE, &input[index..index + 4]);
+            self.write_bytes_blocking(C::BLOCK_SIZE, &input[index..index + C::BLOCK_SIZE]);
             // Read block out
-            self.read_bytes_blocking(C::BLOCK_SIZE, &mut output[index..index + 4]);
+            self.read_bytes_blocking(C::BLOCK_SIZE, &mut output[index..index + C::BLOCK_SIZE]);
         }
 
         // Handle the final block, which is incomplete.
@@ -1491,7 +1483,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     /// The context determines algorithm, mode, and state of the crypto accelerator.
     /// When the last piece of data is supplied, `last_block` should be `true`.
     /// This function panics under various mismatches of parameters.
-    /// Input and output buffer lengths must match.
+    /// Output buffer must be at least as long as the input buffer.
     /// Data must be a multiple of block size (128-bits for AES, 64-bits for DES) for CBC and ECB modes.
     /// Padding or ciphertext stealing must be managed by the application for these modes.
     /// Data must also be a multiple of block size unless `last_block` is `true`.
@@ -1548,9 +1540,9 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         for block in 0..num_full_blocks {
             let index = block * C::BLOCK_SIZE;
             // Read block out
-            let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut output[index..index + 4]);
+            let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut output[index..index + C::BLOCK_SIZE]);
             // Write block in
-            let write = Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &input[index..index + 4]);
+            let write = Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &input[index..index + C::BLOCK_SIZE]);
             embassy_futures::join::join(read, write).await;
         }
 
@@ -1583,8 +1575,8 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     }
 
     #[cfg(any(cryp_v2, cryp_v3))]
-    /// This function only needs to be called for GCM, CCM, and GMAC modes to
-    /// generate an authentication tag.
+    /// Generates an authentication tag for authenticated ciphers including GCM, CCM, and GMAC.
+    /// Called after the all data has been encrypted/decrypted by `payload`.
     pub fn finish_blocking<
         'c,
         const TAG_SIZE: usize,
@@ -1629,8 +1621,8 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     }
 
     #[cfg(any(cryp_v2, cryp_v3))]
-    /// This function only needs to be called for GCM, CCM, and GMAC modes to
-    /// generate an authentication tag.
+    // Generates an authentication tag for authenticated ciphers including GCM, CCM, and GMAC.
+    /// Called after the all data has been encrypted/decrypted by `payload`.
     pub async fn finish<'c, const TAG_SIZE: usize, C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>>(&mut self, mut ctx: Context<'c, C>) -> [u8; TAG_SIZE]
     where
         DmaIn: crate::cryp::DmaIn<T>,
