@@ -60,11 +60,12 @@ pub trait Cipher<'c> {
     fn init_phase_blocking<T: Instance, DmaIn, DmaOut>(&self, _p: &pac::cryp::Cryp, _cryp: &Cryp<T, DmaIn, DmaOut>) {}
 
     /// Performs any cipher-specific initialization.
-    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, _p: &pac::cryp::Cryp, _cryp: &mut Cryp<'_, T, DmaIn, DmaOut>) 
+    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, _p: &pac::cryp::Cryp, _cryp: &mut Cryp<'_, T, DmaIn, DmaOut>)
     where
         DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
-    {}
+    {
+    }
 
     /// Called prior to processing the last data block for cipher-specific operations.
     fn pre_final(&self, _p: &pac::cryp::Cryp, _dir: Direction, _padding_len: usize) -> [u32; 4] {
@@ -92,11 +93,11 @@ pub trait Cipher<'c> {
         _int_data: &mut [u8; AES_BLOCK_SIZE],
         _temp1: [u32; 4],
         _padding_mask: [u8; 16],
-    )
-    where
+    ) where
         DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
-    {}
+    {
+    }
 
     /// Returns the AAD header block as required by the cipher.
     fn get_header_block(&self) -> &[u8] {
@@ -479,7 +480,11 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
         while p.cr().read().crypen() {}
     }
 
-    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, p: &pac::cryp::Cryp, _cryp: &mut Cryp<'_, T, DmaIn, DmaOut>) {
+    async fn init_phase<T: Instance, DmaIn, DmaOut>(
+        &self,
+        p: &pac::cryp::Cryp,
+        _cryp: &mut Cryp<'_, T, DmaIn, DmaOut>,
+    ) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
         p.cr().modify(|w| w.set_crypen(true));
         while p.cr().read().crypen() {}
@@ -541,12 +546,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
         int_data: &mut [u8; AES_BLOCK_SIZE],
         _temp1: [u32; 4],
         padding_mask: [u8; AES_BLOCK_SIZE],
-    ) 
-    where
-        DmaIn: crate::cryp::DmaIn<T>, 
+    ) where
+        DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
     {
-
         if dir == Direction::Encrypt {
             // Handle special GCM partial block process.
             p.cr().modify(|w| w.set_crypen(false));
@@ -562,7 +565,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
 
             let read = Cryp::<T, DmaIn, DmaOut>::read_bytes(&mut cryp.outdma, Self::BLOCK_SIZE, &mut out_data);
             let write = Cryp::<T, DmaIn, DmaOut>::write_bytes(&mut cryp.indma, Self::BLOCK_SIZE, int_data);
-            
+
             embassy_futures::join::join(read, write).await;
 
             int_data.copy_from_slice(&out_data);
@@ -622,7 +625,11 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
         while p.cr().read().crypen() {}
     }
 
-    async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, p: &pac::cryp::Cryp, _cryp: &mut Cryp<'_, T, DmaIn, DmaOut>) {
+    async fn init_phase<T: Instance, DmaIn, DmaOut>(
+        &self,
+        p: &pac::cryp::Cryp,
+        _cryp: &mut Cryp<'_, T, DmaIn, DmaOut>,
+    ) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
         p.cr().modify(|w| w.set_crypen(true));
         while p.cr().read().crypen() {}
@@ -684,12 +691,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
         int_data: &mut [u8; AES_BLOCK_SIZE],
         _temp1: [u32; 4],
         padding_mask: [u8; AES_BLOCK_SIZE],
-    ) 
-    where
-        DmaIn: crate::cryp::DmaIn<T>, 
+    ) where
+        DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
     {
-
         if dir == Direction::Encrypt {
             // Handle special GCM partial block process.
             p.cr().modify(|w| w.set_crypen(false));
@@ -705,7 +710,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
 
             let read = Cryp::<T, DmaIn, DmaOut>::read_bytes(&mut cryp.outdma, Self::BLOCK_SIZE, &mut out_data);
             let write = Cryp::<T, DmaIn, DmaOut>::write_bytes(&mut cryp.indma, Self::BLOCK_SIZE, int_data);
-            
+
             embassy_futures::join::join(read, write).await;
         }
     }
@@ -826,7 +831,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
 
     async fn init_phase<T: Instance, DmaIn, DmaOut>(&self, p: &pac::cryp::Cryp, cryp: &mut Cryp<'_, T, DmaIn, DmaOut>)
     where
-        DmaIn: crate::cryp::DmaIn<T>, 
+        DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
     {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
@@ -913,8 +918,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
         int_data: &mut [u8; AES_BLOCK_SIZE],
         temp1: [u32; 4],
         padding_mask: [u8; 16],
-    ) 
-    where
+    ) where
         DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
     {
@@ -1040,7 +1044,11 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     }
 
     /// Start a new encrypt or decrypt operation for the given cipher.
-    pub fn start_blocking<'c, C: Cipher<'c> + CipherSized + IVSized>(&self, cipher: &'c C, dir: Direction) -> Context<'c, C> {
+    pub fn start_blocking<'c, C: Cipher<'c> + CipherSized + IVSized>(
+        &self,
+        cipher: &'c C,
+        dir: Direction,
+    ) -> Context<'c, C> {
         let mut ctx: Context<'c, C> = Context {
             dir,
             last_block_processed: false,
@@ -1115,7 +1123,11 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     }
 
     /// Start a new encrypt or decrypt operation for the given cipher.
-    pub async fn start<'c, C: Cipher<'c> + CipherSized + IVSized>(&mut self, cipher: &'c C, dir: Direction) -> Context<'c, C> 
+    pub async fn start<'c, C: Cipher<'c> + CipherSized + IVSized>(
+        &mut self,
+        cipher: &'c C,
+        dir: Direction,
+    ) -> Context<'c, C>
     where
         DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
@@ -1296,17 +1308,12 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     /// All additional associated data (AAD) must be supplied to this function prior to starting the payload phase with `payload`.
     /// The AAD must be supplied in multiples of the block size (128-bits for AES, 64-bits for DES), except when supplying the last block.
     /// When supplying the last block of AAD, `last_aad_block` must be `true`.
-    pub async fn aad<
-        'c,
-        const TAG_SIZE: usize,
-        C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>,
-    >(
+    pub async fn aad<'c, const TAG_SIZE: usize, C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>>(
         &mut self,
         ctx: &mut Context<'c, C>,
         aad: &[u8],
         last_aad_block: bool,
-    ) 
-    where
+    ) where
         DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
     {
@@ -1493,8 +1500,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         input: &[u8],
         output: &mut [u8],
         last_block: bool,
-    ) 
-    where
+    ) where
         DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
     {
@@ -1540,7 +1546,11 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         for block in 0..num_full_blocks {
             let index = block * C::BLOCK_SIZE;
             // Read block out
-            let read = Self::read_bytes(&mut self.outdma, C::BLOCK_SIZE, &mut output[index..index + C::BLOCK_SIZE]);
+            let read = Self::read_bytes(
+                &mut self.outdma,
+                C::BLOCK_SIZE,
+                &mut output[index..index + C::BLOCK_SIZE],
+            );
             // Write block in
             let write = Self::write_bytes(&mut self.indma, C::BLOCK_SIZE, &input[index..index + C::BLOCK_SIZE]);
             embassy_futures::join::join(read, write).await;
@@ -1566,7 +1576,8 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
             let mut mask: [u8; 16] = [0; 16];
             mask[..last_block_remainder].fill(0xFF);
             ctx.cipher
-                .post_final(&T::regs(), self, ctx.dir, &mut intermediate_data, temp1, mask).await;
+                .post_final(&T::regs(), self, ctx.dir, &mut intermediate_data, temp1, mask)
+                .await;
         }
 
         ctx.payload_len += input.len() as u64;
@@ -1623,7 +1634,14 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
     #[cfg(any(cryp_v2, cryp_v3))]
     // Generates an authentication tag for authenticated ciphers including GCM, CCM, and GMAC.
     /// Called after the all data has been encrypted/decrypted by `payload`.
-    pub async fn finish<'c, const TAG_SIZE: usize, C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>>(&mut self, mut ctx: Context<'c, C>) -> [u8; TAG_SIZE]
+    pub async fn finish<
+        'c,
+        const TAG_SIZE: usize,
+        C: Cipher<'c> + CipherSized + IVSized + CipherAuthenticated<TAG_SIZE>,
+    >(
+        &mut self,
+        mut ctx: Context<'c, C>,
+    ) -> [u8; TAG_SIZE]
     where
         DmaIn: crate::cryp::DmaIn<T>,
         DmaOut: crate::cryp::DmaOut<T>,
@@ -1663,7 +1681,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
 
         tag
     }
-    
+
     fn load_key(&self, key: &[u8]) {
         // Load the key into the registers.
         let mut keyidx = 0;
@@ -1766,7 +1784,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
 
     async fn write_bytes(dma: &mut PeripheralRef<'_, DmaIn>, block_size: usize, blocks: &[u8])
     where
-        DmaIn: crate::cryp::DmaIn<T>, 
+        DmaIn: crate::cryp::DmaIn<T>,
     {
         if blocks.len() == 0 {
             return;
@@ -1788,6 +1806,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         dma_transfer.await;
     }
 
+    #[cfg(any(cryp_v2, cryp_v3))]
     fn write_words_blocking(&self, block_size: usize, blocks: &[u32]) {
         assert_eq!((blocks.len() * 4) % block_size, 0);
         let mut byte_counter: usize = 0;
@@ -1801,10 +1820,11 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         }
     }
 
+    #[cfg(any(cryp_v2, cryp_v3))]
     async fn write_words(dma: &mut PeripheralRef<'_, DmaIn>, block_size: usize, blocks: &[u32])
     where
         DmaIn: crate::cryp::DmaIn<T>,
-     {
+    {
         if blocks.len() == 0 {
             return;
         }
@@ -1840,7 +1860,7 @@ impl<'d, T: Instance, DmaIn, DmaOut> Cryp<'d, T, DmaIn, DmaOut> {
         }
     }
 
-    async fn read_bytes(dma: &mut PeripheralRef<'_, DmaOut>, block_size: usize, blocks: &mut [u8]) 
+    async fn read_bytes(dma: &mut PeripheralRef<'_, DmaOut>, block_size: usize, blocks: &mut [u8])
     where
         DmaOut: crate::cryp::DmaOut<T>,
     {

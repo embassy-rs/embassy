@@ -44,7 +44,9 @@ async fn main(_spawner: Spawner) -> ! {
     // Decrypt in hardware using AES-GCM 128-bit
     let mut gcm_decrypt = hw_cryp.start(&aes_gcm, Direction::Decrypt).await;
     hw_cryp.aad(&mut gcm_decrypt, aad, true).await;
-    hw_cryp.payload(&mut gcm_decrypt, &ciphertext, &mut plaintext, true).await;
+    hw_cryp
+        .payload(&mut gcm_decrypt, &ciphertext, &mut plaintext, true)
+        .await;
     let decrypt_tag = hw_cryp.finish(gcm_decrypt).await;
 
     let hw_end_time = Instant::now();

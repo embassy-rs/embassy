@@ -13,7 +13,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::{
     bind_interrupts,
     cryp::{self, *},
-    peripherals
+    peripherals,
 };
 use {defmt_rtt as _, panic_probe as _};
 
@@ -52,7 +52,9 @@ async fn main(_spawner: Spawner) {
     let mut gcm_decrypt = hw_cryp.start(&aes_gcm, Direction::Decrypt).await;
     hw_cryp.aad(&mut gcm_decrypt, AAD1, false).await;
     hw_cryp.aad(&mut gcm_decrypt, AAD2, true).await;
-    hw_cryp.payload(&mut gcm_decrypt, &ciphertext, &mut plaintext, true).await;
+    hw_cryp
+        .payload(&mut gcm_decrypt, &ciphertext, &mut plaintext, true)
+        .await;
     let decrypt_tag = hw_cryp.finish(gcm_decrypt).await;
 
     info!("AES-GCM Ciphertext: {:?}", ciphertext);
