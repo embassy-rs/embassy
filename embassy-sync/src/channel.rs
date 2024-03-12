@@ -263,12 +263,9 @@ impl<'ch, T> Future for DynamicReceiveFuture<'ch, T> {
     }
 }
 
-impl<'ch, M: RawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for DynamicReceiveFuture<'ch, T>
-{
+impl<'ch, M: RawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for DynamicReceiveFuture<'ch, T> {
     fn from(value: ReceiveFuture<'ch, M, T, N>) -> Self {
-        Self {
-            channel: value.channel,
-        }
+        Self { channel: value.channel }
     }
 }
 
@@ -330,8 +327,7 @@ impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
 
 impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
 
-impl<'ch, M: RawMutex, T, const N: usize> From<SendFuture<'ch, M, T, N>> for DynamicSendFuture<'ch, T>
-{
+impl<'ch, M: RawMutex, T, const N: usize> From<SendFuture<'ch, M, T, N>> for DynamicSendFuture<'ch, T> {
     fn from(value: SendFuture<'ch, M, T, N>) -> Self {
         Self {
             channel: value.channel,
