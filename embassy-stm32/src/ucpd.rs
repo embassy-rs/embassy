@@ -28,15 +28,48 @@ use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, TypecVstateCc as CcVState};
 use crate::rcc::RccPeripheral;
 
+pub(crate) fn init(
+    _cs: critical_section::CriticalSection,
+    #[cfg(peri_ucpd1)] ucpd1_db_enable: bool,
+    #[cfg(peri_ucpd2)] ucpd2_db_enable: bool,
+) {
+    #[cfg(stm32g0x1)]
+    {
+        // according to RM0444 (STM32G0x1) section 8.1.1:
+        // when UCPD is disabled setting the strobe will disable dead battery
+        // (which is enabled after reset) but if UCPD is enabled, setting the
+        // strobe will apply the CC pin configuration from the control register
+        // (which is why we need to be careful about when we call this)
+        crate::pac::SYSCFG.cfgr1().modify(|w| {
+            w.set_ucpd1_strobe(ucpd1_db_enable);
+            w.set_ucpd2_strobe(ucpd2_db_enable);
+        });
+    }
+
+    #[cfg(any(stm32g4, stm32l5))]
+    {
+        crate::pac::PWR.cr3().modify(|w| {
+            #[cfg(stm32g4)]
+            w.set_ucpd1_dbdis(!ucpd1_db_enable);
+            #[cfg(stm32l5)]
+            w.set_ucpd_dbdis(!ucpd1_db_enable);
+        })
+    }
+
+    #[cfg(any(stm32h5, stm32u5))]
+    {
+        crate::pac::PWR.ucpdr().modify(|w| {
+            w.set_ucpd_dbdis(!ucpd1_db_enable);
+        })
+    }
+}
+
 /// Pull-up or Pull-down resistor state of both CC lines.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CcPull {
     /// Analog PHY for CC pin disabled.
     Disabled,
-
-    /// Rd=5.1k pull-down resistor enabled when the corresponding DBCC pin is high.
-    SinkDeadBattery,
 
     /// Rd=5.1k pull-down resistor.
     Sink,
@@ -192,20 +225,21 @@ impl<'d, T: Instance> CcPhy<'d, T> {
                 CcPull::Source3_0A => 3,
                 _ => 0,
             });
-            w.set_ccenable(if cc_pull != CcPull::SinkDeadBattery {
-                Ccenable::BOTH
-            } else {
+            w.set_ccenable(if cc_pull == CcPull::Disabled {
                 Ccenable::DISABLED
+            } else {
+                Ccenable::BOTH
             });
         });
 
         // Disable dead-battery pull-down resistors which are enabled by default on boot.
-        critical_section::with(|_| {
-            // TODO: other families
-            #[cfg(stm32g4)]
-            crate::pac::PWR
-                .cr3()
-                .modify(|w| w.set_ucpd1_dbdis(cc_pull != CcPull::SinkDeadBattery));
+        critical_section::with(|cs| {
+            init(
+                cs,
+                false,
+                #[cfg(peri_ucpd2)]
+                false,
+            );
         });
     }
 
