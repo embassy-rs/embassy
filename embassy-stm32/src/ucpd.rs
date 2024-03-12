@@ -484,8 +484,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
         // Clear the hardreset interrupt flags.
         T::REGS.icr().write(|w| {
-            w.set_txmsgdisccf(true);
-            w.set_txmsgsentcf(true);
+            w.set_hrstdisccf(true);
+            w.set_hrstsentcf(true);
         });
 
         // Trigger hard reset transmission.
