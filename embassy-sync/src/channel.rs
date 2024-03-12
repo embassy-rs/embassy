@@ -263,6 +263,15 @@ impl<'ch, T> Future for DynamicReceiveFuture<'ch, T> {
     }
 }
 
+impl<'ch, M: RawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for DynamicReceiveFuture<'ch, T>
+{
+    fn from(value: ReceiveFuture<'ch, M, T, N>) -> Self {
+        Self {
+            channel: value.channel,
+        }
+    }
+}
+
 /// Future returned by [`Channel::send`] and  [`Sender::send`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct SendFuture<'ch, M, T, const N: usize>
@@ -320,6 +329,16 @@ impl<'ch, T> Future for DynamicSendFuture<'ch, T> {
 }
 
 impl<'ch, T> Unpin for DynamicSendFuture<'ch, T> {}
+
+impl<'ch, M: RawMutex, T, const N: usize> From<SendFuture<'ch, M, T, N>> for DynamicSendFuture<'ch, T>
+{
+    fn from(value: SendFuture<'ch, M, T, N>) -> Self {
+        Self {
+            channel: value.channel,
+            message: value.message,
+        }
+    }
+}
 
 pub(crate) trait DynamicChannel<T> {
     fn try_send_with_context(&self, message: T, cx: Option<&mut Context<'_>>) -> Result<(), TrySendError<T>>;
