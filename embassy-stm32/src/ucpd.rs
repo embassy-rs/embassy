@@ -95,9 +95,13 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     pub fn new(
         _peri: impl Peripheral<P = T> + 'd,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        _cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
-        _cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
+        cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
+        cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
     ) -> Self {
+        into_ref!(cc1, cc2);
+        cc1.set_as_analog();
+        cc2.set_as_analog();
+
         T::enable_and_reset();
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
