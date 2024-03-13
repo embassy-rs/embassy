@@ -447,10 +447,24 @@ impl<'c, 'd, T: Instance, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize>
         self
     }
 
+    /// Try to immediately write frame to TX buffer.
+    pub fn try_write(&mut self, frame: Frame) -> Result<(), embassy_sync::channel::TrySendError<Frame>> {
+        let r = self.tx_buf.try_send(frame);
+        if r.is_ok() {
+            T::IT0Interrupt::pend(); // Wake for Tx
+        }
+        r
+    }
+
     /// Async write frame to TX buffer.
     pub async fn write(&mut self, frame: Frame) {
         self.tx_buf.send(frame).await;
         T::IT0Interrupt::pend(); // Wake for Tx
+    }
+
+    /// Try to immediately read frame from RX buffer.
+    pub fn try_read(&mut self) -> Result<Result<Envelope, BusError>, embassy_sync::channel::TryReceiveError> {
+        self.rx_buf.try_receive()
     }
 
     /// Async read frame from RX buffer.
