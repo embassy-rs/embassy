@@ -151,17 +151,6 @@ impl IdReg {
         Self(reg & 0xFFFF_FFFE)
     }
 
-    /// Sets the remote transmission (RTR) flag. This marks the identifier as
-    /// being part of a remote frame.
-    #[must_use = "returns a new IdReg without modifying `self`"]
-    /*fn with_rtr(self, rtr: bool) -> IdReg {
-        if rtr {
-            Self(self.0 | Self::RTR_MASK)
-        } else {
-            Self(self.0 & !Self::RTR_MASK)
-        }
-    }*/
-
     /// Returns the identifier.
     fn to_id(self) -> Id {
         if self.is_extended() {
@@ -188,11 +177,6 @@ impl IdReg {
     fn is_extended(self) -> bool {
         self.0 & Self::IDE_MASK != 0
     }
-
-    /// Returns `true` if the identifier is a standard identifier.
-    /*fn is_standard(self) -> bool {
-        !self.is_extended()
-    }*/
 
     /// Returns `true` if the identifer is part of a remote frame (RTR bit set).
     fn rtr(self) -> bool {
