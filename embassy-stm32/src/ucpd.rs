@@ -163,10 +163,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
 
         // Enable the receiver on one of the two CC lines.
-        r.cr().modify(|w| {
-            w.set_phyccsel(cc_sel);
-            w.set_phyrxen(true);
-        });
+        r.cr().modify(|w| w.set_phyccsel(cc_sel));
 
         // Enable hard reset receive interrupt.
         r.imr().modify(|w| w.set_rxhrstdetie(true));
@@ -319,15 +316,12 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
-        let r = T::REGS;
-        r.cr().modify(|w| w.set_phyrxen(false));
-
         // Check if the Type-C part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
             drop_not_ready.store(true, Ordering::Relaxed);
         } else {
-            r.cfgr1().write(|w| w.set_ucpden(false));
+            T::REGS.cfgr1().write(|w| w.set_ucpden(false));
             T::disable();
             T::Interrupt::disable();
         }
@@ -341,16 +335,6 @@ impl<'d, T: Instance> PdPhy<'d, T> {
     pub async fn receive(&mut self, buf: &mut [u8]) -> Result<usize, RxError> {
         let r = T::REGS;
 
-        // Check if a message is already being received. If yes, wait until its
-        // done, ignore errors and try to receive the next message.
-        if r.sr().read().rxorddet() {
-            if let Err(RxError::HardReset) = self.wait_rx_done().await {
-                return Err(RxError::HardReset);
-            }
-            r.rxdr().read(); // Clear the RX buffer.
-        }
-
-        // Keep the DMA transfer alive so its drop code does not stop it right away.
         let dma = unsafe {
             Transfer::new_read(
                 &self.rx_dma_ch,
@@ -361,22 +345,20 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             )
         };
 
-        self.wait_rx_done().await?;
+        // Clear interrupt flags (possibly set from last receive).
+        r.icr().write(|w| {
+            w.set_rxorddetcf(true);
+            w.set_rxovrcf(true);
+            w.set_rxmsgendcf(true);
+        });
 
-        // Make sure the the last byte to byte was fetched by DMA.
-        while r.sr().read().rxne() {
-            if dma.get_remaining_transfers() == 0 {
-                return Err(RxError::Overrun);
-            }
-        }
+        r.cr().modify(|w| w.set_phyrxen(true));
+        let _on_drop = OnDrop::new(|| {
+            r.cr().modify(|w| w.set_phyrxen(false));
+            self.enable_rx_interrupt(false);
+        });
 
-        Ok(r.rx_payszr().read().rxpaysz().into())
-    }
-
-    async fn wait_rx_done(&self) -> Result<(), RxError> {
-        let _on_drop = OnDrop::new(|| self.enable_rx_interrupt(false));
         poll_fn(|cx| {
-            let r = T::REGS;
             let sr = r.sr().read();
             if sr.rxhrstdet() {
                 // Clean and re-enable hard reset receive interrupt.
@@ -391,12 +373,6 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 } else {
                     Ok(())
                 };
-                // Message received, clear interrupt flags.
-                r.icr().write(|w| {
-                    w.set_rxorddetcf(true);
-                    w.set_rxovrcf(true);
-                    w.set_rxmsgendcf(true);
-                });
                 Poll::Ready(ret)
             } else {
                 T::state().waker.register(cx.waker());
@@ -404,7 +380,16 @@ impl<'d, T: Instance> PdPhy<'d, T> {
                 Poll::Pending
             }
         })
-        .await
+        .await?;
+
+        // Make sure that the last byte was fetched by DMA.
+        while r.sr().read().rxne() {
+            if dma.get_remaining_transfers() == 0 {
+                return Err(RxError::Overrun);
+            }
+        }
+
+        Ok(r.rx_payszr().read().rxpaysz().into())
     }
 
     fn enable_rx_interrupt(&self, enable: bool) {
