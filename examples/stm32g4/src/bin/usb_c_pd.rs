@@ -49,8 +49,9 @@ async fn wait_attached<T: ucpd::Instance>(cc_phy: &mut CcPhy<'_, T>) -> CableOri
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    // TODO: Disable DBCC pin functionality by default but have flag in the config to keep it enabled when required.
-    let p = embassy_stm32::init(Config::default());
+    let mut config = Config::default();
+    config.enable_ucpd1_dead_battery = true;
+    let p = embassy_stm32::init(config);
 
     info!("Hello World!");
 
