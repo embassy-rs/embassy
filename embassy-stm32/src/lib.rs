@@ -73,6 +73,8 @@ pub mod sai;
 pub mod sdmmc;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(ucpd)]
+pub mod ucpd;
 #[cfg(uid)]
 pub mod uid;
 #[cfg(usart)]
@@ -281,9 +283,8 @@ pub fn init(config: Config) -> Peripherals {
         }
 
         unsafe {
-            // TODO: refactor into mod ucpd
             #[cfg(ucpd)]
-            ucpd_init(
+            ucpd::init(
                 cs,
                 #[cfg(peri_ucpd1)]
                 config.enable_ucpd1_dead_battery,
@@ -331,42 +332,4 @@ pub fn init(config: Config) -> Peripherals {
 
         p
     })
-}
-
-#[cfg(ucpd)]
-/// Safety: must only be called when all UCPDs are disabled (e.g. at startup)
-unsafe fn ucpd_init(
-    _cs: critical_section::CriticalSection,
-    #[cfg(peri_ucpd1)] ucpd1_db_enable: bool,
-    #[cfg(peri_ucpd2)] ucpd2_db_enable: bool,
-) {
-    #[cfg(stm32g0x1)]
-    {
-        // according to RM0444 (STM32G0x1) section 8.1.1:
-        // when UCPD is disabled setting the strobe will disable dead battery
-        // (which is enabled after reset) but if UCPD is enabled, setting the
-        // strobe will apply the CC pin configuration from the control register
-        // (which is why we need to be careful about when we call this)
-        crate::pac::SYSCFG.cfgr1().modify(|w| {
-            w.set_ucpd1_strobe(ucpd1_db_enable);
-            w.set_ucpd2_strobe(ucpd2_db_enable);
-        });
-    }
-
-    #[cfg(any(stm32g4, stm32l5))]
-    {
-        crate::pac::PWR.cr3().modify(|w| {
-            #[cfg(stm32g4)]
-            w.set_ucpd1_dbdis(!ucpd1_db_enable);
-            #[cfg(stm32l5)]
-            w.set_ucpd_dbdis(!ucpd1_db_enable);
-        })
-    }
-
-    #[cfg(any(stm32h5, stm32u5))]
-    {
-        crate::pac::PWR.ucpdr().modify(|w| {
-            w.set_ucpd_dbdis(!ucpd1_db_enable);
-        })
-    }
 }
