@@ -296,8 +296,8 @@ impl<'d, T: Instance> Can<'d, T> {
     ///
     /// Useful for doing separate transmit/receive tasks.
     pub fn split<'c>(&'c mut self) -> (CanTx<'d, T>, CanRx<'d, T>) {
-        let (tx, rx0, rx1) = self.can.split_by_ref();
-        (CanTx { tx }, CanRx { rx0, rx1 })
+        let (tx, rx) = self.can.split_by_ref();
+        (CanTx { tx }, CanRx { rx})
     }
 }
 
@@ -401,8 +401,7 @@ impl<'d, T: Instance> CanTx<'d, T> {
 /// CAN driver, receive half.
 #[allow(dead_code)]
 pub struct CanRx<'d, T: Instance> {
-    rx0: crate::can::bx::Rx0<BxcanInstance<'d, T>>,
-    rx1: crate::can::bx::Rx1<BxcanInstance<'d, T>>,
+    rx: crate::can::bx::Rx<BxcanInstance<'d, T>>,
 }
 
 impl<'d, T: Instance> CanRx<'d, T> {

@@ -602,54 +602,14 @@ where
         unsafe { Tx::<I>::conjure(self.canregs).abort(mailbox) }
     }
 
-    /// Returns a received frame if available.
-    ///
-    /// This will first check FIFO 0 for a message or error. If none are available, FIFO 1 is
-    /// checked.
-    ///
-    /// Returns `Err` when a frame was lost due to buffer overrun.
-    pub fn receive(&mut self) -> nb::Result<Frame, OverrunError> {
-        // Safety: We have a `&mut self` and have unique access to the peripheral.
-        let mut rx0 = unsafe { Rx0::<I>::conjure(self.canregs) };
-        let mut rx1 = unsafe { Rx1::<I>::conjure(self.canregs) };
 
-        match rx0.receive() {
-            Err(nb::Error::WouldBlock) => rx1.receive(),
-            result => result,
-        }
-    }
-
-    /// Returns a reference to the RX FIFO 0.
-    pub fn rx0(&mut self) -> Rx0<I> {
-        // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
-        unsafe { Rx0::conjure(self.canregs) }
-    }
-
-    /// Returns a reference to the RX FIFO 1.
-    pub fn rx1(&mut self) -> Rx1<I> {
-        // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
-        unsafe { Rx1::conjure(self.canregs) }
-    }
-
-    pub(crate) fn split_by_ref(&mut self) -> (Tx<I>, Rx0<I>, Rx1<I>) {
+    pub(crate) fn split_by_ref(&mut self) -> (Tx<I>, Rx<I>) {
         // Safety: We take `&mut self` and the return value lifetimes are tied to `self`'s lifetime.
         let tx = unsafe { Tx::conjure(self.canregs) };
-        let rx0 = unsafe { Rx0::conjure(self.canregs) };
-        let rx1 = unsafe { Rx1::conjure(self.canregs) };
-        (tx, rx0, rx1)
+        let rx0 = unsafe { Rx::conjure() };
+        (tx, rx0)
     }
 
-    /// Consumes this `Can` instance and splits it into transmitting and receiving halves.
-    pub fn split(self) -> (Tx<I>, Rx0<I>, Rx1<I>) {
-        // Safety: `Self` is not `Copy` and is destroyed by moving it into this method.
-        unsafe {
-            (
-                Tx::conjure(self.canregs),
-                Rx0::conjure(self.canregs),
-                Rx1::conjure(self.canregs),
-            )
-        }
-    }
 }
 
 impl<I: FilterOwner> Can<I> {
@@ -662,7 +622,7 @@ impl<I: FilterOwner> Can<I> {
     }
 }
 
-/// Interface to the CAN transmitter part.
+/// Marker for Tx half
 pub struct Tx<I> {
     _can: PhantomData<I>,
     canregs: crate::pac::can::Can,
@@ -844,87 +804,20 @@ where
     }
 }
 
-/// Interface to receiver FIFO 0.
-pub struct Rx0<I> {
+/// Marker for Rx half
+pub struct Rx<I> {
     _can: PhantomData<I>,
-    canregs: crate::pac::can::Can,
 }
 
-impl<I> Rx0<I>
+impl<I> Rx<I>
 where
     I: Instance,
 {
-    unsafe fn conjure(canregs: crate::pac::can::Can) -> Self {
+    unsafe fn conjure() -> Self {
         Self {
             _can: PhantomData,
-            canregs,
         }
     }
-
-    /// Returns a received frame if available.
-    ///
-    /// Returns `Err` when a frame was lost due to buffer overrun.
-    pub fn receive(&mut self) -> nb::Result<Frame, OverrunError> {
-        receive_fifo(self.canregs, 0)
-    }
-}
-
-/// Interface to receiver FIFO 1.
-pub struct Rx1<I> {
-    _can: PhantomData<I>,
-    canregs: crate::pac::can::Can,
-}
-
-impl<I> Rx1<I>
-where
-    I: Instance,
-{
-    unsafe fn conjure(canregs: crate::pac::can::Can) -> Self {
-        Self {
-            _can: PhantomData,
-            canregs,
-        }
-    }
-
-    /// Returns a received frame if available.
-    ///
-    /// Returns `Err` when a frame was lost due to buffer overrun.
-    pub fn receive(&mut self) -> nb::Result<Frame, OverrunError> {
-        receive_fifo(self.canregs, 1)
-    }
-}
-
-fn receive_fifo(canregs: crate::pac::can::Can, fifo_nr: usize) -> nb::Result<Frame, OverrunError> {
-    assert!(fifo_nr < 2);
-    let rfr = canregs.rfr(fifo_nr);
-    let rx = canregs.rx(fifo_nr);
-
-    //let rfr = &can.rfr[fifo_nr];
-    //let rx = &can.rx[fifo_nr];
-
-    // Check if a frame is available in the mailbox.
-    let rfr_read = rfr.read();
-    if rfr_read.fmp() == 0 {
-        return Err(nb::Error::WouldBlock);
-    }
-
-    // Check for RX FIFO overrun.
-    if rfr_read.fovr() {
-        rfr.write(|w| w.set_fovr(true));
-        return Err(nb::Error::Other(OverrunError { _priv: () }));
-    }
-
-    // Read the frame.
-    let id = IdReg(rx.rir().read().0);
-    let mut data = [0xff; 8];
-    data[0..4].copy_from_slice(&rx.rdlr().read().0.to_ne_bytes());
-    data[4..8].copy_from_slice(&rx.rdhr().read().0.to_ne_bytes());
-    let len = rx.rdtr().read().dlc();
-
-    // Release the mailbox.
-    rfr.write(|w| w.set_rfom(true));
-
-    Ok(Frame::new(Header::new(id.id(), len, id.rtr()), &data).unwrap())
 }
 
 /// Identifies one of the two receive FIFOs.
