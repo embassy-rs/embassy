@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 pub async fn send_can_message(tx: &'static mut CanTx<'static, CAN3>) {
     loop {
-        let frame = Frame::new_data(unwrap!(StandardId::new(0 as _)), [0]);
+        let frame = Frame::new_data(unwrap!(StandardId::new(0 as _)), &[0]).unwrap();
         tx.write(&frame).await;
         embassy_time::Timer::after_secs(1).await;
     }

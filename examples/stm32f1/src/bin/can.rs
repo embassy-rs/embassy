@@ -46,16 +46,16 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i, 0, 1, 2, 3, 4, 5, 6]);
+        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i, 0, 1, 2, 3, 4, 5, 6]).unwrap();
         can.write(&tx_frame).await;
 
         match can.read().await {
             Ok(env) => match env.frame.id() {
                 Id::Extended(id) => {
-                    defmt::println!("Extended Frame id={:x} {:02x}", id.as_raw(), env.frame.data().unwrap());
+                    defmt::println!("Extended Frame id={:x} {:02x}", id.as_raw(), env.frame.data());
                 }
                 Id::Standard(id) => {
-                    defmt::println!("Standard Frame id={:x} {:02x}", id.as_raw(), env.frame.data().unwrap());
+                    defmt::println!("Standard Frame id={:x} {:02x}", id.as_raw(), env.frame.data());
                 }
             },
             Err(err) => {

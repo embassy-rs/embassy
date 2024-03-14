@@ -6,7 +6,7 @@ use core::task::Poll;
 
 pub mod bx;
 
-pub use bx::{filter, Data, ExtendedId, Fifo, Frame, Id, StandardId};
+pub use bx::{filter, Data, ExtendedId, Fifo, Frame, Header, Id, StandardId};
 use embassy_hal_internal::{into_ref, PeripheralRef};
 use futures::FutureExt;
 
@@ -18,19 +18,20 @@ use crate::{interrupt, peripherals, Peripheral};
 
 pub mod enums;
 use enums::*;
+pub mod frame;
 pub mod util;
 
 /// Contains CAN frame and additional metadata.
 ///
 /// Timestamp is available if `time` feature is enabled.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Envelope {
     /// Reception time.
     #[cfg(feature = "time")]
     pub ts: embassy_time::Instant,
     /// The actual CAN frame.
-    pub frame: crate::can::bx::Frame,
+    pub frame: Frame,
 }
 
 /// Interrupt handler.
@@ -260,20 +261,20 @@ impl<'d, T: Instance> Can<'d, T> {
             }
 
             let rir = fifo.rir().read();
-            let id = if rir.ide() == Ide::STANDARD {
-                Id::from(StandardId::new_unchecked(rir.stid()))
+            let id: embedded_can::Id = if rir.ide() == Ide::STANDARD {
+                embedded_can::StandardId::new(rir.stid()).unwrap().into()
             } else {
                 let stid = (rir.stid() & 0x7FF) as u32;
                 let exid = rir.exid() & 0x3FFFF;
                 let id = (stid << 18) | (exid);
-                Id::from(ExtendedId::new_unchecked(id))
+                embedded_can::ExtendedId::new(id).unwrap().into()
             };
-            let data_len = fifo.rdtr().read().dlc() as usize;
+            let data_len = fifo.rdtr().read().dlc();
             let mut data: [u8; 8] = [0; 8];
             data[0..4].copy_from_slice(&fifo.rdlr().read().0.to_ne_bytes());
             data[4..8].copy_from_slice(&fifo.rdhr().read().0.to_ne_bytes());
 
-            let frame = Frame::new_data(id, Data::new(&data[0..data_len]).unwrap());
+            let frame = Frame::new(Header::new(id, data_len, false), &data).unwrap();
             let envelope = Envelope {
                 #[cfg(feature = "time")]
                 ts,

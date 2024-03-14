@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
+        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i]).unwrap();
         let tx_ts = Instant::now();
         can.write(&tx_frame).await;
 
@@ -65,7 +65,7 @@ async fn main(_spawner: Spawner) {
 
         info!(
             "loopback frame {=u8}, latency: {} us",
-            unwrap!(envelope.frame.data())[0],
+            envelope.frame.data()[0],
             latency.as_micros()
         );
         i += 1;

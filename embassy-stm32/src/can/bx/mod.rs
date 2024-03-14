@@ -25,19 +25,25 @@
 
 //mod embedded_hal;
 pub mod filter;
-mod frame;
-mod id;
 
 #[allow(clippy::all)] // generated code
 use core::cmp::{Ord, Ordering};
-use core::convert::{Infallible, TryInto};
+use core::convert::{Infallible, Into, TryInto};
 use core::marker::PhantomData;
 use core::mem;
 
-pub use id::{ExtendedId, Id, StandardId};
+pub use embedded_can::{ExtendedId, Id, StandardId};
+
+/// CAN Header: includes ID and length
+pub type Header = crate::can::frame::Header;
+
+/// Data for a CAN Frame
+pub type Data = crate::can::frame::ClassicData;
+
+/// CAN Frame
+pub type Frame = crate::can::frame::ClassicFrame;
 
 use crate::can::bx::filter::MasterFilters;
-pub use crate::can::bx::frame::{Data, Frame, FramePriority};
 
 /// A bxCAN peripheral instance.
 ///
@@ -145,17 +151,6 @@ impl IdReg {
         Self(reg & 0xFFFF_FFFE)
     }
 
-    /// Sets the remote transmission (RTR) flag. This marks the identifier as
-    /// being part of a remote frame.
-    #[must_use = "returns a new IdReg without modifying `self`"]
-    fn with_rtr(self, rtr: bool) -> IdReg {
-        if rtr {
-            Self(self.0 | Self::RTR_MASK)
-        } else {
-            Self(self.0 & !Self::RTR_MASK)
-        }
-    }
-
     /// Returns the identifier.
     fn to_id(self) -> Id {
         if self.is_extended() {
@@ -165,19 +160,42 @@ impl IdReg {
         }
     }
 
+    /// Returns the identifier.
+    fn id(self) -> embedded_can::Id {
+        if self.is_extended() {
+            embedded_can::ExtendedId::new(self.0 >> Self::EXTENDED_SHIFT)
+                .unwrap()
+                .into()
+        } else {
+            embedded_can::StandardId::new((self.0 >> Self::STANDARD_SHIFT) as u16)
+                .unwrap()
+                .into()
+        }
+    }
+
     /// Returns `true` if the identifier is an extended identifier.
     fn is_extended(self) -> bool {
         self.0 & Self::IDE_MASK != 0
     }
 
-    /// Returns `true` if the identifier is a standard identifier.
-    fn is_standard(self) -> bool {
-        !self.is_extended()
-    }
-
     /// Returns `true` if the identifer is part of a remote frame (RTR bit set).
     fn rtr(self) -> bool {
         self.0 & Self::RTR_MASK != 0
+    }
+}
+
+impl From<&embedded_can::Id> for IdReg {
+    fn from(eid: &embedded_can::Id) -> Self {
+        match eid {
+            embedded_can::Id::Standard(id) => IdReg::new_standard(StandardId::new(id.as_raw()).unwrap()),
+            embedded_can::Id::Extended(id) => IdReg::new_extended(ExtendedId::new(id.as_raw()).unwrap()),
+        }
+    }
+}
+
+impl From<IdReg> for embedded_can::Id {
+    fn from(idr: IdReg) -> Self {
+        idr.id()
     }
 }
 
@@ -682,9 +700,9 @@ where
             // The controller schedules pending frames of same priority based on the
             // mailbox index instead. As a workaround check all pending mailboxes
             // and only accept higher priority frames.
-            self.check_priority(0, frame.id)?;
-            self.check_priority(1, frame.id)?;
-            self.check_priority(2, frame.id)?;
+            self.check_priority(0, frame.id().into())?;
+            self.check_priority(1, frame.id().into())?;
+            self.check_priority(2, frame.id().into())?;
 
             let all_frames_are_pending = !tsr.tme(0) && !tsr.tme(1) && !tsr.tme(2);
             if all_frames_are_pending {
@@ -739,14 +757,15 @@ where
         debug_assert!(idx < 3);
 
         let mb = self.canregs.tx(idx);
-        mb.tdtr().write(|w| w.set_dlc(frame.dlc() as u8));
+        mb.tdtr().write(|w| w.set_dlc(frame.header().len() as u8));
 
         mb.tdlr()
-            .write(|w| w.0 = u32::from_ne_bytes(frame.data.bytes[0..4].try_into().unwrap()));
+            .write(|w| w.0 = u32::from_ne_bytes(frame.data()[0..4].try_into().unwrap()));
         mb.tdhr()
-            .write(|w| w.0 = u32::from_ne_bytes(frame.data.bytes[4..8].try_into().unwrap()));
+            .write(|w| w.0 = u32::from_ne_bytes(frame.data()[4..8].try_into().unwrap()));
+        let id: IdReg = frame.id().into();
         mb.tir().write(|w| {
-            w.0 = frame.id.0;
+            w.0 = id.0;
             w.set_txrq(true);
         });
     }
@@ -756,16 +775,14 @@ where
             debug_assert!(idx < 3);
 
             let mb = self.canregs.tx(idx);
-            // Read back the pending frame.
-            let mut pending_frame = Frame {
-                id: IdReg(mb.tir().read().0),
-                data: Data::empty(),
-            };
-            pending_frame.data.bytes[0..4].copy_from_slice(&mb.tdlr().read().0.to_ne_bytes());
-            pending_frame.data.bytes[4..8].copy_from_slice(&mb.tdhr().read().0.to_ne_bytes());
-            pending_frame.data.len = mb.tdtr().read().dlc();
 
-            Some(pending_frame)
+            let id = IdReg(mb.tir().read().0).id();
+            let mut data = [0xff; 8];
+            data[0..4].copy_from_slice(&mb.tdlr().read().0.to_ne_bytes());
+            data[4..8].copy_from_slice(&mb.tdhr().read().0.to_ne_bytes());
+            let len = mb.tdtr().read().dlc();
+
+            Some(Frame::new(Header::new(id, len, false), &data).unwrap())
         } else {
             // Abort request failed because the frame was already sent (or being sent) on
             // the bus. All mailboxes are now free. This can happen for small prescaler
@@ -898,18 +915,16 @@ fn receive_fifo(canregs: crate::pac::can::Can, fifo_nr: usize) -> nb::Result<Fra
     }
 
     // Read the frame.
-    let mut frame = Frame {
-        id: IdReg(rx.rir().read().0),
-        data: [0; 8].into(),
-    };
-    frame.data[0..4].copy_from_slice(&rx.rdlr().read().0.to_ne_bytes());
-    frame.data[4..8].copy_from_slice(&rx.rdhr().read().0.to_ne_bytes());
-    frame.data.len = rx.rdtr().read().dlc();
+    let id = IdReg(rx.rir().read().0).id();
+    let mut data = [0xff; 8];
+    data[0..4].copy_from_slice(&rx.rdlr().read().0.to_ne_bytes());
+    data[4..8].copy_from_slice(&rx.rdhr().read().0.to_ne_bytes());
+    let len = rx.rdtr().read().dlc();
 
     // Release the mailbox.
     rfr.write(|w| w.set_rfom(true));
 
-    Ok(frame)
+    Ok(Frame::new(Header::new(id, len, false), &data).unwrap())
 }
 
 /// Identifies one of the two receive FIFOs.
