@@ -164,7 +164,7 @@ required-features = []
 [[bin]]
 name = "ucpd"
 path = "src/bin/ucpd.rs"
-required-features = []
+required-features = [ "ucpd",]
 
 [[bin]]
 name = "usart"

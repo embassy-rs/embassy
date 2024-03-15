@@ -1,3 +1,4 @@
+// required-features: ucpd
 #![no_std]
 #![no_main]
 #[path = "../common.rs"]
