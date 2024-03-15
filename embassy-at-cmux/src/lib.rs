@@ -21,27 +21,13 @@ use embedded_io_async::{BufRead, Error, ErrorType, Read, Write};
 use futures::FutureExt;
 use heapless::Vec;
 
-use crate::frame::{Frame, InformationType};
+use frame::{Frame, Information, ModemStatusCommand, NonSupportedCommandResponse, CR};
 
-//   val   bit NAME   RX         TX
-// 0x0001   0  FC     -          -
-// 0x0002   1  RTC    107.DSR    108/2.DTR
-// 0x0004   2  RTR    106.CTS    133.RFR / 105.RTS
-// 0x0008   3  RFU1   -          -
-// 0x0010   4  RFU2   -          -
-// 0x0020   5  IC     125.RI     always 0
-// 0x0040   6  DV     109.DCD    always 1
-// 0x0080   7  B1     1 = signal break
-// 0x0100   8  B2     reserved, always 0
-// 0x0200   9  B3     reserved, always 0
-// 0x0400  10  L1     |
-// 0x0800  11  L2     | break length
-// 0x1000  12  L3     | units of 200ms
-// 0x2000  13  L4     |
+pub use frame::{Break, Control};
 
 struct Lines {
-    rx: Cell<u16>,
-    tx: Cell<u16>,
+    rx: Cell<(Control, Option<Break>)>,
+    tx: Cell<(Control, Option<Break>)>,
     hangup: Cell<bool>,
     hangup_mask: Cell<Option<(u16, u16)>>,
     hangup_waker: AtomicWaker,
@@ -50,8 +36,8 @@ struct Lines {
 impl Lines {
     const fn new() -> Self {
         Self {
-            rx: Cell::new(0),
-            tx: Cell::new(0),
+            rx: Cell::new((Control::new(), None)),
+            tx: Cell::new((Control::new(), None)),
             hangup: Cell::new(false),
             hangup_mask: Cell::new(None),
             hangup_waker: AtomicWaker::new(),
@@ -60,13 +46,14 @@ impl Lines {
 
     fn check_hangup(&self) {
         if let Some((mask, val)) = self.hangup_mask.get() {
-            if self.rx.get() & mask == val & mask {
-                if !self.hangup.get() {
-                    warn!("HANGUP detected!");
-                    self.hangup_waker.wake();
-                }
-                self.hangup.set(true);
-            }
+            // FIXME:
+            // if self.rx.get() & mask == val & mask {
+            //     if !self.hangup.get() {
+            //         warn!("HANGUP detected!");
+            //         // self.hangup_waker.wake();
+            //     }
+            //     // self.hangup.set(true);
+            // }
         } else {
             self.hangup.set(false);
         }
@@ -157,7 +144,7 @@ impl<const N: usize, const BUF: usize> Mux<N, BUF> {
 }
 
 impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
-    pub async fn run<R: BufRead, W: Write>(&mut self, mut port_r: R, mut port_w: W) -> ! {
+    pub async fn run<R: BufRead, W: Write>(&mut self, mut port_r: R, mut port_w: W, max_frame_size: usize) -> ! {
         // Open channels
         for id in 0..(N as u8 + 1) {
             // Send open channel request
@@ -166,8 +153,8 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
             sabm.write(&mut port_w).await.unwrap();
 
             // Read response
-            let mut header = frame::RxHeader::read(&mut port_r).await.unwrap();
-            debug!("header {:?}", header);
+            let header = frame::RxHeader::read(&mut port_r).await.unwrap();
+            trace!("RX header {:?}", header);
 
             if let Err(e) = header.finalize().await {
                 warn!("bad open channel resp: {:?}", e);
@@ -176,14 +163,15 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
         // Set initial lines.
         for c in self.lines {
-            c.tx.set(0x46)
+            c.tx.set((Control::new().with_rtc(true).with_rtr(true).with_dv(true), None));
         }
+
         self.line_status_updated.signal(());
 
         debug!("mux running");
 
         let tx_fut = async {
-            let mut line_tx_sent = [0; N];
+            let mut line_tx_sent = [(Control::default(), None); N];
             loop {
                 let mut futs: Vec<_, N> = Vec::new();
                 for c in &mut self.tx {
@@ -193,12 +181,15 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
                 match select(select_slice(&mut futs), self.line_status_updated.wait()).await {
                     Either::First((buf, i)) => {
+                        let len = buf.len().min(max_frame_size);
+
                         let frame = frame::Uih {
                             id: i as u8 + 1,
                             cr: frame::CR::Command,
-                            information: &buf,
+                            information: Information::Data(&buf[..len]),
                         };
-                        let len = frame.write(&mut port_w).await.unwrap();
+
+                        frame.write(&mut port_w).await.unwrap();
 
                         drop(futs);
 
@@ -207,17 +198,19 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                     Either::Second(()) => {
                         for i in 0..N {
                             let id = i as u8 + 1;
-                            let lines = self.lines[i].tx.get();
-                            if lines != line_tx_sent[i] {
-                                line_tx_sent[i] = lines;
-
-                                let b1 = (lines as u8 & 0x7F) << 1 | 1;
-                                let b2 = ((lines >> 7) as u8 & 0x7F) << 1 | 1;
+                            let (control, brk) = self.lines[i].tx.get();
+                            if (control, brk) != line_tx_sent[i] {
+                                line_tx_sent[i] = (control, brk);
 
                                 let frame = frame::Uih {
                                     id: 0,
                                     cr: frame::CR::Command,
-                                    information: &[0xe3, 0x07, (id << 2) | 0x03, b1, b2],
+                                    information: Information::ModemStatusCommand(ModemStatusCommand {
+                                        cr: CR::Command,
+                                        dlci: id,
+                                        control,
+                                        brk,
+                                    }),
                                 };
                                 frame.write(&mut port_w).await.unwrap();
                             }
@@ -229,38 +222,35 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
         let rx_fut = async {
             loop {
-                let mut header = frame::RxHeader::read(&mut port_r).await.unwrap();
+                let header = frame::RxHeader::read(&mut port_r).await.unwrap();
+                trace!("{:?}", header);
 
                 if header.len > 0 {
                     if header.is_control() {
                         // control channel command
-                        let mut buf = [0u8; 24];
-                        let info = header.read_information(&mut buf).await.unwrap();
+                        let info = header.read_information().await.unwrap();
 
                         if info.is_command() {
                             let mut supported = true;
 
-                            match info.typ() {
-                                InformationType::MultiplexerCloseDown => {
+                            match info {
+                                Information::MultiplexerCloseDown => {
                                     info!("The mobile station requested mux-mode termination");
                                 }
-                                InformationType::TestCommand => {
-                                    debug!("Test command: {:?}", info.data);
+                                Information::TestCommand => {
+                                    debug!("Test command");
                                 }
-                                InformationType::ModemStatusCommand if !info.data.is_empty() => {
-                                    assert!(buf[2] & 3 == 3);
-                                    let id = (buf[2] >> 2) as usize;
+                                Information::ModemStatusCommand(msc) => {
+                                    let lines = &self.lines[msc.dlci as usize - 1];
+                                    debug!(
+                                        "channel {:?} lines rx: {} -> {}",
+                                        msc.dlci,
+                                        lines.rx.get(),
+                                        (msc.control, msc.brk)
+                                    );
 
-                                    let b1 = buf[3] >> 1;
-                                    let b2 = buf[4] >> 1;
-                                    let lines_rx = (b1 as u16) | (b2 as u16) << 7;
-                                    let lines = &self.lines[id - 1];
-                                    debug!("channel {:?} lines rx: {:02x} -> {:02x}", id, lines.rx.get(), lines_rx);
-                                    lines.rx.set(lines_rx);
+                                    lines.rx.set((msc.control, msc.brk));
                                     lines.check_hangup();
-                                }
-                                InformationType::ModemStatusCommand if info.data.is_empty() => {
-                                    error!("Modem status command, but no info");
                                 }
                                 n => {
                                     warn!("Unknown command {:?} from the control channel", n);
@@ -273,23 +263,31 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
                             if supported {
                                 // acknowledge the command
-                                frame::Uih {
-                                    id: header.id(),
-                                    cr: frame::CR::Response,
-                                    information: &buf[..],
-                                };
+                                // frame::Uih {
+                                //     id: header.id(),
+                                //     cr: frame::CR::Response,
+                                //     information: &buf[..],
+                                // };
                             }
                         } else {
                             // received ack for a command
-                            if info.typ() == InformationType::NonSupportedCommandResponse {
-                                warn!("The mobile station didn't support the command sent");
+                            if let Information::NonSupportedCommandResponse(NonSupportedCommandResponse {
+                                command_type,
+                                ..
+                            }) = info
+                            {
+                                warn!(
+                                    "The mobile station didn't support the command sent ({:?})",
+                                    command_type
+                                );
                             } else {
                                 debug!("Command acknowledged by the mobile station");
                             }
                         }
                     } else {
                         // data from logical channel
-                        header.copy(&mut self.rx[header.id() as usize - 1]).await.unwrap();
+                        let id = header.id() as usize - 1;
+                        header.copy(&mut self.rx[id]).await.unwrap();
                     }
                 } else {
                     header.finalize().await.unwrap();
@@ -343,12 +341,12 @@ impl<'a, const BUF: usize> Channel<'a, BUF> {
         }
     }
 
-    pub fn set_lines(&self, lines: u16) {
-        self.lines.tx.set(lines);
+    pub fn set_lines(&self, control: Control, brk: Option<Break>) {
+        self.lines.tx.set((control, brk));
         self.line_status_updated.signal(());
     }
 
-    pub fn get_lines(&self) -> u16 {
+    pub fn get_lines(&self) -> (Control, Option<Break>) {
         self.lines.rx.get()
     }
 
@@ -364,34 +362,34 @@ impl<'a, const BUF: usize> Channel<'a, BUF> {
 }
 
 impl<'a, const BUF: usize> ChannelRx<'a, BUF> {
-    pub fn set_lines(&self, lines: u16) {
-        self.lines.tx.set(lines);
+    pub fn set_lines(&self, control: Control, brk: Option<Break>) {
+        self.lines.tx.set((control, brk));
         self.line_status_updated.signal(());
     }
 
-    pub fn get_lines(&self) -> u16 {
+    pub fn get_lines(&self) -> (Control, Option<Break>) {
         self.lines.rx.get()
     }
 }
 
 impl<'a, const BUF: usize> ChannelTx<'a, BUF> {
-    pub fn set_lines(&self, lines: u16) {
-        self.lines.tx.set(lines);
+    pub fn set_lines(&self, control: Control, brk: Option<Break>) {
+        self.lines.tx.set((control, brk));
         self.line_status_updated.signal(());
     }
 
-    pub fn get_lines(&self) -> u16 {
+    pub fn get_lines(&self) -> (Control, Option<Break>) {
         self.lines.rx.get()
     }
 }
 
 impl<'a, const BUF: usize> ChannelLines<'a, BUF> {
-    pub fn set_lines(&self, lines: u16) {
-        self.lines.tx.set(lines);
+    pub fn set_lines(&self, control: Control, brk: Option<Break>) {
+        self.lines.tx.set((control, brk));
         self.line_status_updated.signal(());
     }
 
-    pub fn get_lines(&self) -> u16 {
+    pub fn get_lines(&self) -> (Control, Option<Break>) {
         self.lines.rx.get()
     }
 }

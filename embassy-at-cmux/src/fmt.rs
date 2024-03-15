@@ -39,16 +39,16 @@ macro_rules! assert_ne {
     };
 }
 
-macro_rules! debug_assert {
-    ($($x:tt)*) => {
-        {
-            #[cfg(not(feature = "defmt"))]
-            ::core::debug_assert!($($x)*);
-            #[cfg(feature = "defmt")]
-            ::defmt::debug_assert!($($x)*);
-        }
-    };
-}
+// macro_rules! debug_assert {
+//     ($($x:tt)*) => {
+//         {
+//             #[cfg(not(feature = "defmt"))]
+//             ::core::debug_assert!($($x)*);
+//             #[cfg(feature = "defmt")]
+//             ::defmt::debug_assert!($($x)*);
+//         }
+//     };
+// }
 
 macro_rules! debug_assert_eq {
     ($($x:tt)*) => {
