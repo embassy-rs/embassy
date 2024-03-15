@@ -13,7 +13,7 @@ stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono", "not-gpdma"]
 stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "eth", "stop", "can", "not-gpdma", "dac", "rng"]
 stm32f446re = ["embassy-stm32/stm32f446re", "chrono", "stop", "can", "not-gpdma", "dac", "sdmmc"]
 stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "not-gpdma", "eth", "rng"]
-stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac"]
+stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac", "ucpd"]
 stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng", "fdcan"]
 stm32h563zi = ["embassy-stm32/stm32h563zi", "chrono", "eth", "rng", "hash"]
 stm32h753zi = ["embassy-stm32/stm32h753zi", "chrono", "not-gpdma", "eth", "rng", "fdcan", "hash", "cryp"]
@@ -47,6 +47,7 @@ mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/mac"]
 embassy-stm32-wpan = []
 not-gpdma = []
 dac = []
+ucpd = []
 
 cm0 = ["portable-atomic/unsafe-assume-single-core"]
 
@@ -158,6 +159,11 @@ required-features = [ "stop", "chrono",]
 [[bin]]
 name = "timer"
 path = "src/bin/timer.rs"
+required-features = []
+
+[[bin]]
+name = "ucpd"
+path = "src/bin/ucpd.rs"
 required-features = []
 
 [[bin]]
