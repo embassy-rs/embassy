@@ -42,8 +42,8 @@ pub(crate) fn init(
         // strobe will apply the CC pin configuration from the control register
         // (which is why we need to be careful about when we call this)
         crate::pac::SYSCFG.cfgr1().modify(|w| {
-            w.set_ucpd1_strobe(ucpd1_db_enable);
-            w.set_ucpd2_strobe(ucpd2_db_enable);
+            w.set_ucpd1_strobe(!ucpd1_db_enable);
+            w.set_ucpd2_strobe(!ucpd2_db_enable);
         });
     }
 
