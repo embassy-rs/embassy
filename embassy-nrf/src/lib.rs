@@ -52,6 +52,7 @@ pub mod radio;
 
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
+pub mod nfc;
 pub mod nvmc;
 #[cfg(any(
     feature = "nrf52810",
