@@ -16,14 +16,15 @@ pub enum Function {
 
 /// CORDIC precision
 #[allow(missing_docs)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub enum Precision {
     Iters4 = 1,
     Iters8,
     Iters12,
     Iters16,
     Iters20,
-    Iters24,
+    #[default]
+    Iters24, // this value is recomended by Reference Manual
     Iters28,
     Iters32,
     Iters36,
@@ -38,7 +39,7 @@ pub enum Precision {
 /// CORDIC scale
 #[allow(non_camel_case_types)]
 #[allow(missing_docs)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub enum Scale {
     #[default]
     A1_R1 = 0,
