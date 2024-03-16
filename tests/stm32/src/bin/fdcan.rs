@@ -13,7 +13,11 @@ use embassy_stm32::{bind_interrupts, can, Config};
 use embassy_time::{Duration, Instant};
 use {defmt_rtt as _, panic_probe as _};
 
-bind_interrupts!(struct Irqs {
+bind_interrupts!(struct Irqs2 {
+    FDCAN2_IT0 => can::IT0InterruptHandler<FDCAN2>;
+    FDCAN2_IT1 => can::IT1InterruptHandler<FDCAN2>;
+});
+bind_interrupts!(struct Irqs1 {
     FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;
     FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
 });
@@ -75,17 +79,24 @@ async fn main(_spawner: Spawner) {
     let options = options();
     let peripherals = embassy_stm32::init(options.config);
 
-    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PB8, peripherals.PB9, Irqs);
+    let mut can = can::FdcanConfigurator::new(peripherals.FDCAN1, peripherals.PB8, peripherals.PB9, Irqs1);
+    let mut can2 = can::FdcanConfigurator::new(peripherals.FDCAN2, peripherals.PB12, peripherals.PB13, Irqs2);
 
     // 250k bps
     can.set_bitrate(250_000);
+    can2.set_bitrate(250_000);
 
     can.set_extended_filter(
         can::filter::ExtendedFilterSlot::_0,
         can::filter::ExtendedFilter::accept_all_into_fifo1(),
     );
+    can2.set_extended_filter(
+        can::filter::ExtendedFilterSlot::_0,
+        can::filter::ExtendedFilter::accept_all_into_fifo1(),
+    );
 
     let mut can = can.into_internal_loopback_mode();
+    let mut can2 = can2.into_internal_loopback_mode();
 
     info!("CAN Configured");
 
@@ -100,6 +111,44 @@ async fn main(_spawner: Spawner) {
         let (frame, timestamp) = can.read().await.unwrap();
         info!("Frame received!");
 
+        // Check data.
+        assert!(i == frame.data()[0], "{} == {}", i, frame.data()[0]);
+
+        info!("loopback time {}", timestamp);
+        info!("loopback frame {=u8}", frame.data()[0]);
+        let latency = timestamp.saturating_duration_since(tx_ts);
+        info!("loopback latency {} us", latency.as_micros());
+
+        // Theoretical minimum latency is 55us, actual is usually ~80us
+        const MIN_LATENCY: Duration = Duration::from_micros(50);
+        // Was failing at 150 but we are not getting a real time stamp. I'm not
+        // sure if there are other delays
+        assert!(
+            MIN_LATENCY <= latency && latency <= options.max_latency,
+            "{} <= {} <= {}",
+            MIN_LATENCY,
+            latency,
+            options.max_latency
+        );
+
+        i += 1;
+        if i > 10 {
+            break;
+        }
+    }
+
+    let mut i: u8 = 0;
+    loop {
+        let tx_frame = can::frame::ClassicFrame::new_standard(0x123, &[i; 1]).unwrap();
+
+        info!("Transmitting frame...");
+        let tx_ts = Instant::now();
+        can2.write(&tx_frame).await;
+
+        let (frame, timestamp) = can2.read().await.unwrap();
+        info!("Frame received!");
+
+        //print_regs().await;
         // Check data.
         assert!(i == frame.data()[0], "{} == {}", i, frame.data()[0]);
 
