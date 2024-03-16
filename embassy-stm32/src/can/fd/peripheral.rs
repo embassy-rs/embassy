@@ -30,7 +30,12 @@ impl Registers {
         &mut self.msg_ram_mut().transmit.tbsa[bufidx]
     }
     pub fn msg_ram_mut(&self) -> &mut RegisterBlock {
+        #[cfg(stm32h7)]
+        let ptr = self.msgram.ram(self.msg_ram_offset / 4).as_ptr() as *mut RegisterBlock;
+
+        #[cfg(not(stm32h7))]
         let ptr = self.msgram.as_ptr() as *mut RegisterBlock;
+
         unsafe { &mut (*ptr) }
     }
 
@@ -637,7 +642,7 @@ impl Registers {
 
         use crate::can::fd::message_ram::*;
         //use fdcan::message_ram::*;
-        let mut offset_words = self.msg_ram_offset as u16;
+        let mut offset_words = (self.msg_ram_offset / 4) as u16;
 
         // 11-bit filter
         r.sidfc().modify(|w| w.set_flssa(offset_words));
