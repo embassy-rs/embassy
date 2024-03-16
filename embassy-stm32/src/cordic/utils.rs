@@ -3,7 +3,7 @@
 macro_rules! floating_fixed_convert {
     ($f_to_q:ident, $q_to_f:ident, $unsigned_bin_typ:ty, $signed_bin_typ:ty, $float_ty:ty, $offset:literal, $min_positive:literal) => {
         /// convert float point to fixed point format
-        pub fn $f_to_q(value: $float_ty) -> $unsigned_bin_typ {
+        pub(crate) fn $f_to_q(value: $float_ty) -> $unsigned_bin_typ {
             const MIN_POSITIVE: $float_ty = unsafe { core::mem::transmute($min_positive) };
 
             assert!(
@@ -31,7 +31,7 @@ macro_rules! floating_fixed_convert {
 
         #[inline(always)]
         /// convert fixed point to float point format
-        pub fn $q_to_f(value: $unsigned_bin_typ) -> $float_ty {
+        pub(crate) fn $q_to_f(value: $unsigned_bin_typ) -> $float_ty {
             // It's needed to convert from unsigned to signed first, for correct result.
             -(value as $signed_bin_typ as $float_ty) / ((1 as $unsigned_bin_typ << $offset) as $float_ty)
         }

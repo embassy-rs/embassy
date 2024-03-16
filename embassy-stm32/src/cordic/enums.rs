@@ -68,16 +68,3 @@ pub enum Width {
     Bits32,
     Bits16,
 }
-
-/// Cordic driver running mode
-#[derive(Clone, Copy)]
-pub enum Mode {
-    /// After caculation start, a read to RDATA register will block AHB until the caculation finished
-    ZeroOverhead,
-
-    /// Use CORDIC interrupt to trigger a read result value
-    Interrupt,
-
-    /// Use DMA to write/read value
-    Dma,
-}
