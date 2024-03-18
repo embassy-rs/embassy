@@ -289,7 +289,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     pub async fn respond_to_read(&mut self, buffer: &[u8]) -> Result<ReadStatus, Error> {
         let p = T::regs();
 
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             return Err(Error::InvalidResponseBufferLength);
         }
 
@@ -318,15 +318,13 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                     }
 
                     Poll::Pending
+                } else if stat.rx_done() {
+                    p.ic_clr_rx_done().read();
+                    Poll::Ready(Ok(ReadStatus::Done))
+                } else if stat.rd_req() && stat.tx_empty() {
+                    Poll::Ready(Ok(ReadStatus::NeedMoreBytes))
                 } else {
-                    if stat.rx_done() {
-                        p.ic_clr_rx_done().read();
-                        Poll::Ready(Ok(ReadStatus::Done))
-                    } else if stat.rd_req() && stat.tx_empty() {
-                        Poll::Ready(Ok(ReadStatus::NeedMoreBytes))
-                    } else {
-                        Poll::Pending
-                    }
+                    Poll::Pending
                 }
             },
             |_me| {

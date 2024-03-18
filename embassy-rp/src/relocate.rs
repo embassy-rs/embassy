@@ -22,15 +22,15 @@ where
 {
     type Item = u16;
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().and_then(|&instr| {
-            Some(if instr & 0b1110_0000_0000_0000 == 0 {
+        self.iter.next().map(|&instr| {
+            if instr & 0b1110_0000_0000_0000 == 0 {
                 // this is a JMP instruction -> add offset to address
                 let address = (instr & 0b1_1111) as u8;
                 let address = address.wrapping_add(self.offset) % 32;
                 instr & (!0b11111) | address as u16
             } else {
                 instr
-            })
+            }
         })
     }
 }

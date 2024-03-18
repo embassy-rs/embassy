@@ -225,8 +225,8 @@ fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
         // The status register is divided into groups of four, one group for
         // each pin. Each group consists of four trigger levels LEVEL_LOW,
         // LEVEL_HIGH, EDGE_LOW, and EDGE_HIGH for each pin.
-        let pin_group = (pin % 8) as usize;
-        let event = (intsx.read().0 >> pin_group * 4) & 0xf as u32;
+        let pin_group = pin % 8;
+        let event = (intsx.read().0 >> (pin_group * 4)) & 0xf;
 
         // no more than one event can be awaited per pin at any given time, so
         // we can just clear all interrupt enables for that pin without having
@@ -238,7 +238,7 @@ fn irq_handler<const N: usize>(bank: pac::io::Io, wakers: &[AtomicWaker; N]) {
                 w.set_level_high(pin_group, true);
                 w.set_level_low(pin_group, true);
             });
-            wakers[pin as usize].wake();
+            wakers[pin].wake();
         }
     }
 }

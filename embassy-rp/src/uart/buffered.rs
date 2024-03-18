@@ -467,7 +467,7 @@ impl<'d, T: Instance> Drop for BufferedUartRx<'d, T> {
 
         // TX is inactive if the the buffer is not available.
         // We can now unregister the interrupt handler
-        if state.tx_buf.len() == 0 {
+        if state.tx_buf.is_empty() {
             T::Interrupt::disable();
         }
     }
@@ -480,7 +480,7 @@ impl<'d, T: Instance> Drop for BufferedUartTx<'d, T> {
 
         // RX is inactive if the the buffer is not available.
         // We can now unregister the interrupt handler
-        if state.rx_buf.len() == 0 {
+        if state.rx_buf.is_empty() {
             T::Interrupt::disable();
         }
     }

@@ -19,13 +19,8 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// ADC config.
 #[non_exhaustive]
+#[derive(Default)]
 pub struct Config {}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {}
-    }
-}
 
 enum Source<'p> {
     Pin(PeripheralRef<'p, AnyPin>),
@@ -175,7 +170,7 @@ impl<'d, M: Mode> Adc<'d, M> {
         while !r.cs().read().ready() {}
         match r.cs().read().err() {
             true => Err(Error::ConversionFailed),
-            false => Ok(r.result().read().result().into()),
+            false => Ok(r.result().read().result()),
         }
     }
 }
@@ -221,7 +216,7 @@ impl<'d> Adc<'d, Async> {
         Self::wait_for_ready().await;
         match r.cs().read().err() {
             true => Err(Error::ConversionFailed),
-            false => Ok(r.result().read().result().into()),
+            false => Ok(r.result().read().result()),
         }
     }
 
