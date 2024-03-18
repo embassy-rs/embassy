@@ -238,8 +238,8 @@ select_bootloader! {
 }
 
 /// Installs a stack guard for the CORE0 stack in MPU region 0.
-/// Will fail if the MPU is already confgigured. This function requires
-/// a `_stack_end` symbol to be defined by the linker script, and expexcts
+/// Will fail if the MPU is already configured. This function requires
+/// a `_stack_end` symbol to be defined by the linker script, and expects
 /// `_stack_end` to be located at the lowest address (largest depth) of
 /// the stack.
 ///
