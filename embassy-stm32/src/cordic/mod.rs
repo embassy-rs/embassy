@@ -2,7 +2,7 @@
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
-use crate::peripherals;
+use crate::{dma, peripherals};
 
 mod enums;
 pub use enums::*;
@@ -16,6 +16,8 @@ pub(crate) mod sealed;
 pub mod low_level {
     pub use super::sealed::*;
 }
+
+const INPUT_BUF_MAX_LEN: usize = 16;
 
 /// CORDIC driver
 pub struct Cordic<'d, T: Instance> {
@@ -98,7 +100,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
             warn!("At least 1 result hasn't been read, reconfigure will cause DATA LOST");
         };
 
-        self.peri.disable_irq();
         self.peri.disable_write_dma();
         self.peri.disable_read_dma();
 
@@ -111,11 +112,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
         self.peri.set_precision(self.config.precision);
         self.peri.set_scale(self.config.scale);
 
-        if self.config.first_result {
-            self.peri.set_result_count(Count::One)
-        } else {
-            self.peri.set_result_count(Count::Two)
-        }
+        // we don't set NRES in here, but to make sure NRES is set each time user call "calc"-ish functions,
+        // since each "calc"-ish functions can have different ARGSIZE and RESSIZE, thus NRES should be change accrodingly.
     }
 
     fn blocking_read_f32(&mut self) -> (f32, Option<f32>) {
@@ -143,7 +141,7 @@ impl<'d, T: Instance> Drop for Cordic<'d, T> {
 
 // q1.31 related
 impl<'d, T: Instance> Cordic<'d, T> {
-    /// Run a CORDIC calculation
+    /// Run a blocking CORDIC calculation
     pub fn blocking_calc_32bit(&mut self, arg1s: &[f64], arg2s: Option<&[f64]>, output: &mut [f64]) -> usize {
         if arg1s.is_empty() {
             return 0;
@@ -159,7 +157,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         self.check_input_f64(arg1s, arg2s);
 
-        self.peri.disable_irq();
         self.peri.disable_write_dma();
         self.peri.disable_read_dma();
 
@@ -256,6 +253,192 @@ impl<'d, T: Instance> Cordic<'d, T> {
     fn blocking_write_f64(&mut self, arg: f64) {
         self.peri.write_argument(utils::f64_to_q1_31(arg));
     }
+
+    /// Run a async CORDIC calculation
+    pub async fn async_calc_32bit(
+        &mut self,
+        write_dma: impl Peripheral<P = impl WriteDma<T>>,
+        read_dma: impl Peripheral<P = impl ReadDma<T>>,
+        arg1s: &[f64],
+        arg2s: Option<&[f64]>,
+        output: &mut [f64],
+    ) -> usize {
+        if arg1s.is_empty() {
+            return 0;
+        }
+
+        assert!(
+            match self.config.first_result {
+                true => output.len() >= arg1s.len(),
+                false => output.len() >= 2 * arg1s.len(),
+            },
+            "Output buf length is not long enough"
+        );
+
+        self.check_input_f64(arg1s, arg2s);
+
+        into_ref!(write_dma, read_dma);
+
+        self.peri.set_result_count(if self.config.first_result {
+            Count::One
+        } else {
+            Count::Two
+        });
+
+        self.peri.set_data_width(Width::Bits32, Width::Bits32);
+
+        let mut output_count = 0;
+        let mut consumed_input_len = 0;
+        let mut input_buf = [0u32; INPUT_BUF_MAX_LEN];
+        let mut input_buf_len = 0;
+
+        self.peri.enable_write_dma();
+        self.peri.enable_read_dma();
+
+        if !arg2s.unwrap_or_default().is_empty() {
+            let arg2s = arg2s.expect("It's infailable");
+
+            self.peri.set_argument_count(Count::Two);
+
+            let double_input = arg1s.iter().zip(arg2s);
+
+            consumed_input_len = double_input.len();
+
+            for (&arg1, &arg2) in double_input {
+                for &arg in [arg1, arg2].iter() {
+                    input_buf[input_buf_len] = utils::f64_to_q1_31(arg);
+                    input_buf_len += 1;
+                }
+
+                if input_buf_len == INPUT_BUF_MAX_LEN {
+                    self.dma_calc_32bit(
+                        &mut write_dma,
+                        &mut read_dma,
+                        true,
+                        &input_buf[..input_buf_len],
+                        output,
+                        &mut output_count,
+                    )
+                    .await;
+
+                    input_buf_len = 0;
+                }
+            }
+
+            if input_buf_len % 2 != 0 {
+                panic!("input buf len should be multiple of 2 in double mode")
+            }
+
+            if input_buf_len > 0 {
+                self.dma_calc_32bit(
+                    &mut write_dma,
+                    &mut read_dma,
+                    true,
+                    &input_buf[..input_buf_len],
+                    output,
+                    &mut output_count,
+                )
+                .await;
+
+                input_buf_len = 0;
+            }
+        }
+
+        // single input
+
+        if arg1s.len() > consumed_input_len {
+            let input_remain = &arg1s[consumed_input_len..];
+
+            self.peri.set_argument_count(Count::One);
+
+            for &arg in input_remain {
+                input_buf[input_buf_len] = utils::f64_to_q1_31(arg);
+                input_buf_len += 1;
+
+                if input_buf_len == INPUT_BUF_MAX_LEN {
+                    self.dma_calc_32bit(
+                        &mut write_dma,
+                        &mut read_dma,
+                        false,
+                        &input_buf[..input_buf_len],
+                        output,
+                        &mut output_count,
+                    )
+                    .await;
+
+                    input_buf_len = 0;
+                }
+            }
+
+            if input_buf_len > 0 {
+                self.dma_calc_32bit(
+                    &mut write_dma,
+                    &mut read_dma,
+                    false,
+                    &input_buf[..input_buf_len],
+                    output,
+                    &mut output_count,
+                )
+                .await;
+
+                // input_buf_len = 0;
+            }
+        }
+
+        output_count
+    }
+
+    async fn dma_calc_32bit(
+        &mut self,
+        write_dma: impl Peripheral<P = impl WriteDma<T>>,
+        read_dma: impl Peripheral<P = impl ReadDma<T>>,
+        double_input: bool,
+        input_buf: &[u32],
+        output: &mut [f64],
+        output_start_index: &mut usize,
+    ) {
+        into_ref!(write_dma, read_dma);
+
+        let write_req = write_dma.request();
+        let read_req = read_dma.request();
+
+        let mut output_buf = [0u32; INPUT_BUF_MAX_LEN * 2]; // make output_buf long enough
+
+        let mut output_buf_size = input_buf.len();
+        if !self.config.first_result {
+            output_buf_size *= 2;
+        };
+        if double_input {
+            output_buf_size /= 2;
+        }
+
+        let active_output_buf = &mut output_buf[..output_buf_size];
+
+        unsafe {
+            let write_transfer = dma::Transfer::new_write(
+                &mut write_dma,
+                write_req,
+                input_buf,
+                T::regs().wdata().as_ptr() as *mut _,
+                Default::default(),
+            );
+
+            let read_transfer = dma::Transfer::new_read(
+                &mut read_dma,
+                read_req,
+                T::regs().rdata().as_ptr() as *mut _,
+                active_output_buf,
+                Default::default(),
+            );
+
+            embassy_futures::join::join(write_transfer, read_transfer).await;
+        }
+
+        for &mut output_u32 in active_output_buf {
+            output[*output_start_index] = utils::q1_31_to_f64(output_u32);
+            *output_start_index += 1;
+        }
+    }
 }
 
 // q1.15 related
@@ -276,7 +459,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         self.check_input_f32(arg1s, arg2s);
 
-        self.peri.disable_irq();
         self.peri.disable_write_dma();
         self.peri.disable_read_dma();
 
@@ -409,7 +591,7 @@ macro_rules! check_input_value {
                         };
                     }
 
-                    Function::Sqrt => match config.scale {
+                    Sqrt => match config.scale {
                         Scale::A1_R1 => assert!(
                             arg1s.iter().all(|v| (0.027..0.75).contains(v)),
                             "When SCALE set to 0, ARG1 should be: 0.027 <= ARG1 < 0.75"
@@ -462,3 +644,6 @@ foreach_interrupt!(
         }
     };
 );
+
+dma_trait!(WriteDma, Instance);
+dma_trait!(ReadDma, Instance);

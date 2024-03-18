@@ -484,7 +484,7 @@ fn main() {
                 let expr = if let Some(mux) = self.chained_muxes.get(&v.name) {
                     self.gen_mux(mux)
                 } else {
-                    self.gen_clock(&v.name)
+                    self.gen_clock(v.name)
                 };
                 match_arms.extend(quote! {
                     crate::pac::rcc::vals::#enum_name::#variant_name => #expr,
@@ -1139,6 +1139,8 @@ fn main() {
         (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
         (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
         (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)),
+        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),
     ]
     .into();
 
