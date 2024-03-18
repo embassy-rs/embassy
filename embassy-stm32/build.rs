@@ -595,20 +595,16 @@ fn main() {
                         #start_rst
 
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-                        // dummy read to ensure write is completed
+
+                        // we must wait two peripheral clock cycles before the clock is active
+                        // this seems to work, but might be incorrect
+                        // see http://efton.sk/STM32/gotcha/g183.html
+
+                        // dummy read (like in the ST HALs)
                         let _ = crate::pac::RCC.#en_reg().read();
 
-                        // wait two peripheral clock cycles before the clock is active
-                        // accomplish this with two dummy reads from the peripheral. this shouldn't
-                        // cause any side effects since the peripheral is in reset
-                        unsafe {
-                            //apparently volatile accesses to ZST like () can be optimized out. lol
-                            let ptr = crate::pac::#pname.as_ptr() as *const usize;
-                            let _ = ::core::ptr::read_volatile(ptr);
-                            let _ = ::core::ptr::read_volatile(ptr);
-                            // wait for memory accesses to finish
-                            cortex_m::asm::dsb();
-                        }
+                        // DSB for good measure
+                        cortex_m::asm::dsb();
 
                         #end_rst
                     }
