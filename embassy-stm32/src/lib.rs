@@ -79,10 +79,8 @@ pub mod ucpd;
 pub mod uid;
 #[cfg(usart)]
 pub mod usart;
-#[cfg(usb)]
+#[cfg(any(usb, otg))]
 pub mod usb;
-#[cfg(otg)]
-pub mod usb_otg;
 #[cfg(iwdg)]
 pub mod wdg;
 
@@ -107,10 +105,10 @@ pub use crate::_generated::interrupt;
 /// Example of how to bind one interrupt:
 ///
 /// ```rust,ignore
-/// use embassy_stm32::{bind_interrupts, usb_otg, peripherals};
+/// use embassy_stm32::{bind_interrupts, usb, peripherals};
 ///
 /// bind_interrupts!(struct Irqs {
-///     OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+///     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 /// });
 /// ```
 ///

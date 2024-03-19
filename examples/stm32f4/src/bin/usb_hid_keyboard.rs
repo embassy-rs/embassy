@@ -8,8 +8,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usb_otg::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb_otg, Config};
+use embassy_stm32::usb::Driver;
+use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Handler};
@@ -18,7 +18,7 @@ use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    OTG_FS => usb_otg::InterruptHandler<peripherals::USB_OTG_FS>;
+    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
 });
 
 #[embassy_executor::main]
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
 
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];
-    let mut config = embassy_stm32::usb_otg::Config::default();
+    let mut config = embassy_stm32::usb::Config::default();
     config.vbus_detection = true;
     let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 

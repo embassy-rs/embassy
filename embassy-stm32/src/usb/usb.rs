@@ -12,7 +12,6 @@ use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
-use super::{DmPin, DpPin, Instance};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
@@ -1057,3 +1056,33 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         });
     }
 }
+
+pub(crate) mod sealed {
+    pub trait Instance {
+        fn regs() -> crate::pac::usb::Usb;
+    }
+}
+
+/// USB instance trait.
+pub trait Instance: sealed::Instance + RccPeripheral + 'static {
+    /// Interrupt for this USB instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+// Internal PHY pins
+pin_trait!(DpPin, Instance);
+pin_trait!(DmPin, Instance);
+
+foreach_interrupt!(
+    ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
+        impl sealed::Instance for crate::peripherals::$inst {
+            fn regs() -> crate::pac::usb::Usb {
+                crate::pac::$inst
+            }
+        }
+
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+);
