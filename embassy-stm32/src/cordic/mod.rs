@@ -1,5 +1,6 @@
 //! CORDIC co-processor
 
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
 use crate::{dma, peripherals};
@@ -100,9 +101,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
             warn!("At least 1 result hasn't been read, reconfigure will cause DATA LOST");
         };
 
-        self.peri.disable_write_dma();
-        self.peri.disable_read_dma();
-
         // clean RRDY flag
         while self.peri.ready_to_read() {
             self.peri.read_result();
@@ -115,22 +113,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
         // we don't set NRES in here, but to make sure NRES is set each time user call "calc"-ish functions,
         // since each "calc"-ish functions can have different ARGSIZE and RESSIZE, thus NRES should be change accrodingly.
     }
-
-    fn blocking_read_f32(&mut self) -> (f32, Option<f32>) {
-        let reg_value = self.peri.read_result();
-
-        let res1 = utils::q1_15_to_f32((reg_value & ((1u32 << 16) - 1)) as u16);
-
-        // We don't care about whether the function return 1 or 2 results,
-        // the only thing matter is whether user want 1 or 2 results.
-        let res2 = if !self.config.first_result {
-            Some(utils::q1_15_to_f32((reg_value >> 16) as u16))
-        } else {
-            None
-        };
-
-        (res1, res2)
-    }
 }
 
 impl<'d, T: Instance> Drop for Cordic<'d, T> {
@@ -141,7 +123,7 @@ impl<'d, T: Instance> Drop for Cordic<'d, T> {
 
 // q1.31 related
 impl<'d, T: Instance> Cordic<'d, T> {
-    /// Run a blocking CORDIC calculation
+    /// Run a blocking CORDIC calculation in q1.31 format
     pub fn blocking_calc_32bit(&mut self, arg1s: &[f64], arg2s: Option<&[f64]>, output: &mut [f64]) -> usize {
         if arg1s.is_empty() {
             return 0;
@@ -157,9 +139,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         self.check_input_f64(arg1s, arg2s);
 
-        self.peri.disable_write_dma();
-        self.peri.disable_read_dma();
-
         self.peri.set_result_count(if self.config.first_result {
             Count::One
         } else {
@@ -172,7 +151,10 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         let mut consumed_input_len = 0;
 
-        // put double input into cordic
+        //
+        // handle 2 input args calculation
+        //
+
         if arg2s.is_some() && !arg2s.expect("It's infailable").is_empty() {
             let arg2s = arg2s.expect("It's infailable");
 
@@ -202,7 +184,10 @@ impl<'d, T: Instance> Cordic<'d, T> {
             self.blocking_read_f64_to_buf(output, &mut output_count);
         }
 
-        // put single input into cordic
+        //
+        // handle 1 input arg calculation
+        //
+
         let input_left = &arg1s[consumed_input_len..];
 
         if !input_left.is_empty() {
@@ -225,27 +210,14 @@ impl<'d, T: Instance> Cordic<'d, T> {
         output_count
     }
 
-    fn blocking_read_f64(&mut self) -> (f64, Option<f64>) {
-        let res1 = utils::q1_31_to_f64(self.peri.read_result());
+    fn blocking_read_f64_to_buf(&mut self, result_buf: &mut [f64], result_index: &mut usize) {
+        result_buf[*result_index] = utils::q1_31_to_f64(self.peri.read_result());
+        *result_index += 1;
 
         // We don't care about whether the function return 1 or 2 results,
         // the only thing matter is whether user want 1 or 2 results.
-        let res2 = if !self.config.first_result {
-            Some(utils::q1_31_to_f64(self.peri.read_result()))
-        } else {
-            None
-        };
-
-        (res1, res2)
-    }
-
-    fn blocking_read_f64_to_buf(&mut self, result_buf: &mut [f64], result_index: &mut usize) {
-        let (res1, res2) = self.blocking_read_f64();
-        result_buf[*result_index] = res1;
-        *result_index += 1;
-
-        if let Some(res2) = res2 {
-            result_buf[*result_index] = res2;
+        if !self.config.first_result {
+            result_buf[*result_index] = utils::q1_31_to_f64(self.peri.read_result());
             *result_index += 1;
         }
     }
@@ -254,7 +226,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
         self.peri.write_argument(utils::f64_to_q1_31(arg));
     }
 
-    /// Run a async CORDIC calculation
+    /// Run a async CORDIC calculation in q.1.31 format
     pub async fn async_calc_32bit(
         &mut self,
         write_dma: impl Peripheral<P = impl WriteDma<T>>,
@@ -292,8 +264,9 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let mut input_buf = [0u32; INPUT_BUF_MAX_LEN];
         let mut input_buf_len = 0;
 
-        self.peri.enable_write_dma();
-        self.peri.enable_read_dma();
+        //
+        // handle 2 input args calculation
+        //
 
         if !arg2s.unwrap_or_default().is_empty() {
             let arg2s = arg2s.expect("It's infailable");
@@ -311,7 +284,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
                 }
 
                 if input_buf_len == INPUT_BUF_MAX_LEN {
-                    self.dma_calc_32bit(
+                    self.inner_dma_calc_32bit(
                         &mut write_dma,
                         &mut read_dma,
                         true,
@@ -325,12 +298,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
                 }
             }
 
-            if input_buf_len % 2 != 0 {
-                panic!("input buf len should be multiple of 2 in double mode")
-            }
-
             if input_buf_len > 0 {
-                self.dma_calc_32bit(
+                self.inner_dma_calc_32bit(
                     &mut write_dma,
                     &mut read_dma,
                     true,
@@ -344,7 +313,9 @@ impl<'d, T: Instance> Cordic<'d, T> {
             }
         }
 
-        // single input
+        //
+        // handle 1 input arg calculation
+        //
 
         if arg1s.len() > consumed_input_len {
             let input_remain = &arg1s[consumed_input_len..];
@@ -356,7 +327,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
                 input_buf_len += 1;
 
                 if input_buf_len == INPUT_BUF_MAX_LEN {
-                    self.dma_calc_32bit(
+                    self.inner_dma_calc_32bit(
                         &mut write_dma,
                         &mut read_dma,
                         false,
@@ -371,7 +342,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
             }
 
             if input_buf_len > 0 {
-                self.dma_calc_32bit(
+                self.inner_dma_calc_32bit(
                     &mut write_dma,
                     &mut read_dma,
                     false,
@@ -388,31 +359,46 @@ impl<'d, T: Instance> Cordic<'d, T> {
         output_count
     }
 
-    async fn dma_calc_32bit(
+    // this function is highly coupled with async_calc_32bit, and is not intended to use in other place
+    async fn inner_dma_calc_32bit(
         &mut self,
         write_dma: impl Peripheral<P = impl WriteDma<T>>,
         read_dma: impl Peripheral<P = impl ReadDma<T>>,
-        double_input: bool,
-        input_buf: &[u32],
-        output: &mut [f64],
-        output_start_index: &mut usize,
+        double_input: bool,             // gether extra info to calc output_buf size
+        input_buf: &[u32],              // input_buf, its content should be extact values and length for calculation
+        output: &mut [f64],             // caller uses should this as a final output array
+        output_start_index: &mut usize, // the index of start point of the output for this round of calculation
     ) {
         into_ref!(write_dma, read_dma);
 
         let write_req = write_dma.request();
         let read_req = read_dma.request();
 
-        let mut output_buf = [0u32; INPUT_BUF_MAX_LEN * 2]; // make output_buf long enough
+        // output_buf is the place to store raw value from CORDIC (via DMA).
+        // For buf size, we assume in this round of calculation:
+        // all input is 1 arg, and all calculation need 2 output,
+        // thus output_buf will always be long enough.
+        let mut output_buf = [0u32; INPUT_BUF_MAX_LEN * 2];
 
         let mut output_buf_size = input_buf.len();
         if !self.config.first_result {
+            // if we need 2 result for 1 input, then output_buf length should be 2x long.
             output_buf_size *= 2;
         };
         if double_input {
+            // if input itself is 2 args for 1 calculation, then output_buf length should be /2.
             output_buf_size /= 2;
         }
 
         let active_output_buf = &mut output_buf[..output_buf_size];
+
+        self.peri.enable_write_dma();
+        self.peri.enable_read_dma();
+
+        let on_drop = OnDrop::new(|| {
+            self.peri.disable_write_dma();
+            self.peri.disable_read_dma();
+        });
 
         unsafe {
             let write_transfer = dma::Transfer::new_write(
@@ -434,6 +420,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
             embassy_futures::join::join(write_transfer, read_transfer).await;
         }
 
+        drop(on_drop);
+
         for &mut output_u32 in active_output_buf {
             output[*output_start_index] = utils::q1_31_to_f64(output_u32);
             *output_start_index += 1;
@@ -443,7 +431,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
 // q1.15 related
 impl<'d, T: Instance> Cordic<'d, T> {
-    /// Run a CORDIC calculation
+    /// Run a blocking CORDIC calculation in q1.15 format
     pub fn blocking_calc_16bit(&mut self, arg1s: &[f32], arg2s: Option<&[f32]>, output: &mut [f32]) -> usize {
         if arg1s.is_empty() {
             return 0;
@@ -458,9 +446,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
         );
 
         self.check_input_f32(arg1s, arg2s);
-
-        self.peri.disable_write_dma();
-        self.peri.disable_read_dma();
 
         // In q1.15 mode, 1 write/read to access 2 arguments/results
         self.peri.set_argument_count(Count::One);
@@ -506,18 +491,161 @@ impl<'d, T: Instance> Cordic<'d, T> {
     }
 
     fn blocking_write_f32(&mut self, arg1: f32, arg2: f32) {
-        let reg_value: u32 = utils::f32_to_q1_15(arg1) as u32 + ((utils::f32_to_q1_15(arg2) as u32) << 16);
+        let reg_value: u32 = utils::f32_args_to_u32(arg1, arg2);
         self.peri.write_argument(reg_value);
     }
 
     fn blocking_read_f32_to_buf(&mut self, result_buf: &mut [f32], result_index: &mut usize) {
-        let (res1, res2) = self.blocking_read_f32();
+        let reg_value = self.peri.read_result();
+
+        let (res1, res2) = utils::u32_to_f32_res(reg_value);
+
         result_buf[*result_index] = res1;
         *result_index += 1;
 
-        if let Some(res2) = res2 {
+        // We don't care about whether the function return 1 or 2 results,
+        // the only thing matter is whether user want 1 or 2 results.
+        if !self.config.first_result {
             result_buf[*result_index] = res2;
             *result_index += 1;
+        }
+    }
+
+    /// Run a async CORDIC calculation in q1.15 format
+    pub async fn async_calc_16bit(
+        &mut self,
+        write_dma: impl Peripheral<P = impl WriteDma<T>>,
+        read_dma: impl Peripheral<P = impl ReadDma<T>>,
+        arg1s: &[f32],
+        arg2s: Option<&[f32]>,
+        output: &mut [f32],
+    ) -> usize {
+        if arg1s.is_empty() {
+            return 0;
+        }
+
+        assert!(
+            match self.config.first_result {
+                true => output.len() >= arg1s.len(),
+                false => output.len() >= 2 * arg1s.len(),
+            },
+            "Output buf length is not long enough"
+        );
+
+        self.check_input_f32(arg1s, arg2s);
+
+        into_ref!(write_dma, read_dma);
+
+        // In q1.15 mode, 1 write/read to access 2 arguments/results
+        self.peri.set_argument_count(Count::One);
+        self.peri.set_result_count(Count::One);
+
+        self.peri.set_data_width(Width::Bits16, Width::Bits16);
+
+        let mut output_count = 0;
+        let mut input_buf = [0u32; INPUT_BUF_MAX_LEN];
+        let mut input_buf_len = 0;
+
+        // In q1.15 mode, we always fill 1 pair of 16bit value into WDATA register.
+        // If arg2s is None or empty array, we assume arg2 value always 1.0 (as reset value for ARG2).
+        // If arg2s has some value, and but not as long as arg1s,
+        // we fill the reset of arg2 values with last value from arg2s (as q1.31 version does)
+
+        let arg2_default_value = match arg2s {
+            Some(arg2s) if !arg2s.is_empty() => arg2s[arg2s.len() - 1],
+            _ => 1.0,
+        };
+
+        let args = arg1s.iter().zip(
+            arg2s
+                .unwrap_or(&[])
+                .iter()
+                .chain(core::iter::repeat(&arg2_default_value)),
+        );
+
+        for (&arg1, &arg2) in args {
+            input_buf[input_buf_len] = utils::f32_args_to_u32(arg1, arg2);
+            input_buf_len += 1;
+
+            if input_buf_len == INPUT_BUF_MAX_LEN {
+                self.inner_dma_calc_16bit(&mut write_dma, &mut read_dma, &input_buf, output, &mut output_count)
+                    .await;
+            }
+        }
+
+        if input_buf_len > 0 {
+            self.inner_dma_calc_16bit(
+                &mut write_dma,
+                &mut read_dma,
+                &input_buf[..input_buf_len],
+                output,
+                &mut output_count,
+            )
+            .await;
+        }
+
+        output_count
+    }
+
+    // this function is highly coupled with async_calc_16bit, and is not intended to use in other place
+    async fn inner_dma_calc_16bit(
+        &mut self,
+        write_dma: impl Peripheral<P = impl WriteDma<T>>,
+        read_dma: impl Peripheral<P = impl ReadDma<T>>,
+        input_buf: &[u32],  // input_buf, its content should be extact values and length for calculation
+        output: &mut [f32], // caller uses should this as a final output array
+        output_start_index: &mut usize, // the index of start point of the output for this round of calculation
+    ) {
+        into_ref!(write_dma, read_dma);
+
+        let write_req = write_dma.request();
+        let read_req = read_dma.request();
+
+        // output_buf is the place to store raw value from CORDIC (via DMA).
+        let mut output_buf = [0u32; INPUT_BUF_MAX_LEN];
+
+        let active_output_buf = &mut output_buf[..input_buf.len()];
+
+        self.peri.enable_write_dma();
+        self.peri.enable_read_dma();
+
+        let on_drop = OnDrop::new(|| {
+            self.peri.disable_write_dma();
+            self.peri.disable_read_dma();
+        });
+
+        unsafe {
+            let write_transfer = dma::Transfer::new_write(
+                &mut write_dma,
+                write_req,
+                input_buf,
+                T::regs().wdata().as_ptr() as *mut _,
+                Default::default(),
+            );
+
+            let read_transfer = dma::Transfer::new_read(
+                &mut read_dma,
+                read_req,
+                T::regs().rdata().as_ptr() as *mut _,
+                active_output_buf,
+                Default::default(),
+            );
+
+            embassy_futures::join::join(write_transfer, read_transfer).await;
+        }
+
+        drop(on_drop);
+
+        for &mut output_u32 in active_output_buf {
+            let (res1, res2) = utils::u32_to_f32_res(output_u32);
+
+            output[*output_start_index] = res1;
+            *output_start_index += 1;
+
+            if !self.config.first_result {
+                output[*output_start_index] = res2;
+                *output_start_index += 1;
+            }
         }
     }
 }

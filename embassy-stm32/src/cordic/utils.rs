@@ -57,3 +57,16 @@ floating_fixed_convert!(
     15,
     0x3800_0000u32 // binary form of 1f32^(-15)
 );
+
+#[inline(always)]
+pub(crate) fn f32_args_to_u32(arg1: f32, arg2: f32) -> u32 {
+    f32_to_q1_15(arg1) as u32 + ((f32_to_q1_15(arg2) as u32) << 16)
+}
+
+#[inline(always)]
+pub(crate) fn u32_to_f32_res(reg_value: u32) -> (f32, f32) {
+    let res1 = q1_15_to_f32((reg_value & ((1u32 << 16) - 1)) as u16);
+    let res2 = q1_15_to_f32((reg_value >> 16) as u16);
+
+    (res1, res2)
+}
