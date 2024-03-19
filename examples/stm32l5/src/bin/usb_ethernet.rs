@@ -5,7 +5,6 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Stack, StackResources};
-use embassy_stm32::rcc::*;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, rng, usb, Config};
@@ -44,17 +43,22 @@ async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.hsi = true;
-    config.rcc.sys = Sysclk::PLL1_R;
-    config.rcc.pll = Some(Pll {
-        // 80Mhz clock (16 / 1 * 10 / 2)
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL10,
-        divp: None,
-        divq: None,
-        divr: Some(PllRDiv::DIV2),
-    });
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.hsi = true;
+        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.pll = Some(Pll {
+            // 80Mhz clock (16 / 1 * 10 / 2)
+            source: PllSource::HSI,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL10,
+            divp: None,
+            divq: None,
+            divr: Some(PllRDiv::DIV2),
+        });
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48;
+    }
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.

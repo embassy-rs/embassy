@@ -35,6 +35,7 @@ async fn main(_spawner: Spawner) {
         config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.voltage_range = VoltageScale::RANGE1;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+        config.rcc.mux.iclksel = mux::Iclksel::HSI48; // USB uses ICLK
     }
 
     let p = embassy_stm32::init(config);
