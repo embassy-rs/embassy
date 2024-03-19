@@ -1,6 +1,7 @@
 /// CORDIC function
 #[allow(missing_docs)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Function {
     Cos = 0,
     Sin,
@@ -16,7 +17,7 @@ pub enum Function {
 
 /// CORDIC precision
 #[allow(missing_docs)]
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Precision {
     Iters4 = 1,
     Iters8,
@@ -37,25 +38,25 @@ pub enum Precision {
 }
 
 /// CORDIC scale
-#[allow(non_camel_case_types)]
 #[allow(missing_docs)]
-#[derive(Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Scale {
     #[default]
-    A1_R1 = 0,
-    A1o2_R2,
-    A1o4_R4,
-    A1o8_R8,
-    A1o16_R16,
-    A1o32_R32,
-    A1o64_R64,
-    A1o128_R128,
+    Arg1Res1 = 0,
+    Arg1o2Res2,
+    Arg1o4Res4,
+    Arg1o8Res8,
+    Arg1o16Res16,
+    Arg1o32Res32,
+    Arg1o64Res64,
+    Arg1o128Res128,
 }
 
-/// CORDIC argument/result count
+/// CORDIC argument/result register access count
 #[allow(missing_docs)]
 #[derive(Clone, Copy, Default)]
-pub enum Count {
+pub enum AccessCount {
     #[default]
     One,
     Two,

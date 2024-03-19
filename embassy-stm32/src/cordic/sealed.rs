@@ -66,21 +66,21 @@ pub trait Instance {
     }
 
     /// Set NARGS value
-    fn set_argument_count(&self, n: Count) {
+    fn set_argument_count(&self, n: AccessCount) {
         Self::regs().csr().modify(|v| {
             v.set_nargs(match n {
-                Count::One => vals::Num::NUM1,
-                Count::Two => vals::Num::NUM2,
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
             })
         })
     }
 
     /// Set NRES value
-    fn set_result_count(&self, n: Count) {
+    fn set_result_count(&self, n: AccessCount) {
         Self::regs().csr().modify(|v| {
             v.set_nres(match n {
-                Count::One => vals::Num::NUM1,
-                Count::Two => vals::Num::NUM2,
+                AccessCount::One => vals::Num::NUM1,
+                AccessCount::Two => vals::Num::NUM2,
             });
         })
     }
