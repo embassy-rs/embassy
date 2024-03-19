@@ -12,7 +12,6 @@ use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
-use crate::interrupt::typelevel::Interrupt;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
@@ -258,18 +257,10 @@ impl<'d, T: Instance> Driver<'d, T> {
         dm: impl Peripheral<P = impl DmPin<T>> + 'd,
     ) -> Self {
         into_ref!(dp, dm);
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
+
+        super::common_init::<T>();
 
         let regs = T::regs();
-
-        #[cfg(any(stm32l4, stm32l5, stm32wb))]
-        crate::pac::PWR.cr2().modify(|w| w.set_usv(true));
-
-        #[cfg(pwr_h5)]
-        crate::pac::PWR.usbscr().modify(|w| w.set_usb33sv(true));
-
-        <T as RccPeripheral>::enable_and_reset();
 
         regs.cntr().write(|w| {
             w.set_pdwn(false);
