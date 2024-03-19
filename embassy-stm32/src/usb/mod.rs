@@ -10,6 +10,19 @@ use crate::rcc::sealed::RccPeripheral;
 
 /// clock, power initialization stuff that's common for USB and OTG.
 fn common_init<T: Instance>() {
+    // Check the USB clock is enabled and running at exactly 48 MHz.
+    // frequency() will panic if not enabled
+    let freq = T::frequency();
+    // Check frequency is within the 0.25% tolerance allowed by the spec.
+    // Clock might not be exact 48Mhz due to rounding errors in PLL calculation, or if the user
+    // has tight clock restrictions due to something else (like audio).
+    if freq.0.abs_diff(48_000_000) > 120_000 {
+        panic!(
+            "USB clock should be 48Mhz but is {} Hz. Please double-check your RCC settings.",
+            freq.0
+        )
+    }
+
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
     critical_section::with(|_| crate::pac::PWR.cr2().modify(|w| w.set_usv(true)));
 
