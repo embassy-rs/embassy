@@ -10,6 +10,7 @@ use core::task::Poll;
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{select, Either};
 use embassy_hal_internal::drop::OnDrop;
+use embedded_hal_1::i2c::Operation;
 
 use super::*;
 use crate::dma::Transfer;
@@ -370,6 +371,66 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         self.write_bytes(addr, write, timeout, FrameOptions::FirstFrame)?;
         self.blocking_read_timeout(addr, read, timeout, FrameOptions::FirstAndLastFrame)?;
+
+        Ok(())
+    }
+
+    /// Blocking transaction with operations.
+    ///
+    /// Consecutive operations of same type are merged. See [transaction contract] for details.
+    ///
+    /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        let timeout = self.timeout();
+
+        let mut operations = operations.iter_mut();
+
+        let mut prev_op: Option<&mut Operation<'_>> = None;
+        let mut next_op = operations.next();
+
+        while let Some(mut op) = next_op {
+            next_op = operations.next();
+
+            // Check if this is the first frame of this type. This is the case for the first overall
+            // frame in the transaction and whenever the type of operation changes.
+            let first_frame =
+                match (prev_op.as_ref(), &op) {
+                    (None, _) => true,
+                    (Some(Operation::Read(_)), Operation::Write(_))
+                    | (Some(Operation::Write(_)), Operation::Read(_)) => true,
+                    (Some(Operation::Read(_)), Operation::Read(_))
+                    | (Some(Operation::Write(_)), Operation::Write(_)) => false,
+                };
+
+            let frame = match (first_frame, next_op.as_ref()) {
+                // If this is the first frame of this type, we generate a (repeated) start condition
+                // but have to consider the next operation: if it is the last, we generate the final
+                // stop condition. Otherwise, we branch on the operation: with read operations, only
+                // the last byte overall (before a write operation or the end of the transaction) is
+                // to be NACK'd, i.e. if another read operation follows, we must ACK this last byte.
+                (true, None) => FrameOptions::FirstAndLastFrame,
+                // Make sure to keep sending ACK for last byte in read operation when it is followed
+                // by another consecutive read operation. If the current operation is write, this is
+                // identical to `FirstFrame`.
+                (true, Some(Operation::Read(_))) => FrameOptions::FirstAndNextFrame,
+                // Otherwise, send NACK for last byte (in read operation). (For write, this does not
+                // matter and could also be `FirstAndNextFrame`.)
+                (true, Some(Operation::Write(_))) => FrameOptions::FirstFrame,
+
+                // If this is not the first frame of its type, we do not generate a (repeated) start
+                // condition. Otherwise, we branch the same way as above.
+                (false, None) => FrameOptions::LastFrame,
+                (false, Some(Operation::Read(_))) => FrameOptions::NextFrame,
+                (false, Some(Operation::Write(_))) => FrameOptions::LastFrameNoStop,
+            };
+
+            match &mut op {
+                Operation::Read(read) => self.blocking_read_timeout(addr, read, timeout, frame)?,
+                Operation::Write(write) => self.write_bytes(addr, write, timeout, frame)?,
+            }
+
+            prev_op = Some(op);
+        }
 
         Ok(())
     }
