@@ -97,7 +97,7 @@ pub(crate) mod sealed {
             let arr = unwrap!(u16::try_from(divide_by - 1));
 
             let regs = Self::regs_core();
-            regs.psc().write(|r| r.set_psc(psc));
+            regs.psc().write_value(psc);
             regs.arr().write(|r| r.set_arr(arr));
 
             regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
@@ -137,7 +137,7 @@ pub(crate) mod sealed {
 
             let regs = Self::regs_core();
             let arr = regs.arr().read().arr();
-            let psc = regs.psc().read().psc();
+            let psc = regs.psc().read();
 
             timer_f / arr / (psc + 1)
         }
@@ -378,7 +378,7 @@ pub(crate) mod sealed {
             let arr: u32 = unwrap!((pclk_ticks_per_timer_period / (psc as u64 + 1)).try_into());
 
             let regs = Self::regs_gp32();
-            regs.psc().write(|r| r.set_psc(psc));
+            regs.psc().write_value(psc);
             regs.arr().write_value(arr);
 
             regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTERONLY));
@@ -392,7 +392,7 @@ pub(crate) mod sealed {
 
             let regs = Self::regs_gp32();
             let arr = regs.arr().read();
-            let psc = regs.psc().read().psc();
+            let psc = regs.psc().read();
 
             timer_f / arr / (psc + 1)
         }
