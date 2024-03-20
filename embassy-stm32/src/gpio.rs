@@ -833,6 +833,18 @@ impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
     }
 }
 
+impl<'d> embedded_hal_02::digital::v2::InputPin for OutputOpenDrain<'d> {
+    type Error = Infallible;
+
+    fn is_high(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_high())
+    }
+
+    fn is_low(&self) -> Result<bool, Self::Error> {
+        Ok(self.is_low())
+    }
+}
+
 impl<'d> embedded_hal_02::digital::v2::OutputPin for OutputOpenDrain<'d> {
     type Error = Infallible;
 
