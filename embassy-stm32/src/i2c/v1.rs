@@ -367,6 +367,12 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
     /// Blocking write, restart, read.
     pub fn blocking_write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        // Check empty read buffer before starting transaction. Otherwise, we would not generate the
+        // stop condition below.
+        if read.is_empty() {
+            return Err(Error::Overrun);
+        }
+
         let timeout = self.timeout();
 
         self.write_bytes(addr, write, timeout, FrameOptions::FirstFrame)?;
@@ -381,6 +387,15 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        // Check empty read buffer before starting transaction. Otherwise, we would not generate the
+        // stop condition below.
+        if operations.iter().any(|op| match op {
+            Operation::Read(read) => read.is_empty(),
+            Operation::Write(_) => false,
+        }) {
+            return Err(Error::Overrun);
+        }
+
         let timeout = self.timeout();
 
         let mut operations = operations.iter_mut();
