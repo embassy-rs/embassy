@@ -403,7 +403,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         let mut prev_op: Option<&mut Operation<'_>> = None;
         let mut next_op = operations.next();
 
-        while let Some(mut op) = next_op {
+        while let Some(op) = next_op {
             next_op = operations.next();
 
             // Check if this is the first frame of this type. This is the case for the first overall
@@ -439,7 +439,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 (false, Some(Operation::Write(_))) => FrameOptions::LastFrameNoStop,
             };
 
-            match &mut op {
+            match op {
                 Operation::Read(read) => self.blocking_read_timeout(addr, read, timeout, frame)?,
                 Operation::Write(write) => self.write_bytes(addr, write, timeout, frame)?,
             }
