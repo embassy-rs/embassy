@@ -58,10 +58,10 @@ pub unsafe fn on_interrupt<T: Instance>() {
 /// - `ST` = start condition
 /// - `SR` = repeated start condition
 /// - `SP` = stop condition
+/// - `ACK`/`NACK` = last byte in read operation
 #[derive(Copy, Clone)]
 enum FrameOptions {
-    /// `[ST/SR]+[NACK]+[SP]` First frame (of this type) in operation and last frame overall in this
-    /// transaction.
+    /// `[ST/SR]+[NACK]+[SP]` First frame (of this type) in transaction and also last frame overall.
     FirstAndLastFrame,
     /// `[ST/SR]+[NACK]` First frame of this type in transaction, last frame in a read operation but
     /// not the last frame overall.
