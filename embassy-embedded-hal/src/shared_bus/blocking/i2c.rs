@@ -67,9 +67,11 @@ where
     }
 
     fn transaction<'a>(&mut self, address: u8, operations: &mut [Operation<'a>]) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
+        self.bus.lock(|bus| {
+            bus.borrow_mut()
+                .transaction(address, operations)
+                .map_err(I2cDeviceError::I2c)
+        })
     }
 }
 
@@ -171,8 +173,10 @@ where
     }
 
     fn transaction<'a>(&mut self, address: u8, operations: &mut [Operation<'a>]) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
+        self.bus.lock(|bus| {
+            let mut bus = bus.borrow_mut();
+            bus.set_config(&self.config).map_err(|_| I2cDeviceError::Config)?;
+            bus.transaction(address, operations).map_err(I2cDeviceError::I2c)
+        })
     }
 }
