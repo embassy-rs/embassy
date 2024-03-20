@@ -1427,8 +1427,6 @@ pub(crate) mod sealed {
         fn regs() -> RegBlock;
         fn state() -> &'static AtomicWaker;
     }
-
-    pub trait Pins<T: Instance> {}
 }
 
 /// SDMMC instance trait.

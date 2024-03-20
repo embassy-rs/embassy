@@ -1,4 +1,3 @@
-use core::convert::AsMut;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};

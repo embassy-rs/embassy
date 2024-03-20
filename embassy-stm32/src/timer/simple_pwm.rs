@@ -8,7 +8,6 @@ use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, OutputType};
-use crate::time::Hertz;
 use crate::Peripheral;
 
 /// Channel 1 marker type.

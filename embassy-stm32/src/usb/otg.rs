@@ -6,8 +6,8 @@ use core::task::Poll;
 use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
-    self, Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo,
-    EndpointOut, EndpointType, Event, Unsupported,
+    Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
+    EndpointType, Event, Unsupported,
 };
 use futures::future::poll_fn;
 

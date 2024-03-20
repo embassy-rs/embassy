@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 use core::cell::Cell;
-use core::convert::TryInto;
 use core::sync::atomic::{compiler_fence, AtomicU32, AtomicU8, Ordering};
 use core::{mem, ptr};
 

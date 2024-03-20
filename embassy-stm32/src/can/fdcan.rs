@@ -883,9 +883,9 @@ macro_rules! impl_fdcan {
             fn ram() -> &'static crate::pac::fdcanram::Fdcanram {
                 &crate::pac::$msg_ram_inst
             }
-            unsafe fn mut_state() -> & 'static mut sealed::State {
+            unsafe fn mut_state() -> &'static mut sealed::State {
                 static mut STATE: sealed::State = sealed::State::new();
-                & mut STATE
+                &mut *core::ptr::addr_of_mut!(STATE)
             }
             fn state() -> &'static sealed::State {
                 unsafe { peripherals::$inst::mut_state() }
