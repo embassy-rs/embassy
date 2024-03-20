@@ -332,8 +332,6 @@ impl<'d, T: Instance, TXDMA: TxDma<T>, RXDMA: RxDma<T>> embedded_hal_async::i2c:
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        let _ = address;
-        let _ = operations;
-        todo!()
+        self.transaction(address, operations).await
     }
 }
