@@ -311,10 +311,10 @@ impl<'d, T: Instance> embedded_hal_1::i2c::I2c for I2c<'d, T, NoDma, NoDma> {
 
     fn transaction(
         &mut self,
-        _address: u8,
-        _operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+        address: u8,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        todo!();
+        self.blocking_transaction(address, operations)
     }
 }
 

@@ -4,6 +4,7 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
+use embedded_hal_1::i2c::Operation;
 
 use super::*;
 use crate::dma::Transfer;
@@ -577,6 +578,17 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         self.write_internal(address, write, false, timeout)?;
         self.read_internal(address, read, true, timeout)
         // Automatic Stop
+    }
+
+    /// Blocking transaction with operations.
+    ///
+    /// Consecutive operations of same type are merged. See [transaction contract] for details.
+    ///
+    /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+    pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        let _ = addr;
+        let _ = operations;
+        todo!()
     }
 
     /// Blocking write multiple buffers.
