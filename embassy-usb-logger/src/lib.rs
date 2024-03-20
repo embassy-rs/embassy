@@ -151,7 +151,17 @@ struct Writer<'d, const N: usize>(&'d Pipe<CS, N>);
 
 impl<'d, const N: usize> core::fmt::Write for Writer<'d, N> {
     fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
-        let _ = self.0.try_write(s.as_bytes());
+        // The Pipe is implemented in such way that we cannot
+        // write across the wraparound discontinuity.
+        let b = s.as_bytes();
+        if let Ok(n) = self.0.try_write(b) {
+            if n < b.len() {
+                // We wrote some data but not all, attempt again
+                // as the reason might be a wraparound in the
+                // ring buffer, which resolves on second attempt.
+                let _ = self.0.try_write(&b[n..]);
+            }
+        }
         Ok(())
     }
 }
