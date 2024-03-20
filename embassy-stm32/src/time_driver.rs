@@ -286,7 +286,7 @@ impl RtcDriver {
             Ok(n) => n,
         };
 
-        r.psc().write(|w| w.set_psc(psc));
+        r.psc().write_value(psc);
         r.arr().write(|w| w.set_arr(u16::MAX));
 
         // Set URS, generate update and clear URS
