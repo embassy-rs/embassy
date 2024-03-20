@@ -30,7 +30,7 @@ use core::ptr::NonNull;
 use core::task::{Context, Poll};
 
 #[cfg(feature = "integrated-timers")]
-use embassy_time_driver::{self, AlarmHandle};
+use embassy_time_driver::AlarmHandle;
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::trace;
 

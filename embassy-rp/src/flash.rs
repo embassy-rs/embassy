@@ -420,8 +420,6 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
 
 #[allow(dead_code)]
 mod ram_helpers {
-    use core::marker::PhantomData;
-
     use super::*;
     use crate::rom_data;
 

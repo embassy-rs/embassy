@@ -1,5 +1,3 @@
-use std::default::Default;
-
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::dns::DnsQueryType;

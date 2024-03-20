@@ -44,6 +44,7 @@ pub(crate) mod sealed {
         fn id(&self) -> u8;
     }
     pub trait ChannelInterrupt {
+        #[cfg_attr(not(feature = "rt"), allow(unused))]
         unsafe fn on_irq();
     }
 }

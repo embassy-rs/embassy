@@ -167,8 +167,10 @@ unsafe fn handle_gpiote_interrupt() {
     }
 }
 
+#[cfg(not(feature = "_nrf51"))]
 struct BitIter(u32);
 
+#[cfg(not(feature = "_nrf51"))]
 impl Iterator for BitIter {
     type Item = u32;
 

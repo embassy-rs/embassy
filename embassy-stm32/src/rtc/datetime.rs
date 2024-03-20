@@ -1,8 +1,5 @@
 #[cfg(feature = "chrono")]
-use core::convert::From;
-
-#[cfg(feature = "chrono")]
-use chrono::{self, Datelike, NaiveDate, Timelike, Weekday};
+use chrono::{Datelike, NaiveDate, Timelike, Weekday};
 
 #[cfg(any(feature = "defmt", feature = "time"))]
 use crate::peripherals::RTC;
