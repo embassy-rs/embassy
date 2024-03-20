@@ -459,7 +459,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         });
     }
 
-    async fn write_with_stop(&mut self, address: u8, write: &[u8], send_stop: bool) -> Result<(), Error>
+    async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error>
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
@@ -487,74 +487,76 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             })
         });
 
-        Self::enable_interrupts();
-
-        // Send a START condition
-        T::regs().cr1().modify(|reg| {
-            reg.set_start(true);
-        });
-
         let state = T::state();
 
-        // Wait until START condition was generated
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+        if frame.send_start() {
+            // Send a START condition
+            Self::enable_interrupts();
+            T::regs().cr1().modify(|reg| {
+                reg.set_start(true);
+            });
 
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.start() {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
+            // Wait until START condition was generated
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.start() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Pending
+                        }
                     }
                 }
-            }
-        })
-        .await?;
+            })
+            .await?;
 
-        // Also wait until signalled we're master and everything is waiting for us
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+            // Also wait until signalled we're master and everything is waiting for us
+            Self::enable_interrupts();
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
 
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(_) => {
-                    let sr2 = T::regs().sr2().read();
-                    if !sr2.msl() && !sr2.busy() {
-                        Poll::Pending
-                    } else {
-                        Poll::Ready(Ok(()))
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(_) => {
+                        let sr2 = T::regs().sr2().read();
+                        if !sr2.msl() && !sr2.busy() {
+                            Poll::Pending
+                        } else {
+                            Poll::Ready(Ok(()))
+                        }
                     }
                 }
-            }
-        })
-        .await?;
+            })
+            .await?;
 
-        // Set up current address, we're trying to talk to
-        Self::enable_interrupts();
-        T::regs().dr().write(|reg| reg.set_dr(address << 1));
+            // Set up current address, we're trying to talk to
+            Self::enable_interrupts();
+            T::regs().dr().write(|reg| reg.set_dr(address << 1));
 
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.addr() {
-                        // Clear the ADDR condition by reading SR2.
-                        T::regs().sr2().read();
-                        Poll::Ready(Ok(()))
-                    } else {
-                        // If we need to go around, then re-enable the interrupts, otherwise nothing
-                        // can wake us up and we'll hang.
-                        Self::enable_interrupts();
-                        Poll::Pending
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.addr() {
+                            // Clear the ADDR condition by reading SR2.
+                            T::regs().sr2().read();
+                            Poll::Ready(Ok(()))
+                        } else {
+                            // If we need to go around, then re-enable the interrupts, otherwise nothing
+                            // can wake us up and we'll hang.
+                            Self::enable_interrupts();
+                            Poll::Pending
+                        }
                     }
                 }
-            }
-        })
-        .await?;
+            })
+            .await?;
+        }
+
         Self::enable_interrupts();
         let poll_error = poll_fn(|cx| {
             state.waker.register(cx.waker());
@@ -591,7 +593,7 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
                 Err(e) => Poll::Ready(Err(e)),
                 Ok(sr1) => {
                     if sr1.btf() {
-                        if send_stop {
+                        if frame.send_stop() {
                             T::regs().cr1().modify(|w| {
                                 w.set_stop(true);
                             });
@@ -606,6 +608,21 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         })
         .await?;
 
+        if frame.send_stop() {
+            // Wait for STOP condition to transmit.
+            Self::enable_interrupts();
+            poll_fn(|cx| {
+                T::state().waker.register(cx.waker());
+                // TODO: error interrupts are enabled here, should we additional check for and return errors?
+                if T::regs().cr1().read().stop() {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            })
+            .await?;
+        }
+
         drop(on_drop);
 
         // Fallthrough is success
@@ -617,26 +634,24 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
     where
         TXDMA: crate::i2c::TxDma<T>,
     {
-        self.write_with_stop(address, write, true).await?;
-
-        // Wait for STOP condition to transmit.
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-            // TODO: error interrupts are enabled here, should we additional check for and return errors?
-            if T::regs().cr1().read().stop() {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
-            }
-        })
-        .await?;
+        self.write_frame(address, write, FrameOptions::FirstAndLastFrame)
+            .await?;
 
         Ok(())
     }
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error>
+    where
+        RXDMA: crate::i2c::RxDma<T>,
+    {
+        self.read_frame(address, buffer, FrameOptions::FirstAndLastFrame)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error>
     where
         RXDMA: crate::i2c::RxDma<T>,
     {
@@ -667,98 +682,99 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             })
         });
 
-        Self::enable_interrupts();
+        if frame.send_start() {
+            // Send a START condition and set ACK bit
+            Self::enable_interrupts();
+            T::regs().cr1().modify(|reg| {
+                reg.set_start(true);
+                reg.set_ack(true);
+            });
 
-        // Send a START condition and set ACK bit
-        T::regs().cr1().modify(|reg| {
-            reg.set_start(true);
-            reg.set_ack(true);
-        });
+            // Wait until START condition was generated
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
 
-        // Wait until START condition was generated
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.start() {
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
-                    }
-                }
-            }
-        })
-        .await?;
-
-        // Also wait until signalled we're master and everything is waiting for us
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            // blocking read didn’t have a check_and_clear call here, but blocking write did so
-            // I’m adding it here in case that was an oversight.
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(_) => {
-                    let sr2 = T::regs().sr2().read();
-                    if !sr2.msl() && !sr2.busy() {
-                        Poll::Pending
-                    } else {
-                        Poll::Ready(Ok(()))
-                    }
-                }
-            }
-        })
-        .await?;
-
-        // Set up current address, we're trying to talk to
-        T::regs().dr().write(|reg| reg.set_dr((address << 1) + 1));
-
-        // Wait for the address to be acknowledged
-
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            match Self::check_and_clear_error_flags() {
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if sr1.addr() {
-                        // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
-                        // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
-                        if buffer_len == 1 {
-                            T::regs().cr1().modify(|w| {
-                                w.set_ack(false);
-                            });
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.start() {
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Pending
                         }
-                        Poll::Ready(Ok(()))
-                    } else {
-                        Poll::Pending
                     }
                 }
-            }
-        })
-        .await?;
+            })
+            .await?;
 
-        // Clear ADDR condition by reading SR2
-        T::regs().sr2().read();
+            // Also wait until signalled we're master and everything is waiting for us
+            Self::enable_interrupts();
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+
+                // blocking read didn’t have a check_and_clear call here, but blocking write did so
+                // I’m adding it here in case that was an oversight.
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(_) => {
+                        let sr2 = T::regs().sr2().read();
+                        if !sr2.msl() && !sr2.busy() {
+                            Poll::Pending
+                        } else {
+                            Poll::Ready(Ok(()))
+                        }
+                    }
+                }
+            })
+            .await?;
+
+            // Set up current address, we're trying to talk to
+            T::regs().dr().write(|reg| reg.set_dr((address << 1) + 1));
+
+            // Wait for the address to be acknowledged
+
+            Self::enable_interrupts();
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+
+                match Self::check_and_clear_error_flags() {
+                    Err(e) => Poll::Ready(Err(e)),
+                    Ok(sr1) => {
+                        if sr1.addr() {
+                            // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
+                            // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
+                            if buffer_len == 1 && frame.send_nack() {
+                                T::regs().cr1().modify(|w| {
+                                    w.set_ack(false);
+                                });
+                            }
+                            Poll::Ready(Ok(()))
+                        } else {
+                            Poll::Pending
+                        }
+                    }
+                }
+            })
+            .await?;
+
+            // Clear ADDR condition by reading SR2
+            T::regs().sr2().read();
+        }
 
         // 18.3.8: When a single byte must be received: [snip] Then the
         // user can program the STOP condition either after clearing ADDR flag, or in the
         // DMA Transfer Complete interrupt routine.
-        if buffer_len == 1 {
+        if buffer_len == 1 && frame.send_stop() {
             T::regs().cr1().modify(|w| {
                 w.set_stop(true);
             });
-        } else {
+        } else if buffer_len != 1 && frame.send_nack() {
             // If, in the I2C_CR2 register, the LAST bit is set, I2C
             // automatically sends a NACK after the next byte following EOT_1. The user can
             // generate a Stop condition in the DMA Transfer Complete interrupt routine if enabled.
             T::regs().cr2().modify(|w| {
                 w.set_last(true);
-            })
+            });
         }
 
         // Wait for bytes to be received, or an error to occur.
@@ -777,18 +793,27 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
             _ => Ok(()),
         }?;
 
-        // Wait for the STOP to be sent (STOP bit cleared).
-        Self::enable_interrupts();
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-            // TODO: error interrupts are enabled here, should we additional check for and return errors?
-            if T::regs().cr1().read().stop() {
-                Poll::Pending
-            } else {
-                Poll::Ready(Ok(()))
+        if frame.send_stop() {
+            if buffer_len != 1 {
+                T::regs().cr1().modify(|w| {
+                    w.set_stop(true);
+                });
             }
-        })
-        .await?;
+
+            // Wait for the STOP to be sent (STOP bit cleared).
+            Self::enable_interrupts();
+            poll_fn(|cx| {
+                state.waker.register(cx.waker());
+                // TODO: error interrupts are enabled here, should we additional check for and return errors?
+                if T::regs().cr1().read().stop() {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(Ok(()))
+                }
+            })
+            .await?;
+        }
+
         drop(on_drop);
 
         // Fallthrough is success
@@ -801,8 +826,8 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
         RXDMA: crate::i2c::RxDma<T>,
         TXDMA: crate::i2c::TxDma<T>,
     {
-        self.write_with_stop(address, write, false).await?;
-        self.read(address, read).await
+        self.write_frame(address, write, FrameOptions::FirstFrame).await?;
+        self.read_frame(address, read, FrameOptions::FirstAndLastFrame).await
     }
 }
 
