@@ -5,7 +5,7 @@
 //! All other devices (as of 2023-12-28) use [`v2`](super::v2) instead.
 
 use core::future::poll_fn;
-use core::task::Poll;
+use core::{iter, task::Poll};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{select, Either};
@@ -101,6 +101,62 @@ impl FrameOptions {
             Self::FirstAndNextFrame | Self::NextFrame => false,
         }
     }
+}
+
+/// Iterates over operations in transaction.
+///
+/// Returns necessary frame options for each operation to uphold the [transaction contract] and have
+/// the right start/stop/(N)ACK conditions on the wire.
+///
+/// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+fn operation_frames<'a, 'b: 'a>(
+    operations: &'a mut [Operation<'b>],
+) -> impl IntoIterator<Item = (&'a mut Operation<'b>, FrameOptions)> {
+    let mut operations = operations.iter_mut().peekable();
+
+    let mut next_first_frame = true;
+
+    iter::from_fn(move || {
+        let Some(op) = operations.next() else {
+            return None;
+        };
+
+        // Is `op` first frame of its type?
+        let first_frame = next_first_frame;
+        let next_op = operations.peek();
+
+        // Get appropriate frame options as combination of the following properties:
+        //
+        // - For each first operation of its type, generate a (repeated) start condition.
+        // - For the last operation overall in the entire transaction, generate a stop condition.
+        // - For read operations, check the next operation: if it is also a read operation, we merge
+        //   these and send ACK for all bytes in the current operation; send NACK only for the final
+        //   read operation's last byte (before write or end of entire transaction) to indicate last
+        //   byte read and release the bus for transmission of the bus master's next byte (or stop).
+        //
+        // We check the third property unconditionally, i.e. even for write opeartions. This is okay
+        // because the resulting frame options are identical for write operations.
+        let frame = match (first_frame, next_op) {
+            (true, None) => FrameOptions::FirstAndLastFrame,
+            (true, Some(Operation::Read(_))) => FrameOptions::FirstAndNextFrame,
+            (true, Some(Operation::Write(_))) => FrameOptions::FirstFrame,
+            //
+            (false, None) => FrameOptions::LastFrame,
+            (false, Some(Operation::Read(_))) => FrameOptions::NextFrame,
+            (false, Some(Operation::Write(_))) => FrameOptions::LastFrameNoStop,
+        };
+
+        // Pre-calculate if `next_op` is the first operation of its type. We do this here and not at
+        // the beginning of the loop because we hand out `op` as iterator value and cannot access it
+        // anymore in the next iteration.
+        next_first_frame = match (&op, next_op) {
+            (_, None) => false,
+            (Operation::Read(_), Some(Operation::Write(_))) | (Operation::Write(_), Some(Operation::Read(_))) => true,
+            (Operation::Read(_), Some(Operation::Read(_))) | (Operation::Write(_), Some(Operation::Write(_))) => false,
+        };
+
+        Some((op, frame))
+    })
 }
 
 impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
@@ -397,53 +453,11 @@ impl<'d, T: Instance, TXDMA, RXDMA> I2c<'d, T, TXDMA, RXDMA> {
 
         let timeout = self.timeout();
 
-        let mut operations = operations.iter_mut();
-
-        let mut prev_op: Option<&mut Operation<'_>> = None;
-        let mut next_op = operations.next();
-
-        while let Some(op) = next_op {
-            next_op = operations.next();
-
-            // Check if this is the first frame of this type. This is the case for the first overall
-            // frame in the transaction and whenever the type of operation changes.
-            let first_frame =
-                match (prev_op.as_ref(), &op) {
-                    (None, _) => true,
-                    (Some(Operation::Read(_)), Operation::Write(_))
-                    | (Some(Operation::Write(_)), Operation::Read(_)) => true,
-                    (Some(Operation::Read(_)), Operation::Read(_))
-                    | (Some(Operation::Write(_)), Operation::Write(_)) => false,
-                };
-
-            let frame = match (first_frame, next_op.as_ref()) {
-                // If this is the first frame of this type, we generate a (repeated) start condition
-                // but have to consider the next operation: if it is the last, we generate the final
-                // stop condition. Otherwise, we branch on the operation: with read operations, only
-                // the last byte overall (before a write operation or the end of the transaction) is
-                // to be NACK'd, i.e. if another read operation follows, we must ACK this last byte.
-                (true, None) => FrameOptions::FirstAndLastFrame,
-                // Make sure to keep sending ACK for last byte in read operation when it is followed
-                // by another consecutive read operation. If the current operation is write, this is
-                // identical to `FirstFrame`.
-                (true, Some(Operation::Read(_))) => FrameOptions::FirstAndNextFrame,
-                // Otherwise, send NACK for last byte (in read operation). (For write, this does not
-                // matter and could also be `FirstAndNextFrame`.)
-                (true, Some(Operation::Write(_))) => FrameOptions::FirstFrame,
-
-                // If this is not the first frame of its type, we do not generate a (repeated) start
-                // condition. Otherwise, we branch the same way as above.
-                (false, None) => FrameOptions::LastFrame,
-                (false, Some(Operation::Read(_))) => FrameOptions::NextFrame,
-                (false, Some(Operation::Write(_))) => FrameOptions::LastFrameNoStop,
-            };
-
+        for (op, frame) in operation_frames(operations) {
             match op {
                 Operation::Read(read) => self.blocking_read_timeout(addr, read, timeout, frame)?,
                 Operation::Write(write) => self.write_bytes(addr, write, timeout, frame)?,
             }
-
-            prev_op = Some(op);
         }
 
         Ok(())
