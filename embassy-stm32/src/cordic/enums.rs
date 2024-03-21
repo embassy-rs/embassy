@@ -25,7 +25,7 @@ pub enum Precision {
     Iters16,
     Iters20,
     #[default]
-    Iters24, // this value is recomended by Reference Manual
+    Iters24, // this value is recommended by Reference Manual
     Iters28,
     Iters32,
     Iters36,

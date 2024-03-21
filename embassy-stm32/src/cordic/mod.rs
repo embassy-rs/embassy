@@ -91,8 +91,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
     /// Create a Cordic driver instance
     ///
     /// Note:  
-    /// If you need a periperhal -> CORDIC -> peripehral mode,  
-    /// you may want to set Cordic into [Mode::ZeroOverhead] mode, and add extra arguemnts with [Self::extra_config]
+    /// If you need a peripheral -> CORDIC -> peripheral mode,  
+    /// you may want to set Cordic into [Mode::ZeroOverhead] mode, and add extra arguments with [Self::extra_config]
     pub fn new(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
         T::enable_and_reset();
 
@@ -123,7 +123,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
         self.peri.set_scale(self.config.scale);
 
         // we don't set NRES in here, but to make sure NRES is set each time user call "calc"-ish functions,
-        // since each "calc"-ish functions can have different ARGSIZE and RESSIZE, thus NRES should be change accrodingly.
+        // since each "calc"-ish functions can have different ARGSIZE and RESSIZE, thus NRES should be change accordingly.
     }
 
     async fn launch_a_dma_transfer(
@@ -256,7 +256,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
             self.blocking_write_f64(input_left[0])?;
 
             for &arg in input_left.iter().skip(1) {
-                // this line write arg for next round caculation to cordic,
+                // this line write arg for next round calculation to cordic,
                 // and read result from last round
                 self.blocking_write_f64(arg)?;
                 self.blocking_read_f64_to_buf(output, &mut output_count);
@@ -426,8 +426,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
         write_dma: impl Peripheral<P = impl WriteDma<T>>,
         read_dma: impl Peripheral<P = impl ReadDma<T>>,
         double_input: bool,             // gether extra info to calc output_buf size
-        input_buf: &[u32],              // input_buf, its content should be extact values and length for calculation
-        output: &mut [f64],             // caller uses should this as a final output array
+        input_buf: &[u32],              // input_buf, its content should be exact length for calculation
+        output: &mut [f64],             // caller should uses this buf as a final output array
         output_start_index: &mut usize, // the index of start point of the output for this round of calculation
     ) {
         // output_buf is the place to store raw value from CORDIC (via DMA).
@@ -581,7 +581,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
         // In q1.15 mode, we always fill 1 pair of 16bit value into WDATA register.
         // If arg2s is None or empty array, we assume arg2 value always 1.0 (as reset value for ARG2).
         // If arg2s has some value, and but not as long as arg1s,
-        // we fill the reset of arg2 values with last value from arg2s (as q1.31 version does)
+        // we fill the reset of arg2 values with last value from arg2s (as CORDIC behavior on q1.31 format)
 
         let arg2_default_value = match arg2s {
             Some(arg2s) if !arg2s.is_empty() => arg2s[arg2s.len() - 1],
@@ -624,8 +624,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
         &mut self,
         write_dma: impl Peripheral<P = impl WriteDma<T>>,
         read_dma: impl Peripheral<P = impl ReadDma<T>>,
-        input_buf: &[u32],  // input_buf, its content should be extact values and length for calculation
-        output: &mut [f32], // caller uses should this as a final output array
+        input_buf: &[u32],              // input_buf, its content should be exact length for calculation
+        output: &mut [f32],             // caller should uses this buf as a final output array
         output_start_index: &mut usize, // the index of start point of the output for this round of calculation
     ) {
         // output_buf is the place to store raw value from CORDIC (via DMA).

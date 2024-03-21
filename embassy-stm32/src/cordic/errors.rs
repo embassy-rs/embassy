@@ -45,7 +45,7 @@ impl defmt::Format for CordicError {
     }
 }
 
-/// Error dring parsing [Cordic::Config](super::Config)
+/// Error during parsing [Cordic::Config](super::Config)
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct ConfigError {

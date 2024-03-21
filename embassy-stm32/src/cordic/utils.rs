@@ -25,7 +25,7 @@ macro_rules! floating_fixed_convert {
             };
 
             // It's necessary to cast the float value to signed integer, before convert it to a unsigned value.
-            // Since value from register is actually a "signed value", a "as" cast will keep original binary format but mark it as unsgined value.
+            // Since value from register is actually a "signed value", a "as" cast will keep original binary format but mark it as a unsigned value for register writing.
             // see https://doc.rust-lang.org/reference/expressions/operator-expr.html#numeric-cast
             Ok((value * ((1 as $unsigned_bin_typ << $offset) as $float_ty)) as $signed_bin_typ as $unsigned_bin_typ)
         }
@@ -34,7 +34,7 @@ macro_rules! floating_fixed_convert {
         /// convert fixed point to float point format
         pub fn $q_to_f(value: $unsigned_bin_typ) -> $float_ty {
             // It's necessary to cast the unsigned integer to signed integer, before convert it to a float value.
-            // Since value from register is actually a "signed value", a "as" cast will keep original binary format but mark it as signed value.
+            // Since value from register is actually a "signed value", a "as" cast will keep original binary format but mark it as a signed value.
             // see https://doc.rust-lang.org/reference/expressions/operator-expr.html#numeric-cast
             (value as $signed_bin_typ as $float_ty) / ((1 as $unsigned_bin_typ << $offset) as $float_ty)
         }
