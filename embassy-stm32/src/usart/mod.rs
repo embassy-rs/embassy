@@ -26,6 +26,7 @@ use crate::pac::usart::Lpuart as Regs;
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::time::Hertz;
+use crate::timeout::{Timeout, TimeoutError};
 use crate::{interrupt, peripherals, Peripheral};
 
 /// Interrupt handler.
@@ -161,6 +162,10 @@ pub struct Config {
     /// Set this to true to invert RX pin signal values (V<sub>DD</sub> =0/mark, Gnd = 1/idle).
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_rx: bool,
+
+    /// Timeout.
+    #[cfg(feature = "time")]
+    pub timeout: embassy_time::Duration,
 }
 
 impl Default for Config {
@@ -180,6 +185,8 @@ impl Default for Config {
             invert_tx: false,
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
+            #[cfg(feature = "time")]
+            timeout: embassy_time::Duration::from_millis(1000),
         }
     }
 }
@@ -199,6 +206,14 @@ pub enum Error {
     Parity,
     /// Buffer too large for DMA
     BufferTooLong,
+    /// Timeout
+    Timeout,
+}
+
+impl From<TimeoutError> for Error {
+    fn from(_: TimeoutError) -> Self {
+        Error::Timeout
+    }
 }
 
 enum ReadCompletionEvent {
@@ -228,6 +243,8 @@ impl<'d, T: BasicInstance, TxDma, RxDma> SetConfig for Uart<'d, T, TxDma, RxDma>
 pub struct UartTx<'d, T: BasicInstance, TxDma = NoDma> {
     phantom: PhantomData<&'d mut T>,
     tx_dma: PeripheralRef<'d, TxDma>,
+    #[cfg(feature = "time")]
+    timeout: embassy_time::Duration,
 }
 
 impl<'d, T: BasicInstance, TxDma> SetConfig for UartTx<'d, T, TxDma> {
@@ -246,6 +263,8 @@ pub struct UartRx<'d, T: BasicInstance, RxDma = NoDma> {
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
     buffered_sr: stm32_metapac::usart::regs::Sr,
+    #[cfg(feature = "time")]
+    timeout: embassy_time::Duration,
 }
 
 impl<'d, T: BasicInstance, RxDma> SetConfig for UartRx<'d, T, RxDma> {
@@ -309,12 +328,26 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
         Ok(Self {
             tx_dma,
             phantom: PhantomData,
+            #[cfg(feature = "time")]
+            timeout: config.timeout,
         })
     }
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        #[cfg(feature = "time")]
+        {
+            self.timeout = config.timeout;
+        }
+
         reconfigure::<T>(config)
+    }
+
+    fn timeout(&self) -> Timeout {
+        Timeout {
+            #[cfg(feature = "time")]
+            deadline: embassy_time::Instant::now() + self.timeout,
+        }
     }
 
     /// Initiate an asynchronous UART write
@@ -336,9 +369,12 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
 
     /// Perform a blocking UART write
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let timeout = self.timeout();
         let r = T::regs();
         for &b in buffer {
-            while !sr(r).read().txe() {}
+            while !sr(r).read().txe() {
+                timeout.check()?;
+            }
             unsafe { tdr(r).write_volatile(b) };
         }
         Ok(())
@@ -346,8 +382,11 @@ impl<'d, T: BasicInstance, TxDma> UartTx<'d, T, TxDma> {
 
     /// Block until transmission complete
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
+        let timeout = self.timeout();
         let r = T::regs();
-        while !sr(r).read().tc() {}
+        while !sr(r).read().tc() {
+            timeout.check()?;
+        }
         Ok(())
     }
 }
@@ -413,12 +452,25 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
             detect_previous_overrun: config.detect_previous_overrun,
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: stm32_metapac::usart::regs::Sr(0),
+            #[cfg(feature = "time")]
+            timeout: config.timeout,
         })
     }
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        #[cfg(feature = "time")]
+        {
+            self.timeout = config.timeout;
+        }
         reconfigure::<T>(config)
+    }
+
+    fn timeout(&self) -> Timeout {
+        Timeout {
+            #[cfg(feature = "time")]
+            deadline: embassy_time::Instant::now() + self.timeout,
+        }
     }
 
     #[cfg(any(usart_v1, usart_v2))]
@@ -496,9 +548,12 @@ impl<'d, T: BasicInstance, RxDma> UartRx<'d, T, RxDma> {
 
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let timeout = self.timeout();
         let r = T::regs();
         for b in buffer {
-            while !self.check_rx_flags()? {}
+            while !self.check_rx_flags()? {
+                timeout.check()?;
+            }
             unsafe { *b = rdr(r).read_volatile() }
         }
         Ok(())
@@ -1188,6 +1243,7 @@ impl embedded_hal_nb::serial::Error for Error {
             Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
             Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
             Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
+            Self::Timeout => embedded_hal_nb::serial::ErrorKind::Other,
         }
     }
 }
