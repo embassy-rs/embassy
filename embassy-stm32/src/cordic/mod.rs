@@ -56,7 +56,7 @@ impl Config {
         Ok(config)
     }
 
-    fn check_scale(&self) -> Result<(), CordicError> {
+    fn check_scale(&self) -> Result<(), ConfigError> {
         use Function::*;
 
         let scale_raw = self.scale as u8;
@@ -76,10 +76,10 @@ impl Config {
         };
 
         if let Some(range) = err_range {
-            Err(CordicError::ConfigError(ConfigError {
+            Err(ConfigError {
                 func: self.function,
                 scale_range: range,
-            }))
+            })
         } else {
             Ok(())
         }
@@ -226,20 +226,20 @@ impl<'d, T: Instance> Cordic<'d, T> {
             consumed_input_len = double_input.len() + 1;
 
             // preload first value from arg1 to cordic
-            self.blocking_write_f64(arg1s[0]);
+            self.blocking_write_f64(arg1s[0])?;
 
             for (&arg1, &arg2) in double_input {
                 // Since we manually preload a value before,
                 // we will write arg2 (from the actual last pair) first, (at this moment, cordic start to calculating,)
                 // and write arg1 (from the actual next pair), then read the result, to "keep preloading"
 
-                self.blocking_write_f64(arg2);
-                self.blocking_write_f64(arg1);
+                self.blocking_write_f64(arg2)?;
+                self.blocking_write_f64(arg1)?;
                 self.blocking_read_f64_to_buf(output, &mut output_count);
             }
 
             // write last input value from arg2s, then read out the result
-            self.blocking_write_f64(arg2s[arg2s.len() - 1]);
+            self.blocking_write_f64(arg2s[arg2s.len() - 1])?;
             self.blocking_read_f64_to_buf(output, &mut output_count);
         }
 
@@ -253,12 +253,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
             self.peri.set_argument_count(AccessCount::One);
 
             // "preload" value to cordic (at this moment, cordic start to calculating)
-            self.blocking_write_f64(input_left[0]);
+            self.blocking_write_f64(input_left[0])?;
 
             for &arg in input_left.iter().skip(1) {
                 // this line write arg for next round caculation to cordic,
                 // and read result from last round
-                self.blocking_write_f64(arg);
+                self.blocking_write_f64(arg)?;
                 self.blocking_read_f64_to_buf(output, &mut output_count);
             }
 
@@ -281,8 +281,9 @@ impl<'d, T: Instance> Cordic<'d, T> {
         }
     }
 
-    fn blocking_write_f64(&mut self, arg: f64) {
-        self.peri.write_argument(utils::f64_to_q1_31(arg));
+    fn blocking_write_f64(&mut self, arg: f64) -> Result<(), NumberOutOfRange> {
+        self.peri.write_argument(utils::f64_to_q1_31(arg)?);
+        Ok(())
     }
 
     /// Run a async CORDIC calculation in q.1.31 format
@@ -339,7 +340,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
             for (&arg1, &arg2) in double_input {
                 for &arg in [arg1, arg2].iter() {
-                    input_buf[input_buf_len] = utils::f64_to_q1_31(arg);
+                    input_buf[input_buf_len] = utils::f64_to_q1_31(arg)?;
                     input_buf_len += 1;
                 }
 
@@ -383,7 +384,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
             self.peri.set_argument_count(AccessCount::One);
 
             for &arg in input_remain {
-                input_buf[input_buf_len] = utils::f64_to_q1_31(arg);
+                input_buf[input_buf_len] = utils::f64_to_q1_31(arg)?;
                 input_buf_len += 1;
 
                 if input_buf_len == INPUT_BUF_MAX_LEN {
@@ -509,10 +510,10 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let (&arg1, &arg2) = args.next().unwrap();
 
         // preloading 1 pair of arguments
-        self.blocking_write_f32(arg1, arg2);
+        self.blocking_write_f32(arg1, arg2)?;
 
         for (&arg1, &arg2) in args {
-            self.blocking_write_f32(arg1, arg2);
+            self.blocking_write_f32(arg1, arg2)?;
             self.blocking_read_f32_to_buf(output, &mut output_count);
         }
 
@@ -522,15 +523,13 @@ impl<'d, T: Instance> Cordic<'d, T> {
         Ok(output_count)
     }
 
-    fn blocking_write_f32(&mut self, arg1: f32, arg2: f32) {
-        let reg_value: u32 = utils::f32_args_to_u32(arg1, arg2);
-        self.peri.write_argument(reg_value);
+    fn blocking_write_f32(&mut self, arg1: f32, arg2: f32) -> Result<(), NumberOutOfRange> {
+        self.peri.write_argument(utils::f32_args_to_u32(arg1, arg2)?);
+        Ok(())
     }
 
     fn blocking_read_f32_to_buf(&mut self, result_buf: &mut [f32], result_index: &mut usize) {
-        let reg_value = self.peri.read_result();
-
-        let (res1, res2) = utils::u32_to_f32_res(reg_value);
+        let (res1, res2) = utils::u32_to_f32_res(self.peri.read_result());
 
         result_buf[*result_index] = res1;
         *result_index += 1;
@@ -597,7 +596,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
         );
 
         for (&arg1, &arg2) in args {
-            input_buf[input_buf_len] = utils::f32_args_to_u32(arg1, arg2);
+            input_buf[input_buf_len] = utils::f32_args_to_u32(arg1, arg2)?;
             input_buf_len += 1;
 
             if input_buf_len == INPUT_BUF_MAX_LEN {
@@ -655,7 +654,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
 macro_rules! check_input_value {
     ($func_name:ident, $float_type:ty) => {
         impl<'d, T: Instance> Cordic<'d, T> {
-            fn $func_name(&self, arg1s: &[$float_type], arg2s: Option<&[$float_type]>) -> Result<(), CordicError> {
+            fn $func_name(&self, arg1s: &[$float_type], arg2s: Option<&[$float_type]>) -> Result<(), ArgError> {
                 let config = &self.config;
 
                 use Function::*;
@@ -741,13 +740,13 @@ macro_rules! check_input_value {
                 };
 
                 if let Some(err) = err_info {
-                    return Err(CordicError::ArgError(ArgError {
+                    return Err(ArgError {
                         func: config.function,
                         scale: err.scale,
                         arg_range: err.range,
                         inclusive_upper_bound: err.inclusive_upper_bound,
                         arg_type: ArgType::Arg1,
-                    }));
+                    });
                 }
 
                 // check ARG2 value
@@ -769,13 +768,13 @@ macro_rules! check_input_value {
                     };
 
                     if let Some(err) = err_info {
-                        return Err(CordicError::ArgError(ArgError {
+                        return Err(ArgError {
                             func: config.function,
                             scale: None,
                             arg_range: err.range,
                             inclusive_upper_bound: true,
                             arg_type: ArgType::Arg2,
-                        }));
+                        });
                     }
                 }
 

@@ -9,6 +9,26 @@ pub enum CordicError {
     ArgError(ArgError),
     /// Output buffer length error
     OutputLengthNotEnough,
+    /// Input value is out of range for Q1.x format
+    NumberOutOfRange(NumberOutOfRange),
+}
+
+impl From<ConfigError> for CordicError {
+    fn from(value: ConfigError) -> Self {
+        Self::ConfigError(value)
+    }
+}
+
+impl From<ArgError> for CordicError {
+    fn from(value: ArgError) -> Self {
+        Self::ArgError(value)
+    }
+}
+
+impl From<NumberOutOfRange> for CordicError {
+    fn from(value: NumberOutOfRange) -> Self {
+        Self::NumberOutOfRange(value)
+    }
 }
 
 #[cfg(feature = "defmt")]
@@ -19,6 +39,7 @@ impl defmt::Format for CordicError {
         match self {
             ConfigError(e) => defmt::write!(fmt, "{}", e),
             ArgError(e) => defmt::write!(fmt, "{}", e),
+            NumberOutOfRange(e) => defmt::write!(fmt, "{}", e),
             OutputLengthNotEnough => defmt::write!(fmt, "Output buffer length is not long enough"),
         }
     }
@@ -68,28 +89,51 @@ impl defmt::Format for ArgError {
             defmt::write!(fmt, " when SCALE is {},", scale);
         }
 
-        let arg_string = match self.arg_type {
-            ArgType::Arg1 => "ARG1",
-            ArgType::Arg2 => "ARG2",
+        defmt::write!(fmt, " {} should be", self.arg_type);
+
+        if self.inclusive_upper_bound {
+            defmt::write!(
+                fmt,
+                " {} <= {} <= {}",
+                self.arg_range[0],
+                self.arg_type,
+                self.arg_range[1]
+            )
+        } else {
+            defmt::write!(
+                fmt,
+                " {} <= {} < {}",
+                self.arg_range[0],
+                self.arg_type,
+                self.arg_range[1]
+            )
         };
-
-        defmt::write!(fmt, " {} should be", arg_string);
-
-        let inclusive_string = if self.inclusive_upper_bound { "=" } else { "" };
-
-        defmt::write!(
-            fmt,
-            " {} <= {} <{} {}",
-            self.arg_range[0],
-            arg_string,
-            inclusive_string,
-            self.arg_range[1]
-        )
     }
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(super) enum ArgType {
     Arg1,
     Arg2,
+}
+
+/// Input value is out of range for Q1.x format
+#[allow(missing_docs)]
+#[derive(Debug)]
+pub enum NumberOutOfRange {
+    BelowLowerBound,
+    AboveUpperBound,
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for NumberOutOfRange {
+    fn format(&self, fmt: defmt::Formatter) {
+        use NumberOutOfRange::*;
+
+        match self {
+            BelowLowerBound => defmt::write!(fmt, "input value should be equal or greater than -1"),
+            AboveUpperBound => defmt::write!(fmt, "input value should be equal or less than 1"),
+        }
+    }
 }

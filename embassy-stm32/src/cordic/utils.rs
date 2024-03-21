@@ -1,39 +1,42 @@
 //! Common match utils
+use super::errors::NumberOutOfRange;
 
 macro_rules! floating_fixed_convert {
     ($f_to_q:ident, $q_to_f:ident, $unsigned_bin_typ:ty, $signed_bin_typ:ty, $float_ty:ty, $offset:literal, $min_positive:literal) => {
         /// convert float point to fixed point format
-        pub(crate) fn $f_to_q(value: $float_ty) -> $unsigned_bin_typ {
+        pub fn $f_to_q(value: $float_ty) -> Result<$unsigned_bin_typ, NumberOutOfRange> {
             const MIN_POSITIVE: $float_ty = unsafe { core::mem::transmute($min_positive) };
 
-            assert!(
-                (-1.0 as $float_ty) <= value,
-                "input value {} should be equal or greater than -1",
-                value
-            );
+            if value < -1.0 {
+                return Err(NumberOutOfRange::BelowLowerBound)
+            }
+
+            if value > 1.0 {
+                return Err(NumberOutOfRange::AboveUpperBound)
+            }
 
 
-            let value = if value == 1.0 as $float_ty{
-                // make a exception for user specifing exact 1.0 float point,
-                // convert 1.0 to max representable value of q1.x format
+            let value = if 1.0 - MIN_POSITIVE < value && value <= 1.0 {
+                // make a exception for value between (1.0^{-x} , 1.0] float point,
+                // convert it to max representable value of q1.x format
                 (1.0 as $float_ty) - MIN_POSITIVE
             } else {
-                assert!(
-                    value <= (1.0 as $float_ty) - MIN_POSITIVE,
-                    "input value {} should be equal or less than 1-2^(-{})",
-                    value, $offset
-                );
                 value
             };
 
-            (value * ((1 as $unsigned_bin_typ << $offset) as $float_ty)) as $unsigned_bin_typ
+            // It's necessary to cast the float value to signed integer, before convert it to a unsigned value.
+            // Since value from register is actually a "signed value", a "as" cast will keep original binary format but mark it as unsgined value.
+            // see https://doc.rust-lang.org/reference/expressions/operator-expr.html#numeric-cast
+            Ok((value * ((1 as $unsigned_bin_typ << $offset) as $float_ty)) as $signed_bin_typ as $unsigned_bin_typ)
         }
 
         #[inline(always)]
         /// convert fixed point to float point format
-        pub(crate) fn $q_to_f(value: $unsigned_bin_typ) -> $float_ty {
-            // It's needed to convert from unsigned to signed first, for correct result.
-            -(value as $signed_bin_typ as $float_ty) / ((1 as $unsigned_bin_typ << $offset) as $float_ty)
+        pub fn $q_to_f(value: $unsigned_bin_typ) -> $float_ty {
+            // It's necessary to cast the unsigned integer to signed integer, before convert it to a float value.
+            // Since value from register is actually a "signed value", a "as" cast will keep original binary format but mark it as signed value.
+            // see https://doc.rust-lang.org/reference/expressions/operator-expr.html#numeric-cast
+            (value as $signed_bin_typ as $float_ty) / ((1 as $unsigned_bin_typ << $offset) as $float_ty)
         }
     };
 }
@@ -59,8 +62,8 @@ floating_fixed_convert!(
 );
 
 #[inline(always)]
-pub(crate) fn f32_args_to_u32(arg1: f32, arg2: f32) -> u32 {
-    f32_to_q1_15(arg1) as u32 + ((f32_to_q1_15(arg2) as u32) << 16)
+pub(crate) fn f32_args_to_u32(arg1: f32, arg2: f32) -> Result<u32, NumberOutOfRange> {
+    Ok(f32_to_q1_15(arg1)? as u32 + ((f32_to_q1_15(arg2)? as u32) << 16))
 }
 
 #[inline(always)]
