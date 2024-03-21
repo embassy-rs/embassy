@@ -13,35 +13,41 @@ stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono", "not-gpdma"]
 stm32f429zi = ["embassy-stm32/stm32f429zi", "chrono", "eth", "stop", "can", "not-gpdma", "dac", "rng"]
 stm32f446re = ["embassy-stm32/stm32f446re", "chrono", "stop", "can", "not-gpdma", "dac", "sdmmc"]
 stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "not-gpdma", "eth", "rng"]
-stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac"]
-stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng"]
-stm32h563zi = ["embassy-stm32/stm32h563zi", "chrono", "eth", "rng"]
-stm32h753zi = ["embassy-stm32/stm32h753zi", "chrono", "not-gpdma", "eth", "rng"]
-stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "chrono", "not-gpdma", "eth", "dac", "rng"]
-stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-gpdma", "rng"]
+stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac", "ucpd"]
+stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng", "fdcan"]
+stm32h563zi = ["embassy-stm32/stm32h563zi", "chrono", "eth", "rng", "hash"]
+stm32h753zi = ["embassy-stm32/stm32h753zi", "chrono", "not-gpdma", "eth", "rng", "fdcan", "hash", "cryp"]
+stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "chrono", "not-gpdma", "eth", "dac", "rng", "fdcan", "hash", "cryp"]
+stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-gpdma", "rng", "fdcan"]
 stm32l073rz = ["embassy-stm32/stm32l073rz", "cm0", "not-gpdma", "rng"]
 stm32l152re = ["embassy-stm32/stm32l152re", "chrono", "not-gpdma"]
 stm32l496zg = ["embassy-stm32/stm32l496zg", "not-gpdma", "rng"]
-stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "chrono", "not-gpdma", "rng"]
+stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "chrono", "not-gpdma", "rng", "hash"]
 stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "chrono", "not-gpdma", "rng"]
-stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma", "rng"]
-stm32u585ai = ["embassy-stm32/stm32u585ai", "chrono", "rng"]
-stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "chrono", "rng"]
+stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma", "rng", "hash"]
+stm32u585ai = ["embassy-stm32/stm32u585ai", "chrono", "rng", "hash"]
+stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "chrono", "rng", "hash"]
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng"]
-stm32wba52cg = ["embassy-stm32/stm32wba52cg", "chrono", "rng"]
+stm32wba52cg = ["embassy-stm32/stm32wba52cg", "chrono", "rng", "hash"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
+stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
+stm32h503rb = ["embassy-stm32/stm32h503rb", "rng"]
 
+cryp = []
+hash = []
 eth = ["embassy-executor/task-arena-size-16384"]
 rng = []
 sdmmc = []
 stop = ["embassy-stm32/low-power", "embassy-stm32/low-power-debug-with-sleep"]
 chrono = ["embassy-stm32/chrono", "dep:chrono"]
 can = []
+fdcan = []
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/mac"]
 embassy-stm32-wpan = []
 not-gpdma = []
 dac = []
+ucpd = []
 
 cm0 = ["portable-atomic/unsafe-assume-single-core"]
 
@@ -49,12 +55,12 @@ cm0 = ["portable-atomic/unsafe-assume-single-core"]
 teleprobe-meta = "1"
 
 embassy-sync = { version = "0.5.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.4.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.2", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
+embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.1.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt", "stm32wb55rg", "ble"] }
-embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
 
 defmt = "0.3.0"
@@ -63,16 +69,20 @@ defmt-rtt = "0.4"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
-embedded-hal-async = { version = "=1.0.0-rc.2" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-can = { version = "0.4" }
 micromath = "2.0.0"
 panic-probe = { version = "0.3.0", features = ["print-defmt"] }
 rand_core = { version = "0.6", default-features = false }
 rand_chacha = { version = "0.3", default-features = false }
-static_cell = { version = "2", features = ["nightly"] }
+static_cell = "2"
 portable-atomic = { version = "1.5", features = [] }
 
 chrono = { version = "^0.4", default-features = false, optional = true}
+sha2 = { version = "0.10.8", default-features = false }
+hmac = "0.12.1"
+aes-gcm = {version = "0.10.3", default-features = false, features = ["aes", "heapless"] }
 
 # BEGIN TESTS
 # Generated by gen_test.py. DO NOT EDIT.
@@ -80,6 +90,11 @@ chrono = { version = "^0.4", default-features = false, optional = true}
 name = "can"
 path = "src/bin/can.rs"
 required-features = [ "can",]
+
+[[bin]]
+name = "cryp"
+path = "src/bin/cryp.rs"
+required-features = [ "cryp",]
 
 [[bin]]
 name = "dac"
@@ -97,9 +112,19 @@ path = "src/bin/eth.rs"
 required-features = [ "eth",]
 
 [[bin]]
+name = "fdcan"
+path = "src/bin/fdcan.rs"
+required-features = [ "fdcan",]
+
+[[bin]]
 name = "gpio"
 path = "src/bin/gpio.rs"
 required-features = []
+
+[[bin]]
+name = "hash"
+path = "src/bin/hash.rs"
+required-features = [ "hash",]
 
 [[bin]]
 name = "rng"
@@ -135,6 +160,11 @@ required-features = [ "stop", "chrono",]
 name = "timer"
 path = "src/bin/timer.rs"
 required-features = []
+
+[[bin]]
+name = "ucpd"
+path = "src/bin/ucpd.rs"
+required-features = [ "ucpd",]
 
 [[bin]]
 name = "usart"

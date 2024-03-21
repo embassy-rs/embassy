@@ -1,4 +1,4 @@
-//! Provide access to the STM32 digital-to-analog converter (DAC).
+//! Digital to Analog Converter (DAC)
 #![macro_use]
 
 use core::marker::PhantomData;
@@ -62,11 +62,11 @@ impl Mode {
 ///
 /// 12-bit values outside the permitted range are silently truncated.
 pub enum Value {
-    // 8 bit value
+    /// 8 bit value
     Bit8(u8),
-    // 12 bit value stored in a u16, left-aligned
+    /// 12 bit value stored in a u16, left-aligned
     Bit12Left(u16),
-    // 12 bit value stored in a u16, right-aligned
+    /// 12 bit value stored in a u16, right-aligned
     Bit12Right(u16),
 }
 
@@ -76,11 +76,11 @@ pub enum Value {
 ///
 /// 12-bit values outside the permitted range are silently truncated.
 pub enum DualValue {
-    // 8 bit value
+    /// 8 bit value
     Bit8(u8, u8),
-    // 12 bit value stored in a u16, left-aligned
+    /// 12 bit value stored in a u16, left-aligned
     Bit12Left(u16, u16),
-    // 12 bit value stored in a u16, right-aligned
+    /// 12 bit value stored in a u16, right-aligned
     Bit12Right(u16, u16),
 }
 
@@ -88,11 +88,11 @@ pub enum DualValue {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Array variant of [`Value`].
 pub enum ValueArray<'a> {
-    // 8 bit values
+    /// 8 bit values
     Bit8(&'a [u8]),
-    // 12 bit value stored in a u16, left-aligned
+    /// 12 bit value stored in a u16, left-aligned
     Bit12Left(&'a [u16]),
-    // 12 bit values stored in a u16, right-aligned
+    /// 12 bit values stored in a u16, right-aligned
     Bit12Right(&'a [u16]),
 }
 
@@ -106,7 +106,9 @@ pub struct DacChannel<'d, T: Instance, const N: u8, DMA = NoDma> {
     dma: PeripheralRef<'d, DMA>,
 }
 
+/// DAC channel 1 type alias.
 pub type DacCh1<'d, T, DMA = NoDma> = DacChannel<'d, T, 1, DMA>;
+/// DAC channel 2 type alias.
 pub type DacCh2<'d, T, DMA = NoDma> = DacChannel<'d, T, 2, DMA>;
 
 impl<'d, T: Instance, const N: u8, DMA> DacChannel<'d, T, N, DMA> {
@@ -492,6 +494,7 @@ pub(crate) mod sealed {
     }
 }
 
+/// DAC instance.
 pub trait Instance: sealed::Instance + RccPeripheral + 'static {}
 dma_trait!(DacDma1, Instance);
 dma_trait!(DacDma2, Instance);
@@ -501,29 +504,6 @@ pub trait DacPin<T: Instance, const C: u8>: crate::gpio::Pin + 'static {}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
-        // H7 uses single bit for both DAC1 and DAC2, this is a hack until a proper fix is implemented
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::sealed::RccPeripheral for peripherals::$inst {
-            fn frequency() -> crate::time::Hertz {
-                critical_section::with(|_| unsafe { crate::rcc::get_freqs().pclk1 })
-            }
-
-            fn enable_and_reset_with_cs(_cs: critical_section::CriticalSection) {
-                // TODO: Increment refcount?
-                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(true));
-                crate::pac::RCC.apb1lrstr().modify(|w| w.set_dac12rst(false));
-                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(true));
-            }
-
-            fn disable_with_cs(_cs: critical_section::CriticalSection) {
-                // TODO: Decrement refcount?
-                crate::pac::RCC.apb1lenr().modify(|w| w.set_dac12en(false))
-            }
-        }
-
-        #[cfg(any(rcc_h7, rcc_h7rm0433))]
-        impl crate::rcc::RccPeripheral for peripherals::$inst {}
-
         impl crate::dac::sealed::Instance for peripherals::$inst {
             fn regs() -> &'static crate::pac::dac::Dac {
                 &crate::pac::$inst

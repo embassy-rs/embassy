@@ -7,24 +7,24 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-sync = { version = "0.5.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.4.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "nightly", "defmt", "integrated-timers"] }
-embassy-time = { version = "0.2", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-executor = { version = "0.5.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "defmt", "integrated-timers"] }
+embassy-time = { version = "0.3.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.1.0", path = "../../embassy-nrf", features = ["defmt", "nrf5340-app-s", "time-driver-rtc1", "gpiote", "unstable-pac"] }
-embassy-net = { version = "0.2.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.4.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
 embassy-usb = { version = "0.1.0", path = "../../embassy-usb", features = ["defmt"] }
 embedded-io-async = { version = "0.6.1" }
 
 defmt = "0.3"
 defmt-rtt = "0.4"
 
-static_cell = { version = "2", features = ["nightly"]}
+static_cell = "2"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 rand = { version = "0.8.4", default-features = false }
 embedded-storage = "0.3.1"
-usbd-hid = "0.6.0"
+usbd-hid = "0.7.0"
 serde = { version = "1.0.136", default-features = false }
 
 [profile.release]

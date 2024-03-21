@@ -1,10 +1,9 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rcc::{ClockSrc, Pll, PllMul, PllPreDiv, PllQDiv, PllRDiv, PllSource};
+use embassy_stm32::rcc::{Pll, PllMul, PllPreDiv, PllQDiv, PllRDiv, PllSource, Sysclk};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, peripherals, rng, Config};
 use {defmt_rtt as _, panic_probe as _};
@@ -16,7 +15,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux = ClockSrc::PLL1_R;
+    config.rcc.sys = Sysclk::PLL1_R;
     config.rcc.hsi = true;
     config.rcc.pll = Some(Pll {
         source: PllSource::HSI,

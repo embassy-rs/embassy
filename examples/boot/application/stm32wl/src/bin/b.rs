@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt::*;

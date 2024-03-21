@@ -1,7 +1,14 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![cfg_attr(
+    docsrs,
+    doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-nrf'>browse the `embassy-nrf` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (nRF52840 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
+)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 #[cfg(not(any(
     feature = "nrf51",
@@ -33,10 +40,16 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
+#[cfg(not(feature = "nrf51"))]
 pub mod buffered_uarte;
 pub mod gpio;
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
+
+// TODO: tested on other chips
+#[cfg(not(any(feature = "_nrf9160", feature = "_nrf5340-app")))]
+pub mod radio;
+
 #[cfg(any(feature = "nrf52832", feature = "nrf52833", feature = "nrf52840"))]
 pub mod i2s;
 pub mod nvmc;
@@ -51,7 +64,12 @@ pub mod nvmc;
 ))]
 pub mod pdm;
 pub mod ppi;
-#[cfg(not(any(feature = "nrf52805", feature = "nrf52820", feature = "_nrf5340-net")))]
+#[cfg(not(any(
+    feature = "nrf51",
+    feature = "nrf52805",
+    feature = "nrf52820",
+    feature = "_nrf5340-net"
+)))]
 pub mod pwm;
 #[cfg(not(any(feature = "nrf51", feature = "_nrf9160", feature = "_nrf5340-net")))]
 pub mod qdec;
@@ -59,15 +77,20 @@ pub mod qdec;
 pub mod qspi;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf9160")))]
 pub mod rng;
-#[cfg(not(any(feature = "nrf52820", feature = "_nrf5340-net")))]
+#[cfg(not(any(feature = "nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
+#[cfg(not(feature = "nrf51"))]
 pub mod spim;
+#[cfg(not(feature = "nrf51"))]
 pub mod spis;
 #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
 pub mod temp;
 pub mod timer;
+#[cfg(not(feature = "nrf51"))]
 pub mod twim;
+#[cfg(not(feature = "nrf51"))]
 pub mod twis;
+#[cfg(not(feature = "nrf51"))]
 pub mod uarte;
 #[cfg(any(
     feature = "_nrf5340-app",
@@ -80,6 +103,7 @@ pub mod usb;
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
+#[cfg_attr(feature = "nrf51", path = "chips/nrf51.rs")]
 #[cfg_attr(feature = "nrf52805", path = "chips/nrf52805.rs")]
 #[cfg_attr(feature = "nrf52810", path = "chips/nrf52810.rs")]
 #[cfg_attr(feature = "nrf52811", path = "chips/nrf52811.rs")]
@@ -317,6 +341,7 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
+#[cfg(not(feature = "nrf51"))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum WriteResult {
@@ -328,10 +353,12 @@ enum WriteResult {
     Failed,
 }
 
+#[cfg(not(feature = "nrf51"))]
 unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
+#[cfg(not(feature = "nrf51"))]
 unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
@@ -354,15 +381,21 @@ unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteRe
     WriteResult::Written
 }
 
-/// Initialize peripherals with the provided configuration. This should only be called once at startup.
+/// Initialize the `embassy-nrf` HAL with the provided configuration.
+///
+/// This returns the peripheral singletons that can be used for creating drivers.
+///
+/// This should only be called once at startup, otherwise it panics.
 pub fn init(config: config::Config) -> Peripherals {
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();
 
+    #[allow(unused_mut)]
     let mut needs_reset = false;
 
     // Setup debug protection.
+    #[cfg(not(feature = "nrf51"))]
     match config.debug {
         config::Debug::Allowed => {
             #[cfg(feature = "_nrf52")]
@@ -478,7 +511,7 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Configure LFCLK.
-    #[cfg(not(any(feature = "_nrf5340", feature = "_nrf9160")))]
+    #[cfg(not(any(feature = "nrf51", feature = "_nrf5340", feature = "_nrf9160")))]
     match config.lfclk_source {
         config::LfclkSource::InternalRC => r.lfclksrc.write(|w| w.src().rc()),
         config::LfclkSource::Synthesized => r.lfclksrc.write(|w| w.src().synth()),

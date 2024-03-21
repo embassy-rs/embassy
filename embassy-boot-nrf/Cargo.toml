@@ -1,0 +1,45 @@
+[package]
+edition = "2021"
+name = "embassy-boot-nrf"
+version = "0.2.0"
+description = "Bootloader lib for nRF chips"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-boot-nrf"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot-nrf/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-nrf/src/"
+features = ["embassy-nrf/nrf52840"]
+target = "thumbv7em-none-eabi"
+
+[lib]
+
+[dependencies]
+defmt = { version = "0.3", optional = true }
+
+embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
+embassy-nrf = { version = "0.1.0", path = "../embassy-nrf", default-features = false }
+embassy-boot = { version = "0.2.0", path = "../embassy-boot" }
+cortex-m = { version = "0.7.6" }
+cortex-m-rt = { version = "0.7" }
+embedded-storage = "0.3.1"
+embedded-storage-async = { version = "0.4.1" }
+cfg-if = "1.0.0"
+
+nrf-softdevice-mbr = { version = "0.2.0", optional = true }
+
+[features]
+defmt = [
+    "dep:defmt",
+    "embassy-boot/defmt",
+    "embassy-nrf/defmt",
+]
+softdevice = [
+    "nrf-softdevice-mbr",
+]

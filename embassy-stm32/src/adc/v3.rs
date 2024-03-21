@@ -1,3 +1,4 @@
+use cfg_if::cfg_if;
 use embassy_hal_internal::into_ref;
 use embedded_hal_02::blocking::delay::DelayUs;
 
@@ -13,10 +14,15 @@ pub struct VrefInt;
 impl<T: Instance> AdcPin<T> for VrefInt {}
 impl<T: Instance> super::sealed::AdcPin<T> for VrefInt {
     fn channel(&self) -> u8 {
-        #[cfg(not(adc_g0))]
-        let val = 0;
-        #[cfg(adc_g0)]
-        let val = 13;
+        cfg_if! {
+            if #[cfg(adc_g0)] {
+                let val = 13;
+            } else if #[cfg(adc_h5)] {
+                let val = 17;
+            } else {
+                let val = 0;
+            }
+        }
         val
     }
 }
@@ -25,10 +31,15 @@ pub struct Temperature;
 impl<T: Instance> AdcPin<T> for Temperature {}
 impl<T: Instance> super::sealed::AdcPin<T> for Temperature {
     fn channel(&self) -> u8 {
-        #[cfg(not(adc_g0))]
-        let val = 17;
-        #[cfg(adc_g0)]
-        let val = 12;
+        cfg_if! {
+            if #[cfg(adc_g0)] {
+                let val = 12;
+            } else if #[cfg(adc_h5)] {
+                let val = 16;
+            } else {
+                let val = 17;
+            }
+        }
         val
     }
 }
@@ -37,11 +48,28 @@ pub struct Vbat;
 impl<T: Instance> AdcPin<T> for Vbat {}
 impl<T: Instance> super::sealed::AdcPin<T> for Vbat {
     fn channel(&self) -> u8 {
-        #[cfg(not(adc_g0))]
-        let val = 18;
-        #[cfg(adc_g0)]
-        let val = 14;
+        cfg_if! {
+            if #[cfg(adc_g0)] {
+                let val = 14;
+            } else if #[cfg(adc_h5)] {
+                let val = 2;
+            } else {
+                let val = 18;
+            }
+        }
         val
+    }
+}
+
+cfg_if! {
+    if #[cfg(adc_h5)] {
+        pub struct VddCore;
+        impl<T: Instance> AdcPin<T> for VddCore {}
+        impl<T: Instance> super::sealed::AdcPin<T> for VddCore {
+            fn channel(&self) -> u8 {
+                6
+            }
+        }
     }
 }
 
@@ -74,7 +102,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self {
             adc,
-            sample_time: Default::default(),
+            sample_time: SampleTime::from_bits(0),
         }
     }
 
@@ -98,27 +126,41 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn enable_temperature(&self) -> Temperature {
-        #[cfg(not(adc_g0))]
-        T::common_regs().ccr().modify(|reg| {
-            reg.set_ch17sel(true);
-        });
-        #[cfg(adc_g0)]
-        T::regs().ccr().modify(|reg| {
-            reg.set_tsen(true);
-        });
+        cfg_if! {
+            if #[cfg(adc_g0)] {
+                T::regs().ccr().modify(|reg| {
+                    reg.set_tsen(true);
+                });
+            } else if #[cfg(adc_h5)] {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_tsen(true);
+                });
+            } else {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_ch17sel(true);
+                });
+            }
+        }
 
         Temperature {}
     }
 
     pub fn enable_vbat(&self) -> Vbat {
-        #[cfg(not(adc_g0))]
-        T::common_regs().ccr().modify(|reg| {
-            reg.set_ch18sel(true);
-        });
-        #[cfg(adc_g0)]
-        T::regs().ccr().modify(|reg| {
-            reg.set_vbaten(true);
-        });
+        cfg_if! {
+            if #[cfg(adc_g0)] {
+                T::regs().ccr().modify(|reg| {
+                    reg.set_vbaten(true);
+                });
+            } else if #[cfg(adc_h5)] {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_vbaten(true);
+                });
+            } else {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_ch18sel(true);
+                });
+            }
+        }
 
         Vbat {}
     }
@@ -205,16 +247,21 @@ impl<'d, T: Instance> Adc<'d, T> {
         val
     }
 
-    #[cfg(adc_g0)]
     fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
-        T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
-    }
-
-    #[cfg(not(adc_g0))]
-    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-        T::regs()
-            .smpr(ch as usize / 10)
-            .modify(|reg| reg.set_smp(ch as usize % 10, sample_time));
+        cfg_if! {
+            if #[cfg(adc_g0)] {
+                T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
+            } else if #[cfg(adc_h5)] {
+                match _ch {
+                    0..=9 => T::regs().smpr1().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),
+                    _ => T::regs().smpr2().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),
+                }
+            } else {
+                let sample_time = sample_time.into();
+                T::regs()
+                    .smpr(_ch as usize / 10)
+                    .modify(|reg| reg.set_smp(_ch as usize % 10, sample_time));
+            }
+        }
     }
 }

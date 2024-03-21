@@ -6,8 +6,7 @@ use std::time::{Duration as StdDuration, Instant as StdInstant};
 use std::{mem, ptr, thread};
 
 use critical_section::Mutex as CsMutex;
-
-use crate::driver::{AlarmHandle, Driver};
+use embassy_time_driver::{AlarmHandle, Driver};
 
 const ALARM_COUNT: usize = 4;
 
@@ -45,7 +44,7 @@ struct TimeDriver {
 }
 
 const ALARM_NEW: AlarmState = AlarmState::new();
-crate::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
+embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
     alarm_count: AtomicU8::new(0),
 
     once: Once::new(),

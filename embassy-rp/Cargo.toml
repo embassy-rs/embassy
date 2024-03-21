@@ -3,6 +3,11 @@ name = "embassy-rp"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 microcontroller"
+keywords = ["embedded", "async", "raspberry-pi", "rp2040", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-rp"
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
@@ -12,48 +17,73 @@ flavors = [
     { name = "rp2040", target = "thumbv6m-none-eabi" },
 ]
 
+[package.metadata.docs.rs]
+features = ["defmt", "unstable-pac", "time-driver"]
+
 [features]
 default = [ "rt" ]
+## Enable the rt feature of [`rp-pac`](https://docs.rs/crates/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
 rt = [ "rp-pac/rt" ]
 
+## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
 
-# critical section that is safe for multicore use
+## Configure the critical section crate to use an implementation that is safe for multicore use on rp2040.
 critical-section-impl = ["critical-section/restore-state-u8"]
 
-# Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
-# This is unstable because semver-minor (non-breaking) releases of embassy-rp may major-bump (breaking) the PAC version.
-# If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
-# There are no plans to make this stable.
+## Reexport the PAC for the currently enabled chip at `embassy_rp::pac`.
+## This is unstable because semver-minor (non-breaking) releases of `embassy-rp` may major-bump (breaking) the PAC version.
+## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
+## There are no plans to make this stable.
 unstable-pac = []
 
-time-driver = []
+## Enable the timer for use with `embassy-time` with a 1MHz tick rate.
+time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
 
+## Enable ROM function cache. This will store the address of a ROM function when first used, improving performance of subsequent calls.
 rom-func-cache = []
+## Enable implementations of some compiler intrinsics using functions in the rp2040 Mask ROM.
+## These should be as fast or faster than the implementations in compiler-builtins. They also save code space and reduce memory contention.
+## Compiler intrinsics are used automatically, you do not need to change your code to get performance improvements from this feature.
 intrinsics = []
+## Enable intrinsics based on extra ROM functions added in the v2 version of the rp2040 Mask ROM.
+## This version added a lot more floating point operations - many f64 functions and a few f32 functions were added in ROM v2.
 rom-v2-intrinsics = []
 
-# boot2 flash chip support. if none of these is enabled we'll default to w25q080 (used on the pico)
-boot2-at25sf128a = []
-boot2-gd25q64cs = []
-boot2-generic-03h = []
-boot2-is25lp080 = []
-boot2-ram-memcpy = []
-boot2-w25q080 = []
-boot2-w25x10cl = []
-
-# Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash lives there)
-# and would add both code and memory overhead when enabled needlessly.
+## Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash is attached via QSPI pins)
+## and adds code and memory overhead when this feature is enabled.
 qspi-as-gpio = []
 
-# Indicate code is running from RAM.
-# Set this if all code is in RAM, and the cores never access memory-mapped flash memory through XIP.
-# This allows the flash driver to not force pausing execution on both cores when doing flash operations.
+## Indicate code is running from RAM.
+## Set this if all code is in RAM, and the cores never access memory-mapped flash memory through XIP.
+## This allows the flash driver to not force pausing execution on both cores when doing flash operations.
 run-from-ram = []
+
+#! ### boot2 flash chip support
+#! RP2040's internal bootloader is only able to run code from the first 256 bytes of flash.
+#! A 2nd stage bootloader (boot2) is required to run larger programs from external flash.
+#! Select from existing boot2 implementations via the following features. If none are selected,
+#! boot2-w25q080 will be used (w25q080 is the flash chip used on the pico).
+#! Each implementation uses flash commands and timings specific to a QSPI flash chip family for better performance.
+## Use boot2 with support for Renesas/Dialog AT25SF128a SPI flash.
+boot2-at25sf128a = []
+## Use boot2 with support for Gigadevice GD25Q64C SPI flash.
+boot2-gd25q64cs = []
+## Use boot2 that only uses generic flash commands - these are supported by all SPI flash, but are slower.
+boot2-generic-03h = []
+## Use boot2 with support for ISSI IS25LP080 SPI flash.
+boot2-is25lp080 = []
+## Use boot2 that copies the entire program to RAM before booting. This uses generic flash commands to perform the copy.
+boot2-ram-memcpy = []
+## Use boot2 with support for Winbond W25Q080 SPI flash.
+boot2-w25q080 = []
+## Use boot2 with support for Winbond W25X10CL SPI flash.
+boot2-w25x10cl = []
 
 [dependencies]
 embassy-sync = { version = "0.5.0", path = "../embassy-sync" }
-embassy-time = { version = "0.2", path = "../embassy-time", features = [ "tick-hz-1_000_000" ] }
+embassy-time-driver = { version = "0.1", path = "../embassy-time-driver", optional = true }
+embassy-time = { version = "0.3.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = {version = "0.1.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = {version = "0.1.0", path = "../embassy-embedded-hal" }
@@ -68,7 +98,7 @@ cortex-m = "0.7.6"
 critical-section = "1.1"
 futures = { version = "0.3.17", default-features = false, features = ["async-await"] }
 chrono = { version = "0.4", default-features = false, optional = true }
-embedded-io = { version = "0.6.0" }
+embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
@@ -78,14 +108,15 @@ fixed = "1.23.1"
 rp-pac = { version = "6" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
-embedded-hal-1 = { package = "embedded-hal", version = "=1.0.0-rc.2" }
-embedded-hal-async = { version = "=1.0.0-rc.2" }
-embedded-hal-nb = { version = "=1.0.0-rc.2" }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-nb = { version = "1.0" }
 
 pio-proc = {version= "0.2" }
 pio = {version= "0.2.1" }
 rp2040-boot2 = "0.3"
+document-features = "0.2.7"
 
 [dev-dependencies]
-embassy-executor = { version = "0.4.0", path = "../embassy-executor", features = ["nightly", "arch-std", "executor-thread"] }
+embassy-executor = { version = "0.5.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }

@@ -1,50 +1,56 @@
-/// The STM32 line of microcontrollers support various deep-sleep modes which exploit clock-gating
-/// to reduce power consumption. `embassy-stm32` provides a low-power executor, [`Executor`] which
-/// can use knowledge of which peripherals are currently blocked upon to transparently and safely
-/// enter such low-power modes (currently, only `STOP2`) when idle.
-///
-/// The executor determines which peripherals are active by their RCC state; consequently,
-/// low-power states can only be entered if all peripherals have been `drop`'d. There are a few
-/// exceptions to this rule:
-///
-///  * `GPIO`
-///  * `RCC`
-///
-/// Since entering and leaving low-power modes typically incurs a significant latency, the
-/// low-power executor will only attempt to enter when the next timer event is at least
-/// [`time_driver::MIN_STOP_PAUSE`] in the future.
-///
-/// Currently there is no macro analogous to `embassy_executor::main` for this executor;
-/// consequently one must define their entrypoint manually. Moveover, you must relinquish control
-/// of the `RTC` peripheral to the executor. This will typically look like
-///
-/// ```rust,no_run
-/// use embassy_executor::Spawner;
-/// use embassy_stm32::low_power::Executor;
-/// use embassy_stm32::rtc::{Rtc, RtcConfig};
-/// use static_cell::make_static;
-///
-/// #[cortex_m_rt::entry]
-/// fn main() -> ! {
-///     Executor::take().run(|spawner| {
-///         unwrap!(spawner.spawn(async_main(spawner)));
-///     });
-/// }
-///
-/// #[embassy_executor::task]
-/// async fn async_main(spawner: Spawner) {
-///     // initialize the platform...
-///     let mut config = embassy_stm32::Config::default();
-///     let p = embassy_stm32::init(config);
-///
-///     // give the RTC to the executor...
-///     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
-///     let rtc = make_static!(rtc);
-///     embassy_stm32::low_power::stop_with_rtc(rtc);
-///
-///     // your application here...
-/// }
-/// ```
+//! Low-power support.
+//!
+//! The STM32 line of microcontrollers support various deep-sleep modes which exploit clock-gating
+//! to reduce power consumption. `embassy-stm32` provides a low-power executor, [`Executor`] which
+//! can use knowledge of which peripherals are currently blocked upon to transparently and safely
+//! enter such low-power modes (currently, only `STOP2`) when idle.
+//!
+//! The executor determines which peripherals are active by their RCC state; consequently,
+//! low-power states can only be entered if all peripherals have been `drop`'d. There are a few
+//! exceptions to this rule:
+//!
+//!  * `GPIO`
+//!  * `RCC`
+//!
+//! Since entering and leaving low-power modes typically incurs a significant latency, the
+//! low-power executor will only attempt to enter when the next timer event is at least
+//! [`time_driver::MIN_STOP_PAUSE`] in the future.
+//!
+//! Currently there is no macro analogous to `embassy_executor::main` for this executor;
+//! consequently one must define their entrypoint manually. Moveover, you must relinquish control
+//! of the `RTC` peripheral to the executor. This will typically look like
+//!
+//! ```rust,no_run
+//! use embassy_executor::Spawner;
+//! use embassy_stm32::low_power::Executor;
+//! use embassy_stm32::rtc::{Rtc, RtcConfig};
+//! use static_cell::StaticCell;
+//!
+//! #[cortex_m_rt::entry]
+//! fn main() -> ! {
+//!     Executor::take().run(|spawner| {
+//!         unwrap!(spawner.spawn(async_main(spawner)));
+//!     });
+//! }
+//!
+//! #[embassy_executor::task]
+//! async fn async_main(spawner: Spawner) {
+//!     // initialize the platform...
+//!     let mut config = embassy_stm32::Config::default();
+//!     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
+//!     config.enable_debug_during_sleep = false;
+//!     let p = embassy_stm32::init(config);
+//!
+//!     // give the RTC to the executor...
+//!     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
+//!     static RTC: StaticCell<Rtc> = StaticCell::new();
+//!     let rtc = RTC.init(rtc);
+//!     embassy_stm32::low_power::stop_with_rtc(rtc);
+//!
+//!     // your application here...
+//! }
+//! ```
+
 use core::arch::asm;
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -64,6 +70,7 @@ static mut EXECUTOR: Option<Executor> = None;
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
+        #[allow(non_snake_case)]
         unsafe fn $irq() {
             EXECUTOR.as_mut().unwrap().on_wakeup_irq();
         }
@@ -75,10 +82,15 @@ pub(crate) unsafe fn on_wakeup_irq() {
     EXECUTOR.as_mut().unwrap().on_wakeup_irq();
 }
 
+/// Configure STOP mode with RTC.
 pub fn stop_with_rtc(rtc: &'static Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
 }
 
+/// Get whether the core is ready to enter the given stop mode.
+///
+/// This will return false if some peripheral driver is in use that
+/// prevents entering the given stop mode.
 pub fn stop_ready(stop_mode: StopMode) -> bool {
     match unsafe { EXECUTOR.as_mut().unwrap() }.stop_mode() {
         Some(StopMode::Stop2) => true,
@@ -87,11 +99,27 @@ pub fn stop_ready(stop_mode: StopMode) -> bool {
     }
 }
 
+/// Available stop modes.
 #[non_exhaustive]
 #[derive(PartialEq)]
 pub enum StopMode {
+    /// STOP 1
     Stop1,
+    /// STOP 2
     Stop2,
+}
+
+#[cfg(stm32l5)]
+use stm32_metapac::pwr::vals::Lpms;
+
+#[cfg(stm32l5)]
+impl Into<Lpms> for StopMode {
+    fn into(self) -> Lpms {
+        match self {
+            StopMode::Stop1 => Lpms::STOP1,
+            StopMode::Stop2 => Lpms::STOP2,
+        }
+    }
 }
 
 /// Thread mode executor, using WFE/SEV.
@@ -151,8 +179,10 @@ impl Executor {
         }
     }
 
-    fn configure_stop(&mut self, _stop_mode: StopMode) {
-        // TODO: configure chip-specific settings for stop
+    #[allow(unused_variables)]
+    fn configure_stop(&mut self, stop_mode: StopMode) {
+        #[cfg(stm32l5)]
+        crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
     }
 
     fn configure_pwr(&mut self) {

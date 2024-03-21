@@ -1,4 +1,4 @@
-//! RTC peripheral abstraction
+//! Real Time Clock (RTC)
 mod datetime;
 
 #[cfg(feature = "low-power")]
@@ -9,9 +9,9 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
 
-use self::datetime::day_of_week_to_u8;
 #[cfg(not(rtc_v2f2))]
 use self::datetime::RtcInstant;
+use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
@@ -24,7 +24,7 @@ use crate::time::Hertz;
     ),
     path = "v2.rs"
 )]
-#[cfg_attr(any(rtc_v3, rtc_v3u5), path = "v3.rs")]
+#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5), path = "v3.rs")]
 mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
@@ -43,7 +43,7 @@ pub(crate) enum WakeupPrescaler {
     Div16 = 16,
 }
 
-#[cfg(any(stm32wb, stm32f4, stm32l0, stm32g4))]
+#[cfg(any(stm32wb, stm32f4, stm32l0, stm32g4, stm32l5, stm32g0))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -57,7 +57,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     }
 }
 
-#[cfg(any(stm32wb, stm32f4, stm32l0, stm32g4))]
+#[cfg(any(stm32wb, stm32f4, stm32l0, stm32g4, stm32l5, stm32g0))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
         use crate::pac::rtc::vals::Wucksel;
@@ -102,6 +102,7 @@ pub enum RtcError {
     NotRunning,
 }
 
+/// Provides immutable access to the current time of the RTC.
 pub struct RtcTimeProvider {
     _private: (),
 }
@@ -127,10 +128,10 @@ impl RtcTimeProvider {
             let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
             let hour = bcd2_to_byte((tr.ht(), tr.hu()));
 
-            let weekday = dr.wdu();
+            let weekday = day_of_week_from_u8(dr.wdu()).map_err(RtcError::InvalidDateTime)?;
             let day = bcd2_to_byte((dr.dt(), dr.du()));
             let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
-            let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 1970_u16;
+            let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 2000_u16;
 
             DateTime::from(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
         })
@@ -163,7 +164,7 @@ impl RtcTimeProvider {
     }
 }
 
-/// RTC Abstraction
+/// RTC driver.
 pub struct Rtc {
     #[cfg(feature = "low-power")]
     stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<RtcInstant>>>,
@@ -171,6 +172,7 @@ pub struct Rtc {
     _private: (),
 }
 
+/// RTC configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone, PartialEq)]
 pub struct RtcConfig {
@@ -188,6 +190,7 @@ impl Default for RtcConfig {
     }
 }
 
+/// Calibration cycle period.
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u8)]
 pub enum RtcCalibrationCyclePeriod {
@@ -206,6 +209,7 @@ impl Default for RtcCalibrationCyclePeriod {
 }
 
 impl Rtc {
+    /// Create a new RTC instance.
     pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         <RTC as crate::rcc::sealed::RccPeripheral>::enable_and_reset();
@@ -258,7 +262,7 @@ impl Rtc {
             let (dt, du) = byte_to_bcd2(t.day() as u8);
             let (mt, mu) = byte_to_bcd2(t.month() as u8);
             let yr = t.year() as u16;
-            let yr_offset = (yr - 1970_u16) as u8;
+            let yr_offset = (yr - 2000_u16) as u8;
             let (yt, yu) = byte_to_bcd2(yr_offset);
 
             use crate::pac::rtc::vals::Ampm;
@@ -315,6 +319,7 @@ impl Rtc {
         })
     }
 
+    /// Number of backup registers of this instance.
     pub const BACKUP_REGISTER_COUNT: usize = RTC::BACKUP_REGISTER_COUNT;
 
     /// Read content of the backup register.
@@ -343,7 +348,7 @@ impl Rtc {
     ) {
         use embassy_time::{Duration, TICK_HZ};
 
-        #[cfg(any(rtc_v3, rtc_v3u5))]
+        #[cfg(any(rtc_v3, rtc_v3u5, rtc_v3l5))]
         use crate::pac::rtc::vals::Calrf;
 
         // Panic if the rcc mod knows we're not using low-power rtc
@@ -370,7 +375,7 @@ impl Rtc {
                 while !regs.isr().read().wutwf() {}
             }
 
-            #[cfg(any(rtc_v3, rtc_v3u5))]
+            #[cfg(any(rtc_v3, rtc_v3u5, rtc_v3l5))]
             {
                 regs.scr().write(|w| w.set_cwutf(Calrf::CLEAR));
                 while !regs.icsr().read().wutwf() {}
@@ -399,7 +404,7 @@ impl Rtc {
     /// was called, otherwise none
     pub(crate) fn stop_wakeup_alarm(&self, cs: critical_section::CriticalSection) -> Option<embassy_time::Duration> {
         use crate::interrupt::typelevel::Interrupt;
-        #[cfg(any(rtc_v3, rtc_v3u5))]
+        #[cfg(any(rtc_v3, rtc_v3u5, rtc_v3l5))]
         use crate::pac::rtc::vals::Calrf;
 
         let instant = self.instant().unwrap();
@@ -415,11 +420,21 @@ impl Rtc {
                 ))]
                 regs.isr().modify(|w| w.set_wutf(false));
 
-                #[cfg(any(rtc_v3, rtc_v3u5))]
+                #[cfg(any(rtc_v3, rtc_v3u5, rtc_v3l5))]
                 regs.scr().write(|w| w.set_cwutf(Calrf::CLEAR));
 
+                #[cfg(all(stm32g0))]
+                crate::pac::EXTI
+                    .rpr(0)
+                    .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+                #[cfg(all(not(stm32g0), not(stm32l5)))]
                 crate::pac::EXTI
                     .pr(0)
+                    .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+
+                #[cfg(stm32l5)]
+                crate::pac::EXTI
+                    .fpr(0)
                     .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
                 <RTC as crate::rtc::sealed::Instance>::WakeupInterrupt::unpend();

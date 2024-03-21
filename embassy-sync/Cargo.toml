@@ -4,6 +4,7 @@ version = "0.5.0"
 edition = "2021"
 description = "no-std, no-alloc synchronization primitives with async support"
 repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-sync"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 categories = [

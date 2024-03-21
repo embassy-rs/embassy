@@ -9,8 +9,8 @@ use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
-use embassy_stm32::can::bxcan::filter::Mask32;
-use embassy_stm32::can::bxcan::{Fifo, Frame, StandardId};
+use embassy_stm32::can::bx::filter::Mask32;
+use embassy_stm32::can::bx::{Fifo, Frame, StandardId};
 use embassy_stm32::can::{Can, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler};
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
@@ -60,7 +60,7 @@ async fn main(_spawner: Spawner) {
 
     let mut i: u8 = 0;
     loop {
-        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), [i]);
+        let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i]).unwrap();
 
         info!("Transmitting frame...");
         let tx_ts = Instant::now();
@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
         info!("Frame received!");
 
         info!("loopback time {}", envelope.ts);
-        info!("loopback frame {=u8}", envelope.frame.data().unwrap()[0]);
+        info!("loopback frame {=u8}", envelope.frame.data()[0]);
 
         let latency = envelope.ts.saturating_duration_since(tx_ts);
         info!("loopback latency {} us", latency.as_micros());

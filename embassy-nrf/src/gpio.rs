@@ -8,7 +8,13 @@ use cfg_if::cfg_if;
 use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
 
 use self::sealed::Pin as _;
+#[cfg(feature = "nrf51")]
+use crate::pac::gpio;
+#[cfg(feature = "nrf51")]
+use crate::pac::gpio::pin_cnf::{DRIVE_A, PULL_A};
+#[cfg(not(feature = "nrf51"))]
 use crate::pac::p0 as gpio;
+#[cfg(not(feature = "nrf51"))]
 use crate::pac::p0::pin_cnf::{DRIVE_A, PULL_A};
 use crate::{pac, Peripheral};
 
@@ -36,33 +42,33 @@ pub enum Pull {
 }
 
 /// GPIO input driver.
-pub struct Input<'d, T: Pin> {
-    pub(crate) pin: Flex<'d, T>,
+pub struct Input<'d> {
+    pub(crate) pin: Flex<'d>,
 }
 
-impl<'d, T: Pin> Input<'d, T> {
+impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = T> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
 
         Self { pin }
     }
 
-    /// Test if current pin level is high.
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
     }
 
-    /// Test if current pin level is low.
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
 
-    /// Returns current pin level
+    /// Get the pin input level.
     #[inline]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
@@ -122,14 +128,14 @@ pub enum OutputDrive {
 }
 
 /// GPIO output driver.
-pub struct Output<'d, T: Pin> {
-    pub(crate) pin: Flex<'d, T>,
+pub struct Output<'d> {
+    pub(crate) pin: Flex<'d>,
 }
 
-impl<'d, T: Pin> Output<'d, T> {
+impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDriver] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = T> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
+    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -152,32 +158,38 @@ impl<'d, T: Pin> Output<'d, T> {
         self.pin.set_low()
     }
 
+    /// Toggle the output level.
+    #[inline]
+    pub fn toggle(&mut self) {
+        self.pin.toggle()
+    }
+
     /// Set the output level.
     #[inline]
     pub fn set_level(&mut self, level: Level) {
         self.pin.set_level(level)
     }
 
-    /// Is the output pin set as high?
+    /// Get whether the output level is set to high.
     #[inline]
     pub fn is_set_high(&self) -> bool {
         self.pin.is_set_high()
     }
 
-    /// Is the output pin set as low?
+    /// Get whether the output level is set to low.
     #[inline]
     pub fn is_set_low(&self) -> bool {
         self.pin.is_set_low()
     }
 
-    /// What level output is set to
+    /// Get the current output level.
     #[inline]
     pub fn get_output_level(&self) -> Level {
         self.pin.get_output_level()
     }
 }
 
-fn convert_drive(drive: OutputDrive) -> DRIVE_A {
+pub(crate) fn convert_drive(drive: OutputDrive) -> DRIVE_A {
     match drive {
         OutputDrive::Standard => DRIVE_A::S0S1,
         OutputDrive::HighDrive0Standard1 => DRIVE_A::H0S1,
@@ -203,20 +215,20 @@ fn convert_pull(pull: Pull) -> PULL_A {
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
-pub struct Flex<'d, T: Pin> {
-    pub(crate) pin: PeripheralRef<'d, T>,
+pub struct Flex<'d> {
+    pub(crate) pin: PeripheralRef<'d, AnyPin>,
 }
 
-impl<'d, T: Pin> Flex<'d, T> {
+impl<'d> Flex<'d> {
     /// Wrap the pin in a `Flex`.
     ///
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
         into_ref!(pin);
         // Pin will be in disconnected state.
-        Self { pin }
+        Self { pin: pin.map_into() }
     }
 
     /// Put the pin into input mode.
@@ -275,19 +287,19 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.conf().reset();
     }
 
-    /// Test if current pin level is high.
+    /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
         !self.is_low()
     }
 
-    /// Test if current pin level is low.
+    /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
         self.pin.block().in_.read().bits() & (1 << self.pin.pin()) == 0
     }
 
-    /// Returns current pin level
+    /// Get the pin input level.
     #[inline]
     pub fn get_level(&self) -> Level {
         self.is_high().into()
@@ -305,6 +317,16 @@ impl<'d, T: Pin> Flex<'d, T> {
         self.pin.set_low()
     }
 
+    /// Toggle the output level.
+    #[inline]
+    pub fn toggle(&mut self) {
+        if self.is_set_low() {
+            self.set_high()
+        } else {
+            self.set_low()
+        }
+    }
+
     /// Set the output level.
     #[inline]
     pub fn set_level(&mut self, level: Level) {
@@ -314,26 +336,26 @@ impl<'d, T: Pin> Flex<'d, T> {
         }
     }
 
-    /// Is the output pin set as high?
+    /// Get whether the output level is set to high.
     #[inline]
     pub fn is_set_high(&self) -> bool {
         !self.is_set_low()
     }
 
-    /// Is the output pin set as low?
+    /// Get whether the output level is set to low.
     #[inline]
     pub fn is_set_low(&self) -> bool {
         self.pin.block().out.read().bits() & (1 << self.pin.pin()) == 0
     }
 
-    /// What level output is set to
+    /// Get the current output level.
     #[inline]
     pub fn get_output_level(&self) -> Level {
         self.is_set_high().into()
     }
 }
 
-impl<'d, T: Pin> Drop for Flex<'d, T> {
+impl<'d> Drop for Flex<'d> {
     fn drop(&mut self) {
         self.pin.conf().reset();
     }
@@ -360,6 +382,9 @@ pub(crate) mod sealed {
         fn block(&self) -> &gpio::RegisterBlock {
             unsafe {
                 match self.pin_port() / 32 {
+                    #[cfg(feature = "nrf51")]
+                    0 => &*pac::GPIO::ptr(),
+                    #[cfg(not(feature = "nrf51"))]
                     0 => &*pac::P0::ptr(),
                     #[cfg(feature = "_gpio-p1")]
                     1 => &*pac::P1::ptr(),
@@ -448,10 +473,12 @@ impl sealed::Pin for AnyPin {
 
 // ====================
 
+#[cfg(not(feature = "_nrf51"))]
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> u32;
 }
 
+#[cfg(not(feature = "_nrf51"))]
 impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
     #[inline]
     fn psel_bits(&self) -> u32 {
@@ -462,6 +489,7 @@ impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn deconfigure_pin(psel_bits: u32) {
     if psel_bits & 0x8000_0000 != 0 {
         return;
@@ -494,7 +522,7 @@ macro_rules! impl_pin {
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for Input<'d, T> {
+    impl<'d> embedded_hal_02::digital::v2::InputPin for Input<'d> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -506,7 +534,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for Output<'d, T> {
+    impl<'d> embedded_hal_02::digital::v2::OutputPin for Output<'d> {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
@@ -518,20 +546,29 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d, T> {
+    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Output<'d> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
 
         fn is_set_low(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_low())
+        }
+    }
+
+    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Output<'d> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            self.toggle();
+            Ok(())
         }
     }
 
     /// Implement [`embedded_hal_02::digital::v2::InputPin`] for [`Flex`];
     ///
     /// If the pin is not in input mode the result is unspecified.
-    impl<'d, T: Pin> embedded_hal_02::digital::v2::InputPin for Flex<'d, T> {
+    impl<'d> embedded_hal_02::digital::v2::InputPin for Flex<'d> {
         type Error = Infallible;
 
         fn is_high(&self) -> Result<bool, Self::Error> {
@@ -543,7 +580,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_02::digital::v2::OutputPin for Flex<'d, T> {
+    impl<'d> embedded_hal_02::digital::v2::OutputPin for Flex<'d> {
         type Error = Infallible;
 
         fn set_high(&mut self) -> Result<(), Self::Error> {
@@ -555,7 +592,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Pin> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d, T> {
+    impl<'d> embedded_hal_02::digital::v2::StatefulOutputPin for Flex<'d> {
         fn is_set_high(&self) -> Result<bool, Self::Error> {
             Ok(self.is_set_high())
         }
@@ -564,27 +601,36 @@ mod eh02 {
             Ok(self.is_set_low())
         }
     }
-}
 
-impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Input<'d, T> {
-    type Error = Infallible;
-}
-
-impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Input<'d, T> {
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_high())
-    }
-
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_low())
+    impl<'d> embedded_hal_02::digital::v2::ToggleableOutputPin for Flex<'d> {
+        type Error = Infallible;
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            self.toggle();
+            Ok(())
+        }
     }
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Output<'d, T> {
+impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
     type Error = Infallible;
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
+impl<'d> embedded_hal_1::digital::InputPin for Input<'d> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_high())
+    }
+
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_low())
+    }
+}
+
+impl<'d> embedded_hal_1::digital::ErrorType for Output<'d> {
+    type Error = Infallible;
+}
+
+impl<'d> embedded_hal_1::digital::OutputPin for Output<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
         Ok(self.set_high())
     }
@@ -594,34 +640,34 @@ impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Output<'d, T> {
     }
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Output<'d, T> {
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_high())
+impl<'d> embedded_hal_1::digital::StatefulOutputPin for Output<'d> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_high())
     }
 
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_low())
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_low())
     }
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::ErrorType for Flex<'d, T> {
+impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
     type Error = Infallible;
 }
 
 /// Implement [`InputPin`] for [`Flex`];
 ///
 /// If the pin is not in input mode the result is unspecified.
-impl<'d, T: Pin> embedded_hal_1::digital::InputPin for Flex<'d, T> {
-    fn is_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_high())
+impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_high())
     }
 
-    fn is_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_low())
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_low())
     }
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
+impl<'d> embedded_hal_1::digital::OutputPin for Flex<'d> {
     fn set_high(&mut self) -> Result<(), Self::Error> {
         Ok(self.set_high())
     }
@@ -631,12 +677,12 @@ impl<'d, T: Pin> embedded_hal_1::digital::OutputPin for Flex<'d, T> {
     }
 }
 
-impl<'d, T: Pin> embedded_hal_1::digital::StatefulOutputPin for Flex<'d, T> {
-    fn is_set_high(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_high())
+impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_high())
     }
 
-    fn is_set_low(&self) -> Result<bool, Self::Error> {
-        Ok(self.is_set_low())
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        Ok((*self).is_set_low())
     }
 }

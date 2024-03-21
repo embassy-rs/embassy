@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
@@ -79,9 +78,9 @@ async fn main(_spawner: Spawner) {
     );
 
     defmt::info!("attempting capture");
-    defmt::unwrap!(dcmi.capture(unsafe { &mut FRAME }).await);
+    defmt::unwrap!(dcmi.capture(unsafe { &mut *core::ptr::addr_of_mut!(FRAME) }).await);
 
-    defmt::info!("captured frame: {:x}", unsafe { &FRAME });
+    defmt::info!("captured frame: {:x}", unsafe { &*core::ptr::addr_of!(FRAME) });
 
     defmt::info!("main loop running");
     loop {

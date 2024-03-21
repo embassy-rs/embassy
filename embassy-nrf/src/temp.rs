@@ -83,7 +83,7 @@ impl<'d> Temp<'d> {
         let value = poll_fn(|cx| {
             WAKER.register(cx.waker());
             if t.events_datardy.read().bits() == 0 {
-                return Poll::Pending;
+                Poll::Pending
             } else {
                 t.events_datardy.reset();
                 let raw = t.temp.read().bits();

@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 /// Trigger selection for STM32F0.
 #[cfg(stm32f0)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

@@ -1,3 +1,5 @@
+//! PWM driver with complementary output support.
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{into_ref, PeripheralRef};
@@ -8,18 +10,21 @@ use super::*;
 #[allow(unused_imports)]
 use crate::gpio::sealed::{AFType, Pin};
 use crate::gpio::{AnyPin, OutputType};
-use crate::time::Hertz;
 use crate::Peripheral;
 
-pub struct ComplementaryPwmPin<'d, Perip, Channel> {
+/// Complementary PWM pin wrapper.
+///
+/// This wraps a pin to make it usable with PWM.
+pub struct ComplementaryPwmPin<'d, T, C> {
     _pin: PeripheralRef<'d, AnyPin>,
-    phantom: PhantomData<(Perip, Channel)>,
+    phantom: PhantomData<(T, C)>,
 }
 
 macro_rules! complementary_channel_impl {
     ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, Perip: CaptureCompare16bitInstance> ComplementaryPwmPin<'d, Perip, $channel> {
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<Perip>> + 'd, output_type: OutputType) -> Self {
+        impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwmPin<'d, T, $channel> {
+            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
+            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, output_type: OutputType) -> Self {
                 into_ref!(pin);
                 critical_section::with(|_| {
                     pin.set_low();
@@ -41,11 +46,14 @@ complementary_channel_impl!(new_ch2, Ch2, Channel2ComplementaryPin);
 complementary_channel_impl!(new_ch3, Ch3, Channel3ComplementaryPin);
 complementary_channel_impl!(new_ch4, Ch4, Channel4ComplementaryPin);
 
+/// PWM driver with support for standard and complementary outputs.
 pub struct ComplementaryPwm<'d, T> {
     inner: PeripheralRef<'d, T>,
 }
 
 impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
+    /// Create a new complementary PWM driver.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tim: impl Peripheral<P = T> + 'd,
         _ch1: Option<PwmPin<'d, T, Ch1>>,
@@ -70,33 +78,38 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
         let mut this = Self { inner: tim };
 
         this.inner.set_counting_mode(counting_mode);
-        this.set_freq(freq);
+        this.set_frequency(freq);
         this.inner.start();
 
         this.inner.enable_outputs();
 
-        this.inner
-            .set_output_compare_mode(Channel::Ch1, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch2, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch3, OutputCompareMode::PwmMode1);
-        this.inner
-            .set_output_compare_mode(Channel::Ch4, OutputCompareMode::PwmMode1);
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+                this.inner.set_output_compare_preload(channel, true);
+            });
+
         this
     }
 
+    /// Enable the given channel.
     pub fn enable(&mut self, channel: Channel) {
         self.inner.enable_channel(channel, true);
         self.inner.enable_complementary_channel(channel, true);
     }
 
+    /// Disable the given channel.
     pub fn disable(&mut self, channel: Channel) {
         self.inner.enable_complementary_channel(channel, false);
         self.inner.enable_channel(channel, false);
     }
 
-    pub fn set_freq(&mut self, freq: Hertz) {
+    /// Set PWM frequency.
+    ///
+    /// Note: when you call this, the max duty value changes, so you will have to
+    /// call `set_duty` on all channels with the duty calculated based on the new max duty.
+    pub fn set_frequency(&mut self, freq: Hertz) {
         let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
             2u8
         } else {
@@ -105,15 +118,22 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> ComplementaryPwm<'d, T> {
         self.inner.set_frequency(freq * multiplier);
     }
 
+    /// Get max duty value.
+    ///
+    /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn get_max_duty(&self) -> u16 {
         self.inner.get_max_compare_value() + 1
     }
 
+    /// Set the duty for a given channel.
+    ///
+    /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
     pub fn set_duty(&mut self, channel: Channel, duty: u16) {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, duty)
     }
 
+    /// Set the output polarity for a given channel.
     pub fn set_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
         self.inner.set_output_polarity(channel, polarity);
         self.inner.set_complementary_output_polarity(channel, polarity);
@@ -144,7 +164,7 @@ impl<'d, T: ComplementaryCaptureCompare16bitInstance> embedded_hal_02::Pwm for C
     }
 
     fn get_period(&self) -> Self::Time {
-        self.inner.get_frequency().into()
+        self.inner.get_frequency()
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {

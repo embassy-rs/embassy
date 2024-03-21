@@ -1,17 +1,10 @@
-#[cfg(dma)]
-pub(crate) mod dma;
-#[cfg(dma)]
-pub use dma::*;
+//! Direct Memory Access (DMA)
+#![macro_use]
 
-// stm32h7 has both dma and bdma. In that case, we export dma as "main" dma,
-// and bdma as "secondary", under `embassy_stm32::dma::bdma`.
-#[cfg(all(bdma, dma))]
-pub mod bdma;
-
-#[cfg(all(bdma, not(dma)))]
-pub(crate) mod bdma;
-#[cfg(all(bdma, not(dma)))]
-pub use bdma::*;
+#[cfg(any(bdma, dma))]
+mod dma_bdma;
+#[cfg(any(bdma, dma))]
+pub use dma_bdma::*;
 
 #[cfg(gpdma)]
 pub(crate) mod gpdma;
@@ -20,17 +13,17 @@ pub use gpdma::*;
 
 #[cfg(dmamux)]
 mod dmamux;
+#[cfg(dmamux)]
+pub use dmamux::*;
 
 pub(crate) mod ringbuffer;
 pub mod word;
 
 use core::mem;
 
-use embassy_hal_internal::impl_peripheral;
+use embassy_hal_internal::{impl_peripheral, Peripheral};
 
-#[cfg(dmamux)]
-pub use self::dmamux::*;
-use crate::interrupt::Priority;
+use crate::interrupt;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -39,6 +32,88 @@ enum Dir {
     PeripheralToMemory,
 }
 
+/// DMA request type alias. (also known as DMA channel number in some chips)
+#[cfg(any(dma_v2, bdma_v2, gpdma, dmamux))]
+pub type Request = u8;
+/// DMA request type alias. (also known as DMA channel number in some chips)
+#[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux)))]
+pub type Request = ();
+
+pub(crate) mod sealed {
+    pub trait Channel {
+        fn id(&self) -> u8;
+    }
+    pub trait ChannelInterrupt {
+        #[cfg_attr(not(feature = "rt"), allow(unused))]
+        unsafe fn on_irq();
+    }
+}
+
+/// DMA channel.
+pub trait Channel: sealed::Channel + Peripheral<P = Self> + Into<AnyChannel> + 'static {
+    /// Type-erase (degrade) this pin into an `AnyChannel`.
+    ///
+    /// This converts DMA channel singletons (`DMA1_CH3`, `DMA2_CH1`, ...), which
+    /// are all different types, into the same type. It is useful for
+    /// creating arrays of channels, or avoiding generics.
+    #[inline]
+    fn degrade(self) -> AnyChannel {
+        AnyChannel { id: self.id() }
+    }
+}
+
+macro_rules! dma_channel_impl {
+    ($channel_peri:ident, $index:expr) => {
+        impl crate::dma::sealed::Channel for crate::peripherals::$channel_peri {
+            fn id(&self) -> u8 {
+                $index
+            }
+        }
+        impl crate::dma::sealed::ChannelInterrupt for crate::peripherals::$channel_peri {
+            unsafe fn on_irq() {
+                crate::dma::AnyChannel { id: $index }.on_irq();
+            }
+        }
+
+        impl crate::dma::Channel for crate::peripherals::$channel_peri {}
+
+        impl From<crate::peripherals::$channel_peri> for crate::dma::AnyChannel {
+            fn from(x: crate::peripherals::$channel_peri) -> Self {
+                crate::dma::Channel::degrade(x)
+            }
+        }
+    };
+}
+
+/// Type-erased DMA channel.
+pub struct AnyChannel {
+    pub(crate) id: u8,
+}
+impl_peripheral!(AnyChannel);
+
+impl AnyChannel {
+    fn info(&self) -> &ChannelInfo {
+        &crate::_generated::DMA_CHANNELS[self.id as usize]
+    }
+}
+
+impl sealed::Channel for AnyChannel {
+    fn id(&self) -> u8 {
+        self.id
+    }
+}
+impl Channel for AnyChannel {}
+
+const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
+static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
+
+/// "No DMA" placeholder.
+///
+/// You may pass this in place of a real DMA channel when creating a driver
+/// to indicate it should not use DMA.
+///
+/// This often causes async functionality to not be available on the instance,
+/// leaving only blocking functionality.
 pub struct NoDma;
 
 impl_peripheral!(NoDma);
@@ -57,14 +132,18 @@ pub(crate) fn slice_ptr_parts_mut<T>(slice: *mut [T]) -> (usize, usize) {
 // safety: must be called only once at startup
 pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,
-    #[cfg(bdma)] bdma_priority: Priority,
-    #[cfg(dma)] dma_priority: Priority,
-    #[cfg(gpdma)] gpdma_priority: Priority,
+    #[cfg(bdma)] bdma_priority: interrupt::Priority,
+    #[cfg(dma)] dma_priority: interrupt::Priority,
+    #[cfg(gpdma)] gpdma_priority: interrupt::Priority,
 ) {
-    #[cfg(bdma)]
-    bdma::init(cs, bdma_priority);
-    #[cfg(dma)]
-    dma::init(cs, dma_priority);
+    #[cfg(any(dma, bdma))]
+    dma_bdma::init(
+        cs,
+        #[cfg(dma)]
+        dma_priority,
+        #[cfg(bdma)]
+        bdma_priority,
+    );
     #[cfg(gpdma)]
     gpdma::init(cs, gpdma_priority);
     #[cfg(dmamux)]

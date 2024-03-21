@@ -1,8 +1,5 @@
 #[cfg(feature = "chrono")]
-use core::convert::From;
-
-#[cfg(feature = "chrono")]
-use chrono::{self, Datelike, NaiveDate, Timelike, Weekday};
+use chrono::{Datelike, NaiveDate, Timelike, Weekday};
 
 #[cfg(any(feature = "defmt", feature = "time"))]
 use crate::peripherals::RTC;
@@ -104,45 +101,51 @@ pub struct DateTime {
 }
 
 impl DateTime {
+    /// Get the year (0..=4095)
     pub const fn year(&self) -> u16 {
         self.year
     }
 
+    /// Get the month (1..=12, 1 is January)
     pub const fn month(&self) -> u8 {
         self.month
     }
 
+    /// Get the day (1..=31)
     pub const fn day(&self) -> u8 {
         self.day
     }
 
+    /// Get the day of week
     pub const fn day_of_week(&self) -> DayOfWeek {
         self.day_of_week
     }
 
+    /// Get the hour (0..=23)
     pub const fn hour(&self) -> u8 {
         self.hour
     }
 
+    /// Get the minute (0..=59)
     pub const fn minute(&self) -> u8 {
         self.minute
     }
 
+    /// Get the second (0..=59)
     pub const fn second(&self) -> u8 {
         self.second
     }
 
+    /// Create a new DateTime with the given information.
     pub fn from(
         year: u16,
         month: u8,
         day: u8,
-        day_of_week: u8,
+        day_of_week: DayOfWeek,
         hour: u8,
         minute: u8,
         second: u8,
     ) -> Result<Self, Error> {
-        let day_of_week = day_of_week_from_u8(day_of_week)?;
-
         if year > 4095 {
             Err(Error::InvalidYear)
         } else if month < 1 || month > 12 {

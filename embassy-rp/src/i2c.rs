@@ -1,3 +1,4 @@
+//! I2C driver.
 use core::future;
 use core::marker::PhantomData;
 use core::task::Poll;
@@ -22,6 +23,7 @@ pub enum AbortReason {
     ArbitrationLoss,
     /// Transmit ended with data still in fifo
     TxNotEmpty(u16),
+    /// Other reason.
     Other(u32),
 }
 
@@ -41,9 +43,23 @@ pub enum Error {
     AddressReserved(u16),
 }
 
+/// I2C Config error
+#[derive(Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ConfigError {
+    /// Max i2c speed is 1MHz
+    FrequencyTooHigh,
+    /// The sys clock is too slow to support given frequency
+    ClockTooSlow,
+    /// The sys clock is too fast to support given frequency
+    ClockTooFast,
+}
+
+/// I2C config.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Frequency.
     pub frequency: u32,
 }
 
@@ -53,13 +69,16 @@ impl Default for Config {
     }
 }
 
+/// Size of I2C FIFO.
 pub const FIFO_SIZE: u8 = 16;
 
+/// I2C driver.
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
+    /// Create a new driver instance in blocking mode.
     pub fn new_blocking(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
@@ -72,6 +91,7 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance> I2c<'d, T, Async> {
+    /// Create a new driver instance in async mode.
     pub fn new_async(
         peri: impl Peripheral<P = T> + 'd,
         scl: impl Peripheral<P = impl SclPin<T>> + 'd,
@@ -292,16 +312,19 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         }
     }
 
+    /// Read from address into buffer using DMA.
     pub async fn read_async(&mut self, addr: u16, buffer: &mut [u8]) -> Result<(), Error> {
         Self::setup(addr)?;
         self.read_async_internal(buffer, true, true).await
     }
 
+    /// Write to address from buffer using DMA.
     pub async fn write_async(&mut self, addr: u16, bytes: impl IntoIterator<Item = u8>) -> Result<(), Error> {
         Self::setup(addr)?;
         self.write_async_internal(bytes, true).await
     }
 
+    /// Write to address from bytes and read from address into buffer using DMA.
     pub async fn write_read_async(
         &mut self,
         addr: u16,
@@ -314,6 +337,7 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
     }
 }
 
+/// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _uart: PhantomData<T>,
 }
@@ -353,36 +377,31 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     ) -> Self {
         into_ref!(_peri);
 
-        assert!(config.frequency <= 1_000_000);
-        assert!(config.frequency > 0);
-
-        let p = T::regs();
-
         let reset = T::reset();
         crate::reset::reset(reset);
         crate::reset::unreset_wait(reset);
 
-        p.ic_enable().write(|w| w.set_enable(false));
-
-        // Select controller mode & speed
-        p.ic_con().modify(|w| {
-            // Always use "fast" mode (<= 400 kHz, works fine for standard
-            // mode too)
-            w.set_speed(i2c::vals::Speed::FAST);
-            w.set_master_mode(true);
-            w.set_ic_slave_disable(true);
-            w.set_ic_restart_en(true);
-            w.set_tx_empty_ctrl(true);
-        });
-
-        // Set FIFO watermarks to 1 to make things simpler. This is encoded
-        // by a register value of 0.
-        p.ic_tx_tl().write(|w| w.set_tx_tl(0));
-        p.ic_rx_tl().write(|w| w.set_rx_tl(0));
-
         // Configure SCL & SDA pins
         set_up_i2c_pin(&scl);
         set_up_i2c_pin(&sda);
+
+        let mut me = Self { phantom: PhantomData };
+
+        if let Err(e) = me.set_config_inner(&config) {
+            panic!("Error configuring i2c: {:?}", e);
+        }
+
+        me
+    }
+
+    fn set_config_inner(&mut self, config: &Config) -> Result<(), ConfigError> {
+        if config.frequency > 1_000_000 {
+            return Err(ConfigError::FrequencyTooHigh);
+        }
+
+        let p = T::regs();
+
+        p.ic_enable().write(|w| w.set_enable(false));
 
         // Configure baudrate
 
@@ -396,10 +415,12 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         let hcnt = period - lcnt; // and 2/5 (40%) of the period high
 
         // Check for out-of-range divisors:
-        assert!(hcnt <= 0xffff);
-        assert!(lcnt <= 0xffff);
-        assert!(hcnt >= 8);
-        assert!(lcnt >= 8);
+        if hcnt > 0xffff || lcnt > 0xffff {
+            return Err(ConfigError::ClockTooFast);
+        }
+        if hcnt < 8 || lcnt < 8 {
+            return Err(ConfigError::ClockTooSlow);
+        }
 
         // Per I2C-bus specification a device in standard or fast mode must
         // internally provide a hold time of at least 300ns for the SDA
@@ -412,14 +433,19 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             ((clk_base * 3) / 10_000_000) + 1
         } else {
             // fast mode plus requires a clk_base > 32MHz
-            assert!(clk_base >= 32_000_000);
+            if clk_base <= 32_000_000 {
+                return Err(ConfigError::ClockTooSlow);
+            }
 
             // sda_tx_hold_count = clk_base [cycles/s] * 120ns * (1s /
             // 1e9ns) Reduce 120/1e9 to 3/25e6 to avoid numbers that don't
             // fit in uint. Add 1 to avoid division truncation.
             ((clk_base * 3) / 25_000_000) + 1
         };
-        assert!(sda_tx_hold_count <= lcnt - 2);
+
+        if sda_tx_hold_count > lcnt - 2 {
+            return Err(ConfigError::ClockTooSlow);
+        }
 
         p.ic_fs_scl_hcnt().write(|w| w.set_ic_fs_scl_hcnt(hcnt as u16));
         p.ic_fs_scl_lcnt().write(|w| w.set_ic_fs_scl_lcnt(lcnt as u16));
@@ -428,10 +454,9 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         p.ic_sda_hold()
             .modify(|w| w.set_ic_sda_tx_hold(sda_tx_hold_count as u16));
 
-        // Enable I2C block
         p.ic_enable().write(|w| w.set_enable(true));
 
-        Self { phantom: PhantomData }
+        Ok(())
     }
 
     fn setup(addr: u16) -> Result<(), Error> {
@@ -569,17 +594,20 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     // Blocking public API
     // =========================
 
+    /// Read from address into buffer blocking caller until done.
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 
+    /// Write to address from buffer blocking caller until done.
     pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, true)
     }
 
+    /// Write to address from bytes and read from address into buffer blocking caller until done.
     pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         Self::setup(address.into())?;
         self.write_blocking_internal(write, false)?;
@@ -742,6 +770,16 @@ where
     }
 }
 
+impl<'d, T: Instance, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, T, M> {
+    type Config = Config;
+    type ConfigError = ConfigError;
+
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.set_config_inner(config)
+    }
+}
+
+/// Check if address is reserved.
 pub fn i2c_reserved_addr(addr: u16) -> bool {
     ((addr & 0x78) == 0 || (addr & 0x78) == 0x78) && addr != 0
 }
@@ -768,6 +806,7 @@ mod sealed {
     pub trait SclPin<T: Instance> {}
 }
 
+/// Driver mode.
 pub trait Mode: sealed::Mode {}
 
 macro_rules! impl_mode {
@@ -777,12 +816,15 @@ macro_rules! impl_mode {
     };
 }
 
+/// Blocking mode.
 pub struct Blocking;
+/// Async mode.
 pub struct Async;
 
 impl_mode!(Blocking);
 impl_mode!(Async);
 
+/// I2C instance.
 pub trait Instance: sealed::Instance {}
 
 macro_rules! impl_instance {
@@ -819,7 +861,9 @@ macro_rules! impl_instance {
 impl_instance!(I2C0, I2C0_IRQ, set_i2c0, 32, 33);
 impl_instance!(I2C1, I2C1_IRQ, set_i2c1, 34, 35);
 
+/// SDA pin.
 pub trait SdaPin<T: Instance>: sealed::SdaPin<T> + crate::gpio::Pin {}
+/// SCL pin.
 pub trait SclPin<T: Instance>: sealed::SclPin<T> + crate::gpio::Pin {}
 
 macro_rules! impl_pin {

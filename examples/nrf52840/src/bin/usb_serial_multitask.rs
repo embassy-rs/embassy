@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
 use core::mem;
 
@@ -12,7 +11,7 @@ use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
-use static_cell::make_static;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -64,17 +63,23 @@ async fn main(spawner: Spawner) {
     config.device_protocol = 0x01;
     config.composite_with_iads = true;
 
-    let state = make_static!(State::new());
+    static STATE: StaticCell<State> = StaticCell::new();
+    let state = STATE.init(State::new());
 
     // Create embassy-usb DeviceBuilder using the driver and config.
+    static DEVICE_DESC: StaticCell<[u8; 256]> = StaticCell::new();
+    static CONFIG_DESC: StaticCell<[u8; 256]> = StaticCell::new();
+    static BOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
+    static MSOS_DESC: StaticCell<[u8; 128]> = StaticCell::new();
+    static CONTROL_BUF: StaticCell<[u8; 128]> = StaticCell::new();
     let mut builder = Builder::new(
         driver,
         config,
-        &mut make_static!([0; 256])[..],
-        &mut make_static!([0; 256])[..],
-        &mut make_static!([0; 256])[..],
-        &mut make_static!([0; 128])[..],
-        &mut make_static!([0; 128])[..],
+        &mut DEVICE_DESC.init([0; 256])[..],
+        &mut CONFIG_DESC.init([0; 256])[..],
+        &mut BOS_DESC.init([0; 256])[..],
+        &mut MSOS_DESC.init([0; 128])[..],
+        &mut CONTROL_BUF.init([0; 128])[..],
     );
 
     // Create classes on the builder.
